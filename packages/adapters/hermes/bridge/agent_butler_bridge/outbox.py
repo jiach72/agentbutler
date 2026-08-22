@@ -109,6 +109,12 @@ CREATE TABLE IF NOT EXISTS inbound_messages (
   change_sequence INTEGER NOT NULL UNIQUE,
   received_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS inbound_decisions (
+  inbound_message_id TEXT PRIMARY KEY REFERENCES inbound_messages(inbound_message_id),
+  decision_json TEXT NOT NULL,
+  decided_at TEXT NOT NULL
+);
 """
 
 
@@ -313,6 +319,21 @@ class Outbox:
                 "SELECT * FROM outbound_messages WHERE message_id = ?", (message_id,)
             ).fetchone()
             return None if row is None else self._message_from_row(row)
+
+    def is_writable(self) -> bool:
+        try:
+            with self._lock:
+                self._ensure_open()
+                self._conn.execute("BEGIN IMMEDIATE")
+                self._conn.execute(
+                    """INSERT INTO bridge_meta(key, value) VALUES ('health_probe', ?)
+                       ON CONFLICT(key) DO UPDATE SET value = excluded.value""",
+                    (_utc_now(),),
+                )
+                self._conn.rollback()
+            return True
+        except (RuntimeError, sqlite3.Error):
+            return False
 
     def list_changes(self, after_sequence: int, limit: int = 100) -> dict[str, Any]:
         if after_sequence < 0:
@@ -589,6 +610,37 @@ class Outbox:
                 (inbound_id, payload_json, change_sequence, received_at),
             )
             return {"deduped": False, "inbound": dict(envelope)}
+
+    def apply_inbound_decision(
+        self, inbound_message_id: str, decision: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        with self._transaction():
+            inbound = self._conn.execute(
+                "SELECT payload_json FROM inbound_messages WHERE inbound_message_id = ?",
+                (inbound_message_id,),
+            ).fetchone()
+            if inbound is None:
+                raise KeyError(inbound_message_id)
+            payload = dict(decision)
+            if payload.get("inboundMessageId") != inbound_message_id:
+                raise ValueError("inboundMessageId does not match route")
+            if payload.get("action") not in {"forward", "consume-command"}:
+                raise ValueError("invalid inbound action")
+            if not isinstance(payload.get("optimizedText"), str):
+                raise ValueError("optimizedText must be a string")
+            trace = payload.get("transformTrace")
+            if not isinstance(trace, list) or not all(isinstance(item, str) for item in trace):
+                raise ValueError("transformTrace must be a string array")
+            decided_at = _utc_now()
+            self._conn.execute(
+                """INSERT INTO inbound_decisions(inbound_message_id, decision_json, decided_at)
+                   VALUES (?, ?, ?)
+                   ON CONFLICT(inbound_message_id) DO UPDATE SET
+                     decision_json = excluded.decision_json,
+                     decided_at = excluded.decided_at""",
+                (inbound_message_id, _canonical_json(payload), decided_at),
+            )
+            return payload
 
     def set_policy_snapshot(
         self, version: str, sha256: str, payload: Mapping[str, Any]

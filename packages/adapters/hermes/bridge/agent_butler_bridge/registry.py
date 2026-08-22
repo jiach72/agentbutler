@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable
 from weakref import WeakKeyDictionary
 
@@ -36,6 +37,9 @@ class NativeRegistry:
 
     def binding_for(self, adapter: Any) -> AdapterBinding | None:
         return self._by_instance.get(adapter)
+
+    def attached_channels(self) -> dict[str, str]:
+        return {binding.channel: "ok" for binding in self._by_adapter_id.values()}
 
     def attach(
         self,
@@ -131,6 +135,53 @@ class NativeRegistry:
             deduped=False,
             error=error,
         )
+
+    async def prewarm(self, channel: str) -> dict[str, Any]:
+        checked_at = datetime.now(timezone.utc)
+        binding = next(
+            (item for item in self._by_adapter_id.values() if item.channel == channel),
+            None,
+        )
+        if binding is None:
+            return {
+                "channel": channel,
+                "warmed": False,
+                "checkedAt": checked_at.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+                "expiresAt": None,
+                "detail": "channel adapter is not attached",
+            }
+        hook = getattr(binding.adapter, "prewarm_channel", None)
+        if not callable(hook):
+            return {
+                "channel": channel,
+                "warmed": False,
+                "checkedAt": checked_at.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+                "expiresAt": None,
+                "detail": "adapter does not expose a prewarm hook",
+            }
+        try:
+            result = await hook()
+        except Exception as exc:
+            return {
+                "channel": channel,
+                "warmed": False,
+                "checkedAt": checked_at.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+                "expiresAt": None,
+                "detail": str(exc),
+            }
+        warmed = bool(result if isinstance(result, bool) else getattr(result, "warmed", False))
+        expires_at = checked_at + timedelta(minutes=5) if warmed else None
+        return {
+            "channel": channel,
+            "warmed": warmed,
+            "checkedAt": checked_at.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+            "expiresAt": (
+                expires_at.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+                if expires_at is not None
+                else None
+            ),
+            "detail": None if warmed else "prewarm hook reported unavailable",
+        }
 
     @staticmethod
     def _ack(
