@@ -417,7 +417,12 @@ class Outbox:
             return None if row is None else self._message_from_row(row)
 
     def begin_delivery(
-        self, message_id: str, attempt_id: str, expected_content_sha256: str
+        self,
+        message_id: str,
+        attempt_id: str,
+        expected_content_sha256: str,
+        *,
+        allow_captured: bool = False,
     ) -> dict[str, Any]:
         with self._transaction():
             row = self._require_message_locked(message_id)
@@ -425,7 +430,10 @@ class Outbox:
                 raise ValueError("content hash conflict")
             if row["state"] == "delivered":
                 return {"deduped": True, "message": self._message_from_row(row)}
-            if row["state"] not in {"ready", "retry_wait", "captured"}:
+            allowed_states = {"ready", "retry_wait"}
+            if allow_captured:
+                allowed_states.add("captured")
+            if row["state"] not in allowed_states:
                 raise ValueError(f"message is not deliverable from state {row['state']}")
             existing_attempt = self._conn.execute(
                 "SELECT * FROM delivery_attempts WHERE attempt_id = ?", (attempt_id,)
@@ -480,6 +488,28 @@ class Outbox:
         return self._finish_failed_attempt(
             message_id, attempt_id, "delivery_unknown", "unknown", error
         )
+
+    def update_pending_content(self, message_id: str, content: str) -> dict[str, Any]:
+        """Replace a synthetic message before delivery and force policy re-evaluation."""
+
+        if not isinstance(content, str) or not content:
+            raise ValueError("content must be a non-empty string")
+        with self._transaction():
+            row = self._require_message_locked(message_id)
+            if row["state"] in TERMINAL_STATES | {"delivering", "delivery_unknown"}:
+                raise ValueError(f"message content cannot be changed from state {row['state']}")
+            sequence = self._next_sequence_locked()
+            content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+            now = _utc_now()
+            self._conn.execute(
+                """UPDATE outbound_messages
+                   SET sequence = ?, content = ?, content_sha256 = ?, state = 'captured',
+                       available_at = NULL, policy_version = NULL,
+                       transform_trace_json = '[]', last_error = NULL, updated_at = ?
+                   WHERE message_id = ?""",
+                (sequence, content, content_hash, now, message_id),
+            )
+            return self._message_from_row(self._require_message_locked(message_id))
 
     def _finish_failed_attempt(
         self, message_id: str, attempt_id: str, state: str, outcome: str, error: str
@@ -566,6 +596,9 @@ class Outbox:
         if not version or not sha256:
             raise ValueError("policy snapshot version and sha256 are required")
         payload_json = _canonical_json(dict(payload))
+        actual_hash = hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
+        if actual_hash != sha256:
+            raise ValueError("policy snapshot hash does not match payload")
         with self._transaction():
             for key, value in (
                 ("policy_version", version),

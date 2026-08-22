@@ -1,4 +1,5 @@
 import hashlib
+import json
 import tempfile
 import unittest
 import uuid
@@ -131,10 +132,19 @@ class OutboxTest(unittest.TestCase):
         self.assertIn("recovered stale delivering", row["lastError"])
 
     def test_policy_snapshot_survives_reopen(self) -> None:
+        payload = {"inlineResponse": "allow"}
+        payload_hash = hashlib.sha256(
+            json.dumps(
+                payload,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
         self.outbox.set_policy_snapshot(
             "policy-1",
-            "sha256-value",
-            {"inlineResponse": "allow"},
+            payload_hash,
+            payload,
         )
 
         self.reopen()
@@ -143,10 +153,18 @@ class OutboxTest(unittest.TestCase):
             self.outbox.get_policy_snapshot(),
             {
                 "version": "policy-1",
-                "sha256": "sha256-value",
+                "sha256": payload_hash,
                 "payload": {"inlineResponse": "allow"},
             },
         )
+
+    def test_policy_snapshot_rejects_hash_mismatch(self) -> None:
+        with self.assertRaisesRegex(ValueError, "policy snapshot hash"):
+            self.outbox.set_policy_snapshot(
+                "policy-1",
+                "wrong",
+                {"inlineResponse": "allow"},
+            )
 
     def test_change_feed_contains_messages_tasks_and_inbound(self) -> None:
         envelope = make_envelope("018bcfe5-6800-7000-8000-000000000005")
