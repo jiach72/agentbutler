@@ -1,5 +1,14 @@
 # Bug Fixes
 
+## 2026-08-22 · Bridge 只有 HTTP 工厂，没有可由真实 Hermes 持有的安全生命周期
+
+- 问题：已有 Bridge 只提供 `Outbox`、adapter wrapper 和 `create_app()`，没有进程级 bootstrap、私密配置加载、监听生命周期或失败清理；真实 `hermes-gateway.service` 因而无法可靠启动 Bridge，端口占用等部分启动失败还缺少统一回收路径。
+- 风险/影响：Butler 策略层即使全部通过测试，也无法连接真实 Hermes；若直接临时拼装，可能把 token 放进环境/日志、绑定非 loopback 地址、遗留 SQLite/HTTP 资源，或在重复启动时形成多个 Bridge 实例。
+- 改动范围：新增 `RuntimeConfig`、`BridgeRuntime` 和进程级 singleton API；强制 loopback（除非显式不安全覆盖）、token 普通文件/属主/`0600` 校验、私密数据目录/Outbox 权限、幂等 start/stop、部分启动失败清理、真实随机端口 health 探测和动态 adapter attach 覆盖状态。
+- 回归测试：覆盖重复 start/stop、进程 singleton、配置冲突、token 权限拒绝、非 loopback 拒绝、端口占用后清理重试、健康鉴权、policy 未安装状态和 attach 后健康更新；并重跑既有 server/wrapper 测试。
+- 验证命令：WSL Hermes venv 下执行 `python -m unittest discover -s packages/adapters/hermes/bridge/tests -p 'test_*.py' -v`、`python -m compileall packages/adapters/hermes/bridge/agent_butler_bridge` 与 `git diff --check`。
+- 部署/运行验证：当前仅在随机 loopback 端口运行真实 aiohttp/SQLite 临时实例；尚未安装或重启真实 Hermes，部署证据留待 runtime integration Task 8。
+
 ## 2026-08-22 · 策略层验证命令可能零测试空跑并错误报告成功
 
 - 问题：Task 7 原计划调用三个 package 的 `pnpm test`，但这些 package.json 没有 `test` script；命令会退出 0 且没有测试输出。此前临时 focused Vitest config 位于 `.superpowers/`，又被本地 exclude 排除，无法作为可复现验证入口。

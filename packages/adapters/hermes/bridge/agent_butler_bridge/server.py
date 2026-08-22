@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
@@ -60,6 +61,8 @@ def create_app(
     *,
     token: str,
     instance_id: str,
+    coverage_provider: Callable[[], Mapping[str, str]] | None = None,
+    started_at_provider: Callable[[], str | None] | None = None,
 ) -> web.Application:
     app = web.Application(
         client_max_size=MAX_BODY_BYTES,
@@ -69,6 +72,7 @@ def create_app(
     async def health(_request: web.Request) -> web.Response:
         channels = registry.attached_channels()
         policy = outbox.get_policy_snapshot()
+        coverage = {} if coverage_provider is None else dict(coverage_provider())
         return web.json_response(
             {
                 "protocolVersion": PROTOCOL_VERSION,
@@ -78,6 +82,8 @@ def create_app(
                 "outboxWritable": outbox.is_writable(),
                 "policyVersion": None if policy is None else policy["version"],
                 "channels": channels,
+                "coverage": coverage,
+                "startedAt": None if started_at_provider is None else started_at_provider(),
             }
         )
 
