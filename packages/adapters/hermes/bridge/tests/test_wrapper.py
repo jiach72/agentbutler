@@ -5,6 +5,7 @@ import unittest
 from dataclasses import dataclass
 from pathlib import Path
 
+from agent_butler_bridge.context import message_context
 from agent_butler_bridge.outbox import Outbox
 from agent_butler_bridge.registry import NativeRegistry
 from agent_butler_bridge.wrapper import attach_adapter
@@ -251,6 +252,54 @@ class WrapperTest(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(self.adapter.native_calls, [])
+
+    async def test_send_inherits_run_correlation_from_context(self) -> None:
+        attach_adapter(
+            self.adapter,
+            self.registry,
+            adapter_id="weixin:default",
+            channel="weixin",
+        )
+
+        with message_context(
+            session_id="session-context",
+            run_id="run-context",
+            inbound_message_id="inbound-context",
+            message_kind="failure",
+            priority="urgent",
+        ):
+            await self.adapter.send("chat-1", "failed")
+
+        row = self.outbox.list_changes(0, 10)["items"][0]
+        self.assertEqual(row["sessionId"], "session-context")
+        self.assertEqual(row["runId"], "run-context")
+        self.assertEqual(row["inboundMessageId"], "inbound-context")
+        self.assertEqual(row["messageKind"], "failure")
+        self.assertEqual(row["priority"], "urgent")
+
+    async def test_explicit_attachment_is_spooled_before_capture(self) -> None:
+        attach_adapter(
+            self.adapter,
+            self.registry,
+            adapter_id="weixin:default",
+            channel="weixin",
+        )
+        source = Path(self.tmp.name) / "temporary.txt"
+        source.write_text("attachment", encoding="utf-8")
+
+        result = await self.adapter.send(
+            "chat-1",
+            "see attachment",
+            metadata={
+                "butler_session_id": "session-attachment",
+                "butler_attachments": [str(source)],
+            },
+        )
+        source.unlink()
+
+        message_id = result.message_id.removeprefix("butler:")
+        attachment = self.outbox.attachments_for(message_id, include_paths=True)[0]
+        self.assertEqual(Path(attachment["spoolPath"]).read_text(encoding="utf-8"), "attachment")
 
 
 if __name__ == "__main__":

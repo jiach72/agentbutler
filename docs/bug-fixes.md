@@ -1,5 +1,14 @@
 # Bug Fixes
 
+## 2026-08-22 · Bridge 消息已落盘但入站、run、附件和受控终态没有闭合关联
+
+- 问题：既有 Outbox 虽有基础 `task_events`/`inbound_messages` 表，但事件 sequence 由调用方任意提供、没有 run 生命周期记录或入站绑定更新；wrapper 只落正文，临时附件可能在延迟投递前消失；也没有 Butler 可审计的 `dead_letter` 转换接口。
+- 风险/影响：UI 和策略层无法可靠从入站追到 run 与最终出站，重复/乱序事件可能污染任务视图；源附件被清理后会出现“正文已接管、附件丢失”；错误消息只能停在非终态或被非受控修改，且 `delivery_unknown` 容易被误归类后触发重复风险。
+- 改动范围：新增事务化 `task_runs` 与 per-run sequence 分配、event-key 幂等、入站绑定刷新、`GET /v1/tasks/{runId}`、受 hash 保护且拒绝 `delivery_unknown` 的 dead-letter API/审计；新增 `contextvars` 关联继承、私有附件 spool、SHA-256/大小/数量校验、路径穿越防护和不含绝对路径的公开附件视图。
+- 回归测试：覆盖嵌套/并发上下文、run started/progress/completing/done 严格序列、终态幂等与拒绝回退、supersedes、媒体型空文本入站、旧 task schema 迁移、dead-letter 冲突、附件删除后仍可读、超限清理、symlink/目录穿越拒绝，以及 HTTP 任务关联。
+- 验证命令：WSL Hermes venv 下执行 Bridge 全量 unittest、`python -m compileall` 和 `git diff --check`。
+- 部署/运行验证：当前仍只使用临时 SQLite、随机 loopback HTTP 和临时附件目录；真实 Hermes hook、API Server/A2A 捕获与外部通道投递尚未安装，不能据此宣称消息网关已在线。
+
 ## 2026-08-22 · Bridge 只有 HTTP 工厂，没有可由真实 Hermes 持有的安全生命周期
 
 - 问题：已有 Bridge 只提供 `Outbox`、adapter wrapper 和 `create_app()`，没有进程级 bootstrap、私密配置加载、监听生命周期或失败清理；真实 `hermes-gateway.service` 因而无法可靠启动 Bridge，端口占用等部分启动失败还缺少统一回收路径。

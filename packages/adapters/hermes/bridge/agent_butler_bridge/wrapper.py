@@ -8,12 +8,15 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
+from .context import current_message_context
 from .ids import uuid7
 from .registry import AdapterBinding, NativeRegistry
+from .spool import AttachmentSpool
 
 
 CONTROL_KEYS = {
     "butler_account_id",
+    "butler_attachments",
     "butler_inbound_message_id",
     "butler_message_kind",
     "butler_priority",
@@ -90,14 +93,27 @@ def _build_envelope(
     reply_to: Any,
     metadata: Mapping[str, Any],
 ) -> dict[str, Any]:
+    context = current_message_context()
     text = str(content)
-    transport = _control_string(metadata, "butler_transport", binding.default_transport)
+    transport = _control_string(
+        metadata,
+        "butler_transport",
+        context.transport or binding.default_transport,
+    )
     if transport not in {"queued-push", "inline-response"}:
         raise ValueError("invalid butler_transport")
-    message_kind = _control_string(metadata, "butler_message_kind", "final")
+    message_kind = _control_string(
+        metadata,
+        "butler_message_kind",
+        context.message_kind or "final",
+    )
     if message_kind not in MESSAGE_KINDS:
         raise ValueError("invalid butler_message_kind")
-    priority = _control_string(metadata, "butler_priority", "normal")
+    priority = _control_string(
+        metadata,
+        "butler_priority",
+        context.priority or "normal",
+    )
     if priority not in PRIORITIES:
         raise ValueError("invalid butler_priority")
     message_id = uuid7()
@@ -107,12 +123,24 @@ def _build_envelope(
         "instanceId": registry.instance_id,
         "adapterId": binding.adapter_id,
         "channel": binding.channel,
-        "accountId": _control_string(metadata, "butler_account_id", binding.account_id),
+        "accountId": _control_string(
+            metadata,
+            "butler_account_id",
+            context.account_id or binding.account_id,
+        ),
         "chatId": chat,
-        "threadId": _control_string(metadata, "butler_thread_id"),
-        "sessionId": _control_string(metadata, "butler_session_id", f"chat:{chat}"),
-        "runId": _control_string(metadata, "butler_run_id"),
-        "inboundMessageId": _control_string(metadata, "butler_inbound_message_id"),
+        "threadId": _control_string(metadata, "butler_thread_id", context.thread_id),
+        "sessionId": _control_string(
+            metadata,
+            "butler_session_id",
+            context.session_id or f"chat:{chat}",
+        ),
+        "runId": _control_string(metadata, "butler_run_id", context.run_id),
+        "inboundMessageId": _control_string(
+            metadata,
+            "butler_inbound_message_id",
+            context.inbound_message_id,
+        ),
         "messageKind": message_kind,
         "transport": transport,
         "priority": priority,
@@ -155,7 +183,21 @@ def attach_adapter(
             reply_to=reply_to,
             metadata=raw_metadata,
         )
-        registry.outbox.capture(envelope)
+        raw_attachments = raw_metadata.get("butler_attachments")
+        spool = AttachmentSpool(registry.outbox.db_path.parent / "spool")
+        staged_attachments: list[dict[str, Any]] = []
+        if raw_attachments is not None:
+            if not isinstance(raw_attachments, (list, tuple)):
+                raise ValueError("butler_attachments must be an array")
+            if raw_attachments:
+                staged_attachments = spool.stage(envelope["messageId"], raw_attachments)
+                envelope["attachments"] = staged_attachments
+        try:
+            registry.outbox.capture(envelope)
+        except BaseException:
+            if staged_attachments:
+                spool.cleanup(envelope["messageId"])
+            raise
 
         if envelope["transport"] == "queued-push":
             return _send_result(
