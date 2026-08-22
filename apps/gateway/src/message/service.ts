@@ -39,6 +39,9 @@ export class MessageGatewayService {
   private readonly scheduler: Scheduler;
   private config: MessagePolicyConfig;
   private timer: unknown;
+  private startPromise: Promise<void> | undefined;
+  private cyclePromise: Promise<void> | undefined;
+  private stopRequested = false;
   private running = false;
   private inFlight = false;
   private bridgeConnected = false;
@@ -52,21 +55,35 @@ export class MessageGatewayService {
     this.config = policyConfigFromSnapshot(createPolicySnapshot(options.config));
   }
 
-  async start(): Promise<void> {
-    if (this.running) return;
-    await this.updatePolicy(this.config);
-    this.running = true;
-    await this.runCycle();
-    this.timer = this.scheduler.setInterval(() => void this.runCycle(), this.intervalMs);
+  start(): Promise<void> {
+    if (this.running) return Promise.resolve();
+    if (this.startPromise !== undefined) return this.startPromise;
+
+    this.stopRequested = false;
+    const operation = this.startInternal();
+    this.startPromise = operation;
+    operation.then(
+      () => {
+        if (this.startPromise === operation) this.startPromise = undefined;
+      },
+      () => {
+        if (this.startPromise === operation) this.startPromise = undefined;
+      },
+    );
+    return operation;
   }
 
-  stop(): void {
-    if (!this.running) return;
+  async stop(timeoutMs = 5_000): Promise<void> {
+    requireTimeout(timeoutMs);
+    this.stopRequested = true;
     this.running = false;
     if (this.timer !== undefined) {
       this.scheduler.clearInterval(this.timer);
       this.timer = undefined;
     }
+
+    const pending = this.cyclePromise ?? this.startPromise;
+    if (pending !== undefined) await settleWithin(pending, timeoutMs);
   }
 
   wake(): void {
@@ -77,7 +94,9 @@ export class MessageGatewayService {
     const snapshot = createPolicySnapshot(config);
     const result = await this.options.adapter.updatePolicy(this.options.instance, snapshot);
     if (!result.ok || result.data === undefined) {
-      throw new Error(`policy install failed: ${result.error?.message ?? "invalid adapter result"}`);
+      throw new Error(
+        `policy install failed: ${result.error?.message ?? "invalid adapter result"}`,
+      );
     }
     if (result.data.version !== snapshot.version || result.data.sha256 !== snapshot.sha256) {
       throw new Error("policy install failed: Bridge acknowledged a different policy snapshot");
@@ -91,7 +110,11 @@ export class MessageGatewayService {
   async status(): Promise<MessageGatewayStatus> {
     try {
       const health = await this.options.adapter.health(this.options.instance);
-      this.bridgeConnected = health.ok && health.data !== undefined && health.data.attached && health.data.outboxWritable;
+      this.bridgeConnected =
+        health.ok &&
+        health.data !== undefined &&
+        health.data.attached &&
+        health.data.outboxWritable;
     } catch {
       this.bridgeConnected = false;
     }
@@ -108,8 +131,35 @@ export class MessageGatewayService {
     };
   }
 
-  private async runCycle(): Promise<void> {
-    if (!this.running || this.inFlight) return;
+  private async startInternal(): Promise<void> {
+    await this.updatePolicy(this.config);
+    if (this.stopRequested) return;
+
+    this.running = true;
+    await this.runCycle();
+    if (this.running && !this.stopRequested) {
+      this.timer = this.scheduler.setInterval(() => void this.runCycle(), this.intervalMs);
+    }
+  }
+
+  private runCycle(): Promise<void> {
+    if (!this.running) return Promise.resolve();
+    if (this.cyclePromise !== undefined) return this.cyclePromise;
+
+    const operation = this.performCycle();
+    this.cyclePromise = operation;
+    operation.then(
+      () => {
+        if (this.cyclePromise === operation) this.cyclePromise = undefined;
+      },
+      () => {
+        if (this.cyclePromise === operation) this.cyclePromise = undefined;
+      },
+    );
+    return operation;
+  }
+
+  private async performCycle(): Promise<void> {
     this.inFlight = true;
     this.lastCycleAt = this.clock().toISOString();
     try {
@@ -130,6 +180,28 @@ export class MessageGatewayService {
     } finally {
       this.inFlight = false;
     }
+  }
+}
+
+function requireTimeout(timeoutMs: number): void {
+  if (!Number.isFinite(timeoutMs) || timeoutMs < 0) {
+    throw new Error("stop timeout must be a finite, non-negative number");
+  }
+}
+
+async function settleWithin(operation: Promise<void>, timeoutMs: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(new Error(`message reconciliation did not settle within ${String(timeoutMs)}ms`)),
+      timeoutMs,
+    );
+  });
+  try {
+    await Promise.race([operation, timeout]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
   }
 }
 

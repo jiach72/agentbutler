@@ -199,3 +199,12 @@
 - 回归测试：`apps/web/tests/gateway.test.ts` 新增畸形上游响应场景。
 - 验证命令：`corepack pnpm exec tsc -b --pretty false`；`corepack pnpm exec vitest run apps/web/tests/gateway.test.ts --maxWorkers=1`；`corepack pnpm exec vite build ui`。
 - 部署/运行验证：未连接真实外部通道；Fastify 注入测试确认异常载荷返回 HTTP 200 降级视图，UI 生产构建通过。
+
+## 2026-08-22 · 消息网关停止时可能在对账未完成前关闭投影库
+
+- 问题：`MessageGatewayService.stop()` 原先只清除定时器并立即返回，无法等待已经进入 Bridge 对账的 cycle；Gateway runtime 若随后关闭 SQLite，仍在执行的对账可能写入已关闭连接。
+- 风险/影响：服务退出、重启或启动回滚时可能丢失本轮投影、产生未处理的异步异常，甚至让 HTTP 状态与 WSL Outbox 游标短暂不一致。
+- 改动范围：服务现在持有单一 start/cycle Promise，停止先阻止新 cycle、清 timer，再在可配置上限内等待；超时会明确失败并保持投影库打开，允许在 cycle 结束后重试停止。新增受管 Hermes 消息 runtime，只有安全停稳后才关闭投影库，启动失败自动回滚。
+- 回归测试：`message-reconciler.test.ts` 覆盖 in-flight 超时与二次停止；`message-runtime.test.ts` 覆盖并发 start/stop 单 owner、策略先安装、启动回滚、私有 token 文件、投影重启保持和真实 Gateway HTTP 注入。
+- 验证命令：Gateway `tests/message-*.test.ts`（54 tests）、`tsc -p tsconfig.json --noEmit`、涉及文件 ESLint/Prettier、`git diff --check`。
+- 部署/运行验证：本条仅覆盖本地测试 runtime；真实 WSL Hermes 的安装、服务重启和消息投递仍须通过 Task 7/8 门禁后执行。

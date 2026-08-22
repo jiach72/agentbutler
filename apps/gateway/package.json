@@ -1,0 +1,24 @@
+{
+  "name": "@butler/gateway",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@butler/adapter-hermes": "workspace:*",
+    "@butler/contract": "workspace:*",
+    "@butler/core": "workspace:*",
+    "fastify": "^5.12.1",
+    "nodemailer": "^9.0.5"
+  },
+  "devDependencies": {
+    "@types/nodemailer": "^8.0.1"
+  }
+}

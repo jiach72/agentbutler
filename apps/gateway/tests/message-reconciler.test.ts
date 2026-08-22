@@ -261,7 +261,7 @@ describe("MessageGatewayService", () => {
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
     const status = await service.status();
     expect(status).toMatchObject({ running: true, inFlight: false, bridgeConnected: true, policyVersion: DEFAULT_MESSAGE_POLICY.version, counts: { delivered: 1 } });
-    service.stop(); service.stop();
+    await service.stop(); await service.stop();
     expect(clear).toHaveBeenCalledTimes(1);
   });
 
@@ -289,7 +289,7 @@ describe("MessageGatewayService", () => {
     const installed = await service.updatePolicy(replacement);
     replacement.digest.windowSec = 999;
     (installed.payload.digest as { windowSec: number }).windowSec = 777;
-    service.stop();
+    await service.stop();
     await service.start();
     expect((adapter.policies.at(-1)?.payload.digest as { windowSec: number }).windowSec).toBe(180);
 
@@ -299,6 +299,34 @@ describe("MessageGatewayService", () => {
     expect(adapter.calls.filter((call) => call === "listChanges")).toHaveLength(callsBeforeWake + 1);
 
     scheduled?.();
-    service.stop();
+    await service.stop();
+  });
+
+  it("bounds shutdown without closing resources under an in-flight cycle", async () => {
+    let releaseChanges: (() => void) | undefined;
+    const changesGate = new Promise<void>((resolve) => { releaseChanges = resolve; });
+    adapter.listChanges = async () => {
+      adapter.calls.push("listChanges");
+      await changesGate;
+      return ok({ afterSequence: 0, nextSequence: 0, items: [], taskEvents: [], inbound: [] });
+    };
+    const clear = vi.fn();
+    const service = new MessageGatewayService({
+      adapter,
+      instance: INSTANCE,
+      store,
+      config: DEFAULT_MESSAGE_POLICY,
+      scheduler: { setInterval: () => 1, clearInterval: clear },
+    });
+
+    const starting = service.start();
+    await vi.waitFor(() => expect(adapter.calls).toContain("listChanges"));
+    await expect(service.stop(5)).rejects.toThrow(/within 5ms/);
+    expect((await service.status()).running).toBe(false);
+
+    releaseChanges?.();
+    await starting;
+    await service.stop(100);
+    expect(clear).not.toHaveBeenCalled();
   });
 });
