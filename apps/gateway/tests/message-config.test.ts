@@ -56,4 +56,15 @@ describe("message policy configuration", () => {
     expect(a.sha256).toBe(b.sha256);
     expect(a.payload.inlineResponse).toBe("allow");
   });
+
+  it("detaches the installed snapshot payload from later caller mutations", () => {
+    const mutable = structuredClone(DEFAULT_MESSAGE_POLICY);
+    const snapshot = createPolicySnapshot(mutable);
+
+    mutable.channels.weixin.initialRatePerMin = 999;
+
+    expect((snapshot.payload.channels as MessagePolicyConfig["channels"]).weixin.initialRatePerMin).toBe(
+      DEFAULT_MESSAGE_POLICY.channels.weixin.initialRatePerMin,
+    );
+  });
 });

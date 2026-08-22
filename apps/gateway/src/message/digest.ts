@@ -30,7 +30,7 @@ const POLICY_ACTIVE_HOLDER_STATES = new Set([
 export function buildProgressDigest(input: ProgressDigestInput): ProgressDigestResult {
   const { incoming, config } = input;
   const holder = input.holder !== undefined && POLICY_ACTIVE_HOLDER_STATES.has(input.holder.state) ? input.holder : undefined;
-  if (!isProgressOrFinal(incoming) || incoming.runId === undefined || incoming.runId === "") {
+  if (!isProgressOrFinal(incoming) || typeof incoming.runId !== "string" || incoming.runId === "") {
     return declined("digest:declined-no-run");
   }
   if (holder !== undefined && !sameGroup(holder, incoming)) {

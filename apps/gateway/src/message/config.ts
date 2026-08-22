@@ -131,12 +131,13 @@ function canonicalize(value: unknown): unknown {
 
 export function createPolicySnapshot(config: MessagePolicyConfig): PolicySnapshot {
   validateMessagePolicy(config);
-  const canonicalJson = JSON.stringify(canonicalize(config));
+  const canonicalPayload = canonicalize(config) as MessagePolicyConfig;
+  const canonicalJson = JSON.stringify(canonicalPayload);
   const sha256 = createHash("sha256").update(canonicalJson, "utf8").digest("hex");
 
   return {
-    version: config.version,
+    version: canonicalPayload.version,
     sha256,
-    payload: config as unknown as Record<string, unknown>,
+    payload: canonicalPayload as unknown as Record<string, unknown>,
   };
 }

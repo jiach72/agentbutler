@@ -149,6 +149,30 @@ describe("MessageReconciler", () => {
     expect(adapter.decisions.map((decision) => decision.messageId)).toEqual(["final-first"]);
   });
 
+  it("only processes candidates owned by its configured Hermes instance", async () => {
+    const other = message({ messageId: "other", instanceId: "a-hermes", sequence: 1 });
+    store.ingestBatch({ afterSequence: 0, nextSequence: 1, items: [other], taskEvents: [], inbound: [] }, "a-hermes");
+    adapter.changes = batch([message({ messageId: "owned", sequence: 1 })]);
+    adapter.deliveryResult = ok({ messageId: "owned", attemptId: "attempt-1", accepted: true, deduped: false, state: "delivered", providerMessageId: "owned-provider", finishedAt: NOW });
+
+    await reconciler().reconcileOnce();
+
+    expect(adapter.decisions.map((decision) => decision.messageId)).toEqual(["owned"]);
+    expect(store.messageView("other")?.state).toBe("captured");
+  });
+
+  it("does not aggregate Bridge-null run ids or crash while scheduling them", async () => {
+    const holder = message({ messageId: "null-holder", messageKind: "task-progress", runId: null as never, state: "held_pacing", availableAt: "2026-08-22T10:02:00.000Z", sequence: 1 });
+    const incoming = message({ messageId: "null-incoming", messageKind: "task-progress", runId: null as never, sequence: 2 });
+    adapter.changes = batch([holder, incoming]);
+    adapter.changes.nextSequence = 2;
+
+    await reconciler().reconcileOnce();
+
+    expect(adapter.decisions.map((decision) => decision.messageId)).toEqual(["null-incoming"]);
+    expect(adapter.decisions[0]?.transformTrace).toContain("policy:queued-push");
+  });
+
   it("caches prewarm successes, holds normal prewarm failures, and lets urgent failures continue", async () => {
     await reconciler().reconcileOnce();
     expect(adapter.prewarms).toEqual(["weixin"]);

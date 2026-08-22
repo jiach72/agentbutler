@@ -1,5 +1,14 @@
 # Bug Fixes
 
+## 2026-08-22 · 消息 worker 可能跨 Hermes 实例投递并错误处理空 runId
+
+- 问题：Reconciler 从全局策略候选中直接取首条，未限定当前 `instanceId`；同时 Bridge 兼容载荷中的 `runId: null` 会进入进度聚合路径，可能跨无 run 消息聚合并在渲染摘要时调用 `null.slice()`。策略快照还保留调用方对象引用，安装后外部修改可让运行配置与已确认 hash 脱节。
+- 风险/影响：多 Hermes 实例共享 Butler Store 时可能由错误实例执行策略和投递；无 run 的进度消息可能被吸收或导致 worker 周期失败；策略审计 hash 可能不再代表实际运行配置。
+- 改动范围：候选查询支持并强制 Reconciler 按实例过滤；digest、holder 和任务事件读取统一拒绝非字符串 runId；策略快照保存规范化深拷贝；修复 Reconciler ESLint 错误。
+- 回归测试：覆盖跨实例候选隔离、Bridge-null runId、快照调用方修改隔离，以及既有崩溃恢复、预热和投递用例。
+- 验证命令：聚焦 Vitest、Gateway TypeScript 检查、涉及文件 ESLint 与 `git diff --check`。
+- 部署/运行验证：本条仅验证 Butler 本地投影和假 Bridge；真实 Hermes 安装与运行验收仍属于后续计划。
+
 ## 2026-08-22 · 对账 worker 可能将后续进度错误用作较早消息的聚合 holder
 
 - 问题：Task 5 对账阶段的 holder 查询只按全局 sequence 排序，未明确要求 holder 必须早于当前消息；在同一 run 同批出现“较早 final、较晚 task-progress”时，较晚进度可能被错误吸收。

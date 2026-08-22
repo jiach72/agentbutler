@@ -246,15 +246,18 @@ export class MessagePolicyStore {
     });
   }
 
-  listPolicyCandidates(now: string = new Date().toISOString()): ProjectedMessageView[] {
-    const rows = this.db
-      .prepare(
-        `SELECT * FROM message_projection
-         WHERE state IN ('captured', 'policy_pending', 'ready')
-            OR (state IN ('held_dnd', 'held_pacing', 'retry_wait') AND available_at IS NOT NULL AND available_at <= ?)
-         ORDER BY bridge_sequence ASC, instance_id ASC, message_id ASC`,
-      )
-      .all(now) as Record<string, unknown>[];
+  listPolicyCandidates(now: string = new Date().toISOString(), instanceId?: string): ProjectedMessageView[] {
+    if (instanceId !== undefined) requireNonEmptyString(instanceId, "instanceId");
+    const statement = this.db.prepare(
+      `SELECT * FROM message_projection
+       WHERE (
+         state IN ('captured', 'policy_pending', 'ready')
+         OR (state IN ('held_dnd', 'held_pacing', 'retry_wait') AND available_at IS NOT NULL AND available_at <= ?)
+       )
+       ${instanceId === undefined ? "" : "AND instance_id = ?"}
+       ORDER BY bridge_sequence ASC, instance_id ASC, message_id ASC`,
+    );
+    const rows = (instanceId === undefined ? statement.all(now) : statement.all(now, instanceId)) as Record<string, unknown>[];
     return rows.map((row) => this.mapMessage(row));
   }
 
@@ -263,7 +266,7 @@ export class MessagePolicyStore {
    * includes future held rows: aggregation must update that holder before it is due.
    */
   earliestActiveProgressHolder(message: OutboxMessageView): ProjectedMessageView | undefined {
-    if (message.runId === undefined || message.runId === "") return undefined;
+    if (typeof message.runId !== "string" || message.runId === "") return undefined;
     const rows = this.db
       .prepare(
         `SELECT * FROM message_projection

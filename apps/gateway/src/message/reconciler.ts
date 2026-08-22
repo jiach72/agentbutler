@@ -45,11 +45,16 @@ export class MessageReconciler {
   async reconcileOnce(): Promise<void> {
     const now = this.now();
     const cursor = this.options.store.cursor(this.options.instance.instanceId);
-    const batch = unwrap(await this.options.adapter.listChanges(this.options.instance, cursor, 200), "list changes");
+    let batch;
+    try {
+      batch = unwrap(await this.options.adapter.listChanges(this.options.instance, cursor, 200), "list changes");
+    } catch (error) {
+      throw workerError("list changes", error);
+    }
     // Projection and cursor are durable before any side-effecting policy call.
     this.options.store.ingestBatch(batch, this.options.instance.instanceId);
 
-    const candidate = this.options.store.listPolicyCandidates(now)[0];
+    const candidate = this.options.store.listPolicyCandidates(now, this.options.instance.instanceId)[0];
     if (candidate === undefined || candidate.state === "delivery_unknown") return;
     await this.processCandidate(candidate, now);
   }
@@ -102,7 +107,7 @@ export class MessageReconciler {
     const result = decideOutboundPolicy({
       message,
       holder: this.options.store.earliestActiveProgressHolder(message),
-      taskEvents: message.runId === undefined ? [] : (this.options.store.taskView(message.runId)?.events ?? []),
+      taskEvents: typeof message.runId === "string" && message.runId !== "" ? (this.options.store.taskView(message.runId)?.events ?? []) : [],
       dndRules: this.options.store.resolveDndRules(),
       channelLane,
       chatLane,
@@ -118,7 +123,7 @@ export class MessageReconciler {
     let ack: PrewarmAck;
     try {
       ack = unwrap(await this.options.adapter.prewarmChannel(this.options.instance, message.channel), "prewarm");
-    } catch (error) {
+    } catch {
       return this.prewarmFailure(message, now, "prewarm:failed");
     }
     this.options.store.savePrewarm({
