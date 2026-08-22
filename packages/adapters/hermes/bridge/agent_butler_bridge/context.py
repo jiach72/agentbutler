@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
+import threading
 from typing import Iterator
 
 
@@ -24,6 +25,14 @@ class MessageContext:
     priority: str | None = None
 
 
+@dataclass
+class RunLifecycleState:
+    run_id: str
+    failed: bool = False
+    progress_sequence: int = 0
+    lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+
 _CURRENT_CONTEXT: ContextVar[MessageContext] = ContextVar(
     "agent_butler_message_context",
     default=MessageContext(),
@@ -31,6 +40,10 @@ _CURRENT_CONTEXT: ContextVar[MessageContext] = ContextVar(
 _NATIVE_DELIVERY: ContextVar[bool] = ContextVar(
     "agent_butler_native_delivery",
     default=False,
+)
+_RUN_LIFECYCLE: ContextVar[RunLifecycleState | None] = ContextVar(
+    "agent_butler_run_lifecycle",
+    default=None,
 )
 
 
@@ -40,6 +53,22 @@ def current_message_context() -> MessageContext:
 
 def native_delivery_active() -> bool:
     return _NATIVE_DELIVERY.get()
+
+
+def current_run_lifecycle() -> RunLifecycleState | None:
+    return _RUN_LIFECYCLE.get()
+
+
+def current_run_failed() -> bool:
+    state = current_run_lifecycle()
+    return bool(state and state.failed)
+
+
+def mark_current_run_failed() -> None:
+    state = current_run_lifecycle()
+    if state is not None:
+        with state.lock:
+            state.failed = True
 
 
 @contextmanager
@@ -65,3 +94,15 @@ def native_delivery_scope() -> Iterator[None]:
         yield
     finally:
         _NATIVE_DELIVERY.reset(token)
+
+
+@contextmanager
+def run_lifecycle_scope(run_id: str) -> Iterator[RunLifecycleState]:
+    if not isinstance(run_id, str) or not run_id:
+        raise ValueError("run_id must be a non-empty string")
+    state = RunLifecycleState(run_id=run_id)
+    token = _RUN_LIFECYCLE.set(state)
+    try:
+        yield state
+    finally:
+        _RUN_LIFECYCLE.reset(token)

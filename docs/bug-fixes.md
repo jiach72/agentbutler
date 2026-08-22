@@ -1,5 +1,14 @@
 # Bug Fixes
 
+## 2026-08-22 · Hermes runtime 接入仍可能绕过 A2A Outbox，安装后失败也可能残留半成品
+
+- 问题：真实 A2A 在任务 finalize 时会直接调用 `_send_push_notification()`，即使 agent `send()` 已纳入 Butler，callback 仍可绕过 Outbox；重复平台入站的首见时间不同会被误判为同 ID 异内容；安装器初版在全部写入后的最终 `check` 失败时没有自动恢复。
+- 风险/影响：A2A callback 可跳过免打扰、聚合、AIMD 与审计；平台重投可能触发冲突或重复任务；编译后静态核验失败可能让真实 Hermes 留在部分安装状态。
+- 改动范围：文件尾单点 hook 统一接入 Gateway 生命周期、adapter attach、入站、run/progress、API JSON/SSE 和 A2A；A2A 原 callback 创建路径改为只向 wrapped `send()` 排队，真实 HTTP callback 仅由 `butler_deliver_push` 执行并在成功后消费配置；入站按稳定路由字段幂等；安装器增加全量预检、原子替换、post-hash、最终 check 自动恢复和 hash 守卫 rollback，静态覆盖明确标注 `staticOnly`。
+- 回归测试：覆盖普通通道 started/progress/completing/failed、失败消息 urgent、重复入站不重跑、API JSON/SSE 单次捕获且不调用 `send()`、A2A waiter/push/失败保留 callback/成功消费 callback/原 push 旁路替换，以及安装幂等、部分 marker/锚点漂移零写入、中途失败恢复、最终 check 失败恢复、rollback 漂移拒绝。
+- 验证命令：WSL Hermes venv 下执行 Bridge 全量 `unittest discover`（71 passed）、`compileall`、真实 Hermes 四模块 disposable-process hook import、真实根目录 installer `check` 前后 SHA/Git 状态比对和 `git diff --check`。
+- 部署/运行验证：真实 `/home/jiach/.hermes/hermes-agent` 仍未写入、安装或重启；只读检查确认四个目标可安装，Weixin SHA 仍为 `39b9dccd39dfe4442794c5373433dfb1198e6a195f5d732412e842efa2a4d220`，用户已有 `weixin.py` 修改与备份状态不变。消息网关尚不能据此宣称在线。
+
 ## 2026-08-22 · Bridge 可能把 A2A 丢弃误报为成功并在重启后虚报适配器覆盖
 
 - 问题：真实 Hermes A2A `send()` 在没有 live waiter 时会丢弃正文但仍返回成功，API Server 的 `send()` 也不是 HTTP 最终响应出口；普通 adapter 的直接本地媒体方法此前可绕过 Butler Outbox。Task 3 审查还确认 `BridgeRuntime` 正常 stop/start 后会保留旧 coverage 键。

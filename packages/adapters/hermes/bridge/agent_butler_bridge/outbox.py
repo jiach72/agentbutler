@@ -1233,6 +1233,17 @@ class Outbox:
             )
             return {"deduped": False, "inbound": dict(envelope)}
 
+    def get_inbound(self, inbound_message_id: str) -> dict[str, Any] | None:
+        if not isinstance(inbound_message_id, str) or not inbound_message_id:
+            raise ValueError("inbound_message_id must be a non-empty string")
+        with self._lock:
+            self._ensure_open()
+            row = self._conn.execute(
+                "SELECT payload_json FROM inbound_messages WHERE inbound_message_id = ?",
+                (inbound_message_id,),
+            ).fetchone()
+            return None if row is None else json.loads(row["payload_json"])
+
     def task_view(self, run_id: str) -> dict[str, Any] | None:
         with self._lock:
             self._ensure_open()

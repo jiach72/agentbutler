@@ -10,7 +10,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from .context import current_message_context, native_delivery_active, native_delivery_scope
+from .context import (
+    current_message_context,
+    current_run_failed,
+    native_delivery_active,
+    native_delivery_scope,
+)
 from .ids import uuid7
 from .registry import AdapterBinding, NativeRegistry
 from .registry import CaptureFilter, DeliveryOverride, TransportResolver
@@ -104,17 +109,23 @@ def _build_envelope(
     transport = transport or context.transport or binding.default_transport
     if transport not in {"queued-push", "inline-response"}:
         raise ValueError("invalid butler_transport")
+    default_message_kind = context.message_kind or (
+        "failure" if current_run_failed() else "final"
+    )
     message_kind = _control_string(
         metadata,
         "butler_message_kind",
-        context.message_kind or "final",
+        default_message_kind,
     )
     if message_kind not in MESSAGE_KINDS:
         raise ValueError("invalid butler_message_kind")
+    default_priority = context.priority or (
+        "urgent" if message_kind == "failure" else "normal"
+    )
     priority = _control_string(
         metadata,
         "butler_priority",
-        context.priority or "normal",
+        default_priority,
     )
     if priority not in PRIORITIES:
         raise ValueError("invalid butler_priority")
@@ -152,6 +163,81 @@ def _build_envelope(
         "metadata": json_safe_metadata(metadata),
         "capturedAt": _utc_now(),
     }
+
+
+def _ensure_completing_before_final_capture(
+    registry: NativeRegistry,
+    metadata: Mapping[str, Any],
+) -> None:
+    if not bool(metadata.get("notify")):
+        return
+    run_id = current_message_context().run_id
+    if run_id is None:
+        return
+    registry.outbox.append_task_event(
+        run_id,
+        "completing",
+        event_key="lifecycle:completing",
+    )
+
+
+def capture_inline_response(
+    binding: AdapterBinding,
+    registry: NativeRegistry,
+    *,
+    chat_id: Any,
+    content: Any,
+    reply_to: Any = None,
+    metadata: Mapping[str, Any] | None = None,
+    provider_message_id: str | None = None,
+) -> dict[str, Any]:
+    """Persist one assembled HTTP-style response without calling ``send()``.
+
+    API Server responses are delivered by the surrounding HTTP handler, not by
+    the adapter's intentionally unsupported ``send()`` method.  This helper
+    gives that path the same capture, policy-snapshot, attempt, and terminal
+    accounting as other inline responses while keeping the native send method
+    out of the delivery path entirely.
+    """
+
+    raw_metadata = metadata if isinstance(metadata, Mapping) else {}
+    _ensure_completing_before_final_capture(registry, raw_metadata)
+    envelope = _build_envelope(
+        binding,
+        registry,
+        chat_id=chat_id,
+        content=content,
+        reply_to=reply_to,
+        metadata={**raw_metadata, "butler_transport": "inline-response"},
+    )
+    registry.outbox.capture(envelope)
+
+    policy = registry.outbox.get_policy_snapshot()
+    if policy is None or policy["payload"].get("inlineResponse") != "allow":
+        registry.outbox.apply_decision(
+            envelope["messageId"],
+            f"inline:{envelope['messageId']}:policy-unavailable",
+            envelope["contentSha256"],
+            "policy_error",
+            None,
+            [],
+            "unavailable",
+            "Agent Butler policy snapshot unavailable",
+        )
+        raise RuntimeError("Agent Butler policy snapshot unavailable")
+
+    attempt_id = f"inline:{envelope['messageId']}"
+    registry.outbox.begin_delivery(
+        envelope["messageId"],
+        attempt_id,
+        envelope["contentSha256"],
+        allow_captured=True,
+    )
+    return registry.outbox.finish_delivery(
+        envelope["messageId"],
+        attempt_id,
+        provider_message_id,
+    )
 
 
 def attach_adapter(
@@ -202,6 +288,7 @@ def attach_adapter(
                 reply_to=reply_to,
                 metadata=metadata,
             )
+        _ensure_completing_before_final_capture(registry, raw_metadata)
         envelope = _build_envelope(
             binding,
             registry,
@@ -366,6 +453,7 @@ def _wrap_media_methods(
             file_name = bound.arguments.get("file_name")
             if file_name is not None and not isinstance(file_name, str):
                 file_name = str(file_name)
+            _ensure_completing_before_final_capture(registry, raw_metadata)
             display_content = caption or f"[attachment: {Path(source_path).name}]"
             envelope = _build_envelope(
                 binding,
