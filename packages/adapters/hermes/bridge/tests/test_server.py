@@ -143,6 +143,7 @@ class ServerTest(unittest.IsolatedAsyncioTestCase):
             f"/v1/outbox/{envelope['messageId']}/decision",
             headers=AUTH,
             json={
+                "decisionId": "decision-hash-mismatch",
                 "messageId": envelope["messageId"],
                 "expectedContentSha256": "wrong",
                 "state": "ready",
@@ -154,6 +155,26 @@ class ServerTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.status, 409)
         self.assertEqual((await response.json())["error"], "conflict")
+
+    async def test_decision_requires_decision_id(self) -> None:
+        envelope = make_envelope("018bcfe5-6800-7000-8000-000000000104")
+        self.outbox.capture(envelope)
+
+        response = await self.client.post(
+            f"/v1/outbox/{envelope['messageId']}/decision",
+            headers=AUTH,
+            json={
+                "messageId": envelope["messageId"],
+                "expectedContentSha256": envelope["contentSha256"],
+                "state": "ready",
+                "transformTrace": [],
+                "policyVersion": "p1",
+                "reason": "ready",
+            },
+        )
+
+        self.assertEqual(response.status, 400)
+        self.assertEqual((await response.json())["error"], "invalid")
 
     async def test_decide_then_deliver_calls_native_once(self) -> None:
         adapter = FakeAdapter()
@@ -175,6 +196,7 @@ class ServerTest(unittest.IsolatedAsyncioTestCase):
             f"/v1/outbox/{message_id}/decision",
             headers=AUTH,
             json={
+                "decisionId": "decision-deliver-ready",
                 "messageId": message_id,
                 "expectedContentSha256": captured["contentSha256"],
                 "state": "ready",
@@ -208,6 +230,39 @@ class ServerTest(unittest.IsolatedAsyncioTestCase):
         self.assertFalse((await first.json())["deduped"])
         self.assertTrue((await second.json())["deduped"])
         self.assertEqual(len(adapter.calls), 1)
+
+    async def test_decision_replay_returns_transformed_content(self) -> None:
+        envelope = make_envelope("018bcfe5-6800-7000-8000-000000000103")
+        self.outbox.capture(envelope)
+        payload = {
+            "decisionId": "decision-http-replay",
+            "messageId": envelope["messageId"],
+            "expectedContentSha256": envelope["contentSha256"],
+            "state": "held_pacing",
+            "availableAt": "2026-08-22T10:00:30.000Z",
+            "optimizedContent": "digest",
+            "transformTrace": ["aggregate-progress"],
+            "policyVersion": "p1",
+            "reason": "paced",
+        }
+
+        first = await self.client.post(
+            f"/v1/outbox/{envelope['messageId']}/decision",
+            headers=AUTH,
+            json=payload,
+        )
+        replay = await self.client.post(
+            f"/v1/outbox/{envelope['messageId']}/decision",
+            headers=AUTH,
+            json=payload,
+        )
+
+        self.assertEqual(first.status, 200)
+        self.assertEqual(replay.status, 200)
+        self.assertEqual(
+            (await replay.json())["contentSha256"],
+            (await first.json())["contentSha256"],
+        )
 
     async def test_deliver_rejects_arbitrary_content(self) -> None:
         response = await self.client.post(

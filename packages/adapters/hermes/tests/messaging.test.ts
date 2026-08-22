@@ -76,6 +76,7 @@ describe("HermesBridgeClient", () => {
     await client.installPolicy(policy);
     await client.listChanges(2, 25);
     await client.decide({
+      decisionId: "decision:m%201:p1:abc",
       messageId: "m 1",
       expectedContentSha256: "hash",
       state: "ready",
@@ -100,6 +101,7 @@ describe("HermesBridgeClient", () => {
       "POST http://127.0.0.1:8754/v1/inbound/in%2F1/decision",
       "POST http://127.0.0.1:8754/v1/prewarm",
     ]);
+    expect(calls[2]!.body).toMatchObject({ decisionId: "decision:m%201:p1:abc" });
   });
 });
 

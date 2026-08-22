@@ -141,6 +141,7 @@ export type DecisionState = Extract<
 >;
 
 export interface MessageDecision {
+  decisionId: string;
   messageId: string;
   expectedContentSha256: string;
   state: DecisionState;

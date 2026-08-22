@@ -114,6 +114,7 @@ def create_app(
             payload = await _read_object(
                 request,
                 required={
+                    "decisionId",
                     "messageId",
                     "expectedContentSha256",
                     "state",
@@ -122,6 +123,7 @@ def create_app(
                     "reason",
                 },
                 allowed={
+                    "decisionId",
                     "messageId",
                     "expectedContentSha256",
                     "state",
@@ -134,11 +136,15 @@ def create_app(
             )
             if payload["messageId"] != route_message_id:
                 raise ValueError("messageId does not match route")
+            decision_id = payload["decisionId"]
+            if not isinstance(decision_id, str) or not decision_id:
+                raise ValueError("decisionId must be a non-empty string")
             trace = payload["transformTrace"]
             if not isinstance(trace, list) or not all(isinstance(item, str) for item in trace):
                 raise ValueError("transformTrace must be a string array")
             row = outbox.apply_decision(
                 route_message_id,
+                decision_id,
                 str(payload["expectedContentSha256"]),
                 str(payload["state"]),
                 payload.get("availableAt"),

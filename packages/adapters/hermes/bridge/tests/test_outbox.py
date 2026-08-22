@@ -1,12 +1,13 @@
 import hashlib
 import json
+import sqlite3
 import tempfile
 import unittest
 import uuid
 from pathlib import Path
 
 from agent_butler_bridge.ids import uuid7
-from agent_butler_bridge.outbox import Outbox
+from agent_butler_bridge.outbox import DDL, Outbox
 
 
 def make_envelope(message_id: str, *, content: str = "hello") -> dict:
@@ -84,6 +85,7 @@ class OutboxTest(unittest.TestCase):
         self.outbox.capture(envelope)
         self.outbox.apply_decision(
             envelope["messageId"],
+            "decision-delivery-unknown",
             envelope["contentSha256"],
             "ready",
             None,
@@ -112,6 +114,7 @@ class OutboxTest(unittest.TestCase):
         self.outbox.capture(envelope)
         self.outbox.apply_decision(
             envelope["messageId"],
+            "decision-stale-delivering",
             envelope["contentSha256"],
             "ready",
             None,
@@ -130,6 +133,72 @@ class OutboxTest(unittest.TestCase):
         row = self.outbox.get(envelope["messageId"])
         self.assertEqual(row["state"], "delivery_unknown")
         self.assertIn("recovered stale delivering", row["lastError"])
+
+    def test_same_decision_id_is_idempotent_after_content_transform(self) -> None:
+        envelope = make_envelope("018bcfe5-6800-7000-8000-000000000101")
+        self.outbox.capture(envelope)
+        first = self.outbox.apply_decision(
+            envelope["messageId"],
+            "decision-1",
+            envelope["contentSha256"],
+            "held_pacing",
+            "2026-08-22T10:00:30.000Z",
+            ["aggregate-progress"],
+            "p1",
+            "paced",
+            optimized_content="digest",
+        )
+        replay = self.outbox.apply_decision(
+            envelope["messageId"],
+            "decision-1",
+            envelope["contentSha256"],
+            "held_pacing",
+            "2026-08-22T10:00:30.000Z",
+            ["aggregate-progress"],
+            "p1",
+            "paced",
+            optimized_content="digest",
+        )
+        self.assertEqual(replay["contentSha256"], first["contentSha256"])
+
+    def test_startup_migrates_decision_id_for_existing_outbox(self) -> None:
+        self.outbox.close()
+        legacy = sqlite3.connect(self.db_path)
+        legacy.executescript(DDL.replace("  decision_id TEXT,\n", ""))
+        legacy.close()
+
+        self.outbox = Outbox(self.db_path)
+
+        columns = self.outbox._conn.execute("PRAGMA table_info(outbound_messages)").fetchall()
+        self.assertIn("decision_id", {column[1] for column in columns})
+
+    def test_decision_id_cannot_apply_to_another_message(self) -> None:
+        first = make_envelope("018bcfe5-6800-7000-8000-000000000102")
+        second = make_envelope("018bcfe5-6800-7000-8000-000000000103")
+        self.outbox.capture(first)
+        self.outbox.capture(second)
+        self.outbox.apply_decision(
+            first["messageId"],
+            "decision-shared",
+            first["contentSha256"],
+            "ready",
+            None,
+            [],
+            "p1",
+            "ready",
+        )
+
+        with self.assertRaisesRegex(ValueError, "decision id conflict"):
+            self.outbox.apply_decision(
+                second["messageId"],
+                "decision-shared",
+                second["contentSha256"],
+                "ready",
+                None,
+                [],
+                "p1",
+                "ready",
+            )
 
     def test_policy_snapshot_survives_reopen(self) -> None:
         payload = {"inlineResponse": "allow"}

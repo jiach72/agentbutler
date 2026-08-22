@@ -203,6 +203,7 @@ class WrapperTest(unittest.IsolatedAsyncioTestCase):
         captured = self.outbox.get(message_id)
         self.outbox.apply_decision(
             message_id,
+            "decision-wrapper-ready",
             captured["contentSha256"],
             "ready",
             None,

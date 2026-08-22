@@ -167,6 +167,7 @@ def attach_adapter(
         if policy is None or policy["payload"].get("inlineResponse") != "allow":
             registry.outbox.apply_decision(
                 envelope["messageId"],
+                f"inline:{envelope['messageId']}:policy-unavailable",
                 envelope["contentSha256"],
                 "policy_error",
                 None,

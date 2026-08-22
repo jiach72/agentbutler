@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS outbound_messages (
   active_attempt_id TEXT,
   provider_message_id TEXT,
   policy_version TEXT,
+  decision_id TEXT,
   transform_trace_json TEXT NOT NULL DEFAULT '[]',
   last_error TEXT,
   captured_at TEXT NOT NULL,
@@ -153,6 +154,7 @@ class Outbox:
         self._conn.execute("PRAGMA busy_timeout=5000")
         self._conn.executescript(DDL)
         with self._transaction():
+            self._migrate_outbound_messages_locked()
             self._ensure_sequence_seed_locked()
             now = _utc_now()
             stale = self._conn.execute(
@@ -216,6 +218,19 @@ class Outbox:
         self._conn.execute(
             "INSERT INTO bridge_meta(key, value) VALUES ('next_change_sequence', ?)",
             (str(next_value),),
+        )
+
+    def _migrate_outbound_messages_locked(self) -> None:
+        columns = {
+            row["name"]
+            for row in self._conn.execute("PRAGMA table_info(outbound_messages)").fetchall()
+        }
+        if "decision_id" not in columns:
+            self._conn.execute("ALTER TABLE outbound_messages ADD COLUMN decision_id TEXT")
+        self._conn.execute(
+            """CREATE UNIQUE INDEX IF NOT EXISTS idx_outbound_decision_id
+               ON outbound_messages(decision_id)
+               WHERE decision_id IS NOT NULL"""
         )
 
     def _next_sequence_locked(self) -> int:
@@ -387,6 +402,7 @@ class Outbox:
     def apply_decision(
         self,
         message_id: str,
+        decision_id: str,
         expected_content_sha256: str,
         state: str,
         available_at: str | None,
@@ -395,10 +411,20 @@ class Outbox:
         reason: str,
         optimized_content: str | None = None,
     ) -> dict[str, Any]:
+        if not isinstance(decision_id, str) or not decision_id:
+            raise ValueError("decisionId must be a non-empty string")
         if state not in DECISION_STATES:
             raise ValueError(f"invalid decision state: {state}")
         with self._transaction():
             row = self._require_message_locked(message_id)
+            if row["decision_id"] == decision_id:
+                return self._message_from_row(row)
+            existing = self._conn.execute(
+                "SELECT message_id FROM outbound_messages WHERE decision_id = ?",
+                (decision_id,),
+            ).fetchone()
+            if existing is not None:
+                raise ValueError("decision id conflict")
             if row["content_sha256"] != expected_content_sha256:
                 raise ValueError("content hash conflict")
             if row["state"] in TERMINAL_STATES:
@@ -410,7 +436,8 @@ class Outbox:
             self._conn.execute(
                 """UPDATE outbound_messages
                    SET state = ?, available_at = ?, content = ?, content_sha256 = ?,
-                       transform_trace_json = ?, policy_version = ?, last_error = ?, updated_at = ?
+                       transform_trace_json = ?, policy_version = ?, decision_id = ?,
+                       last_error = ?, updated_at = ?
                    WHERE message_id = ?""",
                 (
                     state,
@@ -419,6 +446,7 @@ class Outbox:
                     content_hash,
                     _canonical_json(transform_trace),
                     policy_version,
+                    decision_id,
                     last_error,
                     now,
                     message_id,
