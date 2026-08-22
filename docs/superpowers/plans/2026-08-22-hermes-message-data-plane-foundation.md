@@ -280,7 +280,7 @@ git -c user.name="Codex" -c user.email="codex@local.invalid" commit -m "feat(con
 
 **Interfaces:**
 - Consumes: JSON-safe envelope dictionaries matching `OutboundEnvelope`.
-- Produces: `uuid7() -> str` and `Outbox` methods `capture`, `get`, `list_changes`, `apply_decision`, `begin_delivery`, `finish_delivery`, `mark_retry`, `mark_unknown`, `record_task_event`, and `record_inbound`.
+- Produces: `uuid7() -> str` and `Outbox` methods `capture`, `get`, `list_changes`, `apply_decision`, `begin_delivery`, `finish_delivery`, `mark_retry`, `mark_unknown`, `record_task_event`, `record_inbound`, `set_policy_snapshot`, and `get_policy_snapshot`.
 
 - [ ] **Step 1: Write UUID and restart/idempotency tests**
 
@@ -329,6 +329,15 @@ class OutboxTest(unittest.TestCase):
         self.outbox.close()
         self.outbox = Outbox(self.db_path)
         self.assertIsNone(self.outbox.next_ready("2100-01-01T00:00:00.000Z"))
+
+    def test_policy_snapshot_survives_reopen(self):
+        self.outbox.set_policy_snapshot("policy-1", "sha256-value", {"inlineResponse": "allow"})
+        self.outbox.close()
+        self.outbox = Outbox(self.db_path)
+        self.assertEqual(
+            self.outbox.get_policy_snapshot(),
+            {"version": "policy-1", "sha256": "sha256-value", "payload": {"inlineResponse": "allow"}},
+        )
 ```
 
 `make_envelope()` must return every required field, use `contentSha256` for `"hello"`, and set transport `queued-push`.
@@ -424,7 +433,7 @@ CREATE TABLE inbound_messages (
 CREATE TABLE bridge_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 ```
 
-Use `BEGIN IMMEDIATE` for capture and delivery transitions. `capture()` inserts once and returns the existing row on duplicate. Constructor recovery changes stale `delivering` rows to `delivery_unknown`, never to ready.
+Use `BEGIN IMMEDIATE` for capture and delivery transitions. `capture()` inserts once and returns the existing row on duplicate. Constructor recovery changes stale `delivering` rows to `delivery_unknown`, never to ready. `set_policy_snapshot()` stores version, hash, and canonical JSON payload in one transaction; `get_policy_snapshot()` returns `None` unless all three fields are present and valid.
 
 - [ ] **Step 5: Run the Outbox tests**
 
@@ -475,6 +484,7 @@ class WrapperTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(row["transport"], "queued-push")
 
     async def test_inline_response_persists_then_calls_native(self):
+        self.outbox.set_policy_snapshot("policy-1", "sha256-value", {"inlineResponse": "allow"})
         attach_adapter(self.adapter, self.registry, adapter_id="a2a", channel="a2a")
         result = await self.adapter.send("ctx-1", "answer", metadata={"butler_transport": "inline-response", "butler_session_id": "s1"})
         self.assertEqual(result.message_id, "provider-1")
@@ -485,6 +495,13 @@ class WrapperTest(unittest.IsolatedAsyncioTestCase):
         first = attach_adapter(self.adapter, self.registry, adapter_id="weixin", channel="weixin")
         second = attach_adapter(self.adapter, self.registry, adapter_id="weixin", channel="weixin")
         self.assertIs(first, second)
+
+    async def test_inline_response_fails_closed_without_policy_snapshot(self):
+        attach_adapter(self.adapter, self.registry, adapter_id="a2a", channel="a2a")
+        result = await self.adapter.send("ctx-1", "answer", metadata={"butler_transport": "inline-response", "butler_session_id": "s1"})
+        self.assertFalse(result.success)
+        self.assertIn("policy snapshot", result.error)
+        self.assertEqual(self.adapter.native_calls, [])
 ```
 
 - [ ] **Step 2: Run the wrapper test and confirm it fails**
@@ -512,6 +529,9 @@ async def managed_send(chat_id, content, reply_to=None, metadata=None):
     )
     capture = outbox.capture(envelope)
     if transport == "inline-response":
+        policy = outbox.get_policy_snapshot()
+        if policy is None or policy["payload"].get("inlineResponse") != "allow":
+            return SendResult(success=False, error="Agent Butler policy snapshot unavailable")
         outbox.begin_delivery(envelope["messageId"], f"inline:{envelope['messageId']}", envelope["contentSha256"])
         try:
             result = await original_send(chat_id, content, reply_to=reply_to, metadata=metadata)
