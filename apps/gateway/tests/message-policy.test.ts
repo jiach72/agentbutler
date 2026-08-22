@@ -190,6 +190,18 @@ describe("message policy", () => {
     expect(congestion).toMatchObject({ ratePerMin: 1, successCount: 0, cooldownUntil: "2026-08-22T10:01:00.000Z" });
   });
 
+  it("never shortens an existing later congestion cooldown", () => {
+    const congestion = recordPacingCongestion({
+      lane: { ...lane("weixin", null, 2), cooldownUntil: "2026-08-22T10:05:00.000Z" },
+      policy: DEFAULT_MESSAGE_POLICY.channels.weixin,
+      now: NOW,
+      retryAfterSec: 45,
+      reason: "429",
+    });
+
+    expect(congestion.cooldownUntil).toBe("2026-08-22T10:05:00.000Z");
+  });
+
   it("builds a deterministic deduplicated UTF-16-bounded progress digest", () => {
     const complete = buildProgressDigest({
       holder: message({ messageId: "holder", sequence: 1 }),
@@ -230,6 +242,88 @@ describe("message policy", () => {
     expect(final.absorbHolder).toBe(true);
     expect(final.transformTrace).toContain("digest:final-absorbed");
     expect(unrelated.accepted).toBe(false);
+  });
+
+  it("holds the first progress digest for its aggregation window", () => {
+    const result = decideOutboundPolicy({
+      message: message(),
+      taskEvents: events(),
+      dndRules: [],
+      channelLane: lane("weixin", null),
+      chatLane: lane("weixin", "chat-1"),
+      now: NOW,
+      config: DEFAULT_MESSAGE_POLICY,
+    });
+
+    expect(result.decision).toMatchObject({
+      messageId: "m1",
+      state: "held_pacing",
+      availableAt: "2026-08-22T10:02:00.000Z",
+    });
+    expect(result.decision.transformTrace).toContain("digest:window-held");
+  });
+
+  it("updates the earliest progress holder before absorbing a later duplicate", () => {
+    const result = decideOutboundPolicy({
+      message: message({ messageId: "later", sequence: 2, capturedAt: "2026-08-22T10:00:30.000Z" }),
+      holder: message({ messageId: "holder", sequence: 1, state: "held_pacing", availableAt: "2026-08-22T10:02:00.000Z" }),
+      taskEvents: events(),
+      dndRules: [],
+      channelLane: lane("weixin", null),
+      chatLane: lane("weixin", "chat-1"),
+      now: "2026-08-22T10:00:30.000Z",
+      config: DEFAULT_MESSAGE_POLICY,
+    });
+
+    expect(result.decision).toMatchObject({ messageId: "later", state: "absorbed" });
+    expect(result.companionDecisions).toHaveLength(1);
+    expect(result.companionDecisions[0]).toMatchObject({
+      messageId: "holder",
+      state: "held_pacing",
+      availableAt: "2026-08-22T10:02:00.000Z",
+    });
+    expect(result.companionDecisions[0]?.optimizedContent).toContain("正在验证长文本");
+  });
+
+  it("does not absorb or update a terminal progress holder", () => {
+    const result = decideOutboundPolicy({
+      message: message({ messageId: "final", messageKind: "final" }),
+      holder: message({ messageId: "done-progress", state: "delivered", deliveredAt: NOW }),
+      taskEvents: events(),
+      dndRules: [],
+      channelLane: lane("weixin", null),
+      chatLane: lane("weixin", "chat-1"),
+      now: NOW,
+      config: DEFAULT_MESSAGE_POLICY,
+    });
+
+    expect(result.companionDecisions).toEqual([]);
+  });
+
+  it("returns deterministic DND wake times and carries them into held decisions", () => {
+    const paused = evaluateDnd({
+      message: message(),
+      rules: [rule({ pausedUntil: "2026-08-22T12:00:30.000Z" })],
+      now: NOW,
+    });
+    const crossMidnight = evaluateDnd({
+      message: message(),
+      rules: [rule({ timeZone: "Asia/Shanghai", startMinute: 22 * 60, endMinute: 6 * 60 })],
+      now: "2026-08-22T15:30:00.000Z",
+    });
+    const decision = decideOutboundPolicy({
+      message: message(),
+      taskEvents: events(),
+      dndRules: [rule({ pausedUntil: "2026-08-22T12:00:30.000Z" })],
+      channelLane: lane("weixin", null),
+      chatLane: lane("weixin", "chat-1"),
+      now: NOW,
+      config: DEFAULT_MESSAGE_POLICY,
+    });
+
+    expect(paused.availableAt).toBe("2026-08-22T12:00:30.000Z");
+    expect(crossMidnight.availableAt).toBe("2026-08-22T22:00:00.000Z");
+    expect(decision.decision).toMatchObject({ state: "held_dnd", availableAt: "2026-08-22T12:00:30.000Z" });
   });
 
   it("rejects inline responses and keeps helper-only aggregation out of Bridge decisions", () => {

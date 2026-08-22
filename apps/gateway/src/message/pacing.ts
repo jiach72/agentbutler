@@ -61,11 +61,12 @@ export function recordPacingCongestion(input: PacingCongestionInput): PacingLane
   if (ratePerMin <= 0) throw new Error("reduced rate must be positive");
   const retryAt = now + (input.retryAfterSec ?? 0) * 1000;
   const intervalAt = now + 60_000 / ratePerMin;
+  const existingCooldownAt = input.lane.cooldownUntil === null ? now : parseTimestamp(input.lane.cooldownUntil, "cooldownUntil");
   return {
     ...input.lane,
     ratePerMin,
     successCount: 0,
-    cooldownUntil: new Date(Math.max(retryAt, intervalAt)).toISOString(),
+    cooldownUntil: new Date(Math.max(existingCooldownAt, retryAt, intervalAt)).toISOString(),
     lastCongestionReason: input.reason,
     updatedAt: input.now,
   };

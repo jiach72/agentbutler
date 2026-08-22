@@ -18,8 +18,18 @@ export interface ProgressDigestResult {
   holderMessageId?: string;
 }
 
+const POLICY_ACTIVE_HOLDER_STATES = new Set([
+  "captured",
+  "policy_pending",
+  "held_dnd",
+  "held_pacing",
+  "ready",
+  "retry_wait",
+]);
+
 export function buildProgressDigest(input: ProgressDigestInput): ProgressDigestResult {
-  const { holder, incoming, config } = input;
+  const { incoming, config } = input;
+  const holder = input.holder !== undefined && POLICY_ACTIVE_HOLDER_STATES.has(input.holder.state) ? input.holder : undefined;
   if (!isProgressOrFinal(incoming) || incoming.runId === undefined || incoming.runId === "") {
     return declined("digest:declined-no-run");
   }

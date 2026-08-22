@@ -37,30 +37,91 @@ export function decideOutboundPolicy(input: OutboundPolicyInput): OutboundPolicy
 
   const digest = buildProgressDigest({ holder: input.holder, incoming: input.message, events: input.taskEvents, config: input.config.digest });
   const companionDecisions: MessageDecision[] = [];
-  if (digest.accepted && digest.absorbHolder && input.holder !== undefined) {
+  if (digest.accepted && digest.absorbHolder && input.holder !== undefined && isPolicyActiveHolder(input.holder)) {
     companionDecisions.push(makeDecision(input.holder, input.config.version, "absorbed", digest.transformTrace, "progress holder absorbed"));
   }
-  if (digest.accepted && digest.absorbIncoming) {
+  if (digest.accepted && digest.absorbIncoming && input.holder !== undefined && isPolicyActiveHolder(input.holder)) {
+    companionDecisions.push(
+      scheduleDecision(input.holder, digest.content, ["policy:queued-push", ...digest.transformTrace], input),
+    );
     return { decision: makeDecision(input.message, input.config.version, "absorbed", digest.transformTrace, "duplicate progress absorbed"), companionDecisions };
   }
 
   const trace = ["policy:queued-push", ...(digest.accepted ? digest.transformTrace : [])];
-  const optimizedContent = digest.content;
-  if (input.message.metadata.solicitedReply === true) {
-    return {
-      decision: makeDecision(input.message, input.config.version, "ready", [...trace, "dnd:bypass-solicited-reply", "pacing:bypass-solicited-reply"], "solicited reply", optimizedContent),
-      companionDecisions,
-    };
+  return { decision: scheduleDecision(input.message, digest.content, trace, input, channelPolicy), companionDecisions };
+}
+
+function scheduleDecision(
+  message: OutboxMessageView,
+  optimizedContent: string | undefined,
+  baseTrace: string[],
+  input: OutboundPolicyInput,
+  channelPolicy = input.config.channels[message.channel],
+): MessageDecision {
+  if (channelPolicy === undefined) {
+    return makeDecision(message, input.config.version, "policy_error", [...baseTrace, "policy:unknown-channel"], "channel has no policy");
+  }
+  if (message.metadata.solicitedReply === true) {
+    return makeDecision(
+      message,
+      input.config.version,
+      "ready",
+      [...baseTrace, "dnd:bypass-solicited-reply", "pacing:bypass-solicited-reply"],
+      "solicited reply",
+      optimizedContent,
+    );
   }
 
-  const dnd = evaluateDnd({ message: input.message, rules: input.dndRules, now: input.now });
+  const trace = [...baseTrace];
+  const dnd = evaluateDnd({ message, rules: input.dndRules, now: input.now });
   trace.push(...dnd.transformTrace);
-  if (dnd.held) return { decision: makeDecision(input.message, input.config.version, "held_dnd", trace, "DND rule is active", optimizedContent), companionDecisions };
+  if (dnd.held) {
+    return makeDecision(
+      message,
+      input.config.version,
+      "held_dnd",
+      trace,
+      "DND rule is active",
+      optimizedContent,
+      dnd.availableAt,
+    );
+  }
 
-  const pacing = evaluatePacing({ message: input.message, channelLane: input.channelLane, chatLane: input.chatLane, policy: channelPolicy, now: input.now });
+  const nowMs = parseTimestamp(input.now, "now");
+  const pacing = evaluatePacing({ message, channelLane: input.channelLane, chatLane: input.chatLane, policy: channelPolicy, now: input.now });
   trace.push(...pacing.transformTrace);
-  if (pacing.held) return { decision: makeDecision(input.message, input.config.version, "held_pacing", trace, "pacing constraint", optimizedContent, pacing.availableAt), companionDecisions };
-  return { decision: makeDecision(input.message, input.config.version, "ready", trace, "ready for delivery", optimizedContent), companionDecisions };
+  let availableAtMs = pacing.availableAt === undefined ? nowMs : parseTimestamp(pacing.availableAt, "pacing.availableAt");
+  if (message.messageKind === "task-progress") {
+    const windowEnd = parseTimestamp(message.capturedAt, "capturedAt") + input.config.digest.windowSec * 1000;
+    if (windowEnd > nowMs) {
+      availableAtMs = Math.max(availableAtMs, windowEnd);
+      trace.push("digest:window-held");
+    }
+  }
+  if (availableAtMs > nowMs) {
+    return makeDecision(
+      message,
+      input.config.version,
+      "held_pacing",
+      trace,
+      "digest or pacing constraint",
+      optimizedContent,
+      new Date(availableAtMs).toISOString(),
+    );
+  }
+  return makeDecision(message, input.config.version, "ready", trace, "ready for delivery", optimizedContent);
+}
+
+function isPolicyActiveHolder(message: OutboxMessageView): boolean {
+  return ["captured", "policy_pending", "held_dnd", "held_pacing", "ready", "retry_wait"].includes(message.state);
+}
+
+function parseTimestamp(value: string, field: string): number {
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed) || !value.endsWith("Z") || new Date(parsed).toISOString() !== value) {
+    throw new Error(`${field} must be a canonical UTC ISO timestamp`);
+  }
+  return parsed;
 }
 
 function makeDecision(

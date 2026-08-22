@@ -10,6 +10,15 @@
 - 部署/运行验证：仅验证本地临时 SQLite 文件；未修改真实 Hermes 或 `apps/gateway/src/index.ts`。
 - 协议兼容后续修复：Python Bridge 会将缺失的出站和入站可选路由字段序列化为显式 `null`，而 TypeScript 校验器此前只接受 `undefined` 或字符串，导致有效 Bridge 批次在持久化前被拒绝。现在这九个字段仅接受 `undefined`、`null` 或非空字符串；数值等其他类型仍拒绝。`message-store.test.ts` 使用真实 null 形状的批次确认投影和游标推进，并将 SQLite 中止触发器移到最后的 cursor 写入，以确认消息、入站、任务事件/投影和游标均回滚；同时删除兼容修复后遗留的未使用校验 helper，恢复受影响文件 ESLint 通过。
 
+## 2026-08-22 · 进度聚合与免打扰策略可能提前发送或永久卡住消息
+
+- 问题：Task 4 初版未使用 `digest.windowSec`，首条进度可能立即进入 ready；后续进度被标记 absorbed 时没有同步更新最早 holder 的正文；`held_dnd` 决策缺少下一次释放时间，而本地候选查询只重取到期的 held 消息；AIMD 拥塞更新还可能把已有更晚冷却缩短。
+- 风险/影响：长任务仍可能高频打扰用户，聚合简报丢失后续状态/ETA，普通免打扰消息可能永远不再进入策略循环，连续限流时可能过早恢复发送。
+- 改动范围：进度 holder 在聚合窗口结束前进入带 `availableAt` 的 `held_pacing`；吸收较晚进度前先用 companion decision 更新最早 holder；只允许非终态候选作为 holder；DND 纯函数计算临时暂停、普通/跨午夜窗口和多规则的下一次 inactive 时刻并写入裁决；拥塞冷却取已有冷却、Retry-After 和降速后单间隔三者最大值。
+- 回归测试：`apps/gateway/tests/message-policy.test.ts` 新增首条进度窗口、holder 更新、终态 holder 拒绝、暂停/跨午夜 DND 释放时间、held 决策携带释放时间，以及不缩短已有 AIMD 冷却；聚焦套件 15/15 通过。
+- 验证命令：聚焦 Vitest；`corepack pnpm --filter @butler/gateway exec tsc -p tsconfig.json --noEmit`；Task 4 涉及文件 ESLint；`git diff --check`。
+- 部署/运行验证：仅验证纯策略与本地测试夹具；未修改真实 Hermes、Bridge 或 `apps/gateway/src/index.ts`。真实投递行为留待 Task 5 worker 和后续 WSL 故障注入验收。
+
 ## 2026-08-21 · 已有 Hermes 手工补丁被错报为“未应用”
 
 - 问题：Butler 补丁面板只读取自身 `state.json`；开发环境使用临时 `BUTLER_HOME` 时没有旧状态，真实 `weixin.py` 中已经运行的发送节流、首条冷却和回复整形仍被显示为“未应用”，再次点击应用会因官方锚已被改写而返回 409。

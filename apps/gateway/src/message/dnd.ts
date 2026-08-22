@@ -10,6 +10,7 @@ export interface DndEvaluationInput {
 
 export interface DndEvaluation {
   held: boolean;
+  availableAt?: string;
   transformTrace: string[];
 }
 
@@ -29,9 +30,34 @@ export function evaluateDnd(input: DndEvaluationInput): DndEvaluation {
     const matching = input.rules.filter((rule) => rule.enabled && rule.scope === scope && rule.scopeKey === scopeKey);
     if (matching.length === 0) continue;
     const held = matching.some((rule) => isActive(rule, nowMs));
-    return { held, transformTrace: [`dnd:${scope}-${held ? "held" : "inactive"}`] };
+    const availableAt = held ? nextInactiveAt(matching, nowMs) : undefined;
+    return {
+      held,
+      ...(availableAt === undefined ? {} : { availableAt }),
+      transformTrace: [`dnd:${scope}-${held ? "held" : "inactive"}`],
+    };
   }
   return { held: false, transformTrace: ["dnd:none"] };
+}
+
+function nextInactiveAt(rules: DndRule[], nowMs: number): string | undefined {
+  const candidates = new Set<number>();
+  for (const rule of rules) {
+    if (rule.pausedUntil === null) continue;
+    const pausedUntil = parseTimestamp(rule.pausedUntil, "pausedUntil");
+    if (pausedUntil > nowMs) candidates.add(pausedUntil);
+  }
+
+  const nextMinute = Math.floor(nowMs / 60_000) * 60_000 + 60_000;
+  for (let offset = 0; offset <= 72 * 60; offset += 1) {
+    candidates.add(nextMinute + offset * 60_000);
+  }
+
+  for (const candidate of [...candidates].sort((a, b) => a - b)) {
+    if (candidate <= nowMs) continue;
+    if (!rules.some((rule) => isActive(rule, candidate))) return new Date(candidate).toISOString();
+  }
+  return undefined;
 }
 
 function isActive(rule: DndRule, nowMs: number): boolean {
