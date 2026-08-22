@@ -328,6 +328,65 @@ class ServerTest(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(body["warmed"])
         self.assertIsNone(body["expiresAt"])
 
+    async def test_task_route_returns_inbound_event_and_outbound_correlation(self) -> None:
+        self.outbox.record_inbound(
+            {
+                "inboundMessageId": "inbound-http-task",
+                "instanceId": "hermes-main",
+                "adapterId": "weixin:default",
+                "channel": "weixin",
+                "chatId": "chat-1",
+                "content": "work",
+                "receivedAt": "2026-08-22T02:00:00.000Z",
+            }
+        )
+        self.outbox.begin_run(
+            session_id="session-http-task",
+            inbound_message_id="inbound-http-task",
+            run_id="run-http-task",
+        )
+        envelope = make_envelope("018bcfe5-6800-7000-8000-000000000601")
+        envelope["runId"] = "run-http-task"
+        envelope["inboundMessageId"] = "inbound-http-task"
+        self.outbox.capture(envelope)
+
+        response = await self.client.get("/v1/tasks/run-http-task", headers=AUTH)
+
+        self.assertEqual(response.status, 200)
+        body = await response.json()
+        self.assertEqual(body["inbound"]["inboundMessageId"], "inbound-http-task")
+        self.assertEqual(body["events"][0]["kind"], "started")
+        self.assertEqual(body["outbound"][0]["messageId"], envelope["messageId"])
+
+    async def test_dead_letter_route_rejects_delivery_unknown(self) -> None:
+        envelope = make_envelope("018bcfe5-6800-7000-8000-000000000602")
+        self.outbox.capture(envelope)
+        self.outbox.apply_decision(
+            envelope["messageId"],
+            "decision-http-unknown",
+            envelope["contentSha256"],
+            "ready",
+            None,
+            [],
+            "policy-1",
+            "ready",
+        )
+        self.outbox.begin_delivery(envelope["messageId"], "attempt-http-unknown", envelope["contentSha256"])
+        self.outbox.mark_unknown(envelope["messageId"], "attempt-http-unknown", "timeout")
+
+        response = await self.client.post(
+            f"/v1/outbox/{envelope['messageId']}/dead-letter",
+            headers=AUTH,
+            json={
+                "messageId": envelope["messageId"],
+                "expectedContentSha256": envelope["contentSha256"],
+                "reason": "manual classification",
+            },
+        )
+
+        self.assertEqual(response.status, 409)
+        self.assertIn("delivery_unknown", (await response.json())["detail"])
+
 
 if __name__ == "__main__":
     unittest.main()

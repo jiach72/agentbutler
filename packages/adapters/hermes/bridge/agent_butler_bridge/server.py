@@ -49,7 +49,15 @@ async def _read_object(
 
 def _conflict_or_invalid(exc: ValueError) -> web.Response:
     detail = str(exc)
-    conflict_markers = ("hash", "terminal", "already", "active attempt", "decision id conflict")
+    conflict_markers = (
+        "hash",
+        "terminal",
+        "already",
+        "active attempt",
+        "decision id conflict",
+        "delivery_unknown",
+        "cannot enter dead_letter",
+    )
     if any(marker in detail for marker in conflict_markers):
         return _error(409, "conflict", detail)
     return _error(400, "invalid", detail)
@@ -165,6 +173,27 @@ def create_app(
         except ValueError as exc:
             return _conflict_or_invalid(exc)
 
+    async def dead_letter(request: web.Request) -> web.Response:
+        route_message_id = request.match_info["message_id"]
+        try:
+            payload = await _read_object(
+                request,
+                required={"messageId", "expectedContentSha256", "reason"},
+                allowed={"messageId", "expectedContentSha256", "reason"},
+            )
+            if payload["messageId"] != route_message_id:
+                raise ValueError("messageId does not match route")
+            row = outbox.mark_dead_letter(
+                route_message_id,
+                str(payload["expectedContentSha256"]),
+                str(payload["reason"]),
+            )
+            return web.json_response(row)
+        except KeyError:
+            return _error(404, "not_found", "message not found")
+        except ValueError as exc:
+            return _conflict_or_invalid(exc)
+
     async def deliver(request: web.Request) -> web.Response:
         try:
             payload = await _read_object(
@@ -213,11 +242,20 @@ def create_app(
         except ValueError as exc:
             return _conflict_or_invalid(exc)
 
+    async def task(request: web.Request) -> web.Response:
+        run_id = request.match_info["run_id"]
+        view = outbox.task_view(run_id)
+        if view is None:
+            return _error(404, "not_found", "task not found")
+        return web.json_response(view)
+
     app.router.add_get("/v1/health", health)
     app.router.add_post("/v1/policy", install_policy)
     app.router.add_get("/v1/outbox/changes", changes)
     app.router.add_post("/v1/outbox/{message_id}/decision", decide)
+    app.router.add_post("/v1/outbox/{message_id}/dead-letter", dead_letter)
     app.router.add_post("/v1/deliver", deliver)
     app.router.add_post("/v1/inbound/{inbound_id}/decision", inbound_decision)
     app.router.add_post("/v1/prewarm", prewarm)
+    app.router.add_get("/v1/tasks/{run_id}", task)
     return app

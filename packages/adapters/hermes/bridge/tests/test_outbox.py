@@ -225,6 +225,40 @@ class OutboxTest(unittest.TestCase):
         columns = self.outbox._conn.execute("PRAGMA table_info(outbound_messages)").fetchall()
         self.assertIn("decision_id", {column[1] for column in columns})
 
+    def test_startup_migrates_legacy_task_events_and_backfills_run(self) -> None:
+        self.outbox.close()
+        for suffix in ("", "-wal", "-shm"):
+            Path(str(self.db_path) + suffix).unlink(missing_ok=True)
+        legacy = sqlite3.connect(self.db_path)
+        legacy.executescript(
+            """
+            CREATE TABLE task_events (
+              run_id TEXT NOT NULL,
+              event_sequence INTEGER NOT NULL,
+              session_id TEXT NOT NULL,
+              kind TEXT NOT NULL,
+              summary TEXT,
+              eta_sec INTEGER,
+              occurred_at TEXT NOT NULL,
+              change_sequence INTEGER NOT NULL UNIQUE,
+              PRIMARY KEY (run_id, event_sequence)
+            );
+            INSERT INTO task_events(
+              run_id, event_sequence, session_id, kind, occurred_at, change_sequence
+            ) VALUES ('legacy-run', 1, 'legacy-session', 'started',
+                      '2026-08-22T00:00:00.000Z', 1);
+            """
+        )
+        legacy.close()
+
+        self.outbox = Outbox(self.db_path)
+
+        columns = self.outbox._conn.execute("PRAGMA table_info(task_events)").fetchall()
+        self.assertIn("event_key", {column[1] for column in columns})
+        view = self.outbox.task_view("legacy-run")
+        self.assertEqual(view["sessionId"], "legacy-session")
+        self.assertEqual(view["nextSequence"], 2)
+
     def test_decision_id_cannot_apply_to_another_message(self) -> None:
         first = make_envelope("018bcfe5-6800-7000-8000-000000000102")
         second = make_envelope("018bcfe5-6800-7000-8000-000000000103")
@@ -318,6 +352,159 @@ class OutboxTest(unittest.TestCase):
         self.assertEqual(len(batch["taskEvents"]), 1)
         self.assertEqual(len(batch["inbound"]), 1)
         self.assertGreaterEqual(batch["nextSequence"], 3)
+
+    def test_run_lifecycle_binds_inbound_and_allocates_strict_sequence(self) -> None:
+        self.outbox.record_inbound(
+            {
+                "inboundMessageId": "inbound-run-1",
+                "instanceId": "hermes-main",
+                "adapterId": "weixin:default",
+                "channel": "weixin",
+                "chatId": "chat-1",
+                "userId": "user-1",
+                "content": "do work",
+                "receivedAt": "2026-08-22T01:00:00.000Z",
+            }
+        )
+
+        started = self.outbox.begin_run(
+            session_id="session-run-1",
+            inbound_message_id="inbound-run-1",
+            run_id="run-lifecycle-1",
+            occurred_at="2026-08-22T01:00:01.000Z",
+        )
+        progress = self.outbox.append_task_event(
+            "run-lifecycle-1",
+            "progress",
+            summary="step 1",
+            eta_sec=30,
+            event_key="tool:1:started",
+            occurred_at="2026-08-22T01:00:02.000Z",
+        )
+        replay = self.outbox.append_task_event(
+            "run-lifecycle-1",
+            "progress",
+            summary="step 1",
+            eta_sec=30,
+            event_key="tool:1:started",
+            occurred_at="2026-08-22T01:00:02.000Z",
+        )
+        completing = self.outbox.append_task_event(
+            "run-lifecycle-1",
+            "completing",
+            event_key="lifecycle:completing",
+            occurred_at="2026-08-22T01:00:03.000Z",
+        )
+        done = self.outbox.finish_run(
+            "run-lifecycle-1",
+            summary="delivered",
+            occurred_at="2026-08-22T01:00:04.000Z",
+        )
+        done_replay = self.outbox.finish_run(
+            "run-lifecycle-1",
+            summary="delivered",
+            occurred_at="2026-08-22T01:00:05.000Z",
+        )
+
+        self.assertEqual(started["event"]["sequence"], 1)
+        self.assertEqual(progress["event"]["sequence"], 2)
+        self.assertTrue(replay["deduped"])
+        self.assertEqual(completing["event"]["sequence"], 3)
+        self.assertEqual(done["event"]["sequence"], 4)
+        self.assertTrue(done_replay["deduped"])
+        self.assertEqual(done_replay["event"]["sequence"], 4)
+        with self.assertRaisesRegex(ValueError, "terminal"):
+            self.outbox.append_task_event("run-lifecycle-1", "progress", summary="late")
+
+        view = self.outbox.task_view("run-lifecycle-1")
+        self.assertEqual(view["state"], "done")
+        self.assertEqual(view["inbound"]["runId"], "run-lifecycle-1")
+        self.assertEqual(view["inbound"]["sessionId"], "session-run-1")
+        self.assertEqual([event["sequence"] for event in view["events"]], [1, 2, 3, 4])
+
+    def test_media_only_inbound_accepts_empty_text(self) -> None:
+        recorded = self.outbox.record_inbound(
+            {
+                "inboundMessageId": "inbound-media-only",
+                "instanceId": "hermes-main",
+                "adapterId": "weixin:default",
+                "channel": "weixin",
+                "chatId": "chat-1",
+                "content": "",
+                "receivedAt": "2026-08-22T01:30:00.000Z",
+            }
+        )
+
+        self.assertFalse(recorded["deduped"])
+        self.assertEqual(recorded["inbound"]["content"], "")
+
+    def test_begin_run_records_superseded_run(self) -> None:
+        first = self.outbox.begin_run(session_id="session-1", run_id="run-old")
+        second = self.outbox.begin_run(
+            session_id="session-1",
+            run_id="run-new",
+            supersedes_run_id="run-old",
+        )
+
+        self.assertFalse(first["deduped"])
+        self.assertEqual(second["run"]["supersedesRunId"], "run-old")
+
+    def test_dead_letter_is_audited_and_rejects_delivery_unknown(self) -> None:
+        message = make_envelope("018bcfe5-6800-7000-8000-000000000501")
+        self.outbox.capture(message)
+
+        dead = self.outbox.mark_dead_letter(
+            message["messageId"],
+            message["contentSha256"],
+            "invalid route metadata",
+        )
+
+        self.assertEqual(dead["state"], "dead_letter")
+        self.assertEqual(self.outbox.state_history(message["messageId"])[0]["toState"], "dead_letter")
+
+        uncertain = make_envelope("018bcfe5-6800-7000-8000-000000000502")
+        self.outbox.capture(uncertain)
+        self.outbox.apply_decision(
+            uncertain["messageId"],
+            "decision-unknown-2",
+            uncertain["contentSha256"],
+            "ready",
+            None,
+            [],
+            "policy-1",
+            "ready",
+        )
+        self.outbox.begin_delivery(uncertain["messageId"], "attempt-unknown-2", uncertain["contentSha256"])
+        self.outbox.mark_unknown(uncertain["messageId"], "attempt-unknown-2", "timeout")
+        with self.assertRaisesRegex(ValueError, "delivery_unknown"):
+            self.outbox.mark_dead_letter(
+                uncertain["messageId"],
+                uncertain["contentSha256"],
+                "must not convert uncertainty",
+            )
+
+    def test_capture_commits_attachment_metadata_without_exposing_spool_path(self) -> None:
+        message = make_envelope("018bcfe5-6800-7000-8000-000000000503")
+        spool_path = Path(self.tmp.name) / "spool" / "message" / "file.txt"
+        spool_path.parent.mkdir(parents=True)
+        spool_path.write_text("hello", encoding="utf-8")
+        message["attachments"] = [
+            {
+                "attachmentId": "attachment-1",
+                "fileName": "file.txt",
+                "mimeType": "text/plain",
+                "sizeBytes": 5,
+                "sha256": hashlib.sha256(b"hello").hexdigest(),
+                "spoolPath": str(spool_path),
+            }
+        ]
+
+        self.outbox.capture(message)
+
+        public = self.outbox.attachments_for(message["messageId"])
+        internal = self.outbox.attachments_for(message["messageId"], include_paths=True)
+        self.assertNotIn("spoolPath", public[0])
+        self.assertEqual(internal[0]["spoolPath"], str(spool_path))
 
 
 if __name__ == "__main__":

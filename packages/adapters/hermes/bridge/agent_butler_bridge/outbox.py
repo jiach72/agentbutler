@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 
+from .ids import uuid7
+
 
 OUTBOX_STATES = {
     "captured",
@@ -36,6 +38,20 @@ DECISION_STATES = {
     "cancelled",
 }
 TERMINAL_STATES = {"delivered", "absorbed", "dead_letter", "cancelled"}
+TASK_EVENT_KINDS = {"started", "progress", "completing", "done", "failed"}
+TASK_TERMINAL_STATES = {"done", "failed"}
+DEAD_LETTER_SOURCE_STATES = {
+    "captured",
+    "policy_pending",
+    "held_dnd",
+    "held_pacing",
+    "ready",
+    "retry_wait",
+    "policy_error",
+}
+MAX_CONTENT_BYTES = 1024 * 1024
+MAX_METADATA_BYTES = 256 * 1024
+MAX_ATTACHMENTS = 32
 
 DDL = """
 CREATE TABLE IF NOT EXISTS bridge_meta (
@@ -106,12 +122,28 @@ CREATE TABLE IF NOT EXISTS task_events (
   event_sequence INTEGER NOT NULL,
   session_id TEXT NOT NULL,
   kind TEXT NOT NULL,
+  event_key TEXT,
   summary TEXT,
   eta_sec INTEGER,
   occurred_at TEXT NOT NULL,
   change_sequence INTEGER NOT NULL UNIQUE,
   PRIMARY KEY (run_id, event_sequence)
 );
+
+CREATE TABLE IF NOT EXISTS task_runs (
+  run_id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  inbound_message_id TEXT REFERENCES inbound_messages(inbound_message_id),
+  supersedes_run_id TEXT,
+  state TEXT NOT NULL,
+  next_event_sequence INTEGER NOT NULL,
+  started_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  completed_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_runs_inbound
+  ON task_runs(inbound_message_id, started_at);
 
 CREATE TABLE IF NOT EXISTS inbound_messages (
   inbound_message_id TEXT PRIMARY KEY,
@@ -125,6 +157,33 @@ CREATE TABLE IF NOT EXISTS inbound_decisions (
   decision_json TEXT NOT NULL,
   decided_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS message_attachments (
+  attachment_id TEXT PRIMARY KEY,
+  message_id TEXT NOT NULL REFERENCES outbound_messages(message_id) ON DELETE CASCADE,
+  file_name TEXT NOT NULL,
+  mime_type TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL,
+  sha256 TEXT NOT NULL,
+  spool_path TEXT NOT NULL,
+  state TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_message_attachments_message
+  ON message_attachments(message_id, attachment_id);
+
+CREATE TABLE IF NOT EXISTS message_state_events (
+  event_id TEXT PRIMARY KEY,
+  message_id TEXT NOT NULL REFERENCES outbound_messages(message_id),
+  from_state TEXT NOT NULL,
+  to_state TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  occurred_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_message_state_events_message
+  ON message_state_events(message_id, occurred_at, event_id);
 """
 
 
@@ -134,6 +193,16 @@ def _utc_now() -> str:
 
 def _canonical_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        while True:
+            chunk = source.read(1024 * 1024)
+            if not chunk:
+                return digest.hexdigest()
+            digest.update(chunk)
 
 
 def _read_required_string(payload: Mapping[str, Any], key: str) -> str:
@@ -164,7 +233,9 @@ class Outbox:
         self._conn.executescript(DDL)
         with self._transaction():
             self._migrate_outbound_messages_locked()
+            self._migrate_task_events_locked()
             self._backfill_outbound_decisions_locked()
+            self._backfill_task_runs_locked()
             self._ensure_sequence_seed_locked()
             now = _utc_now()
             stale = self._conn.execute(
@@ -243,6 +314,19 @@ class Outbox:
                WHERE decision_id IS NOT NULL"""
         )
 
+    def _migrate_task_events_locked(self) -> None:
+        columns = {
+            row["name"]
+            for row in self._conn.execute("PRAGMA table_info(task_events)").fetchall()
+        }
+        if "event_key" not in columns:
+            self._conn.execute("ALTER TABLE task_events ADD COLUMN event_key TEXT")
+        self._conn.execute(
+            """CREATE UNIQUE INDEX IF NOT EXISTS idx_task_event_key
+               ON task_events(run_id, event_key)
+               WHERE event_key IS NOT NULL"""
+        )
+
     def _backfill_outbound_decisions_locked(self) -> None:
         self._conn.execute(
             """INSERT OR IGNORE INTO outbound_decisions(decision_id, message_id, applied_at)
@@ -250,6 +334,41 @@ class Outbox:
                FROM outbound_messages
                WHERE decision_id IS NOT NULL"""
         )
+
+    def _backfill_task_runs_locked(self) -> None:
+        rows = self._conn.execute(
+            """SELECT run_id, MIN(occurred_at) AS started_at,
+                      MAX(occurred_at) AS updated_at, MAX(event_sequence) AS max_sequence
+               FROM task_events GROUP BY run_id"""
+        ).fetchall()
+        for row in rows:
+            first = self._conn.execute(
+                """SELECT session_id FROM task_events
+                   WHERE run_id = ? ORDER BY event_sequence ASC LIMIT 1""",
+                (row["run_id"],),
+            ).fetchone()
+            latest = self._conn.execute(
+                """SELECT kind, occurred_at FROM task_events
+                   WHERE run_id = ? ORDER BY event_sequence DESC LIMIT 1""",
+                (row["run_id"],),
+            ).fetchone()
+            assert first is not None and latest is not None
+            completed_at = latest["occurred_at"] if latest["kind"] in TASK_TERMINAL_STATES else None
+            self._conn.execute(
+                """INSERT OR IGNORE INTO task_runs(
+                     run_id, session_id, state, next_event_sequence,
+                     started_at, updated_at, completed_at
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    row["run_id"],
+                    first["session_id"],
+                    latest["kind"],
+                    int(row["max_sequence"]) + 1,
+                    row["started_at"],
+                    row["updated_at"],
+                    completed_at,
+                ),
+            )
 
     def _next_sequence_locked(self) -> int:
         row = self._conn.execute(
@@ -271,6 +390,8 @@ class Outbox:
     def capture(self, envelope: Mapping[str, Any]) -> dict[str, Any]:
         message_id = _read_required_string(envelope, "messageId")
         content = _read_required_string(envelope, "content")
+        if len(content.encode("utf-8")) > MAX_CONTENT_BYTES:
+            raise ValueError("content exceeds maximum size")
         expected_hash = _read_required_string(envelope, "contentSha256")
         actual_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
         if actual_hash != expected_hash:
@@ -296,6 +417,9 @@ class Outbox:
         if not isinstance(metadata, Mapping):
             raise ValueError("metadata must be an object")
         metadata_json = _canonical_json(dict(metadata))
+        if len(metadata_json.encode("utf-8")) > MAX_METADATA_BYTES:
+            raise ValueError("metadata exceeds maximum size")
+        attachments = self._validate_attachments(envelope.get("attachments", []))
 
         with self._transaction():
             existing = self._conn.execute(
@@ -339,6 +463,23 @@ class Outbox:
                     now,
                 ),
             )
+            for attachment in attachments:
+                self._conn.execute(
+                    """INSERT INTO message_attachments(
+                         attachment_id, message_id, file_name, mime_type, size_bytes,
+                         sha256, spool_path, state, created_at
+                       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'spooled', ?)""",
+                    (
+                        attachment["attachmentId"],
+                        message_id,
+                        attachment["fileName"],
+                        attachment["mimeType"],
+                        attachment["sizeBytes"],
+                        attachment["sha256"],
+                        attachment["spoolPath"],
+                        now,
+                    ),
+                )
             inserted = self._conn.execute(
                 "SELECT * FROM outbound_messages WHERE message_id = ?", (message_id,)
             ).fetchone()
@@ -352,6 +493,76 @@ class Outbox:
                 "SELECT * FROM outbound_messages WHERE message_id = ?", (message_id,)
             ).fetchone()
             return None if row is None else self._message_from_row(row)
+
+    def attachments_for(
+        self, message_id: str, *, include_paths: bool = False
+    ) -> list[dict[str, Any]]:
+        with self._lock:
+            self._ensure_open()
+            rows = self._conn.execute(
+                """SELECT * FROM message_attachments
+                   WHERE message_id = ? ORDER BY attachment_id""",
+                (message_id,),
+            ).fetchall()
+            attachments: list[dict[str, Any]] = []
+            for row in rows:
+                item = {
+                    "attachmentId": row["attachment_id"],
+                    "fileName": row["file_name"],
+                    "mimeType": row["mime_type"],
+                    "sizeBytes": int(row["size_bytes"]),
+                    "sha256": row["sha256"],
+                    "state": row["state"],
+                }
+                if include_paths:
+                    item["spoolPath"] = row["spool_path"]
+                attachments.append(item)
+            return attachments
+
+    @staticmethod
+    def _validate_attachments(value: Any) -> list[dict[str, Any]]:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise ValueError("attachments must be an array")
+        if len(value) > MAX_ATTACHMENTS:
+            raise ValueError("attachment count exceeds limit")
+        validated: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        for raw in value:
+            if not isinstance(raw, Mapping):
+                raise ValueError("attachment must be an object")
+            attachment_id = _read_required_string(raw, "attachmentId")
+            file_name = _read_required_string(raw, "fileName")
+            mime_type = _read_required_string(raw, "mimeType")
+            sha256 = _read_required_string(raw, "sha256")
+            spool_path = _read_required_string(raw, "spoolPath")
+            size = raw.get("sizeBytes")
+            if not isinstance(size, int) or size < 0:
+                raise ValueError("attachment sizeBytes must be a non-negative integer")
+            if attachment_id in seen_ids:
+                raise ValueError("duplicate attachmentId")
+            if len(sha256) != 64 or any(character not in "0123456789abcdef" for character in sha256):
+                raise ValueError("attachment sha256 must be lowercase hexadecimal")
+            path = Path(spool_path)
+            if path.is_symlink() or not path.is_file():
+                raise ValueError("attachment spoolPath must be a regular file")
+            if path.stat().st_size != size:
+                raise ValueError("attachment size does not match spool file")
+            if _sha256_file(path) != sha256:
+                raise ValueError("attachment sha256 does not match spool file")
+            seen_ids.add(attachment_id)
+            validated.append(
+                {
+                    "attachmentId": attachment_id,
+                    "fileName": file_name,
+                    "mimeType": mime_type,
+                    "sizeBytes": size,
+                    "sha256": sha256,
+                    "spoolPath": spool_path,
+                }
+            )
+        return validated
 
     def is_writable(self) -> bool:
         try:
@@ -602,38 +813,328 @@ class Outbox:
             )
             return self._message_from_row(self._require_message_locked(message_id))
 
+    def begin_run(
+        self,
+        *,
+        session_id: str,
+        inbound_message_id: str | None = None,
+        run_id: str | None = None,
+        supersedes_run_id: str | None = None,
+        occurred_at: str | None = None,
+    ) -> dict[str, Any]:
+        if not isinstance(session_id, str) or not session_id:
+            raise ValueError("session_id must be a non-empty string")
+        if inbound_message_id is not None and not inbound_message_id:
+            raise ValueError("inbound_message_id must be non-empty when provided")
+        if supersedes_run_id is not None and not supersedes_run_id:
+            raise ValueError("supersedes_run_id must be non-empty when provided")
+        selected_run_id = run_id or uuid7()
+        if not selected_run_id:
+            raise ValueError("run_id must be a non-empty string")
+        timestamp = occurred_at or _utc_now()
+        with self._transaction():
+            existing = self._conn.execute(
+                "SELECT * FROM task_runs WHERE run_id = ?", (selected_run_id,)
+            ).fetchone()
+            if existing is not None:
+                if (
+                    existing["session_id"] != session_id
+                    or existing["inbound_message_id"] != inbound_message_id
+                    or existing["supersedes_run_id"] != supersedes_run_id
+                ):
+                    raise ValueError("runId already exists with different correlation")
+                event = self._conn.execute(
+                    "SELECT * FROM task_events WHERE run_id = ? AND event_sequence = 1",
+                    (selected_run_id,),
+                ).fetchone()
+                assert event is not None
+                return {
+                    "deduped": True,
+                    "run": self._run_from_row(existing),
+                    "event": self._task_event_from_row(event),
+                }
+            if inbound_message_id is not None:
+                inbound = self._conn.execute(
+                    "SELECT * FROM inbound_messages WHERE inbound_message_id = ?",
+                    (inbound_message_id,),
+                ).fetchone()
+                if inbound is None:
+                    raise KeyError(inbound_message_id)
+            if supersedes_run_id is not None:
+                superseded = self._conn.execute(
+                    "SELECT run_id FROM task_runs WHERE run_id = ?", (supersedes_run_id,)
+                ).fetchone()
+                if superseded is None:
+                    raise KeyError(supersedes_run_id)
+            self._conn.execute(
+                """INSERT INTO task_runs(
+                     run_id, session_id, inbound_message_id, supersedes_run_id,
+                     state, next_event_sequence, started_at, updated_at
+                   ) VALUES (?, ?, ?, ?, 'started', 2, ?, ?)""",
+                (
+                    selected_run_id,
+                    session_id,
+                    inbound_message_id,
+                    supersedes_run_id,
+                    timestamp,
+                    timestamp,
+                ),
+            )
+            change_sequence = self._next_sequence_locked()
+            self._conn.execute(
+                """INSERT INTO task_events(
+                     run_id, event_sequence, session_id, kind, event_key,
+                     occurred_at, change_sequence
+                   ) VALUES (?, 1, ?, 'started', 'lifecycle:started', ?, ?)""",
+                (selected_run_id, session_id, timestamp, change_sequence),
+            )
+            if inbound_message_id is not None:
+                inbound = self._conn.execute(
+                    "SELECT payload_json FROM inbound_messages WHERE inbound_message_id = ?",
+                    (inbound_message_id,),
+                ).fetchone()
+                assert inbound is not None
+                inbound_payload = json.loads(inbound["payload_json"])
+                existing_run = inbound_payload.get("runId")
+                if existing_run not in (None, selected_run_id):
+                    raise ValueError("inbound message is already bound to another run")
+                inbound_payload["runId"] = selected_run_id
+                inbound_payload["sessionId"] = session_id
+                inbound_change = self._next_sequence_locked()
+                self._conn.execute(
+                    """UPDATE inbound_messages
+                       SET payload_json = ?, change_sequence = ?
+                       WHERE inbound_message_id = ?""",
+                    (_canonical_json(inbound_payload), inbound_change, inbound_message_id),
+                )
+            run = self._conn.execute(
+                "SELECT * FROM task_runs WHERE run_id = ?", (selected_run_id,)
+            ).fetchone()
+            event = self._conn.execute(
+                "SELECT * FROM task_events WHERE run_id = ? AND event_sequence = 1",
+                (selected_run_id,),
+            ).fetchone()
+            assert run is not None and event is not None
+            return {
+                "deduped": False,
+                "run": self._run_from_row(run),
+                "event": self._task_event_from_row(event),
+            }
+
+    def append_task_event(
+        self,
+        run_id: str,
+        kind: str,
+        *,
+        summary: str | None = None,
+        eta_sec: int | None = None,
+        event_key: str | None = None,
+        occurred_at: str | None = None,
+    ) -> dict[str, Any]:
+        if not isinstance(run_id, str) or not run_id:
+            raise ValueError("run_id must be a non-empty string")
+        if kind not in TASK_EVENT_KINDS or kind == "started":
+            raise ValueError("invalid appended task event kind")
+        if summary is not None and not isinstance(summary, str):
+            raise ValueError("summary must be a string or None")
+        if eta_sec is not None and (not isinstance(eta_sec, int) or eta_sec < 0):
+            raise ValueError("eta_sec must be a non-negative integer or None")
+        if event_key is not None and (not isinstance(event_key, str) or not event_key):
+            raise ValueError("event_key must be a non-empty string or None")
+        timestamp = occurred_at or _utc_now()
+        with self._transaction():
+            return self._append_task_event_locked(
+                run_id,
+                kind,
+                summary=summary,
+                eta_sec=eta_sec,
+                event_key=event_key,
+                occurred_at=timestamp,
+            )
+
+    def finish_run(
+        self,
+        run_id: str,
+        *,
+        failed: bool = False,
+        summary: str | None = None,
+        occurred_at: str | None = None,
+    ) -> dict[str, Any]:
+        kind = "failed" if failed else "done"
+        return self.append_task_event(
+            run_id,
+            kind,
+            summary=summary,
+            event_key=f"lifecycle:{kind}",
+            occurred_at=occurred_at,
+        )
+
+    def _append_task_event_locked(
+        self,
+        run_id: str,
+        kind: str,
+        *,
+        summary: str | None,
+        eta_sec: int | None,
+        event_key: str | None,
+        occurred_at: str,
+    ) -> dict[str, Any]:
+        if event_key is not None:
+            replay = self._conn.execute(
+                "SELECT * FROM task_events WHERE run_id = ? AND event_key = ?",
+                (run_id, event_key),
+            ).fetchone()
+            if replay is not None:
+                expected = self._task_event_from_row(replay)
+                if (
+                    expected["kind"] != kind
+                    or expected.get("summary") != summary
+                    or expected.get("etaSec") != eta_sec
+                ):
+                    raise ValueError("task event key already exists with different payload")
+                return {"deduped": True, "event": expected}
+        run = self._conn.execute(
+            "SELECT * FROM task_runs WHERE run_id = ?", (run_id,)
+        ).fetchone()
+        if run is None:
+            raise KeyError(run_id)
+        if run["state"] in TASK_TERMINAL_STATES:
+            raise ValueError(f"run is already terminal: {run['state']}")
+        if run["state"] == "completing" and kind == "progress":
+            raise ValueError("run cannot return to progress after completing")
+        event_sequence = int(run["next_event_sequence"])
+        change_sequence = self._next_sequence_locked()
+        self._conn.execute(
+            """INSERT INTO task_events(
+                 run_id, event_sequence, session_id, kind, event_key, summary,
+                 eta_sec, occurred_at, change_sequence
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                run_id,
+                event_sequence,
+                run["session_id"],
+                kind,
+                event_key,
+                summary,
+                eta_sec,
+                occurred_at,
+                change_sequence,
+            ),
+        )
+        completed_at = occurred_at if kind in TASK_TERMINAL_STATES else None
+        self._conn.execute(
+            """UPDATE task_runs
+               SET state = ?, next_event_sequence = ?, updated_at = ?, completed_at = ?
+               WHERE run_id = ?""",
+            (kind, event_sequence + 1, occurred_at, completed_at, run_id),
+        )
+        row = self._conn.execute(
+            "SELECT * FROM task_events WHERE run_id = ? AND event_sequence = ?",
+            (run_id, event_sequence),
+        ).fetchone()
+        assert row is not None
+        return {"deduped": False, "event": self._task_event_from_row(row)}
+
     def record_task_event(self, event: Mapping[str, Any]) -> dict[str, Any]:
         run_id = _read_required_string(event, "runId")
         session_id = _read_required_string(event, "sessionId")
         kind = _read_required_string(event, "kind")
         occurred_at = _read_required_string(event, "occurredAt")
+        if kind not in TASK_EVENT_KINDS:
+            raise ValueError("invalid task event kind")
         event_sequence = event.get("sequence")
-        if not isinstance(event_sequence, int) or event_sequence < 0:
-            raise ValueError("sequence must be a non-negative integer")
+        if not isinstance(event_sequence, int) or event_sequence < 1:
+            raise ValueError("sequence must be a positive integer")
+        event_key = event.get("eventKey")
+        if event_key is not None and (not isinstance(event_key, str) or not event_key):
+            raise ValueError("eventKey must be a non-empty string")
+        summary = event.get("summary")
+        eta_sec = event.get("etaSec")
+        if summary is not None and not isinstance(summary, str):
+            raise ValueError("summary must be a string")
+        if eta_sec is not None and (not isinstance(eta_sec, int) or eta_sec < 0):
+            raise ValueError("etaSec must be a non-negative integer")
         with self._transaction():
             existing = self._conn.execute(
                 "SELECT * FROM task_events WHERE run_id = ? AND event_sequence = ?",
                 (run_id, event_sequence),
             ).fetchone()
             if existing is not None:
-                return {"deduped": True, "event": self._task_event_from_row(existing)}
+                current = self._task_event_from_row(existing)
+                expected = {
+                    "runId": run_id,
+                    "sequence": event_sequence,
+                    "sessionId": session_id,
+                    "kind": kind,
+                    "occurredAt": occurred_at,
+                }
+                if summary is not None:
+                    expected["summary"] = summary
+                if eta_sec is not None:
+                    expected["etaSec"] = eta_sec
+                if event_key is not None:
+                    expected["eventKey"] = event_key
+                if current != expected:
+                    raise ValueError("task event sequence already exists with different payload")
+                return {"deduped": True, "event": current}
+            run = self._conn.execute(
+                "SELECT * FROM task_runs WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            if run is None:
+                if event_sequence != 1 or kind != "started":
+                    raise ValueError("first task event must be started sequence 1")
+                self._conn.execute(
+                    """INSERT INTO task_runs(
+                         run_id, session_id, state, next_event_sequence,
+                         started_at, updated_at, completed_at
+                       ) VALUES (?, ?, ?, 2, ?, ?, ?)""",
+                    (
+                        run_id,
+                        session_id,
+                        kind,
+                        occurred_at,
+                        occurred_at,
+                        occurred_at if kind in TASK_TERMINAL_STATES else None,
+                    ),
+                )
+            else:
+                if run["session_id"] != session_id:
+                    raise ValueError("task event session does not match run")
+                if int(run["next_event_sequence"]) != event_sequence:
+                    raise ValueError("task event sequence must be strictly increasing")
+                if run["state"] in TASK_TERMINAL_STATES:
+                    raise ValueError(f"run is already terminal: {run['state']}")
             change_sequence = self._next_sequence_locked()
             self._conn.execute(
                 """INSERT INTO task_events(
-                     run_id, event_sequence, session_id, kind, summary, eta_sec,
-                     occurred_at, change_sequence
-                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                     run_id, event_sequence, session_id, kind, event_key, summary,
+                     eta_sec, occurred_at, change_sequence
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     run_id,
                     event_sequence,
                     session_id,
                     kind,
-                    event.get("summary"),
-                    event.get("etaSec"),
+                    event_key,
+                    summary,
+                    eta_sec,
                     occurred_at,
                     change_sequence,
                 ),
             )
+            if run is not None:
+                self._conn.execute(
+                    """UPDATE task_runs
+                       SET state = ?, next_event_sequence = ?, updated_at = ?, completed_at = ?
+                       WHERE run_id = ?""",
+                    (
+                        kind,
+                        event_sequence + 1,
+                        occurred_at,
+                        occurred_at if kind in TASK_TERMINAL_STATES else None,
+                        run_id,
+                    ),
+                )
             row = self._conn.execute(
                 "SELECT * FROM task_events WHERE run_id = ? AND event_sequence = ?",
                 (run_id, event_sequence),
@@ -643,8 +1144,21 @@ class Outbox:
 
     def record_inbound(self, envelope: Mapping[str, Any]) -> dict[str, Any]:
         inbound_id = _read_required_string(envelope, "inboundMessageId")
+        for key in ("instanceId", "adapterId", "channel", "chatId"):
+            _read_required_string(envelope, key)
+        content = envelope.get("content")
+        if not isinstance(content, str):
+            raise ValueError("content must be a string")
         received_at = _read_required_string(envelope, "receivedAt")
+        for key in ("threadId", "userId", "sessionId", "runId"):
+            value = envelope.get(key)
+            if value is not None and (not isinstance(value, str) or not value):
+                raise ValueError(f"{key} must be a non-empty string or null")
+        if len(content.encode("utf-8")) > MAX_CONTENT_BYTES:
+            raise ValueError("inbound content exceeds maximum size")
         payload_json = _canonical_json(dict(envelope))
+        if len(payload_json.encode("utf-8")) > MAX_CONTENT_BYTES + MAX_METADATA_BYTES:
+            raise ValueError("inbound payload exceeds maximum size")
         with self._transaction():
             existing = self._conn.execute(
                 "SELECT * FROM inbound_messages WHERE inbound_message_id = ?", (inbound_id,)
@@ -661,6 +1175,91 @@ class Outbox:
                 (inbound_id, payload_json, change_sequence, received_at),
             )
             return {"deduped": False, "inbound": dict(envelope)}
+
+    def task_view(self, run_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            self._ensure_open()
+            run = self._conn.execute(
+                "SELECT * FROM task_runs WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            if run is None:
+                return None
+            events = self._conn.execute(
+                """SELECT * FROM task_events
+                   WHERE run_id = ? ORDER BY event_sequence""",
+                (run_id,),
+            ).fetchall()
+            outbound = self._conn.execute(
+                """SELECT * FROM outbound_messages
+                   WHERE run_id = ? ORDER BY sequence""",
+                (run_id,),
+            ).fetchall()
+            inbound_payload = None
+            if run["inbound_message_id"] is not None:
+                inbound = self._conn.execute(
+                    """SELECT payload_json FROM inbound_messages
+                       WHERE inbound_message_id = ?""",
+                    (run["inbound_message_id"],),
+                ).fetchone()
+                if inbound is not None:
+                    inbound_payload = json.loads(inbound["payload_json"])
+            view = self._run_from_row(run)
+            view["inbound"] = inbound_payload
+            view["events"] = [self._task_event_from_row(row) for row in events]
+            view["outbound"] = [self._message_from_row(row) for row in outbound]
+            return view
+
+    def mark_dead_letter(
+        self,
+        message_id: str,
+        expected_content_sha256: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("dead letter reason must be a non-empty string")
+        with self._transaction():
+            row = self._require_message_locked(message_id)
+            if row["content_sha256"] != expected_content_sha256:
+                raise ValueError("content hash conflict")
+            if row["state"] == "delivery_unknown":
+                raise ValueError("delivery_unknown requires explicit retry or cancellation review")
+            if row["state"] not in DEAD_LETTER_SOURCE_STATES:
+                raise ValueError(f"message cannot enter dead_letter from state {row['state']}")
+            now = _utc_now()
+            self._conn.execute(
+                """UPDATE outbound_messages
+                   SET state = 'dead_letter', active_attempt_id = NULL,
+                       available_at = NULL, last_error = ?, updated_at = ?
+                   WHERE message_id = ?""",
+                (reason.strip(), now, message_id),
+            )
+            self._conn.execute(
+                """INSERT INTO message_state_events(
+                     event_id, message_id, from_state, to_state, reason, occurred_at
+                   ) VALUES (?, ?, ?, 'dead_letter', ?, ?)""",
+                (uuid7(), message_id, row["state"], reason.strip(), now),
+            )
+            return self._message_from_row(self._require_message_locked(message_id))
+
+    def state_history(self, message_id: str) -> list[dict[str, Any]]:
+        with self._lock:
+            self._ensure_open()
+            rows = self._conn.execute(
+                """SELECT * FROM message_state_events
+                   WHERE message_id = ? ORDER BY occurred_at, event_id""",
+                (message_id,),
+            ).fetchall()
+            return [
+                {
+                    "eventId": row["event_id"],
+                    "messageId": row["message_id"],
+                    "fromState": row["from_state"],
+                    "toState": row["to_state"],
+                    "reason": row["reason"],
+                    "occurredAt": row["occurred_at"],
+                }
+                for row in rows
+            ]
 
     def apply_inbound_decision(
         self, inbound_message_id: str, decision: Mapping[str, Any]
@@ -798,4 +1397,20 @@ class Outbox:
             event["summary"] = row["summary"]
         if row["eta_sec"] is not None:
             event["etaSec"] = int(row["eta_sec"])
+        if "event_key" in row.keys() and row["event_key"] is not None:
+            event["eventKey"] = row["event_key"]
         return event
+
+    @staticmethod
+    def _run_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "runId": row["run_id"],
+            "sessionId": row["session_id"],
+            "inboundMessageId": row["inbound_message_id"],
+            "supersedesRunId": row["supersedes_run_id"],
+            "state": row["state"],
+            "nextSequence": int(row["next_event_sequence"]),
+            "startedAt": row["started_at"],
+            "updatedAt": row["updated_at"],
+            "completedAt": row["completed_at"],
+        }
