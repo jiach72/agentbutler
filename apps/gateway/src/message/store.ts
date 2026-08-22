@@ -806,10 +806,6 @@ function requireNonEmptyString(value: unknown, field: string): asserts value is 
   if (typeof value !== "string" || value.trim() === "") throw new Error(`${field} must be a non-empty string`);
 }
 
-function validateOptionalString(value: unknown, field: string): void {
-  if (value !== undefined) requireNonEmptyString(value, field);
-}
-
 function validateOptionalNullableString(value: unknown, field: string): void {
   if (value !== undefined && value !== null) requireNonEmptyString(value, field);
 }
