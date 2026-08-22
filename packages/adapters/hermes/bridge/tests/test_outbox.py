@@ -161,6 +161,59 @@ class OutboxTest(unittest.TestCase):
         )
         self.assertEqual(replay["contentSha256"], first["contentSha256"])
 
+    def test_reopen_backfills_decision_history_before_replaying_older_decision(self) -> None:
+        envelope = make_envelope("018bcfe5-6800-7000-8000-000000000104")
+        self.outbox.capture(envelope)
+        first = self.outbox.apply_decision(
+            envelope["messageId"],
+            "decision-1",
+            envelope["contentSha256"],
+            "held_pacing",
+            "2026-08-22T10:00:30.000Z",
+            ["aggregate-progress"],
+            "p1",
+            "paced",
+            optimized_content="digest",
+        )
+        self.outbox._conn.execute(
+            """CREATE TABLE IF NOT EXISTS outbound_decisions (
+                 decision_id TEXT PRIMARY KEY,
+                 message_id TEXT NOT NULL,
+                 applied_at TEXT NOT NULL
+               )"""
+        )
+        self.outbox._conn.execute(
+            "DELETE FROM outbound_decisions WHERE decision_id = ?", ("decision-1",)
+        )
+
+        self.reopen()
+
+        second = self.outbox.apply_decision(
+            envelope["messageId"],
+            "decision-2",
+            first["contentSha256"],
+            "ready",
+            None,
+            ["ready"],
+            "p2",
+            "ready",
+        )
+        replay = self.outbox.apply_decision(
+            envelope["messageId"],
+            "decision-1",
+            envelope["contentSha256"],
+            "held_pacing",
+            "2026-08-22T10:00:30.000Z",
+            ["aggregate-progress"],
+            "p1",
+            "paced",
+            optimized_content="digest",
+        )
+
+        self.assertEqual(replay["contentSha256"], second["contentSha256"])
+        self.assertEqual(replay["state"], "ready")
+        self.assertEqual(replay["transformTrace"], ["ready"])
+
     def test_startup_migrates_decision_id_for_existing_outbox(self) -> None:
         self.outbox.close()
         legacy = sqlite3.connect(self.db_path)

@@ -80,6 +80,15 @@ CREATE INDEX IF NOT EXISTS idx_outbound_state_available
   ON outbound_messages(state, available_at, sequence);
 CREATE INDEX IF NOT EXISTS idx_outbound_run ON outbound_messages(run_id, sequence);
 
+CREATE TABLE IF NOT EXISTS outbound_decisions (
+  decision_id TEXT PRIMARY KEY,
+  message_id TEXT NOT NULL REFERENCES outbound_messages(message_id),
+  applied_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_outbound_decisions_message
+  ON outbound_decisions(message_id, applied_at);
+
 CREATE TABLE IF NOT EXISTS delivery_attempts (
   attempt_id TEXT PRIMARY KEY,
   message_id TEXT NOT NULL REFERENCES outbound_messages(message_id),
@@ -155,6 +164,7 @@ class Outbox:
         self._conn.executescript(DDL)
         with self._transaction():
             self._migrate_outbound_messages_locked()
+            self._backfill_outbound_decisions_locked()
             self._ensure_sequence_seed_locked()
             now = _utc_now()
             stale = self._conn.execute(
@@ -230,6 +240,14 @@ class Outbox:
         self._conn.execute(
             """CREATE UNIQUE INDEX IF NOT EXISTS idx_outbound_decision_id
                ON outbound_messages(decision_id)
+               WHERE decision_id IS NOT NULL"""
+        )
+
+    def _backfill_outbound_decisions_locked(self) -> None:
+        self._conn.execute(
+            """INSERT OR IGNORE INTO outbound_decisions(decision_id, message_id, applied_at)
+               SELECT decision_id, message_id, updated_at
+               FROM outbound_messages
                WHERE decision_id IS NOT NULL"""
         )
 
@@ -417,13 +435,13 @@ class Outbox:
             raise ValueError(f"invalid decision state: {state}")
         with self._transaction():
             row = self._require_message_locked(message_id)
-            if row["decision_id"] == decision_id:
-                return self._message_from_row(row)
-            existing = self._conn.execute(
-                "SELECT message_id FROM outbound_messages WHERE decision_id = ?",
+            historical = self._conn.execute(
+                "SELECT message_id FROM outbound_decisions WHERE decision_id = ?",
                 (decision_id,),
             ).fetchone()
-            if existing is not None:
+            if historical is not None:
+                if historical["message_id"] == message_id:
+                    return self._message_from_row(row)
                 raise ValueError("decision id conflict")
             if row["content_sha256"] != expected_content_sha256:
                 raise ValueError("content hash conflict")
@@ -451,6 +469,11 @@ class Outbox:
                     now,
                     message_id,
                 ),
+            )
+            self._conn.execute(
+                """INSERT INTO outbound_decisions(decision_id, message_id, applied_at)
+                   VALUES (?, ?, ?)""",
+                (decision_id, message_id, now),
             )
             return self._message_from_row(self._require_message_locked(message_id))
 

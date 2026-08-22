@@ -176,6 +176,43 @@ class ServerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status, 400)
         self.assertEqual((await response.json())["error"], "invalid")
 
+    async def test_decision_id_collision_returns_conflict(self) -> None:
+        first = make_envelope("018bcfe5-6800-7000-8000-000000000105")
+        second = make_envelope("018bcfe5-6800-7000-8000-000000000106")
+        self.outbox.capture(first)
+        self.outbox.capture(second)
+
+        first_response = await self.client.post(
+            f"/v1/outbox/{first['messageId']}/decision",
+            headers=AUTH,
+            json={
+                "decisionId": "decision-collision",
+                "messageId": first["messageId"],
+                "expectedContentSha256": first["contentSha256"],
+                "state": "ready",
+                "transformTrace": [],
+                "policyVersion": "p1",
+                "reason": "ready",
+            },
+        )
+        collision = await self.client.post(
+            f"/v1/outbox/{second['messageId']}/decision",
+            headers=AUTH,
+            json={
+                "decisionId": "decision-collision",
+                "messageId": second["messageId"],
+                "expectedContentSha256": second["contentSha256"],
+                "state": "ready",
+                "transformTrace": [],
+                "policyVersion": "p1",
+                "reason": "ready",
+            },
+        )
+
+        self.assertEqual(first_response.status, 200)
+        self.assertEqual(collision.status, 409)
+        self.assertEqual((await collision.json())["error"], "conflict")
+
     async def test_decide_then_deliver_calls_native_once(self) -> None:
         adapter = FakeAdapter()
         attach_adapter(

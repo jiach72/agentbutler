@@ -48,7 +48,7 @@ async def _read_object(
 
 def _conflict_or_invalid(exc: ValueError) -> web.Response:
     detail = str(exc)
-    conflict_markers = ("hash", "terminal", "already", "active attempt")
+    conflict_markers = ("hash", "terminal", "already", "active attempt", "decision id conflict")
     if any(marker in detail for marker in conflict_markers):
         return _error(409, "conflict", detail)
     return _error(400, "invalid", detail)
