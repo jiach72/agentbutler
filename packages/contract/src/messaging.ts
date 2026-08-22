@@ -96,6 +96,18 @@ export interface BridgeHealth {
   channels: Record<ChannelId, "ok" | "degraded" | "unavailable">;
 }
 
+export interface PolicySnapshot {
+  version: string;
+  sha256: string;
+  payload: Record<string, unknown>;
+}
+
+export interface PolicyAck {
+  version: string;
+  sha256: string;
+  appliedAt: string;
+}
+
 export interface AttachAck {
   instanceId: InstanceId;
   attachedAt: string;
@@ -180,6 +192,7 @@ export interface PrewarmAck {
 export interface MessagingAdapter {
   attachOutbound(instance: InstanceRef): Promise<Result<AttachAck>>;
   health(instance: InstanceRef): Promise<Result<BridgeHealth>>;
+  updatePolicy(instance: InstanceRef, snapshot: PolicySnapshot): Promise<Result<PolicyAck>>;
   listChanges(
     instance: InstanceRef,
     afterSequence: number,
