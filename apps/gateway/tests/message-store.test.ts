@@ -1,3 +1,4 @@
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { MessageDecision, OutboxChangeBatch } from "@butler/contract";
 import { DEFAULT_MESSAGE_POLICY } from "../src/message/config";
@@ -75,6 +76,34 @@ const DECISION: MessageDecision = {
   policyVersion: "message-policy-v1",
   reason: "ready for delivery",
 };
+
+function messageBatch(instanceId: string, messageId: string): OutboxChangeBatch {
+  return {
+    afterSequence: 0,
+    nextSequence: 1,
+    items: [{ ...BATCH.items[0], instanceId, messageId, sequence: 1 }],
+    taskEvents: [],
+    inbound: [],
+  };
+}
+
+function eventOnlyBatch(runId: string): OutboxChangeBatch {
+  return {
+    afterSequence: 0,
+    nextSequence: 1,
+    items: [],
+    taskEvents: [
+      {
+        runId,
+        sequence: 1,
+        sessionId: `${runId}-session`,
+        kind: "started",
+        occurredAt: "2026-08-22T10:00:00.000Z",
+      },
+    ],
+    inbound: [],
+  };
+}
 
 describe("MessagePolicyStore", () => {
   let tmp: string;
@@ -196,5 +225,112 @@ describe("MessagePolicyStore", () => {
     expect(reopened.pendingDecision("m1")).toBeUndefined();
     expect(reopened.messageView("m1")?.decisionId).toBe(DECISION.decisionId);
     reopened.close();
+  });
+
+  it("accepts an explicit instance for first and multi-instance event-only batches", () => {
+    const store = new MessagePolicyStore(dbFile);
+    store.ingestBatch(eventOnlyBatch("run-first"), "hermes-main");
+    store.ingestBatch(eventOnlyBatch("run-second"), "hermes-secondary");
+
+    expect(store.cursor("hermes-main")).toBe(1);
+    expect(store.cursor("hermes-secondary")).toBe(1);
+    expect(store.taskView("run-first")?.events).toHaveLength(1);
+    expect(() => store.ingestBatch(messageBatch("hermes-main", "m2"), "not-hermes-main")).toThrow(/does not match/);
+    store.close();
+  });
+
+  it("returns every enabled DND rule so policy evaluation owns time-window semantics", () => {
+    const store = new MessagePolicyStore(dbFile);
+    store.upsertDndRule({
+      ruleId: "expired-pause",
+      scope: "global",
+      scopeKey: null,
+      timeZone: "Asia/Shanghai",
+      startMinute: null,
+      endMinute: null,
+      pausedUntil: "2000-01-01T00:00:00.000Z",
+      enabled: true,
+      source: "user",
+    });
+
+    expect(store.resolveDndRules()).toMatchObject([{ ruleId: "expired-pause" }]);
+    store.close();
+  });
+
+  it("rejects malformed Bridge and support-state records before persistence", () => {
+    const store = new MessagePolicyStore(dbFile);
+    expect(() =>
+      store.ingestBatch({ ...BATCH, items: [{ ...BATCH.items[0], state: "not-a-state" as never }] }),
+    ).toThrow(/state/);
+    expect(() =>
+      store.ingestBatch({ ...BATCH, taskEvents: [{ ...BATCH.taskEvents[0], sequence: -1 }] }),
+    ).toThrow(/sequence/);
+    expect(() =>
+      store.ingestBatch({ ...BATCH, inbound: [{ ...BATCH.inbound[0], receivedAt: "not-a-timestamp" }] }),
+    ).toThrow(/receivedAt/);
+    expect(() =>
+      store.upsertDndRule({
+        ruleId: "bad-zone",
+        scope: "global",
+        scopeKey: null,
+        timeZone: "not/a-zone",
+        startMinute: null,
+        endMinute: null,
+        pausedUntil: null,
+        enabled: true,
+        source: "user",
+      }),
+    ).toThrow(/timeZone/);
+    expect(() =>
+      store.savePacingLane({
+        laneKey: "bad-lane",
+        channel: "weixin",
+        chatId: null,
+        ratePerMin: -1,
+        successCount: 0,
+        cooldownUntil: null,
+        lastSentAt: null,
+        lastCongestionReason: null,
+      }),
+    ).toThrow(/ratePerMin/);
+    expect(() =>
+      store.savePrewarm({
+        channel: "weixin",
+        warmed: true,
+        checkedAt: "2026-08-22T10:00:00.000Z",
+        expiresAt: "2026-08-22T09:59:59.000Z",
+        detail: null,
+      }),
+    ).toThrow(/expiresAt/);
+    expect(store.counts().captured).toBe(0);
+    store.close();
+  });
+
+  it("rolls back every projection write when a later SQLite write aborts", () => {
+    const store = new MessagePolicyStore(dbFile);
+    const db = new DatabaseSync(dbFile);
+    db.exec(`
+      CREATE TRIGGER abort_inbound_projection
+      BEFORE INSERT ON inbound_projection
+      BEGIN
+        SELECT RAISE(ABORT, 'forced inbound rollback');
+      END;
+    `);
+    db.close();
+
+    expect(() => store.ingestBatch(BATCH)).toThrow(/forced inbound rollback/);
+    expect(store.cursor("hermes-main")).toBe(0);
+    expect(store.messageView("m1")).toBeUndefined();
+    expect(store.taskView("run-1")).toBeUndefined();
+    store.close();
+  });
+
+  it("orders equal Bridge sequences stably across instances", () => {
+    const store = new MessagePolicyStore(dbFile);
+    store.ingestBatch(messageBatch("z-instance", "z-message"));
+    store.ingestBatch(messageBatch("a-instance", "a-message"));
+
+    expect(store.listPolicyCandidates().map((message) => message.messageId)).toEqual(["a-message", "z-message"]);
+    store.close();
   });
 });

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
+import { isOutboxState, MESSAGE_KINDS, TASK_EVENT_KINDS } from "@butler/contract";
 import type {
   InboundEnvelope,
   MessageDecision,
@@ -105,6 +106,10 @@ const ALL_OUTBOX_STATES: readonly OutboxState[] = [
   "dead_letter",
   "cancelled",
 ];
+const DECISION_STATES = new Set(["held_dnd", "held_pacing", "ready", "absorbed", "policy_error", "cancelled"]);
+const TRANSPORT_CLASSES = new Set(["queued-push", "inline-response"]);
+const MESSAGE_PRIORITIES = new Set(["urgent", "normal", "low"]);
+const DND_SCOPES = new Set(["global", "channel", "session"]);
 
 export interface ProjectedMessageView extends OutboxMessageView {
   decisionId: string | null;
@@ -193,15 +198,10 @@ export class MessagePolicyStore {
   }
 
   /** Applies an ordered Bridge delta and advances its cursor only after all projections are durable. */
-  ingestBatch(batch: OutboxChangeBatch): void {
-    if (!Number.isInteger(batch.afterSequence) || batch.afterSequence < 0) {
-      throw new Error("batch.afterSequence must be a non-negative integer");
-    }
-    if (!Number.isInteger(batch.nextSequence) || batch.nextSequence < batch.afterSequence) {
-      throw new Error("batch.nextSequence must be an integer no smaller than afterSequence");
-    }
+  ingestBatch(batch: OutboxChangeBatch, explicitInstanceId?: string): void {
+    validateBatch(batch);
 
-    const instanceId = this.resolveBatchInstanceId(batch);
+    const instanceId = this.resolveBatchInstanceId(batch, explicitInstanceId);
     if (instanceId === undefined) {
       // An empty no-op batch has no instance identifier in the protocol and changes no durable state.
       return;
@@ -252,7 +252,7 @@ export class MessagePolicyStore {
         `SELECT * FROM message_projection
          WHERE state IN ('captured', 'policy_pending', 'ready')
             OR (state IN ('held_dnd', 'held_pacing', 'retry_wait') AND available_at IS NOT NULL AND available_at <= ?)
-         ORDER BY bridge_sequence ASC`,
+         ORDER BY bridge_sequence ASC, instance_id ASC, message_id ASC`,
       )
       .all(now) as Record<string, unknown>[];
     return rows.map((row) => this.mapMessage(row));
@@ -260,6 +260,8 @@ export class MessagePolicyStore {
 
   /** Records one Bridge response and its replay identifier atomically. */
   updateRemoteView(row: OutboxMessageView, decisionId?: string): void {
+    validateOutboxMessage(row);
+    if (decisionId !== undefined) requireNonEmptyString(decisionId, "decisionId");
     this.withImmediateTransaction(() => {
       const pending = this.pendingDecision(row.messageId);
       const clearsPending = decisionId !== undefined && pending?.decisionId === decisionId;
@@ -269,6 +271,8 @@ export class MessagePolicyStore {
 
   /** Persists the exact Bridge request before the worker performs the HTTP call. */
   stageDecision(messageId: string, decision: MessageDecision): void {
+    requireNonEmptyString(messageId, "messageId");
+    validateMessageDecision(decision);
     if (decision.messageId !== messageId) {
       throw new Error(`decision messageId ${decision.messageId} does not match ${messageId}`);
     }
@@ -342,6 +346,7 @@ export class MessagePolicyStore {
   }
 
   upsertDndRule(rule: DndRuleInput): DndRule {
+    validateDndRule(rule);
     const saved: DndRule = { ...rule, updatedAt: rule.updatedAt ?? new Date().toISOString() };
     this.db
       .prepare(
@@ -374,14 +379,14 @@ export class MessagePolicyStore {
     return saved;
   }
 
-  resolveDndRules(now: string = new Date().toISOString()): DndRule[] {
+  resolveDndRules(): DndRule[] {
     const rows = this.db
       .prepare(
         `SELECT * FROM dnd_rules
-         WHERE enabled = 1 AND (paused_until IS NULL OR paused_until > ?)
+         WHERE enabled = 1
          ORDER BY CASE scope WHEN 'global' THEN 0 WHEN 'channel' THEN 1 WHEN 'session' THEN 2 ELSE 3 END, rule_id ASC`,
       )
-      .all(now) as Record<string, unknown>[];
+      .all() as Record<string, unknown>[];
     return rows.map((row) => this.mapDndRule(row));
   }
 
@@ -393,6 +398,7 @@ export class MessagePolicyStore {
   }
 
   savePacingLane(lane: PacingLaneInput): PacingLane {
+    validatePacingLane(lane);
     const saved: PacingLane = { ...lane, updatedAt: lane.updatedAt ?? new Date().toISOString() };
     this.db
       .prepare(
@@ -432,6 +438,7 @@ export class MessagePolicyStore {
   }
 
   savePrewarm(entry: PrewarmCacheEntry): PrewarmCacheEntry {
+    validatePrewarmCacheEntry(entry);
     this.db
       .prepare(
         `INSERT INTO prewarm_cache (channel, warmed, checked_at, expires_at, detail)
@@ -486,11 +493,18 @@ export class MessagePolicyStore {
     return counts;
   }
 
-  private resolveBatchInstanceId(batch: OutboxChangeBatch): string | undefined {
+  private resolveBatchInstanceId(batch: OutboxChangeBatch, explicitInstanceId?: string): string | undefined {
     const ids = new Set<string>();
     for (const item of batch.items) ids.add(item.instanceId);
     for (const inbound of batch.inbound) ids.add(inbound.instanceId);
     if (ids.size > 1) throw new Error("a Bridge batch must contain exactly one instance");
+    if (explicitInstanceId !== undefined) {
+      requireNonEmptyString(explicitInstanceId, "instanceId");
+      if (ids.size === 1 && ids.values().next().value !== explicitInstanceId) {
+        throw new Error(`explicit instanceId ${explicitInstanceId} does not match the batch envelope`);
+      }
+      return explicitInstanceId;
+    }
     if (ids.size === 1) return ids.values().next().value as string;
 
     if (batch.nextSequence === batch.afterSequence && batch.items.length === 0 && batch.taskEvents.length === 0 && batch.inbound.length === 0) {
@@ -659,4 +673,212 @@ function canonicalize(value: unknown): unknown {
     return Object.fromEntries(Object.keys(object).sort().map((key) => [key, canonicalize(object[key])]));
   }
   return value;
+}
+
+function validateBatch(batch: OutboxChangeBatch): void {
+  requireNonNegativeInteger(batch.afterSequence, "batch.afterSequence");
+  requireNonNegativeInteger(batch.nextSequence, "batch.nextSequence");
+  if (batch.nextSequence < batch.afterSequence) {
+    throw new Error("batch.nextSequence must be no smaller than batch.afterSequence");
+  }
+  if (!Array.isArray(batch.items) || !Array.isArray(batch.taskEvents) || !Array.isArray(batch.inbound)) {
+    throw new Error("batch items, taskEvents, and inbound must be arrays");
+  }
+  for (const item of batch.items) validateOutboxMessage(item);
+  for (const event of batch.taskEvents) validateTaskEvent(event);
+  for (const inbound of batch.inbound) validateInboundEnvelope(inbound);
+}
+
+function validateOutboxMessage(row: OutboxMessageView): void {
+  requireNonEmptyString(row.messageId, "messageId");
+  requireNonEmptyString(row.instanceId, "instanceId");
+  requireNonEmptyString(row.adapterId, "adapterId");
+  requireNonEmptyString(row.channel, "channel");
+  requireNonEmptyString(row.chatId, "chatId");
+  requireNonEmptyString(row.sessionId, "sessionId");
+  requireNonEmptyString(row.messageKind, "messageKind");
+  if (!(MESSAGE_KINDS as readonly string[]).includes(row.messageKind)) {
+    throw new Error(`messageKind is not supported: ${row.messageKind}`);
+  }
+  if (!TRANSPORT_CLASSES.has(row.transport)) throw new Error(`transport is not supported: ${row.transport}`);
+  if (!MESSAGE_PRIORITIES.has(row.priority)) throw new Error(`priority is not supported: ${row.priority}`);
+  requireNonEmptyString(row.content, "content");
+  requireNonEmptyString(row.contentSha256, "contentSha256");
+  requireIsoTimestamp(row.capturedAt, "capturedAt");
+  requireNonNegativeInteger(row.sequence, "sequence");
+  if (!isOutboxState(row.state)) throw new Error(`state is not supported: ${String(row.state)}`);
+  validateNullableTimestamp(row.availableAt, "availableAt");
+  requireNonNegativeInteger(row.attemptCount, "attemptCount");
+  validateNullableString(row.providerMessageId, "providerMessageId");
+  validateNullableTimestamp(row.deliveredAt, "deliveredAt");
+  validateNullableString(row.lastError, "lastError");
+  validateOptionalString(row.accountId, "accountId");
+  validateOptionalString(row.threadId, "threadId");
+  validateOptionalString(row.runId, "runId");
+  validateOptionalString(row.inboundMessageId, "inboundMessageId");
+  validateOptionalString(row.replyTo, "replyTo");
+  validateJsonObject(row.metadata, "metadata");
+  validateStringArray(row.transformTrace, "transformTrace");
+}
+
+function validateTaskEvent(event: TaskEvent): void {
+  requireNonEmptyString(event.runId, "taskEvent.runId");
+  requireNonNegativeInteger(event.sequence, "taskEvent.sequence");
+  requireNonEmptyString(event.sessionId, "taskEvent.sessionId");
+  if (!(TASK_EVENT_KINDS as readonly string[]).includes(event.kind)) {
+    throw new Error(`taskEvent.kind is not supported: ${event.kind}`);
+  }
+  requireIsoTimestamp(event.occurredAt, "taskEvent.occurredAt");
+  if (event.summary !== undefined && typeof event.summary !== "string") {
+    throw new Error("taskEvent.summary must be a string when provided");
+  }
+  if (event.etaSec !== undefined) requireFiniteNonNegative(event.etaSec, "taskEvent.etaSec");
+}
+
+function validateInboundEnvelope(inbound: InboundEnvelope): void {
+  requireNonEmptyString(inbound.inboundMessageId, "inbound.inboundMessageId");
+  requireNonEmptyString(inbound.instanceId, "inbound.instanceId");
+  requireNonEmptyString(inbound.adapterId, "inbound.adapterId");
+  requireNonEmptyString(inbound.channel, "inbound.channel");
+  requireNonEmptyString(inbound.chatId, "inbound.chatId");
+  requireNonEmptyString(inbound.content, "inbound.content");
+  requireIsoTimestamp(inbound.receivedAt, "inbound.receivedAt");
+  validateOptionalString(inbound.threadId, "inbound.threadId");
+  validateOptionalString(inbound.userId, "inbound.userId");
+  validateOptionalString(inbound.sessionId, "inbound.sessionId");
+  validateOptionalString(inbound.runId, "inbound.runId");
+}
+
+function validateMessageDecision(decision: MessageDecision): void {
+  requireNonEmptyString(decision.decisionId, "decisionId");
+  requireNonEmptyString(decision.messageId, "decision.messageId");
+  requireNonEmptyString(decision.expectedContentSha256, "decision.expectedContentSha256");
+  if (!DECISION_STATES.has(decision.state)) throw new Error(`decision.state is not supported: ${decision.state}`);
+  if (decision.availableAt !== undefined) requireIsoTimestamp(decision.availableAt, "decision.availableAt");
+  if (decision.optimizedContent !== undefined && typeof decision.optimizedContent !== "string") {
+    throw new Error("decision.optimizedContent must be a string when provided");
+  }
+  validateStringArray(decision.transformTrace, "decision.transformTrace");
+  requireNonEmptyString(decision.policyVersion, "decision.policyVersion");
+  requireNonEmptyString(decision.reason, "decision.reason");
+}
+
+function validateDndRule(rule: DndRuleInput): void {
+  requireNonEmptyString(rule.ruleId, "ruleId");
+  if (!DND_SCOPES.has(rule.scope)) throw new Error(`scope is not supported: ${rule.scope}`);
+  if (rule.scope === "global") {
+    if (rule.scopeKey !== null) throw new Error("global DND rules must use a null scopeKey");
+  } else {
+    requireNonEmptyString(rule.scopeKey, "scopeKey");
+  }
+  requireIanaTimeZone(rule.timeZone, "timeZone");
+  validateMinutePair(rule.startMinute, rule.endMinute);
+  validateNullableTimestamp(rule.pausedUntil, "pausedUntil");
+  if (typeof rule.enabled !== "boolean") throw new Error("enabled must be a boolean");
+  requireNonEmptyString(rule.source, "source");
+  if (rule.updatedAt !== undefined) requireIsoTimestamp(rule.updatedAt, "updatedAt");
+}
+
+function validatePacingLane(lane: PacingLaneInput): void {
+  requireNonEmptyString(lane.laneKey, "laneKey");
+  requireNonEmptyString(lane.channel, "channel");
+  validateNullableString(lane.chatId, "chatId");
+  requireFiniteNonNegative(lane.ratePerMin, "ratePerMin");
+  requireNonNegativeInteger(lane.successCount, "successCount");
+  validateNullableTimestamp(lane.cooldownUntil, "cooldownUntil");
+  validateNullableTimestamp(lane.lastSentAt, "lastSentAt");
+  validateNullableString(lane.lastCongestionReason, "lastCongestionReason");
+  if (lane.updatedAt !== undefined) requireIsoTimestamp(lane.updatedAt, "updatedAt");
+}
+
+function validatePrewarmCacheEntry(entry: PrewarmCacheEntry): void {
+  requireNonEmptyString(entry.channel, "channel");
+  if (typeof entry.warmed !== "boolean") throw new Error("warmed must be a boolean");
+  requireIsoTimestamp(entry.checkedAt, "checkedAt");
+  validateNullableTimestamp(entry.expiresAt, "expiresAt");
+  if (entry.expiresAt !== null && Date.parse(entry.expiresAt) < Date.parse(entry.checkedAt)) {
+    throw new Error("expiresAt must not be earlier than checkedAt");
+  }
+  validateNullableString(entry.detail, "detail");
+}
+
+function requireNonEmptyString(value: unknown, field: string): asserts value is string {
+  if (typeof value !== "string" || value.trim() === "") throw new Error(`${field} must be a non-empty string`);
+}
+
+function validateOptionalString(value: unknown, field: string): void {
+  if (value !== undefined) requireNonEmptyString(value, field);
+}
+
+function validateNullableString(value: unknown, field: string): void {
+  if (value !== null) requireNonEmptyString(value, field);
+}
+
+function requireNonNegativeInteger(value: unknown, field: string): void {
+  if (!Number.isInteger(value) || Number(value) < 0) throw new Error(`${field} must be a non-negative integer`);
+}
+
+function requireFiniteNonNegative(value: unknown, field: string): void {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new Error(`${field} must be a finite, non-negative number`);
+  }
+}
+
+function requireIsoTimestamp(value: unknown, field: string): asserts value is string {
+  requireNonEmptyString(value, field);
+  const time = Date.parse(value);
+  if (!value.endsWith("Z") || Number.isNaN(time) || new Date(time).toISOString() !== value) {
+    throw new Error(`${field} must be a canonical UTC ISO timestamp`);
+  }
+}
+
+function validateNullableTimestamp(value: unknown, field: string): void {
+  if (value !== null) requireIsoTimestamp(value, field);
+}
+
+function validateStringArray(value: unknown, field: string): void {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    throw new Error(`${field} must be an array of strings`);
+  }
+}
+
+function validateJsonObject(value: unknown, field: string): void {
+  if (!isPlainJsonObject(value) || !isJsonSafe(value)) {
+    throw new Error(`${field} must be a JSON-safe object`);
+  }
+}
+
+function isJsonSafe(value: unknown): boolean {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every(isJsonSafe);
+  if (isPlainJsonObject(value)) return Object.values(value).every(isJsonSafe);
+  return false;
+}
+
+function isPlainJsonObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function requireIanaTimeZone(value: unknown, field: string): void {
+  requireNonEmptyString(value, field);
+  try {
+    Intl.DateTimeFormat("en-US", { timeZone: value }).format();
+  } catch {
+    throw new Error(`${field} must be an IANA time zone`);
+  }
+}
+
+function validateMinutePair(startMinute: unknown, endMinute: unknown): void {
+  if (startMinute === null && endMinute === null) return;
+  if (startMinute === null || endMinute === null) {
+    throw new Error("startMinute and endMinute must both be null or both be set");
+  }
+  for (const [field, value] of [["startMinute", startMinute], ["endMinute", endMinute]] as const) {
+    if (!Number.isInteger(value) || Number(value) < 0 || Number(value) >= 24 * 60) {
+      throw new Error(`${field} must be an integer from 0 through 1439`);
+    }
+  }
 }
