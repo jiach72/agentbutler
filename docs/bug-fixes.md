@@ -1,5 +1,14 @@
 # Bug Fixes
 
+## 2026-08-22 · 策略层验证命令可能零测试空跑并错误报告成功
+
+- 问题：Task 7 原计划调用三个 package 的 `pnpm test`，但这些 package.json 没有 `test` script；命令会退出 0 且没有测试输出。此前临时 focused Vitest config 位于 `.superpowers/`，又被本地 exclude 排除，无法作为可复现验证入口。
+- 风险/影响：Contract、Hermes Adapter 或 Gateway 回归可能在未运行任何测试的情况下被误判为绿色，形成真实 Hermes 安装前的假验收。
+- 改动范围：新增受版本控制的 `vitest.focused.config.ts`；Task 7 改为显式列出三包测试文件，并要求输出非零测试计数。
+- 回归测试：显式运行 Contract、Adapter、Gateway 全部目标测试，确认 240 passed、3 个 real-smoke 按环境条件 skipped。
+- 验证命令：`./node_modules/.bin/vitest run --config vitest.focused.config.ts packages/contract/tests/*.test.ts packages/adapters/hermes/tests/*.test.ts apps/gateway/tests/*.test.ts`。
+- 部署/运行验证：不修改运行时；该修复只提高验收真实性。
+
 ## 2026-08-22 · 消息状态 API 可能回显底层 Bridge 错误中的认证信息
 
 - 问题：Task 6 初版状态路由直接返回 `MessageGatewayService.lastError`，底层 HTTP/Bridge 客户端若把认证头或 token 片段写入异常文本，会被本地 API 和 UI 原样展示。

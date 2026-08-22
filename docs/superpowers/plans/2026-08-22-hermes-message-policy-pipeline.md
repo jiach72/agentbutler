@@ -840,11 +840,11 @@ Expected: all tests pass.
 - [ ] **Step 2: Run affected package tests and builds**
 
 ~~~powershell
-wsl.exe -d Ubuntu-24.04 -- bash -lc "cd '/mnt/c/Users/jiach/Documents/Agent Butler' && corepack pnpm --filter @butler/contract test && corepack pnpm --filter @butler/adapter-hermes test && corepack pnpm --filter @butler/gateway test"
+wsl.exe -d Ubuntu-24.04 -- bash -lc "cd '/mnt/c/Users/jiach/Documents/Agent Butler' && ./node_modules/.bin/vitest run --config vitest.focused.config.ts packages/contract/tests/*.test.ts packages/adapters/hermes/tests/*.test.ts apps/gateway/tests/*.test.ts"
 wsl.exe -d Ubuntu-24.04 -- bash -lc "cd '/mnt/c/Users/jiach/Documents/Agent Butler' && corepack pnpm --filter @butler/contract exec tsc -p tsconfig.json --noEmit && corepack pnpm --filter @butler/adapter-hermes exec tsc -p tsconfig.json --noEmit && corepack pnpm --filter @butler/gateway exec tsc -p tsconfig.json --noEmit"
 ~~~
 
-Expected: exit 0.
+Expected: explicit Vitest output with non-zero discovered test counts and exit 0; all three TypeScript checks exit 0. Package-level `pnpm test` is not accepted as evidence unless the package manifests define a real test script.
 
 - [ ] **Step 3: Run affected-file lint and hygiene checks**
 
