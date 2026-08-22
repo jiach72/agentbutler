@@ -1,7 +1,7 @@
 # Hermes 消息数据面接管设计
 
 - 日期：2026-08-22
-- 状态：书面规格待用户复核
+- 状态：用户已于 2026-08-22 确认，进入实施
 - 适用项目：Agent Butler V1 / WSL Hermes
 - 目标实例：`/home/jiach/.hermes/hermes-agent`
 
