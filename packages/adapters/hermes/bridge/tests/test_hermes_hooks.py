@@ -147,6 +147,10 @@ class HermesHooksTest(unittest.IsolatedAsyncioTestCase):
             self.runtime.registry.attached_adapter_ids(),
             ["weixin:personal:wx-main", "weixin:work:wx-main"],
         )
+        coverage = self.runtime.coverage_snapshot()
+        self.assertEqual(coverage["queuedSend"], "ok")
+        self.assertEqual(coverage["edit"], "degraded")
+        self.assertEqual(coverage["media"], "ok")
         message_id = queued.message_id.removeprefix("butler:")
         assert self.runtime.outbox is not None
         row = self.runtime.outbox.get(message_id)

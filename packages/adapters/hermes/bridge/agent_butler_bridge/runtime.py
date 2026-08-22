@@ -22,6 +22,20 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8754
 MAX_TOKEN_BYTES = 4096
 TRUE_VALUES = {"1", "true", "yes", "on"}
+REQUIRED_RUNTIME_COVERAGE = (
+    "runtime",
+    "adapterAttach",
+    "inbound",
+    "runLifecycle",
+    "progress",
+    "queuedSend",
+    "apiJson",
+    "apiSse",
+    "a2aWaiter",
+    "a2aPush",
+    "edit",
+    "media",
+)
 
 
 @dataclass(frozen=True)
@@ -171,11 +185,20 @@ class BridgeRuntime:
     def coverage_snapshot(self) -> dict[str, str]:
         registry = self.registry
         attached = registry is not None and bool(registry.attached_channels())
-        return {
-            "runtime": "ok" if self.started else "starting",
-            "adapterAttach": "ok" if attached else "pending",
-            **dict(sorted(self._coverage.items())),
+        dynamic = dict(sorted(self._coverage.items()))
+        coverage = {
+            key: dynamic.get(key, "pending") for key in REQUIRED_RUNTIME_COVERAGE
         }
+        coverage.update(
+            {
+                "runtime": "ok" if self.started else "starting",
+                "adapterAttach": "ok" if attached else "pending",
+                "queuedSend": _aggregate_coverage(dynamic, "queuedSend:"),
+                "edit": _aggregate_coverage(dynamic, "edit:"),
+                "media": _aggregate_coverage(dynamic, "mediaDirect:"),
+            }
+        )
+        return {**dynamic, **coverage}
 
     def record_coverage(self, key: str, status: str) -> None:
         if not isinstance(key, str) or not key:
@@ -311,3 +334,16 @@ def _utc_now() -> str:
     from datetime import datetime, timezone
 
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def _aggregate_coverage(coverage: dict[str, str], prefix: str) -> str:
+    statuses = [status for key, status in coverage.items() if key.startswith(prefix)]
+    if not statuses:
+        return "pending"
+    if "unavailable" in statuses:
+        return "unavailable"
+    if "degraded" in statuses:
+        return "degraded"
+    if "pending" in statuses:
+        return "pending"
+    return "ok"

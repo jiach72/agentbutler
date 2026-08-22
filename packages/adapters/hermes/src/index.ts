@@ -29,7 +29,7 @@ export type HermesAdapterOptions = HermesControlOptions & {
 };
 
 /**
- * 组装 Hermes 适配器（manifest + 只读发现面 + L2 控制面 + I-4 只读格式驱动）。
+ * 组装 Hermes 适配器（manifest + 只读发现面 + L2 控制面 + 探针驱动 L3 消息面 + I-4 只读格式驱动）。
  * discovery 三方法均为无副作用观察；control 按 runtime 分派双执行器，
  * 常规控制幂等、长操作同步收敛为终态 Job。
  */
@@ -48,7 +48,15 @@ export function createHermesAdapter(options: HermesAdapterOptions = {}): Adapter
           },
         );
       }
-      return capabilityScan(rootPath);
+      return capabilityScan(rootPath, {
+        messaging: {
+          instanceId: ref.instanceId,
+          bridgeUrl: options.messaging?.bridgeUrl,
+          bridgeToken: options.messaging?.bridgeToken,
+          fetchImpl: options.messaging?.fetchImpl,
+          timeoutMs: options.messaging?.timeoutMs,
+        },
+      });
     },
     logSources: (ref) => {
       const rootPath = rootPathFromRef(ref);
@@ -101,8 +109,12 @@ export { logSources } from "./log-sources.js";
 export {
   BridgeHttpError,
   HermesBridgeClient,
+  REQUIRED_MESSAGING_COVERAGE,
   createHermesMessaging,
+  probeHermesMessagingCapability,
   type HermesBridgeClientOptions,
+  type HermesMessagingCapabilityOptions,
+  type HermesMessagingCapabilityResult,
   type HermesMessagingOptions,
 } from "./messaging/index.js";
 export {

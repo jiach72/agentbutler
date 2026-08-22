@@ -739,6 +739,9 @@ def attach_runtime_adapter(
         selected_runtime.record_coverage(
             "a2aPush", "ok" if callable(push_hook) else "degraded"
         )
+        selected_runtime.record_coverage(
+            f"queuedSend:{adapter_id}", "ok" if callable(push_hook) else "degraded"
+        )
         return binding
 
     binding = attach_adapter(
@@ -751,11 +754,18 @@ def attach_runtime_adapter(
         wrap_media=True,
     )
     selected_runtime.record_coverage(f"adapter:{adapter_id}", "ok")
+    selected_runtime.record_coverage(f"queuedSend:{adapter_id}", "ok")
+    selected_runtime.record_coverage(
+        f"edit:{adapter_id}", "ok" if binding.original_edit is not None else "degraded"
+    )
     unsupported = [
         name for name in UNSUPPORTED_DIRECT_MEDIA if callable(getattr(adapter, name, None))
     ]
+    media_status = (
+        "degraded" if unsupported else "ok" if binding.original_media else "pending"
+    )
     selected_runtime.record_coverage(
-        f"mediaDirect:{adapter_id}", "degraded" if unsupported else "ok"
+        f"mediaDirect:{adapter_id}", media_status
     )
     return binding
 

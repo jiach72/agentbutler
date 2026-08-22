@@ -1,0 +1,20 @@
+{
+  "frameworkId": "hermes",
+  "displayName": "Hermes",
+  "contractVersion": "1.x",
+  "adapterVersion": "0.1.0",
+  "declaredLevel": 3,
+  "capabilities": [
+    "probe",
+    "control",
+    "messaging",
+    "skill-driver",
+    "memory-driver",
+    "config-driver"
+  ],
+  "drivers": [
+    { "kind": "skill", "id": "hermes-skill" },
+    { "kind": "memory", "id": "sqlite-fts5" },
+    { "kind": "config", "id": "env-based" }
+  ]
+}

@@ -208,3 +208,12 @@
 - 回归测试：`message-reconciler.test.ts` 覆盖 in-flight 超时与二次停止；`message-runtime.test.ts` 覆盖并发 start/stop 单 owner、策略先安装、启动回滚、私有 token 文件、投影重启保持和真实 Gateway HTTP 注入。
 - 验证命令：Gateway `tests/message-*.test.ts`（54 tests）、`tsc -p tsconfig.json --noEmit`、涉及文件 ESLint/Prettier、`git diff --check`。
 - 部署/运行验证：本条仅覆盖本地测试 runtime；真实 WSL Hermes 的安装、服务重启和消息投递仍须通过 Task 7/8 门禁后执行。
+
+## 2026-08-22 · Hermes 消息能力被静态写死且无法由真实覆盖证据升级
+
+- 问题：Hermes manifest 和 capability scan 仍把 messaging 固定为 `not-implemented`；同时 Bridge 健康响应虽有动态 coverage，却没有稳定的 `queuedSend/edit/media` 汇总行，导致受管 Bridge 即使安装也无法用统一证据证明 L3。
+- 风险/影响：UI 会继续显示消息接管未实现，或在只验证端口/声明的情况下误报可用；畸形健康 JSON 还可能让整个能力扫描抛错。
+- 改动范围：manifest 声明可探测的 L3 messaging，实际 effective level 仍由认证 Bridge 的协议、实例、Outbox、策略、通道和 12 项运行时覆盖矩阵共同决定；无配置保持 L2/unavailable，任一缺口为 degraded，完整实时证据才升到 L3。Bridge 对 adapter 级 queued/edit/media 状态做保守聚合，远端错误与畸形载荷固定脱敏降级。
+- 回归测试：新增 `messaging-capability.test.ts` 覆盖无配置、部分配置、不可达、鉴权、协议、实例、只读 Outbox、无 adapter、无策略、通道降级、覆盖缺口、畸形 JSON、完整 L3 与 adapter discovery wiring；Bridge runtime/hooks 测试覆盖汇总矩阵。
+- 验证命令：Contract/Adapter TypeScript、Hermes adapter Vitest、Bridge 全量 unittest/compileall、ESLint/Prettier、`git diff --check`。
+- 部署/运行验证：本条尚未安装到真实 Hermes；真实状态在 Task 8 安装并运行 coverage/health probe 前必须保持 unavailable 或 degraded，不得宣称 L3 已正常工作。

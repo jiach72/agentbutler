@@ -86,6 +86,9 @@ class RuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(body["policyVersion"])
         self.assertEqual(body["coverage"]["runtime"], "ok")
         self.assertEqual(body["coverage"]["adapterAttach"], "pending")
+        self.assertEqual(body["coverage"]["queuedSend"], "pending")
+        self.assertEqual(body["coverage"]["edit"], "pending")
+        self.assertEqual(body["coverage"]["media"], "pending")
         self.assertNotIn(TOKEN, str(body))
 
         await self.runtime.stop()

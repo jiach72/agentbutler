@@ -94,6 +94,9 @@ export interface BridgeHealth {
   outboxWritable: boolean;
   policyVersion: string | null;
   channels: Record<ChannelId, "ok" | "degraded" | "unavailable">;
+  /** Runtime-observed path coverage. Optional for backward-compatible Bridge v1 peers. */
+  coverage?: Record<string, "ok" | "degraded" | "unavailable" | "pending">;
+  startedAt?: string | null;
 }
 
 export interface PolicySnapshot {
