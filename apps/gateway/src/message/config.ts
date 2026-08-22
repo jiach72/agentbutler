@@ -97,6 +97,10 @@ function validateChannelPolicy(channelId: ChannelId, policy: ChannelPolicy): voi
 }
 
 export function validateMessagePolicy(config: MessagePolicyConfig): void {
+  if (config.inlineResponse !== "allow") {
+    throw new Error('inlineResponse must be exactly "allow"');
+  }
+
   for (const [field, value] of CONFIG_NUMBERS(config)) {
     if (!Number.isFinite(value) || value < 0) {
       throw new Error(`${field} must be a finite, non-negative number`);
