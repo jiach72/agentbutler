@@ -264,4 +264,41 @@ describe("MessageGatewayService", () => {
     service.stop(); service.stop();
     expect(clear).toHaveBeenCalledTimes(1);
   });
+
+  it("wakes reconciliation on demand and detaches its live config from caller mutations", async () => {
+    let scheduled: (() => void) | undefined;
+    const mutable = structuredClone(DEFAULT_MESSAGE_POLICY);
+    const service = new MessageGatewayService({
+      adapter,
+      instance: INSTANCE,
+      store,
+      config: mutable,
+      clock: () => new Date(NOW),
+      scheduler: { setInterval: (fn) => { scheduled = fn; return 1; }, clearInterval: () => undefined },
+      randomUUID: () => "attempt-1",
+    });
+
+    mutable.digest.windowSec = 999;
+    await service.start();
+    expect((adapter.policies.at(-1)?.payload.digest as { windowSec: number }).windowSec).toBe(
+      DEFAULT_MESSAGE_POLICY.digest.windowSec,
+    );
+
+    const replacement = structuredClone(DEFAULT_MESSAGE_POLICY);
+    replacement.digest.windowSec = 180;
+    const installed = await service.updatePolicy(replacement);
+    replacement.digest.windowSec = 999;
+    (installed.payload.digest as { windowSec: number }).windowSec = 777;
+    service.stop();
+    await service.start();
+    expect((adapter.policies.at(-1)?.payload.digest as { windowSec: number }).windowSec).toBe(180);
+
+    const callsBeforeWake = adapter.calls.filter((call) => call === "listChanges").length;
+    service.wake();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(adapter.calls.filter((call) => call === "listChanges")).toHaveLength(callsBeforeWake + 1);
+
+    scheduled?.();
+    service.stop();
+  });
 });

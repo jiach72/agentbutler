@@ -49,7 +49,7 @@ export class MessageGatewayService {
     this.intervalMs = options.intervalMs ?? 1_000;
     this.clock = options.clock ?? (() => new Date());
     this.scheduler = options.scheduler ?? { setInterval, clearInterval };
-    this.config = options.config;
+    this.config = policyConfigFromSnapshot(createPolicySnapshot(options.config));
   }
 
   async start(): Promise<void> {
@@ -69,6 +69,10 @@ export class MessageGatewayService {
     }
   }
 
+  wake(): void {
+    void this.runCycle();
+  }
+
   async updatePolicy(config: MessagePolicyConfig): Promise<PolicySnapshot> {
     const snapshot = createPolicySnapshot(config);
     const result = await this.options.adapter.updatePolicy(this.options.instance, snapshot);
@@ -79,7 +83,7 @@ export class MessageGatewayService {
       throw new Error("policy install failed: Bridge acknowledged a different policy snapshot");
     }
     const stored = this.options.store.savePolicy(snapshot);
-    this.config = config;
+    this.config = policyConfigFromSnapshot(stored);
     this.bridgeConnected = true;
     return stored;
   }
@@ -127,4 +131,8 @@ export class MessageGatewayService {
       this.inFlight = false;
     }
   }
+}
+
+function policyConfigFromSnapshot(snapshot: PolicySnapshot): MessagePolicyConfig {
+  return structuredClone(snapshot.payload) as unknown as MessagePolicyConfig;
 }

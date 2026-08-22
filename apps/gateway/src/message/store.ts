@@ -421,6 +421,21 @@ export class MessagePolicyStore {
     return rows.map((row) => this.mapDndRule(row));
   }
 
+  listDndRules(): DndRule[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM dnd_rules
+         ORDER BY CASE scope WHEN 'global' THEN 0 WHEN 'channel' THEN 1 WHEN 'session' THEN 2 ELSE 3 END, rule_id ASC`,
+      )
+      .all() as Record<string, unknown>[];
+    return rows.map((row) => this.mapDndRule(row));
+  }
+
+  deleteDndRule(ruleId: string): boolean {
+    requireNonEmptyString(ruleId, "ruleId");
+    return Number(this.db.prepare("DELETE FROM dnd_rules WHERE rule_id = ?").run(ruleId).changes) === 1;
+  }
+
   getPacingLane(laneKey: string): PacingLane | undefined {
     const row = this.db.prepare("SELECT * FROM pacing_lanes WHERE lane_key = ?").get(laneKey) as
       | Record<string, unknown>
@@ -510,6 +525,20 @@ export class MessagePolicyStore {
       | Record<string, unknown>
       | undefined;
     return row === undefined ? undefined : this.mapMessage(row);
+  }
+
+  listMessages(limit: number, state?: OutboxState): ProjectedMessageView[] {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 200) {
+      throw new Error("message limit must be an integer from 1 through 200");
+    }
+    const statement = this.db.prepare(
+      `SELECT * FROM message_projection
+       ${state === undefined ? "" : "WHERE state = ?"}
+       ORDER BY bridge_sequence DESC, instance_id ASC, message_id ASC
+       LIMIT ?`,
+    );
+    const rows = (state === undefined ? statement.all(limit) : statement.all(state, limit)) as Record<string, unknown>[];
+    return rows.map((row) => this.mapMessage(row));
   }
 
   counts(): Record<OutboxState, number> {

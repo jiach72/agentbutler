@@ -1,5 +1,14 @@
 # Bug Fixes
 
+## 2026-08-22 · 消息状态 API 可能回显底层 Bridge 错误中的认证信息
+
+- 问题：Task 6 初版状态路由直接返回 `MessageGatewayService.lastError`，底层 HTTP/Bridge 客户端若把认证头或 token 片段写入异常文本，会被本地 API 和 UI 原样展示。
+- 风险/影响：在 Gateway 被误绑定到非 localhost、浏览器调试日志被收集或多人共享机器时，可能泄露 Bridge bearer token 等敏感信息。
+- 改动范围：公开状态只返回稳定的 `Hermes Bridge unavailable` 摘要；503 E302/E303 同样使用固定错误文本，内部 hint 和策略接口不返回底层异常。
+- 回归测试：注入包含 `Authorization: Bearer` 的 worker 错误，验证 200 degraded 状态和 503 响应均不包含秘密片段。
+- 验证命令：Gateway HTTP 测试、Gateway TypeScript 检查、受影响 ESLint 与 `git diff --check`。
+- 部署/运行验证：当前仅 Fastify inject；真实 Bridge 网络故障脱敏将在 runtime integration 阶段复验。
+
 ## 2026-08-22 · 消息 worker 可能跨 Hermes 实例投递并错误处理空 runId
 
 - 问题：Reconciler 从全局策略候选中直接取首条，未限定当前 `instanceId`；同时 Bridge 兼容载荷中的 `runId: null` 会进入进度聚合路径，可能跨无 run 消息聚合并在渲染摘要时调用 `null.slice()`。策略快照还保留调用方对象引用，安装后外部修改可让运行配置与已确认 hash 脱节。
