@@ -214,16 +214,22 @@ class OutboxTest(unittest.TestCase):
         self.assertEqual(replay["state"], "ready")
         self.assertEqual(replay["transformTrace"], ["ready"])
 
-    def test_startup_migrates_decision_id_for_existing_outbox(self) -> None:
+    def test_startup_migrates_runtime_columns_for_existing_outbox(self) -> None:
         self.outbox.close()
         legacy = sqlite3.connect(self.db_path)
-        legacy.executescript(DDL.replace("  decision_id TEXT,\n", ""))
+        legacy.executescript(
+            DDL.replace("  decision_id TEXT,\n", "").replace(
+                "  delivery_route_json TEXT,\n", ""
+            )
+        )
         legacy.close()
 
         self.outbox = Outbox(self.db_path)
 
         columns = self.outbox._conn.execute("PRAGMA table_info(outbound_messages)").fetchall()
-        self.assertIn("decision_id", {column[1] for column in columns})
+        column_names = {column[1] for column in columns}
+        self.assertIn("decision_id", column_names)
+        self.assertIn("delivery_route_json", column_names)
 
     def test_startup_migrates_legacy_task_events_and_backfills_run(self) -> None:
         self.outbox.close()

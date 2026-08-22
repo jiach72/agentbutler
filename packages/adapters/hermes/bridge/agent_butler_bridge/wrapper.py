@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import inspect
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Mapping
 
-from .context import current_message_context
+from .context import current_message_context, native_delivery_active, native_delivery_scope
 from .ids import uuid7
 from .registry import AdapterBinding, NativeRegistry
+from .registry import CaptureFilter, DeliveryOverride, TransportResolver
 from .spool import AttachmentSpool
 
 
@@ -95,11 +98,10 @@ def _build_envelope(
 ) -> dict[str, Any]:
     context = current_message_context()
     text = str(content)
-    transport = _control_string(
-        metadata,
-        "butler_transport",
-        context.transport or binding.default_transport,
-    )
+    transport = _control_string(metadata, "butler_transport")
+    if transport is None and binding.transport_resolver is not None:
+        transport = binding.transport_resolver(chat_id, content, reply_to, metadata)
+    transport = transport or context.transport or binding.default_transport
     if transport not in {"queued-push", "inline-response"}:
         raise ValueError("invalid butler_transport")
     message_kind = _control_string(
@@ -160,9 +162,15 @@ def attach_adapter(
     channel: str,
     account_id: str | None = None,
     default_transport: str = "queued-push",
+    transport_resolver: TransportResolver | None = None,
+    capture_filter: CaptureFilter | None = None,
+    delivery_override: DeliveryOverride | None = None,
+    wrap_media: bool = True,
 ) -> AdapterBinding:
     existing = registry.binding_for(adapter)
     if existing is not None:
+        if existing.adapter_id != adapter_id or existing.channel != channel:
+            raise ValueError("adapter object is already attached with different identity")
         return existing
 
     binding = registry.attach(
@@ -171,10 +179,29 @@ def attach_adapter(
         channel=channel,
         account_id=account_id,
         default_transport=default_transport,
+        transport_resolver=transport_resolver,
+        capture_filter=capture_filter,
+        delivery_override=delivery_override,
     )
 
     async def managed_send(chat_id, content, reply_to=None, metadata=None):
         raw_metadata = metadata if isinstance(metadata, Mapping) else {}
+        if native_delivery_active():
+            return await binding.original_send(
+                chat_id,
+                content,
+                reply_to=reply_to,
+                metadata=metadata,
+            )
+        if binding.capture_filter is not None and not binding.capture_filter(
+            str(chat_id), content, reply_to, raw_metadata
+        ):
+            return await binding.original_send(
+                chat_id,
+                content,
+                reply_to=reply_to,
+                metadata=metadata,
+            )
         envelope = _build_envelope(
             binding,
             registry,
@@ -230,12 +257,13 @@ def attach_adapter(
             allow_captured=True,
         )
         try:
-            result = await binding.original_send(
-                chat_id,
-                content,
-                reply_to=reply_to,
-                metadata=metadata,
-            )
+            with native_delivery_scope():
+                result = await binding.original_send(
+                    chat_id,
+                    content,
+                    reply_to=reply_to,
+                    metadata=metadata,
+                )
         except asyncio.CancelledError as exc:
             registry.outbox.mark_unknown(
                 envelope["messageId"], attempt_id, str(exc) or "inline delivery cancelled"
@@ -259,6 +287,9 @@ def attach_adapter(
         return result
 
     adapter.send = managed_send
+
+    if wrap_media:
+        _wrap_media_methods(adapter, binding, registry)
 
     if binding.original_edit is not None:
 
@@ -290,3 +321,128 @@ def attach_adapter(
         adapter.edit_message = managed_edit
 
     return binding
+
+
+MEDIA_PATH_ARGUMENTS = {
+    "send_image_file": "image_path",
+    "send_document": "file_path",
+    "send_video": "video_path",
+    "send_voice": "audio_path",
+}
+
+
+def _wrap_media_methods(
+    adapter: Any,
+    binding: AdapterBinding,
+    registry: NativeRegistry,
+) -> None:
+    for method_name, original in binding.original_media.items():
+        path_argument = MEDIA_PATH_ARGUMENTS.get(method_name)
+        if path_argument is None:
+            continue
+
+        async def managed_media(
+            *args,
+            _method_name=method_name,
+            _original=original,
+            _path_argument=path_argument,
+            **kwargs,
+        ):
+            if native_delivery_active():
+                return await _original(*args, **kwargs)
+            bound = inspect.signature(_original).bind_partial(*args, **kwargs)
+            chat_id = bound.arguments.get("chat_id")
+            source_path = bound.arguments.get(_path_argument)
+            if chat_id is None or not isinstance(source_path, (str, bytes)):
+                raise ValueError(f"{_method_name} requires chat_id and {_path_argument}")
+            if isinstance(source_path, bytes):
+                source_path = source_path.decode("utf-8")
+            caption = bound.arguments.get("caption")
+            if caption is not None and not isinstance(caption, str):
+                caption = str(caption)
+            reply_to = bound.arguments.get("reply_to")
+            metadata = bound.arguments.get("metadata")
+            raw_metadata = metadata if isinstance(metadata, Mapping) else {}
+            file_name = bound.arguments.get("file_name")
+            if file_name is not None and not isinstance(file_name, str):
+                file_name = str(file_name)
+            display_content = caption or f"[attachment: {Path(source_path).name}]"
+            envelope = _build_envelope(
+                binding,
+                registry,
+                chat_id=chat_id,
+                content=display_content,
+                reply_to=reply_to,
+                metadata=raw_metadata,
+            )
+            spool = AttachmentSpool(registry.outbox.db_path.parent / "spool")
+            staged = spool.stage(envelope["messageId"], [source_path])
+            envelope["attachments"] = staged
+            envelope["deliveryRoute"] = {
+                "kind": "media",
+                "method": _method_name,
+                "attachmentId": staged[0]["attachmentId"],
+                "hasCaption": caption is not None,
+                "fileName": file_name,
+            }
+            try:
+                registry.outbox.capture(envelope)
+            except BaseException:
+                spool.cleanup(envelope["messageId"])
+                raise
+
+            if envelope["transport"] == "queued-push":
+                return _send_result(
+                    success=True,
+                    message_id=f"butler:{envelope['messageId']}",
+                )
+
+            policy = registry.outbox.get_policy_snapshot()
+            if policy is None or policy["payload"].get("inlineResponse") != "allow":
+                registry.outbox.apply_decision(
+                    envelope["messageId"],
+                    f"inline:{envelope['messageId']}:policy-unavailable",
+                    envelope["contentSha256"],
+                    "policy_error",
+                    None,
+                    [],
+                    "unavailable",
+                    "Agent Butler policy snapshot unavailable",
+                )
+                return _send_result(
+                    success=False,
+                    error="Agent Butler policy snapshot unavailable",
+                )
+            attempt_id = f"inline:{envelope['messageId']}"
+            registry.outbox.begin_delivery(
+                envelope["messageId"],
+                attempt_id,
+                envelope["contentSha256"],
+                allow_captured=True,
+            )
+            try:
+                with native_delivery_scope():
+                    result = await _original(*args, **kwargs)
+            except asyncio.CancelledError as exc:
+                registry.outbox.mark_unknown(
+                    envelope["messageId"], attempt_id, str(exc) or "inline delivery cancelled"
+                )
+                raise
+            except Exception as exc:
+                registry.outbox.mark_unknown(envelope["messageId"], attempt_id, str(exc))
+                raise
+            if bool(getattr(result, "success", False)):
+                registry.outbox.finish_delivery(
+                    envelope["messageId"],
+                    attempt_id,
+                    getattr(result, "message_id", None),
+                )
+            else:
+                registry.outbox.mark_retry(
+                    envelope["messageId"],
+                    attempt_id,
+                    str(getattr(result, "error", None) or "native media send failed"),
+                )
+            return result
+
+        setattr(adapter, method_name, managed_media)

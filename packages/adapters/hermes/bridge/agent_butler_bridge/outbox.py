@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS outbound_messages (
   content_sha256 TEXT NOT NULL,
   reply_to TEXT,
   metadata_json TEXT NOT NULL,
+  delivery_route_json TEXT,
   state TEXT NOT NULL,
   available_at TEXT,
   attempt_count INTEGER NOT NULL DEFAULT 0,
@@ -308,6 +309,8 @@ class Outbox:
         }
         if "decision_id" not in columns:
             self._conn.execute("ALTER TABLE outbound_messages ADD COLUMN decision_id TEXT")
+        if "delivery_route_json" not in columns:
+            self._conn.execute("ALTER TABLE outbound_messages ADD COLUMN delivery_route_json TEXT")
         self._conn.execute(
             """CREATE UNIQUE INDEX IF NOT EXISTS idx_outbound_decision_id
                ON outbound_messages(decision_id)
@@ -420,6 +423,10 @@ class Outbox:
         if len(metadata_json.encode("utf-8")) > MAX_METADATA_BYTES:
             raise ValueError("metadata exceeds maximum size")
         attachments = self._validate_attachments(envelope.get("attachments", []))
+        delivery_route = self._validate_delivery_route(envelope.get("deliveryRoute"))
+        delivery_route_json = (
+            None if delivery_route is None else _canonical_json(delivery_route)
+        )
 
         with self._transaction():
             existing = self._conn.execute(
@@ -437,8 +444,9 @@ class Outbox:
                      message_id, sequence, instance_id, adapter_id, channel, account_id,
                      chat_id, thread_id, session_id, run_id, inbound_message_id,
                      message_kind, transport, priority, content, content_sha256,
-                     reply_to, metadata_json, state, captured_at, updated_at
-                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                     reply_to, metadata_json, delivery_route_json, state,
+                     captured_at, updated_at
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                              'captured', ?, ?)""",
                 (
                     message_id,
@@ -459,6 +467,7 @@ class Outbox:
                     expected_hash,
                     envelope.get("replyTo"),
                     metadata_json,
+                    delivery_route_json,
                     required["capturedAt"],
                     now,
                 ),
@@ -493,6 +502,20 @@ class Outbox:
                 "SELECT * FROM outbound_messages WHERE message_id = ?", (message_id,)
             ).fetchone()
             return None if row is None else self._message_from_row(row)
+
+    def get_delivery(self, message_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            self._ensure_open()
+            row = self._conn.execute(
+                "SELECT * FROM outbound_messages WHERE message_id = ?", (message_id,)
+            ).fetchone()
+            if row is None:
+                return None
+            view = self._message_from_row(row)
+            raw_route = row["delivery_route_json"]
+            view["_deliveryRoute"] = None if raw_route is None else json.loads(raw_route)
+            view["_attachments"] = self.attachments_for(message_id, include_paths=True)
+            return view
 
     def attachments_for(
         self, message_id: str, *, include_paths: bool = False
@@ -563,6 +586,40 @@ class Outbox:
                 }
             )
         return validated
+
+    @staticmethod
+    def _validate_delivery_route(value: Any) -> dict[str, Any] | None:
+        if value is None:
+            return None
+        if not isinstance(value, Mapping):
+            raise ValueError("deliveryRoute must be an object")
+        route = dict(value)
+        if route.get("kind") != "media":
+            raise ValueError("unsupported deliveryRoute kind")
+        method = route.get("method")
+        if method not in {
+            "send_image_file",
+            "send_document",
+            "send_video",
+            "send_voice",
+        }:
+            raise ValueError("unsupported media delivery method")
+        attachment_id = route.get("attachmentId")
+        if not isinstance(attachment_id, str) or not attachment_id:
+            raise ValueError("deliveryRoute attachmentId must be a non-empty string")
+        has_caption = route.get("hasCaption")
+        if not isinstance(has_caption, bool):
+            raise ValueError("deliveryRoute hasCaption must be boolean")
+        file_name = route.get("fileName")
+        if file_name is not None and (not isinstance(file_name, str) or not file_name):
+            raise ValueError("deliveryRoute fileName must be a non-empty string or null")
+        return {
+            "kind": "media",
+            "method": method,
+            "attachmentId": attachment_id,
+            "hasCaption": has_caption,
+            "fileName": file_name,
+        }
 
     def is_writable(self) -> bool:
         try:

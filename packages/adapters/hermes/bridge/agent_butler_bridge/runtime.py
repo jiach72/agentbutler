@@ -72,6 +72,7 @@ class BridgeRuntime:
         self._site: web.TCPSite | None = None
         self._bound_port: int | None = None
         self._started_at: str | None = None
+        self._coverage: dict[str, str] = {}
         self._lifecycle_lock = asyncio.Lock()
 
     @property
@@ -138,12 +139,7 @@ class BridgeRuntime:
         async with self._lifecycle_lock:
             runner = self._runner
             outbox = self.outbox
-            self._runner = None
-            self._site = None
-            self._bound_port = None
-            self._started_at = None
-            self.registry = None
-            self.outbox = None
+            self._reset()
             try:
                 if runner is not None:
                     await runner.cleanup()
@@ -178,7 +174,15 @@ class BridgeRuntime:
         return {
             "runtime": "ok" if self.started else "starting",
             "adapterAttach": "ok" if attached else "pending",
+            **dict(sorted(self._coverage.items())),
         }
+
+    def record_coverage(self, key: str, status: str) -> None:
+        if not isinstance(key, str) or not key:
+            raise ValueError("coverage key must be a non-empty string")
+        if status not in {"ok", "degraded", "unavailable", "pending"}:
+            raise ValueError("invalid coverage status")
+        self._coverage[key] = status
 
     def _reset(self) -> None:
         self.outbox = None
@@ -187,6 +191,7 @@ class BridgeRuntime:
         self._site = None
         self._bound_port = None
         self._started_at = None
+        self._coverage.clear()
 
 
 _process_runtime: BridgeRuntime | None = None

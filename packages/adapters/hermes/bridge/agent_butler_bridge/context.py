@@ -28,10 +28,18 @@ _CURRENT_CONTEXT: ContextVar[MessageContext] = ContextVar(
     "agent_butler_message_context",
     default=MessageContext(),
 )
+_NATIVE_DELIVERY: ContextVar[bool] = ContextVar(
+    "agent_butler_native_delivery",
+    default=False,
+)
 
 
 def current_message_context() -> MessageContext:
     return _CURRENT_CONTEXT.get()
+
+
+def native_delivery_active() -> bool:
+    return _NATIVE_DELIVERY.get()
 
 
 @contextmanager
@@ -48,3 +56,12 @@ def message_context(**updates: str | None) -> Iterator[MessageContext]:
         yield merged
     finally:
         _CURRENT_CONTEXT.reset(token)
+
+
+@contextmanager
+def native_delivery_scope() -> Iterator[None]:
+    token = _NATIVE_DELIVERY.set(True)
+    try:
+        yield
+    finally:
+        _NATIVE_DELIVERY.reset(token)

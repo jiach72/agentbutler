@@ -3,16 +3,27 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Mapping
 from weakref import WeakKeyDictionary
 
 from .outbox import Outbox
+from .context import native_delivery_scope
 
 
 SendCallable = Callable[..., Awaitable[Any]]
 EditCallable = Callable[..., Awaitable[Any]]
+TransportResolver = Callable[[str, Any, Any, Mapping[str, Any]], str]
+CaptureFilter = Callable[[str, Any, Any, Mapping[str, Any]], bool]
+DeliveryOverride = Callable[[dict[str, Any]], Awaitable[Any] | Any]
+MEDIA_METHODS = (
+    "send_image_file",
+    "send_document",
+    "send_video",
+    "send_voice",
+)
 
 
 @dataclass
@@ -24,6 +35,10 @@ class AdapterBinding:
     default_transport: str
     original_send: SendCallable
     original_edit: EditCallable | None
+    original_media: dict[str, SendCallable]
+    transport_resolver: TransportResolver | None
+    capture_filter: CaptureFilter | None
+    delivery_override: DeliveryOverride | None
 
 
 class NativeRegistry:
@@ -41,6 +56,9 @@ class NativeRegistry:
     def attached_channels(self) -> dict[str, str]:
         return {binding.channel: "ok" for binding in self._by_adapter_id.values()}
 
+    def attached_adapter_ids(self) -> list[str]:
+        return sorted(self._by_adapter_id)
+
     def attach(
         self,
         adapter: Any,
@@ -49,9 +67,14 @@ class NativeRegistry:
         channel: str,
         account_id: str | None = None,
         default_transport: str = "queued-push",
+        transport_resolver: TransportResolver | None = None,
+        capture_filter: CaptureFilter | None = None,
+        delivery_override: DeliveryOverride | None = None,
     ) -> AdapterBinding:
         existing = self.binding_for(adapter)
         if existing is not None:
+            if existing.adapter_id != adapter_id or existing.channel != channel:
+                raise ValueError("adapter object is already attached with different identity")
             return existing
         if default_transport not in {"queued-push", "inline-response"}:
             raise ValueError("default_transport must be queued-push or inline-response")
@@ -59,6 +82,11 @@ class NativeRegistry:
         if not callable(original_send):
             raise TypeError("adapter.send must be callable")
         original_edit = getattr(adapter, "edit_message", None)
+        original_media = {
+            method: candidate
+            for method in MEDIA_METHODS
+            if callable(candidate := getattr(adapter, method, None))
+        }
         binding = AdapterBinding(
             adapter=adapter,
             adapter_id=adapter_id,
@@ -67,6 +95,10 @@ class NativeRegistry:
             default_transport=default_transport,
             original_send=original_send,
             original_edit=original_edit if callable(original_edit) else None,
+            original_media=original_media,
+            transport_resolver=transport_resolver,
+            capture_filter=capture_filter,
+            delivery_override=delivery_override,
         )
         self._by_instance[adapter] = binding
         self._by_adapter_id[adapter_id] = binding
@@ -78,7 +110,7 @@ class NativeRegistry:
         attempt_id: str,
         expected_content_sha256: str,
     ) -> dict[str, Any]:
-        row = self.outbox.get(message_id)
+        row = self.outbox.get_delivery(message_id)
         if row is None:
             raise KeyError(message_id)
         if row["contentSha256"] != expected_content_sha256:
@@ -99,12 +131,8 @@ class NativeRegistry:
             return self._ack(current, attempt_id=attempt_id, accepted=True, deduped=True)
 
         try:
-            result = await binding.original_send(
-                row["chatId"],
-                row["content"],
-                reply_to=row["replyTo"],
-                metadata=row["metadata"],
-            )
+            with native_delivery_scope():
+                result = await self._invoke_native(binding, row)
         except asyncio.CancelledError as exc:
             self.outbox.mark_unknown(message_id, attempt_id, str(exc) or "delivery cancelled")
             raise
@@ -135,6 +163,55 @@ class NativeRegistry:
             deduped=False,
             error=error,
         )
+
+    async def _invoke_native(
+        self,
+        binding: AdapterBinding,
+        row: dict[str, Any],
+    ) -> Any:
+        if binding.delivery_override is not None:
+            result = binding.delivery_override(row)
+            return await result if inspect.isawaitable(result) else result
+        route = row.get("_deliveryRoute")
+        if isinstance(route, Mapping) and route.get("kind") == "media":
+            return await self._invoke_media(binding, row, route)
+        return await binding.original_send(
+            row["chatId"],
+            row["content"],
+            reply_to=row["replyTo"],
+            metadata=row["metadata"],
+        )
+
+    @staticmethod
+    async def _invoke_media(
+        binding: AdapterBinding,
+        row: dict[str, Any],
+        route: Mapping[str, Any],
+    ) -> Any:
+        method_name = str(route.get("method") or "")
+        method = binding.original_media.get(method_name)
+        if method is None:
+            raise RuntimeError(f"media method is not attached: {method_name}")
+        attachment_id = route.get("attachmentId")
+        attachment = next(
+            (
+                item
+                for item in row.get("_attachments", [])
+                if item.get("attachmentId") == attachment_id
+            ),
+            None,
+        )
+        if attachment is None:
+            raise RuntimeError("media attachment is not available")
+        caption = row["content"] if route.get("hasCaption") else None
+        kwargs: dict[str, Any] = {
+            "caption": caption,
+            "reply_to": row["replyTo"],
+            "metadata": row["metadata"],
+        }
+        if method_name == "send_document" and route.get("fileName") is not None:
+            kwargs["file_name"] = route["fileName"]
+        return await method(row["chatId"], attachment["spoolPath"], **kwargs)
 
     async def prewarm(self, channel: str) -> dict[str, Any]:
         checked_at = datetime.now(timezone.utc)

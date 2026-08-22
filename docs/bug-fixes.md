@@ -1,5 +1,14 @@
 # Bug Fixes
 
+## 2026-08-22 · Bridge 可能把 A2A 丢弃误报为成功并在重启后虚报适配器覆盖
+
+- 问题：真实 Hermes A2A `send()` 在没有 live waiter 时会丢弃正文但仍返回成功，API Server 的 `send()` 也不是 HTTP 最终响应出口；普通 adapter 的直接本地媒体方法此前可绕过 Butler Outbox。Task 3 审查还确认 `BridgeRuntime` 正常 stop/start 后会保留旧 coverage 键。
+- 风险/影响：A2A 主动消息可能被标成 delivered 但实际无人收到，API Server 可能被错误套用无效发送路径，本地媒体会绕过 DND/聚合/配速；runtime 重启后尚未重连 adapter 时，健康接口仍可能虚报旧路径为 `ok`。
+- 改动范围：新增按 channel/profile/account 生成的稳定 adapter id 与重连替换；A2A 仅在 live waiter 存在时走 `inline-response`，无 waiter 时进入 `queued-push` 并只允许显式 `butler_deliver_push`；API Server 只登记覆盖、不包装 `send()`；本地图片/文档/视频/语音先复制到私有 spool，再通过内存中的原生方法投递；公开消息视图不返回 delivery route 或 spool 路径；runtime reset 同时清空动态覆盖事实。
+- 回归测试：覆盖重复 attach、同账号多 profile、重连对象替换、A2A waiter/no-waiter、缺失 push hook 显式 `retry_wait`、API Server 原方法保持、直接文档源文件删除后仍由 spool 投递、旧 Outbox 增量迁移，以及 stop/start 后不残留 adapter coverage。
+- 验证命令：WSL Hermes venv 下执行 Bridge 全量 unittest、`python -m compileall -q packages/adapters/hermes/bridge/agent_butler_bridge` 与 `git diff --check`；同时对照真实 Hermes A2A pending 结构和四个本地媒体方法签名。
+- 部署/运行验证：本阶段没有写入、安装或重启 `/home/jiach/.hermes/hermes-agent`；A2A push hook、API JSON/SSE finalizer 和真实覆盖探针仍需 Task 4 安装器与 Task 8 运行验收，当前不得宣称消息网关已在线。
+
 ## 2026-08-22 · Bridge 消息已落盘但入站、run、附件和受控终态没有闭合关联
 
 - 问题：既有 Outbox 虽有基础 `task_events`/`inbound_messages` 表，但事件 sequence 由调用方任意提供、没有 run 生命周期记录或入站绑定更新；wrapper 只落正文，临时附件可能在延迟投递前消失；也没有 Butler 可审计的 `dead_letter` 转换接口。

@@ -121,6 +121,18 @@ class RuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(body["channels"], {"weixin": "ok"})
         self.assertEqual(body["coverage"]["adapterAttach"], "ok")
 
+    async def test_restart_clears_runtime_attachment_coverage(self) -> None:
+        self.runtime = BridgeRuntime(self.config())
+        await self.runtime.start()
+        self.runtime.record_coverage("adapter:weixin:default:main", "ok")
+
+        await self.runtime.stop()
+        await self.runtime.start()
+
+        coverage = self.runtime.coverage_snapshot()
+        self.assertEqual(coverage["adapterAttach"], "pending")
+        self.assertNotIn("adapter:weixin:default:main", coverage)
+
     async def test_rejects_group_or_world_readable_token_file(self) -> None:
         self.token_file.chmod(0o644)
         self.runtime = BridgeRuntime(self.config())
