@@ -8,6 +8,7 @@
 - 回归测试：`apps/gateway/tests/message-store.test.ts` 覆盖首批/多实例 event-only、显式/信封不匹配、过期暂停规则保留、畸形消息/任务/入站/DND/配速/预热拒绝、SQLite 触发器回滚，以及跨实例同序排序。
 - 验证命令：`corepack pnpm exec vitest run --config .superpowers/sdd/task-3-review-vitest.config.ts apps/gateway/tests/message-store.test.ts`；`corepack pnpm --filter @butler/gateway exec tsc -p tsconfig.json --noEmit`；受影响文件 ESLint；`git diff --check`。
 - 部署/运行验证：仅验证本地临时 SQLite 文件；未修改真实 Hermes 或 `apps/gateway/src/index.ts`。
+- 协议兼容后续修复：Python Bridge 会将缺失的出站和入站可选路由字段序列化为显式 `null`，而 TypeScript 校验器此前只接受 `undefined` 或字符串，导致有效 Bridge 批次在持久化前被拒绝。现在这九个字段仅接受 `undefined`、`null` 或非空字符串；数值等其他类型仍拒绝。`message-store.test.ts` 使用真实 null 形状的批次确认投影和游标推进，并将 SQLite 中止触发器移到最后的 cursor 写入，以确认消息、入站、任务事件/投影和游标均回滚。
 
 ## 2026-08-21 · 已有 Hermes 手工补丁被错报为“未应用”
 

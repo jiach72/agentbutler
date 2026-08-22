@@ -712,11 +712,11 @@ function validateOutboxMessage(row: OutboxMessageView): void {
   validateNullableString(row.providerMessageId, "providerMessageId");
   validateNullableTimestamp(row.deliveredAt, "deliveredAt");
   validateNullableString(row.lastError, "lastError");
-  validateOptionalString(row.accountId, "accountId");
-  validateOptionalString(row.threadId, "threadId");
-  validateOptionalString(row.runId, "runId");
-  validateOptionalString(row.inboundMessageId, "inboundMessageId");
-  validateOptionalString(row.replyTo, "replyTo");
+  validateOptionalNullableString(row.accountId, "accountId");
+  validateOptionalNullableString(row.threadId, "threadId");
+  validateOptionalNullableString(row.runId, "runId");
+  validateOptionalNullableString(row.inboundMessageId, "inboundMessageId");
+  validateOptionalNullableString(row.replyTo, "replyTo");
   validateJsonObject(row.metadata, "metadata");
   validateStringArray(row.transformTrace, "transformTrace");
 }
@@ -743,10 +743,10 @@ function validateInboundEnvelope(inbound: InboundEnvelope): void {
   requireNonEmptyString(inbound.chatId, "inbound.chatId");
   requireNonEmptyString(inbound.content, "inbound.content");
   requireIsoTimestamp(inbound.receivedAt, "inbound.receivedAt");
-  validateOptionalString(inbound.threadId, "inbound.threadId");
-  validateOptionalString(inbound.userId, "inbound.userId");
-  validateOptionalString(inbound.sessionId, "inbound.sessionId");
-  validateOptionalString(inbound.runId, "inbound.runId");
+  validateOptionalNullableString(inbound.threadId, "inbound.threadId");
+  validateOptionalNullableString(inbound.userId, "inbound.userId");
+  validateOptionalNullableString(inbound.sessionId, "inbound.sessionId");
+  validateOptionalNullableString(inbound.runId, "inbound.runId");
 }
 
 function validateMessageDecision(decision: MessageDecision): void {
@@ -808,6 +808,10 @@ function requireNonEmptyString(value: unknown, field: string): asserts value is 
 
 function validateOptionalString(value: unknown, field: string): void {
   if (value !== undefined) requireNonEmptyString(value, field);
+}
+
+function validateOptionalNullableString(value: unknown, field: string): void {
+  if (value !== undefined && value !== null) requireNonEmptyString(value, field);
 }
 
 function validateNullableString(value: unknown, field: string): void {

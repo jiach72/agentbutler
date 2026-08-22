@@ -134,6 +134,37 @@ describe("MessagePolicyStore", () => {
     reopened.close();
   });
 
+  it("accepts Bridge JSON with explicit null optional routing fields", () => {
+    const store = new MessagePolicyStore(dbFile);
+    const bridgeJsonBatch = {
+      ...BATCH,
+      items: [
+        {
+          ...BATCH.items[0],
+          accountId: null,
+          threadId: null,
+          runId: null,
+          inboundMessageId: null,
+          replyTo: null,
+        },
+      ],
+      inbound: [
+        {
+          ...BATCH.inbound[0],
+          threadId: null,
+          userId: null,
+          sessionId: null,
+          runId: null,
+        },
+      ],
+    } as unknown as OutboxChangeBatch;
+
+    store.ingestBatch(bridgeJsonBatch);
+    expect(store.cursor("hermes-main")).toBe(BATCH.nextSequence);
+    expect(store.messageView("m1")?.messageId).toBe("m1");
+    store.close();
+  });
+
   it("returns locally scheduled held messages when their release time is due", () => {
     const store = new MessagePolicyStore(dbFile);
     store.ingestBatch(BATCH);
@@ -269,6 +300,9 @@ describe("MessagePolicyStore", () => {
       store.ingestBatch({ ...BATCH, inbound: [{ ...BATCH.inbound[0], receivedAt: "not-a-timestamp" }] }),
     ).toThrow(/receivedAt/);
     expect(() =>
+      store.ingestBatch({ ...BATCH, items: [{ ...BATCH.items[0], accountId: 42 as never }] }),
+    ).toThrow(/accountId/);
+    expect(() =>
       store.upsertDndRule({
         ruleId: "bad-zone",
         scope: "global",
@@ -310,18 +344,22 @@ describe("MessagePolicyStore", () => {
     const store = new MessagePolicyStore(dbFile);
     const db = new DatabaseSync(dbFile);
     db.exec(`
-      CREATE TRIGGER abort_inbound_projection
-      BEFORE INSERT ON inbound_projection
+      CREATE TRIGGER abort_bridge_cursor
+      BEFORE INSERT ON bridge_cursors
       BEGIN
-        SELECT RAISE(ABORT, 'forced inbound rollback');
+        SELECT RAISE(ABORT, 'forced cursor rollback');
       END;
     `);
     db.close();
 
-    expect(() => store.ingestBatch(BATCH)).toThrow(/forced inbound rollback/);
+    expect(() => store.ingestBatch(BATCH)).toThrow(/forced cursor rollback/);
     expect(store.cursor("hermes-main")).toBe(0);
     expect(store.messageView("m1")).toBeUndefined();
     expect(store.taskView("run-1")).toBeUndefined();
+    const verificationDb = new DatabaseSync(dbFile);
+    expect(verificationDb.prepare("SELECT COUNT(*) AS count FROM inbound_projection").get()).toMatchObject({ count: 0 });
+    expect(verificationDb.prepare("SELECT COUNT(*) AS count FROM task_events_projection").get()).toMatchObject({ count: 0 });
+    verificationDb.close();
     store.close();
   });
 
