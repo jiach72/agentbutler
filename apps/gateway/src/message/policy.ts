@@ -28,23 +28,23 @@ export interface OutboundPolicyResult {
 export function decideOutboundPolicy(input: OutboundPolicyInput): OutboundPolicyResult {
   validateMessagePolicy(input.config);
   if (input.message.transport !== "queued-push") {
-    return { decision: makeDecision(input.message, input.config.version, "policy_error", ["policy:reject-non-queued-push"], "inline response is not an asynchronous candidate"), companionDecisions: [] };
+    return { decision: buildMessageDecision(input.message, input.config.version, "policy_error", ["policy:reject-non-queued-push"], "inline response is not an asynchronous candidate"), companionDecisions: [] };
   }
   const channelPolicy = input.config.channels[input.message.channel];
   if (channelPolicy === undefined) {
-    return { decision: makeDecision(input.message, input.config.version, "policy_error", ["policy:unknown-channel"], "channel has no policy"), companionDecisions: [] };
+    return { decision: buildMessageDecision(input.message, input.config.version, "policy_error", ["policy:unknown-channel"], "channel has no policy"), companionDecisions: [] };
   }
 
   const digest = buildProgressDigest({ holder: input.holder, incoming: input.message, events: input.taskEvents, config: input.config.digest });
   const companionDecisions: MessageDecision[] = [];
   if (digest.accepted && digest.absorbHolder && input.holder !== undefined && isPolicyActiveHolder(input.holder)) {
-    companionDecisions.push(makeDecision(input.holder, input.config.version, "absorbed", digest.transformTrace, "progress holder absorbed"));
+    companionDecisions.push(buildMessageDecision(input.holder, input.config.version, "absorbed", digest.transformTrace, "progress holder absorbed"));
   }
   if (digest.accepted && digest.absorbIncoming && input.holder !== undefined && isPolicyActiveHolder(input.holder)) {
     companionDecisions.push(
       scheduleDecision(input.holder, digest.content, ["policy:queued-push", ...digest.transformTrace], input),
     );
-    return { decision: makeDecision(input.message, input.config.version, "absorbed", digest.transformTrace, "duplicate progress absorbed"), companionDecisions };
+    return { decision: buildMessageDecision(input.message, input.config.version, "absorbed", digest.transformTrace, "duplicate progress absorbed"), companionDecisions };
   }
 
   const trace = ["policy:queued-push", ...(digest.accepted ? digest.transformTrace : [])];
@@ -59,10 +59,10 @@ function scheduleDecision(
   channelPolicy = input.config.channels[message.channel],
 ): MessageDecision {
   if (channelPolicy === undefined) {
-    return makeDecision(message, input.config.version, "policy_error", [...baseTrace, "policy:unknown-channel"], "channel has no policy");
+    return buildMessageDecision(message, input.config.version, "policy_error", [...baseTrace, "policy:unknown-channel"], "channel has no policy");
   }
   if (message.metadata.solicitedReply === true) {
-    return makeDecision(
+    return buildMessageDecision(
       message,
       input.config.version,
       "ready",
@@ -76,7 +76,7 @@ function scheduleDecision(
   const dnd = evaluateDnd({ message, rules: input.dndRules, now: input.now });
   trace.push(...dnd.transformTrace);
   if (dnd.held) {
-    return makeDecision(
+    return buildMessageDecision(
       message,
       input.config.version,
       "held_dnd",
@@ -99,7 +99,7 @@ function scheduleDecision(
     }
   }
   if (availableAtMs > nowMs) {
-    return makeDecision(
+    return buildMessageDecision(
       message,
       input.config.version,
       "held_pacing",
@@ -109,7 +109,7 @@ function scheduleDecision(
       new Date(availableAtMs).toISOString(),
     );
   }
-  return makeDecision(message, input.config.version, "ready", trace, "ready for delivery", optimizedContent);
+  return buildMessageDecision(message, input.config.version, "ready", trace, "ready for delivery", optimizedContent);
 }
 
 function isPolicyActiveHolder(message: OutboxMessageView): boolean {
@@ -124,7 +124,8 @@ function parseTimestamp(value: string, field: string): number {
   return parsed;
 }
 
-function makeDecision(
+/** Builds the crash-safe, semantic-only decision ID used by both policy and worker fallbacks. */
+export function buildMessageDecision(
   message: OutboxMessageView,
   policyVersion: string,
   state: MessageDecision["state"],

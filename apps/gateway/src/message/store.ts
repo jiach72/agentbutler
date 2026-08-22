@@ -258,6 +258,34 @@ export class MessagePolicyStore {
     return rows.map((row) => this.mapMessage(row));
   }
 
+  /**
+   * Returns the earliest still-active progress record in a digest group. It deliberately
+   * includes future held rows: aggregation must update that holder before it is due.
+   */
+  earliestActiveProgressHolder(message: OutboxMessageView): ProjectedMessageView | undefined {
+    if (message.runId === undefined || message.runId === "") return undefined;
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM message_projection
+         WHERE state IN ('captured', 'policy_pending', 'held_dnd', 'held_pacing', 'ready', 'retry_wait')
+         ORDER BY bridge_sequence ASC, instance_id ASC, message_id ASC`,
+      )
+      .all() as Record<string, unknown>[];
+    return rows
+      .map((row) => this.mapMessage(row))
+      .find(
+        (candidate) =>
+          candidate.messageId !== message.messageId &&
+          candidate.messageKind === "task-progress" &&
+          candidate.instanceId === message.instanceId &&
+          candidate.channel === message.channel &&
+          candidate.chatId === message.chatId &&
+          candidate.runId === message.runId &&
+          (candidate.sequence < message.sequence ||
+            (candidate.sequence === message.sequence && candidate.messageId < message.messageId)),
+      );
+  }
+
   /** Records one Bridge response and its replay identifier atomically. */
   updateRemoteView(row: OutboxMessageView, decisionId?: string): void {
     validateOutboxMessage(row);

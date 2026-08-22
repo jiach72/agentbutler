@@ -1,5 +1,14 @@
 # Bug Fixes
 
+## 2026-08-22 · 对账 worker 可能将后续进度错误用作较早消息的聚合 holder
+
+- 问题：Task 5 对账阶段的 holder 查询只按全局 sequence 排序，未明确要求 holder 必须早于当前消息；在同一 run 同批出现“较早 final、较晚 task-progress”时，较晚进度可能被错误吸收。
+- 风险/影响：较晚进度投影会被错误标为 `absorbed`，导致真实消息丢失，且违反进度聚合仅更新最早 holder 的顺序语义。
+- 改动范围：`earliestActiveProgressHolder()` 仅接受 sequence 更小（同序时 messageId 更小）的同组 active task-progress；未触及 Bridge/Hermes 权威状态机。
+- 回归测试：`apps/gateway/tests/message-reconciler.test.ts` 覆盖先 final、后 progress 的同批输入，断言只对前者作出决策。
+- 验证命令：Task 5 聚焦 Vitest、Gateway TypeScript 检查、涉及文件 ESLint 与 `git diff --check`。
+- 部署/运行验证：仅本地 SQLite/假 Bridge；没有连接或修改真实 Hermes。
+
 ## 2026-08-22 · Butler 消息投影在多实例与异常输入下可能失去确定性
 
 - 问题：`MessagePolicyStore` 不能为首次仅含任务事件的 Bridge 批次显式指定实例；它过早过滤已到期的 DND 暂停规则；外部 Bridge/DND/配速/预热载荷在写入前缺少运行时验证；相同 Bridge sequence 的跨实例候选没有稳定平局规则。
