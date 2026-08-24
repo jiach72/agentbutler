@@ -91,6 +91,7 @@ describe("HermesBridgeClient", () => {
       optimizedText: "hello",
       transformTrace: [],
     });
+    await client.inboundHistory(12);
     await client.prewarm("weixin");
 
     expect(calls.map((call) => `${call.method} ${call.url}`)).toEqual([
@@ -99,6 +100,7 @@ describe("HermesBridgeClient", () => {
       "POST http://127.0.0.1:8754/v1/outbox/m%201/decision",
       "POST http://127.0.0.1:8754/v1/deliver",
       "POST http://127.0.0.1:8754/v1/inbound/in%2F1/decision",
+      "GET http://127.0.0.1:8754/v1/inbound/history?limit=12",
       "POST http://127.0.0.1:8754/v1/prewarm",
     ]);
     expect(calls[2]!.body).toMatchObject({ decisionId: "decision:m%201:p1:abc" });
@@ -137,16 +139,7 @@ describe("createHermesMessaging", () => {
     expect(result.error?.code).toBe("E303");
   });
 
-  it("is injected only when Bridge URL and token are both configured", () => {
+  it("is not exposed by the production Hermes adapter", () => {
     expect(createHermesAdapter().messaging).toBeUndefined();
-    expect(
-      createHermesAdapter({
-        messaging: {
-          bridgeUrl: "http://127.0.0.1:8754",
-          bridgeToken: "secret",
-          fetchImpl: async () => jsonResponse(HEALTH),
-        },
-      }).messaging,
-    ).toBeDefined();
   });
 });

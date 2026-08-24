@@ -1,0 +1,36 @@
+{
+  "name": "agent-butler",
+  "version": "0.1.0-dev.1",
+  "private": true,
+  "description": "Local-first operations console and control plane for AI agent runtimes.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jiach72/agentbutler.git"
+  },
+  "type": "module",
+  "packageManager": "pnpm@10.20.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -b && pnpm --filter @butler/ui exec vite build",
+    "test": "vitest run",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "start": "pnpm --parallel --filter @butler/gateway --filter @butler/watch --filter @butler/web run start",
+    "version:check": "node scripts/version.mjs check",
+    "version:set": "node scripts/version.mjs set",
+    "release:check": "pnpm version:check && pnpm lint && pnpm test && pnpm build"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.30.0",
+    "@types/node": "^22.15.0",
+    "eslint": "^9.30.0",
+    "eslint-config-prettier": "^10.1.0",
+    "prettier": "^3.6.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.35.0",
+    "vitest": "^3.2.4"
+  }
+}

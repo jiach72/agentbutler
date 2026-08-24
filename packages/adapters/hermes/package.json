@@ -1,0 +1,23 @@
+{
+  "name": "@butler/adapter-hermes",
+  "version": "0.1.0-dev.1",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@butler/contract": "workspace:*",
+    "@butler/core": "workspace:*",
+    "dockerode": "^5.0.1",
+    "yaml": "^2.9.0"
+  },
+  "devDependencies": {
+    "@types/dockerode": "^4.0.1"
+  }
+}

@@ -7,10 +7,13 @@ import {
 import { capabilityScan, parseRootPath } from "./capability-scan.js";
 import { createHermesControl, type HermesControlOptions } from "./control/index.js";
 import { detect } from "./detect.js";
-import { createHermesMemoryDriver, createHermesSkillDriver } from "./drivers/index.js";
+import {
+  createHermesMemoryDriver,
+  createHermesPluginDriver,
+  createHermesSkillDriver,
+} from "./drivers/index.js";
 import { logSources } from "./log-sources.js";
 import { hermesManifest } from "./manifest.js";
-import { createHermesMessaging, type HermesMessagingOptions } from "./messaging/index.js";
 
 /** 从 InstanceRef 解析 rootPath：优先 rootPath 字段，回退解析 "instanceId|rootPath" 复合形式。 */
 function rootPathFromRef(ref: InstanceRef): string | null {
@@ -18,18 +21,10 @@ function rootPathFromRef(ref: InstanceRef): string | null {
 }
 
 /** 组装 Hermes 适配器的可注入项（控制面执行器/store/快照目录，全部可选）。 */
-export type HermesAdapterOptions = HermesControlOptions & {
-  messaging?: {
-    bridgeUrl?: string;
-    bridgeToken?: string;
-    fetchImpl?: typeof fetch;
-    timeoutMs?: number;
-    pollIntervalMs?: number;
-  };
-};
+export type HermesAdapterOptions = HermesControlOptions;
 
 /**
- * 组装 Hermes 适配器（manifest + 只读发现面 + L2 控制面 + 探针驱动 L3 消息面 + I-4 只读格式驱动）。
+ * 组装 Hermes 适配器（manifest + 只读发现面 + L2 控制面 + I-4 只读格式驱动）。
  * discovery 三方法均为无副作用观察；control 按 runtime 分派双执行器，
  * 常规控制幂等、长操作同步收敛为终态 Job。
  */
@@ -48,15 +43,7 @@ export function createHermesAdapter(options: HermesAdapterOptions = {}): Adapter
           },
         );
       }
-      return capabilityScan(rootPath, {
-        messaging: {
-          instanceId: ref.instanceId,
-          bridgeUrl: options.messaging?.bridgeUrl,
-          bridgeToken: options.messaging?.bridgeToken,
-          fetchImpl: options.messaging?.fetchImpl,
-          timeoutMs: options.messaging?.timeoutMs,
-        },
-      });
+      return capabilityScan(rootPath);
     },
     logSources: (ref) => {
       const rootPath = rootPathFromRef(ref);
@@ -64,32 +51,15 @@ export function createHermesAdapter(options: HermesAdapterOptions = {}): Adapter
     },
   };
 
-  const messagingOptions = toMessagingOptions(options.messaging);
-
   return {
     manifest: hermesManifest,
     discovery,
     control: createHermesControl(options),
-    messaging: messagingOptions === null ? undefined : createHermesMessaging(messagingOptions),
     drivers: {
       skill: createHermesSkillDriver(),
+      plugin: createHermesPluginDriver(),
       memory: createHermesMemoryDriver(),
     },
-  };
-}
-
-function toMessagingOptions(
-  options: HermesAdapterOptions["messaging"],
-): HermesMessagingOptions | null {
-  const bridgeUrl = options?.bridgeUrl?.trim();
-  const bridgeToken = options?.bridgeToken?.trim();
-  if (!bridgeUrl || !bridgeToken) return null;
-  return {
-    baseUrl: bridgeUrl,
-    token: bridgeToken,
-    fetchImpl: options?.fetchImpl,
-    timeoutMs: options?.timeoutMs,
-    pollIntervalMs: options?.pollIntervalMs,
   };
 }
 
@@ -119,6 +89,7 @@ export {
 } from "./messaging/index.js";
 export {
   createHermesMemoryDriver,
+  createHermesPluginDriver,
   createHermesSkillDriver,
   type HermesMemoryDriverOptions,
   type ReadonlySqliteOpener,

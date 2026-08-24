@@ -160,40 +160,27 @@ describe("capabilityScan messaging level", () => {
     return root;
   }
 
-  it("preserves L2 without Bridge configuration and reaches L3 only with a complete live probe", async () => {
+  it("keeps the production capability scan at L2", async () => {
     const root = hermesRoot();
-    const withoutBridge = await capabilityScan(root, { prober: async () => true });
-    expect(withoutBridge.data).toMatchObject({
+    const result = await capabilityScan(root, { prober: async () => true });
+    expect(result.data).toMatchObject({
       effectiveLevel: 2,
-      capabilities: { messaging: "unavailable" },
-    });
-
-    const withBridge = await capabilityScan(root, {
-      prober: async () => true,
-      messaging: {
-        instanceId: "hermes-main",
-        ...configured(async () => jsonResponse(completeHealth())),
-      },
-    });
-    expect(withBridge.data).toMatchObject({
-      effectiveLevel: 3,
-      capabilities: { messaging: "ok" },
+      capabilities: { messaging: "not-implemented" },
     });
   });
 
-  it("wires createHermesAdapter messaging options into discovery", async () => {
+  it("does not expose messaging from the production adapter", async () => {
     const root = hermesRoot();
-    const adapter = createHermesAdapter({
-      messaging: configured(async () => jsonResponse(completeHealth())),
-    });
+    const adapter = createHermesAdapter();
     const result = await adapter.discovery.capabilityScan({
       instanceId: "hermes-main",
       rootPath: root,
     });
 
     expect(result.data).toMatchObject({
-      effectiveLevel: 3,
-      capabilities: { messaging: "ok" },
+      effectiveLevel: 2,
+      capabilities: { messaging: "not-implemented" },
     });
+    expect(adapter.messaging).toBeUndefined();
   });
 });

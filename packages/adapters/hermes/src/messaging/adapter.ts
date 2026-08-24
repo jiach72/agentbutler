@@ -54,6 +54,7 @@ export function createHermesMessaging(options: HermesMessagingOptions): Messagin
     decideOutbound: (_instance, decision) => wrapCall(() => client.decide(decision)),
     deliver: (_instance, request) => wrapCall(() => client.deliver(request)),
     forwardInbound: (_instance, decision) => wrapCall(() => client.forwardInbound(decision)),
+    inboundHistory: (_instance, limit) => wrapCall(() => client.inboundHistory(limit)),
     subscribeTaskEvents: (_instance, cb) => subscribe(client, pollIntervalMs, cb),
     prewarmChannel: (_instance, channel) => wrapCall(() => client.prewarm(channel)),
   };

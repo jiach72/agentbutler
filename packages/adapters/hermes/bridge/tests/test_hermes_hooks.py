@@ -17,6 +17,7 @@ from agent_butler_bridge.hermes_hooks import (
     install_base_platform_hooks,
     install_gateway_runtime_hooks,
 )
+from agent_butler_bridge.llm_optimizer import LlmConfig
 from agent_butler_bridge.runtime import BridgeRuntime, RuntimeConfig
 
 
@@ -33,6 +34,9 @@ class ChatAdapter:
         self.config = SimpleNamespace(extra={})
         self.native_calls: list[tuple] = []
         self.document_calls: list[tuple] = []
+        self.image_calls: list[tuple] = []
+        self.animation_calls: list[tuple] = []
+        self.multiple_image_calls: list[tuple] = []
 
     async def send(self, chat_id, content, reply_to=None, metadata=None):
         self.native_calls.append((chat_id, content, reply_to, metadata))
@@ -59,6 +63,26 @@ class ChatAdapter:
             )
         )
         return FakeSendResult(success=True, message_id="native-document-1")
+
+    async def send_image(
+        self, chat_id, image_url, caption, reply_to=None, metadata=None
+    ):
+        self.image_calls.append((chat_id, image_url, caption, reply_to, metadata))
+        return FakeSendResult(success=True, message_id="native-image-1")
+
+    async def send_animation(
+        self, chat_id, animation_url, caption=None, reply_to=None, metadata=None
+    ):
+        self.animation_calls.append(
+            (chat_id, animation_url, caption, reply_to, metadata)
+        )
+        return FakeSendResult(success=True, message_id="native-animation-1")
+
+    async def send_multiple_images(
+        self, chat_id, images, metadata=None, human_delay=0.0
+    ):
+        self.multiple_image_calls.append((chat_id, images, metadata, human_delay))
+        return None
 
 
 class A2AAdapter:
@@ -130,7 +154,11 @@ class HermesHooksTest(unittest.IsolatedAsyncioTestCase):
         first = ChatAdapter("wx-main")
         binding = attach_runtime_adapter(first, "weixin", profile="work", runtime=self.runtime)
         duplicate = attach_runtime_adapter(first, "weixin", profile="work", runtime=self.runtime)
-        queued = await first.send("chat-1", "hello", metadata={"butler_session_id": "s1"})
+        queued = await first.send(
+            "chat-1",
+            "hello",
+            metadata={"butler_session_id": "s1", "butler_proactive": True},
+        )
         second = ChatAdapter("wx-main")
         replacement = attach_runtime_adapter(second, "weixin", profile="work", runtime=self.runtime)
         personal = ChatAdapter("wx-main")
@@ -189,7 +217,11 @@ class HermesHooksTest(unittest.IsolatedAsyncioTestCase):
             "ctx-push",
             "push answer",
             reply_to="task-push",
-            metadata={"notify": True, "butler_session_id": "s-push"},
+            metadata={
+                "notify": True,
+                "butler_session_id": "s-push",
+                "butler_proactive": True,
+            },
         )
 
         self.assertEqual(inline.message_id, "a2a-inline-1")
@@ -228,7 +260,11 @@ class HermesHooksTest(unittest.IsolatedAsyncioTestCase):
             "ctx-push",
             "push answer",
             reply_to="task-push",
-            metadata={"notify": True, "butler_session_id": "s-push"},
+            metadata={
+                "notify": True,
+                "butler_session_id": "s-push",
+                "butler_proactive": True,
+            },
         )
         message_id = queued.message_id.removeprefix("butler:")
         assert self.runtime.outbox is not None and self.runtime.registry is not None
@@ -264,7 +300,10 @@ class HermesHooksTest(unittest.IsolatedAsyncioTestCase):
             caption="report",
             file_name="report.txt",
             reply_to="inbound-1",
-            metadata={"butler_session_id": "session-doc"},
+            metadata={
+                "butler_session_id": "session-doc",
+                "butler_proactive": True,
+            },
         )
         source.unlink()
 
@@ -291,6 +330,150 @@ class HermesHooksTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(ack["accepted"])
         self.assertEqual(adapter.document_calls[0][1], b"durable media")
         self.assertEqual(adapter.document_calls[0][2:5], ("report", "report.txt", "inbound-1"))
+
+    async def test_remote_and_multiple_image_methods_are_queued_and_replayed_once(self) -> None:
+        adapter = ChatAdapter()
+        attach_runtime_adapter(adapter, "weixin", runtime=self.runtime)
+
+        image = await adapter.send_image(
+            "chat-1",
+            "https://example.invalid/image.png",
+            "image caption",
+            reply_to="inbound-image",
+            metadata={
+                "butler_session_id": "session-image",
+                "butler_proactive": True,
+            },
+        )
+        animation = await adapter.send_animation(
+            "chat-1",
+            "https://example.invalid/animation.gif",
+            caption="animation caption",
+            metadata={
+                "butler_session_id": "session-animation",
+                "butler_proactive": True,
+            },
+        )
+        multiple = await adapter.send_multiple_images(
+            "chat-1",
+            [
+                ("https://example.invalid/one.png", "one"),
+                ("https://example.invalid/two.png", "two"),
+            ],
+            metadata={
+                "butler_session_id": "session-multiple",
+                "butler_proactive": True,
+            },
+            human_delay=1.25,
+        )
+
+        self.assertEqual(adapter.image_calls, [])
+        self.assertEqual(adapter.animation_calls, [])
+        self.assertEqual(adapter.multiple_image_calls, [])
+        self.assertEqual(self.runtime.coverage_snapshot()["media"], "ok")
+        assert self.runtime.outbox is not None and self.runtime.registry is not None
+        for index, result in enumerate((image, animation, multiple), start=1):
+            message_id = result.message_id.removeprefix("butler:")
+            row = self.runtime.outbox.get(message_id)
+            self.runtime.outbox.apply_decision(
+                message_id,
+                f"decision-remote-media-{index}",
+                row["contentSha256"],
+                "ready",
+                None,
+                [],
+                "policy-1",
+                "ready",
+            )
+            ack = await self.runtime.registry.deliver(
+                message_id,
+                f"attempt-remote-media-{index}",
+                row["contentSha256"],
+            )
+            self.assertTrue(ack["accepted"])
+
+        self.assertEqual(
+            adapter.image_calls,
+            [
+                (
+                    "chat-1",
+                    "https://example.invalid/image.png",
+                    "image caption",
+                    "inbound-image",
+                    {},
+                )
+            ],
+        )
+        self.assertEqual(
+            adapter.animation_calls,
+            [
+                (
+                    "chat-1",
+                    "https://example.invalid/animation.gif",
+                    "animation caption",
+                    None,
+                    {},
+                )
+            ],
+        )
+        self.assertEqual(
+            adapter.multiple_image_calls,
+            [
+                (
+                    "chat-1",
+                    [
+                        ("https://example.invalid/one.png", "one"),
+                        ("https://example.invalid/two.png", "two"),
+                    ],
+                    {},
+                    1.25,
+                )
+            ],
+        )
+
+    async def test_single_remote_media_none_result_is_not_reported_as_delivered(self) -> None:
+        adapter = ChatAdapter()
+
+        async def send_image_without_result(
+            chat_id, image_url, caption=None, reply_to=None, metadata=None
+        ):
+            adapter.image_calls.append(
+                (chat_id, image_url, caption, reply_to, metadata)
+            )
+            return None
+
+        adapter.send_image = send_image_without_result
+        attach_runtime_adapter(adapter, "weixin", runtime=self.runtime)
+
+        queued = await adapter.send_image(
+            "chat-1",
+            "https://example.invalid/image.png",
+            caption="image caption",
+            metadata={"butler_proactive": True},
+        )
+        assert self.runtime.outbox is not None and self.runtime.registry is not None
+        message_id = queued.message_id.removeprefix("butler:")
+        row = self.runtime.outbox.get(message_id)
+        self.runtime.outbox.apply_decision(
+            message_id,
+            "decision-none-image",
+            row["contentSha256"],
+            "ready",
+            None,
+            [],
+            "policy-1",
+            "ready",
+        )
+
+        ack = await self.runtime.registry.deliver(
+            message_id,
+            "attempt-none-image",
+            row["contentSha256"],
+        )
+
+        self.assertFalse(ack["accepted"])
+        self.assertEqual(ack["state"], "retry_wait")
+        self.assertEqual(len(adapter.image_calls), 1)
 
     async def test_api_server_is_registered_without_wrapping_unused_send(self) -> None:
         adapter = ApiServerAdapter()
@@ -667,11 +850,173 @@ class HermesHooksTest(unittest.IsolatedAsyncioTestCase):
                     "ctx-3",
                     "queued",
                     "task-3",
-                    {"notify": True, "a2a_state": "completed"},
+                    {
+                        "notify": True,
+                        "a2a_state": "completed",
+                        "butler_proactive": True,
+                    },
                 )
             ],
         )
 
+
+    async def test_base_hooks_store_decision_and_apply_optimized_text(self) -> None:
+        runtime = self.runtime
+        received: list[str] = []
+
+        class FakeTurnRunner:
+            def __init__(self, runner, context) -> None:
+                self._runner = runner
+                self._ctx = context
+
+            def progress_callback(
+                self,
+                event_type,
+                tool_name=None,
+                preview=None,
+                args=None,
+                **kwargs,
+            ):
+                return None
+
+        class FakeGatewayRunner:
+            def __init__(self) -> None:
+                self._agent_butler_runtime = runtime
+
+            async def start(self):
+                return True
+
+            async def stop(self):
+                return None
+
+            async def _connect_adapter_with_timeout(self, adapter, platform, **kwargs):
+                return True
+
+            def _active_profile_name(self):
+                return "default"
+
+            async def _run_agent_inner(self, *args, **kwargs):
+                return {"failed": False, "final_response": "ok"}
+
+        class FakeBaseAdapter(ChatAdapter):
+            def __init__(self) -> None:
+                super().__init__()
+                self.gateway_runner = FakeGatewayRunner()
+
+            async def handle_message(self, event):
+                await self._process_message_background(event, "session-opt")
+
+            async def _process_message_background(self, event, session_key):
+                received.append(str(getattr(event, "text", "")))
+                await self.gateway_runner._run_agent_inner(
+                    "work",
+                    "",
+                    [],
+                    event.source,
+                    session_key,
+                    session_key=session_key,
+                )
+
+        install_gateway_runtime_hooks(
+            FakeGatewayRunner,
+            FakeTurnRunner,
+            runtime_provider=lambda: runtime,
+        )
+        install_base_platform_hooks(FakeBaseAdapter, runtime_provider=lambda: runtime)
+        adapter = FakeBaseAdapter()
+        attach_runtime_adapter(adapter, "weixin", runtime=runtime)
+        event = SimpleNamespace(
+            text="帮我把那个论文技能弄好点，别像上次那样失败",
+            message_id="platform-opt-1",
+            message_type=SimpleNamespace(value="text"),
+            user_id="user-1",
+            media_urls=[],
+            metadata={},
+            source=SimpleNamespace(
+                platform=SimpleNamespace(value="weixin"),
+                chat_id="chat-1",
+                thread_id=None,
+                user_id="user-1",
+            ),
+        )
+
+        await adapter.handle_message(event)
+
+        self.assertEqual(received, ["改进论文技能，避免上次的失败"])
+        assert runtime.outbox is not None
+        history = runtime.outbox.list_inbound_history(10)
+        self.assertEqual(len(history["items"]), 1)
+        self.assertEqual(history["items"][0]["decision"]["mode"], "rule")
+        self.assertEqual(
+            history["items"][0]["decision"]["optimizedText"],
+            "改进论文技能，避免上次的失败",
+        )
+        self.assertIn("optimize:drop-demonstrative", history["items"][0]["decision"]["transformTrace"])
+
+    async def test_ensure_inbound_decision_skips_when_optimize_disabled(self) -> None:
+        from agent_butler_bridge.hermes_hooks import _ensure_inbound_decision
+
+        outbox = mock.Mock()
+        outbox.get_inbound_decision.return_value = None
+        runtime = SimpleNamespace(
+            config=SimpleNamespace(inbound_optimize=False),
+            outbox=outbox,
+        )
+
+        await _ensure_inbound_decision(runtime, "inbound-off-1", "帮我把那个论文技能弄好点")
+
+        outbox.apply_inbound_decision.assert_not_called()
+        outbox.get_inbound_decision.assert_not_called()
+
+    async def test_ensure_inbound_decision_applies_llm_fallback_after_pass_through(self) -> None:
+        from agent_butler_bridge.hermes_hooks import _ensure_inbound_decision
+
+        outbox = mock.Mock()
+        outbox.get_inbound_decision.return_value = None
+        runtime = SimpleNamespace(
+            config=SimpleNamespace(
+                inbound_optimize=True,
+                llm=LlmConfig(
+                    enabled=True,
+                    base_url="https://example.test/v1",
+                    api_key="test-key",
+                    model="test-model",
+                    min_input_chars=1,
+                ),
+            ),
+            outbox=outbox,
+        )
+        llm_result = {
+            "mode": "llm",
+            "optimizedText": "检查今天杭州的天气并告诉我适合不适合跑步",
+            "transformTrace": ["optimize:llm-fallback"],
+            "changes": ["由 AI 改写"],
+        }
+        with mock.patch(
+            "agent_butler_bridge.hermes_hooks.optimize_with_llm",
+            new=mock.AsyncMock(return_value=llm_result),
+        ) as rewrite:
+            await _ensure_inbound_decision(
+                runtime,
+                "inbound-llm-1",
+                "今天杭州天气怎么样，适合跑步吗",
+            )
+
+        rewrite.assert_awaited_once()
+        self.assertEqual(
+            outbox.apply_inbound_decision.call_args.args[1]["mode"],
+            "llm",
+        )
+
+    async def test_apply_inbound_optimization_falls_back_to_original_on_error(self) -> None:
+        from agent_butler_bridge.hermes_hooks import _apply_inbound_optimization
+
+        outbox = mock.Mock()
+        outbox.get_inbound_decision.side_effect = RuntimeError("outbox down")
+        runtime = SimpleNamespace(outbox=outbox)
+        event = SimpleNamespace(text="帮我写周报")
+
+        self.assertIs(_apply_inbound_optimization(runtime, "inbound-err-1", event), event)
 
 if __name__ == "__main__":
     unittest.main()

@@ -60,6 +60,18 @@ export class MessageReconciler {
   }
 
   private async processCandidate(candidate: OutboxMessageView, now: string): Promise<void> {
+    if (candidate.attemptCount >= this.options.config.delivery.maxAttempts) {
+      await this.applyDecision(
+        buildMessageDecision(
+          candidate,
+          this.options.config.version,
+          "cancelled",
+          [...candidate.transformTrace, "delivery:attempt-limit"],
+          "delivery attempt limit reached",
+        ),
+      );
+      return;
+    }
     const pending = this.options.store.pendingDecision(candidate.messageId);
     let readyDecision: MessageDecision;
     let readyRow: OutboxMessageView;

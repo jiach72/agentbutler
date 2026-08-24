@@ -215,6 +215,27 @@ describe("MessageReconciler", () => {
     expect(store.getPacingLane("channel:weixin")?.ratePerMin).toBe(1);
   });
 
+  it("cancels a queued message at the configured attempt limit instead of sending again", async () => {
+    const exhausted = message({
+      messageId: "exhausted",
+      state: "retry_wait",
+      availableAt: NOW,
+      attemptCount: DEFAULT_MESSAGE_POLICY.delivery.maxAttempts,
+    });
+    adapter.changes = batch([exhausted]);
+
+    await reconciler().reconcileOnce();
+
+    expect(adapter.decisions).toHaveLength(1);
+    expect(adapter.decisions[0]).toMatchObject({
+      messageId: "exhausted",
+      state: "cancelled",
+      reason: "delivery attempt limit reached",
+    });
+    expect(adapter.deliveries).toHaveLength(0);
+    expect(adapter.prewarms).toHaveLength(0);
+  });
+
   it("does not retry delivery_unknown and replays ready after transport loss before a later delivery", async () => {
     adapter.deliveryResult = ok({ messageId: "m1", attemptId: "attempt-1", accepted: true, deduped: false, state: "delivery_unknown", providerMessageId: null, finishedAt: NOW });
     await reconciler().reconcileOnce();

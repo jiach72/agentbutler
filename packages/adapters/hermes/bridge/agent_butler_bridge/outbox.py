@@ -40,6 +40,7 @@ DECISION_STATES = {
 TERMINAL_STATES = {"delivered", "absorbed", "dead_letter", "cancelled"}
 TASK_EVENT_KINDS = {"started", "progress", "completing", "done", "failed"}
 TASK_TERMINAL_STATES = {"done", "failed"}
+CONVERSATION_REPLY_KINDS = {"final", "failure", "task-progress"}
 DEAD_LETTER_SOURCE_STATES = {
     "captured",
     "policy_pending",
@@ -153,6 +154,17 @@ CREATE TABLE IF NOT EXISTS inbound_messages (
   received_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS conversation_heads (
+  instance_id TEXT NOT NULL,
+  channel TEXT NOT NULL,
+  chat_id TEXT NOT NULL,
+  thread_key TEXT NOT NULL,
+  inbound_message_id TEXT NOT NULL REFERENCES inbound_messages(inbound_message_id),
+  received_at TEXT NOT NULL,
+  change_sequence INTEGER NOT NULL,
+  PRIMARY KEY (instance_id, channel, chat_id, thread_key)
+);
+
 CREATE TABLE IF NOT EXISTS inbound_decisions (
   inbound_message_id TEXT PRIMARY KEY REFERENCES inbound_messages(inbound_message_id),
   decision_json TEXT NOT NULL,
@@ -238,6 +250,7 @@ class Outbox:
             self._backfill_outbound_decisions_locked()
             self._backfill_task_runs_locked()
             self._ensure_sequence_seed_locked()
+            self._backfill_conversation_heads_locked()
             now = _utc_now()
             stale = self._conn.execute(
                 "SELECT message_id, active_attempt_id FROM outbound_messages WHERE state = 'delivering'"
@@ -258,6 +271,7 @@ class Outbox:
                    WHERE state = 'delivering'""",
                 ("recovered stale delivering after Bridge restart", now),
             )
+            self._cancel_unlinked_replies_locked()
 
     def close(self) -> None:
         with self._lock:
@@ -373,6 +387,186 @@ class Outbox:
                 ),
             )
 
+    def _backfill_conversation_heads_locked(self) -> None:
+        rows = self._conn.execute(
+            """SELECT payload_json, change_sequence, received_at
+               FROM inbound_messages ORDER BY change_sequence ASC"""
+        ).fetchall()
+        for row in rows:
+            payload = json.loads(row["payload_json"])
+            self._update_conversation_head_locked(
+                payload,
+                int(row["change_sequence"]),
+                str(row["received_at"]),
+            )
+        heads = self._conn.execute(
+            """SELECT m.payload_json
+               FROM conversation_heads h
+               JOIN inbound_messages m
+                 ON m.inbound_message_id = h.inbound_message_id"""
+        ).fetchall()
+        for row in heads:
+            self._cancel_superseded_messages_locked(json.loads(row["payload_json"]))
+
+    def _update_conversation_head_locked(
+        self,
+        envelope: Mapping[str, Any],
+        change_sequence: int,
+        received_at: str,
+    ) -> bool:
+        instance_id = _read_required_string(envelope, "instanceId")
+        channel = _read_required_string(envelope, "channel")
+        chat_id = _read_required_string(envelope, "chatId")
+        inbound_id = _read_required_string(envelope, "inboundMessageId")
+        thread_key = str(envelope.get("threadId") or "")
+        self._conn.execute(
+            """INSERT INTO conversation_heads(
+                 instance_id, channel, chat_id, thread_key, inbound_message_id,
+                 received_at, change_sequence
+               ) VALUES (?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(instance_id, channel, chat_id, thread_key) DO UPDATE SET
+                 inbound_message_id = excluded.inbound_message_id,
+                 received_at = excluded.received_at,
+                 change_sequence = excluded.change_sequence
+               WHERE excluded.received_at > conversation_heads.received_at
+                  OR (excluded.received_at = conversation_heads.received_at
+                      AND excluded.change_sequence > conversation_heads.change_sequence)""",
+            (
+                instance_id,
+                channel,
+                chat_id,
+                thread_key,
+                inbound_id,
+                received_at,
+                change_sequence,
+            ),
+        )
+        head = self._conn.execute(
+            """SELECT inbound_message_id FROM conversation_heads
+               WHERE instance_id = ? AND channel = ? AND chat_id = ? AND thread_key = ?""",
+            (instance_id, channel, chat_id, thread_key),
+        ).fetchone()
+        return head is not None and head["inbound_message_id"] == inbound_id
+
+    def _stale_conversation_reason_locked(
+        self, envelope: Mapping[str, Any]
+    ) -> str | None:
+        inbound_id = envelope.get("inboundMessageId")
+        if (
+            envelope.get("transport") != "queued-push"
+            or envelope.get("messageKind") not in {"final", "failure", "task-progress"}
+            or not isinstance(inbound_id, str)
+            or not inbound_id
+        ):
+            return None
+        head = self._conn.execute(
+            """SELECT inbound_message_id FROM conversation_heads
+               WHERE instance_id = ? AND channel = ? AND chat_id = ? AND thread_key = ?""",
+            (
+                envelope.get("instanceId"),
+                envelope.get("channel"),
+                envelope.get("chatId"),
+                str(envelope.get("threadId") or ""),
+            ),
+        ).fetchone()
+        if head is None or head["inbound_message_id"] == inbound_id:
+            return None
+        return f"superseded by newer inbound {head['inbound_message_id']}"
+
+    @staticmethod
+    def _unlinked_reply_reason(envelope: Mapping[str, Any]) -> str | None:
+        if (
+            envelope.get("transport") != "queued-push"
+            or envelope.get("messageKind") not in CONVERSATION_REPLY_KINDS
+        ):
+            return None
+        inbound_id = envelope.get("inboundMessageId")
+        if isinstance(inbound_id, str) and inbound_id:
+            return None
+        metadata = envelope.get("metadata")
+        if isinstance(metadata, Mapping) and metadata.get("proactive") is True:
+            return None
+        return "missing inbound correlation for queued reply"
+
+    def _cancel_unlinked_replies_locked(self) -> None:
+        rows = self._conn.execute(
+            """SELECT message_id, state, metadata_json
+               FROM outbound_messages
+               WHERE inbound_message_id IS NULL
+                 AND transport = 'queued-push'
+                 AND message_kind IN ('final', 'failure', 'task-progress')
+                 AND state IN (
+                   'captured', 'policy_pending', 'held_dnd', 'held_pacing',
+                   'ready', 'retry_wait', 'policy_error', 'delivery_unknown'
+                 )"""
+        ).fetchall()
+        now = _utc_now()
+        reason = "missing inbound correlation for queued reply"
+        for row in rows:
+            try:
+                metadata = json.loads(row["metadata_json"])
+            except (TypeError, ValueError):
+                metadata = {}
+            if isinstance(metadata, Mapping) and metadata.get("proactive") is True:
+                continue
+            sequence = self._next_sequence_locked()
+            self._conn.execute(
+                """UPDATE outbound_messages
+                   SET sequence = ?, state = 'cancelled', active_attempt_id = NULL,
+                       available_at = NULL, last_error = ?, updated_at = ?
+                   WHERE message_id = ?""",
+                (sequence, reason, now, row["message_id"]),
+            )
+            self._conn.execute(
+                """INSERT INTO message_state_events(
+                     event_id, message_id, from_state, to_state, reason, occurred_at
+                   ) VALUES (?, ?, ?, 'cancelled', ?, ?)""",
+                (uuid7(), row["message_id"], row["state"], reason, now),
+            )
+
+    def _cancel_superseded_messages_locked(
+        self, envelope: Mapping[str, Any]
+    ) -> None:
+        inbound_id = _read_required_string(envelope, "inboundMessageId")
+        rows = self._conn.execute(
+            """SELECT message_id, state FROM outbound_messages
+               WHERE instance_id = ? AND channel = ? AND chat_id = ?
+                 AND COALESCE(thread_id, '') = ?
+                 AND inbound_message_id IS NOT NULL AND inbound_message_id <> ?
+                 AND transport = 'queued-push'
+                 AND message_kind IN ('final', 'failure', 'task-progress')
+                 AND state IN (
+                   'captured', 'policy_pending', 'held_dnd', 'held_pacing',
+                   'ready', 'retry_wait', 'policy_error', 'delivery_unknown'
+                  )""",
+            (
+                envelope.get("instanceId"),
+                envelope.get("channel"),
+                envelope.get("chatId"),
+                str(envelope.get("threadId") or ""),
+                inbound_id,
+            ),
+        ).fetchall()
+        if not rows:
+            return
+        now = _utc_now()
+        reason = f"superseded by newer inbound {inbound_id}"
+        for row in rows:
+            sequence = self._next_sequence_locked()
+            self._conn.execute(
+                """UPDATE outbound_messages
+                   SET sequence = ?, state = 'cancelled', active_attempt_id = NULL,
+                       available_at = NULL, last_error = ?, updated_at = ?
+                   WHERE message_id = ?""",
+                (sequence, reason, now, row["message_id"]),
+            )
+            self._conn.execute(
+                """INSERT INTO message_state_events(
+                     event_id, message_id, from_state, to_state, reason, occurred_at
+                   ) VALUES (?, ?, ?, 'cancelled', ?, ?)""",
+                (uuid7(), row["message_id"], row["state"], reason, now),
+            )
+
     def _next_sequence_locked(self) -> int:
         row = self._conn.execute(
             "SELECT value FROM bridge_meta WHERE key = 'next_change_sequence'"
@@ -427,6 +621,11 @@ class Outbox:
         delivery_route_json = (
             None if delivery_route is None else _canonical_json(delivery_route)
         )
+        if (
+            delivery_route_json is not None
+            and len(delivery_route_json.encode("utf-8")) > MAX_METADATA_BYTES
+        ):
+            raise ValueError("deliveryRoute exceeds maximum size")
 
         with self._transaction():
             existing = self._conn.execute(
@@ -439,6 +638,10 @@ class Outbox:
 
             sequence = self._next_sequence_locked()
             now = _utc_now()
+            stale_reason = self._unlinked_reply_reason(envelope)
+            if stale_reason is None:
+                stale_reason = self._stale_conversation_reason_locked(envelope)
+            initial_state = "cancelled" if stale_reason is not None else "captured"
             self._conn.execute(
                 """INSERT INTO outbound_messages (
                      message_id, sequence, instance_id, adapter_id, channel, account_id,
@@ -447,7 +650,7 @@ class Outbox:
                      reply_to, metadata_json, delivery_route_json, state,
                      captured_at, updated_at
                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                             'captured', ?, ?)""",
+                             ?, ?, ?)""",
                 (
                     message_id,
                     sequence,
@@ -468,10 +671,22 @@ class Outbox:
                     envelope.get("replyTo"),
                     metadata_json,
                     delivery_route_json,
+                    initial_state,
                     required["capturedAt"],
                     now,
                 ),
             )
+            if stale_reason is not None:
+                self._conn.execute(
+                    """UPDATE outbound_messages SET last_error = ? WHERE message_id = ?""",
+                    (stale_reason, message_id),
+                )
+                self._conn.execute(
+                    """INSERT INTO message_state_events(
+                         event_id, message_id, from_state, to_state, reason, occurred_at
+                       ) VALUES (?, ?, 'captured', 'cancelled', ?, ?)""",
+                    (uuid7(), message_id, stale_reason, now),
+                )
             for attachment in attachments:
                 self._conn.execute(
                     """INSERT INTO message_attachments(
@@ -597,12 +812,56 @@ class Outbox:
         if route.get("kind") != "media":
             raise ValueError("unsupported deliveryRoute kind")
         method = route.get("method")
-        if method not in {
+        local_methods = {
             "send_image_file",
             "send_document",
             "send_video",
             "send_voice",
-        }:
+        }
+        if method in {"send_image", "send_animation"}:
+            source = route.get("source")
+            if not isinstance(source, str) or not source:
+                raise ValueError("deliveryRoute source must be a non-empty string")
+            has_caption = route.get("hasCaption")
+            if not isinstance(has_caption, bool):
+                raise ValueError("deliveryRoute hasCaption must be boolean")
+            return {
+                "kind": "media",
+                "method": method,
+                "source": source,
+                "hasCaption": has_caption,
+            }
+        if method == "send_multiple_images":
+            raw_images = route.get("images")
+            if not isinstance(raw_images, list) or not raw_images:
+                raise ValueError("deliveryRoute images must be a non-empty array")
+            if len(raw_images) > MAX_ATTACHMENTS:
+                raise ValueError("deliveryRoute images exceed maximum count")
+            images: list[dict[str, str]] = []
+            for item in raw_images:
+                if not isinstance(item, Mapping):
+                    raise ValueError("deliveryRoute image must be an object")
+                source = item.get("source")
+                caption = item.get("caption")
+                if not isinstance(source, str) or not source:
+                    raise ValueError("deliveryRoute image source must be non-empty")
+                if not isinstance(caption, str):
+                    raise ValueError("deliveryRoute image caption must be a string")
+                images.append({"source": source, "caption": caption})
+            human_delay = route.get("humanDelay", 0.0)
+            if (
+                isinstance(human_delay, bool)
+                or not isinstance(human_delay, (int, float))
+                or not 0 <= float(human_delay) <= 3600
+            ):
+                raise ValueError("deliveryRoute humanDelay must be between 0 and 3600")
+            return {
+                "kind": "media",
+                "method": method,
+                "images": images,
+                "humanDelay": float(human_delay),
+            }
+        if method not in local_methods:
             raise ValueError("unsupported media delivery method")
         attachment_id = route.get("attachmentId")
         if not isinstance(attachment_id, str) or not attachment_id:
@@ -708,9 +967,17 @@ class Outbox:
                 (decision_id,),
             ).fetchone()
             if historical is not None:
-                if historical["message_id"] == message_id:
+                if historical["message_id"] != message_id:
+                    raise ValueError("decision id conflict")
+                # True replay: this exact decision is already the row's current state,
+                # or the message has reached a terminal state -> return the row as-is.
+                if row["state"] in TERMINAL_STATES or row["state"] == "delivering" or (
+                    row["decision_id"] == decision_id and row["state"] == state
+                ):
                     return self._message_from_row(row)
-                raise ValueError("decision id conflict")
+                # Otherwise the row moved on after this decision was first applied
+                # (e.g. ready -> held_pacing -> ready). The gateway re-issues the same
+                # semantic decision, so re-apply it instead of returning the stale row.
             if row["content_sha256"] != expected_content_sha256:
                 raise ValueError("content hash conflict")
             if row["state"] in TERMINAL_STATES:
@@ -740,7 +1007,8 @@ class Outbox:
             )
             self._conn.execute(
                 """INSERT INTO outbound_decisions(decision_id, message_id, applied_at)
-                   VALUES (?, ?, ?)""",
+                   VALUES (?, ?, ?)
+                   ON CONFLICT(decision_id) DO UPDATE SET applied_at = excluded.applied_at""",
                 (decision_id, message_id, now),
             )
             return self._message_from_row(self._require_message_locked(message_id))
@@ -1231,7 +1499,57 @@ class Outbox:
                    ) VALUES (?, ?, ?, ?)""",
                 (inbound_id, payload_json, change_sequence, received_at),
             )
+            is_head = self._update_conversation_head_locked(
+                envelope, change_sequence, received_at
+            )
+            if is_head:
+                self._cancel_superseded_messages_locked(envelope)
             return {"deduped": False, "inbound": dict(envelope)}
+
+    def get_inbound_decision(self, inbound_message_id: str) -> dict[str, Any] | None:
+        if not isinstance(inbound_message_id, str) or not inbound_message_id:
+            raise ValueError("inbound_message_id must be a non-empty string")
+        with self._lock:
+            self._ensure_open()
+            row = self._conn.execute(
+                "SELECT decision_json, decided_at FROM inbound_decisions"
+                " WHERE inbound_message_id = ?",
+                (inbound_message_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            decision = json.loads(row["decision_json"])
+            decision["decidedAt"] = row["decided_at"]
+            return decision
+
+    def list_inbound_history(self, limit: int = 50) -> dict[str, Any]:
+        bounded_limit = max(1, min(int(limit), 200))
+        with self._lock:
+            self._ensure_open()
+            rows = self._conn.execute(
+                """SELECT m.payload_json, m.received_at, d.decision_json, d.decided_at
+                   FROM inbound_messages m
+                   LEFT JOIN inbound_decisions d
+                     ON d.inbound_message_id = m.inbound_message_id
+                   ORDER BY m.received_at DESC, m.change_sequence DESC
+                   LIMIT ?""",
+                (bounded_limit,),
+            ).fetchall()
+            items = []
+            for row in rows:
+                inbound = json.loads(row["payload_json"])
+                decision = None
+                if row["decision_json"] is not None:
+                    decision = json.loads(row["decision_json"])
+                items.append(
+                    {
+                        "inboundMessageId": inbound.get("inboundMessageId"),
+                        "inbound": inbound,
+                        "decision": decision,
+                        "decidedAt": row["decided_at"],
+                    }
+                )
+            return {"items": items}
 
     def get_inbound(self, inbound_message_id: str) -> dict[str, Any] | None:
         if not isinstance(inbound_message_id, str) or not inbound_message_id:
@@ -1349,6 +1667,14 @@ class Outbox:
             trace = payload.get("transformTrace")
             if not isinstance(trace, list) or not all(isinstance(item, str) for item in trace):
                 raise ValueError("transformTrace must be a string array")
+            changes = payload.get("changes")
+            if changes is not None and (
+                not isinstance(changes, list) or not all(isinstance(item, str) for item in changes)
+            ):
+                raise ValueError("changes must be a string array when provided")
+            mode = payload.get("mode")
+            if mode is not None and mode not in {"pass-through", "quick", "rule", "llm"}:
+                raise ValueError("mode must be one of pass-through, quick, rule, llm")
             decided_at = _utc_now()
             self._conn.execute(
                 """INSERT INTO inbound_decisions(inbound_message_id, decision_json, decided_at)

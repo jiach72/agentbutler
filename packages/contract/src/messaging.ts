@@ -182,6 +182,22 @@ export interface InboundDecision {
   action: "forward" | "consume-command";
   optimizedText: string;
   transformTrace: string[];
+  /** 优化通道：快捷指令 / 规则改写 / AI 改写 / 原样透传。 */
+  mode?: "pass-through" | "quick" | "rule" | "llm";
+  /** 面向用户的改动要点（如“去掉开头的客套话”）。 */
+  changes?: string[];
+}
+
+/** M5 入站提示词优化对照历史：原始消息 + 优化决策（可能尚未生成）。 */
+export interface InboundHistoryEntry {
+  inboundMessageId: string;
+  inbound: InboundEnvelope;
+  decision: InboundDecision | null;
+  decidedAt: string | null;
+}
+
+export interface InboundHistoryView {
+  items: InboundHistoryEntry[];
 }
 
 export interface PrewarmAck {
@@ -211,6 +227,7 @@ export interface MessagingAdapter {
     instance: InstanceRef,
     decision: InboundDecision,
   ): Promise<Result<InboundDecision>>;
+  inboundHistory(instance: InstanceRef, limit?: number): Promise<Result<InboundHistoryView>>;
   subscribeTaskEvents(instance: InstanceRef, cb: (event: TaskEvent) => void): Unsubscribe;
   prewarmChannel(instance: InstanceRef, channel: ChannelId): Promise<Result<PrewarmAck>>;
 }

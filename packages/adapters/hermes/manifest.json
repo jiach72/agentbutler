@@ -2,12 +2,11 @@
   "frameworkId": "hermes",
   "displayName": "Hermes",
   "contractVersion": "1.x",
-  "adapterVersion": "0.1.0",
-  "declaredLevel": 3,
+  "adapterVersion": "0.1.0-dev.1",
+  "declaredLevel": 2,
   "capabilities": [
     "probe",
     "control",
-    "messaging",
     "skill-driver",
     "memory-driver",
     "config-driver"

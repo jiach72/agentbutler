@@ -204,19 +204,19 @@ describe("detect", () => {
 });
 
 describe("capabilityScan", () => {
-  it("完整 fixture：未配置 Bridge 时 messaging unavailable 且 effectiveLevel=2", async () => {
+  it("完整 fixture：Hermes V1 固定不实现 messaging 且 effectiveLevel=2", async () => {
     const r = await capabilityScan(root, { prober: fakeProber });
     expect(r.ok).toBe(true);
     expect(r.data!.effectiveLevel).toBe(2);
     expect(r.data!.capabilities).toEqual({
       probe: "ok",
       control: "ok",
-      messaging: "unavailable",
+      messaging: "not-implemented",
       "skill-driver": "ok",
       "memory-driver": "ok",
       "config-driver": "ok",
     });
-    expect(r.data!.anomalies).toEqual(["Hermes Bridge 未配置（消息接管未安装或未启用）"]);
+    expect(r.data!.anomalies).toEqual([]);
     expect(typeof r.durationMs).toBe("number");
   });
 
@@ -227,14 +227,13 @@ describe("capabilityScan", () => {
     expect(r.data!.capabilities).toEqual({
       probe: "ok",
       control: "ok",
-      messaging: "unavailable",
+      messaging: "not-implemented",
       "skill-driver": "ok",
       "memory-driver": "degraded",
       "config-driver": "ok",
     });
     expect(r.data!.anomalies).toEqual([
       "未找到 memory_store.db（记忆后端非默认）",
-      "Hermes Bridge 未配置（消息接管未安装或未启用）",
     ]);
     expect(r.data!.effectiveLevel).toBe(2);
   });

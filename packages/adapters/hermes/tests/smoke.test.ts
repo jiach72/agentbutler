@@ -14,8 +14,8 @@ describe("@butler/adapter-hermes", () => {
     const r = parseManifest(adapter.manifest);
     expect(r.ok).toBe(true);
     expect(r.data?.frameworkId).toBe("hermes");
-    expect(r.data?.declaredLevel).toBe(3);
-    expect(r.data?.capabilities).toContain("messaging");
+    expect(r.data?.declaredLevel).toBe(2);
+    expect(r.data?.capabilities).not.toContain("messaging");
   });
 
   it("包根 manifest.json 与 src/manifest.ts 内容一致", () => {

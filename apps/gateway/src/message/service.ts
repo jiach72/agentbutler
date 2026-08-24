@@ -1,4 +1,4 @@
-import type { InstanceRef, MessagingAdapter, PolicySnapshot } from "@butler/contract";
+import type { BridgeHealth, InstanceRef, MessagingAdapter, PolicySnapshot } from "@butler/contract";
 
 import { createPolicySnapshot } from "./config.js";
 import { MessageReconciler } from "./reconciler.js";
@@ -25,6 +25,8 @@ export interface MessageGatewayStatus {
   running: boolean;
   inFlight: boolean;
   bridgeConnected: boolean;
+  /** Sanitized Bridge capability snapshot. Credential material is never part of this contract. */
+  bridgeHealth: BridgeHealth | null;
   policyVersion: string | null;
   policyHash: string | null;
   lastCycleAt: string | null;
@@ -108,13 +110,12 @@ export class MessageGatewayService {
   }
 
   async status(): Promise<MessageGatewayStatus> {
+    let bridgeHealth: BridgeHealth | null = null;
     try {
       const health = await this.options.adapter.health(this.options.instance);
+      bridgeHealth = health.ok && health.data !== undefined ? health.data : null;
       this.bridgeConnected =
-        health.ok &&
-        health.data !== undefined &&
-        health.data.attached &&
-        health.data.outboxWritable;
+        bridgeHealth !== null && bridgeHealth.attached && bridgeHealth.outboxWritable;
     } catch {
       this.bridgeConnected = false;
     }
@@ -123,6 +124,7 @@ export class MessageGatewayService {
       running: this.running,
       inFlight: this.inFlight,
       bridgeConnected: this.bridgeConnected,
+      bridgeHealth,
       policyVersion: policy?.version ?? null,
       policyHash: policy?.sha256 ?? null,
       lastCycleAt: this.lastCycleAt,

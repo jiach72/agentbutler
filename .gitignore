@@ -1,0 +1,52 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+dist/
+coverage/
+playwright-report/
+test-results/
+
+# typescript incremental build info
+*.tsbuildinfo
+
+# environment
+.env
+.env.*
+!.env.example
+
+# logs & misc
+*.log
+.DS_Store
+Thumbs.db
+*.pid
+*.pid.lock
+
+# local agent/editor state
+.codex/
+.loopx/
+.superpowers/
+.trae/
+.workbuddy/
+.idea/
+.vscode/
+
+# local runtime data and generated overrides
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.bak
+backups/
+docker-compose.override.yml
+tmp/
+.tmp*/
+.cache/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/

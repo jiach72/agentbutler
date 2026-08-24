@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Mapping
@@ -19,6 +20,9 @@ TransportResolver = Callable[[str, Any, Any, Mapping[str, Any]], str]
 CaptureFilter = Callable[[str, Any, Any, Mapping[str, Any]], bool]
 DeliveryOverride = Callable[[dict[str, Any]], Awaitable[Any] | Any]
 MEDIA_METHODS = (
+    "send_image",
+    "send_animation",
+    "send_multiple_images",
     "send_image_file",
     "send_document",
     "send_video",
@@ -39,6 +43,13 @@ class AdapterBinding:
     transport_resolver: TransportResolver | None
     capture_filter: CaptureFilter | None
     delivery_override: DeliveryOverride | None
+
+
+@dataclass(frozen=True)
+class MediaSendResult:
+    success: bool = True
+    message_id: str | None = None
+    error: str | None = None
 
 
 class NativeRegistry:
@@ -117,6 +128,11 @@ class NativeRegistry:
             raise ValueError("content hash conflict")
         if row["state"] == "delivered":
             return self._ack(row, attempt_id=attempt_id, accepted=True, deduped=True)
+        if row["state"] == "delivering":
+            # A native send from an earlier request is still in flight (for
+            # example the gateway restarted while the Bridge was sending).
+            # Wait for its durable outcome instead of starting a second send.
+            return await self._wait_delivery_final(message_id, attempt_id)
 
         binding = self._by_adapter_id.get(row["adapterId"])
         if binding is None:
@@ -164,22 +180,56 @@ class NativeRegistry:
             error=error,
         )
 
+    async def _wait_delivery_final(
+        self,
+        message_id: str,
+        attempt_id: str,
+        timeout_s: float = 110.0,
+    ) -> dict[str, Any]:
+        deadline = time.monotonic() + timeout_s
+        while True:
+            current = self.outbox.get_delivery(message_id)
+            if current is None:
+                raise KeyError(message_id)
+            if current["state"] != "delivering":
+                return self._ack(
+                    current,
+                    attempt_id=attempt_id,
+                    accepted=current["state"] == "delivered",
+                    deduped=True,
+                )
+            if time.monotonic() >= deadline:
+                return self._ack(
+                    current,
+                    attempt_id=attempt_id,
+                    accepted=True,
+                    deduped=True,
+                )
+            await asyncio.sleep(1.0)
+
     async def _invoke_native(
         self,
         binding: AdapterBinding,
         row: dict[str, Any],
     ) -> Any:
+        native_row = dict(row)
+        metadata = row.get("metadata")
+        native_row["metadata"] = (
+            {key: value for key, value in metadata.items() if key != "proactive"}
+            if isinstance(metadata, Mapping)
+            else {}
+        )
         if binding.delivery_override is not None:
-            result = binding.delivery_override(row)
+            result = binding.delivery_override(native_row)
             return await result if inspect.isawaitable(result) else result
-        route = row.get("_deliveryRoute")
+        route = native_row.get("_deliveryRoute")
         if isinstance(route, Mapping) and route.get("kind") == "media":
-            return await self._invoke_media(binding, row, route)
+            return await self._invoke_media(binding, native_row, route)
         return await binding.original_send(
-            row["chatId"],
-            row["content"],
-            reply_to=row["replyTo"],
-            metadata=row["metadata"],
+            native_row["chatId"],
+            native_row["content"],
+            reply_to=native_row["replyTo"],
+            metadata=native_row["metadata"],
         )
 
     @staticmethod
@@ -192,6 +242,40 @@ class NativeRegistry:
         method = binding.original_media.get(method_name)
         if method is None:
             raise RuntimeError(f"media method is not attached: {method_name}")
+        if method_name in {"send_image", "send_animation"}:
+            source = route.get("source")
+            if not isinstance(source, str) or not source:
+                raise RuntimeError("remote media source is not available")
+            return await method(
+                row["chatId"],
+                source,
+                caption=row["content"] if route.get("hasCaption") else None,
+                reply_to=row["replyTo"],
+                metadata=row["metadata"],
+            )
+        if method_name == "send_multiple_images":
+            raw_images = route.get("images")
+            if not isinstance(raw_images, list) or not raw_images:
+                raise RuntimeError("multiple-image payload is not available")
+            images: list[tuple[str, str]] = []
+            for item in raw_images:
+                if not isinstance(item, Mapping):
+                    raise RuntimeError("multiple-image payload is invalid")
+                source = item.get("source")
+                caption = item.get("caption")
+                if not isinstance(source, str) or not source:
+                    raise RuntimeError("multiple-image source is not available")
+                images.append((source, "" if caption is None else str(caption)))
+            human_delay = route.get("humanDelay", 0.0)
+            if isinstance(human_delay, bool) or not isinstance(human_delay, (int, float)):
+                raise RuntimeError("multiple-image human delay is invalid")
+            result = await method(
+                row["chatId"],
+                images,
+                metadata=row["metadata"],
+                human_delay=float(human_delay),
+            )
+            return _normalize_media_result(result)
         attachment_id = route.get("attachmentId")
         attachment = next(
             (
@@ -229,12 +313,16 @@ class NativeRegistry:
             }
         hook = getattr(binding.adapter, "prewarm_channel", None)
         if not callable(hook):
+            # No warm-up procedure exists on this adapter: being attached is the
+            # warm state. Treating this as unwarmed would deadlock queued-push
+            # delivery (the reconciler holds every normal message indefinitely).
+            expires_at = checked_at + timedelta(minutes=5)
             return {
                 "channel": channel,
-                "warmed": False,
+                "warmed": True,
                 "checkedAt": checked_at.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
-                "expiresAt": None,
-                "detail": "adapter does not expose a prewarm hook",
+                "expiresAt": expires_at.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+                "detail": "no prewarm hook; adapter is attached and considered warm",
             }
         try:
             result = await hook()
@@ -281,3 +369,9 @@ class NativeRegistry:
         if error is not None:
             ack["error"] = error
         return ack
+
+
+def _normalize_media_result(result: Any) -> Any:
+    if result is not None:
+        return result
+    return MediaSendResult()

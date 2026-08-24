@@ -35,7 +35,11 @@ export async function launchHermesGateway(
 
   try {
     await runtime.start();
-    app = createGatewayServer({ messageService: runtime.service, messageStore: runtime.store });
+    app = createGatewayServer({
+      messageService: runtime.service,
+      messageStore: runtime.store,
+      inboundHistory: (limit) => runtime.inboundHistory(limit),
+    });
     await app.listen({ host, port });
   } catch (error) {
     try {

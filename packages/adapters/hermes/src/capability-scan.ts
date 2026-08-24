@@ -15,16 +15,10 @@ import {
   resolveApiEndpoint,
   type PortProber,
 } from "./detect.js";
-import {
-  probeHermesMessagingCapability,
-  type HermesMessagingCapabilityOptions,
-} from "./messaging/capability.js";
 
 export interface ScanOptions {
   /** 端口探活实现，默认 net.connect；测试可注入 fakeProber。 */
   prober?: PortProber;
-  /** 可选 Bridge 只读探针配置；未配置时 messaging 明确为 unavailable。 */
-  messaging?: HermesMessagingCapabilityOptions & { instanceId: string };
 }
 
 /** 解析 "instanceId|rootPath" 复合形式的 rootPath；不含 "|" 时返回 null。 */
@@ -57,7 +51,7 @@ export async function capabilityScan(
   const capabilities: Record<Capability, CapabilityStatus> = {
     probe: apiAlive ? "ok" : "unavailable",
     control: "degraded",
-    messaging: "unavailable",
+    messaging: "not-implemented",
     "skill-driver": "unavailable",
     "memory-driver": "degraded",
     "config-driver": "unavailable",
@@ -88,15 +82,8 @@ export async function capabilityScan(
   }
   // 注：Dashboard :9119 未监听属可选组件缺失，不算 anomaly。
 
-  let effectiveLevel: 0 | 1 | 2 | 3 =
+  const effectiveLevel: 0 | 1 | 2 =
     capabilities["control"] === "ok" ? 2 : capabilities["probe"] === "ok" ? 1 : 0;
-  const messaging = await probeHermesMessagingCapability(
-    opts.messaging?.instanceId ?? (separator >= 0 ? instance.slice(0, separator) : "hermes-main"),
-    opts.messaging,
-  );
-  capabilities["messaging"] = messaging.status;
-  anomalies.push(...messaging.anomalies);
-  if (messaging.status === "ok") effectiveLevel = 3;
 
   return ok({ effectiveLevel, capabilities, anomalies }, startedAt);
 }

@@ -42,6 +42,7 @@ def make_envelope(message_id: str) -> dict:
         "channel": "weixin",
         "chatId": "chat-1",
         "sessionId": "session-1",
+        "inboundMessageId": "inbound-http-1",
         "messageKind": "final",
         "transport": "queued-push",
         "priority": "normal",
@@ -224,7 +225,10 @@ class ServerTest(unittest.IsolatedAsyncioTestCase):
         captured_result = await adapter.send(
             "chat-1",
             "hello",
-            metadata={"butler_session_id": "session-1"},
+            metadata={
+                "butler_session_id": "session-1",
+                "butler_proactive": True,
+            },
         )
         message_id = captured_result.message_id.removeprefix("butler:")
         captured = self.outbox.get(message_id)
@@ -316,7 +320,16 @@ class ServerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status, 400)
         self.assertEqual((await response.json())["error"], "invalid")
 
-    async def test_prewarm_reports_unavailable_without_adapter_hook(self) -> None:
+    async def test_prewarm_reports_available_without_adapter_hook(self) -> None:
+        # An attached adapter with no warm-up hook is already warm; treating it as
+        adapter = FakeAdapter()
+        attach_adapter(
+            adapter,
+            self.registry,
+            adapter_id="weixin",
+            channel="weixin",
+        )
+        # unwarmed would deadlock queued-push delivery (reconciler holds indefinitely).
         response = await self.client.post(
             "/v1/prewarm",
             headers=AUTH,
@@ -325,8 +338,8 @@ class ServerTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.status, 200)
         body = await response.json()
-        self.assertFalse(body["warmed"])
-        self.assertIsNone(body["expiresAt"])
+        self.assertTrue(body["warmed"])
+        self.assertIsNotNone(body["expiresAt"])
 
     async def test_task_route_returns_inbound_event_and_outbound_correlation(self) -> None:
         self.outbox.record_inbound(
@@ -386,6 +399,87 @@ class ServerTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.status, 409)
         self.assertIn("delivery_unknown", (await response.json())["detail"])
+
+
+    async def test_inbound_history_requires_auth_and_returns_decisions(self) -> None:
+        denied = await self.client.get("/v1/inbound/history")
+        self.assertEqual(denied.status, 401)
+
+        self.outbox.record_inbound(
+            {
+                "inboundMessageId": "inbound-http-opt",
+                "instanceId": "hermes-main",
+                "adapterId": "weixin",
+                "channel": "weixin",
+                "chatId": "chat-1",
+                "content": "帮我把那个论文技能弄好点",
+                "receivedAt": "2026-08-23T00:00:05.000Z",
+            }
+        )
+        self.outbox.apply_inbound_decision(
+            "inbound-http-opt",
+            {
+                "inboundMessageId": "inbound-http-opt",
+                "action": "forward",
+                "optimizedText": "改进论文技能",
+                "transformTrace": ["optimize:strip-filler"],
+                "changes": ["去掉开头的客套话"],
+                "mode": "rule",
+            },
+        )
+
+        response = await self.client.get("/v1/inbound/history?limit=5", headers=AUTH)
+        self.assertEqual(response.status, 200)
+        body = await response.json()
+        self.assertEqual(len(body["items"]), 1)
+        self.assertEqual(body["items"][0]["decision"]["mode"], "rule")
+        self.assertEqual(body["items"][0]["inbound"]["content"], "帮我把那个论文技能弄好点")
+
+        bad = await self.client.get("/v1/inbound/history?limit=0", headers=AUTH)
+        self.assertEqual(bad.status, 400)
+        oversized = await self.client.get("/v1/inbound/history?limit=999", headers=AUTH)
+        self.assertEqual(oversized.status, 400)
+
+    async def test_inbound_decision_route_accepts_mode_and_changes(self) -> None:
+        self.outbox.record_inbound(
+            {
+                "inboundMessageId": "inbound-http-decision",
+                "instanceId": "hermes-main",
+                "adapterId": "weixin",
+                "channel": "weixin",
+                "chatId": "chat-1",
+                "content": "/日报",
+                "receivedAt": "2026-08-23T00:00:06.000Z",
+            }
+        )
+        response = await self.client.post(
+            "/v1/inbound/inbound-http-decision/decision",
+            headers=AUTH,
+            json={
+                "inboundMessageId": "inbound-http-decision",
+                "action": "forward",
+                "optimizedText": "生成今天的日报并发给我",
+                "transformTrace": ["optimize:quick-command"],
+                "changes": ["命中快捷指令，展开为完整指令"],
+                "mode": "quick",
+            },
+        )
+        self.assertEqual(response.status, 200)
+        body = await response.json()
+        self.assertEqual(body["mode"], "quick")
+
+        rejected = await self.client.post(
+            "/v1/inbound/inbound-http-decision/decision",
+            headers=AUTH,
+            json={
+                "inboundMessageId": "inbound-http-decision",
+                "action": "forward",
+                "optimizedText": "x",
+                "transformTrace": [],
+                "mode": "mystery",
+            },
+        )
+        self.assertEqual(rejected.status, 400)
 
 
 if __name__ == "__main__":

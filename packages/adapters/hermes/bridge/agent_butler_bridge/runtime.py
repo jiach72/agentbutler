@@ -12,6 +12,7 @@ from typing import Any
 
 from aiohttp import web
 
+from .llm_optimizer import LlmConfig
 from .outbox import Outbox
 from .registry import AdapterBinding, NativeRegistry
 from .server import create_app
@@ -46,6 +47,8 @@ class RuntimeConfig:
     token_file: Path
     outbox_path: Path
     allow_non_loopback: bool = False
+    inbound_optimize: bool = True
+    llm: LlmConfig | None = None
 
     @classmethod
     def from_env(cls) -> "RuntimeConfig":
@@ -72,6 +75,11 @@ class RuntimeConfig:
                 "HERMES_BUTLER_ALLOW_NON_LOOPBACK", ""
             ).strip().casefold()
             in TRUE_VALUES,
+            inbound_optimize=os.environ.get(
+                "HERMES_BUTLER_INBOUND_OPTIMIZE", "1"
+            ).strip().casefold()
+            in TRUE_VALUES,
+            llm=LlmConfig.from_env(),
         )
 
 
@@ -88,6 +96,7 @@ class BridgeRuntime:
         self._started_at: str | None = None
         self._coverage: dict[str, str] = {}
         self._lifecycle_lock = asyncio.Lock()
+        self._inbound_optimization_tasks: dict[str, asyncio.Task[None]] = {}
 
     @property
     def started(self) -> bool:
@@ -153,6 +162,9 @@ class BridgeRuntime:
         async with self._lifecycle_lock:
             runner = self._runner
             outbox = self.outbox
+            for task in tuple(self._inbound_optimization_tasks.values()):
+                task.cancel()
+            self._inbound_optimization_tasks.clear()
             self._reset()
             try:
                 if runner is not None:
@@ -207,6 +219,31 @@ class BridgeRuntime:
             raise ValueError("invalid coverage status")
         self._coverage[key] = status
 
+    def schedule_inbound_optimization(self, inbound_id: str, content: str) -> None:
+        """后台生成入站优化决策，不让 LLM 拖住消息处理。"""
+        if inbound_id in self._inbound_optimization_tasks:
+            return
+        from .hermes_hooks import _ensure_inbound_decision
+
+        task = asyncio.create_task(_ensure_inbound_decision(self, inbound_id, content))
+        self._inbound_optimization_tasks[inbound_id] = task
+
+        def finished(_task: asyncio.Task[None]) -> None:
+            if self._inbound_optimization_tasks.get(inbound_id) is _task:
+                self._inbound_optimization_tasks.pop(inbound_id, None)
+
+        task.add_done_callback(finished)
+
+    async def wait_inbound_optimization(self, inbound_id: str) -> None:
+        """等待已启动的入站优化完成；已不存在则立即返回。"""
+        task = self._inbound_optimization_tasks.get(inbound_id)
+        if task is None:
+            return
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            return
+
     def _reset(self) -> None:
         self.outbox = None
         self.registry = None
@@ -215,6 +252,7 @@ class BridgeRuntime:
         self._bound_port = None
         self._started_at = None
         self._coverage.clear()
+        self._inbound_optimization_tasks.clear()
 
 
 _process_runtime: BridgeRuntime | None = None

@@ -28,6 +28,7 @@ CONTROL_KEYS = {
     "butler_inbound_message_id",
     "butler_message_kind",
     "butler_priority",
+    "butler_proactive",
     "butler_run_id",
     "butler_session_id",
     "butler_thread_id",
@@ -131,6 +132,9 @@ def _build_envelope(
         raise ValueError("invalid butler_priority")
     message_id = uuid7()
     chat = str(chat_id)
+    safe_metadata = json_safe_metadata(metadata)
+    if metadata.get("butler_proactive") is True:
+        safe_metadata["proactive"] = True
     return {
         "messageId": message_id,
         "instanceId": registry.instance_id,
@@ -160,7 +164,7 @@ def _build_envelope(
         "content": text,
         "contentSha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
         "replyTo": None if reply_to is None else str(reply_to),
-        "metadata": json_safe_metadata(metadata),
+        "metadata": safe_metadata,
         "capturedAt": _utc_now(),
     }
 
@@ -416,6 +420,10 @@ MEDIA_PATH_ARGUMENTS = {
     "send_video": "video_path",
     "send_voice": "audio_path",
 }
+REMOTE_MEDIA_ARGUMENTS = {
+    "send_image": "image_url",
+    "send_animation": "animation_url",
+}
 
 
 def _wrap_media_methods(
@@ -425,7 +433,117 @@ def _wrap_media_methods(
 ) -> None:
     for method_name, original in binding.original_media.items():
         path_argument = MEDIA_PATH_ARGUMENTS.get(method_name)
-        if path_argument is None:
+        remote_argument = REMOTE_MEDIA_ARGUMENTS.get(method_name)
+        if path_argument is None and remote_argument is None and method_name != "send_multiple_images":
+            continue
+
+        if remote_argument is not None:
+
+            async def managed_remote_media(
+                *args,
+                _method_name=method_name,
+                _original=original,
+                _remote_argument=remote_argument,
+                **kwargs,
+            ):
+                if native_delivery_active():
+                    return await _original(*args, **kwargs)
+                bound = inspect.signature(_original).bind_partial(*args, **kwargs)
+                chat_id = bound.arguments.get("chat_id")
+                source = bound.arguments.get(_remote_argument)
+                if chat_id is None or not isinstance(source, str) or not source:
+                    raise ValueError(
+                        f"{_method_name} requires chat_id and {_remote_argument}"
+                    )
+                caption = bound.arguments.get("caption")
+                if caption is not None and not isinstance(caption, str):
+                    caption = str(caption)
+                reply_to = bound.arguments.get("reply_to")
+                metadata = bound.arguments.get("metadata")
+                raw_metadata = metadata if isinstance(metadata, Mapping) else {}
+                _ensure_completing_before_final_capture(registry, raw_metadata)
+                envelope = _build_envelope(
+                    binding,
+                    registry,
+                    chat_id=chat_id,
+                    content=caption or f"[{_method_name}]",
+                    reply_to=reply_to,
+                    metadata=raw_metadata,
+                )
+                envelope["deliveryRoute"] = {
+                    "kind": "media",
+                    "method": _method_name,
+                    "source": source,
+                    "hasCaption": caption is not None,
+                }
+                return await _capture_unspooled_media(
+                    envelope,
+                    registry,
+                    _original,
+                    args,
+                    kwargs,
+                    success_if_none=False,
+                )
+
+            setattr(adapter, method_name, managed_remote_media)
+            continue
+
+        if method_name == "send_multiple_images":
+
+            async def managed_multiple_images(
+                *args,
+                _original=original,
+                **kwargs,
+            ):
+                if native_delivery_active():
+                    return await _original(*args, **kwargs)
+                bound = inspect.signature(_original).bind_partial(*args, **kwargs)
+                chat_id = bound.arguments.get("chat_id")
+                raw_images = bound.arguments.get("images")
+                if chat_id is None or not isinstance(raw_images, (list, tuple)) or not raw_images:
+                    raise ValueError("send_multiple_images requires chat_id and images")
+                images: list[dict[str, str]] = []
+                captions: list[str] = []
+                for item in raw_images:
+                    if not isinstance(item, (list, tuple)) or len(item) != 2:
+                        raise ValueError("send_multiple_images entries must be (source, caption)")
+                    source, caption = item
+                    if not isinstance(source, str) or not source:
+                        raise ValueError("send_multiple_images source must be non-empty")
+                    normalized_caption = "" if caption is None else str(caption)
+                    images.append({"source": source, "caption": normalized_caption})
+                    if normalized_caption:
+                        captions.append(normalized_caption)
+                metadata = bound.arguments.get("metadata")
+                raw_metadata = metadata if isinstance(metadata, Mapping) else {}
+                human_delay = bound.arguments.get("human_delay", 0.0)
+                if isinstance(human_delay, bool) or not isinstance(human_delay, (int, float)):
+                    raise ValueError("send_multiple_images human_delay must be numeric")
+                _ensure_completing_before_final_capture(registry, raw_metadata)
+                envelope = _build_envelope(
+                    binding,
+                    registry,
+                    chat_id=chat_id,
+                    content="\n".join(captions) or f"[{len(images)} images]",
+                    reply_to=None,
+                    metadata=raw_metadata,
+                )
+                envelope["deliveryRoute"] = {
+                    "kind": "media",
+                    "method": "send_multiple_images",
+                    "images": images,
+                    "humanDelay": float(human_delay),
+                }
+                return await _capture_unspooled_media(
+                    envelope,
+                    registry,
+                    _original,
+                    args,
+                    kwargs,
+                    success_if_none=True,
+                )
+
+            setattr(adapter, method_name, managed_multiple_images)
             continue
 
         async def managed_media(
@@ -534,3 +652,69 @@ def _wrap_media_methods(
             return result
 
         setattr(adapter, method_name, managed_media)
+
+
+async def _capture_unspooled_media(
+    envelope: dict[str, Any],
+    registry: NativeRegistry,
+    original: Any,
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    *,
+    success_if_none: bool,
+) -> Any:
+    registry.outbox.capture(envelope)
+    if envelope["transport"] == "queued-push":
+        return _send_result(
+            success=True,
+            message_id=f"butler:{envelope['messageId']}",
+        )
+    policy = registry.outbox.get_policy_snapshot()
+    if policy is None or policy["payload"].get("inlineResponse") != "allow":
+        registry.outbox.apply_decision(
+            envelope["messageId"],
+            f"inline:{envelope['messageId']}:policy-unavailable",
+            envelope["contentSha256"],
+            "policy_error",
+            None,
+            [],
+            "unavailable",
+            "Agent Butler policy snapshot unavailable",
+        )
+        return _send_result(
+            success=False,
+            error="Agent Butler policy snapshot unavailable",
+        )
+    attempt_id = f"inline:{envelope['messageId']}"
+    registry.outbox.begin_delivery(
+        envelope["messageId"],
+        attempt_id,
+        envelope["contentSha256"],
+        allow_captured=True,
+    )
+    try:
+        with native_delivery_scope():
+            result = await original(*args, **kwargs)
+    except asyncio.CancelledError as exc:
+        registry.outbox.mark_unknown(
+            envelope["messageId"], attempt_id, str(exc) or "inline delivery cancelled"
+        )
+        raise
+    except Exception as exc:
+        registry.outbox.mark_unknown(envelope["messageId"], attempt_id, str(exc))
+        raise
+    if result is None and success_if_none:
+        result = _send_result(success=True)
+    if bool(getattr(result, "success", False)):
+        registry.outbox.finish_delivery(
+            envelope["messageId"],
+            attempt_id,
+            getattr(result, "message_id", None),
+        )
+    else:
+        registry.outbox.mark_retry(
+            envelope["messageId"],
+            attempt_id,
+            str(getattr(result, "error", None) or "native media send failed"),
+        )
+    return result

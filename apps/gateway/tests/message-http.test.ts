@@ -79,6 +79,17 @@ describe("gateway message HTTP API", () => {
           running: true,
           inFlight: false,
           bridgeConnected: true,
+          bridgeHealth: {
+            protocolVersion: 1,
+            bridgeVersion: "bridge-test",
+            instanceId: "hermes-main",
+            attached: true,
+            outboxWritable: true,
+            policyVersion: DEFAULT_MESSAGE_POLICY.version,
+            channels: { weixin: "ok", a2a: "ok" },
+            coverage: { runtime: "ok", apiJson: "ok", apiSse: "ok" },
+            startedAt: NOW,
+          },
           policyVersion: DEFAULT_MESSAGE_POLICY.version,
           policyHash: store.loadPolicy()?.sha256 ?? null,
           lastCycleAt: NOW,
@@ -90,7 +101,9 @@ describe("gateway message HTTP API", () => {
         if (failPolicyInstall) throw new Error("bearer super-secret");
         return store.savePolicy(createPolicySnapshot(config));
       },
-      wake: () => { wakeCount += 1; },
+      wake: () => {
+        wakeCount += 1;
+      },
     };
     const options = {
       queue,
@@ -113,7 +126,17 @@ describe("gateway message HTTP API", () => {
     const status = await app.inject({ method: "GET", url: "/api/messages/status" });
     expect(status.statusCode).toBe(200);
     expect(status.json()).toMatchObject({
-      bridge: { connected: true, policyVersion: "message-policy-v1", running: true },
+      bridge: {
+        connected: true,
+        attached: true,
+        outboxWritable: true,
+        protocolVersion: 1,
+        bridgeVersion: "bridge-test",
+        policyVersion: "message-policy-v1",
+        running: true,
+        channels: { weixin: "ok", a2a: "ok" },
+        coverage: { runtime: "ok", apiJson: "ok", apiSse: "ok" },
+      },
       counts: { held_dnd: 1, delivery_unknown: 0 },
     });
 
@@ -137,7 +160,11 @@ describe("gateway message HTTP API", () => {
       payload: { timeZone: "Asia/Shanghai", startMinute: 1320, endMinute: 420, enabled: true },
     });
     expect(put.statusCode).toBe(200);
-    expect(put.json()).toMatchObject({ scope: "session", scopeKey: "weixin:chat-1", enabled: true });
+    expect(put.json()).toMatchObject({
+      scope: "session",
+      scopeKey: "weixin:chat-1",
+      enabled: true,
+    });
 
     const list = await app.inject({ method: "GET", url: "/api/messages/dnd" });
     expect(list.json().items).toHaveLength(1);
@@ -149,21 +176,36 @@ describe("gateway message HTTP API", () => {
     });
     expect(invalid.statusCode).toBe(400);
 
-    const deleted = await app.inject({ method: "DELETE", url: `/api/messages/dnd/${encodeURIComponent(put.json().ruleId)}` });
+    const deleted = await app.inject({
+      method: "DELETE",
+      url: `/api/messages/dnd/${encodeURIComponent(put.json().ruleId)}`,
+    });
     expect(deleted.statusCode).toBe(204);
-    expect((await app.inject({ method: "GET", url: "/api/messages/dnd" })).json().items).toEqual([]);
+    expect((await app.inject({ method: "GET", url: "/api/messages/dnd" })).json().items).toEqual(
+      [],
+    );
   });
 
   it("returns policy metadata, rejects unknown fields, and sanitizes Bridge failures", async () => {
     const current = await app.inject({ method: "GET", url: "/api/messages/policy" });
     expect(current.statusCode).toBe(200);
-    expect(current.json()).toMatchObject({ version: DEFAULT_MESSAGE_POLICY.version, payload: { inlineResponse: "allow" } });
+    expect(current.json()).toMatchObject({
+      version: DEFAULT_MESSAGE_POLICY.version,
+      payload: { inlineResponse: "allow" },
+    });
 
     const updatedPolicy = structuredClone(DEFAULT_MESSAGE_POLICY);
     updatedPolicy.digest.windowSec = 180;
-    const updated = await app.inject({ method: "PUT", url: "/api/messages/policy", payload: updatedPolicy });
+    const updated = await app.inject({
+      method: "PUT",
+      url: "/api/messages/policy",
+      payload: updatedPolicy,
+    });
     expect(updated.statusCode).toBe(200);
-    expect(updated.json()).toMatchObject({ version: DEFAULT_MESSAGE_POLICY.version, sha256: expect.any(String) });
+    expect(updated.json()).toMatchObject({
+      version: DEFAULT_MESSAGE_POLICY.version,
+      sha256: expect.any(String),
+    });
 
     const unknown = await app.inject({
       method: "PUT",
@@ -174,10 +216,17 @@ describe("gateway message HTTP API", () => {
 
     const invalidRate = structuredClone(updatedPolicy);
     invalidRate.channels.weixin.initialRatePerMin = -1;
-    expect((await app.inject({ method: "PUT", url: "/api/messages/policy", payload: invalidRate })).statusCode).toBe(400);
+    expect(
+      (await app.inject({ method: "PUT", url: "/api/messages/policy", payload: invalidRate }))
+        .statusCode,
+    ).toBe(400);
 
     failPolicyInstall = true;
-    const unavailable = await app.inject({ method: "PUT", url: "/api/messages/policy", payload: updatedPolicy });
+    const unavailable = await app.inject({
+      method: "PUT",
+      url: "/api/messages/policy",
+      payload: updatedPolicy,
+    });
     expect(unavailable.statusCode).toBe(503);
     expect(unavailable.json()).toEqual({ code: "E303", error: "Hermes Bridge unavailable" });
     expect(unavailable.body).not.toContain("super-secret");
@@ -196,19 +245,114 @@ describe("gateway message HTTP API", () => {
   });
 
   it("dedupes internal hints and wakes reconciliation without trusting hint payloads as state", async () => {
-    const outbound = { method: "POST" as const, url: "/internal/hermes/outbound", payload: { messageId: "m-new" } };
+    const outbound = {
+      method: "POST" as const,
+      url: "/internal/hermes/outbound",
+      payload: { messageId: "m-new" },
+    };
     expect((await app.inject(outbound)).json()).toEqual({ accepted: true, deduped: false });
     expect((await app.inject(outbound)).json()).toEqual({ accepted: true, deduped: true });
 
-    const task = { method: "POST" as const, url: "/internal/hermes/task-event", payload: { runId: "run-2", sequence: 3 } };
+    const task = {
+      method: "POST" as const,
+      url: "/internal/hermes/task-event",
+      payload: { runId: "run-2", sequence: 3 },
+    };
     expect((await app.inject(task)).json()).toEqual({ accepted: true, deduped: false });
     expect((await app.inject(task)).json()).toEqual({ accepted: true, deduped: true });
 
-    const inbound = { method: "POST" as const, url: "/internal/hermes/inbound", payload: { inboundMessageId: "in-1" } };
+    const inbound = {
+      method: "POST" as const,
+      url: "/internal/hermes/inbound",
+      payload: { inboundMessageId: "in-1" },
+    };
     expect((await app.inject(inbound)).json()).toEqual({ accepted: true, deduped: false });
     expect((await app.inject(inbound)).json()).toEqual({ accepted: true, deduped: true });
     expect(wakeCount).toBe(3);
     expect(store.messageView("m-new")).toBeUndefined();
+  });
+
+  it("returns optimization history from the runtime callback", async () => {
+    const historyApp = createGatewayServer({
+      queue,
+      channels: [],
+      startLoop: false,
+      messageStore: store,
+      messageService: {
+        status: async () => ({
+          running: true,
+          inFlight: false,
+          bridgeConnected: true,
+          bridgeHealth: null,
+          policyVersion: null,
+          policyHash: null,
+          lastCycleAt: null,
+          lastError: null,
+          counts: store.counts(),
+        }),
+        updatePolicy: async (config: MessagePolicyConfig) =>
+          store.savePolicy(createPolicySnapshot(config)),
+        wake: () => undefined,
+      },
+      inboundHistory: async (limit) => {
+        expect(limit).toBe(20);
+        return {
+          ok: true,
+          data: {
+            items: [
+              {
+                inboundMessageId: "in-opt-1",
+                inbound: {
+                  inboundMessageId: "in-opt-1",
+                  instanceId: "hermes-main",
+                  adapterId: "weixin",
+                  channel: "weixin",
+                  chatId: "chat-1",
+                  content: "帮我把那个论文技能弄好点",
+                  receivedAt: NOW,
+                },
+                decision: {
+                  inboundMessageId: "in-opt-1",
+                  action: "forward",
+                  optimizedText: "改进论文技能",
+                  transformTrace: ["optimize:strip-filler"],
+                  mode: "rule",
+                  changes: ["去掉开头的客套话"],
+                },
+                decidedAt: NOW,
+              },
+            ],
+          },
+          durationMs: 1,
+        };
+      },
+    });
+    try {
+      const response = await historyApp.inject({
+        method: "GET",
+        url: "/api/messages/optimization-history?limit=20",
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        reachable: true,
+        items: [
+          {
+            inboundMessageId: "in-opt-1",
+            decision: { optimizedText: "改进论文技能", mode: "rule" },
+          },
+        ],
+      });
+    } finally {
+      await historyApp.close();
+    }
+  });
+
+  it("degrades optimization history when callback is missing", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/messages/optimization-history",
+    });
+    expect(response.statusCode).toBe(503);
   });
 
   it("caps JSON request bodies at one MiB", async () => {

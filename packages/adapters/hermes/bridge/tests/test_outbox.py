@@ -33,6 +33,28 @@ def make_envelope(message_id: str, *, content: str = "hello") -> dict:
     }
 
 
+def make_inbound(
+    inbound_id: str,
+    *,
+    received_at: str,
+    chat_id: str = "chat-1",
+    thread_id: str | None = None,
+) -> dict:
+    return {
+        "inboundMessageId": inbound_id,
+        "instanceId": "hermes-main",
+        "adapterId": "weixin",
+        "channel": "weixin",
+        "chatId": chat_id,
+        "threadId": thread_id,
+        "userId": "user-1",
+        "sessionId": "session-1",
+        "runId": None,
+        "content": f"question:{inbound_id}",
+        "receivedAt": received_at,
+    }
+
+
 class OutboxTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -79,6 +101,150 @@ class OutboxTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "content hash"):
             self.outbox.capture(make_envelope(message_id, content="changed"))
+
+    def test_new_inbound_cancels_unsent_reply_for_previous_question(self) -> None:
+        first_inbound = make_inbound(
+            "inbound-1", received_at="2026-08-23T10:00:00.000Z"
+        )
+        self.outbox.record_inbound(first_inbound)
+        envelope = make_envelope("018bcfe5-6800-7000-8000-000000000005")
+        captured = self.outbox.capture(envelope)
+        self.assertEqual(captured["message"]["state"], "captured")
+
+        self.outbox.record_inbound(
+            make_inbound("inbound-2", received_at="2026-08-23T10:01:00.000Z")
+        )
+
+        cancelled = self.outbox.get(envelope["messageId"])
+        self.assertEqual(cancelled["state"], "cancelled")
+        self.assertIn("superseded by newer inbound", cancelled["lastError"])
+        self.assertEqual(
+            self.outbox.state_history(envelope["messageId"])[0]["toState"],
+            "cancelled",
+        )
+
+    def test_new_inbound_cancels_delivery_unknown_for_previous_question(self) -> None:
+        self.outbox.record_inbound(
+            make_inbound("inbound-1", received_at="2026-08-23T10:00:00.000Z")
+        )
+        envelope = make_envelope("018bcfe5-6800-7000-8000-00000000000f")
+        self.outbox.capture(envelope)
+        self.outbox._conn.execute(
+            """UPDATE outbound_messages
+               SET state = 'delivery_unknown', last_error = 'uncertain delivery'
+               WHERE message_id = ?""",
+            (envelope["messageId"],),
+        )
+
+        self.outbox.record_inbound(
+            make_inbound("inbound-2", received_at="2026-08-23T10:01:00.000Z")
+        )
+
+        row = self.outbox.get(envelope["messageId"])
+        self.assertEqual(row["state"], "cancelled")
+        self.assertIn("superseded by newer inbound", row["lastError"])
+
+    def test_late_reply_capture_for_superseded_question_is_cancelled(self) -> None:
+        self.outbox.record_inbound(
+            make_inbound("inbound-1", received_at="2026-08-23T10:00:00.000Z")
+        )
+        self.outbox.record_inbound(
+            make_inbound("inbound-2", received_at="2026-08-23T10:01:00.000Z")
+        )
+
+        envelope = make_envelope("018bcfe5-6800-7000-8000-000000000006")
+        captured = self.outbox.capture(envelope)
+
+        self.assertEqual(captured["message"]["state"], "cancelled")
+        self.assertIn("superseded by newer inbound", captured["message"]["lastError"])
+
+    def test_unlinked_queued_reply_is_cancelled_unless_explicitly_proactive(self) -> None:
+        reply = make_envelope("018bcfe5-6800-7000-8000-00000000000a")
+        reply["runId"] = None
+        reply["inboundMessageId"] = None
+        reply["metadata"] = {}
+
+        captured = self.outbox.capture(reply)
+
+        self.assertEqual(captured["message"]["state"], "cancelled")
+        self.assertIn("missing inbound correlation", captured["message"]["lastError"])
+
+        proactive = make_envelope("018bcfe5-6800-7000-8000-00000000000b")
+        proactive["runId"] = None
+        proactive["inboundMessageId"] = None
+        proactive["metadata"] = {"proactive": True}
+
+        self.assertEqual(self.outbox.capture(proactive)["message"]["state"], "captured")
+
+        alert = make_envelope("018bcfe5-6800-7000-8000-00000000000c")
+        alert["runId"] = None
+        alert["inboundMessageId"] = None
+        alert["messageKind"] = "alert"
+        alert["metadata"] = {}
+
+        self.assertEqual(self.outbox.capture(alert)["message"]["state"], "captured")
+
+    def test_new_inbound_does_not_cancel_alerts_or_other_conversations(self) -> None:
+        self.outbox.record_inbound(
+            make_inbound("inbound-1", received_at="2026-08-23T10:00:00.000Z")
+        )
+        alert = make_envelope("018bcfe5-6800-7000-8000-000000000007")
+        alert["messageKind"] = "alert"
+        other = make_envelope("018bcfe5-6800-7000-8000-000000000008")
+        other["chatId"] = "chat-2"
+        self.outbox.capture(alert)
+        self.outbox.capture(other)
+
+        self.outbox.record_inbound(
+            make_inbound("inbound-2", received_at="2026-08-23T10:01:00.000Z")
+        )
+
+        self.assertEqual(self.outbox.get(alert["messageId"])["state"], "captured")
+        self.assertEqual(self.outbox.get(other["messageId"])["state"], "captured")
+
+    def test_reopen_cancels_legacy_backlog_for_superseded_question(self) -> None:
+        self.outbox.record_inbound(
+            make_inbound("inbound-1", received_at="2026-08-23T10:00:00.000Z")
+        )
+        envelope = make_envelope("018bcfe5-6800-7000-8000-000000000009")
+        self.outbox.capture(envelope)
+        self.outbox.record_inbound(
+            make_inbound("inbound-2", received_at="2026-08-23T10:01:00.000Z")
+        )
+        self.outbox._conn.execute(
+            """UPDATE outbound_messages
+               SET state = 'retry_wait', last_error = 'legacy retry'
+               WHERE message_id = ?""",
+            (envelope["messageId"],),
+        )
+        self.outbox._conn.execute("DELETE FROM conversation_heads")
+
+        self.reopen()
+
+        row = self.outbox.get(envelope["messageId"])
+        self.assertEqual(row["state"], "cancelled")
+        self.assertIn("superseded by newer inbound", row["lastError"])
+
+    def test_reopen_cancels_legacy_unlinked_queued_replies(self) -> None:
+        retry = make_envelope("018bcfe5-6800-7000-8000-00000000000d")
+        unknown = make_envelope("018bcfe5-6800-7000-8000-00000000000e")
+        self.outbox.capture(retry)
+        self.outbox.capture(unknown)
+        self.outbox._conn.execute(
+            """UPDATE outbound_messages
+               SET inbound_message_id = NULL, run_id = NULL, metadata_json = '{}',
+                   state = CASE message_id WHEN ? THEN 'retry_wait' ELSE 'delivery_unknown' END,
+                   last_error = 'legacy backlog'
+               WHERE message_id IN (?, ?)""",
+            (retry["messageId"], retry["messageId"], unknown["messageId"]),
+        )
+
+        self.reopen()
+
+        for message_id in (retry["messageId"], unknown["messageId"]):
+            row = self.outbox.get(message_id)
+            self.assertEqual(row["state"], "cancelled")
+            self.assertIn("missing inbound correlation", row["lastError"])
 
     def test_delivery_unknown_is_not_claimable_after_restart(self) -> None:
         envelope = make_envelope("018bcfe5-6800-7000-8000-000000000002")
@@ -161,7 +327,7 @@ class OutboxTest(unittest.TestCase):
         )
         self.assertEqual(replay["contentSha256"], first["contentSha256"])
 
-    def test_reopen_backfills_decision_history_before_replaying_older_decision(self) -> None:
+    def test_reopen_backfills_decision_history_then_replay_reapplies_semantic_decision(self) -> None:
         envelope = make_envelope("018bcfe5-6800-7000-8000-000000000104")
         self.outbox.capture(envelope)
         first = self.outbox.apply_decision(
@@ -198,10 +364,14 @@ class OutboxTest(unittest.TestCase):
             "p2",
             "ready",
         )
+        # The gateway only replays its own staged decision, so re-applying the
+        # semantic decision is correct even if the row moved on in between
+        # (e.g. ready -> held_pacing -> ready). The replayed decision uses the
+        # content it would produce, not the superseded envelope hash.
         replay = self.outbox.apply_decision(
             envelope["messageId"],
             "decision-1",
-            envelope["contentSha256"],
+            first["contentSha256"],
             "held_pacing",
             "2026-08-22T10:00:30.000Z",
             ["aggregate-progress"],
@@ -210,9 +380,9 @@ class OutboxTest(unittest.TestCase):
             optimized_content="digest",
         )
 
-        self.assertEqual(replay["contentSha256"], second["contentSha256"])
-        self.assertEqual(replay["state"], "ready")
-        self.assertEqual(replay["transformTrace"], ["ready"])
+        self.assertEqual(replay["contentSha256"], first["contentSha256"])
+        self.assertEqual(replay["state"], "held_pacing")
+        self.assertEqual(replay["transformTrace"], ["aggregate-progress"])
 
     def test_startup_migrates_runtime_columns_for_existing_outbox(self) -> None:
         self.outbox.close()
@@ -511,6 +681,109 @@ class OutboxTest(unittest.TestCase):
         internal = self.outbox.attachments_for(message["messageId"], include_paths=True)
         self.assertNotIn("spoolPath", public[0])
         self.assertEqual(internal[0]["spoolPath"], str(spool_path))
+
+
+    def test_inbound_decision_roundtrip_and_history_join(self) -> None:
+        self.outbox.record_inbound(
+            {
+                "inboundMessageId": "inbound-opt-1",
+                "instanceId": "hermes-main",
+                "adapterId": "weixin",
+                "channel": "weixin",
+                "chatId": "chat-1",
+                "content": "帮我把那个论文技能弄好点",
+                "receivedAt": "2026-08-23T00:00:01.000Z",
+            }
+        )
+        self.assertIsNone(self.outbox.get_inbound_decision("inbound-opt-1"))
+
+        decision = {
+            "inboundMessageId": "inbound-opt-1",
+            "action": "forward",
+            "optimizedText": "改进论文技能",
+            "transformTrace": ["optimize:strip-filler"],
+            "changes": ["去掉开头的客套话"],
+            "mode": "rule",
+        }
+        self.outbox.apply_inbound_decision("inbound-opt-1", decision)
+
+        stored = self.outbox.get_inbound_decision("inbound-opt-1")
+        self.assertEqual(stored["mode"], "rule")
+        self.assertEqual(stored["optimizedText"], "改进论文技能")
+        self.assertIn("decidedAt", stored)
+
+        history = self.outbox.list_inbound_history(10)
+        self.assertEqual(len(history["items"]), 1)
+        item = history["items"][0]
+        self.assertEqual(item["inboundMessageId"], "inbound-opt-1")
+        self.assertEqual(item["inbound"]["content"], "帮我把那个论文技能弄好点")
+        self.assertEqual(item["decision"]["changes"], ["去掉开头的客套话"])
+
+        replacement = {**decision, "optimizedText": "改进论文技能，避免上次的失败"}
+        self.outbox.apply_inbound_decision("inbound-opt-1", replacement)
+        self.assertEqual(
+            self.outbox.get_inbound_decision("inbound-opt-1")["optimizedText"],
+            "改进论文技能，避免上次的失败",
+        )
+        llm_replacement = {
+            **decision,
+            "mode": "llm",
+            "optimizedText": "改进论文技能，并报告结果",
+            "transformTrace": ["optimize:llm-fallback"],
+            "changes": ["由 AI 改写"],
+        }
+        self.outbox.apply_inbound_decision("inbound-opt-1", llm_replacement)
+        self.assertEqual(self.outbox.get_inbound_decision("inbound-opt-1")["mode"], "llm")
+
+    def test_inbound_history_orders_by_received_at_and_bounds_limit(self) -> None:
+        for index, received_at in enumerate(
+            ("2026-08-23T00:00:02.000Z", "2026-08-23T00:00:03.000Z", "2026-08-23T00:00:01.000Z")
+        ):
+            self.outbox.record_inbound(
+                {
+                    "inboundMessageId": f"inbound-order-{index}",
+                    "instanceId": "hermes-main",
+                    "adapterId": "weixin",
+                    "channel": "weixin",
+                    "chatId": "chat-1",
+                    "content": f"message-{index}",
+                    "receivedAt": received_at,
+                }
+            )
+
+        history = self.outbox.list_inbound_history(2)
+        self.assertEqual(len(history["items"]), 2)
+        self.assertEqual(history["items"][0]["inboundMessageId"], "inbound-order-1")
+        self.assertEqual(history["items"][1]["inboundMessageId"], "inbound-order-0")
+        self.assertIsNone(history["items"][0]["decision"])
+        self.assertIsNone(history["items"][0]["decidedAt"])
+
+    def test_inbound_decision_rejects_invalid_changes_and_mode(self) -> None:
+        self.outbox.record_inbound(
+            {
+                "inboundMessageId": "inbound-invalid-1",
+                "instanceId": "hermes-main",
+                "adapterId": "weixin",
+                "channel": "weixin",
+                "chatId": "chat-1",
+                "content": "hello",
+                "receivedAt": "2026-08-23T00:00:04.000Z",
+            }
+        )
+        base = {
+            "inboundMessageId": "inbound-invalid-1",
+            "action": "forward",
+            "optimizedText": "hello",
+            "transformTrace": [],
+        }
+        with self.assertRaisesRegex(ValueError, "changes"):
+            self.outbox.apply_inbound_decision("inbound-invalid-1", {**base, "changes": "oops"})
+        with self.assertRaisesRegex(ValueError, "changes"):
+            self.outbox.apply_inbound_decision(
+                "inbound-invalid-1", {**base, "changes": ["ok", 42]}
+            )
+        with self.assertRaisesRegex(ValueError, "mode"):
+            self.outbox.apply_inbound_decision("inbound-invalid-1", {**base, "mode": 42})
 
 
 if __name__ == "__main__":

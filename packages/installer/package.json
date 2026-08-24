@@ -1,0 +1,17 @@
+{
+  "name": "@butler/installer",
+  "version": "0.1.0-dev.1",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "butler-install": "./dist/main.js"
+  }
+}

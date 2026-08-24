@@ -13,7 +13,7 @@ from .outbox import Outbox
 from .registry import NativeRegistry
 
 
-BRIDGE_VERSION = "0.1.0"
+BRIDGE_VERSION = "0.1.0-dev.1"
 PROTOCOL_VERSION = 1
 MAX_BODY_BYTES = 1024 * 1024
 
@@ -220,7 +220,7 @@ def create_app(
             payload = await _read_object(
                 request,
                 required={"inboundMessageId", "action", "optimizedText", "transformTrace"},
-                allowed={"inboundMessageId", "action", "optimizedText", "transformTrace"},
+                allowed={"inboundMessageId", "action", "optimizedText", "transformTrace", "changes", "mode"},
             )
             return web.json_response(outbox.apply_inbound_decision(inbound_id, payload))
         except KeyError:
@@ -228,6 +228,14 @@ def create_app(
         except ValueError as exc:
             return _conflict_or_invalid(exc)
 
+    async def inbound_history(request: web.Request) -> web.Response:
+        try:
+            limit = int(request.query.get("limit", "50"))
+            if limit < 1 or limit > 200:
+                raise ValueError("limit must be between 1 and 200")
+            return web.json_response(outbox.list_inbound_history(limit))
+        except (TypeError, ValueError) as exc:
+            return _error(400, "invalid", str(exc))
     async def prewarm(request: web.Request) -> web.Response:
         try:
             payload = await _read_object(
@@ -256,6 +264,7 @@ def create_app(
     app.router.add_post("/v1/outbox/{message_id}/dead-letter", dead_letter)
     app.router.add_post("/v1/deliver", deliver)
     app.router.add_post("/v1/inbound/{inbound_id}/decision", inbound_decision)
+    app.router.add_get("/v1/inbound/history", inbound_history)
     app.router.add_post("/v1/prewarm", prewarm)
     app.router.add_get("/v1/tasks/{run_id}", task)
     return app

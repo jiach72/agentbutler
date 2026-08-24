@@ -1,0 +1,13 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/contract" },
+    { "path": "packages/core" },
+    { "path": "packages/adapters/hermes" },
+    { "path": "packages/installer" },
+    { "path": "apps/watch" },
+    { "path": "apps/gateway" },
+    { "path": "apps/web" },
+    { "path": "ui" }
+  ]
+}

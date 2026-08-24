@@ -54,7 +54,11 @@ class WrapperTest(unittest.IsolatedAsyncioTestCase):
         result = await self.adapter.send(
             "chat-1",
             "hello",
-            metadata={"butler_session_id": "s1", "notify": True},
+            metadata={
+                "butler_session_id": "s1",
+                "butler_proactive": True,
+                "notify": True,
+            },
         )
 
         self.assertTrue(result.success)
@@ -62,7 +66,7 @@ class WrapperTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.adapter.native_calls, [])
         row = self.outbox.list_changes(0, 10)["items"][0]
         self.assertEqual(row["transport"], "queued-push")
-        self.assertEqual(row["metadata"], {"notify": True})
+        self.assertEqual(row["metadata"], {"notify": True, "proactive": True})
 
     async def test_inline_response_persists_then_calls_native(self) -> None:
         payload = {"inlineResponse": "allow"}
@@ -172,7 +176,7 @@ class WrapperTest(unittest.IsolatedAsyncioTestCase):
         sent = await self.adapter.send(
             "chat-1",
             "draft",
-            metadata={"butler_session_id": "s1"},
+            metadata={"butler_session_id": "s1", "butler_proactive": True},
         )
 
         edited = await self.adapter.edit_message(
@@ -198,7 +202,7 @@ class WrapperTest(unittest.IsolatedAsyncioTestCase):
         sent = await self.adapter.send(
             "chat-1",
             "hello",
-            metadata={"butler_session_id": "s1"},
+            metadata={"butler_session_id": "s1", "butler_proactive": True},
         )
         message_id = sent.message_id.removeprefix("butler:")
         captured = self.outbox.get(message_id)

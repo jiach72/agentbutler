@@ -1,0 +1,22 @@
+{
+  "name": "@butler/watch",
+  "version": "0.1.0-dev.1",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@butler/adapter-hermes": "workspace:*",
+    "@butler/contract": "workspace:*",
+    "@butler/core": "workspace:*"
+  }
+}

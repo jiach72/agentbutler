@@ -5,6 +5,7 @@ import {
   type DeliveryAck,
   type DeliveryRequest,
   type InboundDecision,
+  type InboundHistoryView,
   type MessageDecision,
   type OutboxChangeBatch,
   type OutboxMessageView,
@@ -90,6 +91,11 @@ export class HermesBridgeClient {
 
   prewarm(channel: ChannelId): Promise<PrewarmAck> {
     return this.request("POST", "/v1/prewarm", { channel });
+  }
+
+  inboundHistory(limit = 50): Promise<InboundHistoryView> {
+    const query = new URLSearchParams({ limit: String(limit) });
+    return this.request("GET", `/v1/inbound/history?${query.toString()}`);
   }
 
   private async request<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {

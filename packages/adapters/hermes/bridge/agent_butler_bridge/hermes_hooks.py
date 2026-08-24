@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import functools
 import inspect
+from .message_optimizer import optimize_inbound
+from .llm_optimizer import optimize_with_llm
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Mapping
@@ -32,9 +35,6 @@ CHANNEL_ALIASES = {
     "weixin": "weixin",
     "a2a": "a2a",
 }
-UNSUPPORTED_DIRECT_MEDIA = ("send_image", "send_animation", "send_multiple_images")
-
-
 @dataclass
 class HookSendResult:
     success: bool
@@ -57,7 +57,7 @@ def install_base_platform_hooks(
     @functools.wraps(original_handle)
     async def managed_handle(adapter, event, *args, **kwargs):
         runtime, binding = _require_runtime_binding(adapter, runtime_provider)
-        _inbound_id, deduped = _record_inbound(runtime, binding, event)
+        _inbound_id, deduped = await _record_inbound(runtime, binding, event)
         runtime.record_coverage("inbound", "ok")
         if deduped:
             return None
@@ -66,9 +66,14 @@ def install_base_platform_hooks(
     @functools.wraps(original_process)
     async def managed_process(adapter, event, session_key, *args, **kwargs):
         runtime, binding = _require_runtime_binding(adapter, runtime_provider)
-        inbound_id = _event_inbound_id(event)
-        if inbound_id is None:
-            inbound_id, _deduped = _record_inbound(runtime, binding, event)
+        # 无论 inbound_id 是否已由 handle_message 写入，都要等待同一决策落库，
+        # 否则后续处理会在规则/LLM 优化完成前拿到原始文本，产生竞态。
+        inbound_id, _deduped = await _record_inbound(
+            runtime,
+            binding,
+            event,
+            wait_for_decision=True,
+        )
         started = runtime.outbox.begin_run(
             session_id=str(session_key),
             inbound_message_id=inbound_id,
@@ -91,7 +96,8 @@ def install_base_platform_hooks(
                 active_runs[str(session_key)] = lifecycle
             try:
                 with message_context(**context_updates):
-                    await original_process(adapter, event, session_key, *args, **kwargs)
+                    optimized_event = _apply_inbound_optimization(runtime, inbound_id, event)
+                    await original_process(adapter, optimized_event, session_key, *args, **kwargs)
             except BaseException:
                 with lifecycle.lock:
                     lifecycle.failed = True
@@ -339,7 +345,11 @@ def install_a2a_hooks(a2a_class: type) -> None:
             str(context_id),
             str(reply or ""),
             reply_to=str(task_id),
-            metadata={"notify": True, "a2a_state": str(state or "completed")},
+            metadata={
+                "notify": True,
+                "a2a_state": str(state or "completed"),
+                "butler_proactive": True,
+            },
         )
         if not inspect.isawaitable(coroutine):
             raise RuntimeError("A2A adapter send hook did not return an awaitable")
@@ -487,10 +497,12 @@ def _binding_context(
     }
 
 
-def _record_inbound(
+async def _record_inbound(
     runtime: BridgeRuntime,
     binding: AdapterBinding,
     event: Any,
+    *,
+    wait_for_decision: bool = False,
 ) -> tuple[str, bool]:
     source = getattr(event, "source", None)
     raw_message_id = _optional_string(getattr(event, "message_id", None))
@@ -553,9 +565,79 @@ def _record_inbound(
             "attachmentCount",
         )
         if all(existing.get(key) == envelope.get(key) for key in stable_keys):
+            if runtime.outbox.get_inbound_decision(inbound_id) is None:
+                runtime.schedule_inbound_optimization(inbound_id, str(envelope["content"]))
+            if wait_for_decision:
+                await runtime.wait_inbound_optimization(inbound_id)
             return inbound_id, True
     recorded = runtime.outbox.record_inbound(envelope)
+    if not bool(recorded["deduped"]):
+        runtime.schedule_inbound_optimization(inbound_id, str(envelope["content"]))
+    if wait_for_decision:
+        await runtime.wait_inbound_optimization(inbound_id)
     return inbound_id, bool(recorded["deduped"])
+
+
+async def _ensure_inbound_decision(
+    runtime: BridgeRuntime, inbound_id: str, content: str
+) -> None:
+    """为新入站消息生成优化决策；任何异常都静默降级，绝不阻塞消息。"""
+    try:
+        if not getattr(runtime.config, "inbound_optimize", True):
+            return
+        if runtime.outbox is None:
+            return
+        if runtime.outbox.get_inbound_decision(inbound_id) is not None:
+            return
+        result = optimize_inbound(content)
+        runtime.outbox.apply_inbound_decision(
+            inbound_id,
+            {
+                "inboundMessageId": inbound_id,
+                "action": "forward",
+                "optimizedText": result["optimizedText"],
+                "transformTrace": result["transformTrace"],
+                "changes": result["changes"],
+                "mode": result["mode"],
+            },
+        )
+        if result["mode"] == "pass-through":
+            llm_result = await optimize_with_llm(
+                content,
+                getattr(runtime.config, "llm", None),
+            )
+            if llm_result is not None:
+                runtime.outbox.apply_inbound_decision(
+                    inbound_id,
+                    {
+                        "inboundMessageId": inbound_id,
+                        "action": "forward",
+                        **llm_result,
+                    },
+                )
+    except Exception:
+        return
+
+
+def _apply_inbound_optimization(runtime: BridgeRuntime, inbound_id: str, event: Any) -> Any:
+    """把已落库的优化文本应用到 Hermes 事件；失败时原样返回，绝不丢消息。"""
+    try:
+        if runtime.outbox is None:
+            return event
+        decision = runtime.outbox.get_inbound_decision(inbound_id)
+        if decision is None or decision.get("action") != "forward":
+            return event
+        optimized = decision.get("optimizedText")
+        original = str(getattr(event, "text", "") or "")
+        if not isinstance(optimized, str) or not optimized or optimized == original:
+            return event
+        clone = copy.copy(event)
+        setattr(clone, "text", optimized)
+        if hasattr(event, "content"):
+            setattr(clone, "content", optimized)
+        return clone
+    except Exception:
+        return event
 
 
 def _event_inbound_id(event: Any) -> str | None:
@@ -758,12 +840,7 @@ def attach_runtime_adapter(
     selected_runtime.record_coverage(
         f"edit:{adapter_id}", "ok" if binding.original_edit is not None else "degraded"
     )
-    unsupported = [
-        name for name in UNSUPPORTED_DIRECT_MEDIA if callable(getattr(adapter, name, None))
-    ]
-    media_status = (
-        "degraded" if unsupported else "ok" if binding.original_media else "pending"
-    )
+    media_status = "ok" if binding.original_media else "pending"
     selected_runtime.record_coverage(
         f"mediaDirect:{adapter_id}", media_status
     )

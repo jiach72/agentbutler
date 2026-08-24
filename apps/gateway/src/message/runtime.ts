@@ -2,7 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { createHermesMessaging, type HermesMessagingOptions } from "@butler/adapter-hermes";
-import type { MessagingAdapter } from "@butler/contract";
+import type {
+  InboundHistoryView,
+  MessagingAdapter,
+  Result,
+} from "@butler/contract";
 
 import { DEFAULT_MESSAGE_POLICY } from "./config.js";
 import { MessageGatewayService, type Scheduler } from "./service.js";
@@ -15,6 +19,7 @@ export const MESSAGE_RUNTIME_ENV = {
   hermesRoot: "BUTLER_HERMES_ROOT",
   tokenFile: "BUTLER_HERMES_BRIDGE_TOKEN_FILE",
   projectionDbFile: "BUTLER_MESSAGE_PROJECTION_DB",
+  requestTimeoutMs: "BUTLER_MESSAGE_REQUEST_TIMEOUT_MS",
   pollIntervalMs: "BUTLER_MESSAGE_POLL_INTERVAL_MS",
   stopTimeoutMs: "BUTLER_MESSAGE_STOP_TIMEOUT_MS",
 } as const;
@@ -43,6 +48,7 @@ export interface HermesMessageRuntime {
   store: MessagePolicyStore;
   start(): Promise<void>;
   stop(): Promise<void>;
+  inboundHistory(limit?: number): Promise<Result<InboundHistoryView>>;
 }
 
 interface ResolvedRuntimeConfig {
@@ -53,7 +59,7 @@ interface ResolvedRuntimeConfig {
   projectionDbFile: string;
   pollIntervalMs: number;
   stopTimeoutMs: number;
-  requestTimeoutMs: number | undefined;
+  requestTimeoutMs: number;
 }
 
 /**
@@ -166,7 +172,19 @@ export function createHermesMessageRuntime(
     return operation;
   };
 
-  return { service, store, start, stop };
+  const instance = {
+    instanceId: config.instanceId,
+    rootPath: config.hermesRoot,
+    runtime: "process" as const,
+  };
+
+  return {
+    service,
+    store,
+    start,
+    stop,
+    inboundHistory: (limit?: number) => adapter.inboundHistory(instance, limit),
+  };
 }
 
 function resolveConfig(options: HermesMessageRuntimeOptions): ResolvedRuntimeConfig {
@@ -229,7 +247,14 @@ function resolveConfig(options: HermesMessageRuntimeOptions): ResolvedRuntimeCon
       1,
       60_000,
     ),
-    requestTimeoutMs: optionalPositiveInteger(options.requestTimeoutMs, "requestTimeoutMs"),
+    requestTimeoutMs: numericOption(
+      options.requestTimeoutMs,
+      env[MESSAGE_RUNTIME_ENV.requestTimeoutMs],
+      MESSAGE_RUNTIME_ENV.requestTimeoutMs,
+      120_000,
+      1_000,
+      600_000,
+    ),
   };
 }
 
@@ -321,13 +346,6 @@ function numericOption(
   return raw;
 }
 
-function optionalPositiveInteger(value: number | undefined, field: string): number | undefined {
-  if (value === undefined) return undefined;
-  if (!Number.isInteger(value) || value < 1 || value > 60_000) {
-    throw new Error(`${field} must be an integer between 1 and 60000`);
-  }
-  return value;
-}
 
 function statPath(value: string, field: string): fs.Stats {
   try {

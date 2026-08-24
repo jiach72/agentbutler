@@ -12,7 +12,7 @@
 import path from "node:path";
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import { isOutboxState } from "@butler/contract";
-import type { PolicySnapshot } from "@butler/contract";
+import type { InboundHistoryView, PolicySnapshot, Result } from "@butler/contract";
 import { ensureButlerHome } from "@butler/core";
 import { buildEnvChannels, degradedChannelLabels, type AlertChannel } from "./channels.js";
 import { DeliveryLoop, type Clock, type LoopScheduler } from "./loop.js";
@@ -54,6 +54,8 @@ export interface GatewayServerOptions {
   messageService?: MessageGatewayController;
   /** 注入 Butler 消息投影库；WSL Outbox 仍是权威来源。 */
   messageStore?: MessagePolicyStore;
+  /** M5 入站消息优化对照历史（由 Hermes 消息运行时提供）。 */
+  inboundHistory?: (limit?: number) => Promise<Result<InboundHistoryView>>;
 }
 
 export interface GatewayHandle {
@@ -152,7 +154,12 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
     return { ok: true, pending: queueRef.counts().pending };
   });
 
-  registerMessageRoutes(app, options.messageService, options.messageStore);
+  registerMessageRoutes(
+    app,
+    options.messageService,
+    options.messageStore,
+    options.inboundHistory,
+  );
 
   if (options.startLoop !== false) loop.start();
   return app;
@@ -162,20 +169,32 @@ function registerMessageRoutes(
   app: FastifyInstance,
   messageService: MessageGatewayController | undefined,
   messageStore: MessagePolicyStore | undefined,
+  inboundHistory?: (limit?: number) => Promise<Result<InboundHistoryView>>,
 ): void {
   const hints = new BoundedHintDeduper(10_000);
 
   app.get("/api/messages/status", async (_request, reply) => {
-    if (messageService === undefined || messageStore === undefined) return bridgeUnavailable(reply, "E302");
+    if (messageService === undefined || messageStore === undefined)
+      return bridgeUnavailable(reply, "E302");
     try {
       const status = await messageService.status();
+      const health = status.bridgeHealth;
       return {
         bridge: {
           connected: status.bridgeConnected,
           running: status.running,
           inFlight: status.inFlight,
+          attached: health?.attached ?? false,
+          outboxWritable: health?.outboxWritable ?? false,
+          protocolVersion: health?.protocolVersion ?? null,
+          bridgeVersion: health?.bridgeVersion ?? null,
+          instanceId: health?.instanceId ?? null,
           policyVersion: status.policyVersion,
           policyHash: status.policyHash,
+          remotePolicyVersion: health?.policyVersion ?? null,
+          channels: health?.channels ?? {},
+          coverage: health?.coverage ?? {},
+          startedAt: health?.startedAt ?? null,
           lastCycleAt: status.lastCycleAt,
           lastError: status.lastError === null ? null : "Hermes Bridge unavailable",
         },
@@ -229,15 +248,19 @@ function registerMessageRoutes(
   app.delete("/api/messages/dnd/:ruleId", async (request, reply) => {
     if (messageStore === undefined) return bridgeUnavailable(reply, "E302");
     const ruleId = readString((request.params as Record<string, unknown>)["ruleId"]);
-    if (ruleId === null) return reply.code(400).send({ error: "ruleId must be a non-empty string" });
-    if (!messageStore.deleteDndRule(ruleId)) return reply.code(404).send({ error: "DND rule not found" });
+    if (ruleId === null)
+      return reply.code(400).send({ error: "ruleId must be a non-empty string" });
+    if (!messageStore.deleteDndRule(ruleId))
+      return reply.code(404).send({ error: "DND rule not found" });
     return reply.code(204).send();
   });
 
   app.get("/api/messages/policy", async (_request, reply) => {
     if (messageStore === undefined) return bridgeUnavailable(reply, "E302");
     const policy = messageStore.loadPolicy();
-    return policy === undefined ? reply.code(404).send({ error: "message policy not installed" }) : policy;
+    return policy === undefined
+      ? reply.code(404).send({ error: "message policy not installed" })
+      : policy;
   });
 
   app.put("/api/messages/policy", async (request, reply) => {
@@ -259,9 +282,21 @@ function registerMessageRoutes(
   app.get("/api/messages/:messageId", async (request, reply) => {
     if (messageStore === undefined) return bridgeUnavailable(reply, "E302");
     const messageId = readString((request.params as Record<string, unknown>)["messageId"]);
-    if (messageId === null) return reply.code(400).send({ error: "messageId must be a non-empty string" });
+    if (messageId === null)
+      return reply.code(400).send({ error: "messageId must be a non-empty string" });
     const message = messageStore.messageView(messageId);
     return message === undefined ? reply.code(404).send({ error: "message not found" }) : message;
+  });
+
+  app.get("/api/messages/optimization-history", async (request, reply) => {
+    if (inboundHistory === undefined) return bridgeUnavailable(reply, "E302");
+    const query = (request.query ?? {}) as Record<string, string | undefined>;
+    const limit = parseLimit(query["limit"]);
+    const result = await inboundHistory(limit);
+    if (!result.ok || result.data === undefined) {
+      return reply.code(503).send({ error: "optimization-history-unavailable" });
+    }
+    return { reachable: true, items: result.data.items };
   });
 
   app.get("/api/messages", async (request, reply) => {
@@ -275,7 +310,11 @@ function registerMessageRoutes(
     return { counts: messageStore.counts(), items: messageStore.listMessages(limit, rawState) };
   });
 
-  const acceptHint = async (kind: string, id: string | null, reply: FastifyReply): Promise<unknown> => {
+  const acceptHint = async (
+    kind: string,
+    id: string | null,
+    reply: FastifyReply,
+  ): Promise<unknown> => {
     if (messageService === undefined) return bridgeUnavailable(reply, "E302");
     if (id === null) return reply.code(400).send({ error: "invalid Hermes hint identifier" });
     const deduped = hints.seen(`${kind}:${id}`);
@@ -298,7 +337,10 @@ function registerMessageRoutes(
     const body = asRecord(request.body);
     const runId = readString(body?.["runId"]);
     const sequence = body?.["sequence"];
-    const id = runId !== null && Number.isInteger(sequence) && Number(sequence) >= 0 ? `${runId}:${String(sequence)}` : null;
+    const id =
+      runId !== null && Number.isInteger(sequence) && Number(sequence) >= 0
+        ? `${runId}:${String(sequence)}`
+        : null;
     return acceptHint("task-event", id, reply);
   });
 
@@ -324,9 +366,15 @@ class BoundedHintDeduper {
   }
 }
 
-function parseDndBody(value: unknown): Omit<DndRuleInput, "ruleId" | "scope" | "scopeKey" | "source"> {
+function parseDndBody(
+  value: unknown,
+): Omit<DndRuleInput, "ruleId" | "scope" | "scopeKey" | "source"> {
   const body = requireRecord(value, "DND body");
-  assertExactKeys(body, ["timeZone", "startMinute", "endMinute", "pausedUntil", "enabled"], "DND body");
+  assertExactKeys(
+    body,
+    ["timeZone", "startMinute", "endMinute", "pausedUntil", "enabled"],
+    "DND body",
+  );
   const timeZone = readString(body["timeZone"]);
   if (timeZone === null) throw new Error("timeZone must be a non-empty string");
   if (typeof body["enabled"] !== "boolean") throw new Error("enabled must be a boolean");
@@ -342,11 +390,16 @@ function parseDndBody(value: unknown): Omit<DndRuleInput, "ruleId" | "scope" | "
 function parsePolicyBody(value: unknown): MessagePolicyConfig {
   const root = requireRecord(value, "policy");
   assertExactKeys(root, ["version", "inlineResponse", "digest", "delivery", "channels"], "policy");
-  if (readString(root["version"]) === null) throw new Error("policy.version must be a non-empty string");
+  if (readString(root["version"]) === null)
+    throw new Error("policy.version must be a non-empty string");
   const digest = requireRecord(root["digest"], "policy.digest");
   const delivery = requireRecord(root["delivery"], "policy.delivery");
   const channels = requireRecord(root["channels"], "policy.channels");
-  assertExactKeys(digest, ["windowSec", "maxItems", "maxChars", "finalAbsorbsPendingProgress"], "policy.digest");
+  assertExactKeys(
+    digest,
+    ["windowSec", "maxItems", "maxChars", "finalAbsorbsPendingProgress"],
+    "policy.digest",
+  );
   assertExactKeys(delivery, ["maxAttempts", "retryBaseSec", "retryMaxSec"], "policy.delivery");
   if (typeof digest["finalAbsorbsPendingProgress"] !== "boolean") {
     throw new Error("policy.digest.finalAbsorbsPendingProgress must be a boolean");
@@ -362,17 +415,26 @@ function parsePolicyBody(value: unknown): MessagePolicyConfig {
     "prewarmTtlSec",
   ];
   for (const [channel, rawPolicy] of Object.entries(channels)) {
-    assertExactKeys(requireRecord(rawPolicy, `policy.channels.${channel}`), channelKeys, `policy.channels.${channel}`);
+    assertExactKeys(
+      requireRecord(rawPolicy, `policy.channels.${channel}`),
+      channelKeys,
+      `policy.channels.${channel}`,
+    );
   }
   const config = root as unknown as MessagePolicyConfig;
   validateMessagePolicy(config);
   return config;
 }
 
-function assertExactKeys(value: Record<string, unknown>, allowed: readonly string[], field: string): void {
+function assertExactKeys(
+  value: Record<string, unknown>,
+  allowed: readonly string[],
+  field: string,
+): void {
   const allowedKeys = new Set(allowed);
   const unknown = Object.keys(value).filter((key) => !allowedKeys.has(key));
-  if (unknown.length > 0) throw new Error(`${field} contains unknown fields: ${unknown.join(", ")}`);
+  if (unknown.length > 0)
+    throw new Error(`${field} contains unknown fields: ${unknown.join(", ")}`);
 }
 
 function requireRecord(value: unknown, field: string): Record<string, unknown> {
@@ -382,7 +444,9 @@ function requireRecord(value: unknown, field: string): Record<string, unknown> {
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 function optionalNumberOrNull(value: unknown): number | null {

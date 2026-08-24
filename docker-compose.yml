@@ -1,0 +1,59 @@
+services:
+  butler-watch:
+    build:
+      context: .
+      dockerfile: apps/watch/Dockerfile
+    environment:
+      BUTLER_HOME: /home/butler
+      BUTLER_WATCH_HOST: 0.0.0.0
+      BUTLER_GATEWAY_URL: http://butler-gateway:7532
+      BUTLER_HERMES_ROOT: /home/butler/hermes
+      HERMES_ROOT: /home/butler/hermes
+    depends_on:
+      butler-gateway:
+        condition: service_healthy
+    expose:
+      - "7533"
+    volumes:
+      - ${HOME}/.hermes:/home/butler/hermes:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - butler-data:/home/butler
+    group_add:
+      - "${DOCKER_GID:-999}"
+    restart: unless-stopped
+
+  butler-web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    environment:
+      BUTLER_HOME: /home/butler
+      BUTLER_WEB_HOST: 0.0.0.0
+      BUTLER_GATEWAY_URL: http://butler-gateway:7532
+      BUTLER_WATCH_URL: http://butler-watch:7533
+    depends_on:
+      butler-gateway:
+        condition: service_healthy
+      butler-watch:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:7531:7531"
+    volumes:
+      - butler-data:/home/butler
+    restart: unless-stopped
+
+  butler-gateway:
+    build:
+      context: .
+      dockerfile: apps/gateway/Dockerfile
+    environment:
+      BUTLER_HOME: /home/butler
+      BUTLER_GATEWAY_HOST: 0.0.0.0
+    expose:
+      - "7532"
+    volumes:
+      - butler-data:/home/butler
+    restart: unless-stopped
+
+volumes:
+  butler-data:
