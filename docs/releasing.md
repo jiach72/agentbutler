@@ -28,6 +28,8 @@
 
 ## 发布检查清单
 
+`pnpm test` 会先构建 TypeScript project references，再运行 Vitest，确保全新检出目录不依赖本地遗留的 `dist/`。
+
 ```bash
 corepack pnpm version:check
 corepack pnpm lint

@@ -13,7 +13,7 @@ from .outbox import Outbox
 from .registry import NativeRegistry
 
 
-BRIDGE_VERSION = "0.1.0-dev.1"
+BRIDGE_VERSION = "0.1.0-dev.2"
 PROTOCOL_VERSION = 1
 MAX_BODY_BYTES = 1024 * 1024
 

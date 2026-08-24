@@ -1,6 +1,6 @@
 {
   "name": "agent-butler",
-  "version": "0.1.0-dev.1",
+  "version": "0.1.0-dev.2",
   "private": true,
   "description": "Local-first operations console and control plane for AI agent runtimes.",
   "license": "MIT",
@@ -15,7 +15,7 @@
   },
   "scripts": {
     "build": "tsc -b && pnpm --filter @butler/ui exec vite build",
-    "test": "vitest run",
+    "test": "tsc -b && vitest run",
     "lint": "eslint .",
     "format": "prettier --write .",
     "start": "pnpm --parallel --filter @butler/gateway --filter @butler/watch --filter @butler/web run start",

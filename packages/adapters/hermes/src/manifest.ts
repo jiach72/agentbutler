@@ -8,7 +8,7 @@ export const hermesManifest: Manifest = {
   frameworkId: "hermes",
   displayName: "Hermes",
   contractVersion: "1.x",
-  adapterVersion: "0.1.0-dev.1",
+  adapterVersion: "0.1.0-dev.2",
   declaredLevel: 2,
   capabilities: ["probe", "control", "skill-driver", "memory-driver", "config-driver"],
   drivers: [

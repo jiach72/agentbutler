@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+## [0.1.0-dev.2] - 2026-08-24
+
+### Fixed
+
+- `pnpm test` 会先构建 TypeScript workspace，干净检出不再依赖本地遗留的 `dist/`。
+- Hermes Bridge 正式声明 PyYAML 运行依赖，干净 Python 环境可解析自定义 provider 配置。
+
 ## [0.1.0-dev.1] - 2026-08-24
 
 ### Added
@@ -26,5 +33,6 @@
 - Hermes Bridge 需要在目标 Hermes 环境中单独安装和接线。
 - 真实消息通道、升级与回滚应先在隔离环境验证。
 
-[Unreleased]: https://github.com/jiach72/agentbutler/compare/v0.1.0-dev.1...HEAD
+[Unreleased]: https://github.com/jiach72/agentbutler/compare/v0.1.0-dev.2...HEAD
+[0.1.0-dev.2]: https://github.com/jiach72/agentbutler/releases/tag/v0.1.0-dev.2
 [0.1.0-dev.1]: https://github.com/jiach72/agentbutler/releases/tag/v0.1.0-dev.1

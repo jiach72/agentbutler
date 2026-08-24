@@ -558,3 +558,12 @@
 - 回归测试：`apps/watch/tests/self-upgrade.test.ts` 新增 `v0.1.0`、`v0.1.0-dev.10`、`v0.1.0-dev.2` 排序与通道断言。
 - 验证命令：`corepack pnpm version:check`；Windows Node 入口执行 ESLint 与 `tsc -b`；WSL Vitest 全量 `750 passed / 3 skipped`；WSL Vite build（53 modules transformed）；Hermes venv Bridge 全量 `113 passed`；Semgrep secrets 规则集；`docker compose config --quiet`；`git diff --check`。
 - 部署/运行验证：发布前本地验证，不触发真实升级、回滚或消息外发。
+
+## 2026-08-24 · 首次公开发布的干净环境 CI 修复
+
+- 问题：GitHub Actions 在全新检出中先运行 `pnpm test`，而工作区包入口指向未生成的 `dist/`，导致 52 个测试文件无法解析 `@butler/contract`/`@butler/core`；Bridge 的自定义 provider 解析依赖 PyYAML，但 `requirements.txt` 只声明 `aiohttp`，干净 Python 环境会退回不支持 `custom_providers` 的简化解析器。
+- 风险/影响：本地遗留构建产物和 Hermes 既有环境掩盖了发布包的安装缺陷，外部 Agent 按仓库说明全新安装时会得到失败的测试或缺失的模型 provider 配置。
+- 改动范围：根 `test` 脚本改为先执行 `tsc -b` 再运行 Vitest；Bridge `requirements.txt` 正式加入 `PyYAML>=6.0,<7`；同步更新发布说明、README、Changelog 与版本号 `0.1.0-dev.2`，保留既有 `v0.1.0-dev.1` 标签不动。
+- 回归测试：无 `dist/` 的独立 worktree 使用新测试入口构建后，原先失败的 Web/Adapter 代表性用例共 49 项通过；仅按 Bridge requirements 安装的全新 WSL venv 全量 113 项通过，其中原失败的自定义 provider 用例恢复通过。
+- 验证命令：`corepack pnpm version:check`；WSL ESLint；`tsc -b --pretty false`；WSL Vitest 全量 `750 passed / 3 skipped`；WSL Vite build（53 modules transformed）；全新 WSL venv Bridge `113 passed`；`docker compose config --quiet`；Semgrep secrets（0 findings）；`git diff --check`。
+- 部署/运行验证：本次只修复发布与 CI 可复现性，不升级或重启本机运行服务，不执行消息外发；推送后以 GitHub Actions 的全新 Ubuntu runner 结果作为最终发布门禁。

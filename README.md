@@ -2,7 +2,7 @@
 
 Agent Butler 是一个本地优先的 AI Agent 运维控制台。目前重点支持 Hermes，提供巡检、日志与诊断、版本升级与回滚、补丁管理、技能/插件/记忆只读盘点，以及消息队列治理。
 
-当前版本：`0.1.0-dev.1`。这是开发预览版，默认只监听本机回环地址，管理面尚未提供公网鉴权，请勿直接暴露到不可信网络。
+当前版本：`0.1.0-dev.2`。这是开发预览版，默认只监听本机回环地址，管理面尚未提供公网鉴权，请勿直接暴露到不可信网络。
 
 ## 快速安装
 
@@ -16,7 +16,7 @@ Agent Butler 是一个本地优先的 AI Agent 运维控制台。目前重点支
 ```bash
 git clone https://github.com/jiach72/agentbutler.git
 cd agentbutler
-git checkout v0.1.0-dev.1
+git checkout v0.1.0-dev.2
 corepack enable
 corepack prepare pnpm@10.20.0 --activate
 corepack pnpm install --frozen-lockfile
