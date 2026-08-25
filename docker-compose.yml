@@ -10,6 +10,17 @@ services:
       BUTLER_GATEWAY_HOST: 0.0.0.0
       BUTLER_GATEWAY_PORT: 7532
       BUTLER_GATEWAY_PACE_SEC: ${BUTLER_GATEWAY_PACE_SEC:-30}
+      # 配置齐全时 Gateway 会自动接入 Hermes Bridge；Bridge 暂时离线不会拖垮 Gateway。
+      BUTLER_ENABLE_HERMES_MESSAGE_RUNTIME: ${BUTLER_ENABLE_HERMES_MESSAGE_RUNTIME:-auto}
+      BUTLER_HERMES_BRIDGE_URL: ${BUTLER_HERMES_BRIDGE_URL:-}
+      BUTLER_HERMES_INSTANCE_ID: ${BUTLER_HERMES_INSTANCE_ID:-hermes-main}
+      BUTLER_HERMES_ROOT: /home/butler/hermes
+      BUTLER_HERMES_BRIDGE_TOKEN_FILE: ${BUTLER_HERMES_BRIDGE_TOKEN_FILE:-/home/butler/hermes/agent-butler/bridge.token}
+      BUTLER_MESSAGE_PROJECTION_DB: ${BUTLER_MESSAGE_PROJECTION_DB:-/home/butler/data/messages.sqlite}
+      BUTLER_HERMES_BRIDGE_ALLOW_NON_LOOPBACK: ${BUTLER_HERMES_BRIDGE_ALLOW_NON_LOOPBACK:-false}
+      BUTLER_MESSAGE_REQUEST_TIMEOUT_MS: ${BUTLER_MESSAGE_REQUEST_TIMEOUT_MS:-120000}
+      BUTLER_MESSAGE_POLL_INTERVAL_MS: ${BUTLER_MESSAGE_POLL_INTERVAL_MS:-1000}
+      BUTLER_MESSAGE_STOP_TIMEOUT_MS: ${BUTLER_MESSAGE_STOP_TIMEOUT_MS:-5000}
       BUTLER_TELEGRAM_BOT_TOKEN: ${BUTLER_TELEGRAM_BOT_TOKEN:-}
       BUTLER_TELEGRAM_CHAT_ID: ${BUTLER_TELEGRAM_CHAT_ID:-}
       BUTLER_SMTP_HOST: ${BUTLER_SMTP_HOST:-}
@@ -20,8 +31,11 @@ services:
       BUTLER_SMTP_TO: ${BUTLER_SMTP_TO:-}
     expose:
       - "7532"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - butler-data:/home/butler
+      - ${BUTLER_HERMES_HOST_PATH:-./.runtime/hermes}:/home/butler/hermes:ro
     restart: unless-stopped
 
   butler-watch:

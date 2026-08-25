@@ -4,6 +4,25 @@
 
 ## [Unreleased]
 
+## [1.0.0-beta.1] - 2026-08-25
+
+### Added
+
+- Ant Design UI 组件与 Hermes/OpenClaw 连接状态、消息状态面板。
+- Gateway 自动接入 Hermes Bridge，Bridge 短暂断线后持续重试并自动恢复。
+- Web `/api/connections` 代理、健康检查和消息降级路径。
+
+### Fixed
+
+- 修复部署后 `/api/connections` 落到 Web 404 的问题。
+- 修复消息运行时未接入默认 Gateway、Compose 缺少 Bridge 配置的问题。
+- Docker 默认配置补齐宿主 Bridge 映射、token 路径和消息投影库路径。
+
+### Known Limitations
+
+- 这是 1.0 测试版，管理面仍未提供公网鉴权。
+- 真实 Hermes Bridge/token 和消息通道仍需在目标环境完成现场验收。
+
 ## [0.1.0-dev.2] - 2026-08-24
 
 ### Fixed
@@ -33,6 +52,7 @@
 - Hermes Bridge 需要在目标 Hermes 环境中单独安装和接线。
 - 真实消息通道、升级与回滚应先在隔离环境验证。
 
-[Unreleased]: https://github.com/jiach72/agentbutler/compare/v0.1.0-dev.2...HEAD
+[Unreleased]: https://github.com/jiach72/agentbutler/compare/v1.0.0-beta.1...HEAD
+[1.0.0-beta.1]: https://github.com/jiach72/agentbutler/releases/tag/v1.0.0-beta.1
 [0.1.0-dev.2]: https://github.com/jiach72/agentbutler/releases/tag/v0.1.0-dev.2
 [0.1.0-dev.1]: https://github.com/jiach72/agentbutler/releases/tag/v0.1.0-dev.1

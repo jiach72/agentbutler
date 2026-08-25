@@ -13,6 +13,7 @@ const packageFiles = [
   "packages/core/package.json",
   "packages/installer/package.json",
   "packages/adapters/hermes/package.json",
+  "packages/adapters/openclaw/package.json",
 ];
 const sourceVersions = [
   {
@@ -34,6 +35,11 @@ const sourceVersions = [
     file: "packages/adapters/hermes/bridge/agent_butler_bridge/server.py",
     pattern: /BRIDGE_VERSION = "[^"]+"/,
     value: (version) => `BRIDGE_VERSION = "${version}"`,
+  },
+  {
+    file: "packages/adapters/openclaw/src/manifest.ts",
+    pattern: /adapterVersion: "[^"]+"/,
+    value: (version) => `adapterVersion: "${version}"`,
   },
 ];
 const semverPattern = /^(0|[1-9]\d*)$/;
@@ -64,9 +70,14 @@ function check() {
     const actual = readJson(file).version;
     if (actual !== version) mismatches.push(`${file}: ${actual}`);
   }
-  const manifest = readJson("packages/adapters/hermes/manifest.json");
-  if (manifest.adapterVersion !== version) {
-    mismatches.push(`packages/adapters/hermes/manifest.json: ${manifest.adapterVersion}`);
+  for (const manifestFile of [
+    "packages/adapters/hermes/manifest.json",
+    "packages/adapters/openclaw/manifest.json",
+  ]) {
+    const manifest = readJson(manifestFile);
+    if (manifest.adapterVersion !== version) {
+      mismatches.push(`${manifestFile}: ${manifest.adapterVersion}`);
+    }
   }
   for (const item of sourceVersions) {
     const content = readFileSync(resolve(root, item.file), "utf8");
@@ -85,10 +96,14 @@ function setVersion(version) {
     pkg.version = version;
     writeJson(file, pkg);
   }
-  const manifestFile = "packages/adapters/hermes/manifest.json";
-  const manifest = readJson(manifestFile);
-  manifest.adapterVersion = version;
-  writeJson(manifestFile, manifest);
+  for (const manifestFile of [
+    "packages/adapters/hermes/manifest.json",
+    "packages/adapters/openclaw/manifest.json",
+  ]) {
+    const manifest = readJson(manifestFile);
+    manifest.adapterVersion = version;
+    writeJson(manifestFile, manifest);
+  }
   for (const item of sourceVersions) {
     const file = resolve(root, item.file);
     const content = readFileSync(file, "utf8");

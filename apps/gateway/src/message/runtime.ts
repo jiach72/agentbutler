@@ -19,6 +19,7 @@ export const MESSAGE_RUNTIME_ENV = {
   hermesRoot: "BUTLER_HERMES_ROOT",
   tokenFile: "BUTLER_HERMES_BRIDGE_TOKEN_FILE",
   projectionDbFile: "BUTLER_MESSAGE_PROJECTION_DB",
+  allowNonLoopback: "BUTLER_HERMES_BRIDGE_ALLOW_NON_LOOPBACK",
   requestTimeoutMs: "BUTLER_MESSAGE_REQUEST_TIMEOUT_MS",
   pollIntervalMs: "BUTLER_MESSAGE_POLL_INTERVAL_MS",
   stopTimeoutMs: "BUTLER_MESSAGE_STOP_TIMEOUT_MS",
@@ -33,6 +34,7 @@ export interface HermesMessageRuntimeOptions {
   pollIntervalMs?: number;
   stopTimeoutMs?: number;
   requestTimeoutMs?: number;
+  allowNonLoopback?: boolean;
   policy?: MessagePolicyConfig;
   fetchImpl?: typeof fetch;
   env?: NodeJS.ProcessEnv;
@@ -60,6 +62,7 @@ interface ResolvedRuntimeConfig {
   pollIntervalMs: number;
   stopTimeoutMs: number;
   requestTimeoutMs: number;
+  allowNonLoopback: boolean;
 }
 
 /**
@@ -226,7 +229,7 @@ function resolveConfig(options: HermesMessageRuntimeOptions): ResolvedRuntimeCon
   }
 
   return {
-    bridgeUrl: validateBridgeUrl(bridgeUrl),
+    bridgeUrl: validateBridgeUrl(bridgeUrl, readBooleanEnv(options.allowNonLoopback, env[MESSAGE_RUNTIME_ENV.allowNonLoopback])),
     instanceId,
     hermesRoot,
     tokenFile,
@@ -255,6 +258,7 @@ function resolveConfig(options: HermesMessageRuntimeOptions): ResolvedRuntimeCon
       1_000,
       600_000,
     ),
+    allowNonLoopback: readBooleanEnv(options.allowNonLoopback, env[MESSAGE_RUNTIME_ENV.allowNonLoopback]),
   };
 }
 
@@ -288,7 +292,7 @@ function readPrivateToken(tokenFile: string): string {
   return token;
 }
 
-function validateBridgeUrl(raw: string): string {
+function validateBridgeUrl(raw: string, allowNonLoopback: boolean): string {
   let url: URL;
   try {
     url = new URL(raw);
@@ -297,7 +301,9 @@ function validateBridgeUrl(raw: string): string {
   }
   if (url.protocol !== "http:")
     throw new Error(`${MESSAGE_RUNTIME_ENV.bridgeUrl} must use http on loopback`);
-  if (!["127.0.0.1", "localhost", "::1", "[::1]"].includes(url.hostname)) {
+  const loopbackHosts = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
+  const dockerHost = allowNonLoopback && ["host.docker.internal", "gateway.docker.internal"].includes(url.hostname);
+  if (!loopbackHosts.has(url.hostname) && !dockerHost) {
     throw new Error(`${MESSAGE_RUNTIME_ENV.bridgeUrl} must use a loopback host`);
   }
   if (url.username !== "" || url.password !== "" || url.search !== "" || url.hash !== "") {
@@ -308,6 +314,12 @@ function validateBridgeUrl(raw: string): string {
   if (url.pathname !== "/")
     throw new Error(`${MESSAGE_RUNTIME_ENV.bridgeUrl} must not contain a path`);
   return url.origin;
+}
+
+function readBooleanEnv(explicit: boolean | undefined, raw: string | undefined): boolean {
+  if (explicit !== undefined) return explicit;
+  const normalized = raw?.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
 }
 
 function requiredValue(

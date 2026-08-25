@@ -155,6 +155,30 @@ describe("butler-web 服务（fastify inject）", () => {
     });
   });
 
+  it("/api/connections：通过 web 代理 watch 连接路由，不再落到 web 404", async () => {
+    const app = createWebServer({
+      home: tmp,
+      gatewayUrl: DEAD_GATEWAY,
+      watchUrl: "http://watch.test:7533",
+      uiDist,
+      fetchImpl: (async (input) => {
+        expect(String(input)).toBe("http://watch.test:7533/api/connections");
+        return new Response(
+          JSON.stringify({ checkedAt: "2026-08-25T00:00:00.000Z", connections: [] }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }) as typeof fetch,
+    });
+    apps.push(app);
+    const res = await app.inject({ method: "GET", url: "/api/connections" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      reachable: true,
+      checkedAt: "2026-08-25T00:00:00.000Z",
+      connections: [],
+    });
+  });
+
   it("/api/security-baseline：V1 固定结构（未鉴权 + warnings 明示）", async () => {
     const app = build(tmp);
     const res = await app.inject({ method: "GET", url: "/api/security-baseline" });

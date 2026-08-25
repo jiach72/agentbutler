@@ -151,7 +151,20 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
   });
 
   app.get("/healthz", async () => {
-    return { ok: true, pending: queueRef.counts().pending };
+    const message =
+      options.messageService !== undefined && options.messageStore !== undefined
+        ? await options.messageService.status().then((status) => ({
+            connected: status.bridgeConnected,
+            running: status.running,
+            lastCycleAt: status.lastCycleAt,
+            lastError: status.lastError === null ? null : "Hermes Bridge unavailable",
+          }))
+        : undefined;
+    return {
+      ok: true,
+      pending: queueRef.counts().pending,
+      ...(message === undefined ? {} : { message }),
+    };
   });
 
   registerMessageRoutes(

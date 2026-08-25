@@ -27,6 +27,8 @@ class RuntimeAdapter implements MessagingAdapter {
   readonly calls: string[] = [];
   readonly instances: InstanceRef[] = [];
   policyFailure = false;
+  policyErrorCode: "E302" | "E303" = "E303";
+  healthFailure = false;
   batchFor = (afterSequence: number): OutboxChangeBatch => ({
     afterSequence,
     nextSequence: afterSequence,
@@ -39,6 +41,7 @@ class RuntimeAdapter implements MessagingAdapter {
   attachOutbound = async () => fail("E002", "not used");
   health = async (instance: InstanceRef): Promise<Result<BridgeHealth>> => {
     this.instances.push(instance);
+    if (this.healthFailure) return fail("E302", "health unavailable");
     return ok({
       protocolVersion: 1,
       bridgeVersion: "test",
@@ -53,7 +56,7 @@ class RuntimeAdapter implements MessagingAdapter {
     this.calls.push("policy");
     this.instances.push(instance);
     return this.policyFailure
-      ? fail("E303", "policy refused")
+      ? fail(this.policyErrorCode, "policy refused")
       : ok({ version: snapshot.version, sha256: snapshot.sha256, appliedAt: NOW });
   };
   listChanges = async (instance: InstanceRef, afterSequence: number) => {
@@ -282,6 +285,30 @@ describe("createHermesMessageRuntime", () => {
 
     await expect(runtime.start()).rejects.toThrow(/policy install failed/);
     expect(() => runtime.store.counts()).toThrow();
+    await runtime.stop();
+  });
+
+  it("keeps Gateway running through a Bridge outage and reconnects on the next cycle", async () => {
+    const tmp = tempDir();
+    const adapter = new RuntimeAdapter();
+    adapter.policyFailure = true;
+    adapter.policyErrorCode = "E302";
+    adapter.healthFailure = true;
+    const runtime = createHermesMessageRuntime(
+      runtimeOptions(tmp, adapter, { pollIntervalMs: 60_000 }),
+    );
+
+    await runtime.start();
+    expect((await runtime.service.status()).running).toBe(true);
+    expect((await runtime.service.status()).bridgeConnected).toBe(false);
+
+    adapter.policyFailure = false;
+    adapter.healthFailure = false;
+    runtime.service.wake();
+    await vi.waitFor(async () => {
+      expect((await runtime.service.status()).bridgeConnected).toBe(true);
+    });
+    expect(adapter.calls.filter((call) => call === "policy").length).toBeGreaterThanOrEqual(2);
     await runtime.stop();
   });
 

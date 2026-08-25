@@ -35,6 +35,13 @@ export interface MessageGatewayStatus {
   counts: ReturnType<MessagePolicyStore["counts"]>;
 }
 
+class MessagePolicyInstallError extends Error {
+  constructor(message: string, readonly bridgeUnavailable: boolean) {
+    super(message);
+    this.name = "MessagePolicyInstallError";
+  }
+}
+
 /** Lifecycle owner around a single reconciler. It serializes timer ticks by design. */
 export class MessageGatewayService {
   private readonly intervalMs: number;
@@ -49,6 +56,8 @@ export class MessageGatewayService {
   private running = false;
   private inFlight = false;
   private bridgeConnected = false;
+  /** Bridge 断线时仍保持服务运行，下一轮会重新安装策略并恢复同步。 */
+  private policyInstalled = false;
   private lastCycleAt: string | null = null;
   private lastError: string | null = null;
 
@@ -102,8 +111,9 @@ export class MessageGatewayService {
     const snapshot = createPolicySnapshot(config);
     const result = await this.options.adapter.updatePolicy(this.options.instance, snapshot);
     if (!result.ok || result.data === undefined) {
-      throw new Error(
+      throw new MessagePolicyInstallError(
         `policy install failed: ${result.error?.message ?? "invalid adapter result"}`,
+        result.error?.code === "E302",
       );
     }
     if (result.data.version !== snapshot.version || result.data.sha256 !== snapshot.sha256) {
@@ -111,6 +121,7 @@ export class MessageGatewayService {
     }
     const stored = this.options.store.savePolicy(snapshot);
     this.config = policyConfigFromSnapshot(stored);
+    this.policyInstalled = true;
     this.bridgeConnected = true;
     return stored;
   }
@@ -140,10 +151,17 @@ export class MessageGatewayService {
   }
 
   private async startInternal(): Promise<void> {
-    await this.updatePolicy(this.config);
-    if (this.stopRequested) return;
-
     this.running = true;
+    try {
+      await this.updatePolicy(this.config);
+    } catch (error) {
+      if (!(error instanceof MessagePolicyInstallError) || !error.bridgeUnavailable) {
+        this.running = false;
+        throw error;
+      }
+      this.bridgeConnected = false;
+      this.lastError = error.message;
+    }
     await this.runCycle();
     if (this.running && !this.stopRequested) {
       this.timer = this.scheduler.setInterval(() => void this.runCycle(), this.intervalMs);
@@ -171,6 +189,11 @@ export class MessageGatewayService {
     this.inFlight = true;
     this.lastCycleAt = this.clock().toISOString();
     try {
+      // 首次启动或 Bridge 重启后先反复安装策略。失败只标记离线，不停止
+      // Gateway；下一轮会再次尝试，保证 Bridge 恢复后能自动接回。
+      if (!this.policyInstalled) {
+        await this.updatePolicy(this.config);
+      }
       const reconciler = new MessageReconciler({
         adapter: this.options.adapter,
         instance: this.options.instance,
@@ -187,6 +210,7 @@ export class MessageGatewayService {
       this.lastError = null;
     } catch (error) {
       this.bridgeConnected = false;
+      this.policyInstalled = false;
       this.lastError = error instanceof Error ? error.message : String(error);
     } finally {
       this.inFlight = false;

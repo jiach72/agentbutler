@@ -7,6 +7,8 @@
  * - 每 10 秒刷新一次，各数据分区独立降级。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { CheckCircleOutlined, ReloadOutlined, WarningOutlined } from "@ant-design/icons";
+import { Alert, Button, Card, Statistic } from "antd";
 import { DangerConfirmModal } from "../components/DangerConfirmModal.js";
 import { fetchJson, postJson } from "../lib/api.js";
 import { PromptOptimizationPanel } from "../components/PromptOptimizationPanel.js";
@@ -736,14 +738,14 @@ export function GatewayPage() {
             {loading ? "正在同步" : "10 秒实时刷新"}
           </span>
           <span>更新于 {lastUpdated?.toLocaleTimeString("zh-CN", { hour12: false }) ?? "—"}</span>
-          <button
-            type="button"
-            className="btn btn-secondary"
+          <Button
+            type="primary"
+            icon={<ReloadOutlined />}
             disabled={loading}
             onClick={() => void refresh()}
           >
             {loading ? "刷新中" : "刷新"}
-          </button>
+          </Button>
           <a
             href="#prompt-optimization"
             className="btn btn-secondary gateway-prompt-link"
@@ -763,7 +765,7 @@ export function GatewayPage() {
         <div className="banner banner-warn">⚠ 部分服务暂时连不上，当前显示上一次成功数据</div>
       )}
       {messageData !== null && !messageData.reachable && (
-        <div className="banner banner-critical">⚠ 暂时读不到消息记录；管家稍后会自动重试。</div>
+        <Alert type="error" showIcon icon={<WarningOutlined />} message="暂时读不到消息记录" description="管家稍后会自动重试，不会丢失已经排队的消息。" />
       )}
       {(messageData?.degraded.length ?? 0) > 0 && messageData?.reachable === true && (
         <div className="banner banner-warn">⚠ 部分消息记录暂时不完整，稍后会自动补回来</div>
@@ -785,34 +787,10 @@ export function GatewayPage() {
       )}
 
       <div className="gateway-overview" aria-label="消息通知状态摘要">
-        <div className="gateway-metric">
-          <span className="gateway-metric-label">消息管理</span>
-          <strong>{bridgeReady ? "已接管" : messageBridge === null ? "正在读取" : "未就绪"}</strong>
-          <span>管家会自动发现并接管本机 AI 的消息</span>
-        </div>
-        <div className="gateway-metric">
-          <span className="gateway-metric-label">等待发送</span>
-          <strong>{messageBridge?.outboxWritable === true ? "可写入" : "待确认"}</strong>
-          <span>
-            {activeMessages} 条正在处理 · {messageCounts["held_dnd"] ?? 0} 条免打扰暂存
-          </span>
-        </div>
-        <div className="gateway-metric">
-          <span className="gateway-metric-label">常用路径</span>
-          <strong>
-            {coverageEntries.length === 0 ? "—" : `${coverageOk}/${coverageEntries.length}`}
-          </strong>
-          <span>
-            {coverageEntries.length === 12 && coverageOk === 12
-              ? "常用路径已验证"
-              : "按最新消息记录显示"}
-          </span>
-        </div>
-        <div className="gateway-metric">
-          <span className="gateway-metric-label">送达结果</span>
-          <strong>{messageCounts["delivered"] ?? 0}</strong>
-          <span>已送达 · {exceptionMessages} 条需关注</span>
-        </div>
+        <Card size="small"><Statistic title="消息管理" value={bridgeReady ? "已接管" : messageBridge === null ? "正在读取" : "未就绪"} prefix={bridgeReady ? <CheckCircleOutlined /> : <WarningOutlined />} /><span>管家会自动发现并接管本机 AI 的消息</span></Card>
+        <Card size="small"><Statistic title="等待发送" value={activeMessages} suffix="条" /><span>{messageBridge?.outboxWritable === true ? "队列可写入" : "等待连接恢复"}</span></Card>
+        <Card size="small"><Statistic title="常用路径" value={coverageEntries.length === 0 ? "—" : `${coverageOk}/${coverageEntries.length}`} /><span>{coverageEntries.length === 12 && coverageOk === 12 ? "常用路径已验证" : "按最新消息记录显示"}</span></Card>
+        <Card size="small"><Statistic title="送达结果" value={messageCounts["delivered"] ?? 0} suffix="条" /><span>已送达 · {exceptionMessages} 条需关注</span></Card>
       </div>
 
       <details className="advanced-details gateway-message-advanced">

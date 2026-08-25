@@ -8,6 +8,8 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { DisconnectOutlined, LinkOutlined, ReloadOutlined } from "@ant-design/icons";
+import { Alert, Badge, Button, Card, Space } from "antd";
 import { PageProgress } from "../components/PageProgress.js";
 import { fetchJson, postJson } from "../lib/api.js";
 import { disposeWebSocket } from "../lib/websocket.js";
@@ -1063,19 +1065,22 @@ export function DashboardPage() {
             <h2 id="connection-section-title">Hermes / OpenClaw 连接状态</h2>
             <p>这里显示最近一次探测、响应耗时和可用能力；连接动作会在完成后自动复核。</p>
           </div>
-          <button
-            type="button"
-            className="btn btn-secondary"
+          <Button
+            type="primary"
+            icon={<ReloadOutlined />}
             onClick={() => void runConnectionCheck()}
             disabled={connectionBusy !== null || connectionItems.length === 0}
           >
             {connectionBusy === "check-all" ? "检查中…" : "手动检查连接"}
-          </button>
+          </Button>
         </div>
         {connections === null || connections.reachable !== true ? (
-          <div className="connection-empty is-warn">
-            管家控制通道暂时连不上，无法读取 Hermes / OpenClaw 的实时连接状态。
-          </div>
+          <Alert
+            type="warning"
+            showIcon
+            message="管家控制通道暂时连不上"
+            description="无法读取 Hermes / OpenClaw 的实时连接状态，服务恢复后会自动重试。"
+          />
         ) : connectionItems.length === 0 ? (
           <div className="connection-empty">还没有发现 Hermes 或 OpenClaw 实例，请先配置对应运行目录。</div>
         ) : (
@@ -1091,15 +1096,16 @@ export function DashboardPage() {
                     ? "warn"
                     : "idle";
               return (
-                <article className={`connection-card is-${stateClass}`} key={connection.instanceId}>
+                <Card className={`connection-card is-${stateClass}`} key={connection.instanceId} bordered>
                   <div className="connection-card-head">
                     <div>
                       <span className="connection-framework">{frameworkLabel(connection.frameworkId)}</span>
                       <h3>{connection.displayName || instanceLabel(connection.instanceId)}</h3>
                     </div>
-                    <span className={`badge-pill ${stateClass === "ok" ? "badge-healthy" : stateClass === "error" ? "badge-down" : stateClass === "warn" ? "badge-degraded" : "badge-muted"}`}>
-                      {connectionStateLabel(connection.connectionState)}
-                    </span>
+                    <Badge
+                      status={stateClass === "ok" ? "success" : stateClass === "error" ? "error" : stateClass === "warn" ? "warning" : "default"}
+                      text={connectionStateLabel(connection.connectionState)}
+                    />
                   </div>
                   <div className="connection-meta">
                     <span>{instanceRuntimeLabel(connection.runtime)}</span>
@@ -1126,24 +1132,27 @@ export function DashboardPage() {
                     </ul>
                   )}
                   <div className="connection-actions">
-                    <button
-                      type="button"
-                      className="btn btn-quiet"
+                    <Space wrap>
+                    <Button
+                      type="default"
+                      icon={<ReloadOutlined />}
                       onClick={() => void runConnectionCheck(connection.instanceId)}
                       disabled={connectionBusy !== null}
                     >
                       {checkBusy ? "检查中…" : "重新检查"}
-                    </button>
-                    <button
-                      type="button"
-                      className={connection.connected ? "btn btn-danger" : "btn btn-primary"}
+                    </Button>
+                    <Button
+                      danger={connection.connected}
+                      type={connection.connected ? "default" : "primary"}
+                      icon={connection.connected ? <DisconnectOutlined /> : <LinkOutlined />}
                       onClick={() => void runConnectionAction(connection.instanceId, connection.connected ? "disconnect" : "connect")}
                       disabled={connectionBusy !== null || actionBusy || connection.connectionState === "checking"}
                     >
                       {actionBusy ? "处理中…" : connection.connected ? "断开连接" : "连接服务"}
-                    </button>
+                    </Button>
+                    </Space>
                   </div>
-                </article>
+                </Card>
               );
             })}
           </div>
