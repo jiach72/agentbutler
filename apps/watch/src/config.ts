@@ -22,9 +22,9 @@
  * - BUTLER_WATCH_HOST / BUTLER_WATCH_PORT
  *                            HTTP 控制通道监听地址（默认 127.0.0.1:7533；Task 10 面板入口）
  * - BUTLER_VERSION_MIRROR_HOST  GitHub API 镜像前缀（版本源逐源探测，可选；Task 13.2）
- * - BUTLER_VERSION_REPO     版本源 GitHub 仓库（默认 NousResearch/hermes-agent；Task 13.2）
+ * - BUTLER_VERSION_REPO     版本源 GitHub 仓库（默认 hermes-agent/hermes；Task 13.2）
  * - BUTLER_VERSION_DOCKER_IMAGE  版本源 Docker Hub 镜像，兼 docker 拉取镜像
- *                            （默认 nousresearch/hermes-agent）
+ *                            （默认 hermes-agent/hermes）
  * - BUTLER_UPGRADE_PIP_PACKAGE  venv pip 拉取包名（默认 hermes-agent；Task 13.1）
  * - BUTLER_UPGRADE_NOTIFY_COOLDOWN_MS  升级完成通知冷却窗（毫秒，默认 60000；
  *                            窗口内多条完成通知合并为一条投递，Task 13.2）
@@ -75,9 +75,9 @@ export interface WatchConfig {
   watchHttpPort: number;
   /** GitHub API 镜像前缀（版本源逐源探测插入镜像源；未配置则无镜像源）。 */
   versionMirrorHost?: string;
-  /** 版本源 GitHub 仓库（默认 nousresearch/hermes-agent）。 */
+  /** 版本源 GitHub 仓库（默认 hermes-agent/hermes）。 */
   versionRepo: string;
-  /** 版本源 Docker Hub 镜像，兼 docker 形态拉取镜像（默认 nousresearch/hermes-agent）。 */
+  /** 版本源 Docker Hub 镜像，兼 docker 形态拉取镜像（默认 hermes-agent/hermes）。 */
   versionDockerImage: string;
   /** venv pip 拉取包名（默认 hermes-agent）。 */
   upgradePipPackage: string;
@@ -112,8 +112,8 @@ export const DEFAULT_RUNBOOK_DEBOUNCE_MIN = 15;
 export const DEFAULT_WATCH_HTTP_HOST = "127.0.0.1";
 export const DEFAULT_WATCH_HTTP_PORT = 7533;
 /** Task 13：版本源与升级缺省值（GitHub 仓库 / Docker Hub 镜像 / venv pip 包名）。 */
-export const DEFAULT_VERSION_REPO = "NousResearch/hermes-agent";
-export const DEFAULT_VERSION_DOCKER_IMAGE = "nousresearch/hermes-agent";
+export const DEFAULT_VERSION_REPO = "hermes-agent/hermes";
+export const DEFAULT_VERSION_DOCKER_IMAGE = "hermes-agent/hermes";
 export const DEFAULT_UPGRADE_PIP_PACKAGE = "hermes-agent";
 /** 升级完成通知冷却窗默认 60s（Task 13.2）。 */
 export const DEFAULT_UPGRADE_NOTIFY_COOLDOWN_MS = 60_000;

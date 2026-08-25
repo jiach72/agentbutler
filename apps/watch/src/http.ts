@@ -227,6 +227,11 @@ export interface WatchHttpDeps {
       | { status: "failed"; connection: Record<string, unknown> }
     >;
   };
+  /** OpenClaw 安装能力：仅在显式配置且用户确认后执行。 */
+  openclawInstall?: {
+    status(): { installed: boolean; version: string | null; rootPath: string | null; detail: string; busy: boolean };
+    install(): Promise<{ status: "started" | "already-installed" | "busy" | "failed"; jobId?: string; detail?: string }>;
+  };
   /** runbook 元信息列表（含熔断态与最近执行）。 */
   runbooks(): RunbookSummary[];
   /** 执行判定（实例解析 + 熔断检查 + 异步启动），HTTP 层按 outcome 映射状态码。 */
@@ -771,6 +776,25 @@ async function handle(
       const outcome = await action(instanceId);
       if (outcome.status === "no-instance") return sendJson(res, 404, { error: "no-instance" });
       return sendJson(res, outcome.status === "failed" ? 409 : 200, outcome);
+    }
+
+    if (path === "/api/openclaw/status") {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.openclawInstall === undefined) return sendJson(res, 503, { error: "openclaw-install-unavailable" });
+      return sendJson(res, 200, deps.openclawInstall.status());
+    }
+
+    if (path === "/api/openclaw/install") {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.openclawInstall === undefined) return sendJson(res, 503, { error: "openclaw-install-unavailable" });
+      const body = await readJsonBody(req, res);
+      if (body === null) return;
+      if (body["confirmed"] !== true) return sendJson(res, 400, { error: "confirmation-required" });
+      const outcome = await deps.openclawInstall.install();
+      if (outcome.status === "started") return sendJson(res, 202, outcome);
+      if (outcome.status === "already-installed") return sendJson(res, 200, outcome);
+      if (outcome.status === "busy") return sendJson(res, 409, outcome);
+      return sendJson(res, 500, outcome);
     }
 
     if (path === "/api/skills") {

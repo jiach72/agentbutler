@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { DisconnectOutlined, LinkOutlined, ReloadOutlined } from "@ant-design/icons";
-import { Alert, Badge, Button, Card, Space } from "antd";
+import { Alert, Badge, Button, Card, Modal, Space } from "antd";
 import { PageProgress } from "../components/PageProgress.js";
 import { fetchJson, postJson } from "../lib/api.js";
 import { disposeWebSocket } from "../lib/websocket.js";
@@ -150,6 +150,14 @@ interface ConnectionsPayload {
   reachable: boolean;
   checkedAt?: string;
   connections?: ConnectionView[];
+}
+
+interface OpenClawStatusView {
+  installed: boolean;
+  version: string | null;
+  rootPath: string | null;
+  detail: string;
+  busy: boolean;
 }
 
 interface AlertsPayload {
@@ -383,6 +391,7 @@ function formatSample(sample: string | null): string {
 export function DashboardPage() {
   const [dashboard, setDashboard] = useState<DashboardPayload | null>(null);
   const [connections, setConnections] = useState<ConnectionsPayload | null>(null);
+  const [openClawStatus, setOpenClawStatus] = useState<OpenClawStatusView | null>(null);
   const [runbooks, setRunbooks] = useState<RunbooksPayload | null>(null);
   const [alerts, setAlerts] = useState<AlertsPayload | null>(null);
   const [toast, setToast] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
@@ -403,6 +412,7 @@ export function DashboardPage() {
   const [confirmRecovery, setConfirmRecovery] = useState<RecoveryActionView | null>(null);
   const [inspectionRequested, setInspectionRequested] = useState(false);
   const [connectionBusy, setConnectionBusy] = useState<string | null>(null);
+  const [openClawInstallBusy, setOpenClawInstallBusy] = useState(false);
   const [initialLoad, setInitialLoad] = useState({
     dashboard: false,
     runbooks: false,
@@ -557,9 +567,35 @@ export function DashboardPage() {
   }, []);
 
   const refreshConnections = useCallback(async () => {
-    const next = await fetchJson<ConnectionsPayload>("/api/connections", 8_000);
+    const [next, openclaw] = await Promise.all([
+      fetchJson<ConnectionsPayload>("/api/connections", 8_000),
+      fetchJson<OpenClawStatusView>("/api/openclaw/status", 8_000),
+    ]);
     if (next !== null) setConnections(next);
+    if (openclaw !== null) setOpenClawStatus(openclaw);
   }, []);
+
+  const installOpenClaw = useCallback(() => {
+    Modal.confirm({
+      title: "确认安装 OpenClaw？",
+      content: "将通过 npm 安装官方 OpenClaw 包并初始化本机目录。安装期间不会改动 Hermes。",
+      okText: "确认安装",
+      cancelText: "取消",
+      onOk: async () => {
+        setOpenClawInstallBusy(true);
+        const result = await postJson("/api/openclaw/install", { confirmed: true }, 10_000);
+        setOpenClawInstallBusy(false);
+        if (result.status === 202 || result.ok) {
+          showToast("ok", "OpenClaw 安装已开始，页面会持续刷新安装状态");
+          void refreshConnections();
+        } else if (result.status === 409) {
+          showToast("err", "OpenClaw 已有安装任务正在执行");
+        } else {
+          showToast("err", "OpenClaw 安装没有启动，请查看服务日志");
+        }
+      },
+    });
+  }, [refreshConnections, showToast]);
 
   // 首屏：聚合端点一次取齐。
   useEffect(() => {
@@ -1141,9 +1177,37 @@ export function DashboardPage() {
             message="管家控制通道暂时连不上"
             description="无法读取 Hermes / OpenClaw 的实时连接状态，服务恢复后会自动重试。"
           />
-        ) : connectionItems.length === 0 ? (
-          <div className="connection-empty">还没有发现 Hermes 或 OpenClaw 实例，请先配置对应运行目录。</div>
         ) : (
+          <>
+          {!connectionItems.some((item) => item.frameworkId === "openclaw") && <div className="connection-capability-grid">
+            <Card className="connection-card connection-capability-card is-warn" bordered>
+              <div className="connection-card-head">
+                <div>
+                  <span className="connection-framework">OpenClaw</span>
+                  <h3>{openClawStatus?.installed ? "已安装，等待连接" : "尚未安装"}</h3>
+                </div>
+                <Badge
+                  status={openClawStatus?.installed ? "warning" : "default"}
+                  text={openClawStatus?.installed ? "未连接" : "未安装"}
+                />
+              </div>
+              <div className="connection-summary">
+                <strong>{openClawStatus?.version ?? "没有可用版本"}</strong>
+                <span>{openClawStatus?.detail ?? "正在读取 OpenClaw 安装状态"}</span>
+              </div>
+              <div className="connection-actions">
+                <Button
+                  type="primary"
+                  onClick={installOpenClaw}
+                  loading={openClawInstallBusy || openClawStatus?.busy === true}
+                  disabled={openClawStatus?.installed === true}
+                >
+                  一键安装 OpenClaw
+                </Button>
+              </div>
+            </Card>
+          </div>}
+          {connectionItems.length === 0 ? <div className="connection-empty">还没有发现 Hermes 或 OpenClaw 实例，请先安装或配置对应运行目录。</div> : (
           <div className="connection-grid">
             {connectionItems.map((connection) => {
               const actionBusy = connectionBusy === `connect-${connection.instanceId}` || connectionBusy === `disconnect-${connection.instanceId}`;
@@ -1216,6 +1280,8 @@ export function DashboardPage() {
               );
             })}
           </div>
+          )}
+          </>
         )}
       </section>
 

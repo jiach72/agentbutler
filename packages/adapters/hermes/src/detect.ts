@@ -136,13 +136,16 @@ async function scanRoot(rootPath: string, prober: PortProber): Promise<DetectedI
 
 /** 从 <root>/hermes-agent/pyproject.toml 解析 version = "x.y.z"；缺失/无版本返回 null。 */
 export function readPyprojectVersion(rootPath: string): string | null {
-  const pyprojectPath = join(rootPath, "hermes-agent", "pyproject.toml");
-  if (!existsSync(pyprojectPath)) return null;
-  try {
-    return parsePyprojectVersion(readFileSync(pyprojectPath, "utf8"));
-  } catch {
-    return null;
+  for (const pyprojectPath of [join(rootPath, "hermes-agent", "pyproject.toml"), join(rootPath, "pyproject.toml")]) {
+    if (!existsSync(pyprojectPath)) continue;
+    try {
+      const version = parsePyprojectVersion(readFileSync(pyprojectPath, "utf8"));
+      if (version !== null) return version;
+    } catch {
+      // 继续尝试其它实际安装位置。
+    }
   }
+  return null;
 }
 
 /** 正则提取首个 `version = "x.y.z"` 声明。 */

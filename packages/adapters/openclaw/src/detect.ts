@@ -34,10 +34,13 @@ function candidateRoots(hint?: DiscoveryHint): string[] {
 }
 
 function readVersion(rootPath: string): string | null {
-  for (const file of [join(rootPath, "VERSION"), join(rootPath, "version")]) {
+  for (const file of [join(rootPath, "VERSION"), join(rootPath, "version"), join(rootPath, "node_modules", "openclaw", "package.json")]) {
     if (!existsSync(file)) continue;
     try {
-      const value = readFileSync(file, "utf8").trim();
+      const raw = readFileSync(file, "utf8").trim();
+      const value = file.endsWith("package.json")
+        ? String((JSON.parse(raw) as Record<string, unknown>)["version"] ?? "")
+        : raw;
       if (value !== "") return value;
     } catch {
       // 发现面保持无副作用，版本读取失败只降低证据置信度。

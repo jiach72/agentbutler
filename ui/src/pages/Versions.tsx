@@ -275,14 +275,35 @@ function formatRelative(ts: string | null | undefined): string {
   return `${Math.floor(diffMs / 86_400_000)} 天前`;
 }
 
-/** 简单版本比较（0.20.5 vs 0.20.4；非数值段按 0 处理）。 */
+/** SemVer 近似比较，保留 beta/预发布编号，避免 beta.3 被误判为 beta.2 同版本。 */
 function compareVersion(a: string, b: string): number {
-  const pa = a.split("-")[0]!.split(".").map((part) => Number(part) || 0);
-  const pb = b.split("-")[0]!.split(".").map((part) => Number(part) || 0);
+  const normalize = (value: string) => {
+    const normalized = value.trim().replace(/^v/i, "").split("+")[0] ?? "";
+    const [core, pre = ""] = normalized.split("-");
+    return { core: core.split(".").map((part) => Number(part) || 0), pre: pre === "" ? [] : pre.split(".") };
+  };
+  const left = normalize(a);
+  const right = normalize(b);
+  const pa = left.core;
+  const pb = right.core;
   const len = Math.max(pa.length, pb.length);
   for (let i = 0; i < len; i += 1) {
     const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
     if (diff !== 0) return diff;
+  }
+  if (left.pre.length === 0 || right.pre.length === 0) {
+    return left.pre.length === right.pre.length ? 0 : left.pre.length === 0 ? 1 : -1;
+  }
+  for (let i = 0; i < Math.max(left.pre.length, right.pre.length); i += 1) {
+    const l = left.pre[i];
+    const r = right.pre[i];
+    if (l === undefined || r === undefined) return l === undefined ? -1 : 1;
+    if (l === r) continue;
+    const ln = /^\d+$/.test(l);
+    const rn = /^\d+$/.test(r);
+    if (ln && rn) return Number(l) - Number(r);
+    if (ln !== rn) return ln ? -1 : 1;
+    return l.localeCompare(r);
   }
   return 0;
 }
@@ -292,6 +313,10 @@ function versionDisplay(entry: AvailableVersionEntry): string {
   return entry.displayVersion !== undefined && entry.displayVersion !== ""
     ? entry.displayVersion
     : entry.version;
+}
+
+function versionComparable(entry: AvailableVersionEntry): string {
+  return entry.version !== "" ? entry.version : versionDisplay(entry);
 }
 
 /** 更新来源的中文名。 */
@@ -557,9 +582,9 @@ export function VersionsPage() {
       ? available.versions
           .filter(
             (entry) =>
-              currentVersion === "" || compareVersion(versionDisplay(entry), currentVersion) > 0,
+              currentVersion === "" || compareVersion(versionComparable(entry), currentVersion) > 0,
           )
-          .sort((left, right) => compareVersion(versionDisplay(right), versionDisplay(left)))
+          .sort((left, right) => compareVersion(versionComparable(right), versionComparable(left)))
           .slice(0, 1)
       : [];
   const precheckStep = job?.steps.find((step) => step.id === "precheck") ?? null;
@@ -576,6 +601,7 @@ export function VersionsPage() {
     butlerSelf?.availableUpdates
       .filter(
         (entry) =>
+          (entry.channel === undefined || entry.channel === butlerSelf?.prefs.channel) &&
           (butlerSelf.commit === null || entry.commit !== butlerSelf.commit) &&
           compareVersion(entry.version, butlerSelf.version) > 0,
       )
@@ -914,7 +940,11 @@ export function VersionsPage() {
                   <strong>最新可用版本</strong>
                   {selfUpgradeCandidate === null ? (
                     <p className="hint">
-                      当前已经是最新版本，或暂时没有读到可用更新。
+                      {butlerSelf.repository === null || butlerSelf.repository === ""
+                        ? "没有检测到 Git 仓库地址，无法查询管家更新。请检查 BUTLER_SRC 与 origin。"
+                        : butlerSelf.repoClean === false
+                          ? "当前源码目录有未提交改动，升级入口已保护；请先提交或清理改动。"
+                          : `已检查 ${formatRelative(butlerSelf.checkedAt)}，仓库 ${butlerSelf.repository} 暂无高于 ${butlerSelf.version} 的 ${butlerSelf.prefs.channel === "beta" ? "测试版" : "稳定版"} 标签。`}
                     </p>
                   ) : (
                     <ul className="self-update-list">
@@ -997,8 +1027,7 @@ export function VersionsPage() {
                   <span>状态：{badge.label}</span>
                   <span>当前版本：{instance.version ?? "—"}</span>
                 </div>
-                <details className="advanced-details instance-advanced">
-                  <summary>查看高级信息</summary>
+                <div className="advanced-details instance-advanced is-expanded">
                   <div className="advanced-details-body">
                     <dl className="kv">
                       <dt>内部编号</dt>
@@ -1009,7 +1038,7 @@ export function VersionsPage() {
                       <dd>{instanceStateLabel(instance.state)}</dd>
                     </dl>
                   </div>
-                </details>
+                </div>
                 <div className="instance-kpi">
                   <span className={`badge-pill ${badge.cls}`}>{badge.label}</span>
                   <span className="confidence">版本：{instance.version ?? "—"}</span>
@@ -1064,7 +1093,7 @@ export function VersionsPage() {
                   entry.channel !== undefined && entry.channel !== ""
                     ? channelBadge(entry.channel)
                     : null;
-                const isCurrent = currentVersion !== "" && versionDisplay(entry) === currentVersion;
+                const isCurrent = currentVersion !== "" && compareVersion(versionComparable(entry), currentVersion) === 0;
                 const published = formatPublishedAt(entry.publishedAt);
                 return (
                   <div className="card version-item" key={entry.version}>

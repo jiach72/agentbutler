@@ -22,7 +22,7 @@ import {
   renameSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 export const BUTLER_SELF_ACTOR = "butler-self";
 export const SELF_STATE_DIR = "self-upgrade";
@@ -30,6 +30,18 @@ export const SELF_REGISTRY_FILE = "snapshots.json";
 export const SELF_STATE_FILE = "state.json";
 export const SELF_PREFS_FILE = "prefs.json";
 export const SELF_SNAPSHOT_KEEP = 3;
+
+/** 服务以 dist 目录启动时，向上寻找真正的项目根，避免把 dist 当成 Git 仓库。 */
+export function resolveButlerSourceDir(start: string): string {
+  let current = resolve(start);
+  for (let i = 0; i < 8; i += 1) {
+    if (existsSync(join(current, "package.json"))) return current;
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return resolve(start);
+}
 
 export interface ButlerSelfPrefs {
   channel: "stable" | "beta";
@@ -431,7 +443,7 @@ export function createButlerSelfUpgradeService(
 ): ButlerSelfService {
   const now = deps.now ?? Date.now;
   const exec = deps.exec ?? defaultExec;
-  const sourceDir = deps.sourceDir;
+  const sourceDir = resolveButlerSourceDir(deps.sourceDir);
   const stateDir = join(deps.homeDir, SELF_STATE_DIR);
   const registryFile = join(stateDir, SELF_REGISTRY_FILE);
   const stateFile = join(stateDir, SELF_STATE_FILE);
@@ -474,7 +486,10 @@ export function createButlerSelfUpgradeService(
       branch: branchResult.ok && branchResult.stdout !== "" ? branchResult.stdout : null,
       commit: commitResult.ok && commitResult.stdout !== "" ? commitResult.stdout : null,
       tag,
-      repository: remoteResult.ok && remoteResult.stdout !== "" ? remoteResult.stdout : null,
+      repository:
+        remoteResult.ok && remoteResult.stdout !== ""
+          ? remoteResult.stdout.replace(/\.git$/, "")
+          : null,
       repoClean: statusResult.ok && statusResult.stdout === "",
     };
   }

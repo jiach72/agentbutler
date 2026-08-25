@@ -572,6 +572,7 @@ export function SettingsPage() {
         </section>
 
         <section className="settings-column card">
+          <div className="settings-tools-row">
           <div className="settings-section-head">
             <div>
               <span className="product-kicker">备份与还原</span>
@@ -708,6 +709,7 @@ export function SettingsPage() {
                 </div>
               </details>
             )}
+          </div>
           </div>
 
           <div className="settings-subsection">

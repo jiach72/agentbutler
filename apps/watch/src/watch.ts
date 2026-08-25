@@ -26,7 +26,8 @@
  */
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { closeSync, openSync, readFileSync, readSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, readSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { execFileSync } from "node:child_process";
 import type { ControlAdapter, DiscoveryHint, InstanceRef, Result } from "@butler/contract";
 import {
@@ -83,6 +84,7 @@ import {
   createPromptOptimizationService,
   type PromptOptimizationService,
 } from "./prompt-optimization.js";
+import { resolveButlerSourceDir } from "./self-upgrade.js";
 import {
   createWiredBreaker,
   createBuiltinRunbooks,
@@ -372,6 +374,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     ...(options.home !== undefined ? { home: options.home } : {}),
   });
   const core = createCore({ home: config.home });
+  const commandExec = options.exec ?? createExecFileExecutor();
 
   // 控制面复用 core 的 store/snapshotsDir，避免适配器自建第二连接。
   const adapter =
@@ -1244,6 +1247,88 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     disconnect: (instanceId) => runConnectionAction(instanceId, "disconnect"),
   };
 
+  let openclawInstallBusy = false;
+  let openclawInstallState: { installed: boolean; version: string | null; rootPath: string | null; detail: string; busy: boolean } = {
+    installed: false,
+    version: null,
+    rootPath: config.openclawRoot ?? join(homedir(), ".openclaw"),
+    detail: "尚未检测到 OpenClaw 安装目录",
+    busy: false,
+  };
+  const openclawInstall: NonNullable<WatchHttpDeps["openclawInstall"]> = {
+    status: () => {
+      const root = config.openclawRoot ?? join(homedir(), ".openclaw");
+      const packagePath = root === null ? null : join(root, "node_modules", "openclaw", "package.json");
+      let version = openclawInstallState.version;
+      let commandInstalled = false;
+      try {
+        const output = execFileSync("openclaw", ["--version"], { encoding: "utf8", timeout: 3_000, windowsHide: true }).trim();
+        commandInstalled = output !== "";
+        if (version === null && commandInstalled) version = output.split(/\s+/)[0] ?? null;
+      } catch {
+        commandInstalled = false;
+      }
+      const installed = (packagePath !== null && existsSync(packagePath)) || commandInstalled;
+      if (packagePath !== null && existsSync(packagePath)) {
+        try {
+          const pkg = JSON.parse(readFileSync(packagePath, "utf8")) as Record<string, unknown>;
+          version = typeof pkg["version"] === "string" ? pkg["version"] : version;
+        } catch {
+          // 保留上一次已知版本。
+        }
+      }
+      return {
+        ...openclawInstallState,
+        installed,
+        version,
+        rootPath: root,
+        busy: openclawInstallBusy,
+        detail: installed ? "已发现 OpenClaw，可继续检查连接" : "未检测到 OpenClaw 命令或安装包",
+      };
+    },
+    install: async () => {
+      if (openclawInstallBusy) return { status: "busy" };
+      const current = openclawInstall.status();
+      if (current.installed) return { status: "already-installed", detail: current.detail };
+      openclawInstallBusy = true;
+      openclawInstallState = { ...current, busy: true, detail: "正在安装 OpenClaw 并初始化目录" };
+      const jobId = `openclaw-install-${randomUUID()}`;
+      core.audit.append({ actor: "openclaw-installer", action: "openclaw-install-start", target: "openclaw", detail: { jobId, rootPath: current.rootPath ?? "" } });
+      void (async () => {
+        const install = await commandExec.exec("npm", ["install", "--global", "openclaw"], { timeoutMs: 600_000 });
+        if (install.code !== 0) {
+          openclawInstallState = { ...openclawInstallState, detail: install.stderr.trim() || "npm 安装失败" };
+          openclawInstallBusy = false;
+          core.audit.append({ actor: "openclaw-installer", action: "openclaw-install-failed", target: "openclaw", detail: { jobId, step: "npm-install", error: openclawInstallState.detail } });
+          return;
+        }
+        const setup = await commandExec.exec("openclaw", ["setup", "--baseline"], { timeoutMs: 120_000 });
+        if (setup.code !== 0) {
+          openclawInstallState = { ...openclawInstallState, detail: setup.stderr.trim() || "初始化 OpenClaw 目录失败" };
+          openclawInstallBusy = false;
+          core.audit.append({ actor: "openclaw-installer", action: "openclaw-install-failed", target: "openclaw", detail: { jobId, step: "setup", error: openclawInstallState.detail } });
+          return;
+        }
+        const versionResult = await commandExec.exec("openclaw", ["--version"], { timeoutMs: 30_000 });
+        const version = versionResult.stdout.trim().split(/\s+/)[0] || null;
+        openclawInstallState = {
+          installed: true,
+          version,
+          rootPath: config.openclawRoot ?? join(homedir(), ".openclaw"),
+          detail: "OpenClaw 已安装，等待连接探测",
+          busy: false,
+        };
+        openclawInstallBusy = false;
+        core.audit.append({ actor: "openclaw-installer", action: "openclaw-install-done", target: "openclaw", detail: { jobId, version } });
+      })().catch((error) => {
+        openclawInstallState = { ...openclawInstallState, detail: error instanceof Error ? error.message : String(error) };
+        openclawInstallBusy = false;
+        core.audit.append({ actor: "openclaw-installer", action: "openclaw-install-failed", target: "openclaw", detail: { jobId, step: "unknown", error: openclawInstallState.detail } });
+      });
+      return { status: "started", jobId };
+    },
+  };
+
   function gitLog(source: string): Array<{ hash: string; subject: string; at: string }> {
     const raw = gitDescribe([
       "-C",
@@ -1277,7 +1362,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
 
   const butler = {
     version() {
-      const source = process.env["BUTLER_SRC"]?.trim() || process.cwd();
+      const source = resolveButlerSourceDir(process.env["BUTLER_SRC"]?.trim() || process.cwd());
       let version = "0.0.0-dev";
       try {
         const pkg = JSON.parse(readFileSync(join(source, "package.json"), "utf8")) as Record<
@@ -1296,7 +1381,10 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
         branch: gitDescribe(["-C", source, "branch", "--show-current"]),
         commit: gitDescribe(["-C", source, "rev-parse", "--short", "HEAD"]),
         tag: gitDescribe(["-C", source, "describe", "--tags", "--exact-match", "--always"]),
-        repository: gitDescribe(["-C", source, "remote", "get-url", "origin"]),
+        repository: (() => {
+          const remote = gitDescribe(["-C", source, "remote", "get-url", "origin"]);
+          return remote?.replace(/\.git$/, "") ?? null;
+        })(),
         changelog: gitLog(source),
         checkedAt: new Date().toISOString(),
       };
@@ -1307,7 +1395,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
   // 升级/回滚走 detached 子进程（self-upgrade-runner.js），即使本服务被重启
   // 流水线仍继续执行；升级前全量备份复用 Task 18 备份服务。
   const butlerSelf: ButlerSelfService = createButlerSelfUpgradeService({
-    sourceDir: process.env["BUTLER_SRC"]?.trim() || process.cwd(),
+    sourceDir: resolveButlerSourceDir(process.env["BUTLER_SRC"]?.trim() || process.cwd()),
     homeDir: core.paths.home,
     services: (process.env["BUTLER_SELF_SERVICES"] ?? "butler-watch butler-web butler-vite")
       .split(/\s+/)
@@ -1436,7 +1524,8 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
   const watchHttp = startWatchHttp(
     {
       scheduler,
-      connections,
+    connections,
+    openclawInstall,
       runbooks: runbookSummaries,
       executeRunbook: executeRunbookViaHttp,
       resetRunbookBreaker: resetRunbookBreakerViaHttp,

@@ -853,3 +853,11 @@
 - 回归测试：`apps/watch/tests/http.test.ts` 新增连接查询、手动检查、连接和断开端点覆盖；既有 Dashboard/Web 与 Watch HTTP 测试保持通过。
 - 验证命令：`pnpm exec tsc -b --pretty false`；`pnpm vitest run apps/watch/tests/http.test.ts apps/web/tests/dashboard.test.ts`；`pnpm build`；`git diff --check`。
 - 部署/运行验证：仅使用本地 HTTP、临时 fixture 和注入式执行器验证；未启动/停止真实 Hermes 或 OpenClaw，也未触碰外部系统。真实服务启停、端口探活和断开后的现场复核仍需在用户明确授权的环境执行。
+## 2026-08-25 · Beta.3 版本源、版本识别与 OpenClaw 状态入口
+
+- 问题：Hermes 版本源默认地址写成 `NousResearch/hermes-agent`，与实际 Hermes Releases/Docker 源不一致；管家以 dist/cwd 启动时可能把错误目录当成源码，导致版本显示为 `0.0.0-dev`、无法读取 origin，升级页只能显示“没有更新”。Dashboard 未发现 OpenClaw 时也没有明确的未安装状态或可执行入口；技能/插件、备份/诊断页面纵向堆叠过长。
+- 风险/影响：用户无法判断版本源是否可达，也无法区分未安装、未连接和服务离线；错误的源码根目录会阻断管家自升级；长页面降低技能、备份与诊断的可发现性。
+- 改动范围：`apps/watch/src/config.ts` 将默认 Hermes 源改为 `hermes-agent/hermes`；`apps/watch/src/self-upgrade.ts` 与 `apps/watch/src/watch.ts` 向上解析项目根、规范化 Git remote；Hermes/OpenClaw 适配器增加实际安装目录的版本 fallback；新增 Watch/Web `/api/openclaw/status` 与确认后的 `/api/openclaw/install`，安装步骤、错误和审计可见；UI 将技能库/插件库改为 Tabs，设置页备份与诊断并排，实例高级信息直接展开，Dashboard 增加 OpenClaw 未安装/未连接状态卡与 Ant Design 确认弹窗。
+- 回归测试：Watch 配置、Watch HTTP、Web 代理、Hermes 版本源定向测试通过；TypeScript 与 UI Vite 构建通过。OpenClaw 安装真实 npm/system 环境未在本机执行，仅验证接线与审计路径。
+- 验证命令：`corepack pnpm exec tsc -b --pretty false`；`corepack pnpm --filter @butler/ui exec vite build`；`corepack pnpm exec vitest run apps/watch/tests/config.test.ts packages/adapters/hermes/tests/version-source.test.ts apps/watch/tests/http.test.ts apps/web/tests/server.test.ts --maxWorkers=1`；`git diff --check`。
+- 部署/运行验证：本轮未停止占用 `127.0.0.1:7531` 的既有进程；发布后需重启 Watch/Web，使 `/api/connections`、`/api/openclaw/status`、`/api/versions` 走新产物，并在授权环境验证 OpenClaw 安装及 Hermes/管家版本号。

@@ -36,7 +36,7 @@ import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import { recentEventsAscending, selectNewEvents } from "./events-pump.js";
 
-export const WEB_VERSION = `web@1.0.0-beta.2+${CONTRACT_VERSION}`;
+export const WEB_VERSION = `web@1.0.0-beta.3+${CONTRACT_VERSION}`;
 
 /** 告警网关默认基址（butler-gateway 的固定回环端口）。 */
 export const DEFAULT_GATEWAY_URL = "http://127.0.0.1:7532";
@@ -1519,6 +1519,16 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     const id = encodeURIComponent((request.params as { id?: string })["id"] ?? "");
     return proxyWatchPost(`/api/connections/${id}/disconnect`, request.body, reply, 70_000);
   });
+
+  app.get("/api/openclaw/status", async (_request, reply) => {
+    const res = await fetchWatch("/api/openclaw/status");
+    if (res === null) return reply.status(503).send({ error: "openclaw-install-unavailable" });
+    return reply.status(res.status).send(await res.json().catch(() => ({ error: "invalid-response" })));
+  });
+
+  app.post("/api/openclaw/install", async (request, reply) =>
+    proxyWatchPost("/api/openclaw/install", request.body, reply, 10 * 60_000),
+  );
 
   /* --------------------- 升级与快照代理（Task 13.3） --------------------- */
 

@@ -1,5 +1,5 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { Collapse, Empty, Input, Select, Tag } from "antd";
+import { Collapse, Empty, Input, Select, Tabs, Tag } from "antd";
 import { SearchOutlined } from "@ant-design/icons";
 import { fetchJson, postJson } from "../lib/api.js";
 
@@ -469,6 +469,7 @@ export function SkillsPage() {
   const [skillSource, setSkillSource] = useState("");
   const [pluginCategory, setPluginCategory] = useState("");
   const [pluginSource, setPluginSource] = useState("");
+  const [libraryTab, setLibraryTab] = useState<"skills" | "plugins">("skills");
   const [memoryInput, setMemoryInput] = useState("");
   const [activeKeyword, setActiveKeyword] = useState("");
   const [backupBusy, setBackupBusy] = useState(false);
@@ -614,6 +615,16 @@ export function SkillsPage() {
 
       <div className="skills-workspace">
         <section className="skills-pane skills-library">
+          <Tabs
+            className="skills-library-tabs"
+            activeKey={libraryTab}
+            onChange={(key) => setLibraryTab(key === "plugins" ? "plugins" : "skills")}
+            items={[
+              { key: "skills", label: `技能库 ${formatNumber(data?.skills.total ?? 0)}` },
+              { key: "plugins", label: `插件库 ${formatNumber(data?.plugins.total ?? 0)}` },
+            ]}
+          />
+          {libraryTab === "skills" && <>
           <div className="skills-section-head">
             <div>
               <span className="skills-kicker">技能库</span>
@@ -700,7 +711,9 @@ export function SkillsPage() {
             )}
           </div>
 
-          <div className="plugin-section">
+          </>}
+
+          {libraryTab === "plugins" && <div className="plugin-section">
             <div className="skills-section-head plugin-section-head">
               <div>
                 <span className="skills-kicker">插件库</span>
@@ -726,7 +739,7 @@ export function SkillsPage() {
                 onSource={setPluginSource}
               />
             )}
-          </div>
+          </div>}
         </section>
 
         <section className="skills-pane memory-library">
