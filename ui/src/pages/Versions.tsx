@@ -69,6 +69,20 @@ interface AvailableVersionsView {
   reachable: boolean;
   source?: string;
   versions: AvailableVersionEntry[];
+  checkedAt?: string;
+  attempts?: Array<{ id: string; url: string | null; status: string; error?: string; durationMs: number }>;
+}
+
+interface ButlerRuntimeView {
+  kind: string;
+  distro: string | null;
+  user: string | null;
+  detail: string;
+  sourceDir?: string;
+  butlerDataDir?: string;
+  hermesRoot?: string;
+  openclawRoot?: string;
+  npmGlobalRoot?: string | null;
 }
 
 interface SnapshotView {
@@ -98,6 +112,7 @@ interface ButlerVersionView {
   repository: string | null;
   repositoryConfigured?: boolean;
   repositorySource?: "git-origin" | "configured-default";
+  runtime?: ButlerRuntimeView;
   changelog?: Array<{ hash: string; subject: string; at: string }> | null;
   checkedAt: string | null;
 }
@@ -865,9 +880,19 @@ export function VersionsPage() {
                 <small>{butler.repositoryConfigured === false ? "展示项目默认地址，当前目录未检测到 origin" : "来自当前源码目录的 Git origin"}</small>
               </div>
               <div className="butler-version-fact">
-                <span>源码目录</span>
+                <span>管家代码目录</span>
                 <strong title={butler.source ?? undefined}>{butler.source ?? "—"}</strong>
                 <small>版本读取与升级预检使用此目录</small>
+              </div>
+              <div className="butler-version-fact">
+                <span>运行环境</span>
+                <strong>{butler.runtime?.detail ?? "运行环境未知"}</strong>
+                <small>{butler.runtime?.user ? `用户 ${butler.runtime.user}` : "WSL 用户未返回"}</small>
+              </div>
+              <div className="butler-version-fact">
+                <span>数据目录</span>
+                <strong title={butler.runtime?.butlerDataDir}>{butler.runtime?.butlerDataDir ?? "—"}</strong>
+                <small>状态库、任务和审计记录</small>
               </div>
               <div className="butler-version-fact">
                 <span>分支 / 提交</span>
@@ -1042,16 +1067,22 @@ export function VersionsPage() {
 
       <h2 className="section-title">最新可升级版本</h2>
       {available !== null && !available.reachable && (
-        <div className="banner banner-warn">
-          {data?.watchReachable === false
-            ? "⚠ 管家服务暂时连不上：现在无法查看新版本，也不能升级。"
-            : "⚠ 暂时拉取不到新版本列表，稍后再试。"}
+        <div className="banner banner-warn version-source-diagnostics">
+          <strong>{data?.watchReachable === false ? "管家服务暂时连不上" : "版本源检查失败"}</strong>
+          <span>{data?.watchReachable === false ? "现在无法查看新版本，也不能升级。" : `已尝试 ${available.attempts?.length ?? 0} 个版本源，暂无可用结果。`}</span>
+          {available.attempts?.map((attempt) => (
+            <span key={attempt.id} className="version-source-attempt">
+              {attempt.id}：{attempt.status === "ok" ? "可用" : attempt.error ?? "请求失败"} · {attempt.durationMs}ms
+            </span>
+          ))}
+          <button type="button" className="btn btn-quiet" onClick={() => void refresh()}>重新检查版本</button>
         </div>
       )}
       {available !== null && available.reachable && (
         <>
           <div className="version-toolbar">
             <span className="version-source">更新来源：{versionSourceLabel(available.source ?? "")}</span>
+            <span className="version-source-check">已检查：{available.checkedAt ? formatRelative(available.checkedAt) : "—"}</span>
             <label htmlFor="upgrade-target">要升级的管家：</label>
             <select
               id="upgrade-target"
@@ -1070,6 +1101,17 @@ export function VersionsPage() {
               )}
             </select>
           </div>
+          {available.attempts !== undefined && available.attempts.length > 0 && (
+            <div className="version-source-timeline" aria-label="版本源探测记录">
+              {available.attempts.map((attempt) => (
+                <div className={`version-source-timeline-item is-${attempt.status}`} key={attempt.id}>
+                  <span className="version-source-dot" />
+                  <span><strong>{attempt.id}</strong> {attempt.status === "ok" ? "已响应" : attempt.error ?? "请求失败"}</span>
+                  <small>{attempt.durationMs}ms</small>
+                </div>
+              ))}
+            </div>
+          )}
           {upgradeCandidates.length === 0 ? (
             <div className="empty-state version-empty-explained">
               {currentVersion === ""

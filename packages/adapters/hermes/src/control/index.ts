@@ -305,5 +305,6 @@ export {
   listAvailableVersions,
   type VersionListEntry,
   type VersionListSource,
+  type VersionSourceAttempt,
   type VersionSourceOptions,
 } from "./version-source.js";

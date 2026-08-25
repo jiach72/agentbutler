@@ -36,7 +36,7 @@ import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import { recentEventsAscending, selectNewEvents } from "./events-pump.js";
 
-export const WEB_VERSION = `web@1.0.0-beta.4+${CONTRACT_VERSION}`;
+export const WEB_VERSION = `web@1.0.0-beta.5+${CONTRACT_VERSION}`;
 
 /** 告警网关默认基址（butler-gateway 的固定回环端口）。 */
 export const DEFAULT_GATEWAY_URL = "http://127.0.0.1:7532";
@@ -159,6 +159,8 @@ export interface AvailableVersionsView {
   reachable: boolean;
   source?: string;
   versions: Array<{ version: string; channel?: string }>;
+  checkedAt?: string;
+  attempts?: Array<{ id: string; url: string | null; status: string; error?: string; durationMs: number }>;
 }
 
 /** /api/versions 返回的快照历史视图（snapshots 表行摘要）。 */
@@ -1403,6 +1405,12 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     }
   };
 
+  app.get("/api/runtime", async (_request, reply) => {
+    const res = await fetchWatch("/api/runtime");
+    if (res === null) return reply.status(503).send({ kind: "unknown", detail: "管家控制通道不可达" });
+    return reply.status(res.status).send(await res.json().catch(() => ({ kind: "unknown", detail: "运行时响应无效" })));
+  });
+
   /**
    * POST 转发 watch 控制通道，响应（状态码 + body）原样透传；
    * 不可达/超时 → 502 { error: "watch-unreachable" }（面板提示控制通道离线）。
@@ -1530,6 +1538,17 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     proxyWatchPost("/api/openclaw/install", request.body, reply, 10 * 60_000),
   );
 
+  app.get("/api/openclaw/install/status", async (_request, reply) => {
+    const res = await fetchWatch("/api/openclaw/install/status");
+    if (res === null) return reply.status(503).send({ error: "openclaw-install-unavailable" });
+    return reply.status(res.status).send(await res.json().catch(() => ({ error: "invalid-response" })));
+  });
+
+  app.post("/api/openclaw/install/:jobId/cancel", async (request, reply) => {
+    const jobId = encodeURIComponent((request.params as { jobId?: string })["jobId"] ?? "");
+    return proxyWatchPost(`/api/openclaw/install/${jobId}/cancel`, request.body, reply, 10_000);
+  });
+
   /* --------------------- 升级与快照代理（Task 13.3） --------------------- */
 
   /** 代理 watch /api/upgrade/status；不可达/响应异常 → job:null。 */
@@ -1568,6 +1587,8 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
           : [],
       };
       if (typeof body["source"] === "string" && body["source"] !== "") view.source = body["source"];
+      if (typeof body["checkedAt"] === "string") view.checkedAt = body["checkedAt"];
+      if (Array.isArray(body["attempts"])) view.attempts = body["attempts"] as AvailableVersionsView["attempts"];
       return { watchOk: true, view };
     } catch {
       return { watchOk: true, view: { reachable: false, versions: [] } };

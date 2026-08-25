@@ -111,6 +111,7 @@ export {
   type UpgradeRunInput,
   type VersionListEntry,
   type VersionListSource,
+  type VersionSourceAttempt,
   type VersionSourceOptions,
 } from "./control/index.js";
 export {

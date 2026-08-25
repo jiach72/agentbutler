@@ -27,9 +27,8 @@
  *                                      升级在飞 → 409 { error: "upgrade-in-flight" }；
  *                                      无 Serving 实例 → 503 { error: "no-servicing-instance" }
  * - GET  /api/upgrade/status         → { job: UpgradeJobView | null }
- * - GET  /api/upgrade/versions       → { reachable: true, source, versions } 或
- *                                      { reachable: false, versions: [] }（版本源
- *                                      全败不 5xx）
+ * - GET  /api/upgrade/versions       → { reachable, source?, versions, checkedAt, attempts }
+ *                                     （版本源全败不 5xx，逐源诊断仍返回）
  * - POST /api/snapshots/:id/rollback → body { instanceId? }（:id 数值行 id）：
  *                                      200 { job: { jobId, kind: "rollback", steps } }；
  *                                      非数值 id → 400 { error: "invalid-snapshot-id" }；
@@ -117,6 +116,7 @@ import type { PromptOptimizationService } from "./prompt-optimization.js";
 import type { LogAnalyzeView } from "./log-analyzer.js";
 import type { BackupService } from "./backup.js";
 import type { SecurityService } from "./invariants.js";
+import type { ButlerRuntimeInfo } from "./runtime.js";
 
 /** 记忆按需自检（memory-probe 单阶段）的结论。 */
 export interface MemorySelfCheckResult {
@@ -183,6 +183,7 @@ export interface RunbookSummary {
 
 /** HTTP 层依赖（全部可注入）。 */
 export interface WatchHttpDeps {
+  runtime?: () => ButlerRuntimeInfo;
   scheduler: {
     /** 立即巡检入口（在飞返回 false → 409）。 */
     runNow(): boolean;
@@ -229,8 +230,9 @@ export interface WatchHttpDeps {
   };
   /** OpenClaw 安装能力：仅在显式配置且用户确认后执行。 */
   openclawInstall?: {
-    status(): { installed: boolean; version: string | null; rootPath: string | null; detail: string; busy: boolean };
+    status(): Record<string, unknown>;
     install(): Promise<{ status: "started" | "already-installed" | "busy" | "failed"; jobId?: string; detail?: string }>;
+    cancel?(jobId: string): Promise<Record<string, unknown>>;
   };
   /** runbook 元信息列表（含熔断态与最近执行）。 */
   runbooks(): RunbookSummary[];
@@ -569,6 +571,11 @@ async function handle(
       return sendJson(res, 200, { ok: true });
     }
 
+    if (path === "/api/runtime") {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      return sendJson(res, 200, deps.runtime?.() ?? { kind: "unknown", detail: "运行时信息不可用" });
+    }
+
     if (path === "/api/backups") {
       if (deps.backup === undefined) return sendJson(res, 503, { error: "backup-unavailable" });
       if (method === "GET") {
@@ -797,6 +804,21 @@ async function handle(
       if (outcome.status === "already-installed") return sendJson(res, 200, outcome);
       if (outcome.status === "busy") return sendJson(res, 409, outcome);
       return sendJson(res, 500, outcome);
+    }
+
+    const openclawInstallStatus = /^\/api\/openclaw\/install\/status$/.test(path);
+    if (openclawInstallStatus) {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.openclawInstall === undefined) return sendJson(res, 503, { error: "openclaw-install-unavailable" });
+      return sendJson(res, 200, deps.openclawInstall.status());
+    }
+
+    const openclawCancel = /^\/api\/openclaw\/install\/([^/]+)\/cancel$/.exec(path);
+    if (openclawCancel !== null) {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.openclawInstall?.cancel === undefined) return sendJson(res, 503, { error: "openclaw-install-unavailable" });
+      const result = await deps.openclawInstall.cancel(decodeURIComponent(openclawCancel[1]!));
+      return sendJson(res, result.status === "not-found" ? 404 : 200, result);
     }
 
     if (path === "/api/skills") {
@@ -1184,14 +1206,7 @@ async function handle(
     if (path === "/api/upgrade/versions") {
       if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
       const result = await deps.upgrade.listVersions();
-      // 版本源全败 → reachable:false 空列表（不 5xx）；成功携带 source id。
-      return sendJson(
-        res,
-        200,
-        result.reachable
-          ? { reachable: true, source: result.source, versions: result.versions }
-          : { reachable: false, versions: [] },
-      );
+      return sendJson(res, 200, result);
     }
 
     if (path === "/api/prompt-optimization/targets") {

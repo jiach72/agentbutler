@@ -39,6 +39,7 @@ import {
   type UpgradeControl,
   type UpgradeJobView,
   type VersionListEntry,
+  type VersionSourceAttempt,
 } from "@butler/adapter-hermes";
 import type { Core, InstanceRecord } from "@butler/core";
 import { DEFAULT_UPGRADE_NOTIFY_COOLDOWN_MS } from "./config.js";
@@ -83,7 +84,7 @@ export interface UpgradeService {
   /** 当前 running 或最近一次升级 Job 视图。 */
   status(): UpgradeJobView | null;
   /** 版本源可用版本列表（逐源探测，fetch 注入）。 */
-  listVersions(): Promise<{ reachable: boolean; source?: string; versions: VersionListEntry[] }>;
+  listVersions(): Promise<{ reachable: boolean; source?: string; versions: VersionListEntry[]; checkedAt?: string; attempts?: VersionSourceAttempt[] }>;
   /** 回滚到快照登记行（同步收敛，返回 rollback Job）。 */
   rollbackSnapshot(snapshotRowId: number, instanceId?: string): Promise<RollbackSnapshotOutcome>;
 }
@@ -339,19 +340,21 @@ export function createUpgradeService(deps: UpgradeServiceDeps): UpgradeService {
     return { status: "started", jobId: view.jobId, instanceId: view.instanceId };
   }
 
-  async function listVersions(): Promise<{ reachable: boolean; source?: string; versions: VersionListEntry[] }> {
+  async function listVersions(): Promise<{ reachable: boolean; source?: string; versions: VersionListEntry[]; checkedAt?: string; attempts?: VersionSourceAttempt[] }> {
     flushDoneWindow();
     const result = await listAvailableVersions({
       // 版本源只使用 ok/status/json，FetchLike 运行时兼容（结构收窄）。
       fetchFn: fetchFn as unknown as typeof fetch,
       repo: deps.versionRepo,
       dockerImage: deps.versionDockerImage,
+      pypiPackage: deps.pipPackage,
       mirrorHost: deps.versionMirrorHost,
     });
     if (result.ok) {
-      return { reachable: true, source: result.data!.source, versions: result.data!.versions };
+      return { reachable: true, source: result.data!.source, versions: result.data!.versions, checkedAt: new Date().toISOString(), attempts: result.data!.attempts };
     }
-    return { reachable: false, versions: [] }; // 版本源全败不抛异常（HTTP 不 5xx）
+    const attempts = Array.isArray(result.error?.cause) ? result.error.cause as VersionSourceAttempt[] : [];
+    return { reachable: false, versions: [], checkedAt: new Date().toISOString(), attempts };
   }
 
   async function rollbackSnapshot(snapshotRowId: number, instanceId?: string): Promise<RollbackSnapshotOutcome> {

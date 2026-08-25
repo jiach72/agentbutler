@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { DisconnectOutlined, LinkOutlined, ReloadOutlined } from "@ant-design/icons";
-import { Alert, Badge, Button, Card, Modal, Space } from "antd";
+import { Alert, Badge, Button, Card, Drawer, Modal, Progress, Space, Steps, Tag } from "antd";
 import { PageProgress } from "../components/PageProgress.js";
 import { fetchJson, postJson } from "../lib/api.js";
 import { disposeWebSocket } from "../lib/websocket.js";
@@ -158,6 +158,36 @@ interface OpenClawStatusView {
   rootPath: string | null;
   detail: string;
   busy: boolean;
+  runtime?: {
+    kind?: string;
+    distro?: string | null;
+    user?: string | null;
+    detail?: string;
+  };
+  target?: {
+    dataRoot?: string;
+    npmGlobalRoot?: string | null;
+  };
+  job?: OpenClawInstallJobView | null;
+}
+
+interface OpenClawInstallStepView {
+  id: string;
+  label: string;
+  status: "pending" | "running" | "passed" | "failed" | "cancelled" | string;
+  detail?: string;
+}
+
+interface OpenClawInstallJobView {
+  jobId: string;
+  status: "queued" | "running" | "done" | "failed" | "cancelled" | string;
+  progress: number;
+  currentStep: string | null;
+  steps: OpenClawInstallStepView[];
+  logTail: string[];
+  error: string | null;
+  startedAt: string;
+  finishedAt: string | null;
 }
 
 interface AlertsPayload {
@@ -392,6 +422,7 @@ export function DashboardPage() {
   const [dashboard, setDashboard] = useState<DashboardPayload | null>(null);
   const [connections, setConnections] = useState<ConnectionsPayload | null>(null);
   const [openClawStatus, setOpenClawStatus] = useState<OpenClawStatusView | null>(null);
+  const [openClawInstallJob, setOpenClawInstallJob] = useState<OpenClawInstallJobView | null>(null);
   const [runbooks, setRunbooks] = useState<RunbooksPayload | null>(null);
   const [alerts, setAlerts] = useState<AlertsPayload | null>(null);
   const [toast, setToast] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
@@ -413,6 +444,7 @@ export function DashboardPage() {
   const [inspectionRequested, setInspectionRequested] = useState(false);
   const [connectionBusy, setConnectionBusy] = useState<string | null>(null);
   const [openClawInstallBusy, setOpenClawInstallBusy] = useState(false);
+  const [openClawLogOpen, setOpenClawLogOpen] = useState(false);
   const [initialLoad, setInitialLoad] = useState({
     dashboard: false,
     runbooks: false,
@@ -572,13 +604,29 @@ export function DashboardPage() {
       fetchJson<OpenClawStatusView>("/api/openclaw/status", 8_000),
     ]);
     if (next !== null) setConnections(next);
-    if (openclaw !== null) setOpenClawStatus(openclaw);
+    if (openclaw !== null) {
+      setOpenClawStatus(openclaw);
+      if (openclaw.job !== undefined) setOpenClawInstallJob(openclaw.job ?? null);
+    }
   }, []);
 
   const installOpenClaw = useCallback(() => {
+    const runtime = openClawStatus?.runtime;
+    const target = openClawStatus?.target;
     Modal.confirm({
       title: "确认安装 OpenClaw？",
-      content: "将通过 npm 安装官方 OpenClaw 包并初始化本机目录。安装期间不会改动 Hermes。",
+      width: 560,
+      content: (
+        <div className="openclaw-install-confirm">
+          <p>安装将在 WSL 内执行，不会覆盖已有 OpenClaw 配置；完成后会自动启动 Gateway 并进行健康复验。</p>
+          <dl className="kv">
+            <div><dt>运行环境</dt><dd>{runtime?.detail ?? "正在探测 WSL"}</dd></div>
+            <div><dt>数据目录</dt><dd><code>{target?.dataRoot ?? openClawStatus?.rootPath ?? "~/.openclaw"}</code></dd></div>
+            <div><dt>npm 包目录</dt><dd><code>{target?.npmGlobalRoot ?? "正在解析 npm root -g"}</code></dd></div>
+            <div><dt>预计耗时</dt><dd>约 2–10 分钟，取决于网络速度</dd></div>
+          </dl>
+        </div>
+      ),
       okText: "确认安装",
       cancelText: "取消",
       onOk: async () => {
@@ -586,16 +634,46 @@ export function DashboardPage() {
         const result = await postJson("/api/openclaw/install", { confirmed: true }, 10_000);
         setOpenClawInstallBusy(false);
         if (result.status === 202 || result.ok) {
+          if (typeof result.data === "object" && result.data !== null && "jobId" in result.data) {
+            const jobId = String((result.data as { jobId: unknown }).jobId);
+            setOpenClawInstallJob((current) => current ?? {
+              jobId,
+              status: "queued",
+              progress: 0,
+              currentStep: null,
+              steps: [],
+              logTail: [],
+              error: null,
+              startedAt: new Date().toISOString(),
+              finishedAt: null,
+            });
+          }
           showToast("ok", "OpenClaw 安装已开始，页面会持续刷新安装状态");
           void refreshConnections();
         } else if (result.status === 409) {
           showToast("err", "OpenClaw 已有安装任务正在执行");
         } else {
-          showToast("err", "OpenClaw 安装没有启动，请查看服务日志");
+          const detail = typeof result.data === "object" && result.data !== null && "detail" in result.data
+            ? String((result.data as { detail?: unknown }).detail)
+            : typeof result.data === "object" && result.data !== null && "error" in result.data
+              ? String((result.data as { error?: unknown }).error)
+              : "请检查 WSL、Node/npm 和网络状态";
+          showToast("err", `OpenClaw 安装没有启动：${detail}`);
         }
       },
     });
   }, [refreshConnections, showToast]);
+
+  const cancelOpenClawInstall = useCallback(async () => {
+    if (openClawInstallJob === null) return;
+    const result = await postJson(`/api/openclaw/install/${encodeURIComponent(openClawInstallJob.jobId)}/cancel`, {}, 10_000);
+    if (result.ok) {
+      showToast("ok", "已请求取消安装，当前命令结束后会停止后续步骤");
+      void refreshConnections();
+    } else {
+      showToast("err", "取消请求未成功，请查看安装日志");
+    }
+  }, [openClawInstallJob, refreshConnections, showToast]);
 
   // 首屏：聚合端点一次取齐。
   useEffect(() => {
@@ -1214,14 +1292,67 @@ export function DashboardPage() {
                   <strong>{openClawStatus?.version ?? "没有可用版本"}</strong>
                   <span>{openClawStatus?.detail ?? "正在读取 OpenClaw 安装状态"}</span>
                 </div>
+                {openClawStatus?.runtime !== undefined && (
+                  <div className="openclaw-runtime-facts">
+                    <span>{openClawStatus.runtime.detail ?? "WSL 运行环境"}</span>
+                    <span title={openClawStatus.target?.dataRoot ?? openClawStatus.rootPath ?? undefined}>
+                      数据：{openClawStatus.target?.dataRoot ?? openClawStatus.rootPath ?? "~/.openclaw"}
+                    </span>
+                    <span title={openClawStatus.target?.npmGlobalRoot ?? undefined}>
+                      npm：{openClawStatus.target?.npmGlobalRoot ?? "解析中"}
+                    </span>
+                  </div>
+                )}
+                {openClawInstallJob !== null && (
+                  <div className="openclaw-install-panel">
+                    <div className="openclaw-install-panel-head">
+                      <strong>
+                        {openClawInstallJob.status === "done" ? "安装完成"
+                          : openClawInstallJob.status === "failed" ? "安装失败"
+                            : openClawInstallJob.status === "cancelled" ? "已取消"
+                              : openClawInstallJob.status === "queued" ? "提交中"
+                                : "安装中"}
+                      </strong>
+                      <Tag color={openClawInstallJob.status === "failed" ? "error" : openClawInstallJob.status === "done" ? "success" : "processing"}>
+                        {openClawInstallJob.progress}%
+                      </Tag>
+                    </div>
+                    <Progress percent={openClawInstallJob.progress} size="small" status={openClawInstallJob.status === "failed" ? "exception" : openClawInstallJob.status === "done" ? "success" : "active"} />
+                    {openClawInstallJob.steps.length > 0 && (
+                      <Steps
+                        className="openclaw-install-steps"
+                        size="small"
+                        direction="vertical"
+                        current={Math.max(0, openClawInstallJob.steps.findIndex((step) => step.status === "running"))}
+                        items={openClawInstallJob.steps.map((step) => ({
+                          title: step.label,
+                          description: step.detail,
+                          status: step.status === "failed" ? "error" : step.status === "passed" ? "finish" : step.status === "running" ? "process" : step.status === "cancelled" ? "error" : "wait",
+                        }))}
+                      />
+                    )}
+                    {openClawInstallJob.error !== null && <Alert type="error" showIcon message="安装未完成" description={openClawInstallJob.error} />}
+                    <div className="openclaw-install-actions">
+                      {(openClawInstallJob.status === "queued" || openClawInstallJob.status === "running") && (
+                        <Button size="small" onClick={() => void cancelOpenClawInstall()}>取消安装</Button>
+                      )}
+                      {openClawInstallJob.status === "failed" && (
+                        <Button size="small" type="link" onClick={installOpenClaw}>重试安装</Button>
+                      )}
+                      {openClawInstallJob.logTail.length > 0 && (
+                        <Button size="small" type="link" onClick={() => setOpenClawLogOpen(true)}>查看实时日志</Button>
+                      )}
+                    </div>
+                  </div>
+                )}
                 <div className="connection-actions">
                   <Button
                     type="primary"
                     onClick={installOpenClaw}
-                    loading={openClawInstallBusy || openClawStatus?.busy === true}
-                    disabled={openClawStatus?.installed === true}
+                    loading={openClawInstallBusy || openClawStatus?.busy === true || openClawInstallJob?.status === "queued" || openClawInstallJob?.status === "running"}
+                    disabled={openClawStatus?.installed === true || openClawInstallJob?.status === "queued" || openClawInstallJob?.status === "running"}
                   >
-                    一键安装 OpenClaw
+                    {openClawStatus?.installed ? "已安装 OpenClaw" : "一键安装 OpenClaw"}
                   </Button>
                 </div>
               </Card>
@@ -1300,6 +1431,15 @@ export function DashboardPage() {
           </>
         )}
       </section>
+
+      <Drawer
+        title="OpenClaw 安装日志"
+        open={openClawLogOpen}
+        onClose={() => setOpenClawLogOpen(false)}
+        width={560}
+      >
+        <pre className="openclaw-install-log">{openClawInstallJob?.logTail.join("\n") || "暂无日志"}</pre>
+      </Drawer>
 
       <div className="manager-section">
         <div className="manager-section-head">

@@ -870,3 +870,12 @@
 - 回归测试：`apps/watch/tests/http-logs.test.ts`、`apps/watch/tests/http.test.ts`（22 项通过）；`corepack pnpm exec tsc -b --pretty false`；`corepack pnpm --filter @butler/ui exec vite build`；`git diff --check`。
 - 验证命令：同上；Vite 构建仅有既有大 chunk 警告，无编译错误。
 - 部署/运行验证：未停止或重启现有 `127.0.0.1:7531` 服务，未执行真实 OpenClaw 安装或升级；需在部署后验证 `/api/butler/version`、`/api/connections`、`/api/versions` 与浏览器响应式布局。
+
+## 2026-08-25 · Beta.5 WSL 运行环境、Hermes 多源更新与 OpenClaw 安装任务
+
+- 问题：版本页把运行目录笼统显示为源码目录；Windows 启动的 Watch 在读取 OpenClaw 版本时可能调用宿主机命令；Hermes 更新失败被压缩成无上下文的空列表；Dashboard 的 OpenClaw 一键安装没有任务进度、默认路径、日志或取消入口。
+- 风险/影响：用户无法判断实际 WSL 发行版、数据目录和 npm 包位置；版本检查可能误报；安装按钮点击后无反馈，失败时也无法定位是 WSL、npm、Gateway 还是健康检查问题。
+- 改动范围：新增 `apps/watch/src/runtime.ts` 统一探测 WSL 发行版、Linux 用户、源码/Butler/Hermes/OpenClaw/npm 路径，并让 Hermes/OpenClaw 控制命令统一经过 WSL executor；Hermes 版本源改为 `NousResearch/hermes-agent`，按 GitHub、可选镜像、PyPI、Docker Hub 顺序回退并返回逐源 attempts/耗时；OpenClaw 安装持久化 job、步骤、日志、取消状态，自动启动 Gateway 并重试健康检查；Web/Watch 增加运行时与安装状态代理；Dashboard 增加 Ant Design Modal、Steps、Progress、Alert、Drawer 任务面板；Versions 显示管家代码目录、运行环境和版本源时间线。
+- 回归测试：`packages/adapters/hermes/tests/version-source.test.ts`、`apps/watch/tests/upgrade.test.ts` 定向测试 29 项通过；`corepack pnpm exec tsc -b --pretty false`；`corepack pnpm --filter @butler/ui exec vite build`。
+- 验证命令：上述定向 Vitest、TypeScript 构建、Vite 构建；发布前继续执行全量 Vitest、`git diff --check`、版本一致性检查。
+- 部署/运行验证：未在 Ubuntu-24.04 WSL 中执行真实 npm 安装或 Gateway 启动；未停止现有服务。部署后必须验证 `/api/runtime`、`/api/upgrade/versions`、`/api/openclaw/status`、`/api/openclaw/install/status` 和 `/ws`，并记录真实安装日志与健康复验结果。

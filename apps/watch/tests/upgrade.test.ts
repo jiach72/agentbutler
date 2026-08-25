@@ -437,7 +437,9 @@ describe("createUpgradeService（listVersions 版本源）", () => {
     const fetchFn: FetchLike = async () => ({ ok: false, status: 503, json: async () => ({}) });
     harness = makeHarness([], { fetchFn });
     const result = await harness.service.listVersions();
-    expect(result).toEqual({ reachable: false, versions: [] });
+    expect(result.reachable).toBe(false);
+    expect(result.versions).toEqual([]);
+    expect(result.attempts).toHaveLength(3);
   });
 });
 

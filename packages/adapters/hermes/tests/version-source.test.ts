@@ -27,8 +27,9 @@ function fakeFetch(handler: (url: string) => Response | Promise<Response>): type
   }) as unknown as typeof fetch;
 }
 
-const GITHUB_RELEASES_URL = "https://api.github.com/repos/hermes-agent/hermes/releases";
+const GITHUB_RELEASES_URL = "https://api.github.com/repos/NousResearch/hermes-agent/releases";
 const DOCKER_TAGS_URL = "https://hub.docker.com/v2/repositories/hermes-agent/hermes/tags";
+const PYPI_URL = "https://pypi.org/pypi/hermes-agent/json";
 
 const releasesBody = [
   {
@@ -70,10 +71,10 @@ describe("compareVersions", () => {
 describe("mirrorUrlOf", () => {
   it("纯主机名 → 同路径换 host", () => {
     expect(mirrorUrlOf("gh-mirror.example.com", GITHUB_RELEASES_URL)).toBe(
-      "https://gh-mirror.example.com/repos/hermes-agent/hermes/releases",
+      "https://gh-mirror.example.com/repos/NousResearch/hermes-agent/releases",
     );
     expect(mirrorUrlOf("gh-mirror.example.com/", GITHUB_RELEASES_URL)).toBe(
-      "https://gh-mirror.example.com/repos/hermes-agent/hermes/releases",
+      "https://gh-mirror.example.com/repos/NousResearch/hermes-agent/releases",
     );
   });
 
@@ -87,14 +88,14 @@ describe("mirrorUrlOf", () => {
 /* ------------------------------ createVersionSources ------------------------------ */
 
 describe("createVersionSources", () => {
-  it("默认序列：GitHub → Docker Hub（无 mirror 时不插入镜像源）", () => {
+  it("默认序列：GitHub → PyPI → Docker Hub（无 mirror 时不插入镜像源）", () => {
     const sources = createVersionSources({});
-    expect(sources.map((s) => s.id)).toEqual(["github-releases", "docker-hub"]);
+    expect(sources.map((s) => s.id)).toEqual(["github-releases", "pypi", "docker-hub"]);
   });
 
-  it("提供 mirrorHost 时插入镜像源（GitHub → 镜像 → Docker Hub）", () => {
+  it("提供 mirrorHost 时插入镜像源（GitHub → 镜像 → PyPI → Docker Hub）", () => {
     const sources = createVersionSources({ mirrorHost: "gh-mirror.example.com" });
-    expect(sources.map((s) => s.id)).toEqual(["github-releases", "github-releases-mirror", "docker-hub"]);
+    expect(sources.map((s) => s.id)).toEqual(["github-releases", "github-releases-mirror", "pypi", "docker-hub"]);
   });
 
   it("自定义 sources 覆盖默认序列", () => {
@@ -141,10 +142,10 @@ describe("listAvailableVersions", () => {
     expect(r.ok).toBe(true);
     expect(r.data!.source).toBe("github-releases-mirror");
     expect(urls[0]).toBe(GITHUB_RELEASES_URL);
-    expect(urls[1]).toBe("https://gh-mirror.example.com/repos/hermes-agent/hermes/releases");
+    expect(urls[1]).toBe("https://gh-mirror.example.com/repos/NousResearch/hermes-agent/releases");
   });
 
-  it("GitHub 与镜像均失败 → 回退 Docker Hub（过滤 latest 等非版本 tag）", async () => {
+  it("GitHub 与 PyPI 均失败 → 回退 Docker Hub（过滤 latest 等非版本 tag）", async () => {
     const r = await listAvailableVersions({
       fetchFn: fakeFetch((url) =>
         url === DOCKER_TAGS_URL ? jsonResponse(dockerBody) : jsonResponse({ message: "oops" }, 500),
@@ -177,7 +178,7 @@ describe("listAvailableVersions", () => {
         return jsonResponse(releasesBody);
       }),
     });
-    expect(call).toBe(2);
+    expect(call).toBe(3);
     expect(r.ok).toBe(false);
     expect(r.error!.code).toBe("E203");
     expect(r.error!.userHint).toContain("mirrorHost");

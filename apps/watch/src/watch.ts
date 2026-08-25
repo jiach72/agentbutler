@@ -26,12 +26,10 @@
  */
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { closeSync, existsSync, openSync, readFileSync, readSync, statSync } from "node:fs";
-import { homedir } from "node:os";
+import { closeSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import type { ControlAdapter, DiscoveryHint, InstanceRef, Result } from "@butler/contract";
 import {
-  createExecFileExecutor,
   createHermesAdapter,
   createPatchManager,
   type CommandExecutor,
@@ -108,6 +106,7 @@ import {
 } from "./self-upgrade.js";
 import { createBackupService, type BackupService } from "./backup.js";
 import { createSecurityService, type SecurityService } from "./invariants.js";
+import { createRuntimeCommandExecutor, detectButlerRuntime, type ButlerRuntimeInfo } from "./runtime.js";
 
 const DEFAULT_BUTLER_REPOSITORY = "https://github.com/jiach72/agentbutler";
 
@@ -140,6 +139,7 @@ export interface WatchAppOptions {
 export interface WatchApp {
   core: Core;
   config: WatchConfig;
+  runtime: ButlerRuntimeInfo;
   tailer: LogTailer;
   engine: FingerprintEngine;
   scheduler: InspectionScheduler;
@@ -376,7 +376,13 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     ...(options.home !== undefined ? { home: options.home } : {}),
   });
   const core = createCore({ home: config.home });
-  const commandExec = options.exec ?? createExecFileExecutor();
+  const runtime = detectButlerRuntime({
+    sourceDir: process.env["BUTLER_SRC"]?.trim() || process.cwd(),
+    butlerDataDir: config.home,
+    hermesRoot: config.hermesRoot,
+    openclawRoot: config.openclawRoot,
+  });
+  const commandExec = options.exec ?? createRuntimeCommandExecutor(runtime);
 
   // 控制面复用 core 的 store/snapshotsDir，避免适配器自建第二连接。
   const adapter =
@@ -395,7 +401,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       : createHermesAdapter({
           store: core.store,
           snapshotsDir: core.paths.snapshotsDir,
-          exec: options.exec,
+          exec: commandExec,
           prober: options.prober,
           controlInvoker: createCapabilityInvoker(core),
         });
@@ -555,7 +561,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
   // 巡检：内置七阶段（Task 6 三探针 + 停写检测，全注入）+ extraStages 插入点。
   const stages = [
     ...createDefaultStages({
-      exec: options.exec,
+      exec: commandExec,
       prober: options.prober,
       sampler: options.sampler,
       probeTimeoutMs: config.probeTimeoutMs,
@@ -628,11 +634,11 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       stages,
       breaker,
       poster: alertPoster,
-      exec: options.exec,
+      exec: commandExec,
       debounceMs: config.runbookDebounceMs,
       now: options.now,
     },
-    createBuiltinRunbooks({ control: routedControl, exec: options.exec }),
+    createBuiltinRunbooks({ control: routedControl, exec: commandExec }),
   );
 
   // Task 15：共享补丁管理器（升级流水线与网关参数面板同一实例，同一 state.json）。
@@ -647,7 +653,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     poster: alertPoster,
     breaker,
     fetchFn: options.fetchFn,
-    exec: options.exec,
+    exec: commandExec,
     now: options.now,
     patchManager,
     versionRepo: config.versionRepo,
@@ -671,7 +677,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
   const evolution = createEvolutionService({
     core,
     control: routedControl,
-    exec: options.exec ?? createExecFileExecutor(),
+    exec: commandExec,
     fetchFn: options.fetchFn,
     poster: alertPoster,
     defaultEndpoint: config.llm.baseUrl,
@@ -1249,85 +1255,189 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     disconnect: (instanceId) => runConnectionAction(instanceId, "disconnect"),
   };
 
-  let openclawInstallBusy = false;
+  type InstallStep = { id: string; label: string; status: "pending" | "running" | "passed" | "failed" | "cancelled"; detail?: string; startedAt?: string; finishedAt?: string };
+  type InstallJob = { jobId: string; status: "queued" | "running" | "done" | "failed" | "cancelled"; progress: number; currentStep: string | null; steps: InstallStep[]; logTail: string[]; error: string | null; startedAt: string; finishedAt: string | null; cancelRequested?: boolean };
+  const installStatePath = join(config.home, "openclaw-install.json");
+  mkdirSync(config.home, { recursive: true });
+  let openclawInstallJob: InstallJob | null = (() => {
+    try {
+      const parsed = JSON.parse(readFileSync(installStatePath, "utf8")) as InstallJob;
+      return typeof parsed.jobId === "string" ? parsed : null;
+    } catch {
+      return null;
+    }
+  })();
+  if (openclawInstallJob !== null && (openclawInstallJob.status === "queued" || openclawInstallJob.status === "running")) {
+    openclawInstallJob.status = "failed";
+    openclawInstallJob.error = "管家重启时安装任务被中断，请重新检查环境后重试";
+    openclawInstallJob.finishedAt = new Date().toISOString();
+    openclawInstallJob.currentStep = null;
+    writeFileSync(installStatePath, JSON.stringify(openclawInstallJob, null, 2), "utf8");
+  }
+  let openclawInstallBusy = openclawInstallJob?.status === "queued" || openclawInstallJob?.status === "running";
   let openclawInstallState: { installed: boolean; version: string | null; rootPath: string | null; detail: string; busy: boolean } = {
     installed: false,
     version: null,
-    rootPath: config.openclawRoot ?? join(homedir(), ".openclaw"),
+    rootPath: runtime.openclawRoot,
     detail: "尚未检测到 OpenClaw 安装目录",
-    busy: false,
+    busy: openclawInstallBusy,
   };
-  const openclawInstall: NonNullable<WatchHttpDeps["openclawInstall"]> = {
-    status: () => {
-      const root = config.openclawRoot ?? join(homedir(), ".openclaw");
-      const packagePath = root === null ? null : join(root, "node_modules", "openclaw", "package.json");
-      let version = openclawInstallState.version;
-      let commandInstalled = false;
-      try {
-        const output = execFileSync("openclaw", ["--version"], { encoding: "utf8", timeout: 3_000, windowsHide: true }).trim();
-        commandInstalled = output !== "";
-        if (version === null && commandInstalled) version = output.split(/\s+/)[0] ?? null;
-      } catch {
-        commandInstalled = false;
-      }
-      const installed = (packagePath !== null && existsSync(packagePath)) || commandInstalled;
-      if (packagePath !== null && existsSync(packagePath)) {
-        try {
-          const pkg = JSON.parse(readFileSync(packagePath, "utf8")) as Record<string, unknown>;
-          version = typeof pkg["version"] === "string" ? pkg["version"] : version;
-        } catch {
-          // 保留上一次已知版本。
-        }
-      }
-      return {
+  let openclawProbeBusy = false;
+  const probeOpenClaw = async (): Promise<void> => {
+    if (openclawProbeBusy) return;
+    openclawProbeBusy = true;
+    try {
+      const npmRoot = await commandExec.exec("npm", ["root", "-g"], { timeoutMs: 10_000 });
+      const resolvedNpmRoot = npmRoot.code === 0 ? npmRoot.stdout.trim() : null;
+      if (resolvedNpmRoot !== null && resolvedNpmRoot !== "") runtime.npmGlobalRoot = resolvedNpmRoot;
+      const versionResult = await commandExec.exec("openclaw", ["--version"], { timeoutMs: 10_000 });
+      const version = versionResult.code === 0 ? versionResult.stdout.trim().split(/\s+/)[0] ?? null : null;
+      const installed = version !== null && version !== "";
+      openclawInstallState = {
         ...openclawInstallState,
         installed,
         version,
+        rootPath: runtime.openclawRoot,
+        busy: openclawInstallBusy,
+        detail: openclawInstallState.installed ? "已发现 OpenClaw，可继续检查连接" : "未检测到 WSL 内 OpenClaw 命令或安装包",
+      };
+    } finally {
+      openclawProbeBusy = false;
+    }
+  };
+  void probeOpenClaw();
+  const installStepDefs = [
+    ["runtime", "检测 WSL 运行环境"],
+    ["paths", "解析用户、目录和 npm 全局路径"],
+    ["npm-install", "安装 OpenClaw npm 包"],
+    ["setup", "初始化 OpenClaw 基线目录"],
+    ["version", "读取并校验 OpenClaw 版本"],
+    ["gateway-start", "启动 OpenClaw Gateway"],
+    ["health", "检查 Gateway 健康状态"],
+    ["verify", "重新探测连接"],
+  ] as const;
+  const persistInstallJob = () => {
+    if (openclawInstallJob !== null) writeFileSync(installStatePath, JSON.stringify(openclawInstallJob, null, 2), "utf8");
+  };
+  const appendInstallLog = (line: string) => {
+    if (openclawInstallJob === null) return;
+    openclawInstallJob.logTail = [...openclawInstallJob.logTail, line].slice(-80);
+    persistInstallJob();
+  };
+  const updateInstallStep = (id: string, status: InstallStep["status"], detail?: string) => {
+    if (openclawInstallJob === null) return;
+    const now = new Date().toISOString();
+    openclawInstallJob.steps = openclawInstallJob.steps.map((step) => step.id === id ? { ...step, status, ...(detail === undefined ? {} : { detail }), ...(status === "running" ? { startedAt: now } : { finishedAt: now }) } : step);
+    const passed = openclawInstallJob.steps.filter((step) => step.status === "passed").length;
+    openclawInstallJob.progress = Math.round((passed / openclawInstallJob.steps.length) * 100);
+    openclawInstallJob.currentStep = status === "running" ? id : openclawInstallJob.currentStep;
+    persistInstallJob();
+  };
+  const openclawInstall: NonNullable<WatchHttpDeps["openclawInstall"]> = {
+    status: () => {
+      const root = runtime.openclawRoot;
+      return {
+        ...openclawInstallState,
+        installed: openclawInstallState.installed,
+        version: openclawInstallState.version,
         rootPath: root,
         busy: openclawInstallBusy,
-        detail: installed ? "已发现 OpenClaw，可继续检查连接" : "未检测到 OpenClaw 命令或安装包",
+        detail: openclawInstallState.installed ? "已发现 OpenClaw，可继续检查连接" : "未检测到 WSL 内 OpenClaw 命令或安装包",
+        runtime,
+        target: { dataRoot: root, npmGlobalRoot: runtime.npmGlobalRoot },
+        job: openclawInstallJob,
       };
     },
     install: async () => {
       if (openclawInstallBusy) return { status: "busy" };
-      const current = openclawInstall.status();
-      if (current.installed) return { status: "already-installed", detail: current.detail };
-      openclawInstallBusy = true;
-      openclawInstallState = { ...current, busy: true, detail: "正在安装 OpenClaw 并初始化目录" };
+      const current = openclawInstall.status() as { installed: boolean; version: string | null; rootPath: string | null; detail: string; busy: boolean };
+      if (current.installed) return { status: "already-installed", detail: String(current.detail) };
       const jobId = `openclaw-install-${randomUUID()}`;
+      openclawInstallBusy = true;
+      openclawInstallState = { installed: current.installed, version: current.version, rootPath: current.rootPath, busy: true, detail: "正在提交 OpenClaw 安装任务" };
+      openclawInstallJob = { jobId, status: "queued", progress: 0, currentStep: null, steps: installStepDefs.map(([id, label]) => ({ id, label, status: "pending" })), logTail: [], error: null, startedAt: new Date().toISOString(), finishedAt: null };
+      persistInstallJob();
       core.audit.append({ actor: "openclaw-installer", action: "openclaw-install-start", target: "openclaw", detail: { jobId, rootPath: current.rootPath ?? "" } });
       void (async () => {
-        const install = await commandExec.exec("npm", ["install", "--global", "openclaw"], { timeoutMs: 600_000 });
-        if (install.code !== 0) {
-          openclawInstallState = { ...openclawInstallState, detail: install.stderr.trim() || "npm 安装失败" };
+        if (openclawInstallJob === null) return;
+        openclawInstallJob.status = "running"; persistInstallJob();
+        const run = async (id: string, cmd: string, args: string[], timeoutMs: number) => {
+          if (openclawInstallJob?.cancelRequested) throw new Error("安装任务已取消");
+          updateInstallStep(id, "running");
+          const result = await commandExec.exec(cmd, args, { timeoutMs });
+          appendInstallLog(`${cmd} ${args.join(" ")} → ${result.code}`);
+          if (result.code !== 0) { updateInstallStep(id, "failed", result.stderr.trim() || `${cmd} 执行失败`); throw new Error(result.stderr.trim() || `${cmd} 执行失败`); }
+          updateInstallStep(id, "passed", result.stdout.trim().slice(-400));
+          return result;
+        };
+        let installedVersion: string | null = null;
+        try {
+          updateInstallStep("runtime", "running");
+          if (runtime.kind !== "wsl" && runtime.kind !== "windows-wsl") throw new Error("当前不是可用的 WSL 运行环境");
+          updateInstallStep("runtime", "passed", runtime.detail);
+          await run("paths", "npm", ["root", "-g"], 30_000);
+          const install = await run("npm-install", "npm", ["install", "--global", "openclaw"], 600_000);
+          void install;
+          await run("setup", "openclaw", ["setup", "--baseline"], 120_000);
+          const versionResult = await run("version", "openclaw", ["--version"], 30_000);
+          installedVersion = versionResult.stdout.trim().split(/\s+/)[0] || null;
+          updateInstallStep("gateway-start", "running");
+          commandExec.spawnDetached("openclaw", ["gateway", "run"]);
+          appendInstallLog("openclaw gateway run → detached");
+          updateInstallStep("gateway-start", "passed", "Gateway 启动命令已提交");
+          updateInstallStep("health", "running");
+          let healthy = false;
+          let healthDetail = "Gateway 健康检查未通过";
+          for (let attempt = 1; attempt <= 10; attempt += 1) {
+            if (openclawInstallJob?.cancelRequested) throw new Error("安装任务已取消");
+            const health = await commandExec.exec("openclaw", ["gateway", "health", "--json"], { timeoutMs: 10_000 });
+            appendInstallLog(`openclaw gateway health --json（第 ${attempt} 次）→ ${health.code}`);
+            if (health.code === 0) {
+              healthy = true;
+              healthDetail = health.stdout.trim().slice(-400);
+              break;
+            }
+            healthDetail = health.stderr.trim() || health.stdout.trim() || healthDetail;
+            await new Promise((resolve) => setTimeout(resolve, 2_000));
+          }
+          if (!healthy) {
+            updateInstallStep("health", "failed", healthDetail);
+            throw new Error(`Gateway 健康检查失败：${healthDetail}`);
+          }
+          updateInstallStep("health", "passed", healthDetail);
+          await run("verify", "openclaw", ["gateway", "health", "--json"], 60_000);
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          if (openclawInstallJob?.cancelRequested) openclawInstallJob.status = "cancelled";
+          else openclawInstallJob!.status = "failed";
+          openclawInstallJob!.error = detail; openclawInstallJob!.finishedAt = new Date().toISOString(); persistInstallJob();
+          openclawInstallState = { ...openclawInstallState, detail, busy: false };
           openclawInstallBusy = false;
-          core.audit.append({ actor: "openclaw-installer", action: "openclaw-install-failed", target: "openclaw", detail: { jobId, step: "npm-install", error: openclawInstallState.detail } });
+          core.audit.append({ actor: "openclaw-installer", action: "openclaw-install-failed", target: "openclaw", detail: { jobId, error: detail } });
           return;
         }
-        const setup = await commandExec.exec("openclaw", ["setup", "--baseline"], { timeoutMs: 120_000 });
-        if (setup.code !== 0) {
-          openclawInstallState = { ...openclawInstallState, detail: setup.stderr.trim() || "初始化 OpenClaw 目录失败" };
-          openclawInstallBusy = false;
-          core.audit.append({ actor: "openclaw-installer", action: "openclaw-install-failed", target: "openclaw", detail: { jobId, step: "setup", error: openclawInstallState.detail } });
-          return;
-        }
-        const versionResult = await commandExec.exec("openclaw", ["--version"], { timeoutMs: 30_000 });
-        const version = versionResult.stdout.trim().split(/\s+/)[0] || null;
         openclawInstallState = {
           installed: true,
-          version,
-          rootPath: config.openclawRoot ?? join(homedir(), ".openclaw"),
+          version: installedVersion,
+          rootPath: runtime.openclawRoot,
           detail: "OpenClaw 已安装，等待连接探测",
           busy: false,
         };
+        openclawInstallJob!.status = "done"; openclawInstallJob!.progress = 100; openclawInstallJob!.currentStep = null; openclawInstallJob!.finishedAt = new Date().toISOString(); persistInstallJob();
         openclawInstallBusy = false;
-        core.audit.append({ actor: "openclaw-installer", action: "openclaw-install-done", target: "openclaw", detail: { jobId, version } });
+        core.audit.append({ actor: "openclaw-installer", action: "openclaw-install-done", target: "openclaw", detail: { jobId, version: installedVersion } });
       })().catch((error) => {
         openclawInstallState = { ...openclawInstallState, detail: error instanceof Error ? error.message : String(error) };
         openclawInstallBusy = false;
         core.audit.append({ actor: "openclaw-installer", action: "openclaw-install-failed", target: "openclaw", detail: { jobId, step: "unknown", error: openclawInstallState.detail } });
       });
       return { status: "started", jobId };
+    },
+    cancel: async (jobId: string) => {
+      if (openclawInstallJob === null || openclawInstallJob.jobId !== jobId) return { status: "not-found" };
+      if (!openclawInstallBusy) return { status: openclawInstallJob.status };
+      openclawInstallJob.cancelRequested = true; persistInstallJob();
+      return { status: "cancelling", jobId };
     },
   };
 
@@ -1381,6 +1491,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       return {
         version,
         source,
+        runtime,
         branch: gitDescribe(["-C", source, "branch", "--show-current"]),
         commit: gitDescribe(["-C", source, "rev-parse", "--short", "HEAD"]),
         tag: gitDescribe(["-C", source, "describe", "--tags", "--exact-match", "--always"]),
@@ -1525,6 +1636,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
 
   const watchHttp = startWatchHttp(
     {
+      runtime: () => runtime,
       scheduler,
     connections,
     openclawInstall,
@@ -1584,6 +1696,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
   return {
     core,
     config,
+    runtime,
     tailer,
     engine,
     scheduler,

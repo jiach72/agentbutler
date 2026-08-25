@@ -4,7 +4,8 @@
  * 默认源序列（任一成功即返回并携带 source id，全败 → E203）：
  * 1. github-releases         GitHub Releases API（api.github.com/repos/<repo>/releases）
  * 2. github-releases-mirror  GitHub API 镜像（提供 mirrorHost 时插入，同路径走镜像）
- * 3. docker-hub              Docker Hub tags API（hub.docker.com/v2/repositories/<image>/tags）
+ * 3. pypi                    PyPI package metadata（pypi.org/pypi/<package>/json）
+ * 4. docker-hub              Docker Hub tags API（hub.docker.com/v2/repositories/<image>/tags）
  *
  * 纪律约束（discipline.ts read-only 行）：只读探测、10s 超时（AbortSignal.timeout）、
  * 零副作用；fetch 一律走注入的 fetchFn（缺省全局 fetch，测试零网络）；
@@ -27,8 +28,17 @@ export interface VersionListEntry {
 export interface VersionListSource {
   /** 源标识（如 "github-releases" / "github-releases-mirror" / "docker-hub"）。 */
   id: string;
+  url?: string;
   /** 拉取版本列表；失败返回 fail（调用方转试下一源）。 */
   list(): Promise<Result<{ versions: VersionListEntry[] }>>;
+}
+
+export interface VersionSourceAttempt {
+  id: string;
+  url: string | null;
+  status: "ok" | "failed";
+  error?: string;
+  durationMs: number;
 }
 
 export interface VersionSourceOptions {
@@ -36,18 +46,50 @@ export interface VersionSourceOptions {
   fetchFn?: typeof fetch;
   /** 覆盖默认源序列。 */
   sources?: VersionListSource[];
-  /** GitHub 仓库（默认 "hermes-agent/hermes"）。 */
+  /** GitHub 仓库（默认 "NousResearch/hermes-agent"）。 */
   repo?: string;
   /** Docker Hub 镜像（默认 "hermes-agent/hermes"）。 */
   dockerImage?: string;
+  /** PyPI 包名（默认 hermes-agent）。 */
+  pypiPackage?: string;
   /** ghproxy 类 GitHub API 镜像（见 mirrorUrlOf）。 */
   mirrorHost?: string;
   /** 单源请求超时（默认 10_000，只读纪律）。 */
   timeoutMs?: number;
 }
 
+const PYPI_VERSION_RE = /^\d+(?:\.\d+)*(?:-[\w.+-]+)?$/;
+
+function createPypiSource(packageName: string, fetchFn: typeof fetch, timeoutMs: number): VersionListSource {
+  const url = `https://pypi.org/pypi/${encodeURIComponent(packageName)}/json`;
+  return {
+    id: "pypi",
+    url,
+    list: async () => {
+      const startedAt = Date.now();
+      let response: Response;
+      try {
+        response = await fetchFn(url, { signal: AbortSignal.timeout(timeoutMs) });
+      } catch (error) {
+        return fail("E203", `version source pypi request failed: ${String(error)}`, { startedAt });
+      }
+      if (!response.ok) return fail("E203", `version source pypi HTTP ${response.status}`, { startedAt });
+      try {
+        const payload = (await response.json()) as { releases?: Record<string, unknown> };
+        const versions = Object.keys(payload.releases ?? {})
+          .filter((version) => PYPI_VERSION_RE.test(version))
+          .map((version) => ({ version, channel: version.includes("-") ? "beta" as const : "stable" as const }));
+        if (versions.length === 0) return fail("E203", "version source pypi parsed 0 releases", { startedAt });
+        return ok({ versions: dedupeAndSortDesc(versions) }, startedAt);
+      } catch (error) {
+        return fail("E203", `version source pypi returned invalid JSON: ${String(error)}`, { startedAt });
+      }
+    },
+  };
+}
+
 /** GitHub 仓库缺省值。 */
-export const DEFAULT_VERSION_REPO = "hermes-agent/hermes";
+export const DEFAULT_VERSION_REPO = "NousResearch/hermes-agent";
 /** Docker Hub 镜像缺省值。 */
 export const DEFAULT_VERSION_DOCKER_IMAGE = "hermes-agent/hermes";
 /** 单源请求缺省超时（毫秒）。 */
@@ -144,6 +186,7 @@ function createGithubReleasesSource(
 ): VersionListSource {
   return {
     id,
+    url,
     list: async () => {
       const startedAt = Date.now();
       let response: Response;
@@ -221,6 +264,7 @@ function createDockerHubSource(
   const url = `https://hub.docker.com/v2/repositories/${image}/tags`;
   return {
     id: "docker-hub",
+    url,
     list: async () => {
       const startedAt = Date.now();
       let response: Response;
@@ -276,13 +320,14 @@ function createDockerHubSource(
 
 /* ---------------------------------- 出入口 ---------------------------------- */
 
-/** 组装默认源序列：GitHub → 镜像（mirrorHost 提供时）→ Docker Hub。 */
+/** 组装默认源序列：GitHub → 镜像（mirrorHost 提供时）→ PyPI → Docker Hub。 */
 export function createVersionSources(options: VersionSourceOptions = {}): VersionListSource[] {
   if (options.sources) return options.sources;
   const fetchFn = options.fetchFn ?? fetch;
   const timeoutMs = options.timeoutMs ?? DEFAULT_VERSION_TIMEOUT_MS;
   const repo = options.repo ?? DEFAULT_VERSION_REPO;
   const dockerImage = options.dockerImage ?? DEFAULT_VERSION_DOCKER_IMAGE;
+  const pypiPackage = options.pypiPackage ?? "hermes-agent";
 
   const githubUrl = `https://api.github.com/repos/${repo}/releases`;
   const sources: VersionListSource[] = [createGithubReleasesSource("github-releases", githubUrl, fetchFn, timeoutMs)];
@@ -296,6 +341,7 @@ export function createVersionSources(options: VersionSourceOptions = {}): Versio
       ),
     );
   }
+  sources.push(createPypiSource(pypiPackage, fetchFn, timeoutMs));
   sources.push(createDockerHubSource(dockerImage, fetchFn, timeoutMs));
   return sources;
 }
@@ -303,19 +349,24 @@ export function createVersionSources(options: VersionSourceOptions = {}): Versio
 /** 逐源探测可用版本：任一源成功即返回（携带 source id）；全败 → E203。 */
 export async function listAvailableVersions(
   options: VersionSourceOptions = {},
-): Promise<Result<{ source: string; versions: VersionListEntry[] }>> {
+): Promise<Result<{ source: string; versions: VersionListEntry[]; attempts: VersionSourceAttempt[] }>> {
   const startedAt = Date.now();
   const sources = createVersionSources(options);
   const failures: string[] = [];
+  const attempts: VersionSourceAttempt[] = [];
   for (const source of sources) {
+    const attemptStartedAt = Date.now();
     const r = await source.list();
     if (r.ok) {
-      return ok({ source: source.id, versions: r.data!.versions }, startedAt);
+      attempts.push({ id: source.id, url: source.url ?? null, status: "ok", durationMs: Date.now() - attemptStartedAt });
+      return ok({ source: source.id, versions: r.data!.versions, attempts }, startedAt);
     }
+    attempts.push({ id: source.id, url: source.url ?? null, status: "failed", error: r.error?.message ?? "unknown", durationMs: Date.now() - attemptStartedAt });
     failures.push(`${source.id}: ${r.error?.message ?? "unknown"}`);
   }
   return fail("E203", `all version sources failed: ${failures.join("; ")}`, {
     userHint: `所有版本源（${sources.length} 个）均不可用；可配置 mirrorHost 走 GitHub API 镜像，或检查网络后重试`,
     startedAt,
+    cause: attempts,
   });
 }
