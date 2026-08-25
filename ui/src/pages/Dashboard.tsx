@@ -65,6 +65,27 @@ interface RunbooksPayload {
   runbooks?: RunbookView[];
 }
 
+interface RecoveryActionView {
+  id: string;
+  label: string;
+  description: string;
+  risk: "low" | "medium" | "high";
+  impact: string;
+  estimatedSeconds: number;
+  requiresConfirmation: boolean;
+  available: boolean;
+  unavailableReason?: string;
+}
+
+interface RecoveryDiagnosisView {
+  incidentId: string;
+  severity: "ok" | "warn" | "error";
+  rootCause: string;
+  probes: Array<{ id: string; label: string; status: "pass" | "warn" | "fail"; detail: string }>;
+  recommendedActions: RecoveryActionView[];
+  checkedAt: string;
+}
+
 interface InspectStatusView {
   reachable: boolean;
   lastAt?: string | null;
@@ -377,6 +398,9 @@ export function DashboardPage() {
   const [logAnalyzeLoading, setLogAnalyzeLoading] = useState(false);
   const [confirmFix, setConfirmFix] = useState<LogIssueView | null>(null);
   const [fixBusy, setFixBusy] = useState(false);
+  const [recovery, setRecovery] = useState<RecoveryDiagnosisView | null>(null);
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
+  const [confirmRecovery, setConfirmRecovery] = useState<RecoveryActionView | null>(null);
   const [inspectionRequested, setInspectionRequested] = useState(false);
   const [connectionBusy, setConnectionBusy] = useState<string | null>(null);
   const [initialLoad, setInitialLoad] = useState({
@@ -441,6 +465,44 @@ export function DashboardPage() {
       showToast("err", "修复没有启动成功，请确认 Hermes 实例是否在线。");
     }
   }, [confirmFix, loadLogAnalyze, showToast]);
+
+  const diagnoseRecovery = useCallback(async (autoRepair = false) => {
+    setRecoveryBusy(true);
+    const diagnosis = await postJson("/api/recovery/diagnose", {}, 15_000);
+    if (!diagnosis.ok || diagnosis.data === null || typeof diagnosis.data !== "object") {
+      setRecoveryBusy(false);
+      showToast("err", "诊断没有完成，请确认管家服务和 Watch 控制通道是否在线");
+      return;
+    }
+    const next = diagnosis.data as RecoveryDiagnosisView;
+    setRecovery(next);
+    if (autoRepair) {
+      const lowRisk = next.recommendedActions.find((action) => action.available && action.risk === "low");
+      if (lowRisk !== undefined) {
+        const result = await postJson(`/api/recovery/actions/${encodeURIComponent(lowRisk.id)}/execute`, {}, 70_000);
+        if (result.ok) showToast("ok", `已自动执行「${lowRisk.label}」，正在复验结果`);
+        else showToast("err", `诊断完成，但「${lowRisk.label}」执行失败`);
+      } else {
+        showToast("ok", `诊断完成：${next.rootCause}。请从下方选择合适处理方式`);
+      }
+    }
+    setRecoveryBusy(false);
+  }, [showToast]);
+
+  const executeRecoveryAction = useCallback(async (action: RecoveryActionView) => {
+    setRecoveryBusy(true);
+    const result = await postJson(`/api/recovery/actions/${encodeURIComponent(action.id)}/execute`, { confirmed: true }, 70_000);
+    setRecoveryBusy(false);
+    setConfirmRecovery(null);
+    if (result.ok) {
+      showToast("ok", `已开始「${action.label}」，完成后会自动复验`);
+      window.setTimeout(() => void diagnoseRecovery(false), 10_000);
+    } else if (result.status === 409) {
+      showToast("err", `「${action.label}」暂时不能执行：${typeof result.data === "object" && result.data !== null && "detail" in result.data ? String(result.data.detail) : "保护机制或当前状态不允许"}`);
+    } else {
+      showToast("err", `「${action.label}」执行失败，请查看诊断详情`);
+    }
+  }, [diagnoseRecovery, showToast]);
 
   const loadLogTail = useCallback(async (sourceId: string, before?: number | null) => {
     setLogLoading(true);
@@ -1020,12 +1082,10 @@ export function DashboardPage() {
           <button
             type="button"
             className="btn manager-action"
-            onClick={() => {
-              if (firstAvailableRunbook !== null) setConfirmRunbook(firstAvailableRunbook);
-            }}
-            disabled={firstAvailableRunbook === null || (hasError === false && hasWarn === false)}
+            onClick={() => void diagnoseRecovery(true)}
+            disabled={recoveryBusy || (hasError === false && hasWarn === false)}
           >
-            修复一下
+            {recoveryBusy ? "正在诊断…" : "诊断并处理"}
           </button>
         </div>
         <div className="manager-hero-meta">
@@ -1206,6 +1266,63 @@ export function DashboardPage() {
       </div>
 
       <section className="manager-advanced">
+        <section className="recovery-panel" aria-live="polite">
+          <div className="manager-section-head">
+            <div>
+              <span className="manager-section-kicker">专业处理</span>
+              <h2>诊断与分级修复</h2>
+            </div>
+            <Button size="small" loading={recoveryBusy} onClick={() => void diagnoseRecovery(false)}>
+              重新诊断
+            </Button>
+          </div>
+          {recovery === null ? (
+            <Alert
+              type="info"
+              showIcon
+              message="先诊断再处理"
+              description="系统会先确认根因，再按低、中、高风险给出动作；不会默认直接重启实例。"
+            />
+          ) : (
+            <>
+              <Alert
+                type={recovery.severity === "error" ? "error" : recovery.severity === "warn" ? "warning" : "success"}
+                showIcon
+                message={recovery.rootCause}
+                description={`诊断时间：${formatRelative(recovery.checkedAt)} · 事件 ${recovery.incidentId}`}
+              />
+              <div className="recovery-probes">
+                {recovery.probes.map((probe) => (
+                  <span className={`badge-pill badge-${probe.status === "pass" ? "healthy" : probe.status === "fail" ? "down" : "degraded"}`} key={probe.id} title={probe.detail}>
+                    {probe.label}：{probe.status === "pass" ? "正常" : probe.status === "fail" ? "异常" : "需留意"}
+                  </span>
+                ))}
+              </div>
+              <div className="recovery-actions">
+                {recovery.recommendedActions.map((action) => (
+                  <Card size="small" key={action.id} className="recovery-action-card">
+                    <div className="recovery-action-head">
+                      <strong>{action.label}</strong>
+                      <Badge status={action.risk === "high" ? "error" : action.risk === "medium" ? "warning" : "success"} text={action.risk === "high" ? "高风险" : action.risk === "medium" ? "需确认" : "低风险"} />
+                    </div>
+                    <p>{action.description}</p>
+                    <small>{action.impact} · 约 {action.estimatedSeconds} 秒</small>
+                    <Button
+                      size="small"
+                      type={action.risk === "high" ? "primary" : "default"}
+                      danger={action.risk === "high"}
+                      disabled={!action.available || recoveryBusy}
+                      onClick={() => action.requiresConfirmation ? setConfirmRecovery(action) : void executeRecoveryAction(action)}
+                    >
+                      {!action.available ? action.unavailableReason ?? "暂不可用" : action.requiresConfirmation ? "确认执行" : "执行"}
+                    </Button>
+                  </Card>
+                ))}
+              </div>
+            </>
+          )}
+        </section>
+
         <details
           ref={advancedRef}
           className="advanced-details"
@@ -1511,6 +1628,23 @@ export function DashboardPage() {
                 onClick={() => void runLogFix()}
               >
                 {fixBusy ? "正在执行…" : "确认修复"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmRecovery !== null && (
+        <div className="danger-modal" role="dialog" aria-modal="true" aria-labelledby="recovery-modal-title">
+          <div className="danger-modal-card">
+            <div className="danger-modal-icon">!</div>
+            <h3 id="recovery-modal-title">确认执行「{confirmRecovery.label}」</h3>
+            <p>{confirmRecovery.description}</p>
+            <p className="danger-impact">影响：{confirmRecovery.impact}。预计耗时约 {confirmRecovery.estimatedSeconds} 秒。</p>
+            <div className="danger-modal-actions">
+              <button type="button" className="btn btn-quiet" onClick={() => setConfirmRecovery(null)}>取消</button>
+              <button type="button" className="btn btn-danger" disabled={recoveryBusy} onClick={() => void executeRecoveryAction(confirmRecovery)}>
+                {recoveryBusy ? "正在执行…" : "确认执行"}
               </button>
             </div>
           </div>

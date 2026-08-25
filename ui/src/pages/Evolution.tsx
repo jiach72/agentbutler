@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Alert, Button, Steps, Tag } from "antd";
 import { fetchJson, postJson } from "../lib/api.js";
 
 type CheckStatus = "pass" | "fail" | "skipped";
@@ -60,6 +61,16 @@ interface GateOutcome {
   baselinePreserved: boolean;
   delta: number | null;
   ledgerPath: string | null;
+}
+
+interface EvaluationOutcome extends GateOutcome {
+  status: "accepted" | "kept-baseline" | "rejected-regression";
+  sampleCount: number;
+  confidence: number | null;
+  baselineMetric: number;
+  candidateMetric: number;
+  canPromote: boolean;
+  report: Record<string, unknown>;
 }
 
 const PENDING_CHECKS: EvolutionCheck[] = [
@@ -156,7 +167,8 @@ export function EvolutionPage() {
   const [rootCause, setRootCause] = useState("");
   const [fixes, setFixes] = useState("");
   const [gate, setGate] = useState<GateOutcome | null>(null);
-  const [busy, setBusy] = useState<"preflight" | "expand" | "gate" | null>(null);
+  const [evaluation, setEvaluation] = useState<EvaluationOutcome | null>(null);
+  const [busy, setBusy] = useState<"preflight" | "expand" | "gate" | "evaluate" | null>(null);
   const [notice, setNotice] = useState<{ kind: "ok" | "warn" | "error"; text: string } | null>(
     null,
   );
@@ -198,6 +210,7 @@ export function EvolutionPage() {
     setBusy("preflight");
     setNotice(null);
     setGate(null);
+    setEvaluation(null);
     const body: Record<string, unknown> = {
       holdoutCount: parsedHoldout,
       dependencies: dependencies
@@ -308,6 +321,26 @@ export function EvolutionPage() {
         outcome.status === "accepted"
           ? "手填指标已记录，但不会授权写入；正式采用必须通过服务端受信评估入口。"
           : "改进结果未获采用资格，当前版本保持不变；结论已记录。",
+    });
+    await refresh();
+  };
+
+  const evaluateExternally = async () => {
+    if (preflight === null || !preflight.allowRun) return;
+    setBusy("evaluate");
+    setNotice(null);
+    const result = await postJson(`/api/evolution/runs/${encodeURIComponent(preflight.runId)}/evaluate`, {}, 70_000);
+    setBusy(null);
+    if (!result.ok || !isRecord(result.data)) {
+      setNotice({ kind: "error", text: `真实评估未完成：${responseError(result.data)}` });
+      return;
+    }
+    const outcome = result.data as unknown as EvaluationOutcome;
+    setEvaluation(outcome);
+    setGate(outcome);
+    setNotice({
+      kind: outcome.status === "rejected-regression" ? "error" : outcome.status === "accepted" ? "ok" : "warn",
+      text: outcome.status === "accepted" ? "真实评估显示候选版本有显著提升，但仍需通过受信提升入口才能正式采用。" : outcome.status === "rejected-regression" ? "真实评估发现质量下降，当前版本已保留。" : "真实评估完成，没有发现足够的显著提升。",
     });
     await refresh();
   };
@@ -489,12 +522,44 @@ export function EvolutionPage() {
             </button>
           </div>
 
+          <Steps
+            size="small"
+            current={evaluation === null ? (preflight?.allowRun === true ? 2 : 1) : 4}
+            items={[
+              { title: "基线" },
+              { title: "预检" },
+              { title: "外部评估" },
+              { title: "安全门禁" },
+              { title: "结论" },
+            ]}
+          />
+
+          {preflight?.allowRun === true && evaluation === null && (
+            <Alert
+              type="info"
+              showIcon
+              message="可以开始真实评估"
+              description="管家会调用已配置的外部评估器，自动返回样本数、baseline/candidate 指标、置信度和是否允许提升。"
+              action={<Button type="primary" loading={busy === "evaluate"} onClick={() => void evaluateExternally()}>开始真实评估</Button>}
+            />
+          )}
+
+          {evaluation !== null && (
+            <Alert
+              type={evaluation.status === "accepted" ? "success" : evaluation.status === "rejected-regression" ? "error" : "warning"}
+              showIcon
+              message={statusLabel(evaluation.status)}
+              description={`样本 ${evaluation.sampleCount} 条 · ${evaluation.baselineMetric.toFixed(3)} → ${evaluation.candidateMetric.toFixed(3)} · 变化 ${(evaluation.candidateMetric - evaluation.baselineMetric).toFixed(3)}${evaluation.confidence === null ? "" : ` · 置信度 ${(evaluation.confidence * 100).toFixed(1)}%`}`}
+              action={<Tag color={evaluation.canPromote ? "green" : "default"}>{evaluation.canPromote ? "可申请提升" : "保留当前版本"}</Tag>}
+            />
+          )}
+
           {gateReady && (
             <details className="advanced-details evolution-gate-settings">
               <summary>
                 <span>
-                  <strong>提交评估结果</strong>
-                  <small>把当前版本与改进后的表现告诉管家，确认后才会采用</small>
+                    <strong>兼容：手动提交外部评估结果</strong>
+                    <small>优先使用上方“开始真实评估”；此处仅兼容尚未接入标准响应格式的旧评估器</small>
                 </span>
                 <span className="advanced-toggle">展开</span>
               </summary>

@@ -101,6 +101,7 @@
  * gateway 网关面板服务 / promptOptimization 提示词 Registry），测试经回环真实端口验证。
  */
 import { createServer, type Server } from "node:http";
+import { randomUUID } from "node:crypto";
 import type {
   EvolutionExpandInput,
   EvolutionPreflightInput,
@@ -138,6 +139,28 @@ export type RunbookExecuteOutcome =
   | { status: "unknown-runbook" }
   | { status: "circuit-breaker-tripped" }
   | { status: "no-servicing-instance" };
+
+export type RecoveryActionRisk = "low" | "medium" | "high";
+export interface RecoveryActionView {
+  id: string;
+  label: string;
+  description: string;
+  risk: RecoveryActionRisk;
+  impact: string;
+  estimatedSeconds: number;
+  requiresConfirmation: boolean;
+  available: boolean;
+  unavailableReason?: string;
+}
+
+export interface RecoveryDiagnosisView {
+  incidentId: string;
+  severity: "ok" | "warn" | "error";
+  rootCause: string;
+  probes: Array<{ id: string; label: string; status: "pass" | "warn" | "fail"; detail: string }>;
+  recommendedActions: RecoveryActionView[];
+  checkedAt: string;
+}
 
 /** 人工解除 runbook 熔断的结果（HTTP 层只做状态码映射）。 */
 export type RunbookResetOutcome =
@@ -334,6 +357,120 @@ function isStringArray(value: unknown): value is string[] {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function recoveryActionCatalog(deps: WatchHttpDeps): RecoveryActionView[] {
+  const hasRunbook = (id: string) => deps.runbooks().some((runbook) => runbook.id === id);
+  return [
+    {
+      id: "refresh-probe",
+      label: "重新探测并刷新状态",
+      description: "重新检查进程、记忆、消息通道和模型连接，不会中断服务。",
+      risk: "low",
+      impact: "只读检查",
+      estimatedSeconds: 10,
+      requiresConfirmation: false,
+      available: true,
+    },
+    {
+      id: "rebuild-memory-index",
+      label: "重建记忆索引",
+      description: "修复全文索引异常，保留原始记忆内容。",
+      risk: "low",
+      impact: "记忆搜索可能短暂变慢",
+      estimatedSeconds: 30,
+      requiresConfirmation: false,
+      available: deps.skills !== undefined && deps.m6WritesEnabled === true,
+      ...(deps.skills === undefined || deps.m6WritesEnabled !== true
+        ? { unavailableReason: "记忆写操作未启用" }
+        : {}),
+    },
+    {
+      id: "reconnect-channel",
+      label: "重新连接消息通道",
+      description: "仅重建消息通道连接，不重启 Hermes 实例。",
+      risk: "medium",
+      impact: "消息可能短暂延迟",
+      estimatedSeconds: 20,
+      requiresConfirmation: true,
+      available: deps.connections !== undefined,
+      ...(deps.connections === undefined ? { unavailableReason: "连接管理服务未接线" } : {}),
+    },
+    {
+      id: "cleanup-gateway",
+      label: "清理孤儿消息网关",
+      description: "清理已失效的 Gateway 状态并重新复验消息链路。",
+      risk: "medium",
+      impact: "消息网关会短暂重载",
+      estimatedSeconds: 25,
+      requiresConfirmation: true,
+      available: hasRunbook("rb-cleanup-gateway"),
+      ...(!hasRunbook("rb-cleanup-gateway") ? { unavailableReason: "清理 Runbook 未注册" } : {}),
+    },
+    {
+      id: "restart-instance",
+      label: "重启 AI 实例",
+      description: "在快照保护下重启实例，作为最后一级恢复手段。",
+      risk: "high",
+      impact: "AI 服务中断约 30-90 秒",
+      estimatedSeconds: 90,
+      requiresConfirmation: true,
+      available: hasRunbook("rb-restart"),
+      ...(!hasRunbook("rb-restart") ? { unavailableReason: "重启 Runbook 未注册" } : {}),
+    },
+  ];
+}
+
+async function diagnoseRecovery(deps: WatchHttpDeps, instanceId?: string): Promise<RecoveryDiagnosisView> {
+  const probes: RecoveryDiagnosisView["probes"] = [];
+  const connection = deps.connections?.status().connections.find((item) => item["instanceId"] === instanceId) ??
+    deps.connections?.status().connections[0];
+  probes.push({
+    id: "watch",
+    label: "管家控制通道",
+    status: "pass",
+    detail: "Watch HTTP 已响应",
+  });
+  probes.push({
+    id: "connection",
+    label: "Hermes 消息连接",
+    status: connection === undefined ? "warn" : connection["connected"] === true ? "pass" : "fail",
+    detail: connection === undefined
+      ? "暂未发现可检查实例"
+      : typeof connection["lastError"] === "string" && connection["lastError"] !== ""
+        ? connection["lastError"]
+        : connection["connected"] === true ? "消息通道正常" : "消息通道未连接",
+  });
+  const logView = deps.analyzeLogs?.(instanceId);
+  const issueCount = logView?.issues?.length ?? 0;
+  probes.push({
+    id: "logs",
+    label: "最近错误日志",
+    status: issueCount === 0 ? "pass" : "warn",
+    detail: issueCount === 0 ? "最近日志未发现已知错误" : `发现 ${issueCount} 类可归因问题`,
+  });
+  const scheduler = deps.scheduler.status();
+  probes.push({
+    id: "inspection",
+    label: "巡检调度",
+    status: scheduler.inFlight ? "warn" : scheduler.criticalProbe?.lastStatus === "fail" ? "fail" : "pass",
+    detail: scheduler.inFlight ? "巡检正在执行" : scheduler.criticalProbe?.lastStatus === "fail" ? "关键探针最近一次失败" : "巡检调度正常",
+  });
+  const failed = probes.filter((probe) => probe.status === "fail");
+  const severity: RecoveryDiagnosisView["severity"] = failed.length > 0 ? "error" : probes.some((probe) => probe.status === "warn") ? "warn" : "ok";
+  const rootCause = failed[0]?.detail ?? (issueCount > 0 ? logView?.issues?.[0]?.title ?? "日志中存在待分析问题" : "未发现需要处理的根因");
+  const actions = recoveryActionCatalog(deps);
+  const recommendedIds = severity === "error"
+    ? connection?.["connected"] === false ? ["reconnect-channel", "refresh-probe"] : ["refresh-probe", "rebuild-memory-index", "restart-instance"]
+    : ["refresh-probe"];
+  return {
+    incidentId: `incident-${randomUUID()}`,
+    severity,
+    rootCause,
+    probes,
+    recommendedActions: actions.filter((action) => recommendedIds.includes(action.id) || action.available),
+    checkedAt: new Date().toISOString(),
+  };
 }
 
 /** 读取请求体（≤16KB；空体 → {}；非法 JSON → 400；超限 → 413）。 */
@@ -549,6 +686,59 @@ async function handle(
     if (path === "/api/inspect/status") {
       if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
       return sendJson(res, 200, deps.scheduler.status());
+    }
+
+    if (path === "/api/recovery/diagnose") {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      const body = await readJsonBody(req, res);
+      if (body === null) return;
+      const instanceId = typeof body["instanceId"] === "string" && body["instanceId"].trim() !== ""
+        ? body["instanceId"].trim()
+        : undefined;
+      return sendJson(res, 200, await diagnoseRecovery(deps, instanceId));
+    }
+
+    const recoveryActionMatch = /^\/api\/recovery\/actions\/([^/]+)\/execute$/.exec(path);
+    if (recoveryActionMatch !== null) {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      const body = await readJsonBody(req, res);
+      if (body === null) return;
+      const actionId = decodeURIComponent(recoveryActionMatch[1]!);
+      const action = recoveryActionCatalog(deps).find((item) => item.id === actionId);
+      if (action === undefined) return sendJson(res, 404, { error: "recovery-action-not-found" });
+      if (!action.available) return sendJson(res, 409, { error: "recovery-action-unavailable", detail: action.unavailableReason });
+      if (action.requiresConfirmation && body["confirmed"] !== true) {
+        return sendJson(res, 400, { error: "confirmation-required", action });
+      }
+      const instanceId = typeof body["instanceId"] === "string" && body["instanceId"].trim() !== ""
+        ? body["instanceId"].trim()
+        : undefined;
+      const jobId = `recovery-${randomUUID()}`;
+      if (actionId === "refresh-probe") {
+        const started = deps.scheduler.runNow();
+        return sendJson(res, started ? 202 : 409, started ? { jobId, actionId, status: "running" } : { error: "inspection-in-flight" });
+      }
+      if (actionId === "rebuild-memory-index") {
+        if (deps.skills === undefined || deps.m6WritesEnabled !== true) return sendJson(res, 409, { error: "memory-write-disabled" });
+        const result = await deps.skills.rebuildIndex(instanceId === undefined ? {} : { instanceId });
+        return sendJson(res, result.ok ? 200 : 409, result.ok ? { jobId, actionId, status: "done", verification: result.report } : { error: result.error ?? "rebuild-index-failed" });
+      }
+      if (actionId === "reconnect-channel") {
+        if (deps.connections === undefined) return sendJson(res, 503, { error: "connections-unavailable" });
+        const result = await deps.connections.connect(instanceId);
+        return sendJson(res, result.status === "no-instance" ? 404 : result.status === "failed" ? 409 : 202, {
+          jobId,
+          actionId,
+          status: result.status,
+          ...("connection" in result ? { verification: result.connection } : {}),
+        });
+      }
+      const runbookId = actionId === "cleanup-gateway" ? "rb-cleanup-gateway" : "rb-restart";
+      const outcome = await deps.executeRunbook(runbookId, instanceId);
+      if (outcome.status === "started") return sendJson(res, 202, { jobId, actionId, status: "running", instanceId: outcome.instanceId });
+      if (outcome.status === "unknown-runbook") return sendJson(res, 404, { error: "runbook-not-found" });
+      if (outcome.status === "circuit-breaker-tripped") return sendJson(res, 409, { error: "circuit-breaker-tripped" });
+      return sendJson(res, 503, { error: "no-servicing-instance" });
     }
 
     if (path === "/api/connections") {
@@ -1248,6 +1438,16 @@ async function handle(
         ...(isStringArray(body["fixes"]) ? { fixes: body["fixes"] } : {}),
       };
       return sendJson(res, 200, await deps.evolution.preflight(input));
+    }
+
+    const evolutionEvaluateMatch = /^\/api\/evolution\/runs\/([^/]+)\/evaluate$/.exec(path);
+    if (evolutionEvaluateMatch !== null) {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.evolution === undefined) return sendJson(res, 503, { error: "evolution-unavailable" });
+      const runId = decodeURIComponent(evolutionEvaluateMatch[1]!);
+      const outcome = await deps.evolution.evaluate({ runId });
+      if (outcome.status === "error") return sendJson(res, outcome.error === "run-not-found" ? 404 : 409, outcome);
+      return sendJson(res, 200, outcome);
     }
 
     const evolutionExpandMatch = /^\/api\/evolution\/runs\/([^/]+)\/expand$/.exec(path);

@@ -550,7 +550,8 @@ export function VersionsPage() {
   const job = data?.upgradeJob ?? null;
   const available = data?.availableVersions ?? null;
   const snapshots = data?.snapshots ?? [];
-  const currentVersion = instances[0]?.version ?? "";
+  const targetInstance = selectedInstance || instances[0]?.instanceId || "";
+  const currentVersion = instances.find((instance) => instance.instanceId === targetInstance)?.version ?? instances[0]?.version ?? "";
   const upgradeCandidates =
     available !== null && available.reachable
       ? available.versions
@@ -564,7 +565,6 @@ export function VersionsPage() {
   const precheckStep = job?.steps.find((step) => step.id === "precheck") ?? null;
   const precheck = parsePrecheckDetail(precheckStep?.detail);
   // 目标实例：未手动选择时默认第一个实例；无实例时留空（由 watch 自行选择服务实例）。
-  const targetInstance = selectedInstance || instances[0]?.instanceId || "";
   const previousSnapshot = snapshots
     .filter(
       (snapshot) =>
@@ -1051,7 +1051,12 @@ export function VersionsPage() {
             </select>
           </div>
           {upgradeCandidates.length === 0 ? (
-            <div className="empty-state">当前已经是最新版本。</div>
+            <div className="empty-state version-empty-explained">
+              {currentVersion === ""
+                ? "尚未读取到目标实例当前版本；请先确认 Hermes 实例在线，再重新检查。"
+                : `当前目标实例 ${instanceLabel(targetInstance)} 为 ${currentVersion}，版本源没有更高版本候选。`}
+              <button type="button" className="btn btn-quiet" onClick={() => void refresh()}>重新检查版本</button>
+            </div>
           ) : (
             <div className="cards-stack">
               {upgradeCandidates.map((entry) => {

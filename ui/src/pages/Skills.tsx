@@ -1,4 +1,6 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { Collapse, Empty, Input, Select, Tag } from "antd";
+import { SearchOutlined } from "@ant-design/icons";
 import { fetchJson, postJson } from "../lib/api.js";
 
 type InventoryMode = "driver" | "directory-fallback" | "unavailable";
@@ -402,35 +404,32 @@ function PluginLibrary({
       <div className="skills-filter-row">
         <label className="skills-filter">
           <span>按分类筛选</span>
-          <select value={category} onChange={(event) => onCategory(event.target.value)}>
-            <option value="">全部分类</option>
-            {categories.map((item) => (
-              <option key={item} value={item}>
-                {item}
-              </option>
-            ))}
-          </select>
+          <Select
+            value={category || undefined}
+            placeholder="全部分类"
+            allowClear
+            options={categories.map((item) => ({ value: item, label: item }))}
+            onChange={(value) => onCategory(value ?? "")}
+          />
         </label>
         <label className="skills-filter">
           <span>按来源筛选</span>
-          <select value={source} onChange={(event) => onSource(event.target.value)}>
-            <option value="">全部来源</option>
-            {sources.map((item) => (
-              <option key={item} value={item}>
-                {SOURCE_LABELS[item] ?? item}
-              </option>
-            ))}
-          </select>
+          <Select
+            value={source || undefined}
+            placeholder="全部来源"
+            allowClear
+            options={sources.map((item) => ({ value: item, label: SOURCE_LABELS[item] ?? item }))}
+            onChange={(value) => onSource(value ?? "")}
+          />
         </label>
       </div>
       <div className="plugin-groups">
-        {groups.map((group) => (
-          <div className="plugin-group" key={group.category}>
-            <div className="plugin-group-head">
-              <strong>{group.category}</strong>
-              <span>{group.items.length} 个</span>
-            </div>
-            <div className="plugin-grid">
+        <Collapse
+          defaultActiveKey={groups.slice(0, 2).map((group) => group.category)}
+          items={groups.map((group) => ({
+            key: group.category,
+            label: <span className="skill-collapse-label"><strong>{group.category}</strong><Tag>{group.items.length} 个</Tag></span>,
+            children: <div className="plugin-grid">
               {group.items.map((plugin, index) => (
                 <article className="plugin-card" key={`${plugin.name}:${plugin.version}:${index}`}>
                   <div className="plugin-card-main">
@@ -453,9 +452,9 @@ function PluginLibrary({
                   </div>
                 </article>
               ))}
-            </div>
-          </div>
-        ))}
+            </div>,
+          }))}
+        />
       </div>
       {filtered.length === 0 && <div className="skills-empty">没有匹配当前分类的插件。</div>}
     </>
@@ -628,8 +627,9 @@ export function SkillsPage() {
           <div className="skills-filter-row">
             <label className="skills-filter">
               <span>筛选技能</span>
-              <input
-                type="search"
+              <Input
+                allowClear
+                prefix={<SearchOutlined />}
                 placeholder="名称或版本"
                 value={skillFilter}
                 onChange={(event) => setSkillFilter(event.target.value)}
@@ -637,28 +637,23 @@ export function SkillsPage() {
             </label>
             <label className="skills-filter">
               <span>按分类筛选</span>
-              <select
-                value={skillCategory}
-                onChange={(event) => setSkillCategory(event.target.value)}
-              >
-                <option value="">全部分类</option>
-                {skillCategories.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
-              </select>
+              <Select
+                value={skillCategory || undefined}
+                placeholder="全部分类"
+                allowClear
+                options={skillCategories.map((item) => ({ value: item, label: item }))}
+                onChange={(value) => setSkillCategory(value ?? "")}
+              />
             </label>
             <label className="skills-filter">
               <span>按来源筛选</span>
-              <select value={skillSource} onChange={(event) => setSkillSource(event.target.value)}>
-                <option value="">全部来源</option>
-                {skillSources.map((item) => (
-                  <option key={item} value={item}>
-                    {SOURCE_LABELS[item] ?? item}
-                  </option>
-                ))}
-              </select>
+              <Select
+                value={skillSource || undefined}
+                placeholder="全部来源"
+                allowClear
+                options={skillSources.map((item) => ({ value: item, label: SOURCE_LABELS[item] ?? item }))}
+                onChange={(value) => setSkillSource(value ?? "")}
+              />
             </label>
           </div>
 
@@ -672,42 +667,37 @@ export function SkillsPage() {
           )}
 
           <div className="skills-list" aria-busy={loading}>
-            {skillGroups.map((group) => (
-              <div className="skill-group" key={group.category}>
-                <div className="skill-group-head">
-                  <strong>{group.category}</strong>
-                  <span>{group.items.length} 个</span>
-                </div>
-                {group.items.map((skill, index) => (
-                  <article
-                    className="skills-row"
-                    key={`${skill.name}:${skill.version}:${index}`}
-                    style={{ animationDelay: `${Math.min(index, 12) * 28}ms` }}
-                  >
-                    <div className="skills-row-main">
-                      <strong>{skill.name}</strong>
-                      <span>{SOURCE_LABELS[skill.source] ?? skill.source}</span>
+            {loading && data === null ? (
+              <div className="skills-empty"><span className="ant-skeleton ant-skeleton-active">正在读取技能清单…</span></div>
+            ) : visibleSkills.length === 0 ? (
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有匹配当前筛选条件的技能" />
+            ) : (
+              <Collapse
+                accordion={false}
+                defaultActiveKey={skillGroups.slice(0, 3).map((group) => group.category)}
+                items={skillGroups.map((group) => ({
+                  key: group.category,
+                  label: <span className="skill-collapse-label"><strong>{group.category}</strong><Tag>{group.items.length} 个</Tag></span>,
+                  children: (
+                    <div className="skill-group-items">
+                      {group.items.map((skill, index) => (
+                        <article className="skills-row" key={`${skill.name}:${skill.version}:${index}`}>
+                          <div className="skills-row-main">
+                            <strong>{skill.name}</strong>
+                            <span>{SOURCE_LABELS[skill.source] ?? skill.source}</span>
+                          </div>
+                          <div className="skills-row-meta">
+                            <code>{skill.version}</code>
+                            <span className={skill.enabled ? "is-enabled" : "is-disabled"}>{skill.enabled ? "已启用" : "已停用"}</span>
+                            <span className={"asset-risk-dot is-" + (skill.riskStatus ?? "unscanned")} title={riskDetail(skill)}>{riskLabel(skill.riskStatus)}</span>
+                          </div>
+                        </article>
+                      ))}
                     </div>
-                    <div className="skills-row-meta">
-                      <code>{skill.version}</code>
-                      <span className={skill.enabled ? "is-enabled" : "is-disabled"}>
-                        {skill.enabled ? "已启用" : "已停用"}
-                      </span>
-                      <span
-                        className={"asset-risk-dot is-" + (skill.riskStatus ?? "unscanned")}
-                        title={riskDetail(skill)}
-                      >
-                        {riskLabel(skill.riskStatus)}
-                      </span>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            ))}
-            {!loading && visibleSkills.length === 0 && data?.skills.mode === "driver" && (
-              <div className="skills-empty">没有匹配当前筛选条件的技能。</div>
+                  ),
+                }))}
+              />
             )}
-            {loading && data === null && <div className="skills-empty">正在读取技能清单…</div>}
           </div>
 
           <div className="plugin-section">

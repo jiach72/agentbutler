@@ -221,6 +221,31 @@ describe("startWatchHttp（注入依赖，回环真实端口）", () => {
     });
   });
 
+  it("恢复诊断先给根因与分级动作；低风险可执行，高风险必须确认", async () => {
+    fake.state.runbooks = () => [
+      { id: "rb-restart", label: "重启实例", description: "重启并复验", breakerTripped: false },
+      { id: "rb-cleanup-gateway", label: "清理网关", description: "清理并复验", breakerTripped: false },
+    ];
+    const diagnosis = await fetch(`${base}/api/recovery/diagnose`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ instanceId: "hermes-main" }),
+    });
+    expect(diagnosis.status).toBe(200);
+    const body = (await diagnosis.json()) as { incidentId: string; recommendedActions: Array<{ id: string; risk: string; requiresConfirmation: boolean }> };
+    expect(body.incidentId).toMatch(/^incident-/);
+    expect(body.recommendedActions.some((action) => action.id === "refresh-probe" && action.risk === "low")).toBe(true);
+    expect(body.recommendedActions.some((action) => action.id === "restart-instance" && action.requiresConfirmation)).toBe(true);
+
+    const missingConfirmation = await fetch(`${base}/api/recovery/actions/restart-instance/execute`, { method: "POST" });
+    expect(missingConfirmation.status).toBe(400);
+    await expect(missingConfirmation.json()).resolves.toMatchObject({ error: "confirmation-required" });
+
+    const refresh = await fetch(`${base}/api/recovery/actions/refresh-probe/execute`, { method: "POST" });
+    expect(refresh.status).toBe(202);
+    await expect(refresh.json()).resolves.toMatchObject({ actionId: "refresh-probe", status: "running" });
+  });
+
   it("连接管理端点：查询、手动检查、连接和断开均透传结构化状态", async () => {
     const status = await fetch(`${base}/api/connections`);
     expect(status.status).toBe(200);

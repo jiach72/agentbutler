@@ -101,6 +101,14 @@ export interface EvolutionResultInput {
   candidatePath?: string;
 }
 
+export interface EvolutionEvaluateInput {
+  runId: string;
+}
+
+export type EvolutionEvaluateOutcome =
+  | ({ status: "accepted" | "kept-baseline" | "rejected-regression"; sampleCount: number; confidence: number | null; baselineMetric: number; candidateMetric: number; delta: number; canPromote: boolean; report: Record<string, unknown> } & EvolutionGateOutcome)
+  | { status: "error"; error: "run-not-found" | "run-not-ready" | "evaluator-not-configured" | "evaluator-unreachable" | "invalid-evaluator-response"; detail: string; allowWrite: false; baselinePreserved: true; delta: null; ledgerPath: string | null };
+
 export interface EvolutionWriteAuthority {
   token: string;
   runId: string;
@@ -206,6 +214,7 @@ export interface EvolutionService {
   preflight(input: EvolutionPreflightInput): Promise<EvolutionPreflightOutcome>;
   expandDataset(input: EvolutionExpandInput): Promise<EvolutionExpandOutcome>;
   recordResult(input: EvolutionResultInput): Promise<EvolutionGateOutcome>;
+  evaluate(input: EvolutionEvaluateInput): Promise<EvolutionEvaluateOutcome>;
   promoteArtifact(input: EvolutionPromoteInput): EvolutionPromoteOutcome;
   exportLedger(runId: string): { filename: string; markdown: string } | null;
 }
@@ -899,6 +908,50 @@ export function createEvolutionService(deps: EvolutionServiceDeps): EvolutionSer
     };
   }
 
+  async function evaluate(input: EvolutionEvaluateInput): Promise<EvolutionEvaluateOutcome> {
+    const entry = entries.get(input.runId);
+    if (entry === undefined) return { status: "error", error: "run-not-found", detail: "运行不存在", allowWrite: false, baselinePreserved: true, delta: null, ledgerPath: null };
+    if (entry.status !== "ready") return { status: "error", error: "run-not-ready", detail: "预检尚未通过，不能开始真实评估", allowWrite: false, baselinePreserved: true, delta: null, ledgerPath: ledgerPathOf(input.runId) };
+    if (entry.endpoint === "") return { status: "error", error: "evaluator-not-configured", detail: "没有配置外部评估器地址", allowWrite: false, baselinePreserved: true, delta: null, ledgerPath: ledgerPathOf(input.runId) };
+    const fetchFn = deps.fetchFn ?? ((url: string, init?: { method?: string; headers?: Record<string, string>; body?: string; signal?: AbortSignal }) => fetch(url, init));
+    let response: Awaited<ReturnType<FetchLike>>;
+    try {
+      response = await fetchFn(entry.endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ runId: input.runId, datasetPath: entry.datasetPath ?? null, holdoutCount: entry.holdoutCount, mode: "paired-evaluation" }),
+        signal: AbortSignal.timeout(deps.fetchTimeoutMs ?? 20_000),
+      });
+    } catch (error) {
+      return { status: "error", error: "evaluator-unreachable", detail: `评估器不可达：${error instanceof Error ? error.message : String(error)}`, allowWrite: false, baselinePreserved: true, delta: null, ledgerPath: ledgerPathOf(input.runId) };
+    }
+    if (!response.ok) return { status: "error", error: "evaluator-unreachable", detail: `评估器返回 HTTP ${response.status}`, allowWrite: false, baselinePreserved: true, delta: null, ledgerPath: ledgerPathOf(input.runId) };
+    let payload: unknown;
+    try { payload = await response.json(); } catch { payload = null; }
+    if (!isRecord(payload) || typeof payload["baselineMetric"] !== "number" || typeof payload["candidateMetric"] !== "number") {
+      return { status: "error", error: "invalid-evaluator-response", detail: "评估器响应缺少 baselineMetric/candidateMetric 数值", allowWrite: false, baselinePreserved: true, delta: null, ledgerPath: ledgerPathOf(input.runId) };
+    }
+    const baselineMetric = payload["baselineMetric"] as number;
+    const candidateMetric = payload["candidateMetric"] as number;
+    const significant = payload["significant"] === true || (typeof payload["confidence"] === "number" && payload["confidence"] >= 0.95);
+    const gate = await recordResult({ runId: input.runId, baselineMetric, candidateMetric, significant });
+    if (gate.status === "error") return { status: "error", error: "invalid-evaluator-response", detail: "评估结果未通过守门器", allowWrite: false, baselinePreserved: true, delta: null, ledgerPath: gate.ledgerPath };
+    if (gate.status !== "accepted" && gate.status !== "kept-baseline" && gate.status !== "rejected-regression") {
+      return { status: "error", error: "invalid-evaluator-response", detail: "评估结果状态不可识别", allowWrite: false, baselinePreserved: true, delta: null, ledgerPath: gate.ledgerPath };
+    }
+    return {
+      ...gate,
+      status: gate.status,
+      sampleCount: typeof payload["sampleCount"] === "number" ? payload["sampleCount"] : entry.holdoutCount,
+      confidence: typeof payload["confidence"] === "number" ? payload["confidence"] : null,
+      baselineMetric,
+      candidateMetric,
+      delta: gate.delta ?? candidateMetric - baselineMetric,
+      canPromote: gate.status === "accepted" && gate.allowWrite,
+      report: payload,
+    };
+  }
+
   function promoteArtifact(input: EvolutionPromoteInput): EvolutionPromoteOutcome {
     if (!isRecord(input) || typeof input.runId !== "string" || input.runId === "" ||
         typeof input.token !== "string" || input.token === "") {
@@ -1057,6 +1110,7 @@ export function createEvolutionService(deps: EvolutionServiceDeps): EvolutionSer
     preflight: (input) => runPreflight(input),
     expandDataset,
     recordResult,
+    evaluate,
     promoteArtifact,
     exportLedger: (runId) => {
       const path = ledgerPathOf(runId);

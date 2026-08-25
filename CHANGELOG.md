@@ -4,6 +4,19 @@
 
 ## [Unreleased]
 
+## [1.0.0-beta.2] - 2026-08-25
+
+### Added
+
+- Dashboard 恢复诊断与分级修复：探测、索引重建、消息重连、网关清理和实例重启按风险执行并复验。
+- Evolution 真实外部评估入口，返回样本数、指标、置信度和安全门禁结论。
+
+### Improved
+
+- 技能/插件按分类折叠并限制滚动区域，记忆预览独立滚动。
+- 版本页按目标实例比较候选版本，无候选或不可达时显示明确原因和重新检查入口。
+- 进化页优先真实评估，手工指标仅保留为旧评估器兼容入口；关键状态统一使用 Ant Design 反馈组件。
+
 ## [1.0.0-beta.1] - 2026-08-25
 
 ### Added
@@ -52,7 +65,8 @@
 - Hermes Bridge 需要在目标 Hermes 环境中单独安装和接线。
 - 真实消息通道、升级与回滚应先在隔离环境验证。
 
-[Unreleased]: https://github.com/jiach72/agentbutler/compare/v1.0.0-beta.1...HEAD
+[Unreleased]: https://github.com/jiach72/agentbutler/compare/v1.0.0-beta.2...HEAD
+[1.0.0-beta.2]: https://github.com/jiach72/agentbutler/releases/tag/v1.0.0-beta.2
 [1.0.0-beta.1]: https://github.com/jiach72/agentbutler/releases/tag/v1.0.0-beta.1
 [0.1.0-dev.2]: https://github.com/jiach72/agentbutler/releases/tag/v0.1.0-dev.2
 [0.1.0-dev.1]: https://github.com/jiach72/agentbutler/releases/tag/v0.1.0-dev.1

@@ -36,7 +36,7 @@ import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import { recentEventsAscending, selectNewEvents } from "./events-pump.js";
 
-export const WEB_VERSION = `web@1.0.0-beta.1+${CONTRACT_VERSION}`;
+export const WEB_VERSION = `web@1.0.0-beta.2+${CONTRACT_VERSION}`;
 
 /** 告警网关默认基址（butler-gateway 的固定回环端口）。 */
 export const DEFAULT_GATEWAY_URL = "http://127.0.0.1:7532";
@@ -1480,6 +1480,15 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     proxyWatchPost("/api/inspect/run", {}, reply),
   );
 
+  app.post("/api/recovery/diagnose", async (request, reply) =>
+    proxyWatchPost("/api/recovery/diagnose", request.body, reply),
+  );
+
+  app.post("/api/recovery/actions/:id/execute", async (request, reply) => {
+    const id = encodeURIComponent((request.params as { id?: string })["id"] ?? "");
+    return proxyWatchPost(`/api/recovery/actions/${id}/execute`, request.body, reply, 70_000);
+  });
+
   /** 连接管理视图：watch 不可达时保留明确的降级标记，不伪造实例已连接。 */
   app.get("/api/connections", async () => {
     const res = await fetchWatch("/api/connections");
@@ -2091,6 +2100,11 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   app.post("/api/evolution/preflight", async (request, reply) =>
     proxyWatchPost("/api/evolution/preflight", request.body, reply),
   );
+
+  app.post("/api/evolution/runs/:id/evaluate", async (request, reply) => {
+    const id = encodeURIComponent((request.params as { id?: string })["id"] ?? "");
+    return proxyWatchPost(`/api/evolution/runs/${id}/evaluate`, request.body, reply, 70_000);
+  });
 
   app.post("/api/evolution/runs/:id/expand", async (request, reply) => {
     const id = encodeURIComponent((request.params as { id?: string })["id"] ?? "");
