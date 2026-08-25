@@ -861,3 +861,12 @@
 - 回归测试：Watch 配置、Watch HTTP、Web 代理、Hermes 版本源定向测试通过；TypeScript 与 UI Vite 构建通过。OpenClaw 安装真实 npm/system 环境未在本机执行，仅验证接线与审计路径。
 - 验证命令：`corepack pnpm exec tsc -b --pretty false`；`corepack pnpm --filter @butler/ui exec vite build`；`corepack pnpm exec vitest run apps/watch/tests/config.test.ts packages/adapters/hermes/tests/version-source.test.ts apps/watch/tests/http.test.ts apps/web/tests/server.test.ts --maxWorkers=1`；`git diff --check`。
 - 部署/运行验证：本轮未停止占用 `127.0.0.1:7531` 的既有进程；发布后需重启 Watch/Web，使 `/api/connections`、`/api/openclaw/status`、`/api/versions` 走新产物，并在授权环境验证 OpenClaw 安装及 Hermes/管家版本号。
+
+## 2026-08-25 · Beta.4 连接卡片、源码仓库与安全设置布局
+
+- 问题：Dashboard 的 Hermes/OpenClaw 卡片不在同一网格且宽度不一致；部署目录没有 Git origin 时，管家版本页显示“尚未配置源码仓库”，实际项目仓库应为 `https://github.com/jiach72/agentbutler`；版本页实例信息层级粗糙，安全设置中的备份与诊断内容纵向过长。
+- 风险/影响：用户无法快速区分两个运行框架的安装/连接状态，误以为源码位置就是仓库地址；版本识别和升级入口缺少可信上下文，备份/诊断操作在长页面中难以发现。
+- 改动范围：Watch `/api/butler/version` 增加默认仓库地址、`repositoryConfigured` 与来源字段，Web 降级载荷同步字段；Dashboard 固定 Hermes/OpenClaw 双槽位并使用绿色/橙色品牌色；Versions 将仓库、源码目录、Git 绑定状态和受管实例事实改为紧凑信息网格；Settings 将备份与诊断拆为等宽工具面板，备份记录/诊断报告内部滚动并压缩保留策略。
+- 回归测试：`apps/watch/tests/http-logs.test.ts`、`apps/watch/tests/http.test.ts`（22 项通过）；`corepack pnpm exec tsc -b --pretty false`；`corepack pnpm --filter @butler/ui exec vite build`；`git diff --check`。
+- 验证命令：同上；Vite 构建仅有既有大 chunk 警告，无编译错误。
+- 部署/运行验证：未停止或重启现有 `127.0.0.1:7531` 服务，未执行真实 OpenClaw 安装或升级；需在部署后验证 `/api/butler/version`、`/api/connections`、`/api/versions` 与浏览器响应式布局。

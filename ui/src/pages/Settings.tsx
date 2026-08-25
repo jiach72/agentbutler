@@ -573,6 +573,7 @@ export function SettingsPage() {
 
         <section className="settings-column card">
           <div className="settings-tools-row">
+          <div className="backup-tool-panel">
           <div className="settings-section-head">
             <div>
               <span className="product-kicker">备份与还原</span>
@@ -670,8 +671,9 @@ export function SettingsPage() {
             )}
             {backups === null && <div className="empty-state">正在读取备份记录…</div>}
           </div>
+          </div>
 
-          <div className="settings-subsection">
+          <div className="settings-subsection diagnostic-tool-panel">
             <div className="settings-section-head is-compact">
               <div>
                 <span className="product-kicker">诊断报告</span>

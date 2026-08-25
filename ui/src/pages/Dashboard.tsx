@@ -1179,36 +1179,53 @@ export function DashboardPage() {
           />
         ) : (
           <>
-          {!connectionItems.some((item) => item.frameworkId === "openclaw") && <div className="connection-capability-grid">
-            <Card className="connection-card connection-capability-card is-warn" bordered>
-              <div className="connection-card-head">
-                <div>
-                  <span className="connection-framework">OpenClaw</span>
-                  <h3>{openClawStatus?.installed ? "已安装，等待连接" : "尚未安装"}</h3>
-                </div>
-                <Badge
-                  status={openClawStatus?.installed ? "warning" : "default"}
-                  text={openClawStatus?.installed ? "未连接" : "未安装"}
-                />
-              </div>
-              <div className="connection-summary">
-                <strong>{openClawStatus?.version ?? "没有可用版本"}</strong>
-                <span>{openClawStatus?.detail ?? "正在读取 OpenClaw 安装状态"}</span>
-              </div>
-              <div className="connection-actions">
-                <Button
-                  type="primary"
-                  onClick={installOpenClaw}
-                  loading={openClawInstallBusy || openClawStatus?.busy === true}
-                  disabled={openClawStatus?.installed === true}
-                >
-                  一键安装 OpenClaw
-                </Button>
-              </div>
-            </Card>
-          </div>}
-          {connectionItems.length === 0 ? <div className="connection-empty">还没有发现 Hermes 或 OpenClaw 实例，请先安装或配置对应运行目录。</div> : (
           <div className="connection-grid">
+            {!connectionItems.some((item) => item.frameworkId === "hermes") && (
+              <Card className="connection-card connection-capability-card is-warn is-hermes" bordered>
+                <div className="connection-card-head">
+                  <div>
+                    <span className="connection-framework is-hermes">Hermes</span>
+                    <h3>尚未配置</h3>
+                  </div>
+                  <Badge status="default" text="未发现实例" />
+                </div>
+                <div className="connection-summary">
+                  <strong>等待运行目录</strong>
+                  <span>配置 Hermes 实例后，管家会在这里显示连接状态。</span>
+                </div>
+                <div className="connection-actions">
+                  <Link to="/settings" className="ant-btn ant-btn-default">前往设置</Link>
+                </div>
+              </Card>
+            )}
+            {!connectionItems.some((item) => item.frameworkId === "openclaw") && (
+              <Card className="connection-card connection-capability-card is-warn is-openclaw" bordered>
+                <div className="connection-card-head">
+                  <div>
+                    <span className="connection-framework is-openclaw">OpenClaw</span>
+                    <h3>{openClawStatus?.installed ? "已安装，等待连接" : "尚未安装"}</h3>
+                  </div>
+                  <Badge
+                    status={openClawStatus?.installed ? "warning" : "default"}
+                    text={openClawStatus?.installed ? "未连接" : "未安装"}
+                  />
+                </div>
+                <div className="connection-summary">
+                  <strong>{openClawStatus?.version ?? "没有可用版本"}</strong>
+                  <span>{openClawStatus?.detail ?? "正在读取 OpenClaw 安装状态"}</span>
+                </div>
+                <div className="connection-actions">
+                  <Button
+                    type="primary"
+                    onClick={installOpenClaw}
+                    loading={openClawInstallBusy || openClawStatus?.busy === true}
+                    disabled={openClawStatus?.installed === true}
+                  >
+                    一键安装 OpenClaw
+                  </Button>
+                </div>
+              </Card>
+            )}
             {connectionItems.map((connection) => {
               const actionBusy = connectionBusy === `connect-${connection.instanceId}` || connectionBusy === `disconnect-${connection.instanceId}`;
               const checkBusy = connectionBusy === `check-${connection.instanceId}`;
@@ -1220,10 +1237,10 @@ export function DashboardPage() {
                     ? "warn"
                     : "idle";
               return (
-                <Card className={`connection-card is-${stateClass}`} key={connection.instanceId} bordered>
+                <Card className={`connection-card is-${stateClass} is-${connection.frameworkId}`} key={connection.instanceId} bordered>
                   <div className="connection-card-head">
                     <div>
-                      <span className="connection-framework">{frameworkLabel(connection.frameworkId)}</span>
+                      <span className={`connection-framework is-${connection.frameworkId}`}>{frameworkLabel(connection.frameworkId)}</span>
                       <h3>{connection.displayName || instanceLabel(connection.instanceId)}</h3>
                     </div>
                     <Badge
@@ -1280,7 +1297,6 @@ export function DashboardPage() {
               );
             })}
           </div>
-          )}
           </>
         )}
       </section>

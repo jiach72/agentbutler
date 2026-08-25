@@ -109,6 +109,8 @@ import {
 import { createBackupService, type BackupService } from "./backup.js";
 import { createSecurityService, type SecurityService } from "./invariants.js";
 
+const DEFAULT_BUTLER_REPOSITORY = "https://github.com/jiach72/agentbutler";
+
 export interface WatchAppOptions {
   /** 配置覆盖（env 之上的显式注入）。 */
   config?: Partial<WatchConfig>;
@@ -1375,16 +1377,16 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       } catch {
         // 源码目录没有 package.json（打包/安装形态）时保留 dev 版本
       }
+      const remote = gitDescribe(["-C", source, "remote", "get-url", "origin"]);
       return {
         version,
         source,
         branch: gitDescribe(["-C", source, "branch", "--show-current"]),
         commit: gitDescribe(["-C", source, "rev-parse", "--short", "HEAD"]),
         tag: gitDescribe(["-C", source, "describe", "--tags", "--exact-match", "--always"]),
-        repository: (() => {
-          const remote = gitDescribe(["-C", source, "remote", "get-url", "origin"]);
-          return remote?.replace(/\.git$/, "") ?? null;
-        })(),
+        repository: remote?.replace(/\.git$/, "") ?? DEFAULT_BUTLER_REPOSITORY,
+        repositoryConfigured: remote !== null,
+        repositorySource: remote !== null ? ("git-origin" as const) : ("configured-default" as const),
         changelog: gitLog(source),
         checkedAt: new Date().toISOString(),
       };

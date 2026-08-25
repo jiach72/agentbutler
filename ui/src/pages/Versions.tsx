@@ -96,6 +96,8 @@ interface ButlerVersionView {
   commit: string | null;
   tag: string | null;
   repository: string | null;
+  repositoryConfigured?: boolean;
+  repositorySource?: "git-origin" | "configured-default";
   changelog?: Array<{ hash: string; subject: string; at: string }> | null;
   checkedAt: string | null;
 }
@@ -850,35 +852,34 @@ export function VersionsPage() {
                 <span className="butler-version-label">Agent Butler</span>
                 <strong className="butler-version-number">{butler.version ?? "版本未知"}</strong>
               </div>
-              <span className="badge-pill badge-healthy">管家自身版本</span>
+              <span className={`badge-pill ${butler.repositoryConfigured === false ? "badge-degraded" : "badge-healthy"}`}>
+                {butler.repositoryConfigured === false ? "仓库未绑定" : "仓库已连接"}
+              </span>
             </div>
-            <dl className="kv butler-version-kv">
-              <dt>代码仓库</dt>
-              <dd>
-                {butler.repository !== null && butler.repository !== "" ? (
-                  <code title={butler.repository}>{butler.repository}</code>
-                ) : (
-                  "尚未配置源码仓库"
-                )}
-              </dd>
-              <dt>分支 / 提交</dt>
-              <dd>
-                {butler.branch ?? "—"}
-                {butler.commit !== null ? ` · ${butler.commit}` : ""}
-              </dd>
-              <dt>最近标签</dt>
-              <dd>{butler.tag ?? "还没有打过 tag"}</dd>
-              <dt>可用更新</dt>
-              <dd>
-                {butler.repository !== null && butler.repository !== ""
-                  ? "仓库已连接，检查后在这里显示"
-                  : "源码上传到仓库后自动检测"}
-              </dd>
-              <dt>源码位置</dt>
-              <dd>
-                <code title={butler.source ?? undefined}>{butler.source ?? "—"}</code>
-              </dd>
-            </dl>
+            <div className="butler-version-grid">
+              <div className="butler-version-fact">
+                <span>代码仓库</span>
+                <strong title={butler.repository ?? undefined}>
+                  {butler.repository ?? "尚未配置源码仓库"}
+                </strong>
+                <small>{butler.repositoryConfigured === false ? "展示项目默认地址，当前目录未检测到 origin" : "来自当前源码目录的 Git origin"}</small>
+              </div>
+              <div className="butler-version-fact">
+                <span>源码目录</span>
+                <strong title={butler.source ?? undefined}>{butler.source ?? "—"}</strong>
+                <small>版本读取与升级预检使用此目录</small>
+              </div>
+              <div className="butler-version-fact">
+                <span>分支 / 提交</span>
+                <strong>{butler.branch ?? "—"}{butler.commit !== null ? ` · ${butler.commit}` : ""}</strong>
+                <small>最近标签：{butler.tag ?? "未打标签"}</small>
+              </div>
+              <div className="butler-version-fact">
+                <span>可用更新</span>
+                <strong>{butler.repositoryConfigured === false ? "无法在线检查" : "检查后显示候选"}</strong>
+                <small>{butler.repositoryConfigured === false ? "绑定 origin 后启用自升级" : "升级前会自动备份并支持回滚"}</small>
+              </div>
+            </div>
             {butlerSelf !== null && butlerSelf.reachable && (
               <>
                 <div className="butler-self-prefs">
@@ -940,7 +941,7 @@ export function VersionsPage() {
                   <strong>最新可用版本</strong>
                   {selfUpgradeCandidate === null ? (
                     <p className="hint">
-                      {butlerSelf.repository === null || butlerSelf.repository === ""
+                      {butlerSelf.remoteConfigured === false || butlerSelf.repository === null || butlerSelf.repository === ""
                         ? "没有检测到 Git 仓库地址，无法查询管家更新。请检查 BUTLER_SRC 与 origin。"
                         : butlerSelf.repoClean === false
                           ? "当前源码目录有未提交改动，升级入口已保护；请先提交或清理改动。"
@@ -1001,7 +1002,7 @@ export function VersionsPage() {
             )}
 
             <div className="hint">
-              {butler.repository !== null && butler.repository !== ""
+              {butler.repositoryConfigured !== false && butler.repository !== null && butler.repository !== ""
                 ? "源码上传到仓库并打 tag 后，管家自身支持一键升级与回滚；升级失败会自动还原。"
                 : "把源代码上传到 Git 仓库、配置远程地址并打上版本 tag 后，管家自身支持一键升级与回滚。"}
             </div>
@@ -1019,29 +1020,19 @@ export function VersionsPage() {
           {instances.map((instance) => {
             const badge = stateBadge(instance.state);
             return (
-              <div className="card" key={instance.instanceId}>
-                <div className="instance-title">
-                  <span className="instance-name">{instanceLabel(instance.instanceId)}</span>
-                </div>
-                <div className="instance-meta">
-                  <span>状态：{badge.label}</span>
-                  <span>当前版本：{instance.version ?? "—"}</span>
-                </div>
-                <div className="advanced-details instance-advanced is-expanded">
-                  <div className="advanced-details-body">
-                    <dl className="kv">
-                      <dt>内部编号</dt>
-                      <dd title={instance.instanceId}>{instanceLabel(instance.instanceId)}</dd>
-                      <dt>运行位置</dt>
-                      <dd>{instanceRuntimeLabel(instance.runtime)}</dd>
-                      <dt>当前状态</dt>
-                      <dd>{instanceStateLabel(instance.state)}</dd>
-                    </dl>
+              <div className="card version-instance-card" key={instance.instanceId}>
+                <div className="version-instance-head">
+                  <div>
+                    <span className="version-instance-kicker">受管 Hermes / OpenClaw</span>
+                    <strong>{instanceLabel(instance.instanceId)}</strong>
                   </div>
-                </div>
-                <div className="instance-kpi">
                   <span className={`badge-pill ${badge.cls}`}>{badge.label}</span>
-                  <span className="confidence">版本：{instance.version ?? "—"}</span>
+                </div>
+                <div className="version-instance-facts">
+                  <div><span>当前版本</span><strong>{instance.version ?? "版本未知"}</strong></div>
+                  <div><span>运行位置</span><strong>{instanceRuntimeLabel(instance.runtime)}</strong></div>
+                  <div><span>内部编号</span><strong title={instance.instanceId}>{instance.instanceId}</strong></div>
+                  <div><span>当前状态</span><strong>{instanceStateLabel(instance.state)}</strong></div>
                 </div>
               </div>
             );

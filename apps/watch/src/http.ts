@@ -292,6 +292,8 @@ export interface WatchHttpDeps {
       commit: string | null;
       tag: string | null;
       repository: string | null;
+      repositoryConfigured?: boolean;
+      repositorySource?: "git-origin" | "configured-default";
       changelog?: Array<{ hash: string; subject: string; at: string }>;
       checkedAt: string;
     };
