@@ -21,6 +21,7 @@ from .wrapper import attach_adapter
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8754
+RETENTION_SWEEP_INTERVAL_SECONDS = 60 * 60
 MAX_TOKEN_BYTES = 4096
 TRUE_VALUES = {"1", "true", "yes", "on"}
 REQUIRED_RUNTIME_COVERAGE = (
@@ -97,6 +98,7 @@ class BridgeRuntime:
         self._coverage: dict[str, str] = {}
         self._lifecycle_lock = asyncio.Lock()
         self._inbound_optimization_tasks: dict[str, asyncio.Task[None]] = {}
+        self._retention_task: asyncio.Task[None] | None = None
 
     @property
     def started(self) -> bool:
@@ -128,6 +130,7 @@ class BridgeRuntime:
             runner: web.AppRunner | None = None
             try:
                 outbox = Outbox(self.config.outbox_path)
+                outbox.prune_history()
                 _chmod_outbox_files(self.config.outbox_path)
                 registry = NativeRegistry(outbox, instance_id=self.config.instance_id)
                 app = create_app(
@@ -149,6 +152,8 @@ class BridgeRuntime:
                 self._site = site
                 self._bound_port = _site_bound_port(site, self.config.port)
                 self._started_at = _utc_now()
+                self.record_coverage("retention", "ok")
+                self._retention_task = asyncio.create_task(self._retention_loop(outbox))
                 return self
             except BaseException:
                 if runner is not None:
@@ -162,6 +167,14 @@ class BridgeRuntime:
         async with self._lifecycle_lock:
             runner = self._runner
             outbox = self.outbox
+            retention_task = self._retention_task
+            self._retention_task = None
+            if retention_task is not None:
+                retention_task.cancel()
+                try:
+                    await retention_task
+                except asyncio.CancelledError:
+                    pass
             for task in tuple(self._inbound_optimization_tasks.values()):
                 task.cancel()
             self._inbound_optimization_tasks.clear()
@@ -172,6 +185,17 @@ class BridgeRuntime:
             finally:
                 if outbox is not None:
                     outbox.close()
+
+    async def _retention_loop(self, outbox: Outbox) -> None:
+        while True:
+            await asyncio.sleep(RETENTION_SWEEP_INTERVAL_SECONDS)
+            try:
+                outbox.prune_history()
+                self.record_coverage("retention", "ok")
+            except Exception:
+                # Retention must not take the Bridge down; health exposes the degraded
+                # housekeeping state so operators can inspect the private SQLite file.
+                self.record_coverage("retention", "degraded")
 
     def attach_adapter(
         self,
@@ -253,6 +277,7 @@ class BridgeRuntime:
         self._started_at = None
         self._coverage.clear()
         self._inbound_optimization_tasks.clear()
+        self._retention_task = None
 
 
 _process_runtime: BridgeRuntime | None = None

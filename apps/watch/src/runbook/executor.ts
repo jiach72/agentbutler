@@ -27,7 +27,7 @@ import type { InstanceRef, Job, JobStep, Result, ControlAck, SnapshotScope } fro
 import type { CommandExecutor } from "@butler/adapter-hermes";
 import { createExecFileExecutor } from "@butler/adapter-hermes";
 import type { AuditLog, Core, RunbookStepOutcomePayload } from "@butler/core";
-import { CircuitBreaker, type CircuitBreakerOptions } from "./breaker.js";
+import { CircuitBreaker, type CircuitBreakerOptions, type CircuitBreakerTrip } from "./breaker.js";
 import { InspectionPipeline, type InspectionStage } from "../pipeline.js";
 import type { AlertPoster } from "../alert-forward.js";
 
@@ -448,6 +448,8 @@ export interface WireBreakerDeps {
   poster: AlertPoster;
   audit: AuditLog;
   now?: () => number;
+  /** 启动时从 events 表恢复仍需阻断自动触发的跳闸。 */
+  initialTrips?: CircuitBreakerTrip[];
 }
 
 /**
@@ -463,6 +465,7 @@ export function createWiredBreaker(
   return new CircuitBreaker({
     ...options,
     now,
+    initialTrips: deps.initialTrips,
     onTrip: (trip) => {
       deps.bus.emit("circuit-breaker-tripped", {
         key: trip.key,
@@ -480,7 +483,7 @@ export function createWiredBreaker(
         kind: CIRCUIT_BREAKER_KIND,
         severity: "critical",
         title: `崩溃循环熔断跳闸: ${trip.key}`,
-        body: `键 ${trip.key} 在 ${trip.windowMs / 60000} 分钟窗口内累计 ${trip.failures} 次失败，已熔断（后续自动触发一律跳过，watch 重启后复位）。原因: ${trip.reason}`,
+        body: `键 ${trip.key} 在 ${trip.windowMs / 60000} 分钟窗口内累计 ${trip.failures} 次失败，已熔断（后续自动触发一律跳过，直到人工解除）。原因: ${trip.reason}`,
         source: "butler-watch",
         dedupeKey: `circuit-breaker:${trip.key}:${new Date(now()).toISOString().slice(0, 10)}`,
       });

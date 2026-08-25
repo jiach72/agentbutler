@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildComposeOverride, installDockerForm, installHostForm, runInstaller } from "../src/install.js";
+import { buildComposeOverride, buildHostServiceUnits, buildOpenClawComposeOverride, installDockerForm, installHostForm, runInstaller } from "../src/install.js";
 import { fakeExec, fakePlan, fakeProbeFetch, makeTempDir, rmTempDir } from "./helpers.js";
 
 describe("installHostForm 宿主形态", () => {
@@ -12,6 +12,7 @@ describe("installHostForm 宿主形态", () => {
       "node-check",
       "hermes-install",
       "pip-mirror",
+      "corepack-enable",
       "repo-install",
       "repo-build",
       "services-guide",
@@ -101,9 +102,270 @@ describe("installHostForm 宿主形态", () => {
     expect(result.success).toBe(false);
     expect(calls.some((c) => c.command === "corepack")).toBe(false);
   });
+
+  it("宿主 user-systemd：生成三项 unit、刷新并启用服务", async () => {
+    const tmp = makeTempDir();
+    try {
+      const { exec, calls } = fakeExec();
+      const result = await installHostForm(fakePlan({}), {
+        exec,
+        repoDir: "/repo with space",
+        hostServices: { manager: "systemd-user", serviceDir: tmp, nodePath: "/usr/bin/node" },
+      });
+      expect(result.success).toBe(true);
+      expect(result.steps.map((step) => step.id).slice(-4)).toEqual([
+        "services-health-butler-watch",
+        "services-health-butler-gateway",
+        "services-health-butler-web",
+        "services-guide",
+      ]);
+      for (const service of ["butler-watch", "butler-web", "butler-gateway"]) {
+        const unit = fs.readFileSync(path.join(tmp, service + ".service"), "utf8");
+        expect(unit).toContain("EnvironmentFile=-%h/.agent-butler/env");
+        expect(unit).toContain("/repo with space");
+        expect(unit).toContain("/usr/bin/node");
+      }
+      expect(calls.filter((call) => call.command === "systemctl").map((call) => call.args)).toEqual([
+        ["--user", "show-environment"],
+        ["--user", "daemon-reload"],
+        ["--user", "enable", "--now", "butler-watch.service", "butler-web.service", "butler-gateway.service"],
+        ["--user", "is-active", "--quiet", "butler-watch.service"],
+        ["--user", "is-active", "--quiet", "butler-web.service"],
+        ["--user", "is-active", "--quiet", "butler-gateway.service"],
+      ]);
+      expect(calls.filter((call) => call.command === "/usr/bin/node").map((call) => call.args[0])).toEqual(["-e", "-e", "-e"]);
+    } finally {
+      rmTempDir(tmp);
+    }
+  });
+
+  it("宿主 unit dry-run：打印 unit 计划但不写文件、不执行 systemctl", async () => {
+    const tmp = makeTempDir();
+    try {
+      const { exec, calls } = fakeExec();
+      const result = await installHostForm(fakePlan({}), {
+        exec,
+        dryRun: true,
+        repoDir: "/repo",
+        hostServices: { manager: "systemd-user", serviceDir: tmp, nodePath: "/usr/bin/node" },
+      });
+      expect(result.steps.find((step) => step.id === "services-install")).toMatchObject({ status: "dry-run" });
+      expect(result.steps.find((step) => step.id === "services-start")).toMatchObject({ status: "dry-run" });
+      expect(fs.readdirSync(tmp)).toEqual([]);
+      expect(calls).toHaveLength(0);
+    } finally {
+      rmTempDir(tmp);
+    }
+  });
+
+  it("宿主服务健康失败：停止已启动服务并返回失败", async () => {
+    const tmp = makeTempDir();
+    try {
+      const { exec, calls } = fakeExec((command, args) =>
+        command === "/usr/bin/node" && args[0] === "-e"
+          ? { code: 1, stdout: "", stderr: "health endpoint unavailable" }
+          : { code: 0, stdout: "", stderr: "" },
+      );
+      const result = await installHostForm(fakePlan({}), {
+        exec,
+        repoDir: "/repo",
+        hostServices: { manager: "systemd-user", serviceDir: tmp, nodePath: "/usr/bin/node" },
+      });
+      expect(result.success).toBe(false);
+      expect(result.steps.find((step) => step.id === "services-health-butler-watch")).toMatchObject({ status: "failed" });
+      expect(result.steps.find((step) => step.id === "services-rollback")).toMatchObject({ status: "ok" });
+      expect(calls.some((call) => call.command === "systemctl" && call.args[1] === "stop")).toBe(true);
+    } finally {
+      rmTempDir(tmp);
+    }
+  });
+
+  it("宿主端口被外部进程占用：写 unit 前 fail-closed", async () => {
+    const tmp = makeTempDir();
+    try {
+      const { exec, calls } = fakeExec((command, args) =>
+        command === "systemctl" && args[1] === "is-active"
+          ? { code: 3, stdout: "inactive", stderr: "" }
+          : { code: 0, stdout: "", stderr: "" },
+      );
+      const result = await installHostForm(fakePlan({}), {
+        exec,
+        repoDir: "/repo",
+        portProbe: async (port) => port !== 7532,
+        hostServices: { manager: "systemd-user", serviceDir: tmp, nodePath: "/usr/bin/node" },
+      });
+      expect(result.success).toBe(false);
+      expect(result.steps.at(-1)).toMatchObject({ id: "services-port-check", status: "failed" });
+      expect(result.steps.at(-1)?.detail).toContain("butler-gateway=127.0.0.1:7532");
+      expect(fs.readdirSync(tmp)).toEqual([]);
+      expect(calls.some((call) => call.command === "systemctl" && call.args[1] === "daemon-reload")).toBe(false);
+      expect(calls.some((call) => call.command === "systemctl" && call.args[1] === "enable")).toBe(false);
+    } finally {
+      rmTempDir(tmp);
+    }
+  });
+
+  it("宿主重跑：已由 Butler unit 托管的占用端口允许继续", async () => {
+    const tmp = makeTempDir();
+    try {
+      const { exec, calls } = fakeExec((command, args) =>
+        command === "systemctl" && args[1] === "is-active"
+          ? { code: 0, stdout: "active", stderr: "" }
+          : command === "systemctl" && args[1] === "show"
+            ? { code: 0, stdout: args[2] === "butler-watch.service" ? "101\n" : args[2] === "butler-gateway.service" ? "102\n" : "103\n", stderr: "" }
+            : command === "ss"
+              ? {
+                  code: 0,
+                  stdout: [
+                    "LISTEN 0 128 127.0.0.1:7533 0.0.0.0:* users:((\"node\",pid=101,fd=1))",
+                    "LISTEN 0 128 127.0.0.1:7532 0.0.0.0:* users:((\"node\",pid=102,fd=1))",
+                    "LISTEN 0 128 127.0.0.1:7531 0.0.0.0:* users:((\"node\",pid=103,fd=1))",
+                  ].join("\n"),
+                  stderr: "",
+                }
+              : { code: 0, stdout: "", stderr: "" },
+      );
+      const result = await installHostForm(fakePlan({}), {
+        exec,
+        repoDir: "/repo",
+        portProbe: async () => false,
+        hostServices: { manager: "systemd-user", serviceDir: tmp, nodePath: "/usr/bin/node" },
+      });
+      expect(result.success).toBe(true);
+      expect(result.steps.find((step) => step.id === "services-port-check")).toMatchObject({ status: "ok" });
+      expect(calls.some((call) => call.command === "systemctl" && call.args[1] === "enable")).toBe(true);
+    } finally {
+      rmTempDir(tmp);
+    }
+  });
+
+  it("宿主重跑：active unit 但端口由其它 PID 监听时仍 fail-closed", async () => {
+    const tmp = makeTempDir();
+    try {
+      const { exec, calls } = fakeExec((command, args) =>
+        command === "systemctl" && args[1] === "is-active"
+          ? { code: 0, stdout: "active", stderr: "" }
+          : command === "systemctl" && args[1] === "show"
+            ? { code: 0, stdout: "101\n", stderr: "" }
+            : command === "ss"
+              ? { code: 0, stdout: "LISTEN 0 128 127.0.0.1:7532 0.0.0.0:* users:((\"other\",pid=999,fd=1))\n", stderr: "" }
+              : { code: 0, stdout: "", stderr: "" },
+      );
+      const result = await installHostForm(fakePlan({}), {
+        exec,
+        repoDir: "/repo",
+        portProbe: async (port) => port !== 7532,
+        hostServices: { manager: "systemd-user", serviceDir: tmp, nodePath: "/usr/bin/node" },
+      });
+      expect(result.success).toBe(false);
+      expect(result.steps.find((step) => step.id === "services-port-check")).toMatchObject({ status: "failed" });
+      expect(result.steps.find((step) => step.id === "services-port-check")?.detail).toContain("butler-gateway=127.0.0.1:7532");
+      expect(fs.readdirSync(tmp)).toEqual([]);
+      expect(calls.some((call) => call.command === "systemctl" && call.args[1] === "daemon-reload")).toBe(false);
+    } finally {
+      rmTempDir(tmp);
+    }
+  });
+
+  it("非 Linux 平台强制 systemd → 安全失败且不写文件", async () => {
+    const tmp = makeTempDir();
+    try {
+      const { exec, calls } = fakeExec();
+      const result = await installHostForm(fakePlan({ platform: { os: "win32", isWsl: false } }), {
+        exec,
+        repoDir: "/repo",
+        hostServices: { manager: "systemd-user", serviceDir: tmp },
+      });
+      expect(result.success).toBe(false);
+      expect(result.steps.at(-1)).toMatchObject({ id: "services-install", status: "failed" });
+      expect(fs.readdirSync(tmp)).toEqual([]);
+      expect(calls.some((call) => call.command === "systemctl")).toBe(false);
+    } finally {
+      rmTempDir(tmp);
+    }
+  });
+});
+
+describe("buildHostServiceUnits", () => {
+  it("三项入口、环境文件、回环端口和依赖关系完整", () => {
+    const units = buildHostServiceUnits("/repo with space", "openclaw", 17531, "/usr/bin/node");
+    expect(units["butler-watch"]).toContain("ExecStart=\"/usr/bin/node\" \"/repo with space/apps/watch/dist/main.js\"");
+    expect(units["butler-watch"]).toContain("BUTLER_OPENCLAW_ROOT=%h/.openclaw");
+    expect(units["butler-web"]).toContain("BUTLER_WEB_PORT=17531");
+    expect(units["butler-web"]).toContain("After=butler-gateway.service butler-watch.service");
+    expect(units["butler-gateway"]).toContain("BUTLER_GATEWAY_PORT=7532");
+  });
 });
 
 describe("installDockerForm 容器形态", () => {
+  it("OpenClaw：生成持久化 Gateway 服务与 Watch 接入 override", async () => {
+    const tmp = makeTempDir();
+    try {
+      const { exec, calls } = fakeExec();
+      const overridePath = path.join(tmp, "docker-compose.override.yml");
+      const result = await installDockerForm(fakePlan({}), {
+        framework: "openclaw",
+        exec,
+        dryRun: false,
+        repoDir: tmp,
+        overridePath,
+        composeFile: path.join(tmp, "docker-compose.yml"),
+      });
+      expect(result.success).toBe(true);
+      const content = fs.readFileSync(overridePath, "utf8");
+      expect(content).toContain("node:24.15-bookworm-slim");
+      expect(content).toContain("BUTLER_FRAMEWORK=openclaw");
+      expect(content).toContain("openclaw-data:/home/openclaw");
+      const up = calls.find((call) => call.command === "docker" && call.args.includes("up"));
+      expect(up?.args).toEqual([
+        "compose",
+        "-f",
+        path.join(tmp, "docker-compose.yml"),
+        "-f",
+        overridePath,
+        "up",
+        "-d",
+        "--build",
+        "--wait",
+        "--wait-timeout",
+        "600",
+      ]);
+    } finally {
+      rmTempDir(tmp);
+    }
+  });
+
+  it("buildOpenClawComposeOverride：包含官方安装与 healthcheck", () => {
+    const content = buildOpenClawComposeOverride("openclaw@2026.7.1-2", undefined, "test-openclaw-token", 17531);
+    expect(content).toContain("npm install --global openclaw@2026.7.1-2");
+    expect(content).toContain("openclaw gateway health --json");
+    expect(content).toContain("OPENCLAW_GATEWAY_TOKEN=test-openclaw-token");
+    expect(content).toContain("$$OPENCLAW_GATEWAY_TOKEN");
+    expect(content).toContain("openclaw-data");
+    expect(content).toContain("ports: !override");
+    expect(content).toContain("127.0.0.1:17531:7531");
+  });
+
+  it("OpenClaw dry-run：compose 报告不回显 Gateway token", async () => {
+    const tmp = makeTempDir();
+    try {
+      const { exec } = fakeExec();
+      const result = await installDockerForm(fakePlan({}), {
+        framework: "openclaw",
+        exec,
+        dryRun: true,
+        repoDir: tmp,
+        openclawGatewayToken: "secret-openclaw-token",
+        overridePath: path.join(tmp, "docker-compose.override.yml"),
+      });
+      const detail = result.steps.find((step) => step.id === "openclaw-compose")?.detail ?? "";
+      expect(detail).not.toContain("secret-openclaw-token");
+      expect(detail).toContain("OPENCLAW_GATEWAY_TOKEN=<redacted>");
+    } finally {
+      rmTempDir(tmp);
+    }
+  });
+
   it("docker CLI 不可用 → 首步失败即停", async () => {
     const { exec, calls } = fakeExec();
     const plan = fakePlan({ platform: { dockerAvailable: false } });
@@ -121,6 +383,20 @@ describe("installDockerForm 容器形态", () => {
     expect(result.steps.map((s) => s.id)).toEqual(["docker-check", "compose-check"]);
     expect(result.steps[1]!.status).toBe("failed");
     expect(result.success).toBe(false);
+  });
+
+  it("Web 宿主端口被占用 → 前置失败且不写 override/启动 compose", async () => {
+    const { exec, calls } = fakeExec();
+    const result = await installDockerForm(fakePlan({}), {
+      exec,
+      repoDir: "/repo",
+      portProbe: async () => false,
+    });
+    expect(result.steps.map((step) => step.id)).toEqual(["docker-check", "compose-check", "web-port-check"]);
+    expect(result.steps[2]).toMatchObject({ status: "failed" });
+    expect(result.steps[2]?.detail).toContain("--web-port");
+    expect(result.success).toBe(false);
+    expect(calls).toHaveLength(0);
   });
 
   it("镜像注入（dry-run）：只打印 override 内容、不写文件", async () => {
@@ -162,22 +438,52 @@ describe("installDockerForm 容器形态", () => {
       expect(content).toContain("REGISTRY_MIRROR=https://docker.m.daocloud.io/v2/");
       expect(content).toContain("registry-mirrors");
       expect(result.steps.find((s) => s.id === "registry-mirror")!.status).toBe("ok");
-      const up = calls.find((c) => c.args[0] === "compose");
+      const up = calls.find((c) => c.args.includes("up"));
       expect(up?.command).toBe("docker");
-      expect(up?.args).toEqual(["compose", "-f", composeFile, "up", "-d"]);
+      expect(up?.args).toEqual([
+        "compose",
+        "-f",
+        composeFile,
+        "-f",
+        overridePath,
+        "up",
+        "-d",
+        "--build",
+        "--wait",
+        "--wait-timeout",
+        "600",
+      ]);
       expect(up?.opts?.cwd).toBe(tmp);
     } finally {
       rmTempDir(tmp);
     }
   });
 
-  it("官方 registry 可达 → registry-mirror skipped、直接 compose up", async () => {
+  it("官方 registry 可达 → registry-mirror skipped、预检后启动 compose", async () => {
     const { exec, calls } = fakeExec();
     const result = await installDockerForm(fakePlan({}), { exec, repoDir: "/repo" });
     expect(result.steps.find((s) => s.id === "registry-mirror")!.status).toBe("skipped");
     expect(result.steps.find((s) => s.id === "compose-up")!.status).toBe("ok");
     expect(result.success).toBe(true);
-    expect(calls).toHaveLength(1);
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.args).toEqual(["compose", "-f", path.join("/repo", "docker-compose.yml"), "config", "-q"]);
+    expect(calls[1]?.args).toContain("up");
+  });
+
+  it("合并后的 Compose 配置不合法 → 不执行启动", async () => {
+    const { exec, calls } = fakeExec((_command, args) =>
+      args.includes("config") ? { code: 1, stdout: "", stderr: "services.openclaw.environment must be a mapping" } : { code: 0, stdout: "", stderr: "" },
+    );
+    const result = await installDockerForm(fakePlan({}), {
+      framework: "openclaw",
+      exec,
+      repoDir: "/repo",
+      composeFile: "/repo/docker-compose.yml",
+      overridePath: "/repo/docker-compose.override.yml",
+    });
+    expect(result.steps.at(-1)).toMatchObject({ id: "compose-config", status: "failed" });
+    expect(calls.some((call) => call.args.includes("up"))).toBe(false);
+    expect(result.success).toBe(false);
   });
 
   it("registry 全部不可达 → registry-mirror 失败，不执行 compose up", async () => {
@@ -198,6 +504,13 @@ describe("installDockerForm 容器形态", () => {
     expect(content).toContain("docker.1ms.run");
     expect(content.match(/REGISTRY_MIRROR=/g)).toHaveLength(3);
     expect(content).toContain('"registry-mirrors"');
+  });
+
+  it("指定 Web 端口时生成覆盖基础端口映射的 override", () => {
+    const content = buildComposeOverride(undefined, ["butler-web"], 17531);
+    expect(content).toContain("ports: !override");
+    expect(content).toContain("127.0.0.1:17531:7531");
+    expect(content).not.toContain("REGISTRY_MIRROR=");
   });
 });
 

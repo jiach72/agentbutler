@@ -95,6 +95,49 @@ class OutboxTest(unittest.TestCase):
         self.reopen()
         self.assertEqual(self.outbox.get(envelope["messageId"])["state"], "captured")
 
+    def test_prune_history_deletes_only_old_terminal_messages_and_children(self) -> None:
+        old = make_envelope("018bcfe5-6800-7000-8000-000000000021")
+        fresh = make_envelope("018bcfe5-6800-7000-8000-000000000022")
+        retry = make_envelope("018bcfe5-6800-7000-8000-000000000023")
+        unknown = make_envelope("018bcfe5-6800-7000-8000-000000000024")
+
+        self.outbox.capture(old)
+        self.outbox.capture(fresh)
+        self.outbox.capture(retry)
+        self.outbox.capture(unknown)
+        self.outbox._conn.execute(
+            "UPDATE outbound_messages SET state = ?, updated_at = ? WHERE message_id = ?",
+            ("delivered", "2026-08-01T00:00:00.000Z", old["messageId"]),
+        )
+        self.outbox._conn.execute(
+            "UPDATE outbound_messages SET state = ?, updated_at = ? WHERE message_id = ?",
+            ("delivered", "2026-08-23T00:00:00.000Z", fresh["messageId"]),
+        )
+        self.outbox._conn.execute(
+            "UPDATE outbound_messages SET state = ?, updated_at = ? WHERE message_id = ?",
+            ("retry_wait", "2026-08-01T00:00:00.000Z", retry["messageId"]),
+        )
+        self.outbox._conn.execute(
+            "UPDATE outbound_messages SET state = ?, updated_at = ? WHERE message_id = ?",
+            ("delivery_unknown", "2026-08-01T00:00:00.000Z", unknown["messageId"]),
+        )
+        self.outbox._conn.execute(
+            "INSERT INTO message_state_events(event_id, message_id, from_state, to_state, reason, occurred_at) VALUES (?, ?, ?, ?, ?, ?)",
+            ("state-old", old["messageId"], "captured", "delivered", "test", "2026-08-01T00:00:00.000Z"),
+        )
+
+        removed = self.outbox.prune_history("2026-08-08T00:00:00.000Z")
+
+        self.assertEqual(removed, 2)
+        self.assertIsNone(self.outbox.get(old["messageId"]))
+        self.assertIsNotNone(self.outbox.get(fresh["messageId"]))
+        self.assertEqual(self.outbox.get(retry["messageId"])["state"], "retry_wait")
+        self.assertIsNone(self.outbox.get(unknown["messageId"]))
+        self.assertEqual(
+            self.outbox._conn.execute("SELECT COUNT(*) FROM message_state_events WHERE message_id = ?", (old["messageId"],)).fetchone()[0],
+            0,
+        )
+
     def test_capture_rejects_same_id_with_different_content(self) -> None:
         message_id = "018bcfe5-6800-7000-8000-000000000003"
         self.outbox.capture(make_envelope(message_id))

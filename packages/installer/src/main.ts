@@ -1,15 +1,17 @@
 /**
  * CLI 入口：手写 process.argv 解析（零外部依赖）。
  *
- * 参数: --form host|docker（缺省 host）、--dry-run、--skip-network、--secrets-only、--help
+ * 参数: --framework hermes|openclaw、--form host|docker（缺省 host）、--web-port、--dry-run、--skip-network、--secrets-only、--help
  * 运行 runInstaller 并打印人类可读报告；退出码：全部通过 0、有失败步骤 1。
  */
 import { pathToFileURL } from "node:url";
 import { runInstaller, type InstallerReport, type InstallerOptions } from "./install.js";
 
 export interface CliArgs {
+  framework?: "hermes" | "openclaw";
   form: "host" | "docker";
   dryRun: boolean;
+  webHostPort?: number;
   skipNetwork: boolean;
   secretsOnly: boolean;
   help: boolean;
@@ -22,7 +24,9 @@ export const USAGE = `Agent Butler 安装器（双形态 + 国内镜像切换）
 用法: node packages/installer/dist/main.js [选项]
 
 选项:
+  --framework hermes|openclaw  被安装/管理的智能体框架（缺省 hermes）
   --form host|docker   安装形态：宿主进程形态（host，缺省）或容器形态（docker）
+  --web-port <1-65535> Web 监听端口（Docker 形态缺省 7531）
   --dry-run            只打印将执行的步骤，不执行命令、不写文件
   --skip-network       跳过网络逐源探测（按官方源处理，不切镜像）
   --secrets-only       仅做密钥逐项校验引导，不执行安装
@@ -30,6 +34,7 @@ export const USAGE = `Agent Butler 安装器（双形态 + 国内镜像切换）
 
 示例:
   node packages/installer/dist/main.js --form docker --dry-run
+  node packages/installer/dist/main.js --framework openclaw --form docker --web-port 17531
   node packages/installer/dist/main.js --form host --secrets-only`;
 
 /** 手写 argv 解析：支持 --form host 与 --form=host 两种写法。 */
@@ -47,8 +52,21 @@ export function parseArgs(argv: string[]): CliArgs {
     const token = argv[i]!;
     if (token === "--help" || token === "-h") {
       args.help = true;
+    } else if (token === "--framework" || token.startsWith("--framework=")) {
+      const value = token === "--framework" ? argv[++i] : token.slice("--framework=".length);
+      if (value !== "hermes" && value !== "openclaw") {
+        return fail(`--framework 的值必须是 hermes 或 openclaw，收到: ${String(value)}`);
+      }
+      args.framework = value;
     } else if (token === "--dry-run") {
       args.dryRun = true;
+    } else if (token === "--web-port" || token.startsWith("--web-port=")) {
+      const raw = token === "--web-port" ? argv[++i] : token.slice("--web-port=".length);
+      const value = Number(raw);
+      if (!Number.isInteger(value) || value < 1 || value > 65_535) {
+        return fail(`--web-port 必须是 1-65535 的整数，收到: ${String(raw)}`);
+      }
+      args.webHostPort = value;
     } else if (token === "--skip-network") {
       args.skipNetwork = true;
     } else if (token === "--secrets-only") {
@@ -98,7 +116,7 @@ export function renderReport(report: InstallerReport): string {
   const lines: string[] = [];
   const formLabel =
     report.form === "secrets-only" ? "secrets-only（仅密钥引导）" : report.form === "docker" ? "docker（容器形态）" : "host（宿主进程形态）";
-  lines.push(`Agent Butler 安装器报告`, `形态: ${formLabel}${report.dryRun ? "（dry-run）" : ""}`, "");
+  lines.push(`Agent Butler 安装器报告`, `框架: ${report.framework}`, `形态: ${formLabel}${report.dryRun ? "（dry-run）" : ""}`, "");
 
   const platform = report.platform;
   lines.push(
@@ -144,8 +162,10 @@ export async function main(
     return 0;
   }
   const report = await runInstaller({
+    framework: args.framework ?? "hermes",
     form: args.form,
     dryRun: args.dryRun,
+    webHostPort: args.webHostPort,
     skipNetwork: args.skipNetwork,
     secretsOnly: args.secretsOnly,
     env: options.env ?? process.env,

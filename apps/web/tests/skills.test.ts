@@ -192,4 +192,56 @@ describe("butler-web 技能与记忆代理", () => {
     const offlineResponse = await offlineApp.inject({ method: "GET", url: "/api/skills" });
     expect(offlineResponse.json()).toMatchObject({ watchReachable: false, instance: null });
   });
+
+  it("风险字段只接受受控枚举并透传合法状态", async () => {
+    const transport = makeFetch({
+      ...WATCH_VIEW,
+      skills: {
+        ...WATCH_VIEW.skills,
+        items: [
+          {
+            ...WATCH_VIEW.skills.items[0],
+            riskStatus: "unscanned",
+            riskDetail: "尚未执行风险扫描",
+          },
+        ],
+      },
+      plugins: {
+        ...WATCH_VIEW.plugins,
+        items: [
+          {
+            ...WATCH_VIEW.plugins.items[0],
+            riskStatus: "blocked",
+            riskDetail: "清单解析失败，暂不把它当作可信资产",
+          },
+        ],
+      },
+    });
+    const app = build(transport.fetch);
+    const response = await app.inject({ method: "GET", url: "/api/skills" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().skills.items[0]).toMatchObject({
+      riskStatus: "unscanned",
+      riskDetail: "尚未执行风险扫描",
+    });
+    expect(response.json().plugins.items[0]).toMatchObject({
+      riskStatus: "blocked",
+      riskDetail: "清单解析失败，暂不把它当作可信资产",
+    });
+
+    const malformed = makeFetch({
+      ...WATCH_VIEW,
+      skills: {
+        ...WATCH_VIEW.skills,
+        items: [{ ...WATCH_VIEW.skills.items[0], riskStatus: "unsafe" }],
+      },
+    });
+    const malformedApp = build(malformed.fetch);
+    const malformedResponse = await malformedApp.inject({ method: "GET", url: "/api/skills" });
+    expect(malformedResponse.json()).toMatchObject({
+      watchReachable: false,
+      skills: { mode: "unavailable", items: [] },
+    });
+  });
 });

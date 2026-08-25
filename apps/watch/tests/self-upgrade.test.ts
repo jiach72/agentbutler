@@ -114,6 +114,7 @@ describe("管家自身版本管理服务", () => {
     expect(status.availableUpdates[0]?.version).toBe("0.2.0");
     expect(status.prefs.channel).toBe("stable");
     expect(status.snapshots).toEqual([]);
+    expect(status.snapshotRetention).toBe(3);
   });
 
   it("按 SemVer 排序预发布标签，并将 dev 版本归入测试通道", () => {
@@ -287,7 +288,7 @@ describe("管家自身版本管理服务", () => {
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
-  });
+  }, 20_000);
 
   it("真实 git 仓库端到端：升级构建失败自动回滚到原 commit", async () => {
     const repo = mkdtempSync(join(tmpdir(), "butler-self-repo-"));
@@ -331,5 +332,5 @@ describe("管家自身版本管理服务", () => {
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
-  });
+  }, 20_000);
 });

@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LogSource } from "@butler/contract";
 import { EventBus } from "../src/events";
 import { LogTailer, type TailedBatch } from "../src/tail";
@@ -143,5 +143,57 @@ describe("LogTailer", () => {
     expect(batches).toHaveLength(1);
     expect(batches[0]!.source.id).toBe("hermes-log");
     expect(store.getTailPosition("gone")).toBeUndefined();
+  });
+
+  it("一个源只有部分行时仍继续处理后续源", async () => {
+    const nextFile = path.join(tmp, "logs", "next.log");
+    const nextSource: LogSource = { id: "next-log", path: nextFile, format: "text" };
+    fs.writeFileSync(logFile, "partial");
+    fs.writeFileSync(nextFile, "complete\n");
+    const tailer = new LogTailer({ store, bus });
+    tailer.registerSources([source, nextSource]);
+
+    const batches = await drain(tailer);
+    expect(batches).toHaveLength(1);
+    expect(batches[0]!.source.id).toBe("next-log");
+    expect(batches[0]!.lines.map((line) => line.raw)).toEqual(["complete"]);
+    expect(store.getTailPosition("hermes-log")).toBeUndefined();
+  });
+
+  it("大增量读取按固定块分配，不一次性申请整个文件", async () => {
+    fs.writeFileSync(logFile, `${"x".repeat(256 * 1024)}\n`);
+    const alloc = vi.spyOn(Buffer, "alloc");
+    try {
+      const batches = await drain(newTailer());
+      expect(batches).toHaveLength(1);
+      expect(batches[0]!.lines[0]!.raw).toHaveLength(256 * 1024);
+      const sizes = alloc.mock.calls.map(([size]) => Number(size));
+      expect(Math.max(...sizes)).toBeLessThanOrEqual(64 * 1024);
+    } finally {
+      alloc.mockRestore();
+    }
+  });
+
+  it("UTF-8 多字节字符跨读取块边界时保持完整", async () => {
+    const raw = `${"x".repeat(64 * 1024 - 1)}界`;
+    fs.writeFileSync(logFile, `${raw}\n`);
+
+    const batches = await drain(newTailer());
+    expect(batches).toHaveLength(1);
+    expect(batches[0]!.lines.map((line) => line.raw)).toEqual([raw]);
+  });
+
+  it("超长未换行尾部在后续补全后完整交付", async () => {
+    const raw = "x".repeat(128 * 1024);
+    fs.writeFileSync(logFile, raw);
+    const tailer = newTailer();
+    expect(await drain(tailer)).toHaveLength(0);
+    expect(store.getTailPosition("hermes-log")).toBeUndefined();
+
+    fs.appendFileSync(logFile, "\n");
+    const batches = await drain(tailer);
+    expect(batches).toHaveLength(1);
+    expect(batches[0]!.lines.map((line) => line.raw)).toEqual([raw]);
+    expect(store.getTailPosition("hermes-log")).toBe(Buffer.byteLength(`${raw}\n`));
   });
 });

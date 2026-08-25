@@ -110,6 +110,8 @@ const DECISION_STATES = new Set(["held_dnd", "held_pacing", "ready", "absorbed",
 const TRANSPORT_CLASSES = new Set(["queued-push", "inline-response"]);
 const MESSAGE_PRIORITIES = new Set(["urgent", "normal", "low"]);
 const DND_SCOPES = new Set(["global", "channel", "session"]);
+export const MESSAGE_HISTORY_RETENTION_DAYS = 7;
+export const MESSAGE_HISTORY_RETENTION_MS = MESSAGE_HISTORY_RETENTION_DAYS * 24 * 60 * 60 * 1_000;
 
 export interface ProjectedMessageView extends OutboxMessageView {
   decisionId: string | null;
@@ -551,6 +553,25 @@ export class MessagePolicyStore {
       if (state in counts) counts[state] = Number(row["count"]);
     }
     return counts;
+  }
+
+  /**
+   * Removes only terminal local projections older than the retention cutoff. The Bridge
+   * outbox remains authoritative and is never mutated by this local housekeeping pass.
+   */
+  pruneMessageHistory(cutoff = new Date(Date.now() - MESSAGE_HISTORY_RETENTION_MS).toISOString()): number {
+    requireIsoTimestamp(cutoff, "cutoff");
+    return this.withImmediateTransaction(() => {
+      const result = this.db
+        .prepare(
+          `DELETE FROM message_projection
+           WHERE updated_at < ?
+             AND pending_decision_json IS NULL
+             AND state IN ('delivered', 'delivery_unknown', 'absorbed', 'policy_error', 'dead_letter', 'cancelled')`,
+        )
+        .run(cutoff);
+      return Number(result.changes);
+    });
   }
 
   private resolveBatchInstanceId(batch: OutboxChangeBatch, explicitInstanceId?: string): string | undefined {

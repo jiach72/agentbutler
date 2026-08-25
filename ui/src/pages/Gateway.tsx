@@ -7,6 +7,7 @@
  * - 每 10 秒刷新一次，各数据分区独立降级。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { DangerConfirmModal } from "../components/DangerConfirmModal.js";
 import { fetchJson, postJson } from "../lib/api.js";
 import { PromptOptimizationPanel } from "../components/PromptOptimizationPanel.js";
 
@@ -189,6 +190,12 @@ interface DriftReport {
 type PatchDrafts = Record<string, Record<string, string>>;
 type Toast = { kind: "ok" | "err"; text: string };
 type PatchAction = "apply" | "reapply" | "detect";
+type PendingPatchAction = {
+  patch: GatewayPatch;
+  action: Exclude<PatchAction, "detect">;
+  params: Record<string, number>;
+  instanceId?: string;
+};
 
 const REFRESH_INTERVAL_MS = 10_000;
 
@@ -501,6 +508,7 @@ export function GatewayPage() {
   const [driftReports, setDriftReports] = useState<Record<string, DriftReport>>({});
   const [selectedInstance, setSelectedInstance] = useState("");
   const [busyAction, setBusyAction] = useState("");
+  const [pendingPatchAction, setPendingPatchAction] = useState<PendingPatchAction | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -637,31 +645,40 @@ export function GatewayPage() {
       showToast("err", parsed.error);
       return;
     }
-    const verb = action === "apply" ? "应用" : "重打";
-    const confirmed = window.confirm(
-      `${verb}补丁会写入已登记的 Hermes 源文件：\n${patch.target}\n\n继续执行？`,
-    );
-    if (!confirmed) return;
+    setPendingPatchAction({
+      patch,
+      action,
+      params: parsed.params,
+      ...(selectedInstance.trim() === "" ? {} : { instanceId: selectedInstance.trim() }),
+    });
+  };
 
+  const executePendingPatchAction = async (pending: PendingPatchAction): Promise<void> => {
+    const key = `${pending.patch.id}:${pending.action}`;
+    const verb = pending.action === "apply" ? "应用" : "重打";
     setBusyAction(key);
-    const body: { params: Record<string, number>; instanceId?: string } = { params: parsed.params };
-    if (selectedInstance.trim() !== "") body.instanceId = selectedInstance.trim();
-    const result = await postJson(
-      `/api/gateway/patches/${encodeURIComponent(patch.id)}/${action}`,
-      body,
-      10_000,
-    );
-    if (result.status === 200) {
-      const outcome =
-        result.data !== null && typeof result.data === "object"
-          ? String((result.data as Record<string, unknown>)["result"] ?? "ok")
-          : "ok";
-      showToast("ok", `${patch.title} ${verb}成功（${outcome}）`);
-      await refresh();
-    } else {
-      showToast("err", patchActionError(result.status, result.data));
+    try {
+      const body: { params: Record<string, number>; instanceId?: string } = { params: pending.params };
+      if (pending.instanceId !== undefined) body.instanceId = pending.instanceId;
+      const result = await postJson(
+        `/api/gateway/patches/${encodeURIComponent(pending.patch.id)}/${pending.action}`,
+        body,
+        10_000,
+      );
+      if (result.status === 200) {
+        const outcome =
+          result.data !== null && typeof result.data === "object"
+            ? String((result.data as Record<string, unknown>)["result"] ?? "ok")
+            : "ok";
+        showToast("ok", `${pending.patch.title} ${verb}成功（${outcome}）`);
+        await refresh();
+      } else {
+        showToast("err", patchActionError(result.status, result.data));
+      }
+    } finally {
+      setBusyAction("");
+      setPendingPatchAction(null);
     }
-    setBusyAction("");
   };
 
   if (data === null && messageData === null && loading) {
@@ -1391,6 +1408,41 @@ export function GatewayPage() {
       <div id="prompt-optimization" className={`gateway-prompt-section${promptFlash ? " is-flashing" : ""}`}>
         <PromptOptimizationPanel />
       </div>
+      {pendingPatchAction !== null && (
+        <DangerConfirmModal
+          open
+          title={pendingPatchAction.action === "apply" ? "确认应用消息调整" : "确认恢复官方默认"}
+          busy={busyAction !== ""}
+          confirmLabel={pendingPatchAction.action === "apply" ? "确认应用" : "确认恢复"}
+          onCancel={() => {
+            if (busyAction === "") setPendingPatchAction(null);
+          }}
+          onConfirm={() => executePendingPatchAction(pendingPatchAction)}
+          steps={[
+            "再次校验配置不变式和补丁锚点",
+            "首次应用前保留官方原文备份",
+            "写入已登记的 Hermes 源文件并记录审计",
+          ]}
+        >
+          <p>
+            将对「{pendingPatchAction.patch.title}」执行
+            {pendingPatchAction.action === "apply" ? "应用" : "恢复官方默认"}，目标文件为
+            <code>{pendingPatchAction.patch.target}</code>。
+          </p>
+          <p className="danger-impact">
+            这是实际的源码写入操作。漂移、手工实现或配置不变式不满足时，服务端会拒绝执行；本次确认前不会修改任何文件。
+          </p>
+          <p className="hint">
+            参数：
+            {Object.entries(pendingPatchAction.params)
+              .map(([name, value]) => (PARAM_LABELS[name] ?? name) + "=" + String(value))
+              .join(" · ")}
+            {pendingPatchAction.instanceId === undefined
+              ? "；实例：自动选择"
+              : "；实例：" + pendingPatchAction.instanceId}
+          </p>
+        </DangerConfirmModal>
+      )}
     </section>
   );
 }

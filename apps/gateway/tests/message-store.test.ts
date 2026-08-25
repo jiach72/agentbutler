@@ -178,6 +178,31 @@ describe("MessagePolicyStore", () => {
     store.close();
   });
 
+  it("prunes only terminal message history older than the retention cutoff", () => {
+    const store = new MessagePolicyStore(dbFile);
+    const oldDelivered = { ...BATCH.items[0], messageId: "old-delivered", state: "delivered" as const };
+    const oldRetry = { ...BATCH.items[0], messageId: "old-retry", state: "retry_wait" as const, availableAt: "2026-08-01T00:00:00.000Z" };
+    const freshDelivered = { ...BATCH.items[0], messageId: "fresh-delivered", state: "delivered" as const };
+    store.ingestBatch({
+      afterSequence: 0,
+      nextSequence: 3,
+      items: [oldDelivered, oldRetry, freshDelivered].map((item, index) => ({ ...item, sequence: index + 1 })),
+      taskEvents: [],
+      inbound: [],
+    });
+    const seed = new DatabaseSync(dbFile);
+    seed.prepare("UPDATE message_projection SET updated_at = ? WHERE message_id IN (?, ?)").run("2026-08-01T00:00:00.000Z", "old-delivered", "old-retry");
+    seed.close();
+
+    const removed = store.pruneMessageHistory("2026-08-08T00:00:00.000Z");
+
+    expect(removed).toBe(1);
+    expect(store.messageView("old-delivered")).toBeUndefined();
+    expect(store.messageView("old-retry")?.state).toBe("retry_wait");
+    expect(store.messageView("fresh-delivered")?.state).toBe("delivered");
+    store.close();
+  });
+
   it("rejects a skipped Bridge cursor before it writes a partial projection", () => {
     const store = new MessagePolicyStore(dbFile);
     store.ingestBatch(BATCH);

@@ -90,7 +90,7 @@ const ALIVE_POLL_INTERVAL_MS = 200;
 export interface ProcessExecutorOptions {
   exec?: CommandExecutor;
   prober?: PortProber;
-  /** systemd user unit 名（默认 "hermes"）。 */
+  /** systemd user unit 名；未显式配置时禁用 systemd 控制，避免猜测错误服务。 */
   unitName?: string;
 }
 
@@ -101,12 +101,13 @@ export interface ProcessExecutorOptions {
 export class ProcessExecutor {
   private readonly runner: CommandExecutor;
   private readonly prober: PortProber;
-  private readonly unitName: string;
+  private readonly unitName?: string;
 
   constructor(opts: ProcessExecutorOptions = {}) {
     this.runner = opts.exec ?? createExecFileExecutor();
     this.prober = opts.prober ?? defaultProber;
-    this.unitName = opts.unitName ?? "hermes";
+    const configuredUnit = opts.unitName?.trim();
+    this.unitName = configuredUnit === "" ? undefined : configuredUnit;
   }
 
   async isAlive(rootPath: string): Promise<boolean> {
@@ -123,7 +124,7 @@ export class ProcessExecutor {
     if (await this.isAlive(rootPath)) return { ok: true, note: "已在运行，幂等成功" };
     const timeoutMs = (opts.timeoutSec ?? DEFAULT_START_TIMEOUT_SEC) * 1000;
     if (await this.unitExists()) {
-      const r = await this.runner.exec("systemctl", ["--user", "start", this.unitName], { timeoutMs });
+      const r = await this.runner.exec("systemctl", ["--user", "start", this.unitName!], { timeoutMs });
       if (r.code !== 0) {
         return {
           ok: false,
@@ -146,7 +147,7 @@ export class ProcessExecutor {
     const timeoutMs = (opts.timeoutSec ?? DEFAULT_STOP_TIMEOUT_SEC) * 1000;
     const hasUnit = await this.unitExists();
     if (hasUnit) {
-      await this.runner.exec("systemctl", ["--user", "stop", this.unitName], { timeoutMs });
+      await this.runner.exec("systemctl", ["--user", "stop", this.unitName!], { timeoutMs });
     } else {
       for (const pid of await this.pgrepPids(rootPath)) {
         await this.runner.exec("kill", [pid]);
@@ -159,7 +160,7 @@ export class ProcessExecutor {
     }
     if (await this.isAlive(rootPath)) {
       if (hasUnit) {
-        await this.runner.exec("systemctl", ["--user", "kill", this.unitName]);
+        await this.runner.exec("systemctl", ["--user", "kill", this.unitName!]);
       } else {
         for (const pid of await this.pgrepPids(rootPath)) {
           await this.runner.exec("kill", ["-9", pid]);
@@ -179,6 +180,9 @@ export class ProcessExecutor {
   }
 
   private async unitExists(): Promise<boolean> {
+    // Never probe or operate a guessed unit name. A service unit must be
+    // explicitly bound by the host integration that owns the instance.
+    if (!this.unitName) return false;
     const r = await this.runner.exec("systemctl", ["--user", "cat", this.unitName]);
     return r.code === 0;
   }

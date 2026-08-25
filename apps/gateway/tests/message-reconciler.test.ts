@@ -275,6 +275,7 @@ describe("MessageGatewayService", () => {
       adapter, instance: INSTANCE, store, config: DEFAULT_MESSAGE_POLICY, clock: () => new Date(NOW),
       scheduler: { setInterval: (fn) => { scheduled = fn; return 1; }, clearInterval: clear }, randomUUID: () => "attempt-1",
     });
+    const prune = vi.spyOn(store, "pruneMessageHistory");
     await service.start();
     expect(adapter.policies).toHaveLength(1);
     expect(adapter.decisions).toHaveLength(1);
@@ -282,6 +283,7 @@ describe("MessageGatewayService", () => {
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
     const status = await service.status();
     expect(status).toMatchObject({ running: true, inFlight: false, bridgeConnected: true, policyVersion: DEFAULT_MESSAGE_POLICY.version, counts: { delivered: 1 } });
+    expect(prune).toHaveBeenCalledWith("2026-08-15T10:00:00.000Z");
     await service.stop(); await service.stop();
     expect(clear).toHaveBeenCalledTimes(1);
   });

@@ -94,7 +94,7 @@ export {
   type HermesMemoryDriverOptions,
   type ReadonlySqliteOpener,
 } from "./drivers/index.js";
-export { createHermesControl, type HermesControlOptions } from "./control/index.js";
+export { createHermesControl, type HermesControlInvoker, type HermesControlOptions } from "./control/index.js";
 export {
   createDefaultPullStrategy,
   createUpgradePipeline,

@@ -59,7 +59,20 @@ export interface HermesControlOptions {
     emit?: (view: UpgradeJobView) => void;
     pull?: PullStrategy;
   };
+  /**
+   * 升级流水线内部控制调用器。watch 注入 core.invoke 后，流水线中的
+   * stop/start/snapshot/rollback/validateConfig 也会经过能力路由；
+   * 独立使用时缺省为直通调用，保持适配器向后兼容。
+   */
+  controlInvoker?: HermesControlInvoker;
 }
+
+export type HermesControlInvoker = <T>(
+  method: string,
+  instance: InstanceRef,
+  capability: "control" | "config-driver",
+  fn: () => Promise<Result<T>>,
+) => Promise<Result<T>>;
 
 /** 从 InstanceRef 解析 rootPath：优先 rootPath 字段，回退 "instanceId|rootPath" 复合形式。 */
 function rootPathFromRef(ref: InstanceRef): string | null {
@@ -67,6 +80,14 @@ function rootPathFromRef(ref: InstanceRef): string | null {
 }
 
 export function createHermesControl(options: HermesControlOptions = {}): ControlAdapter {
+  const controlInvoker: HermesControlInvoker =
+    options.controlInvoker ??
+    (async <T>(
+      _method: string,
+      _instance: InstanceRef,
+      _capability: "control" | "config-driver",
+      fn: () => Promise<Result<T>>,
+    ): Promise<Result<T>> => fn());
   const processExecutor = new ProcessExecutor({
     exec: options.exec,
     prober: options.prober,
@@ -158,11 +179,16 @@ export function createHermesControl(options: HermesControlOptions = {}): Control
       const deps = snapshotDeps();
       // control 门面方法闭包即 UpgradeControl（stop/start/snapshot/rollback 复用双执行器）。
       const upgradeControl: UpgradeControl = {
-        stop: (instance, opts) => adapter.stop(instance, opts),
-        start: (instance, opts) => adapter.start(instance, opts),
-        snapshot: (instance, scope) => adapter.snapshot(instance, scope),
-        rollback: (instance, ref) => adapter.rollback(instance, ref),
-        validateConfig: (instance) => adapter.validateConfig(instance),
+        stop: (instance, opts) =>
+          controlInvoker("stop", instance, "control", () => adapter.stop(instance, opts)),
+        start: (instance, opts) =>
+          controlInvoker("start", instance, "control", () => adapter.start(instance, opts)),
+        snapshot: (instance, scope) =>
+          controlInvoker("snapshot", instance, "control", () => adapter.snapshot(instance, scope)),
+        rollback: (instance, ref) =>
+          controlInvoker("rollback", instance, "control", () => adapter.rollback(instance, ref)),
+        validateConfig: (instance) =>
+          controlInvoker("validateConfig", instance, "config-driver", () => adapter.validateConfig(instance)),
       };
       upgradePipeline = createUpgradePipeline({
         store: deps.store,

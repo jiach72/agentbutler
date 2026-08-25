@@ -88,6 +88,7 @@ describe("hermes-skill read-only driver", () => {
         "---",
         "name: arxiv",
         "description: Search research papers.",
+        "category: research",
         "version: 2.1.0",
         "---",
         "",
@@ -100,6 +101,7 @@ describe("hermes-skill read-only driver", () => {
         "---",
         "name: reviewer",
         "description: Review local documents.",
+        "category: custom",
         "source: self-evolved",
         "version: 0.3.0",
         "---",
@@ -146,7 +148,7 @@ describe("hermes-skill read-only driver", () => {
     expect(parsed.data?.raw).toContain("# Reviewer");
   });
 
-  it("平铺技能目录按名称推断领域分类；无法识别归入通用技能", async () => {
+  it("缺少 category 时保留未分类事实，不按名称或目录猜测", async () => {
     writeSkill(
       "data-science",
       ["---", "name: data-science", "version: 1.0.0", "---", "", "# Data"].join("\n"),
@@ -163,9 +165,9 @@ describe("hermes-skill read-only driver", () => {
     const listed = await driver.enumerate(scope());
     expect(listed.ok).toBe(true);
     const byName = new Map((listed.data ?? []).map((item) => [item.name, item.category]));
-    expect(byName.get("data-science")).toBe("数据与 AI");
-    expect(byName.get("wechat-article-search")).toBe("内容与传播");
-    expect(byName.get("random-misc")).toBe("通用技能");
+    expect(byName.get("data-science")).toBeUndefined();
+    expect(byName.get("wechat-article-search")).toBeUndefined();
+    expect(byName.get("random-misc")).toBeUndefined();
   });
 
   it("写操作固定返回 E403，只读校验报告不修改文件", async () => {

@@ -40,6 +40,8 @@ git diff --check
 
 Bridge 测试：
 
+Hermes message launcher 是独立实验路径，默认拒绝启动；不要把它替换为生产 Gateway 入口。仅在隔离环境中显式设置 `BUTLER_ENABLE_HERMES_MESSAGE_RUNTIME=true`，并同时提供 Bridge URL、实例根目录、token 文件和投影数据库配置后，才允许运行 `node apps/gateway/dist/message/launcher.js`。
+
 ```bash
 python -m pip install -r packages/adapters/hermes/bridge/requirements.txt
 PYTHONPATH=packages/adapters/hermes/bridge python -m unittest discover -s packages/adapters/hermes/bridge/tests -q

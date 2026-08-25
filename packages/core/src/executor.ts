@@ -19,10 +19,13 @@ import {
   type ErrorCode,
   type Job,
   type Result,
+  type Capability,
 } from "@butler/contract";
 import type { EventBus } from "./events.js";
 import type { AuditLog } from "./audit.js";
 import type { SqliteStore } from "./store.js";
+import type { CapabilityRouter } from "./router.js";
+import type { InstanceManager, InstanceRecord } from "./lifecycle.js";
 
 export interface InvokeOptions {
   /** 适配器方法名（决定纪律：超时/重试/审计/幂等）。 */
@@ -35,6 +38,8 @@ export interface InvokeOptions {
   idempotencyKey?: string;
   /** 覆盖纪律默认超时（毫秒），测试注入用。 */
   timeoutMs?: number;
+  /** 可选能力路由：提供后调用前必须通过 capabilityScan，调用后自动记录结果。 */
+  capability?: Capability;
 }
 
 /** 方法类别 → 超时错误码。 */
@@ -62,16 +67,39 @@ export class AdapterExecutor {
   private audit: AuditLog;
   private store: SqliteStore;
   private bus: EventBus;
+  private router?: CapabilityRouter;
+  private instances?: InstanceManager;
 
-  constructor(deps: { audit: AuditLog; store: SqliteStore; bus: EventBus }) {
+  constructor(deps: {
+    audit: AuditLog;
+    store: SqliteStore;
+    bus: EventBus;
+    router?: CapabilityRouter;
+    instances?: InstanceManager;
+  }) {
     this.audit = deps.audit;
     this.store = deps.store;
     this.bus = deps.bus;
+    this.router = deps.router;
+    this.instances = deps.instances;
   }
 
   async invokeAdapter<T>(fn: () => Promise<Result<T>>, opts: InvokeOptions): Promise<Result<T>> {
     const discipline = getDiscipline(opts.method);
     const timeoutMs = opts.timeoutMs ?? discipline.timeoutMs;
+    let routedInstance: InstanceRecord | undefined;
+    if (opts.capability !== undefined) {
+      routedInstance = opts.instance === undefined ? undefined : this.instances?.getInstance(opts.instance);
+      if (routedInstance === undefined || this.router === undefined) {
+        return fail("E103", `能力路由缺少实例上下文：${opts.capability}`);
+      }
+      const check = this.router.check(routedInstance, opts.capability);
+      if (!check.allowed) {
+        return fail("E103", check.reason ?? `能力 ${opts.capability} 未实现`, {
+          userHint: "该能力未实现，入口已隐藏",
+        });
+      }
+    }
 
     if (opts.idempotencyKey !== undefined) {
       const existing = this.store.findJobByIdempotencyKey(opts.idempotencyKey);
@@ -109,6 +137,9 @@ export class AdapterExecutor {
         steps: job.steps,
       });
       this.bus.emit("job-event", { instanceId: opts.instance, job });
+    }
+    if (routedInstance !== undefined && opts.capability !== undefined) {
+      this.router!.recordResult(routedInstance, opts.capability, result.ok);
     }
     return result;
   }

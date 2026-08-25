@@ -3,6 +3,7 @@
  * 断线 5s 自动重连；底部常驻条滚动显示最近事件。
  */
 import { useEffect, useState } from "react";
+import { disposeWebSocket } from "../lib/websocket.js";
 
 interface TickerEvent {
   id: number;
@@ -70,7 +71,7 @@ export function EventTicker() {
     return () => {
       closed = true;
       if (reconnectTimer !== undefined) clearTimeout(reconnectTimer);
-      socket?.close();
+      disposeWebSocket(socket);
     };
   }, []);
 

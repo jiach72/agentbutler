@@ -4,6 +4,7 @@
     { "path": "packages/contract" },
     { "path": "packages/core" },
     { "path": "packages/adapters/hermes" },
+    { "path": "packages/adapters/openclaw" },
     { "path": "packages/installer" },
     { "path": "apps/watch" },
     { "path": "apps/gateway" },

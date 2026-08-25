@@ -44,7 +44,25 @@ docker compose ps
 docker compose logs -f
 ```
 
-Compose 默认把 `${HOME}/.hermes` 以只读方式挂载到 Watch 容器，并只将 Web 的 `7531` 端口发布到宿主机回环地址。Linux 上访问 Docker socket 时，可按宿主 Docker 组 ID 设置 `DOCKER_GID`。
+Compose 默认从 `.env` 读取运行时目录与通知凭据，使用命名卷 `agent-butler-data` 持久化状态，并只将 Web 的 `7531` 端口发布到宿主机回环地址。Docker Socket 默认关闭；需要容器控制能力时才设置 `DOCKER_SOCKET_PATH=/var/run/docker.sock` 和 `DOCKER_GID`。
+
+推荐一键部署：
+
+```bash
+git clone https://github.com/jiach72/agentbutler.git
+cd agentbutler
+bash scripts/deploy.sh
+```
+
+Windows PowerShell：
+
+```powershell
+git clone https://github.com/jiach72/agentbutler.git
+cd agentbutler
+.\scripts\deploy.ps1
+```
+
+首次部署前复制并检查 `.env.example` 生成的 `.env`：`BUTLER_FRAMEWORK` 选择 `hermes` 或 `openclaw`；`BUTLER_HERMES_HOST_PATH` / `BUTLER_OPENCLAW_HOST_PATH` 指向宿主机状态目录；UI 默认仅绑定 `127.0.0.1`。通知凭据可选，未配置时提醒仍写入持久化队列。
 
 ## 开发与验证
 

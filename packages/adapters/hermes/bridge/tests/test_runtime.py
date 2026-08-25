@@ -89,6 +89,7 @@ class RuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(body["coverage"]["queuedSend"], "pending")
         self.assertEqual(body["coverage"]["edit"], "pending")
         self.assertEqual(body["coverage"]["media"], "pending")
+        self.assertEqual(body["coverage"]["retention"], "ok")
         self.assertNotIn(TOKEN, str(body))
 
         await self.runtime.stop()

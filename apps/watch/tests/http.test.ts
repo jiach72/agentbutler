@@ -3,7 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CommandExecutor, CommandResult, PortProber } from "@butler/adapter-hermes";
-import { startWatchHttp, type RunbookExecuteOutcome, type WatchHttp, type WatchHttpDeps } from "../src/http.js";
+import {
+  startWatchHttp,
+  type RunbookExecuteOutcome,
+  type RunbookResetOutcome,
+  type WatchHttp,
+  type WatchHttpDeps,
+} from "../src/http.js";
 import { createWatchApp, type WatchApp } from "../src/watch.js";
 import type { FetchLike } from "../src/dashboard-signal.js";
 import type { GatewayPanelService } from "../src/gateway-stats.js";
@@ -14,10 +20,13 @@ import type { UpgradeService } from "../src/upgrade.js";
 interface FakeState {
   runbooks: WatchHttpDeps["runbooks"];
   executeOutcome: RunbookExecuteOutcome;
+  resetOutcome: RunbookResetOutcome;
+  resetCalls: Array<{ id: string; instanceId?: string }>;
   executeCalls: Array<{ id: string; instanceId?: string }>;
   runNowResult: boolean;
   runNowCalls: number;
   status: WatchHttpDeps["scheduler"]["status"] extends () => infer S ? S : never;
+  connections: NonNullable<WatchHttpDeps["connections"]>;
 }
 
 /** 升级服务 stub（本文件不覆盖升级端点，仅满足 WatchHttpDeps.upgrade；升级端点见 http-upgrade.test.ts）。 */
@@ -41,10 +50,18 @@ function makeDeps(initial: Partial<FakeState> = {}): { deps: WatchHttpDeps; stat
   const state: FakeState = {
     runbooks: initial.runbooks ?? (() => []),
     executeOutcome: initial.executeOutcome ?? { status: "started", instanceId: "hermes-main" },
+    resetOutcome: { status: "reset", keys: ["rb-restart:hermes-main"] },
+    resetCalls: [],
     executeCalls: [],
     runNowResult: initial.runNowResult ?? true,
     runNowCalls: 0,
     status: initial.status ?? { lastAt: null, nextAt: null, intervalMin: 60, inFlight: false },
+    connections: {
+      status: () => ({ checkedAt: "2026-08-24T00:00:00.000Z", connections: [{ instanceId: "hermes-main", connectionState: "connected" }] }),
+      check: async () => ({ status: "checked", connection: { instanceId: "hermes-main", connectionState: "connected", latencyMs: 12 } }),
+      connect: async () => ({ status: "connected", connection: { instanceId: "hermes-main", connectionState: "connected" } }),
+      disconnect: async () => ({ status: "disconnected", connection: { instanceId: "hermes-main", connectionState: "disconnected" } }),
+    },
   };
   const deps: WatchHttpDeps = {
     scheduler: {
@@ -54,10 +71,15 @@ function makeDeps(initial: Partial<FakeState> = {}): { deps: WatchHttpDeps; stat
       },
       status: () => state.status,
     },
+    connections: state.connections,
     runbooks: () => state.runbooks(),
     executeRunbook: async (id, instanceId) => {
       state.executeCalls.push({ id, instanceId });
       return state.executeOutcome;
+    },
+    resetRunbookBreaker: async (id, instanceId) => {
+      state.resetCalls.push({ id, instanceId });
+      return state.resetOutcome;
     },
     upgrade: upgradeStub,
     gateway: gatewayStub,
@@ -139,6 +161,25 @@ describe("startWatchHttp（注入依赖，回环真实端口）", () => {
     expect(fake.state.executeCalls[1]).toEqual({ id: "rb-restart", instanceId: undefined });
   });
 
+  it("POST /api/runbooks/:id/reset → 200 且透传解除结果；未跳闸 → 409", async () => {
+    const res = await fetch(`${base}/api/runbooks/rb-restart/reset`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ instanceId: "hermes-main" }),
+    });
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({
+      status: "reset",
+      keys: ["rb-restart:hermes-main"],
+    });
+    expect(fake.state.resetCalls).toEqual([{ id: "rb-restart", instanceId: "hermes-main" }]);
+
+    fake.state.resetOutcome = { status: "not-tripped" };
+    const noTrip = await fetch(`${base}/api/runbooks/rb-restart/reset`, { method: "POST" });
+    expect(noTrip.status).toBe(409);
+    await expect(noTrip.json()).resolves.toEqual({ error: "circuit-breaker-not-tripped" });
+  });
+
   it("execute 分支：未知 id → 404；熔断跳闸 → 409 circuit-breaker-tripped；无可用实例 → 503", async () => {
     fake.state.executeOutcome = { status: "unknown-runbook" };
     const notFound = await fetch(`${base}/api/runbooks/rb-nope/execute`, { method: "POST" });
@@ -178,6 +219,31 @@ describe("startWatchHttp（注入依赖，回环真实端口）", () => {
       intervalMin: 60,
       inFlight: false,
     });
+  });
+
+  it("连接管理端点：查询、手动检查、连接和断开均透传结构化状态", async () => {
+    const status = await fetch(`${base}/api/connections`);
+    expect(status.status).toBe(200);
+    await expect(status.json()).resolves.toEqual({
+      checkedAt: "2026-08-24T00:00:00.000Z",
+      connections: [{ instanceId: "hermes-main", connectionState: "connected" }],
+    });
+
+    const check = await fetch(`${base}/api/connections/check`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ instanceId: "hermes-main" }),
+    });
+    expect(check.status).toBe(200);
+    await expect(check.json()).resolves.toMatchObject({ status: "checked", connection: { latencyMs: 12 } });
+
+    const connect = await fetch(`${base}/api/connections/hermes-main/connect`, { method: "POST" });
+    expect(connect.status).toBe(200);
+    await expect(connect.json()).resolves.toMatchObject({ status: "connected" });
+
+    const disconnect = await fetch(`${base}/api/connections/hermes-main/disconnect`, { method: "POST" });
+    expect(disconnect.status).toBe(200);
+    await expect(disconnect.json()).resolves.toMatchObject({ status: "disconnected" });
   });
 
   it("请求体超 16KB → 413；非法 JSON → 400；未知路径 → 404；方法不符 → 405", async () => {
@@ -242,8 +308,8 @@ function writeHermesFixture(): string {
 
 const fakeExec: CommandExecutor = {
   exec: async (cmd: string, args?: string[]): Promise<CommandResult> => {
-    // process-alive 走 "hermes" 模式命中；孤儿网关 pgrep -f 模式无进程。
-    if (cmd === "pgrep" && args?.[1] === "hermes") return { code: 0, stdout: "4242\n", stderr: "" };
+    // process-alive 仅匹配实例 rootPath 下的 hermes-agent 路径；孤儿网关模式无进程。
+    if (cmd === "pgrep" && args?.[1]?.endsWith("hermes-agent")) return { code: 0, stdout: "4242\n", stderr: "" };
     if (cmd === "ps") return { code: 0, stdout: "40960 1.5\n", stderr: "" };
     return { code: 1, stdout: "", stderr: "" };
   },
@@ -300,6 +366,16 @@ describe("createWatchApp HTTP 接线（watchHttpPort=0 随机端口）", () => {
     expect(typeof status["lastAt"]).toBe("string"); // autoStart 已完成首轮
     expect(status["nextAt"]).toBeTypeOf("string");
     expect(status["inFlight"]).toBe(false);
+    expect(status["criticalProbe"]).toMatchObject({
+      intervalMin: 1,
+      slaMin: 10,
+      lastStatus: expect.any(String),
+      lastWithinSla: true,
+      overdue: false,
+      inFlight: false,
+      runCount: 1,
+    });
+    expect(app.core.audit.list({ action: "critical-probe-sla" })).toHaveLength(1);
   });
 
   it("execute：真实接线 202 启动 rb-cleanup-gateway → runbook-started 事件落库", async () => {

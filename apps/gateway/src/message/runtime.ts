@@ -266,10 +266,13 @@ function readPrivateToken(tokenFile: string): string {
     throw new Error(`cannot access ${MESSAGE_RUNTIME_ENV.tokenFile}`);
   }
   if (!stat.isFile()) throw new Error(`${MESSAGE_RUNTIME_ENV.tokenFile} must be a regular file`);
-  if ((stat.mode & 0o777) !== 0o600) {
+  // Windows NTFS does not expose POSIX mode bits through lstat/chmod; the
+  // installer must enforce an equivalent ACL there. Do not treat the
+  // synthetic 0666 mode reported by Node on Windows as evidence of exposure.
+  if (process.platform !== "win32" && (stat.mode & 0o777) !== 0o600) {
     throw new Error(`${MESSAGE_RUNTIME_ENV.tokenFile} must be a private mode 0600 file`);
   }
-  if (typeof process.getuid === "function" && stat.uid !== process.getuid()) {
+  if (process.platform !== "win32" && typeof process.getuid === "function" && stat.uid !== process.getuid()) {
     throw new Error(`${MESSAGE_RUNTIME_ENV.tokenFile} must be owned by the Gateway process user`);
   }
 

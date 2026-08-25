@@ -23,7 +23,8 @@ describe("delivery contract", () => {
     const dockerfile = readFileSync(join(repoRoot, "apps", app, "Dockerfile"), "utf8");
     expect(dockerfile).not.toContain("placeholder");
     expect(dockerfile).toContain("corepack pnpm install --frozen-lockfile");
-    expect(dockerfile).toContain("corepack pnpm run build");
+    expect(dockerfile).toContain("corepack pnpm exec tsc -b --force");
+    expect(dockerfile).toContain("corepack pnpm --filter @butler/ui exec vite build");
     expect(dockerfile).toContain("USER node");
     expect(dockerfile).toContain(`EXPOSE ${port}`);
     expect(dockerfile).toContain(`CMD ["node", "${entry}"]`);

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ERROR_TABLE } from "@butler/contract";
+import { ERROR_TABLE, fail, type InstanceRef, type Result } from "@butler/contract";
 import { SqliteStore } from "@butler/core";
 import { createHermesAdapter } from "../src/index.js";
 import type { UpgradeJobView } from "../src/control/index.js";
@@ -140,10 +140,11 @@ function writeControlFixture(): string {
   return dir;
 }
 
-function makeProcessExecutor(): ProcessExecutor {
+function makeProcessExecutor(unitName?: string): ProcessExecutor {
   return new ProcessExecutor({
     exec: fakeExec,
     prober: async () => alive,
+    unitName,
   });
 }
 
@@ -182,11 +183,23 @@ describe("ProcessExecutor", () => {
         return { code: 0, stdout: "", stderr: "" };
       },
     );
-    const out = await makeProcessExecutor().start(root);
+    const out = await makeProcessExecutor("hermes-gateway.service").start(root);
     expect(out.ok).toBe(true);
     const startCalls = fakeExec.callsOf("systemctl").filter((c) => c.args.includes("start"));
-    expect(startCalls.map((c) => c.args.join(" "))).toContain("--user start hermes");
+    expect(startCalls.map((c) => c.args.join(" "))).toContain("--user start hermes-gateway.service");
     expect(fakeExec.spawns).toHaveLength(0);
+  });
+
+  it("未显式配置 unit 时不探测或控制任意 systemd 服务", async () => {
+    alive = false;
+    fakeExec.onSystemctlCat(true);
+    fakeExec.onSpawn(() => {
+      alive = true;
+    });
+    const out = await makeProcessExecutor().start(root);
+    expect(out.ok).toBe(true);
+    expect(fakeExec.callsOf("systemctl")).toHaveLength(0);
+    expect(fakeExec.spawns).toHaveLength(1);
   });
 
   it("unit 不存在时回退 spawn venv 入口", async () => {
@@ -211,7 +224,7 @@ describe("ProcessExecutor", () => {
 
   it("start 等待就绪超时 → E202", async () => {
     fakeExec.onSystemctlCat(true);
-    const out = (await makeProcessExecutor().start(root, { timeoutSec: 0 })) as Extract<
+    const out = (await makeProcessExecutor("hermes-gateway.service").start(root, { timeoutSec: 0 })) as Extract<
       ExecutorOutcome,
       { ok: false }
     >;
@@ -221,7 +234,7 @@ describe("ProcessExecutor", () => {
 
   it("已停止时 stop 幂等成功：不发任何信号", async () => {
     alive = false;
-    const out = await makeProcessExecutor().stop(root);
+    const out = await makeProcessExecutor("hermes-gateway.service").stop(root);
     expect(out.ok).toBe(true);
     expect(fakeExec.callsOf("kill")).toHaveLength(0);
     expect(fakeExec.callsOf("systemctl")).toHaveLength(0);
@@ -237,7 +250,7 @@ describe("ProcessExecutor", () => {
         return { code: 0, stdout: "", stderr: "" };
       },
     );
-    const out = await makeProcessExecutor().stop(root);
+    const out = await makeProcessExecutor("hermes-gateway.service").stop(root);
     expect(out.ok).toBe(true);
     const killCalls = fakeExec.calls.filter((c) => c.cmd === "systemctl" && c.args.includes("kill"));
     expect(killCalls).toHaveLength(0);
@@ -298,7 +311,7 @@ describe("ProcessExecutor", () => {
         return { code: 0, stdout: "", stderr: "" };
       },
     );
-    const out = await makeProcessExecutor().restart(root);
+    const out = await makeProcessExecutor("hermes-gateway.service").restart(root);
     expect(out.ok).toBe(true);
     const seq = fakeExec
       .callsOf("systemctl")
@@ -461,7 +474,11 @@ describe("createHermesAdapter control 接线", () => {
   });
 
   it("stop 经 systemd unit 执行（注入 exec 生效）", async () => {
-    const adapter = createHermesAdapter({ exec: fakeExec, prober: async () => alive });
+    const adapter = createHermesAdapter({
+      exec: fakeExec,
+      prober: async () => alive,
+      process: { unitName: "hermes-gateway.service" },
+    });
     alive = true;
     fakeExec.onSystemctlCat(true);
     fakeExec.on(
@@ -585,6 +602,41 @@ describe("createHermesAdapter control 接线", () => {
     expect(bad.error!.userHint).toContain("幂等键");
   });
 
+  it("升级流水线内部控制调用经注入能力路由 fail-closed", async () => {
+    writeFileSync(
+      join(root, "hermes-agent", "pyproject.toml"),
+      "[project]\nversion = \"0.20.0\"\n",
+      "utf8",
+    );
+    const calls: string[] = [];
+    const routed = async <T>(
+      method: string,
+      _instance: InstanceRef,
+      _capability: "control" | "config-driver",
+      fn: () => Promise<Result<T>>,
+    ): Promise<Result<T>> => {
+      calls.push(method);
+      return method === "snapshot" ? fail<T>("E103", "snapshot capability unavailable") : fn();
+    };
+    const adapter = createHermesAdapter({
+      store,
+      snapshotsDir,
+      exec: fakeExec,
+      prober: async () => alive,
+      controlInvoker: routed,
+    });
+    const out = await adapter.control!.upgrade(
+      { instanceId: "hermes-main", rootPath: root },
+      { version: "0.21.0" },
+      { idempotencyKey: "upgrade-routed-deny" },
+    );
+    expect(out.ok).toBe(true);
+    await waitUntil(() => store.findJobByIdempotencyKey("upgrade-routed-deny")?.status === "failed");
+    expect(calls).toEqual(["validateConfig", "snapshot"]);
+    expect(store.findJobByIdempotencyKey("upgrade-routed-deny")?.steps.find((s) => s.id === "snapshot")?.detail).toContain("snapshot capability unavailable");
+    expect(fakeExec.calls).toHaveLength(0);
+  });
+
   it("所有失败错误码都来自契约错误码表", async () => {
     const adapter = createHermesAdapter({ exec: fakeExec, prober: async () => alive });
     const failures = [
@@ -606,8 +658,14 @@ describe("createHermesAdapter control 接线", () => {
 /* --------------------------------- snapshot --------------------------------- */
 
 describe("snapshot", () => {
-  function makeAdapter() {
-    return createHermesAdapter({ store, snapshotsDir, exec: fakeExec, prober: async () => alive });
+  function makeAdapter(unitName?: string) {
+    return createHermesAdapter({
+      store,
+      snapshotsDir,
+      exec: fakeExec,
+      prober: async () => alive,
+      process: unitName ? { unitName } : undefined,
+    });
   }
 
   const ref = () => ({ instanceId: "hermes-main", rootPath: root });
@@ -748,8 +806,14 @@ describe("snapshot", () => {
 /* --------------------------------- rollback --------------------------------- */
 
 describe("rollback", () => {
-  function makeAdapter() {
-    return createHermesAdapter({ store, snapshotsDir, exec: fakeExec, prober: async () => alive });
+  function makeAdapter(unitName?: string) {
+    return createHermesAdapter({
+      store,
+      snapshotsDir,
+      exec: fakeExec,
+      prober: async () => alive,
+      process: unitName ? { unitName } : undefined,
+    });
   }
 
   const ref = () => ({ instanceId: "hermes-main", rootPath: root });
@@ -784,7 +848,7 @@ describe("rollback", () => {
   });
 
   it("运行中实例回滚：fake 执行器收到 stop → start 序列", async () => {
-    const adapter = makeAdapter();
+    const adapter = makeAdapter("hermes-gateway.service");
     alive = true;
     fakeExec.onSystemctlCat(true);
     fakeExec.on(

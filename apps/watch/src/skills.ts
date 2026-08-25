@@ -2,6 +2,7 @@ import { existsSync, lstatSync, readFileSync, readdirSync, type Dirent } from "n
 import { createCipheriv, randomBytes, scryptSync } from "node:crypto";
 import { basename, join, relative } from "node:path";
 import {
+  type AssetRiskStatus,
   MEMORY_PREVIEW_LIMIT,
   type ArchivePolicy,
   type ArchiveReport,
@@ -219,6 +220,20 @@ function chooseInstance(core: Core, instanceId?: string): InstanceRecord | undef
   return instances.find((instance) => instance.state === "Serving") ?? instances[0];
 }
 
+function withRiskStatus<T extends { name: string; version: string; riskStatus?: AssetRiskStatus; riskDetail?: string }>(
+  items: T[],
+): T[] {
+  return items.map((item) => {
+    if (item.riskStatus !== undefined) return item;
+    const blocked = item.version === "解析失败";
+    return {
+      ...item,
+      riskStatus: blocked ? "blocked" : "unscanned",
+      riskDetail: blocked ? "清单解析失败，暂不允许把它当作可信资产" : "尚未执行风险扫描",
+    };
+  });
+}
+
 function writeActivity(
   stats: MemoryStats | null,
   now: () => number,
@@ -346,6 +361,7 @@ export function createSkillsMemoryService(deps: SkillsMemoryServiceDeps): Skills
     const result = await deps.core.invoke(() => fn(resolved.scope, policy), {
       method,
       instance: resolved.instance.instanceId,
+      capability: "memory-driver",
       auditEntry: { actor: "memory", detail: { policy } },
     });
     if (result.ok && result.data !== undefined) {
@@ -391,6 +407,7 @@ export function createSkillsMemoryService(deps: SkillsMemoryServiceDeps): Skills
           : deps.core.invoke(() => deps.skillDriver!.enumerate(scope), {
               method: "enumerate",
               instance: instance.instanceId,
+              capability: "skill-driver",
             });
       const pluginPromise =
         deps.pluginDriver === undefined
@@ -398,6 +415,7 @@ export function createSkillsMemoryService(deps: SkillsMemoryServiceDeps): Skills
           : deps.core.invoke(() => deps.pluginDriver!.enumerate(scope), {
               method: "enumerate",
               instance: instance.instanceId,
+              capability: "skill-driver",
             });
       const statsPromise =
         deps.memoryDriver === undefined
@@ -405,6 +423,7 @@ export function createSkillsMemoryService(deps: SkillsMemoryServiceDeps): Skills
           : deps.core.invoke(() => deps.memoryDriver!.stats(scope), {
               method: "stats",
               instance: instance.instanceId,
+              capability: "memory-driver",
             });
       const previewPromise =
         deps.memoryDriver === undefined
@@ -415,7 +434,7 @@ export function createSkillsMemoryService(deps: SkillsMemoryServiceDeps): Skills
                   ...(query.keyword === undefined ? {} : { keyword: query.keyword }),
                   limit: Math.min(MEMORY_PREVIEW_LIMIT, query.limit ?? 20),
                 }),
-              { method: "preview", instance: instance.instanceId },
+              { method: "preview", instance: instance.instanceId, capability: "memory-driver" },
             );
       const healthPromise =
         deps.memoryDriver === undefined
@@ -423,6 +442,7 @@ export function createSkillsMemoryService(deps: SkillsMemoryServiceDeps): Skills
           : deps.core.invoke(() => deps.memoryDriver!.analyze(scope), {
               method: "analyze",
               instance: instance.instanceId,
+              capability: "memory-driver",
             });
       const [skillResult, pluginResult, statsResult, previewResult, healthResult] = await Promise.all([
         skillPromise,
@@ -432,12 +452,14 @@ export function createSkillsMemoryService(deps: SkillsMemoryServiceDeps): Skills
         healthPromise,
       ]);
 
-      const skillItems =
-        skillResult?.ok === true && skillResult.data !== undefined ? skillResult.data : [];
+      const skillItems = withRiskStatus(
+        skillResult?.ok === true && skillResult.data !== undefined ? skillResult.data : [],
+      );
       const skillDriverCovered =
         skillResult?.ok === true && (skillItems.length > 0 || skillsDirectory.fileCount === 0);
-      const pluginItems =
-        pluginResult?.ok === true && pluginResult.data !== undefined ? pluginResult.data : [];
+      const pluginItems = withRiskStatus(
+        pluginResult?.ok === true && pluginResult.data !== undefined ? pluginResult.data : [],
+      );
       const pluginDriverCovered =
         pluginResult?.ok === true && (pluginItems.length > 0 || pluginsDirectory.fileCount === 0);
       const memoryStats =
@@ -535,7 +557,7 @@ export function createSkillsMemoryService(deps: SkillsMemoryServiceDeps): Skills
       }
       const result = await deps.core.invoke(
         () => deps.memoryDriver!.analyze(resolved.scope),
-        { method: "analyze", instance: resolved.instance.instanceId },
+        { method: "analyze", instance: resolved.instance.instanceId, capability: "memory-driver" },
       );
       if (result.ok && result.data !== undefined) {
         return { ok: true, instanceId: resolved.instance.instanceId, report: result.data };
@@ -592,7 +614,7 @@ export function createSkillsMemoryService(deps: SkillsMemoryServiceDeps): Skills
       }
       const result = await deps.core.invoke(
         () => deps.memoryDriver!.rebuildIndex(resolved.scope),
-        { method: "rebuildIndex", instance: resolved.instance.instanceId },
+        { method: "rebuildIndex", instance: resolved.instance.instanceId, capability: "memory-driver" },
       );
       if (result.ok && result.data !== undefined) {
         return { ok: true, instanceId: resolved.instance.instanceId, report: result.data };

@@ -2,6 +2,7 @@ import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react
 import { fetchJson, postJson } from "../lib/api.js";
 
 type InventoryMode = "driver" | "directory-fallback" | "unavailable";
+type AssetRiskStatus = "unscanned" | "clear" | "blocked";
 
 interface DirectoryInventory {
   roots: string[];
@@ -18,6 +19,8 @@ interface SkillItem {
   source: string;
   enabled: boolean;
   category?: string;
+  riskStatus?: AssetRiskStatus;
+  riskDetail?: string;
 }
 
 interface PluginItem {
@@ -28,6 +31,8 @@ interface PluginItem {
   enabled: boolean;
   category?: string;
   description?: string;
+  riskStatus?: AssetRiskStatus;
+  riskDetail?: string;
 }
 
 interface MemorySignalView {
@@ -137,6 +142,19 @@ function modeLabel(mode: InventoryMode): string {
   if (mode === "driver") return "正常查看";
   if (mode === "directory-fallback") return "按文件查看";
   return "无法查看";
+}
+
+function riskLabel(status: AssetRiskStatus | undefined): string {
+  if (status === "blocked") return "受限";
+  if (status === "clear") return "已扫描";
+  return "未扫描";
+}
+
+function riskDetail(item: { riskStatus?: AssetRiskStatus; riskDetail?: string }): string {
+  if (item.riskDetail !== undefined && item.riskDetail.trim() !== "") return item.riskDetail;
+  if (item.riskStatus === "blocked") return "清单解析失败，暂不把它当作可信资产";
+  if (item.riskStatus === "clear") return "已完成风险扫描";
+  return "尚未执行风险扫描";
 }
 
 function skillsNotice(mode: InventoryMode): string {
@@ -346,11 +364,15 @@ function groupByCategory<T extends { category?: string; name: string }>(items: T
 function PluginLibrary({
   plugins,
   category,
+  source,
   onCategory,
+  onSource,
 }: {
   plugins: SkillsPayload["plugins"];
   category: string;
+  source: string;
   onCategory: (value: string) => void;
+  onSource: (value: string) => void;
 }) {
   if (plugins.mode === "unavailable") {
     return (
@@ -365,24 +387,42 @@ function PluginLibrary({
   const categories = [
     ...new Set(plugins.items.map((item) => item.category?.trim() || "未分类")),
   ].sort((a, b) => a.localeCompare(b, "zh-CN"));
+  const sources = [...new Set(plugins.items.map((item) => item.source))].sort((a, b) =>
+    a.localeCompare(b, "zh-CN"),
+  );
   const filtered =
-    category === ""
-      ? plugins.items
-      : plugins.items.filter((item) => (item.category?.trim() || "未分类") === category);
+    plugins.items.filter(
+      (item) =>
+        (category === "" || (item.category?.trim() || "未分类") === category) &&
+        (source === "" || item.source === source),
+    );
   const groups = groupByCategory(filtered);
   return (
     <>
-      <label className="skills-filter">
-        <span>按分类筛选</span>
-        <select value={category} onChange={(event) => onCategory(event.target.value)}>
-          <option value="">全部分类</option>
-          {categories.map((item) => (
-            <option key={item} value={item}>
-              {item}
-            </option>
-          ))}
-        </select>
-      </label>
+      <div className="skills-filter-row">
+        <label className="skills-filter">
+          <span>按分类筛选</span>
+          <select value={category} onChange={(event) => onCategory(event.target.value)}>
+            <option value="">全部分类</option>
+            {categories.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="skills-filter">
+          <span>按来源筛选</span>
+          <select value={source} onChange={(event) => onSource(event.target.value)}>
+            <option value="">全部来源</option>
+            {sources.map((item) => (
+              <option key={item} value={item}>
+                {SOURCE_LABELS[item] ?? item}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
       <div className="plugin-groups">
         {groups.map((group) => (
           <div className="plugin-group" key={group.category}>
@@ -396,6 +436,13 @@ function PluginLibrary({
                   <div className="plugin-card-main">
                     <strong>{plugin.name}</strong>
                     <span>{SOURCE_LABELS[plugin.source] ?? plugin.source}</span>
+                  </div>
+                  <div
+                    className={"asset-risk is-" + (plugin.riskStatus ?? "unscanned")}
+                    title={riskDetail(plugin)}
+                  >
+                    <span>{riskLabel(plugin.riskStatus)}</span>
+                    <small>{riskDetail(plugin)}</small>
                   </div>
                   {plugin.description !== undefined && <p>{plugin.description}</p>}
                   <div className="plugin-card-meta">
@@ -420,7 +467,9 @@ export function SkillsPage() {
   const [loading, setLoading] = useState(true);
   const [skillFilter, setSkillFilter] = useState("");
   const [skillCategory, setSkillCategory] = useState("");
+  const [skillSource, setSkillSource] = useState("");
   const [pluginCategory, setPluginCategory] = useState("");
+  const [pluginSource, setPluginSource] = useState("");
   const [memoryInput, setMemoryInput] = useState("");
   const [activeKeyword, setActiveKeyword] = useState("");
   const [backupBusy, setBackupBusy] = useState(false);
@@ -453,16 +502,25 @@ export function SkillsPage() {
       skillCategory === ""
         ? items
         : items.filter((skill) => (skill.category?.trim() || "未分类") === skillCategory);
-    if (needle === "") return categoryMatched;
-    return categoryMatched.filter((skill) =>
+    const sourceMatched =
+      skillSource === "" ? categoryMatched : categoryMatched.filter((skill) => skill.source === skillSource);
+    if (needle === "") return sourceMatched;
+    return sourceMatched.filter((skill) =>
       `${skill.name} ${skill.version} ${skill.source}`.toLocaleLowerCase().includes(needle),
     );
-  }, [data?.skills.items, skillFilter, skillCategory]);
+  }, [data?.skills.items, skillFilter, skillCategory, skillSource]);
 
   const skillCategories = useMemo(
     () =>
       [...new Set((data?.skills.items ?? []).map((item) => item.category?.trim() || "未分类"))].sort(
         (a, b) => a.localeCompare(b, "zh-CN"),
+      ),
+    [data?.skills.items],
+  );
+  const skillSources = useMemo(
+    () =>
+      [...new Set((data?.skills.items ?? []).map((item) => item.source))].sort((a, b) =>
+        a.localeCompare(b, "zh-CN"),
       ),
     [data?.skills.items],
   );
@@ -572,7 +630,7 @@ export function SkillsPage() {
               <span>筛选技能</span>
               <input
                 type="search"
-                placeholder="名称或来源"
+                placeholder="名称或版本"
                 value={skillFilter}
                 onChange={(event) => setSkillFilter(event.target.value)}
               />
@@ -587,6 +645,17 @@ export function SkillsPage() {
                 {skillCategories.map((item) => (
                   <option key={item} value={item}>
                     {item}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="skills-filter">
+              <span>按来源筛选</span>
+              <select value={skillSource} onChange={(event) => setSkillSource(event.target.value)}>
+                <option value="">全部来源</option>
+                {skillSources.map((item) => (
+                  <option key={item} value={item}>
+                    {SOURCE_LABELS[item] ?? item}
                   </option>
                 ))}
               </select>
@@ -624,6 +693,12 @@ export function SkillsPage() {
                       <span className={skill.enabled ? "is-enabled" : "is-disabled"}>
                         {skill.enabled ? "已启用" : "已停用"}
                       </span>
+                      <span
+                        className={"asset-risk-dot is-" + (skill.riskStatus ?? "unscanned")}
+                        title={riskDetail(skill)}
+                      >
+                        {riskLabel(skill.riskStatus)}
+                      </span>
                     </div>
                   </article>
                 ))}
@@ -656,7 +731,9 @@ export function SkillsPage() {
               <PluginLibrary
                 plugins={data.plugins}
                 category={pluginCategory}
+                source={pluginSource}
                 onCategory={setPluginCategory}
+                onSource={setPluginSource}
               />
             )}
           </div>

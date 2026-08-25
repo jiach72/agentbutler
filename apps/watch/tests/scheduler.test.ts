@@ -4,7 +4,12 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createCore, type Core } from "@butler/core";
 import { loadWatchConfig } from "../src/config.js";
-import { createInspectionRunner, InspectionScheduler, type TimerDriver } from "../src/scheduler.js";
+import {
+  createInspectionRunner,
+  CriticalProbeScheduler,
+  InspectionScheduler,
+  type TimerDriver,
+} from "../src/scheduler.js";
 import type { InspectionStage } from "../src/pipeline.js";
 
 /** fake 定时器驱动：捕获 interval 回调，由测试手动 tick。 */
@@ -119,6 +124,116 @@ describe("InspectionScheduler（注入式定时器）", () => {
     expect(runs).toBe(1);
     release!();
     await starting;
+    scheduler.stop();
+  });
+
+  it("关键探针独立于整轮巡检，并记录 deadline/逾期状态", async () => {
+    const driver = new FakeDriver();
+    let now = 0;
+    let releaseFull: (() => void) | undefined;
+    let releaseCritical: (() => void) | undefined;
+    let fullRuns = 0;
+    let criticalRuns = 0;
+
+    const full = new InspectionScheduler({
+      intervalMs: 5 * 60_000,
+      run: async () => {
+        fullRuns += 1;
+        await new Promise<void>((resolve) => {
+          releaseFull = resolve;
+        });
+      },
+      driver,
+      now: () => now,
+    });
+    const critical = new CriticalProbeScheduler({
+      intervalMs: 60_000,
+      slaMs: 10 * 60_000,
+      run: async () => {
+        criticalRuns += 1;
+        await new Promise<void>((resolve) => {
+          releaseCritical = resolve;
+        });
+        return { status: "pass" as const, detail: "memory ok" };
+      },
+      driver,
+      now: () => now,
+    });
+
+    const fullStart = full.start();
+    const criticalStart = critical.start();
+    expect(fullRuns).toBe(1);
+    expect(criticalRuns).toBe(1);
+
+    now = 10 * 60_000 + 1;
+    driver.tick(); // 两个调度器都收到 tick；各自 inFlight，互不阻塞
+    expect(fullRuns).toBe(1);
+    expect(criticalRuns).toBe(1);
+    expect(critical.status()).toMatchObject({
+      inFlight: true,
+      overdue: true,
+      missedTicks: 1,
+      slaMin: 10,
+      lastWithinSla: null,
+    });
+
+    releaseCritical!();
+    await criticalStart;
+    expect(critical.status()).toMatchObject({
+      inFlight: false,
+      lastStatus: "pass",
+      lastWithinSla: false,
+      overdue: true,
+      lastDurationMs: 600001,
+    });
+
+    releaseFull!();
+    await fullStart;
+    critical.stop();
+    full.stop();
+  });
+
+  it("刚错过轮询边界后仍产出可复核的 10 分钟 SLA 时间线", async () => {
+    const driver = new FakeDriver();
+    let now = 0;
+    let release: (() => void) | undefined;
+    const results: Array<{ startedAt: string; finishedAt: string; deadlineAt: string; withinSla: boolean; durationMs: number }> = [];
+    const scheduler = new CriticalProbeScheduler({
+      intervalMs: 60_000,
+      slaMs: 10 * 60_000,
+      run: async () => {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return { status: "fail" as const, detail: "memory write stopped" };
+      },
+      driver,
+      now: () => now,
+      onResult: (result) => {
+        results.push(result);
+      },
+    });
+
+    const started = scheduler.start();
+    now = 60_000;
+    driver.tick(); // 恰好错过一次轮询边界，首轮仍在飞
+    now = 600_001;
+    expect(scheduler.status()).toMatchObject({ overdue: true, inFlight: true, missedTicks: 1 });
+    release!();
+    await started;
+
+    expect(results).toEqual([
+      {
+        status: "fail",
+        detail: "memory write stopped",
+        startedAt: "1970-01-01T00:00:00.000Z",
+        finishedAt: "1970-01-01T00:10:00.001Z",
+        deadlineAt: "1970-01-01T00:10:00.000Z",
+        withinSla: false,
+        durationMs: 600001,
+      },
+    ]);
+    expect(scheduler.status()).toMatchObject({ lastStatus: "fail", lastWithinSla: false, overdue: true });
     scheduler.stop();
   });
 });

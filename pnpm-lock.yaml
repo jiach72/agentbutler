@@ -60,6 +60,9 @@ importers:
       '@butler/adapter-hermes':
         specifier: workspace:*
         version: link:../../packages/adapters/hermes
+      '@butler/adapter-openclaw':
+        specifier: workspace:*
+        version: link:../../packages/adapters/openclaw
       '@butler/contract':
         specifier: workspace:*
         version: link:../../packages/contract
@@ -103,6 +106,12 @@ importers:
       '@types/dockerode':
         specifier: ^4.0.1
         version: 4.0.1
+
+  packages/adapters/openclaw:
+    dependencies:
+      '@butler/contract':
+        specifier: workspace:*
+        version: link:../../contract
 
   packages/contract:
     dependencies:
@@ -1069,6 +1078,7 @@ packages:
   eslint@9.39.5:
     resolution: {integrity: sha512-DgZS62aPLXKlnxILS/AYCoRvHaZeXceIzlXPkkGGzJWSow1aEk0lbTlxUSlyjC8jcaKxAdOnTDz+o1JFSBsyjw==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+    deprecated: This version is no longer supported. Please see https://eslint.org/version-support for other options.
     hasBin: true
     peerDependencies:
       jiti: '*'

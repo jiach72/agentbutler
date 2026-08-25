@@ -158,8 +158,12 @@ export function findVenvPython(rootPath: string): string | null {
 
 /** 解析 API 探活端点：port 取 config 声明（缺省 8642）；通配地址归一为 127.0.0.1。 */
 export function resolveApiEndpoint(config: HermesConfig | null): { host: string; port: number } {
-  const port = config?.apiServer.port ?? DEFAULT_API_PORT;
-  const rawHost = config?.apiServer.host;
+  const configuredPort = Number(process.env["BUTLER_HERMES_API_PORT"] ?? "");
+  const port =
+    Number.isInteger(configuredPort) && configuredPort > 0
+      ? configuredPort
+      : (config?.apiServer.port ?? DEFAULT_API_PORT);
+  const rawHost = process.env["BUTLER_HERMES_API_HOST"]?.trim() || config?.apiServer.host;
   const host = !rawHost || rawHost === "0.0.0.0" || rawHost === "::" ? "127.0.0.1" : rawHost;
   return { host, port };
 }

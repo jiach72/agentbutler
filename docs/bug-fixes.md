@@ -1,5 +1,130 @@
 # Bug Fixes
 
+## 2026-08-25 · Docker GitHub 一键部署入口与容器探测地址
+
+- 问题：Docker 部署缺少统一环境配置入口，容器探测默认使用回环地址，其他用户从 GitHub 部署时可能挂载错误目录或持续看到服务离线。
+- 改动范围：Compose 改为读取 .env；新增 .env.example、scripts/deploy.sh、scripts/deploy.ps1；Hermes/OpenClaw 探测支持可配置主机与端口；Docker Socket 默认关闭；三张 Dockerfile 强制执行 tsc -b --force，避免干净上下文缺少 dist/main.js；CI 增加 Compose 校验和镜像构建。
+- 验证命令：docker compose config -q、docker compose build、TypeScript 构建、相关 Vitest、git diff --check。
+- 部署/运行验证：2026-08-25 使用临时宿主端口 17531 启动本机 Compose；butler-gateway、butler-watch、butler-web 均为 healthy，Web `/api/health` 返回 `ok/db/gateway=true`，`/api/alerts` 返回 `reachable=true`。验证后已停止容器；保留镜像与命名卷，未触碰宿主机现有 7531 Web 进程。
+
+## 2026-08-24 · 宿主端口复用增加 systemd 进程归属核验
+
+- 问题：宿主安装器在端口已占用时只检查同名 Butler unit 是否 `active`；如果该 unit 仍活跃但端口实际被其它进程抢占，幂等重跑会被错误放行。
+- 风险/影响：安装器可能覆盖错误的服务文件并执行重启，造成现有进程中断或三服务半安装；端口冲突门禁失去 fail-closed 语义。
+- 改动范围：端口被占用时追加 `systemctl --user show ... -p MainPID --value` 与 `ss -H -ltnp` 监听者 PID 交叉核验；任一证据缺失或 PID 不匹配均视为外部占用，继续阻断 unit 写入和启停。
+- 回归测试：`packages/installer/tests/install.test.ts` 覆盖 active unit 且 PID 持有端口的幂等重跑，以及 active unit/端口监听 PID 不匹配时 fail-closed；安装器定向测试 35/35 通过。
+- 验证命令：`corepack pnpm exec vitest run --config vitest.focused.config.ts packages/installer/tests/install.test.ts`；后续执行全量 `corepack pnpm test`、`corepack pnpm lint`、`corepack pnpm build`、`git diff --check`。
+- 部署/运行验证：未执行真实 user-systemd 写入、服务重启或外部进程终止；真实 WSL 端口归属仍需发布前现场记录。
+
+## 2026-08-24 · L-03 明确区分升级快照与日常备份保留策略
+
+- 问题：设置页把升级恢复点和 M7 日常备份放在同一条备份时间线里，但两者轮转上限不同，用户容易把“升级快照保留 3 份”误解成所有备份都只保留 3 份。
+- 风险/影响：用户无法判断历史记录何时会被自动淘汰，也可能错误估计升级回滚和日常恢复的可用范围。
+- 改动范围：备份 API 返回日常备份分类型保留上限（full=14、memory=24、event=10）；管家自身状态返回升级快照保留上限（3）；Settings 新增独立的“升级快照 / 日常备份”保留策略区块，并显示当前升级恢复点占用。
+- 回归测试：`apps/watch/tests/backup.test.ts` 验证日常备份保留元数据；`apps/watch/tests/self-upgrade.test.ts` 验证升级快照保留元数据；`apps/web/tests/ui-backup-retention.test.ts` 验证设置页两类策略和 API 接线。
+- 验证命令：`corepack pnpm exec vitest run apps/watch/tests/backup.test.ts apps/watch/tests/self-upgrade.test.ts apps/web/tests/ui-backup-retention.test.ts`；`corepack pnpm --filter @butler/ui exec vite build`；`corepack pnpm lint`；`git diff --check`。
+- 部署/运行验证：未执行真实升级、回滚或清理备份；实际文件轮转与跨重启恢复仍需发布前现场验收。
+
+## 2026-08-24 · L-02 危险操作统一使用应用内确认层
+
+- 问题：Settings 的熔断解除/备份还原和 Gateway 的 Hermes 补丁应用/恢复仍使用浏览器原生 `window.confirm`，无法展示影响范围、备份行为和目标文件，也缺少统一的键盘与焦点语义。
+- 风险/影响：危险操作在不同页面表现不一致；用户可能在看不到完整影响说明时确认源码写入、备份还原或解除崩溃保护。
+- 改动范围：新增 `ui/src/components/DangerConfirmModal.tsx`，统一对话框、Escape 关闭、Tab 焦点限定、焦点回收、遮罩关闭和忙碌态；Settings 和 Gateway 改为先冻结操作上下文，确认后才调用原有 API。
+- 回归测试：`apps/web/tests/ui-confirmation.test.ts` 验证 Settings/Gateway 不再包含 `window.confirm`，并检查对话框/ARIA/Escape/焦点回收语义；定向测试 2/2 通过。
+- 验证命令：`corepack pnpm exec vitest run apps/web/tests/ui-confirmation.test.ts`；`corepack pnpm --filter @butler/ui exec vite build`；`corepack pnpm lint`；后续执行全量测试与 `git diff --check`。
+- 部署/运行验证：未执行真实补丁写入、备份还原或熔断解除；真实桌面/移动端点击与焦点验收仍需发布前浏览器 smoke。
+
+## 2026-08-24 · L-01 日志 tail 改为固定块读取
+
+- 问题：`packages/core/src/tail.ts` 原先按 `size - offset` 一次性申请 Buffer；大文件增量或长时间无换行日志会造成与增量大小相当的内存峰值。
+- 风险/影响：butler-watch 长时间运行时可能因日志突增触发高内存占用或 OOM；部分行还会在下一轮重复分配整段增量。
+- 改动范围：改为 64 KiB 固定块扫描最后完整换行，再用 `StringDecoder` 分块解码完整行；保留 handler 成功后提交位点、截断/轮转广播、UTF-8 边界和 JSONL `tsField` 语义，并确保单源部分行不阻塞后续源。
+- 回归测试：`packages/core/tests/tail.test.ts` 新增固定块分配上限、多源继续处理、UTF-8 跨块字符和 128 KiB 未换行尾部补全用例；tail 测试 10/10 通过。
+- 验证命令：`corepack pnpm exec vitest run packages/core/tests/tail.test.ts`；后续执行 `corepack pnpm test`、`corepack pnpm lint`、`corepack pnpm build`、`git diff --check`。
+- 部署/运行验证：未启动真实服务或修改外部日志源；真实长时间日志压测仍需发布前现场验证。
+
+## 2026-08-24 · 宿主形态安装器补齐三服务 user-systemd 闭环
+
+- 问题：installHostForm 完成本仓构建后只生成 services-guide 文案，没有生成、安装或启动 butler-watch、butler-web、butler-gateway 的宿主常驻服务，安装成功无法证明三项服务已运行。
+- 风险/影响：PRD M2 的宿主/容器双形态在代码层实际只完成了安装前半段；用户需要手工启动，重启/登录后也不会自动恢复，且含空格的工作区路径容易在服务命令中失效。
+- 改动范围：packages/installer/src/install.ts 新增可注入 HostServiceManager；生产默认在 Linux/WSL 真实执行时探测 systemctl --user，生成三项 unit（固定 dist/main.js 入口、7531/7532/7533 回环端口、Gateway/Watch/Web 依赖、~/.agent-butler/env 可选密钥文件），执行 daemon-reload 与 enable --now；dry-run 只打印 unit 内容，非 systemd 平台或测试注入默认退化为明确的手动指引，写入失败 fail-closed。
+- 回归测试：packages/installer/tests/install.test.ts 新增 unit 内容、systemd 写入/启停、dry-run 零写入、非 Linux 强制 systemd 安全失败用例；覆盖含空格路径的 POSIX unit 入口。
+- 验证命令：corepack pnpm exec tsc -b packages/installer；corepack pnpm exec vitest run packages/installer/tests/install.test.ts packages/installer/tests/openclaw.test.ts packages/installer/tests/main.test.ts（47 项通过）。
+- 部署/运行验证：本轮未写入真实 ~/.config/systemd/user、未启动或重启宿主服务；Linux/WSL 全新环境的真实常驻、健康和重启恢复证据仍开放。
+
+
+## 2026-08-24 · Hermes 消息实验 launcher 增加显式 feature flag
+
+- 问题：Hermes message runtime 虽未接入默认 Gateway/Compose 入口，但独立 launcher 被误启动时仍可能静默截留 `queued-push` 消息；缺少启动级交付边界证明。
+- 风险/影响：误接线会把实验性的 Bridge 数据面当成 V1 生产路径，Gateway/Bridge 故障时无法满足 Hermes L2 的原生 fail-open 约束。
+- 改动范围：`launchHermesGateway` 现在要求 `BUTLER_ENABLE_HERMES_MESSAGE_RUNTIME=true`（或 `1`），否则在创建 runtime 前 fail-closed；启动日志明确标注实验开关，环境配置透传保持单一来源。默认 `apps/gateway/src/main.ts`、Compose 和 installer 不变。
+- 回归测试：`apps/gateway/tests/message-launcher.test.ts` 覆盖缺少开关时拒绝启动，以及显式开关后继续执行正常 runtime 配置校验。
+- 验证命令：`corepack pnpm exec vitest run apps/gateway/tests/message-launcher.test.ts apps/gateway/tests/message-runtime.test.ts --testTimeout 30000 --hookTimeout 30000 --maxWorkers=1`；`corepack pnpm lint`；`corepack pnpm build`；`git diff --check`。
+- 部署/运行验证：未启动实验 launcher、未发送真实消息；默认生产 Gateway 入口保持不变。
+
+## 2026-08-24 · 自升级 Git E2E 回滚用例超时门禁补齐
+
+- 问题：自升级真实 Git 仓库的“构建失败自动回滚”用例没有显式用例级超时，Windows 上 Git 初始化/checkout 偶发超过 Vitest 默认 5 秒，导致完整测试误报失败。
+- 风险/影响：发布门禁会把环境耗时误判为回滚逻辑失败，掩盖真实测试结果。
+- 改动范围：为第二条真实 Git E2E 与成功路径统一设置 20 秒用例级超时；不放宽业务等待状态的 15 秒上限。
+- 回归测试：apps/watch/tests/self-upgrade.test.ts 两条真实 Git E2E 均通过。
+- 验证命令：corepack pnpm exec vitest run --config vitest.focused.config.ts apps/watch/tests/self-upgrade.test.ts；corepack pnpm test。
+- 部署/运行验证：仅测试隔离临时仓库，未触碰用户仓库或运行服务。
+
+## 2026-08-24 · M6 资产风险状态贯通 Web/UI
+
+- 问题：技能/插件清单虽然已能读取，但未扫描、解析失败等风险状态没有进入产品契约和页面；来源筛选也缺少独立入口，用户容易把“能列出来”误解成“可信资产”。
+- 风险/影响：未经扫描的技能或插件可能被误认为已审核；解析失败的资产如果仍显示为普通条目，会掩盖清单损坏或潜在安全问题，违背 PRD M6 V1.7 的风险标记要求。
+- 改动范围：契约增加 AssetRiskStatus；Hermes 驱动保留原始 category，缺失时不再按名称或目录猜测；Watch 为正常资产显式标记 unscanned、解析失败标记 blocked；Web 严格校验并透传风险字段；Skills 页面为技能和插件显示“未扫描/已扫描/受限”状态与原因，并增加独立来源筛选。旧载荷缺少字段时保持兼容，UI 按未扫描展示。
+- 回归测试：packages/adapters/hermes/tests/drivers.test.ts 覆盖缺失 category 保持未分类；apps/watch/tests/skills.test.ts 覆盖普通与解析失败资产；apps/web/tests/skills.test.ts 覆盖合法字段透传和非法枚举降级。
+- 验证命令：node node_modules/typescript/bin/tsc -b --pretty false；corepack pnpm exec vitest run --config vitest.focused.config.ts apps/watch/tests/skills.test.ts apps/web/tests/skills.test.ts；git diff --check。
+- 部署/运行验证：本轮未执行真实技能/插件写入、未扫描或消息外发；M6 V1 仍保持只读，实际 OpenClaw/Hermes 风险扫描结果需在发布验收中补充。
+
+## 2026-08-24 · 根脚本显式固定 Corepack pnpm 版本
+
+- 问题：根 build 脚本外层由 Corepack 使用 pnpm 10.20.0，但脚本内部裸调用 pnpm，Windows PATH 可能解析到 pnpm 11.23.0，触发 packageManager 版本门禁并让完整构建失败。
+- 风险/影响：本地与 CI 可能出现“依赖和代码都正常但发布构建失败”的环境差异，阻断 PRD 功能验收。
+- 改动范围：package.json 的 UI 构建子命令改为显式 corepack pnpm，沿用仓库声明的 pnpm 10.20.0。
+- 回归测试：根 corepack pnpm build；UI 独立 corepack pnpm --filter @butler/ui exec vite build。
+- 验证命令：corepack pnpm build；git diff --check。
+- 部署/运行验证：仅本地构建验证，未重启服务或执行真实消息外发。
+
+## 2026-08-24 · OpenClaw Compose token 被宿主插值为空且 Docker 验收端口冲突
+
+- 问题：OpenClaw Gateway 以 LAN + token 模式启动时，compose command/healthcheck 中的 `$OPENCLAW_GATEWAY_TOKEN` 会被 Compose 当作宿主变量插值；未设置宿主变量时传入空 token。真实验收还发现本机已有宿主 Web 进程占用 `127.0.0.1:7531`，导致容器 Web 无法绑定。
+- 风险/影响：容器可能以错误认证参数启动，healthcheck 与实际 Gateway 凭据不一致；端口冲突会让“一键安装”误报服务未启动。
+- 改动范围：安装器生成 `OPENCLAW_GATEWAY_TOKEN`（支持显式传入，缺省随机生成），Gateway/healthcheck 使用 Compose `$$OPENCLAW_GATEWAY_TOKEN` 转义；dry-run 脱敏 token；新增 `web-port-check`，在写 override/启动 Compose 前探测 `127.0.0.1:7531`，冲突时结构化失败并停止。
+- 回归测试：`packages/installer/tests/install.test.ts`、`packages/installer/tests/openclaw.test.ts`；覆盖 token 脱敏、端口占用前置失败和 Compose `$` 转义。
+- 验证命令：`node node_modules/typescript/bin/tsc -b --pretty false`；`corepack pnpm exec vitest run --config vitest.focused.config.ts packages/installer/tests/install.test.ts packages/installer/tests/openclaw.test.ts packages/installer/tests/platform.test.ts`；`docker compose config --quiet`；真实 CLI `node packages/installer/dist/main.js --framework openclaw --form docker --skip-network --dry-run`。
+- 部署/运行验证：2026-08-24 在 Node 24.15 Bookworm + OpenClaw latest 容器中 `openclaw`、`butler-gateway`、`butler-watch`、`butler-web` 均为 `healthy`；Web `http://127.0.0.1:17531/api/health` 返回 `{"ok":true,"db":true,"gateway":true,...}`；Watch 诊断报告检出 `openclaw-main`，OpenClaw `/home/openclaw/.openclaw/openclaw.json` 存在。随后在本机真实占用 `7531` 的状态下，安装器在 `web-port-check` 提前失败，未执行 Compose；占用进程 PID 40740 未被本轮终止。
+
+## 2026-08-24 · OpenClaw 一键安装误把诊断警告当作失败
+
+- 问题：`openclaw doctor --lint --json` 在存在可修复配置警告时会以退出码 1 结束；安装器初版只按退出码判断，导致真实 OpenClaw 安装被错误中断。
+- 风险/影响：全新 Node 24 容器虽然已完成 OpenClaw 安装、配置校验和状态检查，仍会被报告为失败，破坏一键安装的可重复验收。
+- 改动范围：安装器对 `doctor --lint --json` 解析合法结构化输出；记录 warning 并继续后续步骤，只有命令失败且输出不是合法 JSON 时才阻断安装。
+- 回归测试：`packages/installer/tests/openclaw.test.ts` 覆盖 doctor warning 非阻断、非法输出阻断和正常 JSON 三条路径。
+- 验证命令：`node node_modules/typescript/bin/tsc -b --pretty false`；`pnpm exec vitest run packages/installer/tests/install.test.ts packages/installer/tests/openclaw.test.ts`；Node 24.15 Bookworm 容器真实执行 `node packages/installer/dist/main.js --framework openclaw --form host --skip-network`。
+- 部署/运行验证：隔离 HOME 的 Node 24.15 容器中 `openclaw@2026.7.1-2` 安装、setup、config validate、doctor、status、Corepack、仓库依赖安装和构建均完成，安装器最终退出码为 0。
+
+## 2026-08-24 · 干净 Node 容器缺少 pnpm shim 导致安装构建失败
+
+- 问题：部分干净 Node 24 基础镜像只启用了 Corepack 管理器但没有可执行的 `pnpm` shim；安装器随后直接调用 `pnpm install/build` 会在依赖已满足时仍失败。
+- 风险/影响：宿主和容器形态的真实验收依赖基础镜像细节，出现“环境可用但安装失败”的非确定性结果。
+- 改动范围：在仓库依赖安装前显式执行 `corepack enable`，并统一通过可解析的 Corepack pnpm 命令运行安装与构建；错误信息保留命令和 stderr 便于定位。
+- 回归测试：安装器 host 流程断言 Corepack 步骤先于 pnpm 安装/构建；OpenClaw 安装测试覆盖 Node 版本门禁和命令顺序。
+- 验证命令：`node node_modules/typescript/bin/tsc -b --pretty false`；安装器定向 Vitest；Node 24.15 容器真实安装回归。
+- 部署/运行验证：Node 24.15 Bookworm 容器中 Corepack shim 生效，仓库依赖安装和 TypeScript/UI 构建成功。
+
+## 2026-08-24 · Docker 干净上下文的增量 TypeScript 构建未发射入口文件
+
+- 问题：三服务 Dockerfile 使用普通 `tsc -b`；在不带既有 `dist/` 的干净构建上下文中，增量构建可能只生成 `tsconfig.tsbuildinfo`，没有发射 `apps/*/dist/main.js`，容器随即以 `MODULE_NOT_FOUND` 循环重启。
+- 风险/影响：OpenClaw Docker 一键安装无法启动 Gateway/Watch/Web，健康检查永远失败。
+- 改动范围：Watch、Gateway、Web 三个 Dockerfile 的构建步骤改为 `tsc -b --force`，再单独执行 Vite 构建，确保每次镜像都产生完整运行时产物。
+- 回归测试：重新执行三镜像 `docker compose build`，检查镜像内三个 `dist/main.js` 存在；随后执行 Compose 启动和健康检查。
+- 验证命令：`docker compose -f docker-compose.yml -f .tmp-openclaw-compose.override.yml up -d --build`；`docker compose ps`；容器内 `test -f /app/apps/gateway/dist/main.js` 等。
+- 部署/运行验证：修复前 Gateway 日志为 `Cannot find module '/app/apps/gateway/dist/main.js'`；2026-08-24 修复后在 OpenClaw Compose 真实验收中 `butler-gateway`、`butler-watch`、`butler-web` 均为 `healthy`，容器内入口文件存在。
+
 ## 2026-08-22 · 远程图片与多图出口可绕过 Butler Outbox
 
 - 问题：真实 Hermes 的 Weixin/WeCom 等适配器除本地文件媒体方法外，还公开 `send_image`、`send_animation` 和 `send_multiple_images`。原 Bridge 只包装本地文件媒体出口，因此这些远程 URL/多图方法仍可能直接调用平台原生发送；初版补丁还把所有媒体方法的 `None` 返回统一当作成功，而 Hermes 契约只允许 `send_multiple_images` 用 `None` 表示成功。
@@ -567,3 +692,146 @@
 - 回归测试：无 `dist/` 的独立 worktree 使用新测试入口构建后，原先失败的 Web/Adapter 代表性用例共 49 项通过；仅按 Bridge requirements 安装的全新 WSL venv 全量 113 项通过，其中原失败的自定义 provider 用例恢复通过。
 - 验证命令：`corepack pnpm version:check`；WSL ESLint；`tsc -b --pretty false`；WSL Vitest 全量 `750 passed / 3 skipped`；WSL Vite build（53 modules transformed）；全新 WSL venv Bridge `113 passed`；`docker compose config --quiet`；Semgrep secrets（0 findings）；`git diff --check`。
 - 部署/运行验证：本次只修复发布与 CI 可复现性，不升级或重启本机运行服务，不执行消息外发；推送后以 GitHub Actions 的全新 Ubuntu runner 结果作为最终发布门禁。
+
+## 2026-08-24 · 熔断跨重启恢复与能力路由执行门禁
+
+- 问题：熔断跳闸事实虽然写入 events，但 watch 重启后活动状态会丢失；`CapabilityRouter` 只被单测直接调用，业务 `core.invoke` 路径可绕过 `not-implemented`/运行期降级裁决。
+- 风险/影响：重启后可能再次自动触发已进入崩溃循环的 runbook；不支持的技能/记忆驱动可能从 UI/API 继续执行，能力降级也不会沉淀运行态信号。
+- 改动范围：`apps/watch/src/runbook/breaker.ts` 增加 `initialTrips` 恢复与显式 `reset`；`apps/watch/src/watch.ts` 启动时从 `circuit-breaker-tripped` 事件恢复每个 key 最近跳闸；`packages/core/src/executor.ts`/`index.ts` 为 `core.invoke` 增加可选 `capability` 路由，调用前检查、调用后记录结果；`apps/watch/src/skills.ts` 为主要 skill/memory 驱动调用补齐能力位。
+- 回归测试：熔断器恢复/reset、Core capability invoke 门禁与运行结果记录测试；定向执行 3 个测试文件共 22 项通过；TypeScript build 通过。
+- 验证命令：`node node_modules/typescript/bin/tsc -b --pretty false`；`corepack pnpm exec vitest run --config vitest.focused.config.ts apps/watch/tests/runbook-breaker.test.ts packages/core/tests/core.test.ts apps/watch/tests/watch.test.ts`；`git diff --check`。
+- 部署/运行验证：未重启用户现有服务，未执行消息外发；持久化恢复逻辑通过隔离 SQLite/events 单测验证。
+
+## 2026-08-24 · 熔断状态真实展示、人工解除审计与 OpenClaw 启动校验
+
+- 问题：Settings 将崩溃循环保护硬编码为“已满足”，无法识别真实跳闸状态；即使根因已处理也没有产品化的人工解除入口。OpenClaw 的 `start/restart` 还可绕过 `validateConfig` 直接执行 gateway 命令。
+- 风险/影响：用户可能误以为自动修复仍在运行，重复触发已暂停的修复；配置不满足安全不变式时启动 OpenClaw，可能进入无限重启或不安全运行状态。
+- 改动范围：新增 Watch `POST /api/runbooks/:id/reset` 与 Web 代理；Settings 消费 `/api/runbooks` 的真实 `breakerTripped`，只对已跳闸方案显示确认解除按钮；解除前读取跳闸事实、清除对应 key，并追加 `circuit-breaker-reset` 审计。Watch 将 `validateConfig` 统一经 `core.invoke({ capability: "config-driver" })` 接入补丁与升级预检；OpenClaw `start/restart` 在 gateway 命令前强制配置校验，block 违例 fail-closed。
+- 回归测试：新增 Watch/Web reset 代理契约和 OpenClaw 配置失败时不执行 gateway 的 smoke；共 5 个定向文件 44 项通过；TypeScript build 与 `git diff --check` 通过。
+- 验证命令：`node node_modules/typescript/bin/tsc -b --pretty false`；`corepack pnpm exec vitest run --config vitest.focused.config.ts packages/adapters/openclaw/tests/smoke.test.ts apps/watch/tests/watch.test.ts apps/watch/tests/http-gateway.test.ts apps/watch/tests/http-upgrade.test.ts apps/watch/tests/http.test.ts`；`git diff --check`。
+- 部署/运行验证：未重启现有服务，未执行真实消息发送；真实 OpenClaw 消息通道、宿主安装和升级回滚仍需发布前验收。
+
+## 2026-08-24 · M4 进化前备份与技能替换门禁 fail-closed
+
+- 问题：`apps/watch/src/watch.ts` 的进化前事件备份失败后仍继续调用真实 `evolution.preflight`，造成备份不可用时仍可能进入进化流程；通用 M4 结果接口也只有 `allowWrite` 布尔值，没有唯一的技能候选替换入口。
+- 风险/影响：没有可回滚快照时可能启动进化；调用方可忽略 `allowWrite` 或把未经 hash 校验的候选写入 `skills/`，破坏 baseline 保留和“负优化不落盘”承诺。
+- 改动范围：新增 `withEvolutionBackup`，备份失败返回 `rejected-preflight`、写审计且不调用底层预检；`recordResult` 仅对显著正增益且目标/候选均位于实例 `skills/` 根目录并可读取 hash 时签发一次性授权令牌；新增 `promoteArtifact` 与 `/api/evolution/runs/:runId/promote`，固定路径、复验 baseline/candidate hash、原子替换、登记失败恢复旧文件，并记录采用审计。
+- 回归测试：`apps/watch/tests/evolution.test.ts` 覆盖令牌签发、路径/hash 漂移、一次性消费；`apps/watch/tests/http-evolution.test.ts` 覆盖 promote 路由和冲突映射；`apps/watch/tests/watch.test.ts` 覆盖备份失败不调用底层预检。
+- 验证命令：`node node_modules/vitest/vitest.mjs run apps/watch/tests/evolution.test.ts apps/watch/tests/http-evolution.test.ts apps/watch/tests/watch.test.ts --testTimeout 30000 --hookTimeout 30000`（3 文件、21 项通过）；`node node_modules/typescript/bin/tsc -b --pretty false`；`git diff --check`。
+- 部署/运行验证：仅隔离测试与静态验证，未对真实 Hermes/OpenClaw 技能文件执行替换，未重启服务，未外发消息。
+
+## 2026-08-24 · Watch 控制业务统一能力路由
+
+- 问题：`CapabilityRouter` 已接入 `core.invoke` 和 Skills/Memory 路径，但 Runbook、升级流水线、进化快照/回滚等 watch 业务通过原始 control 门面调用，可能绕过 `not-implemented` 与运行期降级裁决。
+- 风险/影响：实例未声明控制能力或已进入运行期降级时，自动修复、升级或回滚仍可能触发底层适配器；这会破坏 V1 的 fail-closed 能力边界。
+- 改动范围：新增 `apps/watch/src/watch.ts:createRoutedControl`，将 start/stop/restart/upgrade/snapshot/rollback 统一映射到 `core.invoke({ capability: "control" })`，`validateConfig` 映射到 `config-driver`；Runbook、升级、进化与 Gateway 统一注入该门面。detect/capabilityScan/logSources 保持发现阶段只读直连。
+- 回归测试：新增 `apps/watch/tests/capability-routing.test.ts`，覆盖 control/config-driver 未实现时底层零调用、已实现时 snapshot/validateConfig 透传与审计。
+- 验证命令：`corepack pnpm exec vitest run --config vitest.focused.config.ts apps/watch/tests/capability-routing.test.ts`（3 项通过）；`corepack pnpm exec tsc -p apps/watch/tsconfig.json --noEmit`；`git diff --check`。
+- 部署/运行验证：仅隔离 Core/Watch 单测与类型检查，未对真实 Hermes/OpenClaw 执行控制、升级、回滚或消息外发；真实双形态控制面验收仍是 V1 No-Go 项。
+
+## 2026-08-24 · Hermes 宿主控制禁止猜测 systemd unit
+
+- 问题：`ProcessExecutor` 未配置 `process.unitName` 时默认探测并操作 `systemctl --user` 的 `hermes` unit；真实宿主服务可能叫 `hermes-gateway.service` 或使用其他 unit，导致 start/stop/kill 可能作用于错误服务。
+- 风险/影响：管家控制面可能误停其他 Hermes/网关服务，或把错误服务标记为已启动，破坏实例隔离和升级/回滚安全边界。
+- 改动范围：`packages/adapters/hermes/src/control/executor.ts` 将 unit 改为可选配置；只有显式、非空 `process.unitName` 才执行 `systemctl --user cat/start/stop/kill`，未配置时不调用 systemd，回退到实例 `rootPath` 下的 venv/pgrep 路径。同步更新 Hermes control 测试与回滚夹具，显式验证 `hermes-gateway.service`，并锁定默认 systemd 零调用。
+- 回归测试：`packages/adapters/hermes/tests/control.test.ts` 46/46 通过，覆盖显式 unit 的 start/stop/restart、未配置 unit 的启动回退、运行中回滚和错误 unit 旁路防护。
+- 验证命令：`corepack pnpm exec vitest run packages/adapters/hermes/tests/control.test.ts --testTimeout 30000 --hookTimeout 30000 --maxWorkers=1`；`corepack pnpm test`；`corepack pnpm lint`；`corepack pnpm build`；`git diff --check`。
+- 部署/运行验证：仅使用隔离临时 Hermes fixture 与 fake command executor；未对真实 Hermes、systemd unit 或消息通道执行控制，未外发任何消息。真实宿主安装仍需显式提供正确 unit 并完成现场 smoke。
+
+## 2026-08-24 · 巡检进程探针禁止裸匹配 hermes
+
+- 问题：`apps/watch/src/pipeline.ts` 的 `process-alive` 阶段曾以 `pgrep -f hermes` 作为第二匹配模式，可能把同机其他 Hermes 进程误判为当前实例。
+- 风险/影响：错误的存活信号会跳过重启 runbook、污染升级健康验收，并破坏多实例隔离。
+- 改动范围：进程探针改为只匹配 `rootPath/venv/bin/python` 与 `rootPath/hermes-agent`；同步更新 Watch HTTP/Watch 集成测试夹具与诊断文案。
+- 回归测试：`apps/watch/tests/pipeline.test.ts`、`apps/watch/tests/http.test.ts`、`apps/watch/tests/watch.test.ts` 覆盖实例路径命中与无关进程不命中。
+- 验证命令：`corepack pnpm test`；`corepack pnpm lint`；`corepack pnpm build`；`git diff --check`。
+- 部署/运行验证：仅隔离测试夹具验证，未对真实 Hermes 进程执行 pgrep、重启或消息外发；真实多实例现场探针仍需发布验收。
+
+## 2026-08-24 · M-04 消息轨迹 7 天保留与重试上限收口
+
+- 问题：接管实验路径虽然声明 `delivery.maxAttempts=5`，但重试状态可能继续被消费；Gateway 本地投影和 Hermes Bridge Outbox 也缺少统一的 7 天终态历史清理，长期运行会造成永久重试或无界增长风险。
+- 风险/影响：消息发送超过策略上限仍可能重复触达；旧决策、delivery attempt、状态事件和附件 spool 长期堆积，增加隐私暴露、磁盘耗尽和恢复成本。该路径仍属于 Hermes L2 之外的实验能力，不能因此接入默认生产入口。
+- 改动范围：`apps/gateway/src/message/reconciler.ts` 在投递前达到 `maxAttempts` 时写入 `cancelled` 并阻止再次发送；`MessagePolicyStore.pruneMessageHistory` 默认清理 7 天前的本地终态投影，保留活动状态与 Bridge 权威 Outbox。`packages/adapters/hermes/bridge/agent_butler_bridge/outbox.py` 清理 7 天前终态 outbound 消息及 decisions、delivery attempts、state events、attachments，并回收附件 spool；`BridgeRuntime` 启动时执行一次、运行中每小时执行一次，health 暴露 `retention` 状态。默认 Gateway/Compose/Installer 仍未装配消息 launcher，Hermes V1 继续保持 L2。
+- 回归测试：Gateway message store/reconciler 定向测试 25/25 通过，覆盖达到上限不发送、本地仅清理终态和保留 `retry_wait`；Bridge Outbox/runtime 定向测试通过，覆盖子记录与 spool 清理、health retention 和 runtime 生命周期。
+ - 验证命令：Gateway message store/reconciler 定向测试；Ubuntu-24.04 Hermes venv Bridge `unittest discover`（114 passed）；Bridge `compileall`；`corepack pnpm test`、`corepack pnpm lint`、`corepack pnpm build`；`git diff --check`。
+- 部署/运行验证：未执行真实消息外发、真实 Hermes 写入或外部系统修改；Windows 默认 WSL 发行版缺少 `aiohttp`，验证使用仓库既有 Ubuntu-24.04 Hermes venv。真实 Bridge 长时间运行、重启、升级后的保留计时和生产消息验收仍是发布前门槛。
+
+## 2026-08-24 · M1 关键记忆探针独立 SLA 调度
+
+- 问题：完整巡检虽然默认每 5 分钟执行，但整轮阶段在飞时会跳过下一次 tick；仅凭整轮调度无法证明“故障刚错过轮询边界后仍在 10 分钟内发现并触发修复”。
+- 风险/影响：记忆嵌入停止或写入失败可能等待整轮巡检结束，缺少可复核的发现、修复、告警时间线；长时间巡检还可能拖延下一轮。
+- 改动范围：`apps/watch/src/scheduler.ts` 新增独立 `CriticalProbeScheduler`，默认每 1 分钟运行关键 memory probe，SLA deadline 固定 10 分钟；与完整巡检使用独立 `inFlight`，记录 `lastStartedAt/lastCompletedAt/deadlineAt/durationMs/withinSla/overdue/missedTicks`。`apps/watch/src/config.ts` 新增 `BUTLER_CRITICAL_PROBE_INTERVAL_MIN`，允许 1-5 分钟并默认 1 分钟。`apps/watch/src/watch.ts` 将关键探针接入即时清理、`rb-restart` 自动处置、审计时间线；`GET /api/inspect/status` 暴露关键探针状态，Dashboard“管家最近检查”展示探针状态、频率、SLA 和最近耗时。
+- 回归测试：`apps/watch/tests/scheduler.test.ts` 新增完整巡检阻塞时关键探针独立运行、最坏 deadline 逾期与 `missedTicks` 故障注入；`apps/watch/tests/config.test.ts` 覆盖默认值和上限；`apps/watch/tests/http.test.ts` 覆盖 HTTP 状态和 SLA 审计。定向测试 24 项通过，TypeScript build 通过。
+- 验证命令：`corepack pnpm exec vitest run apps/watch/tests/http.test.ts apps/watch/tests/scheduler.test.ts apps/watch/tests/config.test.ts`；`corepack pnpm exec tsc -b`。
+- 部署/运行验证：仅隔离 fake timer、临时 Hermes fixture 和本地 HTTP 验证；未对真实 Hermes 记忆库执行写入、未执行真实 runbook 或消息外发。真实“刚错过轮询边界”的现场故障注入、发现/告警/修复时间戳仍是 V1 发布前门槛。
+
+## 2026-08-24 · H-04 Hermes 升级流水线内部能力路由收口
+
+- 问题：watch 顶层控制调用已通过 `createRoutedControl`/`core.invoke`，但 Hermes 升级流水线内部构造的 `UpgradeControl` 仍直接调用适配器的 `stop/start/snapshot/rollback/validateConfig`，可绕过能力未实现与运行期降级裁决。
+- 风险/影响：实例未声明控制或配置驱动能力时，升级预检、升级前快照、停止/启动和自动回滚仍可能触发底层执行器，破坏 H-04 fail-closed 边界。
+- 改动范围：`packages/adapters/hermes/src/control/index.ts` 新增可选 `controlInvoker`，升级流水线五类内部调用统一携带方法名、实例和能力位；`apps/watch/src/watch.ts` 将 `core.invoke` 注入 Hermes 适配器，同时保留顶层 `createRoutedControl` 门面。缺省 invoker 直通，独立适配器调用保持兼容。
+- 回归测试：`packages/adapters/hermes/tests/control.test.ts` 新增能力拒绝时升级流水线在 snapshot 阶段 fail-closed、底层 fake executor 零调用；Hermes control 47 项与 Watch capability-routing 3 项通过。
+- 验证命令：`corepack pnpm exec vitest run packages/adapters/hermes/tests/control.test.ts apps/watch/tests/capability-routing.test.ts`；后续执行全量 `corepack pnpm test`、`corepack pnpm lint`、`corepack pnpm build` 与 `git diff --check`。
+- 部署/运行验证：仅隔离 fixture 与 fake executor；未执行真实 Hermes 升级、回滚、systemd/Docker 控制或消息外发。H-01/H-02/H-03 真实验收缺口仍保持开放。
+
+## 2026-08-24 · M1 关键探针告警与 SLA 时间线收口
+
+- 问题：独立关键记忆探针失败时会触发自动修复，但失败本身没有直接进入 Gateway 持久告警队列；当整轮巡检阻塞或 `runbookAuto=false` 时，可能只留下审计而没有 10 分钟内的告警外发。
+- 风险/影响：记忆写入/召回已失效时，用户可能看不到及时告警；自动修复与告警时间线也无法区分发现、排队和修复起点。
+- 改动范围：`apps/watch/src/watch.ts` 在每个关键探针 fail 时无条件调用共享 `alertPoster`，使用 `critical-memory-probe:<instanceId>` 去重键；新增 `critical-memory-alert-queued` 审计，并在 `critical-memory-probe`/`critical-memory-remediation` 审计中记录 `observedAt`、告警排队和修复起止时间。自动 runbook 仍受 `runbookAuto` 与熔断/防抖规则控制。
+- 回归测试：`apps/watch/tests/watch.test.ts` 验证自动修复开启和关闭两种模式均产生 critical 告警；`apps/watch/tests/scheduler.test.ts` 新增“刚错过 1 分钟边界、600001ms 完成”的确定性时间线，锁定 `deadlineAt`、`withinSla=false`、`missedTicks=1`。
+- 验证命令：`corepack pnpm exec vitest run apps/watch/tests/watch.test.ts apps/watch/tests/scheduler.test.ts --testTimeout 30000 --hookTimeout 30000 --maxWorkers=1`（2 文件、19 项通过）；随后执行 TypeScript build、全量测试、lint、Vite build 与 `git diff --check`。
+- 部署/运行验证：仅隔离临时 Hermes fixture、fake timer 和本地 Gateway stub；未对真实 Hermes 记忆库执行写入、未执行真实 runbook 或消息外发。WSL Ubuntu-24.04 已确认 user-systemd 可用，但缺少 Node/pnpm，宿主安装现场验收仍未关闭。
+
+## 2026-08-24 · M2 宿主安装健康门禁与失败回滚
+
+- 问题：宿主安装器写入 unit 并执行 `systemctl --user enable --now` 后即视为成功，没有确认三项服务保持 active，也没有检查 Web/Watch/Gateway 健康接口；启动失败可能留下部分服务运行的半安装状态。
+- 风险/影响：用户会得到“安装成功”但面板或巡检服务实际不可用；部分启动状态还会污染后续重试和端口占用，违背新机安装后可健康运行的 P0 验收。
+- 改动范围：`packages/installer/src/install.ts` 在宿主启动后增加三项 `systemctl --user is-active --quiet` 检查和三个 loopback HTTP 健康检查（Web `/api/health` 要求 `ok/db/gateway=true`，Watch/Gateway 要求 `/healthz.ok=true`），每项最多重试 5 次；任一检查失败则执行 `systemctl --user stop` 停止三项服务并返回失败。成功指引明确包含 active 与健康接口通过。
+- 回归测试：`packages/installer/tests/install.test.ts` 覆盖健康成功调用序列和健康失败后的服务停止；宿主 unit dry-run、非 Linux fail-closed、Docker 形态回归保持通过。
+- 验证命令：`corepack pnpm exec vitest run packages/installer/tests/install.test.ts --testTimeout 30000 --hookTimeout 30000 --maxWorkers=1`（本轮端口门禁加入后 34 项通过）；随后执行 `corepack pnpm exec tsc -b --pretty false`、`corepack pnpm lint`、`corepack pnpm build`、`corepack pnpm test`（93 个文件通过、1 个跳过；801 通过、3 跳过）与 `git diff --check`，全部通过。
+- 部署/运行验证：仅使用注入式 Exec 与临时 serviceDir，未写入真实用户 unit、未启动现有宿主服务；Ubuntu-24.04 只读复核确认 Node `v24.14.1`、Corepack pnpm `10.20.0` 和 user-systemd 可用，但三项 Butler unit 均为 `inactive`，既有 Hermes 进程占用 `127.0.0.1:7532`，因此真实宿主常驻/健康/重启恢复仍需在无冲突、获授权的现场验收中完成。
+
+## 2026-08-24 · M2 宿主端口冲突前置门禁
+
+- 问题：宿主 user-systemd 安装路径此前只在写入 unit、启动服务后才暴露端口冲突；当既有 Hermes 或其它进程占用 7531/7532/7533 时，可能留下已写入但未健康的半安装状态。
+- 风险/影响：重复安装或新机迁移失败时会污染用户服务目录，后续重试还可能误判为 Butler 自身故障；这直接阻断 M2 的可复核安装闭环。
+- 改动范围：`packages/installer/src/install.ts` 新增 `services-port-check`，真实执行时在写 unit 前探测 Watch/Gateway/Web loopback 端口；若占用端口已由对应 active Butler unit 托管则允许幂等重跑，否则 fail-closed，不写 unit、不执行 daemon-reload/enable。dry-run 与注入式 Exec 保持无 socket 副作用；Docker 既有 `web-port-check` 不变。
+- 回归测试：`packages/installer/tests/install.test.ts` 新增外部进程占用时不写 unit、已由 Butler unit 托管时允许继续两项回归；安装器定向测试 34/34 通过。
+- 验证命令：`corepack pnpm exec vitest run packages/installer/tests/install.test.ts --testTimeout 30000 --hookTimeout 30000 --maxWorkers=1`；`corepack pnpm exec tsc -b --pretty false`；`corepack pnpm exec eslint packages/installer/src/install.ts packages/installer/tests/install.test.ts`；`git diff --check`。
+- 部署/运行验证：未写入真实用户 unit、未启动或停止现有服务；WSL 只读复核仍显示 7532 被既有 Hermes 占用，真实宿主安装需在无冲突且获授权的现场完成。
+
+## 2026-08-24 · OpenClaw 升级失败自动回滚与配置校验门禁
+
+- 问题：OpenClaw `upgrade()` 虽然会创建升级前快照，但丢弃了 `snapshotId`；npm 安装失败或升级后配置校验失败时直接返回错误，没有恢复快照文件和升级前 npm 包版本；升级后校验只看进程退出码，无法阻断 `valid:false` 或损坏 JSON。
+- 风险/影响：升级失败可能留下新旧配置、workspace/state 与全局 OpenClaw 包版本不一致；用户会得到“升级失败”但实例仍处于半升级状态，破坏 M2 自动回滚和数据完好承诺。
+- 改动范围：`packages/adapters/openclaw/src/control.ts` 新增升级前配置校验、`openclaw --version` 版本记录、内部快照捕获与 snapshotId 传递；npm 安装失败、升级后非零/损坏 JSON/`valid:false` 均进入自动恢复，恢复 OpenClaw 配置/workspace/state 并尝试安装旧包版本；`skipSnapshot=true` 明确不声称自动回滚；任一恢复环节失败返回 E204 并提示人工介入；公开 `snapshot/rollback` 契约保持兼容。
+- 回归测试：`packages/adapters/openclaw/tests/smoke.test.ts` 10 项通过，覆盖升级成功与幂等、安装失败文件/包回滚、`valid:false`、损坏 JSON、skipSnapshot、回滚失败人工介入，以及既有配置校验/快照/回滚行为。
+- 验证命令：`corepack pnpm exec vitest run packages/adapters/openclaw/tests/smoke.test.ts --testTimeout 30000 --hookTimeout 30000 --maxWorkers=1`；`corepack pnpm exec tsc -b --pretty false`；后续执行全量 `corepack pnpm test`、`corepack pnpm lint`、`corepack pnpm build` 与 `git diff --check`。
+- 部署/运行验证：仅使用临时 OpenClaw fixture、注入式 executor 和临时快照目录；未执行真实全局 npm 安装、未连接真实 OpenClaw 通道、未启动/停止现有服务。真实已知回归版本升级、数据对账和现场回滚仍是发布前门槛。
+
+## 2026-08-24 · M4 OpenClaw 快照登记与资产回滚闭环
+
+- 问题：OpenClaw 控制适配器原先只把快照复制到磁盘，不登记 Core store；M4 预检无法绑定本次 `snapshotId`。同时，回滚入口只恢复 `config/workspace/state`，对 `skills + memory` 快照可能返回成功但不恢复资产；预检还可能误拾取历史同标签快照。
+- 风险/影响：进化可能在没有本次可回滚快照时被误判为 ready；失败恢复后技能或 Markdown 记忆仍可能保留候选/损坏版本，破坏 M4/M2 的 fail-closed 与数据完好承诺。
+- 改动范围：`packages/adapters/openclaw/src/control.ts` 增加受控 `snapshotRecorder`、随机唯一快照 ID、真实 OpenClaw workspace 的 `skills/memory` 映射、manifest 相对路径校验与按 manifest 回滚；快照含 skipped/failed 步骤时升级拒绝执行 npm。`apps/watch/src/watch.ts` 将快照登记接入 Core store；`apps/watch/src/evolution.ts` 只接受本次新增的 `pre-evolution` 登记。
+- 回归测试：`packages/adapters/openclaw/tests/smoke.test.ts` 13 项通过，覆盖 M4 资产登记、manifest 回滚和升级缺资产阻断；`apps/watch/tests/evolution.test.ts` 覆盖历史快照不可冒充本次快照；HTTP M4 接线测试保持通过。
+- 验证命令：`corepack pnpm exec vitest run packages/adapters/openclaw/tests/smoke.test.ts apps/watch/tests/evolution.test.ts apps/watch/tests/http-evolution.test.ts --maxWorkers=1`；`corepack pnpm exec tsc -b --pretty false`；全量测试、lint、build 与 `git diff --check`。
+- 部署/运行验证：仅使用临时 OpenClaw/Hermes fixture、注入式快照登记和本地回滚；未启动/停止现有服务、未执行真实 npm 安装、未发送真实消息。真实快照回滚、数据对账与进化引擎端到端验收仍未关闭。
+
+## 2026-08-24 · 开发期 WebSocket 卸载噪声
+
+- 问题：React `StrictMode` 在开发环境会短暂执行 WebSocket effect 的清理与重建；`EventTicker`、Dashboard、Versions 直接对仍处于 `CONNECTING` 的 `/ws` 连接调用 `close()`，浏览器控制台出现 `WebSocket is closed before the connection is established`，容易被误判为 Web 服务或 Vite 代理故障。
+- 风险/影响：不影响后端 `/ws` 协议本身，但会污染开发诊断信号，并在页面切换/热更新时制造虚假的连接失败提示。
+- 改动范围：新增 `ui/src/lib/websocket.ts` 的 `disposeWebSocket`，卸载时先解绑回调；连接尚未建立则等 `open` 后以正常关闭码释放，已建立连接才立即关闭。三个 `/ws` 消费页面统一使用该 helper。
+- 回归测试：`corepack pnpm exec tsc -b --pretty false`；`corepack pnpm --filter @butler/ui exec vite build`；本地 `ws://127.0.0.1:7531/ws` 与 `ws://127.0.0.1:5173/ws` 均可建立连接。
+- 部署/运行验证：未重启或停止现有服务；当前开发服务继续使用 `http://127.0.0.1:5173/`，Web 后端使用 `http://127.0.0.1:7531/`。
+
+## 2026-08-24 · Hermes/OpenClaw 连接状态与手动控制
+
+- 问题：Dashboard 只显示“管家服务是否在线”，用户无法区分 Hermes/OpenClaw 实例本身的连接状态，也无法手动检查、连接或断开实例；连接失败原因、响应耗时和能力降级信息不可见。
+- 风险/影响：用户可能把控制通道在线误判为 AI 服务在线，重复重试或直接修改配置；断开动作也缺少可验证的终态反馈。
+- 改动范围：`apps/watch/src/watch.ts` 增加连接状态内存、能力探针结果、延迟、最近动作/错误和 Hermes/OpenClaw 启停接线；`apps/watch/src/http.ts` 增加 `/api/connections` 查询、`/check` 手动探测和 `/:id/connect|disconnect` 控制端点；`apps/web/src/server.ts` 增加安全代理与不可达降级载荷；`ui/src/pages/Dashboard.tsx` 增加实时连接卡片、手动检查、连接/断开按钮和探针明细；`ui/src/styles.css` 增加响应式状态面板样式。
+- 回归测试：`apps/watch/tests/http.test.ts` 新增连接查询、手动检查、连接和断开端点覆盖；既有 Dashboard/Web 与 Watch HTTP 测试保持通过。
+- 验证命令：`pnpm exec tsc -b --pretty false`；`pnpm vitest run apps/watch/tests/http.test.ts apps/web/tests/dashboard.test.ts`；`pnpm build`；`git diff --check`。
+- 部署/运行验证：仅使用本地 HTTP、临时 fixture 和注入式执行器验证；未启动/停止真实 Hermes 或 OpenClaw，也未触碰外部系统。真实服务启停、端口探活和断开后的现场复核仍需在用户明确授权的环境执行。

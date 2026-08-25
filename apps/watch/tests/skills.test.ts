@@ -22,7 +22,18 @@ function registerServingInstance(): void {
   core.instances.beginDiscover("hermes-main");
   core.instances.confirmInstance("hermes-main", "auto");
   core.instances.beginNegotiate("hermes-main");
-  core.instances.markServing("hermes-main", 2);
+  core.instances.markServing("hermes-main", 2, {
+    effectiveLevel: 2,
+    capabilities: {
+      probe: "ok",
+      control: "ok",
+      messaging: "not-implemented",
+      "skill-driver": "ok",
+      "memory-driver": "ok",
+      "config-driver": "ok",
+    },
+    anomalies: [],
+  });
 }
 
 function createMemoryDb(valid = true): void {
@@ -93,6 +104,40 @@ describe("技能与记忆只读聚合服务", () => {
     });
     expect(view.memory.preview).toHaveLength(1);
     expect(view.memory.previewLimit).toBe(50);
+    expect(view.skills.items[0]).toMatchObject({
+      riskStatus: "unscanned",
+      riskDetail: "尚未执行风险扫描",
+    });
+  });
+
+  it("风险状态显式区分未扫描与解析失败资产", async () => {
+    const baseDriver = createHermesSkillDriver();
+    const service = createSkillsMemoryService({
+      core,
+      skillDriver: {
+        ...baseDriver,
+        enumerate: async () => ({
+          ok: true as const,
+          data: [
+            {
+              ref: { name: "broken-skill", version: "解析失败", source: "user" as const },
+              name: "broken-skill",
+              version: "解析失败",
+              source: "user" as const,
+              enabled: true,
+            },
+          ],
+          durationMs: 0,
+        }),
+      },
+    });
+
+    const view = await service.status({});
+
+    expect(view.skills.items[0]).toMatchObject({
+      riskStatus: "blocked",
+      riskDetail: "清单解析失败，暂不允许把它当作可信资产",
+    });
   });
 
   it("驱动覆盖不到时降级为有界目录统计并明确只读/不可解析", async () => {

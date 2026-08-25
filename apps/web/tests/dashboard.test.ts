@@ -187,6 +187,33 @@ describe("butler-web 大盘聚合与 watch 代理（Task 10，fastify inject）"
     expect(JSON.parse(calls[0]!.body)).toEqual({ instanceId: "hermes-main" });
   });
 
+  it("POST /api/runbooks/:id/reset：透传人工解除请求与 watch 响应", async () => {
+    const calls: Array<{ url: string; body: string }> = [];
+    const fetchReset: typeof fetch = async (input, init) => {
+      calls.push({ url: String(input), body: String(init?.body ?? "") });
+      return new Response(JSON.stringify({ status: "reset", keys: ["rb-restart:hermes-main"] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+    const app = build(tmp, { fetchImpl: fetchReset });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/runbooks/rb-restart/reset",
+      payload: { instanceId: "hermes-main" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ status: "reset", keys: ["rb-restart:hermes-main"] });
+    expect(calls).toEqual([
+      {
+        url: "http://127.0.0.1:7533/api/runbooks/rb-restart/reset",
+        body: JSON.stringify({ instanceId: "hermes-main" }),
+      },
+    ]);
+  });
+
   it("/api/inspect/status 不可达 → 200 reachable:false；/api/inspect/run 不可达 → 502", async () => {
     const app = build(tmp, { fetchImpl: unreachableFetch });
 

@@ -12,6 +12,7 @@
  * 由上层调度器（Task 5 butler-watch）周期驱动，本模块不做定时循环。
  */
 import fs from "node:fs";
+import { StringDecoder } from "node:string_decoder";
 import type { LogSource } from "@butler/contract";
 import type { EventBus } from "./events.js";
 import type { SqliteStore } from "./store.js";
@@ -32,6 +33,9 @@ export interface TailedBatch {
 }
 
 export type TailHandler = (batch: TailedBatch) => void | Promise<void>;
+
+/** 单次磁盘读取上限，避免按日志增量大小申请巨型 Buffer。 */
+const TAIL_READ_CHUNK_BYTES = 64 * 1024;
 
 export interface LogTailerOptions {
   store: SqliteStore;
@@ -84,32 +88,77 @@ export class LogTailer {
 
       // 从位点读到 EOF，只保留到最后一个完整换行符为止的内容。
       const fd = fs.openSync(source.path, "r");
-      let chunk: Buffer;
+      let batch: TailedBatch | undefined;
       try {
-        chunk = Buffer.alloc(size - offset);
-        fs.readSync(fd, chunk, 0, chunk.length, offset);
+        // 第一遍只扫描换行位置，避免把整个增量读入内存；末尾无换行的
+        // 部分行不会推进位点，下一轮会从原 offset 重新读取。
+        const lastNewline = findLastNewline(fd, offset, size);
+        if (lastNewline !== -1) {
+          const endOffset = lastNewline + 1;
+          const lines = readLines(fd, source, offset, endOffset);
+          if (lines.length > 0) batch = { source, lines, startOffset: offset, endOffset };
+        }
       } finally {
         fs.closeSync(fd);
       }
-      const lastNewline = chunk.lastIndexOf(0x0a);
-      if (lastNewline === -1) continue; // 全是部分行：不吐出、位点不推进
+      if (batch === undefined) continue;
 
-      const endOffset = offset + lastNewline + 1;
-      const text = chunk.subarray(0, lastNewline + 1).toString("utf-8");
-      const raws = text.split("\n");
-      if (raws.length > 0 && raws[raws.length - 1] === "") raws.pop();
-
-      const lines: TailedLine[] = [];
-      for (const raw of raws) {
-        const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
-        lines.push(buildLine(source, line));
-      }
-      if (lines.length === 0) continue;
-
-      await handler({ source, lines, startOffset: offset, endOffset });
-      this.store.setTailPosition(source.id, endOffset); // 处理成功才提交位点
+      await handler(batch);
+      this.store.setTailPosition(source.id, batch.endOffset); // 处理成功才提交位点
     }
   }
+}
+
+/** 返回 [start, end) 范围内最后一个换行符的绝对字节位置。 */
+function findLastNewline(fd: number, start: number, end: number): number {
+  const buffer = Buffer.alloc(Math.min(TAIL_READ_CHUNK_BYTES, end - start));
+  let position = start;
+  let lastNewline = -1;
+  while (position < end) {
+    const requested = Math.min(buffer.length, end - position);
+    const bytesRead = fs.readSync(fd, buffer, 0, requested, position);
+    if (bytesRead <= 0) break;
+    const newline = buffer.subarray(0, bytesRead).lastIndexOf(0x0a);
+    if (newline >= 0) lastNewline = position + newline;
+    position += bytesRead;
+  }
+  return lastNewline;
+}
+
+/** 分块解码并组装完整行；StringDecoder 负责跨块 UTF-8 字符边界。 */
+function readLines(fd: number, source: LogSource, start: number, end: number): TailedLine[] {
+  const buffer = Buffer.alloc(Math.min(TAIL_READ_CHUNK_BYTES, end - start));
+  const decoder = new StringDecoder("utf8");
+  const lines: TailedLine[] = [];
+  const parts: string[] = [];
+  let position = start;
+
+  const consume = (text: string): void => {
+    let cursor = 0;
+    while (cursor < text.length) {
+      const newline = text.indexOf("\n", cursor);
+      if (newline === -1) {
+        if (cursor < text.length) parts.push(text.slice(cursor));
+        return;
+      }
+      if (newline > cursor) parts.push(text.slice(cursor, newline));
+      let raw = parts.join("");
+      parts.length = 0;
+      if (raw.endsWith("\r")) raw = raw.slice(0, -1);
+      lines.push(buildLine(source, raw));
+      cursor = newline + 1;
+    }
+  };
+
+  while (position < end) {
+    const requested = Math.min(buffer.length, end - position);
+    const bytesRead = fs.readSync(fd, buffer, 0, requested, position);
+    if (bytesRead <= 0) break;
+    consume(decoder.write(buffer.subarray(0, bytesRead)));
+    position += bytesRead;
+  }
+  consume(decoder.end());
+  return lines;
 }
 
 /** 按源格式组装 TailedLine：jsonl 解析 tsField，text 不解析 ts。 */

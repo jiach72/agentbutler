@@ -117,65 +117,8 @@ function metadataCategory(data: Record<string, unknown>): string | undefined {
     : undefined;
 }
 
-/** 平铺技能库（每个目录一个 SKILL.md）按名称推断领域分类；嵌套目录保留首段目录名。 */
-const SKILL_FLAT_CATEGORY_RULES: Array<{ match: RegExp; category: string }> = [
-  {
-    match: /(^|[-_])(devops|docker|kubernetes|k8s|terraform|cloud|aws|gcp|azure|git|github|gitlab|ci|cd|deploy|ansible|helm|kafka|grafana|jenkins|pipeline|sre|ops|argocd|istio|envoy|nginx)/i,
-    category: "开发运维",
-  },
-  {
-    match: /(^|[-_])(data|analytics|ml|ai|llm|model|forecast|ab-?test|feature|dataset|bigquery|sql|spark|pandas|statistics|inference|agentic)/i,
-    category: "数据与 AI",
-  },
-  {
-    match: /(^|[-_])(ui|ux|design|frontend|web|css|html|react|figma|brand|landing|chart|visual|typography)/i,
-    category: "设计与前端",
-  },
-  {
-    match: /(^|[-_])(sec|security|threat|vuln|auth|privacy|gdpr|harden|audit|crypto|firewall|malware)/i,
-    category: "安全与合规",
-  },
-  {
-    match: /(^|[-_])(office|doc|slide|ppt|excel|sheet|word|pdf|report|note|email|meeting|resume|cv|invoice)/i,
-    category: "办公文档",
-  },
-  {
-    match: /(^|[-_])(business|market|sales|growth|product|pricing|strategy|seo|ads|prd|kpi)/i,
-    category: "商务与产品",
-  },
-  {
-    match: /(^|[-_])(media|content|article|video|image|photo|audio|social|wechat|telegram|news|blog|copy|article)/i,
-    category: "内容与传播",
-  },
-  {
-    match: /(^|[-_])(research|paper|arxiv|search|knowledge|memory|mindmap|curator|learning|study|trend)/i,
-    category: "研究与知识",
-  },
-  {
-    match: /(^|[-_])(computer|browser|chrome|system|os|process|shell|terminal|automation|workflow|agent)/i,
-    category: "系统与自动化",
-  },
-  {
-    match: /(^|[-_])(coding|code|program|typescript|python|javascript|go|rust|api|backend|test|debug|resolver|generator)/i,
-    category: "开发与代码",
-  },
-];
-
-function inferCategory(skillsRoot: string, path: string): string | undefined {
-  const relative = dirname(path).slice(skillsRoot.length).replace(/^[\\/]+/, "");
-  const segments = relative.split(/[\\/]/).filter((part) => part !== "");
-  if (segments.length === 0) return undefined;
-  if (segments.length > 1) return segments[0]!;
-  const name = segments[0]!.toLowerCase();
-  for (const rule of SKILL_FLAT_CATEGORY_RULES) {
-    if (rule.match.test(name)) return rule.category;
-  }
-  return "通用技能";
-}
-
 function parseSkillFile(
   path: string,
-  skillsRoot: string,
   bundles: Map<string, string>,
 ): LocatedSkill {
   const raw = readFileSync(path, "utf8");
@@ -193,7 +136,7 @@ function parseSkillFile(
         ? `bundled:${bundledHash.slice(0, 8)}`
         : "未声明";
   const source = metadataSource(parsed) ?? (bundledHash !== undefined ? "builtin" : "user");
-  const category = metadataCategory(parsed) ?? inferCategory(skillsRoot, path);
+  const category = metadataCategory(parsed);
   const description =
     typeof parsed["description"] === "string" && parsed["description"].trim() !== ""
       ? parsed["description"].trim()
@@ -251,7 +194,7 @@ export function createHermesSkillDriver(): SkillDriver {
       const located: LocatedSkill[] = [];
       for (const path of collectSkillFiles(skillsRoot)) {
         try {
-          located.push(parseSkillFile(path, skillsRoot, bundles));
+          located.push(parseSkillFile(path, bundles));
         } catch {
           // 单个损坏技能不能拖垮整份清单；降级元数据仍保持可见。
           const name = basename(dirname(path));

@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_INSPECT_INTERVAL_MIN, loadWatchConfig } from "../src/config.js";
+import {
+  DEFAULT_CRITICAL_PROBE_INTERVAL_MIN,
+  DEFAULT_INSPECT_INTERVAL_MIN,
+  loadWatchConfig,
+} from "../src/config.js";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -19,6 +23,18 @@ describe("loadWatchConfig", () => {
 
     vi.stubEnv("BUTLER_INSPECT_INTERVAL_MIN", "0");
     expect(loadWatchConfig().inspectIntervalMin).toBe(5);
+  });
+
+  it("defaults the critical memory probe to one minute and rejects intervals above five minutes", () => {
+    vi.stubEnv("BUTLER_CRITICAL_PROBE_INTERVAL_MIN", "");
+    expect(DEFAULT_CRITICAL_PROBE_INTERVAL_MIN).toBe(1);
+    expect(loadWatchConfig().criticalProbeIntervalMin).toBe(1);
+
+    vi.stubEnv("BUTLER_CRITICAL_PROBE_INTERVAL_MIN", "3");
+    expect(loadWatchConfig().criticalProbeIntervalMin).toBe(3);
+
+    vi.stubEnv("BUTLER_CRITICAL_PROBE_INTERVAL_MIN", "6");
+    expect(loadWatchConfig().criticalProbeIntervalMin).toBe(1);
   });
 
   it("reads an explicit Hermes root for container deployments", () => {

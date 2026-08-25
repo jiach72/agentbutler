@@ -165,7 +165,7 @@ export function apiEndpointOf(config: Awaited<ReturnType<typeof readHermesConfig
   return { host, port };
 }
 
-/** process-alive：pgrep -f 匹配 venv python / hermes systemd unit；docker 形态 skipped（容器状态覆盖，V1 简化 pgrep）。结论写 shared 供 stall-write 复用。 */
+/** process-alive：pgrep -f 仅匹配实例 rootPath 下的 venv/python 或 hermes-agent；docker 形态 skipped（容器状态覆盖，V1 简化 pgrep）。结论写 shared 供 stall-write 复用。 */
 export function createProcessAliveStage(deps: StageDeps = {}): InspectionStage {
   const exec = deps.exec ?? defaultCommandRunner();
   const timeoutMs = deps.probeTimeoutMs ?? PROBE_TIMEOUT_MS;
@@ -177,7 +177,7 @@ export function createProcessAliveStage(deps: StageDeps = {}): InspectionStage {
         ctx.shared[SHARED_PROCESS_ALIVE] = "skipped";
         return { id: "process-alive", status: "skipped", detail: "docker 形态跳过进程探测（由容器状态覆盖）" };
       }
-      const patterns = [join(ctx.rootPath, "venv", "bin", "python"), "hermes"];
+      const patterns = [join(ctx.rootPath, "venv", "bin", "python"), join(ctx.rootPath, "hermes-agent")];
       for (const pattern of patterns) {
         const result = await exec.exec("pgrep", ["-f", pattern], { timeoutMs });
         const pids = result.stdout.trim().split("\n").filter((p) => p.trim() !== "");
@@ -187,7 +187,7 @@ export function createProcessAliveStage(deps: StageDeps = {}): InspectionStage {
         }
       }
       ctx.shared[SHARED_PROCESS_ALIVE] = "fail";
-      return { id: "process-alive", status: "fail", detail: "pgrep 未命中 venv python / hermes unit，进程疑似未运行" };
+      return { id: "process-alive", status: "fail", detail: "pgrep 未命中实例 venv python / hermes-agent 路径，进程疑似未运行" };
     },
   };
 }

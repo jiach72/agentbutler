@@ -13,6 +13,7 @@ import { probeDashboardSignal, type FetchLike } from "./dashboard-signal.js";
 import {
   InspectionPipeline,
   overallOf,
+  type CheckResult,
   type InspectionContext,
   type InspectionStage,
 } from "./pipeline.js";
@@ -41,6 +42,8 @@ export interface InspectionSchedulerOptions {
   onError?: (error: unknown) => void;
   /** 可注入时钟（runNow/status 的 lastAt/nextAt 推算，默认 Date.now）。 */
   now?: () => number;
+  /** 可选独立关键探针状态提供器（HTTP status 聚合展示）。 */
+  criticalStatus?: () => CriticalProbeStatus;
 }
 
 /** 巡检状态快照（HTTP /api/inspect/status 契约）。 */
@@ -53,6 +56,8 @@ export interface InspectionStatus {
   intervalMin: number;
   /** 是否有巡检在飞。 */
   inFlight: boolean;
+  /** 独立关键记忆探针状态；未配置时省略。 */
+  criticalProbe?: CriticalProbeStatus;
 }
 
 export class InspectionScheduler {
@@ -67,6 +72,7 @@ export class InspectionScheduler {
   private firstFireAt: number | null = null;
   /** 上次巡检完成时刻（ISO）。 */
   private lastCompletedAt: string | null = null;
+  private criticalStatus?: () => CriticalProbeStatus;
 
   constructor(options: InspectionSchedulerOptions) {
     this.intervalMs = options.intervalMs;
@@ -74,6 +80,7 @@ export class InspectionScheduler {
     this.driver = options.driver ?? defaultTimerDriver;
     this.onError = options.onError ?? ((error) => console.warn("[butler-watch] 巡检执行异常:", error));
     this.now = options.now ?? Date.now;
+    this.criticalStatus = options.criticalStatus;
   }
 
   /** 立即执行一次（await 首轮完成）后按 interval 循环。 */
@@ -110,6 +117,7 @@ export class InspectionScheduler {
       nextAt,
       intervalMin: Math.round((this.intervalMs / 60_000) * 100) / 100,
       inFlight: this.inFlight,
+      ...(this.criticalStatus === undefined ? {} : { criticalProbe: this.criticalStatus() }),
     };
   }
 
@@ -139,6 +147,169 @@ export class InspectionScheduler {
     } finally {
       this.inFlight = false;
       this.lastCompletedAt = new Date(this.now()).toISOString();
+    }
+  }
+}
+
+/** 关键探针单轮结果（用于 SLA 证据与审计）。 */
+export interface CriticalProbeResult {
+  status: CheckResult["status"];
+  detail?: string;
+  startedAt: string;
+  finishedAt: string;
+  deadlineAt: string;
+  durationMs: number;
+  withinSla: boolean;
+}
+
+/** 独立关键探针调度状态（当前用于 memory-probe）。 */
+export interface CriticalProbeStatus {
+  intervalMin: number;
+  slaMin: number;
+  lastStartedAt: string | null;
+  lastCompletedAt: string | null;
+  nextAt: string | null;
+  deadlineAt: string | null;
+  lastDurationMs: number | null;
+  lastStatus: CheckResult["status"] | null;
+  lastWithinSla: boolean | null;
+  overdue: boolean;
+  inFlight: boolean;
+  runCount: number;
+  missedTicks: number;
+}
+
+export interface CriticalProbeSchedulerOptions {
+  /** 关键探针执行间隔（毫秒）。 */
+  intervalMs: number;
+  /** SLA deadline（毫秒；V1 为 10 分钟）。 */
+  slaMs: number;
+  /** 单轮关键探针执行体。 */
+  run: () => Promise<Pick<CriticalProbeResult, "status" | "detail">>;
+  driver?: TimerDriver;
+  onResult?: (result: CriticalProbeResult) => void | Promise<void>;
+  onError?: (error: unknown) => void;
+  now?: () => number;
+}
+
+/**
+ * 独立关键探针调度器：先注册 interval 再执行首轮，避免首轮卡住时失去 SLA 可观测性。
+ * 与完整巡检使用同一 TimerDriver，但拥有独立 inFlight，完整巡检阻塞不会拖住关键探针。
+ */
+export class CriticalProbeScheduler {
+  private intervalMs: number;
+  private slaMs: number;
+  private run: CriticalProbeSchedulerOptions["run"];
+  private driver: TimerDriver;
+  private onResult?: CriticalProbeSchedulerOptions["onResult"];
+  private onError: (error: unknown) => void;
+  private now: () => number;
+  private handle: unknown;
+  private inFlight = false;
+  private firstFireAt: number | null = null;
+  private lastStartedAt: string | null = null;
+  private lastCompletedAt: string | null = null;
+  private deadlineAt: string | null = null;
+  private lastDurationMs: number | null = null;
+  private lastStatus: CheckResult["status"] | null = null;
+  private lastWithinSla: boolean | null = null;
+  private runCount = 0;
+  private missedTicks = 0;
+
+  constructor(options: CriticalProbeSchedulerOptions) {
+    this.intervalMs = options.intervalMs;
+    this.slaMs = options.slaMs;
+    this.run = options.run;
+    this.driver = options.driver ?? defaultTimerDriver;
+    this.onResult = options.onResult;
+    this.onError = options.onError ?? ((error) => console.warn("[butler-watch] 关键探针执行异常:", error));
+    this.now = options.now ?? Date.now;
+  }
+
+  async start(): Promise<void> {
+    if (this.handle !== undefined) return;
+    this.firstFireAt = this.now();
+    this.handle = this.driver.setInterval(() => void this.fire(), this.intervalMs);
+    await this.fire();
+  }
+
+  stop(): void {
+    if (this.handle !== undefined) {
+      this.driver.clearInterval(this.handle);
+      this.handle = undefined;
+    }
+  }
+
+  isRunning(): boolean {
+    return this.handle !== undefined;
+  }
+
+  isInFlight(): boolean {
+    return this.inFlight;
+  }
+
+  status(): CriticalProbeStatus {
+    const baseMs = this.lastStartedAt !== null ? Date.parse(this.lastStartedAt) : this.firstFireAt;
+    const deadlineMs = this.deadlineAt === null ? null : Date.parse(this.deadlineAt);
+    const overdue =
+      this.inFlight && deadlineMs !== null
+        ? this.now() > deadlineMs
+        : this.lastWithinSla === false;
+    return {
+      intervalMin: Math.round((this.intervalMs / 60_000) * 100) / 100,
+      slaMin: Math.round((this.slaMs / 60_000) * 100) / 100,
+      lastStartedAt: this.lastStartedAt,
+      lastCompletedAt: this.lastCompletedAt,
+      nextAt:
+        this.handle !== undefined && baseMs !== null
+          ? new Date(baseMs + this.intervalMs).toISOString()
+          : null,
+      deadlineAt: this.deadlineAt,
+      lastDurationMs: this.lastDurationMs,
+      lastStatus: this.lastStatus,
+      lastWithinSla: this.lastWithinSla,
+      overdue,
+      inFlight: this.inFlight,
+      runCount: this.runCount,
+      missedTicks: this.missedTicks,
+    };
+  }
+
+  private async fire(): Promise<void> {
+    if (this.inFlight) {
+      this.missedTicks += 1;
+      return;
+    }
+    const startedMs = this.now();
+    this.inFlight = true;
+    this.runCount += 1;
+    this.lastStartedAt = new Date(startedMs).toISOString();
+    this.deadlineAt = new Date(startedMs + this.slaMs).toISOString();
+    let outcome: Pick<CriticalProbeResult, "status" | "detail">;
+    try {
+      outcome = await this.run();
+    } catch (error) {
+      this.onError(error);
+      outcome = { status: "fail", detail: error instanceof Error ? error.message : String(error) };
+    }
+    const finishedMs = this.now();
+    const result: CriticalProbeResult = {
+      ...outcome,
+      startedAt: this.lastStartedAt,
+      finishedAt: new Date(finishedMs).toISOString(),
+      deadlineAt: this.deadlineAt,
+      durationMs: Math.max(0, finishedMs - startedMs),
+      withinSla: finishedMs <= startedMs + this.slaMs,
+    };
+    this.lastCompletedAt = result.finishedAt;
+    this.lastDurationMs = result.durationMs;
+    this.lastStatus = result.status;
+    this.lastWithinSla = result.withinSla;
+    this.inFlight = false;
+    try {
+      await this.onResult?.(result);
+    } catch (error) {
+      this.onError(error);
     }
   }
 }

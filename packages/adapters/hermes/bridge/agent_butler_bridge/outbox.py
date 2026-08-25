@@ -7,7 +7,7 @@ import json
 import sqlite3
 import threading
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 
@@ -38,6 +38,8 @@ DECISION_STATES = {
     "cancelled",
 }
 TERMINAL_STATES = {"delivered", "absorbed", "dead_letter", "cancelled"}
+MESSAGE_HISTORY_RETENTION_DAYS = 7
+HISTORY_PRUNE_STATES = TERMINAL_STATES | {"delivery_unknown", "policy_error"}
 TASK_EVENT_KINDS = {"started", "progress", "completing", "done", "failed"}
 TASK_TERMINAL_STATES = {"done", "failed"}
 CONVERSATION_REPLY_KINDS = {"final", "failure", "task-progress"}
@@ -223,6 +225,18 @@ def _read_required_string(payload: Mapping[str, Any], key: str) -> str:
     if not isinstance(value, str) or not value:
         raise ValueError(f"{key} must be a non-empty string")
     return value
+
+
+def _parse_utc_timestamp(value: str, field: str) -> datetime:
+    if not isinstance(value, str) or not value.endswith("Z"):
+        raise ValueError(f"{field} must be a UTC ISO timestamp")
+    try:
+        parsed = datetime.fromisoformat(value[:-1] + "+00:00")
+    except ValueError as exc:
+        raise ValueError(f"{field} must be a UTC ISO timestamp") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() != timedelta(0):
+        raise ValueError(f"{field} must be a UTC ISO timestamp")
+    return parsed
 
 
 class Outbox:
@@ -894,6 +908,62 @@ class Outbox:
             return True
         except (RuntimeError, sqlite3.Error):
             return False
+
+    def prune_history(self, cutoff: str | None = None) -> int:
+        """Delete only old terminal outbound traces and their dependent rows."""
+        cutoff_value = cutoff or (
+            datetime.now(timezone.utc) - timedelta(days=MESSAGE_HISTORY_RETENTION_DAYS)
+        ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        _parse_utc_timestamp(cutoff_value, "cutoff")
+        placeholders = ",".join("?" for _ in HISTORY_PRUNE_STATES)
+        states = tuple(sorted(HISTORY_PRUNE_STATES))
+        spool_paths: list[Path] = []
+        with self._transaction():
+            rows = self._conn.execute(
+                f"SELECT message_id FROM outbound_messages WHERE updated_at < ? AND state IN ({placeholders})",
+                (cutoff_value, *states),
+            ).fetchall()
+            message_ids = [str(row["message_id"]) for row in rows]
+            if not message_ids:
+                return 0
+
+            message_placeholders = ",".join("?" for _ in message_ids)
+            for row in self._conn.execute(
+                f"SELECT spool_path FROM message_attachments WHERE message_id IN ({message_placeholders})",
+                message_ids,
+            ).fetchall():
+                if row["spool_path"]:
+                    spool_paths.append(Path(str(row["spool_path"])))
+
+            self._conn.execute(
+                f"DELETE FROM outbound_decisions WHERE message_id IN ({message_placeholders})",
+                message_ids,
+            )
+            self._conn.execute(
+                f"DELETE FROM delivery_attempts WHERE message_id IN ({message_placeholders})",
+                message_ids,
+            )
+            self._conn.execute(
+                f"DELETE FROM message_attachments WHERE message_id IN ({message_placeholders})",
+                message_ids,
+            )
+            self._conn.execute(
+                f"DELETE FROM message_state_events WHERE message_id IN ({message_placeholders})",
+                message_ids,
+            )
+            self._conn.execute(
+                f"DELETE FROM outbound_messages WHERE message_id IN ({message_placeholders})",
+                message_ids,
+            )
+
+        for spool_path in spool_paths:
+            try:
+                spool_path.unlink(missing_ok=True)
+            except OSError:
+                # The DB record is already gone; an orphaned spool is harmless and can be
+                # swept by the private spool maintenance pass without blocking delivery.
+                continue
+        return len(message_ids)
 
     def list_changes(self, after_sequence: int, limit: int = 100) -> dict[str, Any]:
         if after_sequence < 0:

@@ -5,6 +5,8 @@ import type {
   EvolutionGateOutcome,
   EvolutionPreflightInput,
   EvolutionPreflightOutcome,
+  EvolutionPromoteInput,
+  EvolutionPromoteOutcome,
   EvolutionResultInput,
   EvolutionService,
 } from "../src/evolution.js";
@@ -31,6 +33,8 @@ interface EvolutionFakeState {
   resultCalls: EvolutionResultInput[];
   expandOutcome: EvolutionExpandOutcome;
   resultOutcome: EvolutionGateOutcome;
+  promoteCalls: EvolutionPromoteInput[];
+  promoteOutcome: EvolutionPromoteOutcome;
 }
 
 function makeDeps(): { deps: WatchHttpDeps; state: EvolutionFakeState } {
@@ -53,6 +57,16 @@ function makeDeps(): { deps: WatchHttpDeps; state: EvolutionFakeState } {
       delta: 0.08,
       ledgerPath: "/ledger/run-16.md",
     },
+    promoteCalls: [],
+    promoteOutcome: {
+      status: "promoted",
+      runId: "run-16",
+      targetPath: "/hermes/skills/target.md",
+      candidatePath: "/hermes/skills/candidate.md",
+      baselineSha256: "a".repeat(64),
+      candidateSha256: "b".repeat(64),
+      ledgerPath: "/ledger/run-16.md",
+    },
   };
   const evolution: EvolutionService = {
     status: () => ({
@@ -72,6 +86,10 @@ function makeDeps(): { deps: WatchHttpDeps; state: EvolutionFakeState } {
     recordResult: async (input) => {
       state.resultCalls.push(input);
       return state.resultOutcome;
+    },
+    promoteArtifact: (input) => {
+      state.promoteCalls.push(input);
+      return state.promoteOutcome;
     },
     exportLedger: (runId) =>
       runId === "run-16"
@@ -181,6 +199,15 @@ describe("startWatchHttp 进化守门端点", () => {
       significant: true,
     });
 
+    const promote = await fetch(`${base}/api/evolution/runs/run-16/promote`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: "authority-1" }),
+    });
+    expect(promote.status).toBe(200);
+    await expect(promote.json()).resolves.toMatchObject({ status: "promoted", runId: "run-16" });
+    expect(fake.state.promoteCalls).toEqual([{ runId: "run-16", token: "authority-1" }]);
+
     const exported = await fetch(`${base}/api/evolution/ledger/run-16/export`);
     expect(exported.status).toBe(200);
     expect(exported.headers.get("content-type")).toContain("text/markdown");
@@ -235,5 +262,26 @@ describe("startWatchHttp 进化守门端点", () => {
     expect(invalidResult.status).toBe(400);
 
     expect((await fetch(`${base}/api/evolution/ledger/missing/export`)).status).toBe(404);
+  });
+
+  it("校验采用令牌并映射受控替换冲突", async () => {
+    const invalid = await fetch(`${base}/api/evolution/runs/run-16/promote`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(invalid.status).toBe(400);
+    fake.state.promoteOutcome = {
+      status: "error",
+      error: "target-changed",
+      detail: "baseline 文件已变化",
+      ledgerPath: "/ledger/run-16.md",
+    };
+    const conflict = await fetch(`${base}/api/evolution/runs/run-16/promote`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: "authority-1" }),
+    });
+    expect(conflict.status).toBe(409);
   });
 });

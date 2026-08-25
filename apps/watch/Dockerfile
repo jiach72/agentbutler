@@ -7,7 +7,7 @@ RUN corepack enable
 WORKDIR /app
 COPY . .
 RUN corepack pnpm install --frozen-lockfile
-RUN corepack pnpm run build
+RUN corepack pnpm exec tsc -b --force && corepack pnpm --filter @butler/ui exec vite build
 
 FROM node:22-slim AS runtime
 

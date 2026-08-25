@@ -59,6 +59,11 @@ describe("M7 配置不变式与密钥权限", () => {
     const view = await createSecurityService({ hermesRoot: root }).status();
 
     expect(view.totalSecretFiles).toBe(2);
+    if (process.platform === "win32") {
+      expect(view.insecureSecretFiles).toBe(0);
+      expect(view.secrets.every((secret) => secret.mode === "—" && secret.secure)).toBe(true);
+      return;
+    }
     expect(view.insecureSecretFiles).toBe(1);
     expect(view.secrets.find((s) => s.rel === ".env")?.secure).toBe(true);
     expect(view.secrets.find((s) => s.rel === "auth.json")?.secure).toBe(false);

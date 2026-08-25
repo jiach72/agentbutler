@@ -85,4 +85,8 @@ describe("M7 备份服务", () => {
     expect(intervals).toEqual([60 * 60 * 1000]);
     service.stop();
   });
+
+  it("状态明确返回日常备份的分类型保留上限", () => {
+    expect(service.status().retention).toEqual({ full: 14, memory: 24, event: 10 });
+  });
 });

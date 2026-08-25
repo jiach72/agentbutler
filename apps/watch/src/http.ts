@@ -11,7 +11,15 @@
  *                                      无可用实例 → 503 { error }
  * - POST /api/inspect/run            → 202 { started: true }；巡检在飞 →
  *                                      409 { error: "inspection-in-flight" }
- * - GET  /api/inspect/status         → { lastAt, nextAt, intervalMin, inFlight }
+ * - GET  /api/inspect/status         → { lastAt, nextAt, intervalMin, inFlight,
+ *                                      criticalProbe?: { intervalMin, slaMin,
+ *                                      lastStartedAt, lastCompletedAt, nextAt,
+ *                                      deadlineAt, lastDurationMs, lastStatus,
+ *                                      lastWithinSla, overdue, inFlight,
+ *                                      runCount, missedTicks } }
+ * - GET  /api/connections            → 当前 Hermes/OpenClaw 实例的实时连接视图；
+ * - POST /api/connections/check      → 手动探测（body { instanceId? }）；
+ * - POST /api/connections/:id/connect|disconnect → 连接/断开指定实例；
  * - POST /api/upgrade/run            → body { instanceId?, targetVersion, channel? }：
  *                                      202 { started: true, jobId, instanceId }；
  *                                      targetVersion 缺失/空/非字符串 →
@@ -96,6 +104,7 @@ import { createServer, type Server } from "node:http";
 import type {
   EvolutionExpandInput,
   EvolutionPreflightInput,
+  EvolutionPromoteInput,
   EvolutionResultInput,
   EvolutionService,
 } from "./evolution.js";
@@ -130,6 +139,12 @@ export type RunbookExecuteOutcome =
   | { status: "circuit-breaker-tripped" }
   | { status: "no-servicing-instance" };
 
+/** 人工解除 runbook 熔断的结果（HTTP 层只做状态码映射）。 */
+export type RunbookResetOutcome =
+  | { status: "reset"; keys: string[] }
+  | { status: "unknown-runbook" }
+  | { status: "not-tripped" };
+
 /** GET /api/runbooks 的单条 runbook 元信息。 */
 export interface RunbookSummary {
   id: string;
@@ -153,12 +168,48 @@ export interface WatchHttpDeps {
       nextAt: string | null;
       intervalMin: number;
       inFlight: boolean;
+      criticalProbe?: {
+        intervalMin: number;
+        slaMin: number;
+        lastStartedAt: string | null;
+        lastCompletedAt: string | null;
+        nextAt: string | null;
+        deadlineAt: string | null;
+        lastDurationMs: number | null;
+        lastStatus: "pass" | "warn" | "fail" | "skipped" | null;
+        lastWithinSla: boolean | null;
+        overdue: boolean;
+        inFlight: boolean;
+        runCount: number;
+        missedTicks: number;
+      };
     };
+  };
+  /** Hermes/OpenClaw 连接管理（可选，旧嵌入式测试未接线时返回 503）。 */
+  connections?: {
+    status(): { checkedAt: string; connections: Array<Record<string, unknown>> };
+    check(instanceId?: string): Promise<
+      | { status: "checked"; connection: Record<string, unknown> }
+      | { status: "no-instance" }
+      | { status: "failed"; connection: Record<string, unknown> }
+    >;
+    connect(instanceId?: string): Promise<
+      | { status: "connected" | "disconnected"; connection: Record<string, unknown> }
+      | { status: "no-instance" }
+      | { status: "failed"; connection: Record<string, unknown> }
+    >;
+    disconnect(instanceId?: string): Promise<
+      | { status: "connected" | "disconnected"; connection: Record<string, unknown> }
+      | { status: "no-instance" }
+      | { status: "failed"; connection: Record<string, unknown> }
+    >;
   };
   /** runbook 元信息列表（含熔断态与最近执行）。 */
   runbooks(): RunbookSummary[];
   /** 执行判定（实例解析 + 熔断检查 + 异步启动），HTTP 层按 outcome 映射状态码。 */
   executeRunbook(id: string, instanceId?: string): Promise<RunbookExecuteOutcome>;
+  /** 人工解除 runbook 熔断；接线层负责审计，HTTP 层只做状态码映射。 */
+  resetRunbookBreaker?(id: string, instanceId?: string): Promise<RunbookResetOutcome>;
   /** Task 13：升级服务（发起/状态/版本列表/快照回滚），HTTP 层只做状态码映射。 */
   upgrade: UpgradeService;
   /** Task 15：网关限流统计与补丁参数面板服务，HTTP 层只做状态码映射。 */
@@ -462,6 +513,27 @@ async function handle(
       return sendJson(res, 503, { error: "no-servicing-instance" });
     }
 
+    const resetMatch = /^\/api\/runbooks\/([^/]+)\/reset$/.exec(path);
+    if (resetMatch !== null) {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      const body = await readJsonBody(req, res);
+      if (body === null) return;
+      const id = decodeURIComponent(resetMatch[1]!);
+      const instanceId =
+        typeof body["instanceId"] === "string" && body["instanceId"] !== ""
+          ? body["instanceId"]
+          : undefined;
+      if (deps.resetRunbookBreaker === undefined) {
+        return sendJson(res, 503, { error: "breaker-reset-unavailable" });
+      }
+      const outcome = await deps.resetRunbookBreaker(id, instanceId);
+      if (outcome.status === "reset") return sendJson(res, 200, outcome);
+      if (outcome.status === "unknown-runbook") {
+        return sendJson(res, 404, { error: `unknown-runbook: ${id}` });
+      }
+      return sendJson(res, 409, { error: "circuit-breaker-not-tripped" });
+    }
+
     if (path === "/api/inspect/run") {
       if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
       const body = await readJsonBody(req, res);
@@ -477,6 +549,38 @@ async function handle(
     if (path === "/api/inspect/status") {
       if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
       return sendJson(res, 200, deps.scheduler.status());
+    }
+
+    if (path === "/api/connections") {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.connections === undefined) return sendJson(res, 503, { error: "connections-unavailable" });
+      return sendJson(res, 200, deps.connections.status());
+    }
+
+    if (path === "/api/connections/check") {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.connections === undefined) return sendJson(res, 503, { error: "connections-unavailable" });
+      const body = await readJsonBody(req, res);
+      if (body === null) return;
+      const instanceId = typeof body["instanceId"] === "string" && body["instanceId"] !== ""
+        ? body["instanceId"]
+        : undefined;
+      const outcome = await deps.connections.check(instanceId);
+      if (outcome.status === "no-instance") return sendJson(res, 404, { error: "no-instance" });
+      return sendJson(res, 200, outcome);
+    }
+
+    const connectionAction = /^\/api\/connections\/([^/]+)\/(connect|disconnect)$/.exec(path);
+    if (connectionAction !== null) {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.connections === undefined) return sendJson(res, 503, { error: "connections-unavailable" });
+      const body = await readJsonBody(req, res);
+      if (body === null) return;
+      const instanceId = decodeURIComponent(connectionAction[1]!);
+      const action = connectionAction[2] === "connect" ? deps.connections.connect : deps.connections.disconnect;
+      const outcome = await action(instanceId);
+      if (outcome.status === "no-instance") return sendJson(res, 404, { error: "no-instance" });
+      return sendJson(res, outcome.status === "failed" ? 409 : 200, outcome);
     }
 
     if (path === "/api/skills") {
@@ -836,7 +940,7 @@ async function handle(
           : undefined;
       const channel =
         body["channel"] === "beta" ? "beta" : body["channel"] === "stable" ? "stable" : undefined;
-      const outcome = deps.upgrade.startUpgrade({ instanceId, targetVersion, channel });
+      const outcome = await deps.upgrade.startUpgrade({ instanceId, targetVersion, channel });
       if (outcome.status === "started") {
         return sendJson(res, 202, {
           started: true,
@@ -849,6 +953,9 @@ async function handle(
       }
       if (outcome.status === "missing-target-version") {
         return sendJson(res, 400, { error: "missing-target-version" });
+      }
+      if (outcome.status === "backup-failed") {
+        return sendJson(res, 503, { error: "upgrade-prebackup-failed", detail: outcome.error });
       }
       return sendJson(res, 503, { error: "no-servicing-instance" });
     }
@@ -1204,6 +1311,11 @@ async function handle(
       if (body["rootCause"] !== undefined && typeof body["rootCause"] !== "string") {
         return sendJson(res, 400, { error: "invalid-rootCause" });
       }
+      for (const field of ["targetPath", "candidatePath"] as const) {
+        if (body[field] !== undefined && typeof body[field] !== "string") {
+          return sendJson(res, 400, { error: `invalid-${field}` });
+        }
+      }
       const input: EvolutionResultInput = {
         runId: decodeURIComponent(evolutionResultMatch[1]!),
         baselineMetric: body["baselineMetric"],
@@ -1212,11 +1324,59 @@ async function handle(
         ...(isStringArray(body["errors"]) ? { errors: body["errors"] } : {}),
         ...(typeof body["rootCause"] === "string" ? { rootCause: body["rootCause"] } : {}),
         ...(isStringArray(body["fixes"]) ? { fixes: body["fixes"] } : {}),
+        ...(typeof body["targetPath"] === "string" ? { targetPath: body["targetPath"] } : {}),
+        ...(typeof body["candidatePath"] === "string"
+          ? { candidatePath: body["candidatePath"] }
+          : {}),
       };
       const outcome = await deps.evolution.recordResult(input);
       if (outcome.error === "run-not-found") return sendJson(res, 404, outcome);
       if (outcome.error === "run-not-ready") return sendJson(res, 409, outcome);
       if (outcome.status === "error") return sendJson(res, 400, outcome);
+      return sendJson(res, 200, outcome);
+    }
+
+    const evolutionPromoteMatch = /^\/api\/evolution\/runs\/([^/]+)\/promote$/.exec(path);
+    if (evolutionPromoteMatch !== null) {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.evolution === undefined)
+        return sendJson(res, 503, { error: "evolution-unavailable" });
+      const body = await readJsonBody(req, res);
+      if (body === null) return;
+      if (typeof body["token"] !== "string" || body["token"] === "") {
+        return sendJson(res, 400, { error: "invalid-token" });
+      }
+      for (const field of ["targetPath", "candidatePath"] as const) {
+        if (body[field] !== undefined && typeof body[field] !== "string") {
+          return sendJson(res, 400, { error: `invalid-${field}` });
+        }
+      }
+      const input: EvolutionPromoteInput = {
+        runId: decodeURIComponent(evolutionPromoteMatch[1]!),
+        token: body["token"],
+        ...(typeof body["targetPath"] === "string" ? { targetPath: body["targetPath"] } : {}),
+        ...(typeof body["candidatePath"] === "string"
+          ? { candidatePath: body["candidatePath"] }
+          : {}),
+      };
+      const outcome = deps.evolution.promoteArtifact(input);
+      if (outcome.status === "error") {
+        const notFound = new Set(["run-not-found", "authority-not-found"]);
+        const conflict = new Set([
+          "authority-used",
+          "path-not-allowed",
+          "target-changed",
+          "candidate-tampered",
+        ]);
+        const status = notFound.has(outcome.error)
+          ? 404
+          : conflict.has(outcome.error)
+            ? 409
+            : outcome.error === "write-failed"
+              ? 500
+              : 400;
+        return sendJson(res, status, outcome);
+      }
       return sendJson(res, 200, outcome);
     }
 

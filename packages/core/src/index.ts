@@ -70,7 +70,7 @@ export function createCore(options: CoreOptions = {}): Core {
   const registry = new AdapterRegistry({ bus });
   const instances = new InstanceManager({ store, bus });
   const router = new CapabilityRouter({ bus, instances });
-  const executor = new AdapterExecutor({ audit, store, bus });
+  const executor = new AdapterExecutor({ audit, store, bus, router, instances });
 
   // 外置适配器目录存在子目录时预登记 manifest（失败只记事件不抛异常）。
   registry.loadFromDir(paths.adaptersDir);

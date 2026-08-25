@@ -12,6 +12,7 @@ export interface DriverScope {
 /* ------------------------------- skill driver ------------------------------ */
 
 export type SkillSource = "builtin" | "market" | "self-evolved" | "user";
+export type AssetRiskStatus = "unscanned" | "clear" | "blocked";
 
 export interface SkillRef {
   name: string;
@@ -48,6 +49,9 @@ export interface SkillMeta {
   enabled: boolean;
   /** 分类：SKILL.md frontmatter 的 category/分类，缺省按目录推断。 */
   category?: string;
+  /** 风险扫描状态；未执行扫描时必须明确标记为 unscanned。 */
+  riskStatus?: AssetRiskStatus;
+  riskDetail?: string;
 }
 
 export interface ValidationIssue {
@@ -91,6 +95,9 @@ export interface PluginMeta {
   /** 分类：元数据 category/分类，缺省按目录推断。 */
   category?: string;
   description?: string;
+  /** 风险扫描状态；未执行扫描时必须明确标记为 unscanned。 */
+  riskStatus?: AssetRiskStatus;
+  riskDetail?: string;
 }
 
 /** I-4 插件驱动：V1 只读枚举，写操作后续版本。 */

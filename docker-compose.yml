@@ -1,23 +1,61 @@
+name: agent-butler
+
 services:
+  butler-gateway:
+    build:
+      context: .
+      dockerfile: apps/gateway/Dockerfile
+    environment:
+      BUTLER_HOME: /home/butler
+      BUTLER_GATEWAY_HOST: 0.0.0.0
+      BUTLER_GATEWAY_PORT: 7532
+      BUTLER_GATEWAY_PACE_SEC: ${BUTLER_GATEWAY_PACE_SEC:-30}
+      BUTLER_TELEGRAM_BOT_TOKEN: ${BUTLER_TELEGRAM_BOT_TOKEN:-}
+      BUTLER_TELEGRAM_CHAT_ID: ${BUTLER_TELEGRAM_CHAT_ID:-}
+      BUTLER_SMTP_HOST: ${BUTLER_SMTP_HOST:-}
+      BUTLER_SMTP_PORT: ${BUTLER_SMTP_PORT:-}
+      BUTLER_SMTP_USER: ${BUTLER_SMTP_USER:-}
+      BUTLER_SMTP_PASS: ${BUTLER_SMTP_PASS:-}
+      BUTLER_SMTP_FROM: ${BUTLER_SMTP_FROM:-}
+      BUTLER_SMTP_TO: ${BUTLER_SMTP_TO:-}
+    expose:
+      - "7532"
+    volumes:
+      - butler-data:/home/butler
+    restart: unless-stopped
+
   butler-watch:
     build:
       context: .
       dockerfile: apps/watch/Dockerfile
     environment:
       BUTLER_HOME: /home/butler
+      BUTLER_FRAMEWORK: ${BUTLER_FRAMEWORK:-hermes}
       BUTLER_WATCH_HOST: 0.0.0.0
+      BUTLER_WATCH_PORT: 7533
       BUTLER_GATEWAY_URL: http://butler-gateway:7532
+      BUTLER_AUTO_START: ${BUTLER_AUTO_START:-true}
       BUTLER_HERMES_ROOT: /home/butler/hermes
       HERMES_ROOT: /home/butler/hermes
+      BUTLER_OPENCLAW_ROOT: /home/butler/openclaw
+      OPENCLAW_HOME: /home/butler/openclaw
+      OPENCLAW_GATEWAY_HOST: ${OPENCLAW_GATEWAY_HOST:-host.docker.internal}
+      OPENCLAW_GATEWAY_PORT: ${OPENCLAW_GATEWAY_PORT:-18789}
+      BUTLER_HERMES_API_HOST: ${BUTLER_HERMES_API_HOST:-host.docker.internal}
+      BUTLER_HERMES_API_PORT: ${BUTLER_HERMES_API_PORT:-8642}
     depends_on:
       butler-gateway:
         condition: service_healthy
     expose:
       - "7533"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
-      - ${HOME}/.hermes:/home/butler/hermes:ro
-      - /var/run/docker.sock:/var/run/docker.sock
       - butler-data:/home/butler
+      - ${BUTLER_HERMES_HOST_PATH:-./.runtime/hermes}:/home/butler/hermes:ro
+      - ${BUTLER_OPENCLAW_HOST_PATH:-./.runtime/openclaw}:/home/butler/openclaw:ro
+      # Docker control is opt-in. Set DOCKER_SOCKET_PATH to enable it.
+      - ${DOCKER_SOCKET_PATH:-/dev/null}:/var/run/docker.sock
     group_add:
       - "${DOCKER_GID:-999}"
     restart: unless-stopped
@@ -29,6 +67,7 @@ services:
     environment:
       BUTLER_HOME: /home/butler
       BUTLER_WEB_HOST: 0.0.0.0
+      BUTLER_WEB_PORT: 7531
       BUTLER_GATEWAY_URL: http://butler-gateway:7532
       BUTLER_WATCH_URL: http://butler-watch:7533
     depends_on:
@@ -37,23 +76,12 @@ services:
       butler-watch:
         condition: service_healthy
     ports:
-      - "127.0.0.1:7531:7531"
-    volumes:
-      - butler-data:/home/butler
-    restart: unless-stopped
-
-  butler-gateway:
-    build:
-      context: .
-      dockerfile: apps/gateway/Dockerfile
-    environment:
-      BUTLER_HOME: /home/butler
-      BUTLER_GATEWAY_HOST: 0.0.0.0
-    expose:
-      - "7532"
+      # Default expansion is 127.0.0.1:7531:7531; override with .env when needed.
+      - "${BUTLER_WEB_PUBLISH_HOST:-127.0.0.1}:${BUTLER_WEB_PORT:-7531}:7531"
     volumes:
       - butler-data:/home/butler
     restart: unless-stopped
 
 volumes:
   butler-data:
+    name: ${BUTLER_DATA_VOLUME:-agent-butler-data}

@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { PageProgress } from "../components/PageProgress.js";
 import { fetchJson, postJson } from "../lib/api.js";
+import { disposeWebSocket } from "../lib/websocket.js";
 
 /* --------------------------------- 数据类型 -------------------------------- */
 
@@ -68,6 +69,21 @@ interface InspectStatusView {
   nextAt?: string | null;
   intervalMin?: number | null;
   inFlight?: boolean;
+  criticalProbe?: {
+    intervalMin: number;
+    slaMin: number;
+    lastStartedAt: string | null;
+    lastCompletedAt: string | null;
+    nextAt: string | null;
+    deadlineAt: string | null;
+    lastDurationMs: number | null;
+    lastStatus: string | null;
+    lastWithinSla: boolean | null;
+    overdue: boolean;
+    inFlight: boolean;
+    runCount: number;
+    missedTicks: number;
+  };
 }
 
 interface DashboardPayload {
@@ -75,6 +91,42 @@ interface DashboardPayload {
   latestInspections?: InspectionView[];
   fingerprints?: FingerprintView[];
   inspectStatus?: InspectStatusView;
+}
+
+interface ConnectionCheckView {
+  id: string;
+  label: string;
+  status: string;
+  detail: string;
+  durationMs: number | null;
+}
+
+interface ConnectionView {
+  instanceId: string;
+  frameworkId: string;
+  displayName: string;
+  state: string;
+  connectionState: "connected" | "disconnected" | "checking" | "error" | "unknown" | string;
+  connected: boolean;
+  runtime: string;
+  rootPath: string;
+  version: string | null;
+  confidence: number;
+  effectiveLevel: number | null;
+  capabilities: Record<string, string>;
+  checks: ConnectionCheckView[];
+  anomalies: string[];
+  lastCheckedAt: string | null;
+  lastActionAt: string | null;
+  lastAction: string | null;
+  latencyMs: number | null;
+  lastError: string | null;
+}
+
+interface ConnectionsPayload {
+  reachable: boolean;
+  checkedAt?: string;
+  connections?: ConnectionView[];
 }
 
 interface AlertsPayload {
@@ -182,6 +234,20 @@ function instanceRuntimeLabel(runtime: string): string {
   return runtime || "—";
 }
 
+function frameworkLabel(frameworkId: string): string {
+  if (frameworkId === "hermes") return "Hermes";
+  if (frameworkId === "openclaw") return "OpenClaw";
+  return frameworkId || "未知框架";
+}
+
+function connectionStateLabel(state: string): string {
+  if (state === "connected") return "已连接";
+  if (state === "disconnected") return "已断开";
+  if (state === "checking") return "检查中";
+  if (state === "error") return "操作失败";
+  return "待确认";
+}
+
 /* --------------------------------- 展示辅助 -------------------------------- */
 
 /** 实例状态色点：运行绿 / 崩溃红 / 停止灰 / 其他黄。 */
@@ -255,6 +321,17 @@ function formatDuration(ms: number | null): string {
   return ms === null ? "—" : `${ms}ms`;
 }
 
+/** 关键记忆探针状态：区分探针本身异常与 SLA 逾期。 */
+function criticalProbeBadge(probe: InspectStatusView["criticalProbe"]): { cls: string; label: string } {
+  if (probe === undefined) return { cls: "badge-muted", label: "未接入" };
+  if (probe.overdue) return { cls: "badge-down", label: "已逾期" };
+  if (probe.lastStatus === "fail") return { cls: "badge-down", label: "异常" };
+  if (probe.lastStatus === "warn") return { cls: "badge-degraded", label: "需要留意" };
+  if (probe.lastStatus === "skipped") return { cls: "badge-muted", label: "无可检查对象" };
+  if (probe.lastStatus === "pass") return { cls: "badge-healthy", label: "正常" };
+  return { cls: "badge-muted", label: "等待检查" };
+}
+
 function formatBytes(value: number): string {
   if (value < 1024) return `${value} B`;
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
@@ -282,6 +359,7 @@ function formatSample(sample: string | null): string {
 
 export function DashboardPage() {
   const [dashboard, setDashboard] = useState<DashboardPayload | null>(null);
+  const [connections, setConnections] = useState<ConnectionsPayload | null>(null);
   const [runbooks, setRunbooks] = useState<RunbooksPayload | null>(null);
   const [alerts, setAlerts] = useState<AlertsPayload | null>(null);
   const [toast, setToast] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
@@ -298,6 +376,7 @@ export function DashboardPage() {
   const [confirmFix, setConfirmFix] = useState<LogIssueView | null>(null);
   const [fixBusy, setFixBusy] = useState(false);
   const [inspectionRequested, setInspectionRequested] = useState(false);
+  const [connectionBusy, setConnectionBusy] = useState<string | null>(null);
   const [initialLoad, setInitialLoad] = useState({
     dashboard: false,
     runbooks: false,
@@ -413,16 +492,28 @@ export function DashboardPage() {
     if (trackInitial) setInitialLoad((current) => ({ ...current, finished: true }));
   }, []);
 
+  const refreshConnections = useCallback(async () => {
+    const next = await fetchJson<ConnectionsPayload>("/api/connections", 8_000);
+    if (next !== null) setConnections(next);
+  }, []);
+
   // 首屏：聚合端点一次取齐。
   useEffect(() => {
     void refresh(true);
-  }, [refresh]);
+    void refreshConnections();
+  }, [refresh, refreshConnections]);
 
   // 状态条需要跟随告警/通道变化，额外每 10 秒刷新一次。
   useEffect(() => {
     const timer = setInterval(() => void refresh(), 10_000);
     return () => clearInterval(timer);
   }, [refresh]);
+
+  // 连接状态包含启停动作和端口探测，使用更短的轮询窗口让按钮反馈不滞后。
+  useEffect(() => {
+    const timer = setInterval(() => void refreshConnections(), 2_000);
+    return () => clearInterval(timer);
+  }, [refreshConnections]);
 
   // 实时性：复用 /ws 事件流机制（同 EventTicker），相关事件触发节流 5s 的聚合刷新。
   useEffect(() => {
@@ -458,7 +549,10 @@ export function DashboardPage() {
             items?: Array<{ type: string }>;
           };
           if (data.type !== "events" || !Array.isArray(data.items)) return;
-          if (data.items.some((event) => isRefreshRelevant(event.type))) maybeRefresh();
+          if (data.items.some((event) => isRefreshRelevant(event.type))) {
+            maybeRefresh();
+            void refreshConnections();
+          }
         } catch {
           // 忽略无法解析的帧
         }
@@ -473,11 +567,12 @@ export function DashboardPage() {
       closed = true;
       if (reconnectTimer !== undefined) clearTimeout(reconnectTimer);
       if (pendingTimer !== undefined) clearTimeout(pendingTimer);
-      socket?.close();
+      disposeWebSocket(socket);
     };
-  }, [refresh]);
+  }, [refresh, refreshConnections]);
 
   const instances = dashboard?.instances ?? [];
+  const connectionItems = connections?.connections ?? [];
   const latestInspections = dashboard?.latestInspections ?? [];
   const fingerprints = dashboard?.fingerprints ?? [];
   const inspectStatus = dashboard?.inspectStatus ?? null;
@@ -683,6 +778,53 @@ export function DashboardPage() {
       showToast("err", "开始检查失败，请稍后重试");
     }
     window.setTimeout(() => setInspectionRequested(false), 1_500);
+  };
+
+  const runConnectionCheck = async (instanceId?: string) => {
+    const key = instanceId ?? "all";
+    setConnectionBusy(`check-${key}`);
+    const targets = instanceId
+      ? [instanceId]
+      : (connections?.connections ?? []).map((item) => item.instanceId);
+    if (targets.length === 0) {
+      setConnectionBusy(null);
+      showToast("err", "还没有发现可检查的 Hermes 或 OpenClaw 实例");
+      return;
+    }
+    const results = await Promise.all(
+      targets.map((target) => postJson("/api/connections/check", { instanceId: target }, 15_000)),
+    );
+    await refreshConnections();
+    setConnectionBusy(null);
+    const passed = results.every((result) => {
+      if (!result.ok || result.data === null || typeof result.data !== "object") return false;
+      return (result.data as { status?: unknown }).status === "checked";
+    });
+    if (passed) {
+      showToast("ok", "连接检查已完成，状态信息已更新");
+    } else {
+      showToast("err", "部分连接检查失败，请查看实例卡片中的原因");
+    }
+  };
+
+  const runConnectionAction = async (instanceId: string, action: "connect" | "disconnect") => {
+    setConnectionBusy(`${action}-${instanceId}`);
+    const result = await postJson(
+      `/api/connections/${encodeURIComponent(instanceId)}/${action}`,
+      {},
+      70_000,
+    );
+    await refreshConnections();
+    setConnectionBusy(null);
+    if (result.ok) {
+      showToast("ok", action === "connect" ? "已发起连接并完成复核" : "已断开连接并完成复核");
+    } else if (result.status === 409) {
+      showToast("err", "操作未完成，请查看实例卡片中的错误原因");
+    } else if (result.status === 502) {
+      showToast("err", "管家控制通道暂时连不上");
+    } else {
+      showToast("err", action === "connect" ? "连接失败，请先检查配置和服务" : "断开失败，请稍后重试");
+    }
   };
 
   const confirmRepair = () => {
@@ -914,6 +1056,100 @@ export function DashboardPage() {
         ))}
       </div>
 
+      <section className="connection-section" aria-labelledby="connection-section-title">
+        <div className="connection-section-head">
+          <div>
+            <span className="product-kicker">服务连接</span>
+            <h2 id="connection-section-title">Hermes / OpenClaw 连接状态</h2>
+            <p>这里显示最近一次探测、响应耗时和可用能力；连接动作会在完成后自动复核。</p>
+          </div>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => void runConnectionCheck()}
+            disabled={connectionBusy !== null || connectionItems.length === 0}
+          >
+            {connectionBusy === "check-all" ? "检查中…" : "手动检查连接"}
+          </button>
+        </div>
+        {connections === null || connections.reachable !== true ? (
+          <div className="connection-empty is-warn">
+            管家控制通道暂时连不上，无法读取 Hermes / OpenClaw 的实时连接状态。
+          </div>
+        ) : connectionItems.length === 0 ? (
+          <div className="connection-empty">还没有发现 Hermes 或 OpenClaw 实例，请先配置对应运行目录。</div>
+        ) : (
+          <div className="connection-grid">
+            {connectionItems.map((connection) => {
+              const actionBusy = connectionBusy === `connect-${connection.instanceId}` || connectionBusy === `disconnect-${connection.instanceId}`;
+              const checkBusy = connectionBusy === `check-${connection.instanceId}`;
+              const stateClass = connection.connectionState === "connected"
+                ? "ok"
+                : connection.connectionState === "disconnected" || connection.connectionState === "error"
+                  ? "error"
+                  : connection.connectionState === "checking"
+                    ? "warn"
+                    : "idle";
+              return (
+                <article className={`connection-card is-${stateClass}`} key={connection.instanceId}>
+                  <div className="connection-card-head">
+                    <div>
+                      <span className="connection-framework">{frameworkLabel(connection.frameworkId)}</span>
+                      <h3>{connection.displayName || instanceLabel(connection.instanceId)}</h3>
+                    </div>
+                    <span className={`badge-pill ${stateClass === "ok" ? "badge-healthy" : stateClass === "error" ? "badge-down" : stateClass === "warn" ? "badge-degraded" : "badge-muted"}`}>
+                      {connectionStateLabel(connection.connectionState)}
+                    </span>
+                  </div>
+                  <div className="connection-meta">
+                    <span>{instanceRuntimeLabel(connection.runtime)}</span>
+                    <span>{connection.version ?? "版本未知"}</span>
+                    <span>{connection.latencyMs === null ? "尚未测延迟" : `响应 ${connection.latencyMs}ms`}</span>
+                    <span title={connection.rootPath}>{connection.rootPath || "未配置目录"}</span>
+                  </div>
+                  <div className="connection-summary">
+                    <strong>{connection.connected ? "服务可达" : connection.connectionState === "checking" ? "正在探测服务" : "服务不可达"}</strong>
+                    <span>最近检查：{formatRelative(connection.lastCheckedAt)}</span>
+                    <span>最近动作：{formatRelative(connection.lastActionAt)}</span>
+                  </div>
+                  {connection.lastError !== null && <p className="connection-error">{connection.lastError}</p>}
+                  {connection.checks.length > 0 && (
+                    <ul className="connection-checks">
+                      {connection.checks.slice(0, 6).map((check) => (
+                        <li key={`${connection.instanceId}-${check.id}`}>
+                          <span>{check.label}</span>
+                          <span className={`badge-pill ${check.status === "pass" ? "badge-healthy" : check.status === "fail" ? "badge-down" : "badge-degraded"}`}>
+                            {check.status === "pass" ? "正常" : check.status === "fail" ? "异常" : "需留意"}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <div className="connection-actions">
+                    <button
+                      type="button"
+                      className="btn btn-quiet"
+                      onClick={() => void runConnectionCheck(connection.instanceId)}
+                      disabled={connectionBusy !== null}
+                    >
+                      {checkBusy ? "检查中…" : "重新检查"}
+                    </button>
+                    <button
+                      type="button"
+                      className={connection.connected ? "btn btn-danger" : "btn btn-primary"}
+                      onClick={() => void runConnectionAction(connection.instanceId, connection.connected ? "disconnect" : "connect")}
+                      disabled={connectionBusy !== null || actionBusy || connection.connectionState === "checking"}
+                    >
+                      {actionBusy ? "处理中…" : connection.connected ? "断开连接" : "连接服务"}
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
       <div className="manager-section">
         <div className="manager-section-head">
           <div>
@@ -1080,9 +1316,24 @@ export function DashboardPage() {
                 <div className="empty-state">
                   管家服务暂时连不上：看不到最近检查，也无法开始新的检查。
                 </div>
-              ) : (
-                <>
-                  <dl className="kv">
+            ) : (
+              <>
+                {(() => {
+                  const criticalProbe = inspectStatus.criticalProbe;
+                  const criticalBadge = criticalProbeBadge(criticalProbe);
+                  return criticalProbe === undefined ? null : (
+                    <>
+                      <div className="inspect-sla" role="status">
+                        <span className={`badge-pill ${criticalBadge.cls}`}>{criticalBadge.label}</span>
+                        <span>关键记忆探针：每 {criticalProbe.intervalMin} 分钟，SLA {criticalProbe.slaMin} 分钟</span>
+                        {criticalProbe.lastDurationMs !== null ? (
+                          <span>最近耗时 {formatDuration(criticalProbe.lastDurationMs)}</span>
+                        ) : null}
+                      </div>
+                    </>
+                  );
+                })()}
+                <dl className="kv">
                     <dt>上次检查</dt>
                     <dd>{formatRelative(inspectStatus.lastAt)}</dd>
                     <dt>下次预计</dt>

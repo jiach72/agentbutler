@@ -20,6 +20,9 @@ import type { BackupRow, Core } from "@butler/core";
 
 export type BackupKind = "full" | "memory" | "event";
 
+export const BACKUP_RETENTION_LIMITS = { full: 14, memory: 24, event: 10 } as const;
+export type BackupRetentionLimits = typeof BACKUP_RETENTION_LIMITS;
+
 export interface BackupEntry {
   /** 源文件绝对路径。 */
   from: string;
@@ -59,13 +62,14 @@ export interface BackupService {
     lastFullAt: string | null;
     lastMemoryAt: string | null;
     hourlyTickMs: number;
+    retention: BackupRetentionLimits;
   };
   start(): void;
   stop(): void;
 }
 
 /** 每种备份的保留份数（轮转上限）。 */
-const ROTATION_LIMITS: Record<BackupKind, number> = { full: 14, memory: 24, event: 10 };
+const ROTATION_LIMITS: Record<BackupKind, number> = BACKUP_RETENTION_LIMITS;
 
 /** Hermes 根目录下的核心数据文件（含 cron 目录内 *.db）。 */
 const HERMES_DB_FILES = [
@@ -335,6 +339,7 @@ export function createBackupService(options: BackupServiceOptions): BackupServic
       lastFullAt: full?.createdAt ?? null,
       lastMemoryAt: memory?.createdAt ?? null,
       hourlyTickMs,
+      retention: { ...BACKUP_RETENTION_LIMITS },
     };
   }
 

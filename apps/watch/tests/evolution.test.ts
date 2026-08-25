@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -85,6 +93,7 @@ beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), "butler-evolution-"));
   root = join(tmp, "hermes");
   mkdirSync(join(root, "venv", "bin"), { recursive: true });
+  mkdirSync(join(root, "skills"), { recursive: true });
   writeFileSync(join(root, "venv", "bin", "python"), "");
   core = createCore({ home: join(tmp, "butler-home") });
   dependencyMissing = [];
@@ -153,6 +162,51 @@ describe("进化预检与 holdout 硬门槛", () => {
       ["dataset", "pass"],
       ["snapshot", "pass"],
     ]);
+  });
+
+  it("不会把历史同标签快照误当成本次运行快照", async () => {
+    core.store.insertSnapshot({
+      instance: "hermes-main",
+      scope: { include: ["skills", "memory"], snapshotId: "old-pre-evolution" },
+      label: "pre-evolution",
+    });
+    const noRegistrationControl: Pick<ControlAdapter, "snapshot"> = {
+      snapshot: async () =>
+        ok(
+          {
+            jobId: "snapshot-without-registration",
+            kind: "snapshot",
+            steps: [
+              { id: "copy-skills", label: "复制 skills", status: "passed" },
+              { id: "copy-memory", label: "复制 memory", status: "passed" },
+            ],
+          },
+          Date.now(),
+        ),
+    };
+    const isolated = createEvolutionService({
+      core,
+      control: noRegistrationControl,
+      exec,
+      fetchFn,
+      poster,
+      now: () => Date.parse("2026-08-21T03:00:00.000Z"),
+    });
+
+    const outcome = await isolated.preflight({
+      instanceId: "hermes-main",
+      dependencies: ["dspy", "gepa"],
+      endpoint: "https://api.example.test/v1",
+      holdoutCount: 12,
+    });
+
+    expect(outcome.status).toBe("rejected-preflight");
+    expect(outcome.allowRun).toBe(false);
+    expect(outcome.snapshotId).toBeUndefined();
+    expect(outcome.checks.find((check) => check.id === "snapshot")).toMatchObject({
+      status: "fail",
+      detail: "快照结果缺少登记信息",
+    });
   });
 
   it("依赖缺失或端点 5xx：拒绝并给出明确修复动作", async () => {
@@ -281,6 +335,53 @@ describe("运行后守门与台账导出", () => {
       allowWrite: false,
       baselinePreserved: true,
     });
-    expect(existsSync(join(root, "skills"))).toBe(false);
+    expect(readdirSync(join(root, "skills"))).toHaveLength(0);
+  });
+
+  it("显著正增益签发一次性令牌，并只允许在 skills 根目录内原子替换", async () => {
+    const targetPath = join(root, "skills", "baseline.md");
+    const candidatePath = join(root, "skills", "candidate.md");
+    writeFileSync(targetPath, "baseline-v1\n");
+    writeFileSync(candidatePath, "candidate-v2\n");
+    const runId = await readyRun();
+    const decision = await service.recordResult({
+      runId,
+      baselineMetric: 0.5,
+      candidateMetric: 0.62,
+      significant: true,
+      targetPath,
+      candidatePath,
+    });
+    expect(decision.status).toBe("accepted");
+    expect(decision.writeAuthority).toMatchObject({ runId, targetPath, candidatePath });
+    const token = decision.writeAuthority!.token;
+
+    const promoted = service.promoteArtifact({ runId, token });
+    expect(promoted).toMatchObject({ status: "promoted", runId, targetPath, candidatePath });
+    expect(readFileSync(targetPath, "utf8")).toBe("candidate-v2\n");
+    expect(service.promoteArtifact({ runId, token })).toMatchObject({
+      status: "error",
+      error: "authority-used",
+    });
+  });
+
+  it("目标文件变化或候选篡改时拒绝采用，不覆盖 baseline", async () => {
+    const targetPath = join(root, "skills", "baseline.md");
+    const candidatePath = join(root, "skills", "candidate.md");
+    writeFileSync(targetPath, "baseline-v1\n");
+    writeFileSync(candidatePath, "candidate-v2\n");
+    const runId = await readyRun();
+    const decision = await service.recordResult({
+      runId,
+      baselineMetric: 0.5,
+      candidateMetric: 0.62,
+      significant: true,
+      targetPath,
+      candidatePath,
+    });
+    writeFileSync(targetPath, "baseline-drifted\n");
+    const rejected = service.promoteArtifact({ runId, token: decision.writeAuthority!.token });
+    expect(rejected).toMatchObject({ status: "error", error: "target-changed" });
+    expect(readFileSync(targetPath, "utf8")).toBe("baseline-drifted\n");
   });
 });

@@ -470,12 +470,15 @@ describe("reapply：参数变更与升级场景", () => {
 
 describe("可注入 fs（内存文件系统）", () => {
   it("注入 readFile/writeFile 即可脱离磁盘完成 apply/detect", async () => {
+    const rootPath = join("/root");
+    const patchesDir = join("/home/patches");
+    const targetPath = join(rootPath, "hermes-agent", "gateway", "platforms", "weixin.py");
     const files = new Map<string, string>([
-      ["/root/hermes-agent/gateway/platforms/weixin.py", officialWeixinPy()],
+      [targetPath, officialWeixinPy()],
     ]);
     const memoryManager = createPatchManager({
-      rootPath: "/root",
-      patchesDir: "/home/patches",
+      rootPath,
+      patchesDir,
       readFile: async (path) => {
         const content = files.get(path);
         if (content === undefined) throw new Error(`ENOENT: ${path}`);
@@ -487,11 +490,11 @@ describe("可注入 fs（内存文件系统）", () => {
     });
     const applied = await memoryManager.apply("wx-send-throttle", { minSendIntervalSec: 45 });
     expect(applied.ok).toBe(true);
-    expect(files.get("/root/hermes-agent/gateway/platforms/weixin.py")).toContain(
+    expect(files.get(targetPath)).toContain(
       '"WEIXIN_MIN_SEND_INTERVAL_SECONDS", "45"',
     );
-    expect(files.has("/home/patches/wx-send-throttle.orig")).toBe(true);
-    expect(files.has("/home/patches/state.json")).toBe(true);
+    expect(files.has(join(patchesDir, "wx-send-throttle.orig"))).toBe(true);
+    expect(files.has(join(patchesDir, "state.json"))).toBe(true);
     expect((await memoryManager.detect("wx-send-throttle")).data!.status).toBe("ok");
   });
 });

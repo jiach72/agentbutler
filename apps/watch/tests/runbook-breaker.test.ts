@@ -19,6 +19,16 @@ class FakeClock {
 }
 
 describe("CircuitBreaker（崩溃循环熔断）", () => {
+  it("可从持久化跳闸记录恢复，并支持显式解除", () => {
+    const breaker = new CircuitBreaker({
+      initialTrips: [{ key: "rb-restart:ins1", failures: 5, windowMs: WINDOW_MS, reason: "persisted" }],
+    });
+    expect(breaker.isTripped("rb-restart:ins1")).toBe(true);
+    expect(breaker.reset("rb-restart:ins1")).toBe(true);
+    expect(breaker.isTripped("rb-restart:ins1")).toBe(false);
+    expect(breaker.reset("rb-restart:ins1")).toBe(false);
+  });
+
   it("窗口内 4 次失败不熔断，第 5 次跳闸（仅首次触发 onTrip）", () => {
     const clock = new FakeClock();
     const trips: CircuitBreakerTrip[] = [];

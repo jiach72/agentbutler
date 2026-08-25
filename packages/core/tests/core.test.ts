@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ok } from "@butler/contract";
+import { fail, ok } from "@butler/contract";
 import { CORE_VERSION, createCore, type Core } from "../src/index";
 import { fakeBundle, fakeManifest, makeTempDir, rmTempDir, writeManifestDir } from "./helpers";
 
@@ -48,6 +48,40 @@ describe("createCore 工厂", () => {
     });
     expect(result.ok).toBe(true);
     expect(core.audit.list({ action: "restart", target: "ins-1" })).toHaveLength(1);
+  });
+
+  it("invoke 提供 capability 时强制路由，并记录运行时失败", async () => {
+    core.instances.createInstance({ instanceId: "cap-ins", frameworkId: "fake-fw", confidence: 1 });
+    core.instances.beginDiscover("cap-ins");
+    core.instances.confirmInstance("cap-ins", "auto");
+    core.instances.beginNegotiate("cap-ins");
+    const serving = core.instances.markServing("cap-ins", 2, {
+      effectiveLevel: 2,
+      capabilities: {
+        probe: "ok",
+        control: "ok",
+        messaging: "not-implemented",
+        "skill-driver": "not-implemented",
+        "memory-driver": "not-implemented",
+        "config-driver": "not-implemented",
+      },
+      anomalies: [],
+    });
+    const blocked = await core.invoke(async () => ok("never"), {
+      method: "preview",
+      instance: "cap-ins",
+      capability: "memory-driver",
+    });
+    expect(blocked.ok).toBe(false);
+    expect(blocked.error?.code).toBe("E103");
+    expect(serving.data).toBeDefined();
+    const allowed = await core.invoke(async () => fail("E002", "boom"), {
+      method: "probe",
+      instance: "cap-ins",
+      capability: "probe",
+    });
+    expect(allowed.ok).toBe(false);
+    expect(core.router.isRuntimeDegraded("cap-ins", "probe")).toBe(false);
   });
 
   it("内核预扫描 adapters 目录：合法 manifest 预登记，程序化 register 接线", () => {

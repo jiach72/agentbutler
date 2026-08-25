@@ -2,7 +2,7 @@ import type { BridgeHealth, InstanceRef, MessagingAdapter, PolicySnapshot } from
 
 import { createPolicySnapshot } from "./config.js";
 import { MessageReconciler } from "./reconciler.js";
-import { MessagePolicyStore } from "./store.js";
+import { MESSAGE_HISTORY_RETENTION_MS, MessagePolicyStore } from "./store.js";
 import type { MessagePolicyConfig } from "./types.js";
 
 export interface Scheduler {
@@ -16,6 +16,7 @@ export interface MessageGatewayServiceOptions {
   store: MessagePolicyStore;
   config: MessagePolicyConfig;
   intervalMs?: number;
+  historyRetentionMs?: number;
   clock?: () => Date;
   scheduler?: Scheduler;
   randomUUID?: () => string;
@@ -37,6 +38,7 @@ export interface MessageGatewayStatus {
 /** Lifecycle owner around a single reconciler. It serializes timer ticks by design. */
 export class MessageGatewayService {
   private readonly intervalMs: number;
+  private readonly historyRetentionMs: number;
   private readonly clock: () => Date;
   private readonly scheduler: Scheduler;
   private config: MessagePolicyConfig;
@@ -52,6 +54,10 @@ export class MessageGatewayService {
 
   constructor(private readonly options: MessageGatewayServiceOptions) {
     this.intervalMs = options.intervalMs ?? 1_000;
+    this.historyRetentionMs = options.historyRetentionMs ?? MESSAGE_HISTORY_RETENTION_MS;
+    if (!Number.isFinite(this.historyRetentionMs) || this.historyRetentionMs < 0) {
+      throw new Error("history retention must be a finite, non-negative number");
+    }
     this.clock = options.clock ?? (() => new Date());
     this.scheduler = options.scheduler ?? { setInterval, clearInterval };
     this.config = policyConfigFromSnapshot(createPolicySnapshot(options.config));
@@ -174,6 +180,9 @@ export class MessageGatewayService {
         randomUUID: this.options.randomUUID,
       });
       await reconciler.reconcileOnce();
+      this.options.store.pruneMessageHistory(
+        new Date(this.clock().getTime() - this.historyRetentionMs).toISOString(),
+      );
       this.bridgeConnected = true;
       this.lastError = null;
     } catch (error) {

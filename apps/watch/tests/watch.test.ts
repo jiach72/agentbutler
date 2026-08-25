@@ -4,7 +4,13 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CommandExecutor, CommandResult, PortProber } from "@butler/adapter-hermes";
 import { createCore } from "@butler/core";
-import { createWatchApp, type WatchApp } from "../src/watch.js";
+import {
+  createWatchApp,
+  withEvolutionBackup,
+  type WatchApp,
+} from "../src/watch.js";
+import type { BackupService } from "../src/backup.js";
+import type { EvolutionService } from "../src/evolution.js";
 import type { FetchLike } from "../src/dashboard-signal.js";
 
 let tmp: string;
@@ -219,6 +225,31 @@ describe("createWatchApp 组装冒烟", () => {
     expect(app.instances[0]!.confidence).toBeGreaterThanOrEqual(0.6);
   });
 
+  it("重启后恢复已跳闸的 runbook 熔断状态", async () => {
+    app = await createWatchApp({
+      home,
+      config: { hermesRoot, watchHttpPort: 0, autoStart: false },
+      exec: fakeExec,
+      prober: fakeProber,
+      fetchFn: fakeFetch,
+    });
+    for (let i = 0; i < 5; i += 1) {
+      app.breaker.recordFailure("rb-restart:hermes-main", `failure-${i}`);
+    }
+    expect(app.breaker.isTripped("rb-restart:hermes-main")).toBe(true);
+    app.stop();
+    app = undefined;
+
+    app = await createWatchApp({
+      home,
+      config: { hermesRoot, watchHttpPort: 0, autoStart: false },
+      exec: fakeExec,
+      prober: fakeProber,
+      fetchFn: fakeFetch,
+    });
+    expect(app.breaker.isTripped("rb-restart:hermes-main")).toBe(true);
+  });
+
   it("stop 优雅停止且幂等", async () => {
     app = await createWatchApp({
       home,
@@ -235,6 +266,54 @@ describe("createWatchApp 组装冒烟", () => {
   });
 });
 
+describe("进化前备份门禁", () => {
+  it("备份失败时拒绝且不调用真实进化预检", async () => {
+    const core = createCore({ home: join(tmpdir(), "watch-evolution-backup-gate") });
+    let preflightCalls = 0;
+    const evolution = {
+      status: () => ({
+        minHoldoutCount: 10,
+        defaultDependencies: [],
+        defaultEndpoint: "",
+        ledger: [],
+      }),
+      preflight: async () => {
+        preflightCalls += 1;
+        throw new Error("should not run");
+      },
+      expandDataset: async () => {
+        throw new Error("unused");
+      },
+      recordResult: async () => {
+        throw new Error("unused");
+      },
+      promoteArtifact: () => ({
+        status: "error" as const,
+        error: "authority-not-found" as const,
+        detail: "unused",
+        ledgerPath: null,
+      }),
+      exportLedger: () => null,
+    } satisfies EvolutionService;
+    const backup = {
+      run: async () => {
+        throw new Error("disk full");
+      },
+    } as unknown as BackupService;
+    const wrapped = withEvolutionBackup(evolution, backup, core);
+    const outcome = await wrapped.preflight({ holdoutCount: 10 });
+    expect(outcome).toMatchObject({ status: "rejected-preflight", allowRun: false });
+    expect(outcome.checks[0]).toMatchObject({ id: "snapshot", status: "fail" });
+    expect(preflightCalls).toBe(0);
+    expect(core.audit.list({ action: "preflight", actor: "evolution" })).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ detail: expect.objectContaining({ reason: "prebackup-failed" }) }),
+      ]),
+    );
+    core.close();
+  });
+});
+
 describe("Task 7 自动 runbook 触发", () => {
   it("memory-probe fail → 自动触发 rb-restart（事件+审计）；防抖窗口内第二轮不重复", async () => {
     // ① memory_store.db 写入非 SQLite 格式字节 → 探针打开/勘察失败 → memory-probe fail
@@ -247,10 +326,10 @@ describe("Task 7 自动 runbook 触发", () => {
     //    start 无 venv 入口立即失败 → restart 步骤快速失败，runbook 不陷入 30s 存活轮询。
     //    检测置信度仍 0.9（目录+config+pyproject+探活）≥ 0.6，实例照常进入 Serving。
     rmSync(join(hermesRoot, "venv"), { recursive: true, force: true });
-    // process-alive 走第二模式 "hermes" 命中；其余 pgrep（控制面 hermes-agent）无进程。
+    // process-alive 走实例 rootPath 下的 hermes-agent 路径命中；其余 pgrep 无进程。
     const hermesOnlyExec: CommandExecutor = {
       exec: async (cmd, args) => {
-        if (cmd === "pgrep" && args[1] === "hermes")
+        if (cmd === "pgrep" && args[1]?.endsWith("hermes-agent"))
           return { code: 0, stdout: "4242\n", stderr: "" };
         if (cmd === "ps") return { code: 0, stdout: "40960 1.5\n", stderr: "" };
         return { code: 1, stdout: "", stderr: "" };
@@ -275,6 +354,27 @@ describe("Task 7 自动 runbook 触发", () => {
     });
     expect(app.core.store.listEvents({ type: "runbook-completed" })).toHaveLength(1);
 
+    // 独立关键探针必须先将失败送入持久告警队列，再尝试自动修复。
+    await app.alertPoster.flush();
+    const criticalAlerts = fetchCalls
+      .filter((call) => call.url.endsWith("/api/alerts"))
+      .map((call) => JSON.parse(call.body ?? "{}") as Record<string, unknown>);
+    expect(criticalAlerts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "critical-memory-probe",
+          severity: "critical",
+          source: "butler-watch",
+          dedupeKey: "critical-memory-probe:hermes-main",
+        }),
+      ]),
+    );
+    const probeAudit = app.core.audit.list({ action: "critical-memory-probe", target: "hermes-main" });
+    expect(probeAudit[0]?.detail).toEqual(
+      expect.objectContaining({ observedAt: expect.any(String), source: "independent-sla-scheduler" }),
+    );
+    expect(app.core.audit.list({ action: "critical-memory-alert-queued", target: "hermes-main" })).toHaveLength(1);
+
     // runbook 执行留痕（actor "runbook" 的整体审计，含 runbookId）
     const runbookAudits = app.core.audit
       .list({ action: "runbook" })
@@ -287,6 +387,38 @@ describe("Task 7 自动 runbook 触发", () => {
 
     // 巡检后处理失败不阻断巡检循环：第二轮巡检事件正常产出
     expect(app.core.store.listEvents({ type: "inspection-completed" })).toHaveLength(2);
+  });
+
+  it("runbookAuto=false 时关键探针失败仍立即进入告警队列", async () => {
+    writeFileSync(join(hermesRoot, "memory_store.db"), "not-a-sqlite-database");
+    const hermesOnlyExec: CommandExecutor = {
+      exec: async (cmd, args) => {
+        if (cmd === "pgrep" && args?.[1]?.endsWith("hermes-agent"))
+          return { code: 0, stdout: "4242\n", stderr: "" };
+        if (cmd === "ps") return { code: 0, stdout: "40960 1.5\n", stderr: "" };
+        return { code: 1, stdout: "", stderr: "" };
+      },
+      spawnDetached: () => {},
+    };
+    app = await createWatchApp({
+      home,
+      config: { hermesRoot, watchHttpPort: 0, autoStart: false, runbookAuto: false },
+      exec: hermesOnlyExec,
+      prober: fakeProber,
+      fetchFn: fakeFetch,
+    });
+
+    await app.criticalScheduler.start();
+    await app.alertPoster.flush();
+    expect(app.core.store.listEvents({ type: "runbook-started" })).toHaveLength(0);
+    const alerts = fetchCalls
+      .filter((call) => call.url.endsWith("/api/alerts"))
+      .map((call) => JSON.parse(call.body ?? "{}") as Record<string, unknown>);
+    expect(alerts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "critical-memory-probe", severity: "critical" }),
+      ]),
+    );
   });
 });
 

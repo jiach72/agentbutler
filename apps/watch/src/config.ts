@@ -4,9 +4,12 @@
  * 环境变量：
  * - BUTLER_HOME              Butler 主目录（经 core resolveButlerHome 解析，默认 ~/.agent-butler）
  * - BUTLER_INSPECT_INTERVAL_MIN  巡检间隔（分钟，默认 5；为 10 分钟告警/修复 SLA 预留执行时间）
+ * - BUTLER_CRITICAL_PROBE_INTERVAL_MIN  关键记忆探针间隔（分钟，默认 1；最大 5）
  * - BUTLER_TAIL_POLL_SEC     日志尾随轮询间隔（秒，默认 10）
  * - BUTLER_GATEWAY_URL       告警网关地址（默认 http://127.0.0.1:7532）
  * - BUTLER_HERMES_ROOT       Hermes 根目录（容器形态可显式挂载并指定）
+ * - BUTLER_OPENCLAW_ROOT     OpenClaw 根目录（默认 ~/.openclaw）
+ * - BUTLER_FRAMEWORK          管理框架：hermes 或 openclaw（默认 hermes）
  * - BUTLER_DASHBOARD_URL     Dashboard 地址（默认 http://127.0.0.1:9119）
  * - BUTLER_LLM_BASE_URL / BUTLER_LLM_API_KEY / BUTLER_LLM_MODEL / BUTLER_LLM_BALANCE_URL
  *                            LLM 端点探针（Task 6.3，可选；未配置探针 skipped）
@@ -30,10 +33,14 @@ import { resolveButlerHome } from "@butler/core";
 import type { ChannelDryRunConfig, LlmProbeEnv } from "./probes/index.js";
 
 export interface WatchConfig {
+  /** 被管家管理的框架。 */
+  framework: "hermes" | "openclaw";
   /** Butler 主目录（状态库/适配器目录所在）。 */
   home: string;
   /** 巡检间隔（分钟）。 */
   inspectIntervalMin: number;
+  /** 关键记忆探针间隔（分钟；独立于整轮巡检，最大 5 分钟）。 */
+  criticalProbeIntervalMin: number;
   /** 日志尾随轮询间隔（秒）。 */
   tailPollSec: number;
   /** 告警网关地址（POST /api/alerts）。 */
@@ -78,9 +85,16 @@ export interface WatchConfig {
   upgradeNotifyCooldownMs: number;
   /** hermes 探测 rootPath 提示（缺省扫 HERMES_ROOT 与 ~/.hermes）。 */
   hermesRoot?: string;
+  /** openclaw 探测 rootPath 提示。 */
+  openclawRoot?: string;
 }
 
 export const DEFAULT_INSPECT_INTERVAL_MIN = 5;
+/** 关键记忆探针默认每分钟运行；独立于整轮巡检以满足 10 分钟 SLA。 */
+export const DEFAULT_CRITICAL_PROBE_INTERVAL_MIN = 1;
+export const MAX_CRITICAL_PROBE_INTERVAL_MIN = 5;
+/** M1 关键记忆探针 SLA deadline（分钟）；不允许被环境变量放宽。 */
+export const CRITICAL_PROBE_SLA_MIN = 10;
 export const DEFAULT_TAIL_POLL_SEC = 10;
 export const DEFAULT_GATEWAY_URL = "http://127.0.0.1:7532";
 export const DEFAULT_DASHBOARD_URL = "http://127.0.0.1:9119";
@@ -116,6 +130,14 @@ function readIntEnv(name: string, fallback: number): number {
   const raw = process.env[name];
   const parsed = raw === undefined ? NaN : Number(raw.trim());
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function readCriticalProbeIntervalEnv(): number {
+  const raw = process.env["BUTLER_CRITICAL_PROBE_INTERVAL_MIN"];
+  const parsed = raw === undefined ? NaN : Number(raw.trim());
+  return Number.isFinite(parsed) && parsed > 0 && parsed <= MAX_CRITICAL_PROBE_INTERVAL_MIN
+    ? parsed
+    : DEFAULT_CRITICAL_PROBE_INTERVAL_MIN;
 }
 
 function readUrlEnv(name: string, fallback: string): string {
@@ -160,10 +182,15 @@ function readChannelDryRun(overrides?: ChannelDryRunConfig): ChannelDryRunConfig
  */
 export function loadWatchConfig(overrides: Partial<WatchConfig> = {}): WatchConfig {
   const config: WatchConfig = {
+    framework:
+      overrides.framework ??
+      (readStrEnv("BUTLER_FRAMEWORK") === "openclaw" ? "openclaw" : "hermes"),
     home: overrides.home ?? resolveButlerHome(),
     inspectIntervalMin:
       overrides.inspectIntervalMin ??
       readIntEnv("BUTLER_INSPECT_INTERVAL_MIN", DEFAULT_INSPECT_INTERVAL_MIN),
+    criticalProbeIntervalMin:
+      overrides.criticalProbeIntervalMin ?? readCriticalProbeIntervalEnv(),
     tailPollSec: overrides.tailPollSec ?? readIntEnv("BUTLER_TAIL_POLL_SEC", DEFAULT_TAIL_POLL_SEC),
     gatewayUrl: overrides.gatewayUrl ?? readUrlEnv("BUTLER_GATEWAY_URL", DEFAULT_GATEWAY_URL),
     dashboardUrl:
@@ -202,6 +229,7 @@ export function loadWatchConfig(overrides: Partial<WatchConfig> = {}): WatchConf
       readIntEnv("BUTLER_UPGRADE_NOTIFY_COOLDOWN_MS", DEFAULT_UPGRADE_NOTIFY_COOLDOWN_MS),
     hermesRoot:
       overrides.hermesRoot ?? readStrEnv("BUTLER_HERMES_ROOT") ?? readStrEnv("HERMES_ROOT"),
+    openclawRoot: overrides.openclawRoot ?? readStrEnv("BUTLER_OPENCLAW_ROOT") ?? readStrEnv("OPENCLAW_HOME"),
   };
   return config;
 }

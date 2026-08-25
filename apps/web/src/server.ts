@@ -372,6 +372,7 @@ export interface PromptOptimizationApiView {
 }
 
 export type SkillsInventoryMode = "driver" | "directory-fallback" | "unavailable";
+export type AssetRiskStatus = "unscanned" | "clear" | "blocked";
 
 export interface DirectoryInventoryView {
   roots: string[];
@@ -399,6 +400,9 @@ export interface SkillsApiView {
       version: string;
       source: string;
       enabled: boolean;
+      category?: string;
+      riskStatus?: AssetRiskStatus;
+      riskDetail?: string;
     }>;
     directory: DirectoryInventoryView;
     notice: string;
@@ -415,6 +419,8 @@ export interface SkillsApiView {
       enabled: boolean;
       category?: string;
       description?: string;
+      riskStatus?: AssetRiskStatus;
+      riskDetail?: string;
     }>;
     directory: DirectoryInventoryView;
     notice: string;
@@ -528,6 +534,33 @@ function isInventoryMode(value: unknown): value is SkillsInventoryMode {
   return value === "driver" || value === "directory-fallback" || value === "unavailable";
 }
 
+/** /api/connections 返回的 Hermes/OpenClaw 连接视图。 */
+export interface ConnectionApiView {
+  instanceId: string;
+  frameworkId: string;
+  displayName: string;
+  state: string;
+  connectionState: "connected" | "disconnected" | "checking" | "error" | "unknown" | string;
+  connected: boolean;
+  runtime: string;
+  rootPath: string;
+  version: string | null;
+  confidence: number;
+  effectiveLevel: number | null;
+  capabilities: Record<string, string>;
+  checks: Array<{ id: string; label: string; status: string; detail: string; durationMs: number | null }>;
+  anomalies: string[];
+  lastCheckedAt: string | null;
+  lastActionAt: string | null;
+  lastAction: string | null;
+  latencyMs: number | null;
+  lastError: string | null;
+}
+
+function isAssetRiskStatus(value: unknown): value is AssetRiskStatus {
+  return value === "unscanned" || value === "clear" || value === "blocked";
+}
+
 function parseMemoryHealth(value: unknown): SkillsApiView["memory"]["health"] {
   type MemoryHealthView = NonNullable<SkillsApiView["memory"]["health"]>;
   if (
@@ -622,8 +655,20 @@ function parseSkillsStatus(value: unknown): Omit<SkillsApiView, "watchReachable"
       typeof item["name"] === "string" &&
       typeof item["version"] === "string" &&
       typeof item["source"] === "string" &&
-      typeof item["enabled"] === "boolean",
-  ) as SkillsApiView["skills"]["items"];
+      typeof item["enabled"] === "boolean" &&
+      (item["category"] === undefined || typeof item["category"] === "string") &&
+      (item["riskStatus"] === undefined || isAssetRiskStatus(item["riskStatus"])) &&
+      (item["riskDetail"] === undefined || typeof item["riskDetail"] === "string"),
+  ).map((item) => ({
+    ref: item["ref"] as { name: string; version?: string; source?: string },
+    name: String(item["name"]),
+    version: String(item["version"]),
+    source: String(item["source"]),
+    enabled: Boolean(item["enabled"]),
+    ...(item["category"] === undefined ? {} : { category: String(item["category"]) }),
+    ...(item["riskStatus"] === undefined ? {} : { riskStatus: item["riskStatus"] as AssetRiskStatus }),
+    ...(item["riskDetail"] === undefined ? {} : { riskDetail: String(item["riskDetail"]) }),
+  })) as SkillsApiView["skills"]["items"];
   if (items.length !== skills["items"].length) return null;
 
   const pluginItems = plugins["items"].filter(
@@ -634,8 +679,22 @@ function parseSkillsStatus(value: unknown): Omit<SkillsApiView, "watchReachable"
       typeof item["name"] === "string" &&
       typeof item["version"] === "string" &&
       typeof item["source"] === "string" &&
-      typeof item["enabled"] === "boolean",
-  ) as SkillsApiView["plugins"]["items"];
+      typeof item["enabled"] === "boolean" &&
+      (item["category"] === undefined || typeof item["category"] === "string") &&
+      (item["description"] === undefined || typeof item["description"] === "string") &&
+      (item["riskStatus"] === undefined || isAssetRiskStatus(item["riskStatus"])) &&
+      (item["riskDetail"] === undefined || typeof item["riskDetail"] === "string"),
+  ).map((item) => ({
+    ref: item["ref"] as { name: string; version?: string; source?: string },
+    name: String(item["name"]),
+    version: String(item["version"]),
+    source: String(item["source"]),
+    enabled: Boolean(item["enabled"]),
+    ...(item["category"] === undefined ? {} : { category: String(item["category"]) }),
+    ...(item["description"] === undefined ? {} : { description: String(item["description"]) }),
+    ...(item["riskStatus"] === undefined ? {} : { riskStatus: item["riskStatus"] as AssetRiskStatus }),
+    ...(item["riskDetail"] === undefined ? {} : { riskDetail: String(item["riskDetail"]) }),
+  })) as SkillsApiView["plugins"]["items"];
   if (pluginItems.length !== plugins["items"].length) return null;
 
   let instance: SkillsApiView["instance"] = null;
@@ -1407,6 +1466,12 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     return proxyWatchPost(`/api/runbooks/${id}/execute`, request.body, reply);
   });
 
+  // 熔断人工解除：透传 watch 的 200/404/409/503，解除动作由 watch 追加审计记录。
+  app.post("/api/runbooks/:id/reset", async (request, reply) => {
+    const id = encodeURIComponent((request.params as { id?: string })["id"] ?? "");
+    return proxyWatchPost(`/api/runbooks/${id}/reset`, request.body, reply);
+  });
+
   // 巡检状态：不可达 → 200 { reachable: false }（巡检控制卡显示离线态）。
   app.get("/api/inspect/status", async () => inspectStatusFromWatch());
 
@@ -1414,6 +1479,37 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   app.post("/api/inspect/run", async (_request, reply) =>
     proxyWatchPost("/api/inspect/run", {}, reply),
   );
+
+  /** 连接管理视图：watch 不可达时保留明确的降级标记，不伪造实例已连接。 */
+  app.get("/api/connections", async () => {
+    const res = await fetchWatch("/api/connections");
+    if (res === null || !res.ok) return { reachable: false, connections: [] as ConnectionApiView[] };
+    try {
+      const body = (await res.json()) as Record<string, unknown>;
+      const connections = Array.isArray(body["connections"]) ? body["connections"] : [];
+      return {
+        reachable: true,
+        checkedAt: typeof body["checkedAt"] === "string" ? body["checkedAt"] : new Date().toISOString(),
+        connections: connections as ConnectionApiView[],
+      };
+    } catch {
+      return { reachable: false, connections: [] as ConnectionApiView[] };
+    }
+  });
+
+  app.post("/api/connections/check", async (request, reply) =>
+    proxyWatchPost("/api/connections/check", request.body, reply),
+  );
+
+  app.post("/api/connections/:id/connect", async (request, reply) => {
+    const id = encodeURIComponent((request.params as { id?: string })["id"] ?? "");
+    return proxyWatchPost(`/api/connections/${id}/connect`, request.body, reply, 70_000);
+  });
+
+  app.post("/api/connections/:id/disconnect", async (request, reply) => {
+    const id = encodeURIComponent((request.params as { id?: string })["id"] ?? "");
+    return proxyWatchPost(`/api/connections/${id}/disconnect`, request.body, reply, 70_000);
+  });
 
   /* --------------------- 升级与快照代理（Task 13.3） --------------------- */
 

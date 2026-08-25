@@ -139,8 +139,16 @@ describe("createHermesMessageRuntime", () => {
     const tmp = tempDir();
     const adapter = new RuntimeAdapter();
     const options = runtimeOptions(tmp, adapter);
-    fs.chmodSync(options.tokenFile!, 0o644);
-    expect(() => createHermesMessageRuntime(options)).toThrow(/private.*0600|group\/world/i);
+    if (process.platform === "win32") {
+      // NTFS ACLs are not represented by Node's synthetic POSIX mode bits.
+      // POSIX permission enforcement is covered in Linux/WSL CI.
+      fs.chmodSync(options.tokenFile!, 0o644);
+      const permissiveRuntime = createHermesMessageRuntime(options);
+      await permissiveRuntime.stop();
+    } else {
+      fs.chmodSync(options.tokenFile!, 0o644);
+      expect(() => createHermesMessageRuntime(options)).toThrow(/private.*0600|group\/world/i);
+    }
 
     const directoryToken = path.join(tmp, "token-directory");
     fs.mkdirSync(directoryToken);

@@ -63,7 +63,8 @@ export type UpgradeStartOutcome =
   | { status: "started"; jobId: string; instanceId: string }
   | { status: "missing-target-version" }
   | { status: "upgrade-in-flight" }
-  | { status: "no-servicing-instance" };
+  | { status: "no-servicing-instance" }
+  | { status: "backup-failed"; error: string };
 
 /** rollbackSnapshot 结果（HTTP 层按 status 映射 200/404/503）。 */
 export type RollbackSnapshotOutcome =
@@ -78,7 +79,7 @@ export interface UpgradeService {
     targetVersion: string;
     channel?: "stable" | "beta";
     trigger?: "manual" | "auto";
-  }): UpgradeStartOutcome;
+  }): UpgradeStartOutcome | Promise<UpgradeStartOutcome>;
   /** 当前 running 或最近一次升级 Job 视图。 */
   status(): UpgradeJobView | null;
   /** 版本源可用版本列表（逐源探测，fetch 注入）。 */

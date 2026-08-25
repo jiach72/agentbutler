@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PageProgress, type PageProgressStep } from "../components/PageProgress.js";
 import { fetchJson, postJson } from "../lib/api.js";
+import { disposeWebSocket } from "../lib/websocket.js";
 
 /* --------------------------------- 数据类型 -------------------------------- */
 
@@ -514,7 +515,7 @@ export function VersionsPage() {
       closed = true;
       if (reconnectTimer !== undefined) clearTimeout(reconnectTimer);
       if (pendingTimer !== undefined) clearTimeout(pendingTimer);
-      socket?.close();
+      disposeWebSocket(socket);
     };
   }, [refresh]);
 

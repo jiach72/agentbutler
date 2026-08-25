@@ -80,6 +80,7 @@ export interface ButlerSelfStatus {
   remoteConfigured: boolean;
   prefs: ButlerSelfPrefs;
   snapshots: ButlerSelfSnapshot[];
+  snapshotRetention: number;
   availableUpdates: ButlerAvailableUpdate[];
   lastJob: ButlerSelfJobView | null;
   checkedAt: string;
@@ -332,7 +333,11 @@ export async function executeSelfJob(
   };
   try {
     update({ phase: "checkout" });
-    exec("git", ["fetch", "--tags", "origin"], sourceDir, 60_000);
+    // 临时/离线仓库可能没有 origin；先探测远端，避免无意义的长时间 fetch 阻塞升级。
+    const remote = exec("git", ["remote", "get-url", "origin"], sourceDir, 10_000);
+    if (remote.ok) {
+      exec("git", ["fetch", "--tags", "origin"], sourceDir, 60_000);
+    }
     const checkout = exec("git", ["checkout", job.target], sourceDir, 120_000);
     if (!checkout.ok) {
       await fail("切到目标版本失败：" + checkout.error);
@@ -647,6 +652,7 @@ export function createButlerSelfUpgradeService(
         remoteConfigured: info.repository !== null,
         prefs: prefs(),
         snapshots: snapshots(),
+        snapshotRetention: SELF_SNAPSHOT_KEEP,
         availableUpdates: listUpdates(),
         lastJob,
         checkedAt: isoNow(now),

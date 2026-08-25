@@ -1,7 +1,7 @@
 /**
  * createWatchApp：butler-watch 应用组装。
  *
- * createCore → createHermesAdapter（注入 store/snapshotsDir）→ registry 注册
+ * createCore → 选择 Hermes/OpenClaw 适配器（注入 store/snapshotsDir）→ registry 注册
  * → detect → 生命周期接线（Registered→Discovering→Confirmed→Negotiating→Serving）
  * → logSources 注册 LogTailer → FingerprintEngine → tail 轮询循环（interval 驱动
  * poll(handler)，handler 把每行喂 engine.ingest）→ InspectionScheduler.start()
@@ -24,10 +24,11 @@
  * 限流统计 + 补丁参数面板服务（HTTP /api/gateway/*；限流指纹画像建议 + 补丁
  * apply/reapply/detect，全部动作落审计）。
  */
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { closeSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import type { DiscoveryHint, InstanceRef } from "@butler/contract";
+import type { ControlAdapter, DiscoveryHint, InstanceRef, Result } from "@butler/contract";
 import {
   createExecFileExecutor,
   createHermesAdapter,
@@ -35,6 +36,7 @@ import {
   type CommandExecutor,
   type PortProber,
 } from "@butler/adapter-hermes";
+import { createOpenClawAdapter } from "@butler/adapter-openclaw";
 import {
   createCore,
   FingerprintEngine,
@@ -51,13 +53,20 @@ import {
   type AlertForwarder,
   type AlertPoster,
 } from "./alert-forward.js";
-import { loadWatchConfig, type WatchConfig } from "./config.js";
+import { CRITICAL_PROBE_SLA_MIN, loadWatchConfig, type WatchConfig } from "./config.js";
 import type { FetchLike } from "./dashboard-signal.js";
-import { createEvolutionService, type EvolutionService } from "./evolution.js";
+import {
+  createEvolutionService,
+  EVOLUTION_ACTOR,
+  EVOLUTION_PREFLIGHT_ACTION,
+  type EvolutionPreflightOutcome,
+  type EvolutionService,
+} from "./evolution.js";
 import { createGatewayService, type GatewayPanelService } from "./gateway-stats.js";
 import {
   startWatchHttp,
   type RunbookExecuteOutcome,
+  type RunbookResetOutcome,
   type RunbookSummary,
   type WatchHttp,
   type WatchHttpDeps,
@@ -84,7 +93,9 @@ import {
 } from "./runbook/index.js";
 import {
   createInspectionRunner,
+  CriticalProbeScheduler,
   InspectionScheduler,
+  type CriticalProbeResult,
   type TimerDriver,
   defaultTimerDriver,
 } from "./scheduler.js";
@@ -101,7 +112,7 @@ export interface WatchAppOptions {
   config?: Partial<WatchConfig>;
   /** home 语法糖（等价 config.home）。 */
   home?: string;
-  /** hermes 探测 hint（缺省按 config.hermesRoot 构造）。 */
+  /** 框架探测 hint（缺省按对应 root 构造）。 */
   detectHint?: DiscoveryHint;
   /** 探测注入：命令执行器 / 端口探活 / 资源采样 / fetch。 */
   exec?: CommandExecutor;
@@ -128,6 +139,8 @@ export interface WatchApp {
   tailer: LogTailer;
   engine: FingerprintEngine;
   scheduler: InspectionScheduler;
+  /** M1：独立关键记忆探针调度器（默认每分钟，10 分钟 SLA deadline）。 */
+  criticalScheduler: CriticalProbeScheduler;
   forwarder: AlertForwarder;
   /** Task 7：runbook 执行器（手动入口 runRunbook 供面板调用）。 */
   runbookExecutor: RunbookExecutor;
@@ -157,6 +170,53 @@ export interface WatchApp {
   pollTail(): Promise<void>;
   /** 优雅停止：停循环 → engine.close → core.close。 */
   stop(): void;
+}
+
+/** 进化前事件备份包装：备份失败时返回拒绝结果，不触发真实预检或快照。 */
+export function withEvolutionBackup(
+  evolution: EvolutionService,
+  backup: BackupService,
+  core: Core,
+): EvolutionService {
+  return {
+    ...evolution,
+    async preflight(input) {
+      try {
+        const snapshot = await backup.run("event", "进化前自动备份");
+        if (!Number.isInteger(snapshot.id) || snapshot.id <= 0) {
+          throw new Error("进化前备份未返回有效登记 ID");
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        const runId = `backup-rejected-${randomUUID()}`;
+        const ledgerPath = "";
+        const rejected: EvolutionPreflightOutcome = {
+          runId,
+          status: "rejected-preflight",
+          allowRun: false,
+          instanceId: input.instanceId ?? null,
+          checks: [
+            {
+              id: "snapshot",
+              label: "运行前快照",
+              status: "fail",
+              detail: `进化前事件备份失败：${detail}`,
+              action: "修复备份目录、权限或数据库后重试",
+            },
+          ],
+          ledgerPath,
+        };
+        core.audit.append({
+          actor: EVOLUTION_ACTOR,
+          action: EVOLUTION_PREFLIGHT_ACTION,
+          target: input.instanceId ?? "",
+          detail: { runId, status: rejected.status, reason: "prebackup-failed", error: detail },
+        });
+        return rejected;
+      }
+      return evolution.preflight(input);
+    },
+  };
 }
 
 /** detect 置信度门槛（与内核 auto confirm 阈值一致，低于则等待人工确认）。 */
@@ -269,6 +329,42 @@ function readLogFilePage(path: string, before: number | null, limit: number): Lo
   return result;
 }
 
+/**
+ * 为 watch 下游服务提供统一的控制面门面。
+ *
+ * 发现阶段（detect/capabilityScan）保持只读直连；所有会触碰实例控制面
+ * 的 start/stop/restart/upgrade/snapshot/rollback 调用必须先经过
+ * CapabilityRouter，避免 runbook、升级流水线或进化守门员形成旁路。
+ * validateConfig 属于 config-driver 能力，单独使用对应能力位。
+ */
+export function createRoutedControl(core: Core, control: ControlAdapter): ControlAdapter {
+  const invoke = createCapabilityInvoker(core);
+
+  return {
+    start: (instance, opts) => invoke("start", instance, "control", () => control.start(instance, opts)),
+    stop: (instance, opts) => invoke("stop", instance, "control", () => control.stop(instance, opts)),
+    restart: (instance) => invoke("restart", instance, "control", () => control.restart(instance)),
+    upgrade: (instance, target, opts) =>
+      invoke("upgrade", instance, "control", () => control.upgrade(instance, target, opts)),
+    snapshot: (instance, scope) =>
+      invoke("snapshot", instance, "control", () => control.snapshot(instance, scope)),
+    rollback: (instance, ref) =>
+      invoke("rollback", instance, "control", () => control.rollback(instance, ref)),
+    validateConfig: (instance) =>
+      invoke("validateConfig", instance, "config-driver", () => control.validateConfig(instance)),
+  };
+}
+
+function createCapabilityInvoker(core: Core) {
+  return <T>(
+    method: string,
+    instance: InstanceRef,
+    capability: "control" | "config-driver",
+    fn: () => Promise<Result<T>>,
+  ): Promise<Result<T>> =>
+    core.invoke(fn, { method, instance: instance.instanceId, capability });
+}
+
 
 export async function createWatchApp(options: WatchAppOptions = {}): Promise<WatchApp> {
   const config = loadWatchConfig({
@@ -277,13 +373,27 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
   });
   const core = createCore({ home: config.home });
 
-  // Hermes 适配器：控制面复用 core 的 store/snapshotsDir，避免自建第二连接。
-  const adapter = createHermesAdapter({
-    store: core.store,
-    snapshotsDir: core.paths.snapshotsDir,
-    exec: options.exec,
-    prober: options.prober,
-  });
+  // 控制面复用 core 的 store/snapshotsDir，避免适配器自建第二连接。
+  const adapter =
+    config.framework === "openclaw"
+      ? createOpenClawAdapter({
+          snapshotsDir: join(core.paths.snapshotsDir, "openclaw"),
+          snapshotRecorder: ({ instanceId, scope, snapshotId }) => {
+            core.store.insertSnapshot({
+              instance: instanceId,
+              scope: { ...scope, snapshotId },
+              label: scope.label,
+            });
+          },
+          prober: options.prober,
+        })
+      : createHermesAdapter({
+          store: core.store,
+          snapshotsDir: core.paths.snapshotsDir,
+          exec: options.exec,
+          prober: options.prober,
+          controlInvoker: createCapabilityInvoker(core),
+        });
   const registered = core.registry.register(adapter);
   if (!registered.ok) {
     console.warn(
@@ -295,7 +405,14 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
   const detectResult = await core.invoke(
     () =>
       adapter.discovery.detect(
-        options.detectHint ?? (config.hermesRoot ? { rootPath: config.hermesRoot } : undefined),
+      options.detectHint ??
+        (config.framework === "openclaw"
+          ? config.openclawRoot
+            ? { rootPath: config.openclawRoot }
+            : undefined
+          : config.hermesRoot
+            ? { rootPath: config.hermesRoot }
+            : undefined),
       ),
     { method: "detect" },
   );
@@ -453,20 +570,56 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
   // Task 7：公共告警 POST 器 + 已接线熔断器 + runbook 执行器（复用 hermes control）。
   // createHermesAdapter 恒返回 control（AdapterBundle 类型按能力位可选，此处收窄）。
   const control = adapter.control!;
+  const routedControl = createRoutedControl(core, control);
+  // 配置校验是适配器 config-driver 的统一入口：所有调用方都经过能力路由、纪律超时与结果记录。
+  const validateConfigViaCore = (instance: InstanceRef) => routedControl.validateConfig(instance);
   const alertPoster = createAlertPoster({
     gatewayUrl: config.gatewayUrl,
     fetchFn: options.fetchFn,
     timeoutMs: config.fetchTimeoutMs,
     audit: core.audit,
   });
+  const initialBreakerTrips = core.store
+    .listEvents({ type: "circuit-breaker-tripped", limit: 1000 })
+    .map((event) => {
+      const payload = event.payload as Record<string, unknown>;
+      if (
+        typeof payload["key"] !== "string" ||
+        typeof payload["failures"] !== "number" ||
+        typeof payload["windowMs"] !== "number" ||
+        typeof payload["reason"] !== "string"
+      ) {
+        return null;
+      }
+      return {
+        key: payload["key"],
+        failures: payload["failures"],
+        windowMs: payload["windowMs"],
+        reason: payload["reason"],
+      };
+    })
+    .filter((trip): trip is {
+      key: string;
+      failures: number;
+      windowMs: number;
+      reason: string;
+    } => trip !== null)
+    // events 倒序返回；同一 key 只恢复最近一次跳闸事实。
+    .filter((trip, index, all) => all.findIndex((item) => item.key === trip.key) === index);
   const breaker = createWiredBreaker(
     { windowMs: 10 * 60 * 1000, threshold: 5, now: options.now },
-    { bus: core.bus, poster: alertPoster, audit: core.audit, now: options.now },
+    {
+      bus: core.bus,
+      poster: alertPoster,
+      audit: core.audit,
+      now: options.now,
+      initialTrips: initialBreakerTrips,
+    },
   );
   const runbookExecutor = new RunbookExecutor(
     {
       core,
-      control,
+      control: routedControl,
       stages,
       breaker,
       poster: alertPoster,
@@ -474,7 +627,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       debounceMs: config.runbookDebounceMs,
       now: options.now,
     },
-    createBuiltinRunbooks({ control, exec: options.exec }),
+    createBuiltinRunbooks({ control: routedControl, exec: options.exec }),
   );
 
   // Task 15：共享补丁管理器（升级流水线与网关参数面板同一实例，同一 state.json）。
@@ -484,7 +637,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
   // 熔断联动 + 快照回滚）。复用与 runbook 同一 control 门面/熔断器/告警 POST 器。
   const upgrade = createUpgradeService({
     core,
-    control,
+    control: routedControl,
     stages,
     poster: alertPoster,
     breaker,
@@ -505,14 +658,14 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
   const gateway = createGatewayService({
     core,
     patchManager,
-    validateConfig: (instance) => control.validateConfig(instance),
+    validateConfig: validateConfigViaCore,
     now: options.now,
   });
 
   // Task 16：只负责进化前后守门，不在 Butler 内执行优化引擎或直接写技能产物。
   const evolution = createEvolutionService({
     core,
-    control,
+    control: routedControl,
     exec: options.exec ?? createExecFileExecutor(),
     fetchFn: options.fetchFn,
     poster: alertPoster,
@@ -538,12 +691,14 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
   });
 
   // Task 18：备份服务（每日全量 + 每小时记忆增量 + 事件触发 + 还原）。
-  // 备份/安全以实际检出的实例根目录为准（服务部署形态用 HERMES_ROOT，检测结果优先）。
+  // 备份/安全以实际检出的实例根目录为准（检测结果优先）。
   const managedRoot =
     core.instances
       .listInstances()
       .map((item) => item.rootPath)
-      .find((item) => item !== "") ?? config.hermesRoot ?? "";
+      .find((item) => item !== "") ??
+      (config.framework === "openclaw" ? config.openclawRoot : config.hermesRoot) ??
+      "";
   const backup = createBackupService({
     core,
     hermesRoot: managedRoot,
@@ -577,33 +732,163 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     },
   });
 
-  // Task 18：升级/进化前事件触发备份（失败只记录，不阻断操作）。
+  // Task 18：升级/进化前事件备份。升级必须等待备份成功，进化预检同样 fail-closed。
   const upgradeWithBackup: UpgradeService = {
     ...upgrade,
-    startUpgrade(input) {
-      void backup
-        .run("event", "升级前自动备份")
-        .catch((error) => console.warn("[butler-watch] 升级前备份失败:", error));
-      return upgrade.startUpgrade(input);
-    },
-  };
-  const evolutionWithBackup: EvolutionService = {
-    ...evolution,
-    async preflight(input) {
+    async startUpgrade(input) {
       try {
-        await backup.run("event", "进化前自动备份");
+        const snapshot = await backup.run("event", "升级前自动备份");
+        if (!Number.isInteger(snapshot.id) || snapshot.id <= 0) {
+          return { status: "backup-failed", error: "升级前备份未返回有效登记 ID" };
+        }
       } catch (error) {
-        console.warn("[butler-watch] 进化前备份失败（继续执行预检）:", error);
+        const detail = error instanceof Error ? error.message : String(error);
+        core.audit.append({
+          actor: "upgrade",
+          action: "upgrade-prebackup-failed",
+          target: "",
+          detail: { error: detail },
+        });
+        return { status: "backup-failed", error: detail };
       }
-      return evolution.preflight(input);
+      return await upgrade.startUpgrade(input);
     },
   };
+  const evolutionWithBackup = withEvolutionBackup(evolution, backup, core);
 
     // M5 切片 1/2：只登记服务端已知 Hermes 提示词路径，候选/评估写入 BUTLER_HOME 本地。
   const promptOptimization = createPromptOptimizationService({
     core,
-    hermesRoot: config.hermesRoot,
+    hermesRoot: config.framework === "openclaw" ? config.openclawRoot : config.hermesRoot,
     now: options.now,
+  });
+
+  // M1 独立关键记忆探针：与整轮巡检分离，探针行即时清理，避免高频巡检污染用户记忆。
+  async function runCriticalMemoryProbe(): Promise<{ status: "pass" | "warn" | "fail" | "skipped"; detail?: string }> {
+    const targets = core.instances
+      .listInstances()
+      .filter((record) => ["Serving", "Degraded", "Offline"].includes(record.state));
+    if (targets.length === 0) {
+      return { status: "skipped", detail: "没有可运行关键记忆探针的实例" };
+    }
+    const outcomes: Array<{ instanceId: string; status: "pass" | "warn" | "fail" | "skipped"; detail: string }> = [];
+    for (const record of targets) {
+      let result: { status: "pass" | "warn" | "fail" | "skipped"; detail?: string };
+      try {
+        result = await memorySelfCheckStage.run({
+          instanceId: record.instanceId,
+          frameworkId: record.frameworkId,
+          rootPath: record.rootPath,
+          runtime: record.runtime,
+          shared: {},
+        });
+      } catch (error) {
+        result = {
+          status: "fail",
+          detail: error instanceof Error ? `关键探针异常: ${error.message}` : `关键探针异常: ${String(error)}`,
+        };
+      }
+      const detail = result.detail ?? "";
+      const observedAt = new Date((options.now ?? Date.now)()).toISOString();
+      outcomes.push({ instanceId: record.instanceId, status: result.status, detail });
+      core.audit.append({
+        actor: "butler-watch",
+        action: "critical-memory-probe",
+        target: record.instanceId,
+        detail: { status: result.status, detail, observedAt, source: "independent-sla-scheduler" },
+      });
+      if (result.status === "fail") {
+        const alertQueuedAt = new Date((options.now ?? Date.now)()).toISOString();
+        void alertPoster.post({
+          kind: "critical-memory-probe",
+          severity: "critical",
+          title: "记忆系统关键探针失败",
+          body: `实例 ${record.instanceId} 的记忆写入/召回探针失败：${detail || "无详情"}。管家将尝试自动修复。`,
+          source: "butler-watch",
+          dedupeKey: `critical-memory-probe:${record.instanceId}`,
+        });
+        core.audit.append({
+          actor: "butler-watch",
+          action: "critical-memory-alert-queued",
+          target: record.instanceId,
+          detail: { observedAt, alertQueuedAt, source: "independent-sla-scheduler" },
+        });
+      }
+      if (result.status === "fail" && config.runbookAuto && record.rootPath !== "") {
+        try {
+          const remediationStartedAt = new Date((options.now ?? Date.now)()).toISOString();
+          const trigger = await runbookExecutor.autoTrigger(
+            RB_RESTART,
+            { instanceId: record.instanceId, rootPath: record.rootPath, runtime: record.runtime },
+            `关键记忆探针 fail（${detail || "无详情"}）`,
+          );
+          const remediationFinishedAt = new Date((options.now ?? Date.now)()).toISOString();
+          core.audit.append({
+            actor: "butler-watch",
+            action: "critical-memory-remediation",
+            target: record.instanceId,
+            detail: {
+              runbookId: RB_RESTART,
+              triggerStatus: trigger.skipped ? `skipped:${trigger.reason}` : "started",
+              remediationStartedAt,
+              remediationFinishedAt,
+              source: "independent-sla-scheduler",
+            },
+          });
+        } catch (error) {
+          const remediationFinishedAt = new Date((options.now ?? Date.now)()).toISOString();
+          core.audit.append({
+            actor: "butler-watch",
+            action: "critical-memory-remediation",
+            target: record.instanceId,
+            detail: {
+              runbookId: RB_RESTART,
+              triggerStatus: "error",
+              error: error instanceof Error ? error.message : String(error),
+              remediationFinishedAt,
+              source: "independent-sla-scheduler",
+            },
+          });
+        }
+      }
+    }
+    const statuses = outcomes.map((item) => item.status);
+    const status = statuses.includes("fail")
+      ? "fail"
+      : statuses.includes("warn")
+        ? "warn"
+        : statuses.every((item) => item === "skipped")
+          ? "skipped"
+          : "pass";
+    return {
+      status,
+      detail: outcomes.map((item) => `${item.instanceId}: ${item.status}${item.detail ? ` (${item.detail})` : ""}`).join("; "),
+    };
+  }
+
+  const criticalScheduler = new CriticalProbeScheduler({
+    intervalMs: config.criticalProbeIntervalMin * 60_000,
+    slaMs: CRITICAL_PROBE_SLA_MIN * 60_000,
+    run: runCriticalMemoryProbe,
+    driver,
+    now: options.now,
+    onResult: (result: CriticalProbeResult) => {
+      core.audit.append({
+        actor: "butler-watch",
+        action: "critical-probe-sla",
+        target: "",
+        detail: {
+          status: result.status,
+          detail: result.detail ?? "",
+          startedAt: result.startedAt,
+          finishedAt: result.finishedAt,
+          deadlineAt: result.deadlineAt,
+          durationMs: result.durationMs,
+          withinSla: result.withinSla,
+          source: "independent-sla-scheduler",
+        },
+      });
+    },
   });
 
   // Task 7 自动触发规则：memory-probe fail → rb-restart；channel-probe fail →
@@ -649,6 +934,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     intervalMs: config.inspectIntervalMin * 60_000,
     run: runInspection,
     driver,
+    criticalStatus: () => criticalScheduler.status(),
   });
 
   // 告警转发订阅。
@@ -706,6 +992,36 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     return { status: "started", instanceId: record.instanceId };
   }
 
+  async function resetRunbookBreakerViaHttp(
+    id: string,
+    instanceId?: string,
+  ): Promise<RunbookResetOutcome> {
+    if (!runbookExecutor.listRunbooks().some((def) => def.id === id)) {
+      return { status: "unknown-runbook" };
+    }
+    const prefix = `${id}:`;
+    const keys = breaker
+      .trippedKeys()
+      .filter((key) => key.startsWith(prefix) && (instanceId === undefined || key === `${prefix}${instanceId}`));
+    if (keys.length === 0) return { status: "not-tripped" };
+    for (const key of keys) {
+      const trip = breaker.tripInfo(key);
+      breaker.reset(key);
+      core.audit.append({
+        actor: "butler-watch",
+        action: "circuit-breaker-reset",
+        target: key,
+        detail: {
+          runbookId: id,
+          instanceId: key.slice(prefix.length),
+          previousTrip: trip ?? null,
+          source: "settings",
+        },
+      });
+    }
+    return { status: "reset", keys };
+  }
+
   function resolveInstance(instanceId?: string): InstanceRecord | undefined {
     if (instanceId !== undefined && instanceId.trim() !== "") {
       return core.instances.getInstance(instanceId.trim());
@@ -714,6 +1030,219 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       .listInstances()
       .find((record) => record.state === "Serving" && record.rootPath !== "");
   }
+
+  /**
+   * 连接管理状态：与巡检结果分开保存最近一次主动探测/动作，
+   * 让面板可以区分“尚未检查”“已连接但待复核”和“刚刚断开”。
+   */
+  type ConnectionMemory = {
+    busy: boolean;
+    lastCheckedAt: string | null;
+    lastActionAt: string | null;
+    lastAction: "check" | "connect" | "disconnect" | null;
+    lastProbeOk: boolean | null;
+    latencyMs: number | null;
+    lastError: string | null;
+    checks: Array<{ id: string; label: string; status: "pass" | "warn" | "fail"; detail: string; durationMs: number | null }>;
+    capabilities: Record<string, string>;
+    anomalies: string[];
+  };
+
+  const connectionMemory = new Map<string, ConnectionMemory>();
+  const connectionMemoryFor = (instanceId: string): ConnectionMemory => {
+    const existing = connectionMemory.get(instanceId);
+    if (existing !== undefined) return existing;
+    const created: ConnectionMemory = {
+      busy: false,
+      lastCheckedAt: null,
+      lastActionAt: null,
+      lastAction: null,
+      lastProbeOk: null,
+      latencyMs: null,
+      lastError: null,
+      checks: [],
+      capabilities: {},
+      anomalies: [],
+    };
+    connectionMemory.set(instanceId, created);
+    return created;
+  };
+
+  const connectionCapabilityLabels: Record<string, string> = {
+    probe: "服务响应",
+    control: "启停控制",
+    messaging: "消息通道",
+    "skill-driver": "技能目录",
+    "memory-driver": "记忆读写",
+    "config-driver": "配置校验",
+  };
+
+  function connectionView(record: InstanceRecord): Record<string, unknown> {
+    const memory = connectionMemoryFor(record.instanceId);
+    const connected =
+      memory.lastProbeOk === true ||
+      (memory.lastProbeOk === null && (record.state === "Serving" || record.state === "Degraded"));
+    const connectionState = memory.busy
+      ? "checking"
+      : memory.lastError !== null
+        ? "error"
+        : connected
+          ? "connected"
+          : memory.lastProbeOk === false || record.state === "Offline"
+            ? "disconnected"
+            : "unknown";
+    return {
+      instanceId: record.instanceId,
+      frameworkId: record.frameworkId,
+      displayName: adapter.manifest.displayName,
+      state: record.state,
+      connectionState,
+      connected,
+      runtime: record.runtime,
+      rootPath: record.rootPath,
+      version: record.version,
+      confidence: record.confidence,
+      effectiveLevel: record.capability?.effectiveLevel ?? null,
+      capabilities: memory.capabilities,
+      checks: memory.checks,
+      anomalies: memory.anomalies,
+      lastCheckedAt: memory.lastCheckedAt,
+      lastActionAt: memory.lastActionAt,
+      lastAction: memory.lastAction,
+      latencyMs: memory.latencyMs,
+      lastError: memory.lastError,
+    };
+  }
+
+  function checksFromReport(report: NonNullable<InstanceRecord["capability"]>, durationMs: number) {
+    const checks: ConnectionMemory["checks"] = [];
+    for (const [id, value] of Object.entries(report.capabilities)) {
+      const status: "pass" | "warn" | "fail" =
+        value === "ok" ? "pass" : id === "probe" || value === "not-implemented" ? "fail" : "warn";
+      checks.push({
+        id,
+        label: connectionCapabilityLabels[id] ?? id,
+        status,
+        detail:
+          value === "ok"
+            ? "可用"
+            : value === "not-implemented"
+              ? "当前适配器未提供"
+              : value === "unavailable"
+                ? "当前不可用"
+                : "已降级",
+        durationMs,
+      });
+    }
+    for (const anomaly of report.anomalies) {
+      checks.push({ id: `anomaly-${checks.length}`, label: "额外提示", status: "warn", detail: anomaly, durationMs: null });
+    }
+    return checks;
+  }
+
+  async function checkConnection(instanceId?: string, promote = false): Promise<
+    | { status: "checked"; connection: Record<string, unknown> }
+    | { status: "no-instance" }
+    | { status: "failed"; connection: Record<string, unknown> }
+  > {
+    const record = resolveInstance(instanceId);
+    if (record === undefined || record.rootPath === "") return { status: "no-instance" };
+    const memory = connectionMemoryFor(record.instanceId);
+    memory.busy = true;
+    memory.lastAction = "check";
+    memory.lastActionAt = new Date().toISOString();
+    memory.lastError = null;
+    const ref: InstanceRef = { instanceId: record.instanceId, rootPath: record.rootPath, runtime: record.runtime };
+    const result = await core.invoke(() => adapter.discovery.capabilityScan(ref), {
+      method: "capabilityScan",
+      instance: record.instanceId,
+    });
+    memory.busy = false;
+    memory.lastCheckedAt = new Date().toISOString();
+    memory.latencyMs = result.durationMs;
+    if (!result.ok || result.data === undefined) {
+      memory.lastProbeOk = false;
+      memory.checks = [];
+      memory.capabilities = {};
+      memory.anomalies = [];
+      memory.lastError = result.error?.userHint ?? result.error?.message ?? "连接检查失败";
+      return { status: "failed", connection: connectionView(core.instances.getInstance(record.instanceId) ?? record) };
+    }
+    const report = result.data;
+    memory.lastProbeOk = report.capabilities["probe"] === "ok";
+    memory.capabilities = report.capabilities;
+    memory.anomalies = report.anomalies;
+    memory.checks = checksFromReport(report, result.durationMs);
+    memory.lastError = null;
+    const latest = core.instances.getInstance(record.instanceId) ?? record;
+    core.store.saveInstance(toInstanceRow({ ...latest, capability: report, updatedAt: new Date().toISOString() }));
+    if (promote) {
+      const refreshed = core.instances.getInstance(record.instanceId);
+      if (refreshed?.state === "Offline") {
+        core.instances.reattach(record.instanceId, "手动连接后重新接入");
+      }
+      const afterReattach = core.instances.getInstance(record.instanceId);
+      if (afterReattach?.state === "Negotiating" || afterReattach?.state === "Degraded") {
+        core.instances.markServing(record.instanceId, report.effectiveLevel, report);
+      }
+    }
+    const viewRecord = core.instances.getInstance(record.instanceId) ?? record;
+    return memory.lastProbeOk ? { status: "checked", connection: connectionView(viewRecord) } : { status: "failed", connection: connectionView(viewRecord) };
+  }
+
+  async function runConnectionAction(
+    instanceId: string | undefined,
+    action: "connect" | "disconnect",
+  ): Promise<
+    | { status: "connected" | "disconnected"; connection: Record<string, unknown> }
+    | { status: "no-instance" }
+    | { status: "failed"; connection: Record<string, unknown> }
+  > {
+    const record = resolveInstance(instanceId);
+    if (record === undefined || record.rootPath === "") return { status: "no-instance" };
+    if (action === "connect") {
+      const checked = await checkConnection(record.instanceId);
+      // 探测到端口不可达正是“连接服务”常见的前置状态；只有探测本身报错时才阻断启停。
+      if (checked.status === "failed" && connectionMemoryFor(record.instanceId).lastError !== null) {
+        return checked;
+      }
+    }
+    const memory = connectionMemoryFor(record.instanceId);
+    memory.busy = true;
+    memory.lastAction = action;
+    memory.lastActionAt = new Date().toISOString();
+    memory.lastError = null;
+    const ref: InstanceRef = { instanceId: record.instanceId, rootPath: record.rootPath, runtime: record.runtime };
+    const result = action === "connect" ? await routedControl.start(ref) : await routedControl.stop(ref);
+    memory.busy = false;
+    if (!result.ok) {
+      memory.lastError = result.error?.userHint ?? result.error?.message ?? `${action === "connect" ? "连接" : "断开"}失败`;
+      return { status: "failed", connection: connectionView(core.instances.getInstance(record.instanceId) ?? record) };
+    }
+    if (action === "disconnect") {
+      const current = core.instances.getInstance(record.instanceId);
+      if (current?.state === "Serving" || current?.state === "Degraded") {
+        core.instances.markOffline(record.instanceId, "用户手动断开");
+      }
+      await checkConnection(record.instanceId);
+      const viewRecord = core.instances.getInstance(record.instanceId) ?? record;
+      return { status: "disconnected", connection: connectionView(viewRecord) };
+    }
+    const checked = await checkConnection(record.instanceId, true);
+    if (checked.status === "failed") return checked;
+    const viewRecord = core.instances.getInstance(record.instanceId) ?? record;
+    return { status: "connected", connection: connectionView(viewRecord) };
+  }
+
+  const connections: WatchHttpDeps["connections"] = {
+    status: () => ({
+      checkedAt: new Date().toISOString(),
+      connections: core.instances.listInstances().map(connectionView),
+    }),
+    check: (instanceId) => checkConnection(instanceId),
+    connect: (instanceId) => runConnectionAction(instanceId, "connect"),
+    disconnect: (instanceId) => runConnectionAction(instanceId, "disconnect"),
+  };
 
   function gitLog(source: string): Array<{ hash: string; subject: string; at: string }> {
     const raw = gitDescribe([
@@ -907,8 +1436,10 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
   const watchHttp = startWatchHttp(
     {
       scheduler,
+      connections,
       runbooks: runbookSummaries,
       executeRunbook: executeRunbookViaHttp,
+      resetRunbookBreaker: resetRunbookBreakerViaHttp,
       logs: logsService,
       analyzeLogs: (instanceId?: string) => logAnalyzer.analyze(instanceId),
       butler,
@@ -937,6 +1468,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
   await watchHttp.start();
 
   if ((options.autoStart ?? config.autoStart) !== false) {
+    await criticalScheduler.start();
     await scheduler.start(); // 立即首轮巡检
     tailHandle = driver.setInterval(() => void tailTick(), config.tailPollSec * 1000);
     backup.start(); // 每小时检查：记忆增量 + 每日全量
@@ -946,6 +1478,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
   const stop = (): void => {
     backup.stop();
     security.stop();
+    criticalScheduler.stop();
     scheduler.stop();
     if (tailHandle !== undefined) {
       driver.clearInterval(tailHandle);
@@ -963,6 +1496,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     tailer,
     engine,
     scheduler,
+    criticalScheduler,
     forwarder,
     runbookExecutor,
     breaker,

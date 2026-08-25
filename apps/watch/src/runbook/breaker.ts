@@ -6,8 +6,8 @@
  * → 熔断跳闸，onTrip 回调触发 circuit-breaker-tripped 事件 + critical 告警
  * （由组装层接线），此后 isTripped(key) 恒 true，自动触发一律跳过。
  *
- * ⚠️ V1 取舍：熔断状态只在内存（watch 重启即复位）；跳闸事实经
- * circuit-breaker-tripped 事件落 events 表持久化，重启后可从事件流追溯。
+ * 活动跳闸状态由组装层从 circuit-breaker-tripped 事件恢复；进程内失败窗口
+ * 仍只保留最近 MAX_RECORDED 条，显式 reset 后才允许再次自动触发。
  */
 export interface CircuitBreakerOptions {
   /** 失败累计窗口（毫秒，默认 10min）。 */
@@ -18,6 +18,8 @@ export interface CircuitBreakerOptions {
   now?: () => number;
   /** 跳闸回调（emit 事件 + POST gateway 由组装层接线，仅首次跳闸触发）。 */
   onTrip?: (info: CircuitBreakerTrip) => void;
+  /** 从持久化事件恢复的活动跳闸状态。 */
+  initialTrips?: CircuitBreakerTrip[];
 }
 
 export interface CircuitBreakerTrip {
@@ -45,6 +47,11 @@ export class CircuitBreaker {
     this.threshold = options.threshold ?? 5;
     this.now = options.now ?? Date.now;
     this.onTrip = options.onTrip;
+    for (const trip of options.initialTrips ?? []) {
+      if (trip.key.trim() !== "" && Number.isFinite(trip.failures) && trip.failures > 0) {
+        this.trips.set(trip.key, { ...trip });
+      }
+    }
   }
 
   /** 该 key 是否已熔断（跳闸后自动触发一律跳过）。 */
@@ -93,5 +100,12 @@ export class CircuitBreaker {
   /** 记录成功：清空该 key 的失败累计（熔断态不因单次成功复位，V1 保持跳闸直到重启）。 */
   recordSuccess(key: string): void {
     this.failures.delete(key);
+  }
+
+  /** 显式解除熔断；解除动作由调用方负责审计。 */
+  reset(key: string): boolean {
+    const existed = this.trips.delete(key);
+    this.failures.delete(key);
+    return existed;
   }
 }

@@ -6,8 +6,11 @@ export default defineConfig({
   server: {
     // 开发期代理：/api 与 /ws 转发给本地 butler-web 服务
     proxy: {
-      "/api": "http://127.0.0.1:7531",
-      "/ws": { target: "ws://127.0.0.1:7531", ws: true },
+      "/api": process.env["BUTLER_WEB_URL"] ?? "http://127.0.0.1:7531",
+      "/ws": {
+        target: (process.env["BUTLER_WEB_URL"] ?? "http://127.0.0.1:7531").replace(/^http/, "ws"),
+        ws: true,
+      },
     },
   },
 });

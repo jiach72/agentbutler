@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { DangerConfirmModal } from "../components/DangerConfirmModal.js";
 import { fetchJson, postJson } from "../lib/api.js";
 
 interface SecurityBaselinePayload {
@@ -9,6 +10,19 @@ interface SecurityBaselinePayload {
 
 interface AlertsPayload {
   reachable: boolean;
+}
+
+interface RunbookSummary {
+  id: string;
+  label: string;
+  description: string;
+  breakerTripped: boolean;
+  lastRun?: { at: string; success: boolean };
+}
+
+interface RunbooksPayload {
+  reachable: boolean;
+  runbooks: RunbookSummary[];
 }
 
 interface InvariantView {
@@ -57,7 +71,14 @@ interface BackupsPayload {
     lastFullAt: string | null;
     lastMemoryAt: string | null;
     hourlyTickMs: number;
+    retention?: { full: number; memory: number; event: number };
   };
+}
+
+interface ButlerSelfPayload {
+  reachable: boolean;
+  snapshots: Array<{ id: string; at: string; version: string; reason: string }>;
+  snapshotRetention?: number;
 }
 
 interface AuditItem {
@@ -73,6 +94,10 @@ interface AuditPayload {
   items: AuditItem[];
   degraded?: string[];
 }
+
+type SettingsConfirmAction =
+  | { kind: "reset"; runbook: RunbookSummary }
+  | { kind: "restore"; backup: BackupItem };
 
 function snapshotStatusLabel(status: string): string {
   const labels: Record<string, string> = {
@@ -93,6 +118,9 @@ function backupKindLabel(kind: BackupItem["kind"]): string {
   if (kind === "event") return "操作前备份";
   return "每日全量";
 }
+
+const DEFAULT_BACKUP_RETENTION = { full: 14, memory: 24, event: 10 };
+const DEFAULT_SNAPSHOT_RETENTION = 3;
 
 function formatTime(value: string): string {
   const date = new Date(value);
@@ -140,6 +168,7 @@ function auditActionLabel(action: string): string {
     "upgrade-done": "升级完成",
     "upgrade-failed": "升级失败",
     "upgrade-rollback": "升级回滚",
+    "circuit-breaker-reset": "解除崩溃保护",
   };
   return labels[action] ?? action;
 }
@@ -158,10 +187,13 @@ function invariantAggregate(invariants: InvariantView[]): { status: string; labe
 export function SettingsPage() {
   const [baseline, setBaseline] = useState<SecurityBaselinePayload | null>(null);
   const [alerts, setAlerts] = useState<AlertsPayload | null>(null);
+  const [runbooks, setRunbooks] = useState<RunbooksPayload | null>(null);
   const [security, setSecurity] = useState<SecurityPayload | null>(null);
   const [backups, setBackups] = useState<BackupsPayload | null>(null);
+  const [butlerSelf, setButlerSelf] = useState<ButlerSelfPayload | null>(null);
   const [audit, setAudit] = useState<AuditPayload | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [confirmAction, setConfirmAction] = useState<SettingsConfirmAction | null>(null);
   const [toast, setToast] = useState<{ text: string; kind: "ok" | "err" } | null>(null);
   const [diagnostic, setDiagnostic] = useState<{
     busy: boolean;
@@ -174,15 +206,19 @@ export function SettingsPage() {
     void Promise.all([
       fetchJson<SecurityBaselinePayload>("/api/security-baseline"),
       fetchJson<AlertsPayload>("/api/alerts"),
+      fetchJson<RunbooksPayload>("/api/runbooks", 10_000),
       fetchJson<SecurityPayload>("/api/security", 10_000),
       fetchJson<BackupsPayload>("/api/backups", 10_000),
+      fetchJson<ButlerSelfPayload>("/api/butler/self", 10_000),
       fetchJson<AuditPayload>("/api/audit", 10_000),
-    ]).then(([nextBaseline, nextAlerts, nextSecurity, nextBackups, nextAudit]) => {
+    ]).then(([nextBaseline, nextAlerts, nextRunbooks, nextSecurity, nextBackups, nextSelf, nextAudit]) => {
       if (stopped) return;
       setBaseline(nextBaseline);
       setAlerts(nextAlerts);
+      setRunbooks(nextRunbooks);
       setSecurity(nextSecurity);
       setBackups(nextBackups);
+      setButlerSelf(nextSelf);
       setAudit(nextAudit);
     });
     return () => {
@@ -198,6 +234,12 @@ export function SettingsPage() {
   );
 
   const backupStrategyOk = backups?.status?.lastFullAt !== undefined && backups?.status?.lastFullAt !== null;
+  const backupRetention = backups?.status?.retention ?? DEFAULT_BACKUP_RETENTION;
+  const snapshotRetention = butlerSelf?.snapshotRetention ?? DEFAULT_SNAPSHOT_RETENTION;
+  const trippedRunbooks = useMemo(
+    () => (runbooks?.runbooks ?? []).filter((item) => item.breakerTripped),
+    [runbooks],
+  );
 
   const baselineItems = useMemo(
     () => [
@@ -246,12 +288,45 @@ export function SettingsPage() {
       },
       {
         title: "反复崩溃自动停下",
-        status: "pass",
-        detail: "10 分钟内失败 5 次会自动停止重启，避免一直循环",
+        status: runbooks === null ? "partial" : runbooks.reachable === false ? "warn" : trippedRunbooks.length === 0 ? "pass" : "warn",
+        detail:
+          runbooks === null
+            ? "正在读取修复保护状态…"
+            : runbooks.reachable === false
+              ? "管家服务暂时连不上，无法确认熔断状态"
+              : trippedRunbooks.length === 0
+                ? "当前没有被暂停的自动修复方案"
+                : `${trippedRunbooks.length} 个自动修复方案已暂停，需人工确认后解除`,
       },
     ],
-    [baseline, security, audit, backupStrategyOk, invariantAggregateItem.status],
+    [baseline, security, audit, backupStrategyOk, invariantAggregateItem.status, runbooks, trippedRunbooks],
   );
+
+  function requestResetBreaker(runbook: RunbookSummary) {
+    if (busy !== null) return;
+    setConfirmAction({ kind: "reset", runbook });
+  }
+
+  async function executeResetBreaker(runbook: RunbookSummary) {
+    setBusy(`reset-${runbook.id}`);
+    setToast(null);
+    try {
+      const result = await postJson(`/api/runbooks/${encodeURIComponent(runbook.id)}/reset`, {});
+      if (result.ok) {
+        setToast({ text: `已解除“${runbook.label}”的自动修复保护，并写入操作记录。`, kind: "ok" });
+      } else if (result.status === 409) {
+        setToast({ text: "这项保护已经解除，页面将刷新。", kind: "ok" });
+      } else {
+        setToast({ text: "解除保护失败，请先确认管家服务在线。", kind: "err" });
+      }
+      refresh();
+    } catch {
+      setToast({ text: "解除保护失败，请稍后再试。", kind: "err" });
+    } finally {
+      setBusy(null);
+      setConfirmAction(null);
+    }
+  }
 
   async function runBackup(kind: "full" | "memory") {
     if (busy !== null) return;
@@ -272,13 +347,12 @@ export function SettingsPage() {
     }
   }
 
-  async function restoreBackup(item: BackupItem) {
+  function requestRestoreBackup(item: BackupItem) {
     if (busy !== null) return;
-    const ok = window.confirm(
-      "还原会先自动备份当前状态，然后覆盖 Hermes 的记忆和配置文件。\n\n" +
-        "如果 Hermes 正在运行，建议先停止它再还原。确定继续吗？",
-    );
-    if (!ok) return;
+    setConfirmAction({ kind: "restore", backup: item });
+  }
+
+  async function executeRestoreBackup(item: BackupItem) {
     setBusy(`restore-${item.id}`);
     setToast(null);
     try {
@@ -299,6 +373,7 @@ export function SettingsPage() {
       setToast({ text: "还原失败，请稍后再试。", kind: "err" });
     } finally {
       setBusy(null);
+      setConfirmAction(null);
     }
   }
 
@@ -440,6 +515,41 @@ export function SettingsPage() {
           <div className="settings-subsection">
             <div className="settings-section-head is-compact">
               <div>
+                <span className="product-kicker">自动修复保护</span>
+                <h2>反复失败时会停下</h2>
+              </div>
+              <span className={`badge-pill ${runbooks === null || runbooks.reachable === false ? "badge-muted" : trippedRunbooks.length === 0 ? "badge-healthy" : "badge-warning"}`}>
+                {runbooks === null ? "读取中" : runbooks.reachable === false ? "服务离线" : trippedRunbooks.length === 0 ? "运行正常" : `${trippedRunbooks.length} 项已暂停`}
+              </span>
+            </div>
+            {runbooks !== null && runbooks.reachable && trippedRunbooks.length === 0 && (
+              <p className="hint">10 分钟内连续失败达到阈值时，管家会暂停对应自动修复，避免无限重启。</p>
+            )}
+            {runbooks !== null && !runbooks.reachable && (
+              <p className="hint">管家服务暂时连不上，无法读取或解除自动修复保护。</p>
+            )}
+            {runbooks === null && <p className="hint">正在读取自动修复保护状态…</p>}
+            {trippedRunbooks.map((runbook) => (
+              <article className="route-row" key={runbook.id}>
+                <span className="badge-pill badge-warning">已暂停</span>
+                <div>
+                  <strong>{runbook.label}</strong>
+                  <span>{runbook.description || "连续失败后等待人工确认"}</span>
+                </div>
+                <button
+                  className="btn btn-small"
+                  disabled={busy !== null}
+                  onClick={() => requestResetBreaker(runbook)}
+                >
+                  {busy === `reset-${runbook.id}` ? "解除中…" : "确认后解除"}
+                </button>
+              </article>
+            ))}
+          </div>
+
+          <div className="settings-subsection">
+            <div className="settings-section-head is-compact">
+              <div>
                 <span className="product-kicker">通知方式</span>
                 <h2>消息不会悄悄丢掉</h2>
               </div>
@@ -491,6 +601,44 @@ export function SettingsPage() {
             </button>
           </div>
 
+          <div className="backup-policy" aria-label="备份保留策略">
+            <div className="backup-policy-head">
+              <div>
+                <strong>保留策略</strong>
+                <span>升级恢复点和日常备份分别计算，不共用同一个数量。</span>
+              </div>
+            </div>
+            <div className="backup-policy-group">
+              <div className="backup-policy-group-head">
+                <strong>升级快照</strong>
+                <span>最多 {snapshotRetention} 份</span>
+              </div>
+              <p>管家自身升级前创建，用于升级失败时自动回滚。</p>
+              <div className="backup-policy-meta">
+                <span>当前恢复点</span>
+                <strong>
+                  {butlerSelf === null
+                    ? "读取中…"
+                    : butlerSelf.reachable
+                      ? `${butlerSelf.snapshots.length} / ${snapshotRetention} 份`
+                      : "服务离线"}
+                </strong>
+              </div>
+            </div>
+            <div className="backup-policy-group">
+              <div className="backup-policy-group-head">
+                <strong>日常备份</strong>
+                <span>按类型轮转</span>
+              </div>
+              <p>日常备份不会挤占升级快照；过期记录会自动标记并清理文件。</p>
+              <div className="backup-policy-meta">
+                <span>每日全量 · {backupRetention.full} 份</span>
+                <span>记忆增量 · {backupRetention.memory} 份</span>
+                <span>操作前 · {backupRetention.event} 份</span>
+              </div>
+            </div>
+          </div>
+
           <div className="backup-timeline">
             {(backups?.items ?? []).slice(0, 8).map((item) => (
               <article className="backup-row" key={item.id}>
@@ -507,7 +655,7 @@ export function SettingsPage() {
                   <button
                     className="btn btn-small"
                     disabled={busy !== null}
-                    onClick={() => void restoreBackup(item)}
+                    onClick={() => requestRestoreBackup(item)}
                   >
                     {busy === `restore-${item.id}` ? "还原中…" : "还原"}
                   </button>
@@ -596,6 +744,52 @@ export function SettingsPage() {
           </div>
         </section>
       </div>
+
+      {confirmAction !== null && (
+        <DangerConfirmModal
+          open
+          title={confirmAction.kind === "reset" ? "确认解除自动修复保护" : "确认还原备份"}
+          busy={busy !== null}
+          confirmLabel={confirmAction.kind === "reset" ? "确认解除保护" : "确认还原"}
+          onCancel={() => {
+            if (busy === null) setConfirmAction(null);
+          }}
+          onConfirm={() =>
+            confirmAction.kind === "reset"
+              ? executeResetBreaker(confirmAction.runbook)
+              : executeRestoreBackup(confirmAction.backup)
+          }
+          steps={
+            confirmAction.kind === "reset"
+              ? [
+                  "解除该自动修复方案的熔断状态",
+                  "允许后续巡检再次触发它",
+                  "继续记录执行结果，失败时仍会再次暂停",
+                ]
+              : [
+                  "先为当前状态创建一份操作前备份",
+                  "还原选中的备份文件",
+                  "刷新安全状态和操作记录",
+                ]
+          }
+        >
+          {confirmAction.kind === "reset" ? (
+            <p>
+              「{confirmAction.runbook.label}」已因连续失败暂停。请确认根因已经处理；解除后，管家会恢复该方案的自动执行资格。
+            </p>
+          ) : (
+            <p>
+              将还原「{confirmAction.backup.label ?? backupKindLabel(confirmAction.backup.kind)}」
+              （{formatTime(confirmAction.backup.createdAt)}）到 {confirmAction.backup.target || "当前管家"}。
+            </p>
+          )}
+          <p className="danger-impact">
+            {confirmAction.kind === "reset"
+              ? "如果根因尚未处理，自动修复可能再次重启或重连服务。"
+              : "还原前会自动备份当前状态；运行中的 Hermes 文件可能被跳过，建议先停止 Hermes。"}
+          </p>
+        </DangerConfirmModal>
+      )}
     </section>
   );
 }

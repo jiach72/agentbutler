@@ -13,9 +13,13 @@ import {
   type HermesMessageRuntimeOptions,
 } from "./runtime.js";
 
+/** The message data-plane is an explicitly gated experiment, never a default entrypoint. */
+export const HERMES_MESSAGE_RUNTIME_FEATURE_FLAG = "BUTLER_ENABLE_HERMES_MESSAGE_RUNTIME";
+
 export interface HermesGatewayLauncherOptions {
   host?: string;
   port?: number;
+  env?: NodeJS.ProcessEnv;
   runtime?: HermesMessageRuntimeOptions;
 }
 
@@ -28,9 +32,14 @@ export interface RunningHermesGateway {
 export async function launchHermesGateway(
   options: HermesGatewayLauncherOptions = {},
 ): Promise<RunningHermesGateway> {
-  const host = options.host?.trim() || process.env["BUTLER_GATEWAY_HOST"]?.trim() || "127.0.0.1";
-  const port = options.port ?? parsePort(process.env["BUTLER_GATEWAY_PORT"]);
-  const runtime = createHermesMessageRuntime(options.runtime);
+  const env = options.env ?? process.env;
+  assertExperimentalFlag(env);
+  const host = options.host?.trim() || env["BUTLER_GATEWAY_HOST"]?.trim() || "127.0.0.1";
+  const port = options.port ?? parsePort(env["BUTLER_GATEWAY_PORT"]);
+  const runtime = createHermesMessageRuntime({
+    ...(options.runtime ?? {}),
+    env: options.runtime?.env ?? env,
+  });
   let app: GatewayApp | undefined;
 
   try {
@@ -75,13 +84,24 @@ function parsePort(raw: string | undefined): number {
   return port;
 }
 
+function assertExperimentalFlag(env: NodeJS.ProcessEnv): void {
+  const value = env[HERMES_MESSAGE_RUNTIME_FEATURE_FLAG]?.trim().toLowerCase();
+  if (value !== "1" && value !== "true") {
+    throw new Error(
+      `Hermes message runtime is experimental and disabled by default; set ${HERMES_MESSAGE_RUNTIME_FEATURE_FLAG}=true only for an explicit non-production launch`,
+    );
+  }
+}
+
 const isDirectRun =
   process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isDirectRun) {
   void launchHermesGateway()
     .then((running) => {
       const address = running.app.server.address();
-      console.log(`[gateway] Hermes message runtime listening at ${JSON.stringify(address)}`);
+      console.log(
+        `[gateway] Hermes message runtime experimental flag ${HERMES_MESSAGE_RUNTIME_FEATURE_FLAG}=true; listening at ${JSON.stringify(address)}`,
+      );
       let closing = false;
       const shutdown = (signal: string): void => {
         if (closing) return;
