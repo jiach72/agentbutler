@@ -231,8 +231,8 @@ export function SettingsPage() {
                 onRunBackup={onRunBackup}
                 onRequestRestore={onRequestRestore}
               />
-              <DiagnosticsCenter actionBusy={busy !== null} />
             </div>
+            <DiagnosticsCenter actionBusy={busy !== null} />
           </div>
 
           <AuditLog audit={sources.audit} onRetry={() => retrySource("audit")} />

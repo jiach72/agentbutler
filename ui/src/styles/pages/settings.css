@@ -1,1 +1,10 @@
 .settings-page { color: var(--butler-ink); }
+
+.settings-tools-row > .backup-tool-panel,
+.settings-tools-row > .diagnostic-tool-panel {
+  min-width: 0;
+}
+
+@media (max-width: 1100px) {
+  .settings-tools-row { grid-template-columns: 1fr; }
+}

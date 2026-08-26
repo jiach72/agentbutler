@@ -20,3 +20,49 @@ html[data-theme="dark"] .ant-input,
 html[data-theme="dark"] .ant-input-number,
 html[data-theme="dark"] .ant-select-selector,
 html[data-theme="dark"] textarea { background: var(--butler-sunken) !important; color: var(--butler-ink) !important; border-color: var(--butler-rule) !important; }
+
+html[data-theme="dark"] .manager-hero,
+html[data-theme="dark"] .manager-status-card,
+html[data-theme="dark"] .issue-card,
+html[data-theme="dark"] .connection-section,
+html[data-theme="dark"] .connection-card,
+html[data-theme="dark"] .advanced-details,
+html[data-theme="dark"] .settings-column,
+html[data-theme="dark"] .backup-tool-panel,
+html[data-theme="dark"] .diagnostic-tool-panel {
+  background: var(--butler-surface) !important;
+  border-color: var(--butler-rule) !important;
+  box-shadow: var(--butler-shadow);
+  color: var(--butler-ink);
+}
+
+html[data-theme="dark"] .manager-status-card.is-warn,
+html[data-theme="dark"] .issue-card.is-warn,
+html[data-theme="dark"] .openclaw-install-panel { background: var(--butler-warn-soft) !important; }
+
+html[data-theme="dark"] .manager-status-card.is-error,
+html[data-theme="dark"] .issue-card.is-error,
+html[data-theme="dark"] .connection-error { background: var(--butler-error-soft) !important; }
+
+html[data-theme="dark"] .manager-hero-kicker,
+html[data-theme="dark"] .manager-section-note,
+html[data-theme="dark"] .manager-status-label,
+html[data-theme="dark"] .manager-status-detail,
+html[data-theme="dark"] .issue-main p,
+html[data-theme="dark"] .connection-meta,
+html[data-theme="dark"] .connection-summary,
+html[data-theme="dark"] .openclaw-runtime-facts { color: var(--butler-muted) !important; }
+
+html[data-theme="dark"] .manager-hero-copy h2,
+html[data-theme="dark"] .manager-section-head h2,
+html[data-theme="dark"] .manager-status-value,
+html[data-theme="dark"] .issue-main strong,
+html[data-theme="dark"] .connection-card-head h3,
+html[data-theme="dark"] .connection-summary strong { color: var(--butler-ink) !important; }
+
+html[data-theme="dark"] .openclaw-install-panel,
+html[data-theme="dark"] .connection-error {
+  border-color: var(--butler-rule) !important;
+}
+
+html[data-theme="dark"] .connection-error { color: var(--butler-error) !important; }

@@ -1,1 +1,35 @@
 .dashboard-page, .manager-page { color: var(--butler-ink); }
+
+.page-live,
+.evolution-connection,
+.skills-live {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 8px;
+  min-width: max-content;
+  max-width: 100%;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.page-live > i,
+.evolution-connection > i,
+.skills-live > i {
+  display: block;
+  flex: 0 0 7px;
+  width: 7px;
+  height: 7px;
+}
+
+@media (max-width: 680px) {
+  .page-live,
+  .evolution-connection,
+  .skills-live {
+    align-self: flex-start;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
