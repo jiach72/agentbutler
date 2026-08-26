@@ -44,3 +44,37 @@ export async function postJson(url: string, body?: unknown, timeoutMs = 5000): P
     return { ok: false, status: 0, data: null };
   }
 }
+
+/** GET 的可区分结果：不再把失败吞成 null，让“加载失败”成为可表达的状态。 */
+export type LoadResult<T> = { ok: true; data: T } | { ok: false; reason: string };
+
+/** 可区分 GET：非 2xx 时尽力从响应体提取 error/detail 文案。 */
+export async function loadJson<T>(url: string, timeoutMs = 5000): Promise<LoadResult<T>> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    if (!res.ok) {
+      let reason = `服务返回 ${res.status}`;
+      try {
+        const body: unknown = await res.json();
+        if (body !== null && typeof body === "object") {
+          const record = body as Record<string, unknown>;
+          if (typeof record.error === "string" && record.error.trim() !== "") reason = record.error;
+          else if (typeof record.detail === "string" && record.detail.trim() !== "")
+            reason = record.detail;
+        }
+      } catch {
+        // 响应体不是 JSON 时保留默认文案
+      }
+      return { ok: false, reason };
+    }
+    return { ok: true, data: (await res.json()) as T };
+  } catch {
+    return { ok: false, reason: "网络连接失败，请检查管家服务是否在运行" };
+  }
+}
+
+/** 页面数据三态：loading / ready / failed。failed 必须可见且可重试。 */
+export type FetchState<T> =
+  | { status: "loading" }
+  | { status: "ready"; data: T }
+  | { status: "failed"; reason: string };

@@ -1,0 +1,26 @@
+/* ========================= 新组件体系（antd 迁移期增量样式） ========================= */
+
+.advanced-details .ant-collapse-header {
+  font-weight: 600;
+}
+
+.advanced-details-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+
+.advanced-details-extra {
+  color: var(--prd-muted);
+  font-weight: 400;
+}
+
+.danger-modal-title {
+  font-size: 16px;
+}
+
+.danger-impact-alert {
+  margin-block: 12px;
+}

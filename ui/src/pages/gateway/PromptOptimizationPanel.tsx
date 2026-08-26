@@ -1,5 +1,13 @@
+/**
+ * 消息优化面板：口语消息改写对照历史、规则文件改进记录与候选版本采用。
+ * 从 components/ 迁入 gateway 子目录；轮询改走 usePolling（后台自动暂停）。
+ */
 import { useCallback, useEffect, useState } from "react";
-import { fetchJson, postJson } from "../lib/api.js";
+import { AdvancedDetails } from "../../components/AdvancedDetails.js";
+import { ConnectionChip } from "../../components/ConnectionChip.js";
+import { fetchJson, postJson } from "../../lib/api.js";
+import { formatTime } from "../../lib/format.js";
+import { usePolling } from "../../hooks/usePolling.js";
 
 interface PromptGate {
   status:
@@ -134,18 +142,6 @@ function gateLabel(status: string): string {
   return labels[status] ?? "需检查";
 }
 
-function formatTime(value: string | null): string {
-  if (value === null || value === "") return "—";
-  const time = new Date(value);
-  if (Number.isNaN(time.getTime())) return value;
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(time);
-}
-
 function candidateTone(status: string): string {
   if (status === "approval-pending" || status === "pending-evaluation") return "is-pending";
   if (status === "rejected-static" || status === "rejected-quality") return "is-fail";
@@ -278,17 +274,17 @@ export function PromptOptimizationPanel() {
     [refresh, refreshCandidates],
   );
 
-  useEffect(() => {
+  const refreshAll = useCallback(() => {
     void refresh();
     void refreshCandidates();
     void refreshHistory();
-    const timer = setInterval(() => {
-      void refresh();
-      void refreshCandidates();
-      void refreshHistory();
-    }, 10_000);
-    return () => clearInterval(timer);
   }, [refresh, refreshCandidates, refreshHistory]);
+
+  useEffect(() => {
+    refreshAll();
+  }, [refreshAll]);
+
+  usePolling(refreshAll, 10_000);
 
   const now = new Date();
   const todayItems = (history?.items ?? []).filter((item) => isSameDay(item.inbound.receivedAt, now));
@@ -313,22 +309,13 @@ export function PromptOptimizationPanel() {
             你发来的口语消息，管家会先整理成更明确的指令再交给 AI；每条消息都会留下对照记录，方便你看到改了什么。
           </p>
         </div>
-        <span
-          className={
-            "evolution-connection " +
-            (history === null
-              ? "is-offline"
-              : history.reachable
-                ? "is-online"
-                : "is-offline")
-          }
-        >
-          <span />
-          {history === null
-            ? "正在连接管家"
-            : history.reachable
-              ? "管家服务已连接"
-              : "管家服务暂时连不上"}
+        <span className="evolution-connection">
+          <ConnectionChip
+            reachable={history === null ? null : history.reachable}
+            connectingText="正在连接管家"
+            onlineText="管家服务已连接"
+            offlineText="管家服务暂时连不上"
+          />
         </span>
       </div>
 
@@ -432,159 +419,155 @@ export function PromptOptimizationPanel() {
         </div>
       )}
 
-      <details className="advanced-details prompt-targets-details">
-        <summary>
-          <span>
+      <AdvancedDetails
+        summary={
+          <>
             <strong>高级：规则文件改进记录</strong>
             <small>管家提示词文件的当前版本、检查结果和经过正式评估的改进</small>
-          </span>
-          <span className="advanced-toggle">展开</span>
-        </summary>
-        <div className="advanced-details-body">
-          {data !== null && data.targets.length === 0 && (
-            <div className="prompt-empty">
-              还没有找到可查看的规则；等 AI 配置好规则后，这里会显示真实内容。
-            </div>
-          )}
+          </>
+        }
+      >
+        {data !== null && data.targets.length === 0 && (
+          <div className="prompt-empty">
+            还没有找到可查看的规则；等 AI 配置好规则后，这里会显示真实内容。
+          </div>
+        )}
 
-          {data !== null && data.targets.length > 0 && (
-            <div className="prompt-table-wrap">
-              <table className="prompt-table">
-                <thead>
-                  <tr>
-                    <th>规则内容</th>
-                    <th>用于哪个 AI</th>
-                    <th>保存格式</th>
-                    <th>不能改动的部分</th>
-                    <th>当前状态</th>
-                    <th>检查结果</th>
+        {data !== null && data.targets.length > 0 && (
+          <div className="prompt-table-wrap">
+            <table className="prompt-table">
+              <thead>
+                <tr>
+                  <th>规则内容</th>
+                  <th>用于哪个 AI</th>
+                  <th>保存格式</th>
+                  <th>不能改动的部分</th>
+                  <th>当前状态</th>
+                  <th>检查结果</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.targets.map((target) => (
+                  <tr key={target.targetId}>
+                    <td>
+                      <strong title={target.sourcePath}>{promptTargetLabel(target.targetId)}</strong>
+                    </td>
+                    <td>
+                      {target.instanceId === "hermes-main"
+                        ? "Hermes 主实例"
+                        : target.instanceId || "—"}
+                    </td>
+                    <td>{promptFormatLabel(target.format)}</td>
+                    <td>{target.protectedClauseCount} 项</td>
+                    <td>
+                      <code title={target.activeVersion}>
+                        {target.activeVersion === "baseline" ? "当前版本" : "试用版本"}
+                      </code>
+                    </td>
+                    <td>
+                      <span className={`prompt-gate ${gateTone(target.gate.status)}`}>
+                        {gateLabel(target.gate.status)}
+                      </span>
+                      <small title={target.gate.detail}>{target.gate.detail}</small>
+                      <em>{formatTime(target.gate.checkedAt)}</em>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {data.targets.map((target) => (
-                    <tr key={target.targetId}>
-                      <td>
-                        <strong title={target.sourcePath}>
-                          {promptTargetLabel(target.targetId)}
-                        </strong>
-                      </td>
-                      <td>
-                        {target.instanceId === "hermes-main"
-                          ? "Hermes 主实例"
-                          : target.instanceId || "—"}
-                      </td>
-                      <td>{promptFormatLabel(target.format)}</td>
-                      <td>{target.protectedClauseCount} 项</td>
-                      <td>
-                        <code title={target.activeVersion}>
-                          {target.activeVersion === "baseline" ? "当前版本" : "试用版本"}
-                        </code>
-                      </td>
-                      <td>
-                        <span className={`prompt-gate ${gateTone(target.gate.status)}`}>
-                          {gateLabel(target.gate.status)}
-                        </span>
-                        <small title={target.gate.detail}>{target.gate.detail}</small>
-                        <em>{formatTime(target.gate.checkedAt)}</em>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
 
-          {data !== null && data.targets.length > 0 && (
-            <div className="prompt-panel-note">
-              <span>现在能做什么</span>
-              <p>
-                只有通过正式样本、受信评估和保护段复验的版本才会显示采用按钮；采用动作会再次核对源文件并留下审计记录。
-              </p>
-            </div>
-          )}
+        {data !== null && data.targets.length > 0 && (
+          <div className="prompt-panel-note">
+            <span>现在能做什么</span>
+            <p>
+              只有通过正式样本、受信评估和保护段复验的版本才会显示采用按钮；采用动作会再次核对源文件并留下审计记录。
+            </p>
+          </div>
+        )}
 
-          {promotionNotice !== null && (
-            <div className="prompt-promotion-notice" role="status" aria-live="polite">
-              {promotionNotice}
-            </div>
-          )}
+        {promotionNotice !== null && (
+          <div className="prompt-promotion-notice" role="status" aria-live="polite">
+            {promotionNotice}
+          </div>
+        )}
 
-          {candidates !== null && candidates.candidates.length === 0 && (
-            <div className="prompt-empty">
-              还没有试过新的规则版本；现在只能查看，不能创建或替换。
-            </div>
-          )}
+        {candidates !== null && candidates.candidates.length === 0 && (
+          <div className="prompt-empty">
+            还没有试过新的规则版本；现在只能查看，不能创建或替换。
+          </div>
+        )}
 
-          {candidates !== null && candidates.candidates.length > 0 && (
-            <div className="prompt-table-wrap prompt-table-spaced">
-              <table className="prompt-table">
-                <thead>
-                  <tr>
-                    <th>改进版本</th>
-                    <th>谁提供的</th>
-                    <th>当前状态</th>
-                    <th>测试结果</th>
-                    <th>采用</th>
-                    <th>更新时间</th>
+        {candidates !== null && candidates.candidates.length > 0 && (
+          <div className="prompt-table-wrap prompt-table-spaced">
+            <table className="prompt-table">
+              <thead>
+                <tr>
+                  <th>改进版本</th>
+                  <th>谁提供的</th>
+                  <th>当前状态</th>
+                  <th>测试结果</th>
+                  <th>采用</th>
+                  <th>更新时间</th>
+                </tr>
+              </thead>
+              <tbody>
+                {candidates.candidates.map((candidate) => (
+                  <tr key={candidate.candidateId}>
+                    <td>
+                      <strong>{candidate.description || "改进版本"}</strong>
+                    </td>
+                    <td>{candidate.source === "generator" ? "自动改进" : "我提供的"}</td>
+                    <td>
+                      <span className={"prompt-gate " + candidateTone(candidate.status)}>
+                        {candidateLabel(candidate.status)}
+                      </span>
+                      {candidate.gateErrors.length > 0 && (
+                        <small title={candidate.gateErrors.join("；")}>
+                          {candidate.gateErrors[0]}
+                        </small>
+                      )}
+                    </td>
+                    <td>
+                      <strong>{evaluationLabel(candidate.latestEvaluation)}</strong>
+                      <span>
+                        {candidate.latestEvaluation === null
+                          ? "等待测试"
+                          : candidate.latestEvaluation.canPromote
+                            ? "可以正式采用"
+                            : candidate.latestEvaluation.tier === "exploratory"
+                              ? "还在初步测试，不能当最终结论"
+                              : "暂不建议采用"}
+                      </span>
+                    </td>
+                    <td>
+                      {candidate.status === "approval-pending" &&
+                      candidate.latestEvaluation?.canPromote ? (
+                        <button
+                          className="prompt-promote-button"
+                          type="button"
+                          disabled={promotingCandidateId !== null}
+                          onClick={() => void promoteCandidate(candidate)}
+                        >
+                          {promotingCandidateId === candidate.candidateId
+                            ? "正在采用"
+                            : "采用此版本"}
+                        </button>
+                      ) : candidate.status === "promoted" ? (
+                        "当前使用"
+                      ) : (
+                        "不可采用"
+                      )}
+                    </td>
+                    <td>{formatTime(candidate.updatedAt)}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {candidates.candidates.map((candidate) => (
-                    <tr key={candidate.candidateId}>
-                      <td>
-                        <strong>{candidate.description || "改进版本"}</strong>
-                      </td>
-                      <td>{candidate.source === "generator" ? "自动改进" : "我提供的"}</td>
-                      <td>
-                        <span className={"prompt-gate " + candidateTone(candidate.status)}>
-                          {candidateLabel(candidate.status)}
-                        </span>
-                        {candidate.gateErrors.length > 0 && (
-                          <small title={candidate.gateErrors.join("；")}>
-                            {candidate.gateErrors[0]}
-                          </small>
-                        )}
-                      </td>
-                      <td>
-                        <strong>{evaluationLabel(candidate.latestEvaluation)}</strong>
-                        <span>
-                          {candidate.latestEvaluation === null
-                            ? "等待测试"
-                            : candidate.latestEvaluation.canPromote
-                              ? "可以正式采用"
-                              : candidate.latestEvaluation.tier === "exploratory"
-                                ? "还在初步测试，不能当最终结论"
-                                : "暂不建议采用"}
-                        </span>
-                      </td>
-                      <td>
-                        {candidate.status === "approval-pending" &&
-                        candidate.latestEvaluation?.canPromote ? (
-                          <button
-                            className="prompt-promote-button"
-                            type="button"
-                            disabled={promotingCandidateId !== null}
-                            onClick={() => void promoteCandidate(candidate)}
-                          >
-                            {promotingCandidateId === candidate.candidateId
-                              ? "正在采用"
-                              : "采用此版本"}
-                          </button>
-                        ) : candidate.status === "promoted" ? (
-                          "当前使用"
-                        ) : (
-                          "不可采用"
-                        )}
-                      </td>
-                      <td>{formatTime(candidate.updatedAt)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </details>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </AdvancedDetails>
     </section>
   );
 }

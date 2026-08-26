@@ -2,13 +2,18 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-function readUiSource(relativePath: string): string {
-  return fs.readFileSync(path.resolve(process.cwd(), "ui", "src", relativePath), "utf8");
+function readSettingsDirSource(): string {
+  const dir = path.resolve(process.cwd(), "ui", "src", "pages", "settings");
+  return fs
+    .readdirSync(dir)
+    .filter((name) => name.endsWith(".ts") || name.endsWith(".tsx"))
+    .map((name) => fs.readFileSync(path.join(dir, name), "utf8"))
+    .join("\n");
 }
 
 describe("UI 备份保留策略", () => {
   it("Settings 明确区分升级快照与日常备份", () => {
-    const settings = readUiSource("pages/Settings.tsx");
+    const settings = readSettingsDirSource();
 
     expect(settings).toContain("/api/butler/self");
     expect(settings).toContain("升级快照");

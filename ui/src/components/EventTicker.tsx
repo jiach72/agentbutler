@@ -1,9 +1,9 @@
 /**
- * 事件 ticker：WebSocket /ws 实时接收事件流推送（type+ts），
- * 断线 5s 自动重连；底部常驻条滚动显示最近事件。
+ * 事件 ticker：订阅共享 /ws 事件流（useEventStream 单连接），
+ * 底部常驻条滚动显示最近事件。
  */
 import { useEffect, useState } from "react";
-import { disposeWebSocket } from "../lib/websocket.js";
+import { subscribeEventStream, useEventStreamStatus, type EventFrame } from "../hooks/useEventStream.js";
 
 interface TickerEvent {
   id: number;
@@ -39,41 +39,18 @@ function humanizeEvent(type: string): string {
 
 export function EventTicker() {
   const [events, setEvents] = useState<TickerEvent[]>([]);
-  const [connected, setConnected] = useState(false);
+  const connected = useEventStreamStatus();
 
-  useEffect(() => {
-    let socket: WebSocket | null = null;
-    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
-    let closed = false;
-
-    const connect = () => {
-      const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-      socket = new WebSocket(`${protocol}://${window.location.host}/ws`);
-
-      socket.onopen = () => setConnected(true);
-      socket.onmessage = (msg) => {
-        try {
-          const data = JSON.parse(msg.data as string) as { type?: string; items?: TickerEvent[] };
-          if (data.type !== "events" || !Array.isArray(data.items)) return;
-          // 服务端按 id 升序推送，翻转后新的在前，截断保留最近 MAX_EVENTS 条
-          setEvents((prev) => [...[...data.items!].reverse(), ...prev].slice(0, MAX_EVENTS));
-        } catch {
-          // 忽略无法解析的帧
-        }
-      };
-      socket.onclose = () => {
-        setConnected(false);
-        if (!closed) reconnectTimer = setTimeout(connect, 5000);
-      };
-    };
-
-    connect();
-    return () => {
-      closed = true;
-      if (reconnectTimer !== undefined) clearTimeout(reconnectTimer);
-      disposeWebSocket(socket);
-    };
-  }, []);
+  useEffect(
+    () =>
+      subscribeEventStream((frame: EventFrame) => {
+        if (frame.type !== "events" || !Array.isArray(frame.items)) return;
+        const items = frame.items as TickerEvent[];
+        // 服务端按 id 升序推送，翻转后新的在前，截断保留最近 MAX_EVENTS 条
+        setEvents((prev) => [...[...items].reverse(), ...prev].slice(0, MAX_EVENTS));
+      }),
+    [],
+  );
 
   return (
     <footer className="ticker">

@@ -1,0 +1,266 @@
+/**
+ * 管家首页共享类型：/api 载荷视图与页面结论模型，
+ * 供 dashboard/ 目录下编排层与各子组件统一引用。
+ */
+
+export interface InstanceView {
+  instanceId: string;
+  frameworkId: string;
+  state: string;
+  runtime: string;
+  version: string | null;
+  confidence: number;
+}
+
+export interface InspectionCheckView {
+  id: string;
+  status: string;
+  detail: unknown;
+  durationMs: number | null;
+}
+
+export interface InspectionView {
+  instanceId: string;
+  ts: string;
+  overall: string | null;
+  confidence: number | null;
+  checks: InspectionCheckView[];
+}
+
+export interface FingerprintView {
+  signature: string;
+  count: number;
+  status: string;
+  firstSeen: string;
+  lastSeen: string;
+  lastSample: string | null;
+  instance?: string;
+}
+
+export interface RunbookView {
+  id: string;
+  label: string;
+  description?: string;
+  impact?: string;
+  steps?: string[];
+  breakerTripped?: boolean;
+  lastRun?: { at: string; success: boolean } | null;
+}
+
+export interface RunbooksPayload {
+  reachable: boolean;
+  runbooks?: RunbookView[];
+}
+
+export interface RecoveryActionView {
+  id: string;
+  label: string;
+  description: string;
+  risk: "low" | "medium" | "high";
+  impact: string;
+  estimatedSeconds: number;
+  requiresConfirmation: boolean;
+  available: boolean;
+  unavailableReason?: string;
+}
+
+export interface RecoveryDiagnosisView {
+  incidentId: string;
+  severity: "ok" | "warn" | "error";
+  rootCause: string;
+  probes: Array<{ id: string; label: string; status: "pass" | "warn" | "fail"; detail: string }>;
+  recommendedActions: RecoveryActionView[];
+  checkedAt: string;
+}
+
+export interface InspectStatusView {
+  reachable: boolean;
+  lastAt?: string | null;
+  nextAt?: string | null;
+  intervalMin?: number | null;
+  inFlight?: boolean;
+  criticalProbe?: {
+    intervalMin: number;
+    slaMin: number;
+    lastStartedAt: string | null;
+    lastCompletedAt: string | null;
+    nextAt: string | null;
+    deadlineAt: string | null;
+    lastDurationMs: number | null;
+    lastStatus: string | null;
+    lastWithinSla: boolean | null;
+    overdue: boolean;
+    inFlight: boolean;
+    runCount: number;
+    missedTicks: number;
+  };
+}
+
+export interface DashboardPayload {
+  instances?: InstanceView[];
+  latestInspections?: InspectionView[];
+  fingerprints?: FingerprintView[];
+  inspectStatus?: InspectStatusView;
+  messageStatus?: MessageStatusPayload;
+}
+
+export interface MessageStatusPayload {
+  reachable: boolean;
+  status?: {
+    bridge: {
+      connected: boolean;
+      running: boolean;
+      attached: boolean;
+      outboxWritable: boolean;
+    };
+    counts?: Record<string, number>;
+  } | null;
+}
+
+export interface ConnectionCheckView {
+  id: string;
+  label: string;
+  status: string;
+  detail: string;
+  durationMs: number | null;
+}
+
+export interface ConnectionView {
+  instanceId: string;
+  frameworkId: string;
+  displayName: string;
+  state: string;
+  connectionState: "connected" | "disconnected" | "checking" | "error" | "unknown" | string;
+  connected: boolean;
+  runtime: string;
+  rootPath: string;
+  version: string | null;
+  confidence: number;
+  effectiveLevel: number | null;
+  capabilities: Record<string, string>;
+  checks: ConnectionCheckView[];
+  anomalies: string[];
+  lastCheckedAt: string | null;
+  lastActionAt: string | null;
+  lastAction: string | null;
+  latencyMs: number | null;
+  lastError: string | null;
+}
+
+export interface ConnectionsPayload {
+  reachable: boolean;
+  checkedAt?: string;
+  connections?: ConnectionView[];
+}
+
+export interface OpenClawStatusView {
+  installed: boolean;
+  version: string | null;
+  rootPath: string | null;
+  detail: string;
+  busy: boolean;
+  runtime?: {
+    kind?: string;
+    distro?: string | null;
+    user?: string | null;
+    detail?: string;
+  };
+  target?: {
+    dataRoot?: string;
+    npmGlobalRoot?: string | null;
+  };
+  job?: OpenClawInstallJobView | null;
+}
+
+export interface OpenClawInstallStepView {
+  id: string;
+  label: string;
+  status: "pending" | "running" | "passed" | "failed" | "cancelled" | string;
+  detail?: string;
+}
+
+export interface OpenClawInstallJobView {
+  jobId: string;
+  status: "queued" | "running" | "done" | "failed" | "cancelled" | string;
+  progress: number;
+  currentStep: string | null;
+  steps: OpenClawInstallStepView[];
+  logTail: string[];
+  error: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+}
+
+export interface AlertsPayload {
+  reachable: boolean;
+  counts?: Record<string, number>;
+  items?: Array<{ severity?: string; status?: string; title?: string }>;
+}
+
+export interface LogSourceView {
+  id: string;
+  path: string;
+  format: string;
+  modifiedAt: string | null;
+  sizeBytes: number;
+}
+
+export interface LogTailView {
+  sourceId: string;
+  path: string;
+  format: string;
+  lines: string[];
+  truncated: boolean;
+  limit: number;
+  totalLines: number;
+  pageStart: number | null;
+  hasOlder: boolean;
+  hasNewer: boolean;
+  error?: string;
+}
+
+export interface LogIssueView {
+  id: string;
+  kind: string;
+  severity: "error" | "warn";
+  title: string;
+  detail: string;
+  count: number;
+  sources: string[];
+  examples: string[];
+  suggestedAction: "rb-restart" | "rb-reconnect" | null;
+  actionLabel: string | null;
+}
+
+export interface LogAnalyzeView {
+  reachable?: boolean;
+  issues?: LogIssueView[];
+  scannedSources?: number;
+  scannedLines?: number;
+  analyzedAt?: string | null;
+}
+
+/** 首页待办：用大白话说明“哪里需要注意”，并尽量给出下一步。 */
+export interface IssueView {
+  id: string;
+  tone: "ok" | "warn" | "error" | "idle";
+  title: string;
+  detail: string;
+  runbook?: RunbookView;
+}
+
+export interface StatusCardView {
+  id: string;
+  tone: "ok" | "warn" | "error" | "idle";
+  label: string;
+  value: string;
+  detail: string;
+  action?: { label: string; kind: "link" | "detail"; to?: string };
+}
+
+/** 英雄区一句话结论。 */
+export interface HeroView {
+  tone: "ok" | "warn" | "error" | "idle";
+  title: string;
+  copy: string;
+}

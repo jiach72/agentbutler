@@ -8,6 +8,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { fetchJson } from "../lib/api.js";
+import { usePolling } from "../hooks/usePolling.js";
 
 interface AlertsPayload {
   reachable: boolean;
@@ -28,12 +29,16 @@ export function AlertBanner() {
       if (!stopped && data !== null) setAlerts(data);
     };
     void tick();
-    const timer = setInterval(() => void tick(), 10000);
     return () => {
       stopped = true;
-      clearInterval(timer);
     };
   }, []);
+  usePolling(() => {
+    void (async () => {
+      const data = await fetchJson<AlertsPayload>("/api/alerts");
+      if (data !== null) setAlerts(data);
+    })();
+  }, 10000);
 
   if (alerts === null) return null;
 
