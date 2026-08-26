@@ -3,7 +3,9 @@
  *
  * 契约（被 butler-watch 与 butler-web 共用，必须严格一致）：
  * - POST /api/alerts  → 202 { id }（dedupeKey 命中未终结行时返回已有 id）
- * - GET  /api/alerts?limit=50 → { counts, degradedChannels, items }
+ * - GET  /api/alerts?limit=50 → { counts, unreadCount, degradedChannels, items }
+ * - POST /api/alerts/:id/read → 单条标记已读
+ * - POST /api/alerts/read-all → 标记全部重要通知已读
  * - GET  /healthz     → { ok: true, pending }
  *
  * 返回 Fastify 实例，并在其上挂载 app.gateway 句柄（queue/channels/loop/
@@ -145,9 +147,25 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
     const limit = parseLimit(query["limit"]);
     return {
       counts: queueRef.counts(),
+      unreadCount: queueRef.unreadCount(),
       degradedChannels: degradedChannelLabels(channels),
       items: queueRef.list(limit).map(toApiItem),
     };
+  });
+
+  app.post("/api/alerts/read-all", async () => {
+    return { marked: queueRef.markAllRead() };
+  });
+
+  app.post("/api/alerts/:id/read", async (request, reply) => {
+    const rawId = (request.params as Record<string, unknown>)["id"];
+    const id = typeof rawId === "string" && /^\d+$/.test(rawId) ? Number(rawId) : NaN;
+    if (!Number.isSafeInteger(id) || id <= 0) {
+      return reply.code(400).send({ error: "invalid-alert-id" });
+    }
+    const row = queueRef.markRead(id);
+    if (row === undefined) return reply.code(404).send({ error: "alert-not-found" });
+    return { item: toApiItem(row) };
   });
 
   app.get("/healthz", async () => {
@@ -516,5 +534,6 @@ function toApiItem(row: AlertRow): Record<string, unknown> {
     deliveredAt: row.deliveredAt,
     lastError: row.lastError,
     channel: row.channel,
+    readAt: row.readAt,
   };
 }

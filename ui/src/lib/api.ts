@@ -6,7 +6,7 @@
  */
 export async function fetchJson<T>(url: string, timeoutMs = 5000): Promise<T | null> {
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    const res = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(timeoutMs) });
     if (!res.ok) return null;
     return (await res.json()) as T;
   } catch {
@@ -29,6 +29,7 @@ export async function postJson(url: string, body?: unknown, timeoutMs = 5000): P
   try {
     const res = await fetch(url, {
       method: "POST",
+      cache: "no-store",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body ?? {}),
       signal: AbortSignal.timeout(timeoutMs),
@@ -51,7 +52,7 @@ export type LoadResult<T> = { ok: true; data: T } | { ok: false; reason: string 
 /** 可区分 GET：非 2xx 时尽力从响应体提取 error/detail 文案。 */
 export async function loadJson<T>(url: string, timeoutMs = 5000): Promise<LoadResult<T>> {
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    const res = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(timeoutMs) });
     if (!res.ok) {
       let reason = `服务返回 ${res.status}`;
       try {

@@ -150,6 +150,7 @@ describe("butler-web 服务（fastify inject）", () => {
     expect(res.json()).toEqual({
       reachable: false,
       counts: { pending: 0, delivering: 0, delivered: 0, failed: 0 },
+      unreadCount: 0,
       degradedChannels: ["gateway:unreachable"],
       items: [],
     });

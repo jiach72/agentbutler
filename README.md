@@ -66,7 +66,7 @@ corepack pnpm --filter @butler/web start
 
 ## Docker
 
-Docker Compose 会构建并启动三个服务：
+Docker Compose 会构建并启动三个面板服务和一个内部 updater sidecar：
 
 ```bash
 docker compose up -d --build
@@ -74,16 +74,16 @@ docker compose ps
 docker compose logs -f
 ```
 
-Compose 默认从 `.env` 读取运行时目录与通知凭据，使用命名卷 `agent-butler-data` 持久化状态，并只将 Web 的 `7531` 端口发布到宿主机回环地址。Docker Socket 默认关闭；需要容器控制能力时才设置 `DOCKER_SOCKET_PATH=/var/run/docker.sock` 和 `DOCKER_GID`。
+Compose 默认从 `.env` 读取运行时目录与通知凭据，使用命名卷 `agent-butler-data` 持久化状态，并只将 Web 的 `7531` 端口发布到宿主机回环地址。内部 updater sidecar 挂载仓库工作树和 Docker Socket，用于从管家内完成 Git 更新、构建、Compose 重启与失败回滚；Watch 对被管实例的 Docker 控制仍默认关闭，需要时才设置 `DOCKER_SOCKET_PATH=/var/run/docker.sock` 和 `DOCKER_GID`。
 
-生产更新使用宿主机脚本完成备份、镜像重建和 readiness 检查：
+生产环境可直接在“版本管理”页触发管家自身更新；updater 会先备份，再拉取 Git 标签、重建镜像、重启三个面板服务并做 readiness 检查，失败自动回滚。宿主机脚本仍可用于首次部署或 updater 故障时的人工恢复：
 
 ```bash
 bash scripts/deploy.sh
 bash scripts/bridge-healthcheck.sh  # 启用 Hermes 时
 ```
 
-容器镜像按设计不携带 `.git`。版本页中的“仓库已配置”表示部署仓库地址可识别，并不表示容器内可以直接执行 Git 自升级。
+容器镜像按设计不携带 `.git`；updater 通过 `BUTLER_REPOSITORY_PATH` 挂载宿主机工作树来执行自更新。默认从仓库根目录启动 Compose 时无需修改该值；如果从其他目录启动，请填写仓库绝对路径。
 
 推荐一键部署：
 

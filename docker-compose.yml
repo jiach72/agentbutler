@@ -73,8 +73,11 @@ services:
       OPENCLAW_GATEWAY_PORT: ${OPENCLAW_GATEWAY_PORT:-18789}
       BUTLER_HERMES_API_HOST: ${BUTLER_HERMES_API_HOST:-host.docker.internal}
       BUTLER_HERMES_API_PORT: ${BUTLER_HERMES_API_PORT:-8642}
+      BUTLER_UPDATER_URL: http://butler-updater:7540
     depends_on:
       butler-gateway:
+        condition: service_healthy
+      butler-updater:
         condition: service_healthy
     expose:
       - "7533"
@@ -112,6 +115,33 @@ services:
       - "${BUTLER_WEB_PUBLISH_HOST:-127.0.0.1}:${BUTLER_WEB_PORT:-7531}:7531"
     volumes:
       - butler-data:/home/butler
+    logging: *default-logging
+    restart: unless-stopped
+
+  # 生产容器没有 .git；updater 挂载宿主工作树，独立完成拉取、构建、重启和回滚。
+  # 不发布宿主端口，只在 Compose 内网向 butler-watch 提供控制接口。
+  butler-updater:
+    build:
+      context: .
+      dockerfile: apps/updater/Dockerfile
+    image: agent-butler-butler-updater:${BUTLER_VERSION:-latest}
+    environment:
+      BUTLER_HOME: /home/butler
+      BUTLER_UPDATER_HOST: 0.0.0.0
+      BUTLER_UPDATER_PORT: 7540
+      BUTLER_UPDATER_SOURCE: /workspace
+      BUTLER_COMPOSE_PROJECT_DIR: /workspace
+      BUTLER_COMPOSE_BIN: docker-compose
+      BUTLER_REPOSITORY_URL: ${BUTLER_REPOSITORY_URL:-https://github.com/jiach72/agentbutler}
+      BUTLER_UPDATER_SERVICES: butler-gateway butler-watch butler-web
+    expose:
+      - "7540"
+    volumes:
+      - butler-data:/home/butler
+      - ${BUTLER_REPOSITORY_PATH:-.}:/workspace:rw
+      - /var/run/docker.sock:/var/run/docker.sock
+    group_add:
+      - "${DOCKER_GID:-999}"
     logging: *default-logging
     restart: unless-stopped
 

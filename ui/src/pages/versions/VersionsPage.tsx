@@ -214,7 +214,7 @@ export function VersionsPage() {
     } else if (result.status === 409) {
       message.error("管家自身已经有升级或回滚正在进行，请等它完成");
     } else if (result.status === 503) {
-      message.error("源码目录还不是 Git 仓库，暂时不能自我升级");
+      message.error("自更新服务暂不可用，请确认 updater sidecar 已启动");
     } else {
       message.error("发起管家自身升级失败，请稍后重试");
     }
@@ -241,7 +241,7 @@ export function VersionsPage() {
     } else if (result.status === 409) {
       message.error("管家自身已经有升级或回滚正在进行，请等它完成");
     } else if (result.status === 503) {
-      message.error("源码目录还不是 Git 仓库，暂时不能回滚");
+      message.error("自更新服务暂不可用，请确认 updater sidecar 已启动");
     } else {
       message.error("发起回滚失败，请稍后重试");
     }

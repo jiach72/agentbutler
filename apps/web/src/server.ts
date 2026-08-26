@@ -36,7 +36,7 @@ import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import { recentEventsAscending, selectNewEvents } from "./events-pump.js";
 
-export const WEB_VERSION = `web@1.0.0-beta.6+${CONTRACT_VERSION}`;
+export const WEB_VERSION = `web@1.0.0-beta.7+${CONTRACT_VERSION}`;
 
 /** 告警网关默认基址（butler-gateway 的固定回环端口）。 */
 export const DEFAULT_GATEWAY_URL = "http://127.0.0.1:7532";
@@ -48,6 +48,7 @@ export const DEFAULT_WATCH_URL = "http://127.0.0.1:7533";
 interface AlertsView {
   reachable: boolean;
   counts: Record<string, number>;
+  unreadCount: number;
   degradedChannels: string[];
   items: unknown[];
 }
@@ -61,6 +62,7 @@ function degradedAlerts(): AlertsView {
   return {
     reachable: false,
     counts: { pending: 0, delivering: 0, delivered: 0, failed: 0 },
+    unreadCount: 0,
     degradedChannels: ["gateway:unreachable"],
     items: [],
   };
@@ -91,7 +93,20 @@ function parseAlertsView(value: unknown): AlertsView | null {
       typeof item["mergedCount"] === "number" &&
       typeof item["createdAt"] === "string",
   );
-  return { reachable: true, counts, degradedChannels, items };
+  const unreadCount = value["unreadCount"];
+  return {
+    reachable: true,
+    counts,
+    unreadCount:
+      typeof unreadCount === "number" && Number.isFinite(unreadCount) && unreadCount >= 0
+        ? unreadCount
+        : items.filter((item) => {
+            const readAt = (item as Record<string, unknown>)["readAt"];
+            return readAt === null || readAt === undefined;
+          }).length,
+    degradedChannels,
+    items,
+  };
 }
 
 export interface WebServerOptions {
@@ -1396,8 +1411,46 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     }
   };
 
+  const proxyGatewayPost = async (
+    gatewayPath: string,
+    body: unknown,
+    reply: FastifyReply,
+  ): Promise<FastifyReply> => {
+    let res: Response;
+    try {
+      res = await doFetch(`${gatewayUrl}${gatewayPath}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body ?? {}),
+        signal: AbortSignal.timeout(5_000),
+      });
+    } catch {
+      return reply.status(502).send({ error: "gateway-unreachable" });
+    }
+    const raw = await res.text();
+    let parsed: unknown = {};
+    if (raw !== "") {
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        parsed = { raw };
+      }
+    }
+    return reply.status(res.status).send(parsed);
+  };
+
   // 告警代理：网关不可达/响应异常一律 200 + 降级载荷（面板显示"告警通道不可达"黄条）。
   app.get("/api/alerts", async () => alertsFromGateway());
+  app.post("/api/alerts/read-all", async (request, reply) =>
+    proxyGatewayPost("/api/alerts/read-all", request.body, reply),
+  );
+  app.post("/api/alerts/:id/read", async (request, reply) => {
+    const rawId = (request.params as Record<string, unknown>)["id"];
+    if (typeof rawId !== "string" || !/^\d+$/.test(rawId)) {
+      return reply.status(400).send({ error: "invalid-alert-id" });
+    }
+    return proxyGatewayPost(`/api/alerts/${encodeURIComponent(rawId)}/read`, request.body, reply);
+  });
 
   // 消息网关状态轻量代理：首页高频轮询此接口，避免把历史未送达告警误判成 Bridge 离线。
   app.get("/api/messages/status", async () => {

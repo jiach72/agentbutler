@@ -1,0 +1,99 @@
+/* Final token layer: legacy.css contains historical page-specific colors; this layer keeps every route on the active palette. */
+.app,
+.main,
+.content,
+.page,
+.dashboard-page,
+.manager-page,
+.gateway-page,
+.evolution-page,
+.skills-page,
+.versions-page,
+.settings-page,
+.preferences-page { background: var(--butler-bg); color: var(--butler-ink); }
+
+.sidebar,
+.sidebar-desktop,
+.app-topbar,
+.ticker { background: var(--butler-surface) !important; color: var(--butler-ink) !important; border-color: var(--butler-rule) !important; }
+.sidebar { box-shadow: var(--butler-shadow) !important; }
+.brand, .nav-copy strong, .page h1, .page h2, .page h3, .page h4, .section-title, .card-head, .table th, .table td, .hint { color: var(--butler-ink); }
+.brand small, .brand-copy small, .nav-copy small, .sidebar-meta, .sidebar-meta code, .topbar-brand, .topbar-note, .hint, .check-detail, .check-duration, .runbook-desc, .runbook-lastrun, .kv dt, .memory-subhead span, .memory-preview-head span { color: var(--butler-muted) !important; }
+
+.nav-link { color: var(--butler-muted) !important; }
+.nav-link:hover { background: var(--butler-surface-subtle) !important; border-color: var(--butler-rule) !important; color: var(--butler-ink) !important; }
+.nav-link.active { background: var(--butler-accent-soft) !important; border-color: var(--butler-accent) !important; color: var(--butler-accent) !important; }
+.nav-index { background: var(--butler-sunken) !important; color: var(--butler-muted) !important; }
+.nav-link.active .nav-index { background: var(--butler-accent) !important; color: var(--butler-surface) !important; }
+
+.card,
+.table-card,
+.version-source,
+.version-item,
+.patch-panel,
+.evolution-column,
+.evolution-notice,
+.evolution-decision,
+.evolution-gate-result,
+.evolution-gate-form,
+.skills-pane,
+.skills-row,
+.plugin-card,
+.memory-health,
+.memory-suggestion,
+.memory-selfcheck,
+.diagnostic-preview,
+.settings-column,
+.settings-subsection,
+.backup-tool-panel,
+.diagnostic-tool-panel,
+.butler-version-card { background: var(--butler-surface) !important; color: var(--butler-ink) !important; border-color: var(--butler-rule) !important; box-shadow: var(--butler-shadow); }
+
+.table,
+.table th,
+.table td,
+.evolution-ledger-table th,
+.evolution-ledger-table td { border-color: var(--butler-rule) !important; color: var(--butler-ink); }
+.table th, .evolution-ledger-table th { color: var(--butler-muted) !important; }
+.empty-state, .skills-empty, .evolution-empty { color: var(--butler-muted) !important; background: var(--butler-surface-subtle) !important; border-color: var(--butler-rule) !important; }
+
+input:not([type="checkbox"]), select, textarea, .select,
+.skills-page input, .skills-page select,
+.evolution-page input, .evolution-page textarea { background: var(--butler-raised) !important; color: var(--butler-ink) !important; border-color: var(--butler-rule) !important; }
+input::placeholder, textarea::placeholder { color: var(--butler-ink-faint) !important; }
+
+.banner-warn, .evolution-notice.is-warn, .memory-health.is-warn { background: var(--butler-warn-soft) !important; color: var(--butler-warn) !important; border-color: var(--butler-warn) !important; }
+.banner-critical, .evolution-notice.is-fail, .memory-health.is-bad { background: var(--butler-error-soft) !important; color: var(--butler-error) !important; border-color: var(--butler-error) !important; }
+.evolution-notice.is-ok, .memory-health.is-pass, .memory-selfcheck.is-pass { background: var(--butler-ok-soft) !important; color: var(--butler-ok) !important; border-color: var(--butler-ok) !important; }
+
+.sidebar-bottom { display: grid; gap: 12px; margin-top: auto; }
+.sidebar-bottom .nav-link { margin-top: 0; }
+.notification-trigger { color: var(--butler-ink) !important; }
+.notification-panel { width: min(390px, calc(100vw - 32px)); color: var(--butler-ink); }
+.notification-panel-head, .notification-panel-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.notification-panel-head { padding-bottom: 12px; border-bottom: 1px solid var(--butler-rule); }
+.notification-panel-head > div:first-child { display: grid; gap: 3px; }
+.notification-panel-head span, .notification-panel-foot { color: var(--butler-muted); font-size: 12px; }
+.notification-panel-actions { display: flex; gap: 2px; }
+.notification-panel-loading { display: grid; place-items: center; min-height: 120px; }
+.notification-list { display: grid; gap: 4px; max-height: 410px; margin: 10px 0; padding: 0; overflow: auto; list-style: none; }
+.notification-item { display: flex; align-items: flex-start; gap: 8px; padding: 10px; border-radius: 8px; background: var(--butler-surface-subtle); }
+.notification-item.is-unread { background: var(--butler-accent-soft); }
+.notification-item-main { display: grid; flex: 1; gap: 4px; min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.notification-item-main strong { overflow: hidden; color: var(--butler-ink); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.notification-item-main > span:not(.notification-severity) { display: -webkit-box; overflow: hidden; color: var(--butler-muted); font-size: 12px; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.notification-item-main small { color: var(--butler-ink-faint); font-size: 11px; }
+.notification-severity { display: inline-flex; align-items: center; gap: 5px; color: var(--butler-muted); font-size: 11px; }
+.notification-severity i, .notification-unread-dot { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--butler-muted); }
+.notification-severity.is-critical { color: var(--butler-error); }
+.notification-severity.is-critical i { background: var(--butler-error); }
+.notification-severity.is-warn { color: var(--butler-warn); }
+.notification-severity.is-warn i { background: var(--butler-warn); }
+.notification-unread-dot { margin-top: 4px; background: var(--butler-accent); }
+.notification-panel-foot { padding-top: 10px; border-top: 1px solid var(--butler-rule); }
+.notification-panel-foot a { color: var(--butler-accent); }
+
+@media (max-width: 860px) {
+  .sidebar-bottom { margin-top: 18px; }
+  .notification-panel { width: min(360px, calc(100vw - 24px)); }
+}

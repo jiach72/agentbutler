@@ -91,11 +91,11 @@ export function SelfUpgradeCard({
         <div className="butler-version-fact">
           <span>可用更新</span>
           <strong>
-            {butler.repositorySource === "configured-default" ? "需在宿主机更新" : "检查后显示候选"}
+            检查后显示候选
           </strong>
           <small>
             {butler.repositorySource === "configured-default"
-              ? "当前镜像不含 Git 工作树，请使用 scripts/deploy.sh 更新"
+              ? "由内置更新服务拉取、构建并重启，失败会自动回滚"
               : "升级前会自动备份并支持回滚"}
           </small>
         </div>
@@ -161,7 +161,7 @@ export function SelfUpgradeCard({
             {candidate === null ? (
               <p className="hint">
                 {butlerSelf.upgradeSupported === false || butlerSelf.commit === null
-                  ? "当前为容器部署：仓库地址已配置，但镜像未挂载 Git 工作树，请在宿主机执行 scripts/deploy.sh 更新。"
+                  ? "自更新服务当前不可用，请确认 updater sidecar 已启动后重试。"
                   : butlerSelf.remoteConfigured === false || butlerSelf.repository === null || butlerSelf.repository === ""
                   ? "没有检测到 Git 仓库地址，无法查询管家更新。请检查 BUTLER_SRC 与 origin。"
                   : butlerSelf.repoClean === false
@@ -229,8 +229,8 @@ export function SelfUpgradeCard({
 
       <div className="hint">
         {butler.repositoryConfigured !== false && butler.repository !== null && butler.repository !== ""
-          ? "源码上传到仓库并打 tag 后，管家自身支持一键升级与回滚；升级失败会自动还原。"
-          : "把源代码上传到 Git 仓库、配置远程地址并打上版本 tag 后，管家自身支持一键升级与回滚。"}
+          ? "源码上传到仓库并打 tag 后，内置更新服务支持一键升级与回滚；升级失败会自动还原。"
+          : "配置 Git 仓库地址并打上版本 tag 后，内置更新服务支持一键升级与回滚。"}
       </div>
     </div>
   );

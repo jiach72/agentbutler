@@ -56,6 +56,7 @@ const PATCHES = [
 
 const ALERTS = {
   counts: { pending: 2, delivering: 1, delivered: 8, failed: 1 },
+  unreadCount: 2,
   degradedChannels: ["smtp:missing-credentials"],
   items: [
     {
@@ -310,6 +311,7 @@ describe("butler-web 消息网关聚合与补丁代理（Task 15.2，fastify inj
       alerts: {
         reachable: false,
         counts: { pending: 0, delivering: 0, delivered: 0, failed: 0 },
+        unreadCount: 0,
         degradedChannels: ["gateway:unreachable"],
         items: [],
       },
@@ -413,6 +415,7 @@ describe("butler-web 消息网关聚合与补丁代理（Task 15.2，fastify inj
       alerts: {
         reachable: false,
         counts: { pending: 0, delivering: 0, delivered: 0, failed: 0 },
+        unreadCount: 0,
         degradedChannels: ["gateway:unreachable"],
         items: [],
       },

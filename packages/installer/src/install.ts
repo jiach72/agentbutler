@@ -1023,7 +1023,7 @@ export async function runInstaller(options: InstallerOptions = {}): Promise<Inst
 
   if (form === "docker") {
     const webPort = options.webHostPort ?? DEFAULT_WEB_HOST_PORT;
-    nextActions.push("docker compose ps 查看三服务状态", "docker compose logs -f 跟随日志", `访问 http://127.0.0.1:${webPort} 打开 butler-web`);
+    nextActions.push("docker compose ps 查看面板与 updater 状态", "docker compose logs -f 跟随日志", `访问 http://127.0.0.1:${webPort} 打开 butler-web`);
   } else {
     const servicesStarted = install.steps.some((step) => step.id === "services-start" && step.status === "ok");
     nextActions.push(

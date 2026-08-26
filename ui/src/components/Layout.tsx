@@ -2,13 +2,15 @@
  * 面板布局：左侧固定导航栏（品牌标识 + 6 页链接，当前页高亮）
  * + 右侧内容区（告警横幅 / 安全黄条 / 路由出口 / 事件 ticker）。
  */
-import { MenuOutlined, MoonOutlined, SunOutlined } from "@ant-design/icons";
+import { MenuOutlined, MoonOutlined, SettingOutlined, SunOutlined } from "@ant-design/icons";
 import { Button, Drawer } from "antd";
 import { useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { AlertBanner } from "./AlertBanner.js";
 import { EventTicker } from "./EventTicker.js";
 import { SecurityNotice } from "./SecurityNotice.js";
+import { NotificationCenter } from "./NotificationCenter.js";
+import { NotificationsProvider } from "../hooks/useNotifications.js";
 import { useTheme } from "../theme/ThemeProvider.js";
 
 const NAV_ITEMS = [
@@ -19,6 +21,13 @@ const NAV_ITEMS = [
   { to: "/skills", index: "识", label: "技能与记忆", note: "查看 AI 学会的东西和记住的事" },
   { to: "/settings", index: "安", label: "安全与设置", note: "本机安全、告警和备份" },
 ];
+
+const PREFERENCES_ITEM = {
+  to: "/preferences",
+  index: "设",
+  label: "设置",
+  note: "主题与通知偏好",
+};
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   return (
@@ -50,12 +59,25 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             </NavLink>
           ))}
         </nav>
-        <div className="sidebar-meta">
+        <div className="sidebar-bottom">
+          <NavLink
+            to={PREFERENCES_ITEM.to}
+            onClick={onNavigate}
+            className={({ isActive }) => `nav-link nav-link-preferences${isActive ? " active" : ""}`}
+          >
+            <span className="nav-index" aria-hidden="true"><SettingOutlined /></span>
+            <span className="nav-copy">
+              <strong>{PREFERENCES_ITEM.label}</strong>
+              <small>{PREFERENCES_ITEM.note}</small>
+            </span>
+          </NavLink>
+          <div className="sidebar-meta">
           <span>
             <i />
             仅本机访问
           </span>
           <code>数据只保存在你的电脑上</code>
+          </div>
         </div>
     </>
   );
@@ -65,10 +87,13 @@ export function Layout() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const { mode, toggleMode } = useTheme();
   const location = useLocation();
-  const currentPage = NAV_ITEMS.find((item) => location.pathname.startsWith(item.to)) ?? NAV_ITEMS[0];
+  const currentPage = location.pathname.startsWith(PREFERENCES_ITEM.to)
+    ? PREFERENCES_ITEM
+    : NAV_ITEMS.find((item) => location.pathname.startsWith(item.to)) ?? NAV_ITEMS[0];
   const themeLabel = mode === "dark" ? "切换到亮色主题" : "切换到暗色主题";
 
   return (
+    <NotificationsProvider>
     <div className="app">
       <aside className="sidebar sidebar-desktop"><SidebarContent /></aside>
       <Drawer
@@ -91,6 +116,7 @@ export function Layout() {
           </div>
           <div className="topbar-actions">
             <span className="topbar-note">只在你的电脑上运行，不会上传数据</span>
+            <NotificationCenter />
             <Button
               type="text"
               className="theme-toggle"
@@ -109,5 +135,6 @@ export function Layout() {
         <EventTicker />
       </div>
     </div>
+    </NotificationsProvider>
   );
 }

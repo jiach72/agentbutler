@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { DatabaseSync } from "node:sqlite";
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import { AlertQueue, backoffSeconds, MAX_ATTEMPTS } from "../src/queue";
 import { gatewayDbFile, makeTempDir, rmTempDir } from "./helpers";
 
@@ -163,5 +166,50 @@ describe("AlertQueue", () => {
     expect(queue.counts()).toEqual({ pending: 1, delivering: 0, delivered: 1, failed: 0 });
     expect(queue.list().map((r) => r.title)).toEqual(["b", "a"]); // id DESC = 最新在前
     expect(queue.list(1).map((r) => r.title)).toEqual(["b"]);
+  });
+
+  it("未读计数只统计重要告警，支持单条与全部标记已读", () => {
+    const info = queue.enqueue({ kind: "info", severity: "info", title: "i", body: "b", source: "s" });
+    const warn = queue.enqueue({ kind: "warn", severity: "warn", title: "w", body: "b", source: "s" });
+    const critical = queue.enqueue({ kind: "critical", severity: "critical", title: "c", body: "b", source: "s" });
+
+    expect(queue.unreadCount()).toBe(2);
+    expect(queue.markRead(warn.id)?.readAt).not.toBeNull();
+    expect(queue.unreadCount()).toBe(1);
+    expect(queue.markAllRead()).toBe(1);
+    expect(queue.unreadCount()).toBe(0);
+    expect(queue.get(info.id)?.readAt).toBeNull();
+    expect(queue.get(critical.id)?.readAt).not.toBeNull();
+  });
+
+  it("旧版数据库启动时自动补 read_at 列，不阻断服务", () => {
+    const legacyFile = gatewayDbFile(tmp + "-legacy");
+    mkdirSync(dirname(legacyFile), { recursive: true });
+    const legacy = new DatabaseSync(legacyFile);
+    legacy.exec(`CREATE TABLE alerts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      source TEXT NOT NULL,
+      dedupe_key TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      attempts INTEGER NOT NULL DEFAULT 0,
+      merged_count INTEGER NOT NULL DEFAULT 1,
+      next_attempt_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      delivered_at TEXT,
+      last_error TEXT,
+      channel TEXT
+    );`);
+    legacy.close();
+
+    const migrated = new AlertQueue(legacyFile);
+    const row = migrated.enqueue({ kind: "k", severity: "warn", title: "t", body: "b", source: "s" });
+    expect(row.readAt).toBeNull();
+    expect(migrated.unreadCount()).toBe(1);
+    migrated.close();
   });
 });

@@ -10,7 +10,7 @@ function readJson(path: string): Record<string, unknown> {
 }
 
 describe("delivery contract", () => {
-  it.each(["watch", "gateway", "web"])("%s package exposes a real start script", (app) => {
+  it.each(["watch", "gateway", "web", "updater"])("%s package exposes a real start script", (app) => {
     const pkg = readJson(join(repoRoot, "apps", app, "package.json"));
     expect(pkg["scripts"]).toMatchObject({ start: "node dist/main.js" });
   });
@@ -32,11 +32,13 @@ describe("delivery contract", () => {
 
   it("compose uses root build contexts, internal DNS, loopback publishing, and persistent home", () => {
     const compose = readFileSync(join(repoRoot, "docker-compose.yml"), "utf8");
-    expect(compose.match(/context: \./g)).toHaveLength(3);
+    expect(compose.match(/context: \./g)).toHaveLength(4);
     expect(compose).toContain("BUTLER_GATEWAY_URL: http://butler-gateway:7532");
     expect(compose).toContain("BUTLER_WATCH_URL: http://butler-watch:7533");
     expect(compose).toContain('127.0.0.1:7531:7531');
-    expect(compose.match(/butler-data:\/home\/butler/g)).toHaveLength(3);
+    expect(compose.match(/butler-data:\/home\/butler/g)).toHaveLength(4);
     expect(compose).toContain("condition: service_healthy");
+    expect(compose).toContain("BUTLER_UPDATER_URL: http://butler-updater:7540");
+    expect(compose).toContain("/var/run/docker.sock:/var/run/docker.sock");
   });
 });

@@ -9,6 +9,7 @@
     { "path": "apps/watch" },
     { "path": "apps/gateway" },
     { "path": "apps/web" },
+    { "path": "apps/updater" },
     { "path": "ui" }
   ]
 }

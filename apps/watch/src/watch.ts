@@ -1514,6 +1514,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
   const butlerSelf: ButlerSelfService = createButlerSelfUpgradeService({
     sourceDir: resolveButlerSourceDir(process.env["BUTLER_SRC"]?.trim() || process.cwd()),
     homeDir: core.paths.home,
+    updaterUrl: process.env["BUTLER_UPDATER_URL"]?.trim() || undefined,
     repositoryUrl:
       process.env["BUTLER_REPOSITORY_URL"]?.trim().replace(/\.git$/, "") ||
       DEFAULT_BUTLER_REPOSITORY,

@@ -4,6 +4,20 @@
 
 ## [Unreleased]
 
+## [1.0.0-beta.7] - 2026-08-26
+
+### Added
+
+- 右上角重要通知中心，支持未读徽标、单条/全部标记已读和通知偏好。
+- 左侧导航新增常规设置入口，主题与通知偏好会保存在当前浏览器。
+- 新增 updater sidecar：生产容器可从管家内拉取 Git、构建、重启 Compose，并在失败后自动回滚。
+
+### Fixed
+
+- 告警队列增加 `read_at` 迁移与已读 API，旧数据库可平滑启动。
+- 首页与通知轮询禁用浏览器缓存，手动刷新可读取最新消息网关状态。
+- 容器自更新不再提示必须在宿主机手动执行部署脚本。
+
 ## [1.0.0-beta.6] - 2026-08-26
 
 ### Improved
@@ -77,7 +91,8 @@
 - Hermes Bridge 需要在目标 Hermes 环境中单独安装和接线。
 - 真实消息通道、升级与回滚应先在隔离环境验证。
 
-[Unreleased]: https://github.com/jiach72/agentbutler/compare/v1.0.0-beta.6...HEAD
+[Unreleased]: https://github.com/jiach72/agentbutler/compare/v1.0.0-beta.7...HEAD
+[1.0.0-beta.7]: https://github.com/jiach72/agentbutler/releases/tag/v1.0.0-beta.7
 [1.0.0-beta.6]: https://github.com/jiach72/agentbutler/releases/tag/v1.0.0-beta.6
 [1.0.0-beta.2]: https://github.com/jiach72/agentbutler/releases/tag/v1.0.0-beta.2
 [1.0.0-beta.1]: https://github.com/jiach72/agentbutler/releases/tag/v1.0.0-beta.1

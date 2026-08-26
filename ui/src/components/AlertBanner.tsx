@@ -5,44 +5,20 @@
  * 未配置备用通知方式不是故障，不在全局提醒中展示。
  * 拉取失败（null）时不渲染 —— 服务端降级载荷已覆盖有意义的降级场景。
  */
-import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { fetchJson } from "../lib/api.js";
-import { usePolling } from "../hooks/usePolling.js";
+import { useNotifications } from "../hooks/useNotifications.js";
 
-interface AlertsPayload {
-  reachable: boolean;
-  counts?: Record<string, number>;
-  items?: Array<{ severity?: string; status?: string; title?: string }>;
-}
+interface AlertItem { severity?: string; status?: string; title?: string; }
 
 /** 未送达状态集合：待投递 / 投递中 / 失败均视为"未送达"。 */
 const UNDELIVERED = new Set(["pending", "delivering", "failed"]);
 
 export function AlertBanner() {
-  const [alerts, setAlerts] = useState<AlertsPayload | null>(null);
-
-  useEffect(() => {
-    let stopped = false;
-    const tick = async () => {
-      const data = await fetchJson<AlertsPayload>("/api/alerts");
-      if (!stopped && data !== null) setAlerts(data);
-    };
-    void tick();
-    return () => {
-      stopped = true;
-    };
-  }, []);
-  usePolling(() => {
-    void (async () => {
-      const data = await fetchJson<AlertsPayload>("/api/alerts");
-      if (data !== null) setAlerts(data);
-    })();
-  }, 10000);
+  const { payload: alerts } = useNotifications();
 
   if (alerts === null) return null;
 
-  const items = alerts.items ?? [];
+  const items = (alerts.items ?? []) as AlertItem[];
   const undeliveredCritical = items.filter(
     (item) => item.severity === "critical" && UNDELIVERED.has(String(item.status ?? "")),
   );

@@ -29,6 +29,7 @@ export const SELF_STATE_DIR = "self-upgrade";
 export const SELF_REGISTRY_FILE = "snapshots.json";
 export const SELF_STATE_FILE = "state.json";
 export const SELF_PREFS_FILE = "prefs.json";
+export const SELF_UPDATER_STATUS_FILE = "updater-status.json";
 export const SELF_SNAPSHOT_KEEP = 3;
 
 /** 服务以 dist 目录启动时，向上寻找真正的项目根，避免把 dist 当成 Git 仓库。 */
@@ -128,6 +129,10 @@ export interface ButlerSelfUpgradeDeps {
   homeDir: string;
   /** Docker 镜像不含 .git 时用于展示的部署仓库地址。 */
   repositoryUrl?: string;
+  /** 生产 Compose 部署中的 updater sidecar 地址；为空时走本地 Git 流程。 */
+  updaterUrl?: string;
+  /** updater HTTP 客户端（测试注入）。 */
+  fetchImpl?: typeof fetch;
   now?: () => number;
   exec?: (cmd: string, args: string[], cwd?: string, timeoutMs?: number) => CommandResult;
   build?: (sourceDir: string) => CommandResult;
@@ -453,8 +458,41 @@ export function createButlerSelfUpgradeService(
   const registryFile = join(stateDir, SELF_REGISTRY_FILE);
   const stateFile = join(stateDir, SELF_STATE_FILE);
   const prefsFile = join(stateDir, SELF_PREFS_FILE);
+  const updaterStatusFile = join(stateDir, SELF_UPDATER_STATUS_FILE);
+  const updaterUrl = deps.updaterUrl?.trim().replace(/\/+$/, "") || null;
+  const updaterFetch = deps.fetchImpl ?? fetch;
   const audit = deps.audit ?? { append() {} };
   let upgradePreparing = false;
+
+  function updaterStatus(): Partial<ButlerSelfStatus> | null {
+    if (updaterUrl === null) return null;
+    const value = readJson<Partial<ButlerSelfStatus> | null>(updaterStatusFile, null);
+    return value !== null && typeof value === "object" ? value : null;
+  }
+
+  async function requestUpdater(
+    endpoint: string,
+    body: Record<string, unknown>,
+  ): Promise<{ status: number; body: Record<string, unknown> } | null> {
+    if (updaterUrl === null) return null;
+    try {
+      const response = await updaterFetch(`${updaterUrl}${endpoint}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(10_000),
+      });
+      const parsed = (await response.json().catch(() => ({}))) as unknown;
+      return {
+        status: response.status,
+        body: parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+          ? (parsed as Record<string, unknown>)
+          : {},
+      };
+    } catch {
+      return null;
+    }
+  }
 
   function git(args: string[], timeoutMs = 10_000): CommandResult {
     return exec("git", args, sourceDir, timeoutMs);
@@ -537,7 +575,7 @@ export function createButlerSelfUpgradeService(
         }
       }
     }
-    return [...map.entries()]
+    const localUpdates = [...map.entries()]
       .filter(([tag]) => isSemanticVersion(tag))
       .map(([tag, info]) => {
         const version = tag.replace(/^v/i, "");
@@ -549,6 +587,9 @@ export function createButlerSelfUpgradeService(
         } satisfies ButlerAvailableUpdate;
       })
       .sort((a, b) => compareVersion(b.version, a.version));
+    if (localUpdates.length > 0) return localUpdates;
+    const upstream = updaterStatus();
+    return Array.isArray(upstream?.availableUpdates) ? upstream.availableUpdates : [];
   }
 
   function resolveTarget(target: string | undefined): ButlerAvailableUpdate | null {
@@ -668,33 +709,52 @@ export function createButlerSelfUpgradeService(
   return {
     status(): ButlerSelfStatus {
       const info = repoInfo();
+      const upstream = updaterStatus();
       const lastJob = readJson<ButlerSelfJobView | null>(stateFile, null);
       return {
-        reachable: existsSync(sourceDir),
-        source: sourceDir,
-        version: currentVersion(),
-        branch: info.branch,
-        commit: info.commit,
-        tag: info.tag,
-        repository: info.repository,
-        repositorySource: info.repositorySource ?? undefined,
-        repositoryConfigured: info.repository !== null,
-        repoClean: info.repoClean,
-        remoteConfigured: info.repositorySource === "git-origin",
-        upgradeSupported: info.commit !== null,
+        reachable: existsSync(sourceDir) || upstream?.reachable === true,
+        source: typeof upstream?.source === "string" ? upstream.source : sourceDir,
+        version: typeof upstream?.version === "string" ? upstream.version : currentVersion(),
+        branch: typeof upstream?.branch === "string" ? upstream.branch : info.branch,
+        commit: typeof upstream?.commit === "string" ? upstream.commit : info.commit,
+        tag: typeof upstream?.tag === "string" ? upstream.tag : info.tag,
+        repository:
+          typeof upstream?.repository === "string" || upstream?.repository === null
+            ? upstream.repository
+            : info.repository,
+        repositorySource:
+          upstream?.repositorySource === "git-origin" || upstream?.repositorySource === "configured-default"
+            ? upstream.repositorySource
+            : info.repositorySource ?? undefined,
+        repositoryConfigured:
+          typeof upstream?.repositoryConfigured === "boolean"
+            ? upstream.repositoryConfigured
+            : info.repository !== null,
+        repoClean: typeof upstream?.repoClean === "boolean" ? upstream.repoClean : info.repoClean,
+        remoteConfigured:
+          typeof upstream?.remoteConfigured === "boolean"
+            ? upstream.remoteConfigured
+            : info.repositorySource === "git-origin",
+        upgradeSupported:
+          updaterUrl !== null
+            ? upstream?.upgradeSupported !== false
+            : info.commit !== null,
         prefs: prefs(),
         snapshots: snapshots(),
         snapshotRetention: SELF_SNAPSHOT_KEEP,
         availableUpdates: listUpdates(),
-        lastJob,
-        checkedAt: isoNow(now),
+        lastJob: lastJob ?? (upstream?.lastJob as ButlerSelfJobView | null | undefined) ?? null,
+        checkedAt:
+          typeof upstream?.checkedAt === "string" ? upstream.checkedAt : isoNow(now),
       };
     },
 
     async startUpgrade(input): Promise<SelfUpgradeOutcome> {
       if (input.confirmed !== true) return { status: "confirmation-required" };
       const info = repoInfo();
-      if (info.commit === null) return { status: "no-repo" };
+      const upstream = updaterStatus();
+      const currentCommit = info.commit ?? (typeof upstream?.commit === "string" ? upstream.commit : null);
+      if (currentCommit === null && updaterUrl === null) return { status: "no-repo" };
       if (upgradePreparing || inFlight() !== null) return { status: "upgrade-in-flight" };
       if (prefs().locked) return { status: "invalid-target" };
       const target = resolveTarget(input.target);
@@ -713,17 +773,51 @@ export function createButlerSelfUpgradeService(
           id: randomUUID(),
           at: isoNow(now),
           version: currentVersion(),
-          commit: info.commit,
+          commit: currentCommit ?? currentVersion(),
           tag: info.tag,
           channel,
           reason: "升级到 " + target.version,
           backupId: backup.id,
         };
         pushSnapshot(snapshot);
+        if (updaterUrl !== null) {
+          const response = await requestUpdater("/api/upgrade", {
+            target: target.tag ?? target.version,
+            from: currentCommit ?? currentVersion(),
+            snapshotId: snapshot.id,
+          });
+          if (response === null) {
+            return { status: "backup-failed", error: "更新服务不可达，请确认 updater sidecar 已启动。" };
+          }
+          if (response.status === 409) {
+            if (response.body["error"] === "repo-dirty") {
+              return { status: "backup-failed", error: "源码目录有未提交改动，请先提交或清理后再更新。" };
+            }
+            return { status: "upgrade-in-flight" };
+          }
+          if (response.status === 400) {
+            return {
+              status: response.body["error"] === "missing-target" ? "no-target" : "invalid-target",
+            };
+          }
+          if (response.status !== 202 || response.body["started"] !== true) {
+            return {
+              status: "backup-failed",
+              error: typeof response.body["userHint"] === "string"
+                ? response.body["userHint"]
+                : typeof response.body["error"] === "string"
+                  ? response.body["error"]
+                  : "更新服务拒绝了本次操作。",
+            };
+          }
+          const jobId = typeof response.body["jobId"] === "string" ? response.body["jobId"] : randomUUID();
+          return { status: "started", jobId, snapshotId: snapshot.id };
+        }
+
         const started = startJob({
           kind: "upgrade",
           target: target.tag ?? target.version,
-          from: info.commit,
+          from: currentCommit ?? currentVersion(),
           snapshotId: snapshot.id,
           trigger: input.trigger ?? "manual",
           reason: "升级到 " + target.version + "（" + channel + "）",
@@ -747,14 +841,42 @@ export function createButlerSelfUpgradeService(
     rollback(input): SelfRollbackOutcome {
       if (input.confirmed !== true) return { status: "confirmation-required" };
       const info = repoInfo();
-      if (info.commit === null) return { status: "no-repo" };
+      const upstream = updaterStatus();
+      const currentCommit = info.commit ?? (typeof upstream?.commit === "string" ? upstream.commit : null);
+      if (currentCommit === null && updaterUrl === null) return { status: "no-repo" };
       if (upgradePreparing || inFlight() !== null) return { status: "upgrade-in-flight" };
       const snapshot = snapshots().find((item) => item.id === input.snapshotId);
       if (snapshot === undefined) return { status: "snapshot-not-found" };
+      if (updaterUrl !== null) {
+        const jobId = randomUUID();
+        const job: ButlerSelfJobView = {
+          jobId,
+          kind: "rollback",
+          status: "running",
+          phase: "snapshot",
+          target: snapshot.commit,
+          from: currentCommit ?? currentVersion(),
+          startedAt: isoNow(now),
+          finishedAt: null,
+          error: null,
+          snapshotId: snapshot.id,
+        };
+        writeJob(job);
+        void requestUpdater("/api/rollback", {
+          target: snapshot.commit,
+          from: currentCommit ?? currentVersion(),
+          snapshotId: snapshot.id,
+        }).then((response) => {
+          if (response === null || response.status >= 400) {
+            writeJob({ ...job, status: "failed", phase: "failed", finishedAt: isoNow(now), error: "更新服务不可达" });
+          }
+        });
+        return { status: "started", jobId };
+      }
       const started = startJob({
         kind: "rollback",
         target: snapshot.commit,
-        from: info.commit,
+        from: currentCommit ?? currentVersion(),
         snapshotId: snapshot.id,
         reason: "回滚到 " + snapshot.version + "（" + snapshot.commit + "）",
       });

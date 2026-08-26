@@ -109,6 +109,7 @@ describe("gateway HTTP API", () => {
     expect(res.statusCode).toBe(200);
     const payload = res.json();
     expect(payload.counts).toEqual({ pending: 2, delivering: 0, delivered: 0, failed: 0 });
+    expect(payload.unreadCount).toBe(2);
     expect(payload.degradedChannels).toEqual(["telegram:missing-credentials", "smtp:missing-credentials"]);
     expect(payload.items).toHaveLength(2);
     const merged = payload.items.find((i: { title: string }) => i.title === "t2");
@@ -119,6 +120,29 @@ describe("gateway HTTP API", () => {
     // limit 参数生效
     const limited = await app.inject({ method: "GET", url: "/api/alerts?limit=1" });
     expect(limited.json().items).toHaveLength(1);
+  });
+
+  it("POST /api/alerts/:id/read 与 /read-all：更新已读状态", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/alerts",
+      payload: { kind: "k", severity: "critical", title: "t", body: "b", source: "s" },
+    });
+    const id = created.json<{ id: number }>().id;
+    const marked = await app.inject({ method: "POST", url: `/api/alerts/${id}/read` });
+    expect(marked.statusCode).toBe(200);
+    expect(marked.json().item.readAt).toEqual(expect.any(String));
+    expect((await app.inject({ method: "GET", url: "/api/alerts" })).json().unreadCount).toBe(0);
+
+    await app.inject({
+      method: "POST",
+      url: "/api/alerts",
+      payload: { kind: "k", severity: "warn", title: "t2", body: "b", source: "s" },
+    });
+    const all = await app.inject({ method: "POST", url: "/api/alerts/read-all" });
+    expect(all.statusCode).toBe(200);
+    expect(all.json().marked).toBe(1);
+    expect((await app.inject({ method: "GET", url: "/api/alerts" })).json().unreadCount).toBe(0);
   });
 
   it("GET /api/alerts：部分通道可用时 degradedChannels 只列缺失项", async () => {

@@ -8,6 +8,7 @@ const packageFiles = [
   "apps/gateway/package.json",
   "apps/watch/package.json",
   "apps/web/package.json",
+  "apps/updater/package.json",
   "ui/package.json",
   "packages/contract/package.json",
   "packages/core/package.json",

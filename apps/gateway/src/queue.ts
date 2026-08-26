@@ -36,6 +36,8 @@ export interface AlertRow {
   lastError: string | null;
   /** 最终投递通道：panel | telegram | smtp | null（未投递）。 */
   channel: string | null;
+  /** 面板通知已读时间；null 表示仍未读。 */
+  readAt: string | null;
 }
 
 export interface AlertInput {
@@ -72,7 +74,8 @@ CREATE TABLE IF NOT EXISTS alerts (
   updated_at TEXT NOT NULL,
   delivered_at TEXT,
   last_error TEXT,
-  channel TEXT
+  channel TEXT,
+  read_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_alerts_status_next ON alerts(status, next_attempt_at);
 CREATE INDEX IF NOT EXISTS idx_alerts_dedupe ON alerts(dedupe_key);
@@ -89,6 +92,12 @@ export class AlertQueue {
     this.db = new DatabaseSync(dbFile);
     this.db.exec("PRAGMA journal_mode=WAL;");
     this.db.exec(DDL);
+    // 兼容已存在的 gateway.db：DDL 不会为既有表补列，因此显式迁移一次。
+    const columns = this.db.prepare("PRAGMA table_info(alerts)").all() as Record<string, unknown>[];
+    if (!columns.some((column) => column["name"] === "read_at")) {
+      this.db.exec("ALTER TABLE alerts ADD COLUMN read_at TEXT;");
+    }
+    this.db.exec("CREATE INDEX IF NOT EXISTS idx_alerts_unread ON alerts(read_at, severity);");
     // 重启补发：进程刚启动时不存在真正投递中的行，delivering 一律回置 pending。
     this.db
       .prepare("UPDATE alerts SET status = 'pending', updated_at = ? WHERE status = 'delivering'")
@@ -208,6 +217,32 @@ export class AlertQueue {
     return counts;
   }
 
+  /** 通知中心未读数：只统计 warn/critical，和面板展示范围保持一致。 */
+  unreadCount(): number {
+    const row = this.db
+      .prepare("SELECT COUNT(*) AS n FROM alerts WHERE read_at IS NULL AND severity IN ('warn', 'critical')")
+      .get() as Record<string, unknown> | undefined;
+    return row === undefined ? 0 : Number(row["n"]);
+  }
+
+  /** 标记单条通知已读；重复调用保持首次阅读时间。 */
+  markRead(id: number, now: string = new Date().toISOString()): AlertRow | undefined {
+    this.db
+      .prepare("UPDATE alerts SET read_at = COALESCE(read_at, ?), updated_at = ? WHERE id = ?")
+      .run(now, now, id);
+    return this.get(id);
+  }
+
+  /** 标记所有重要通知已读，返回本次实际变更条数。 */
+  markAllRead(now: string = new Date().toISOString()): number {
+    const result = this.db
+      .prepare(
+        "UPDATE alerts SET read_at = ?, updated_at = ? WHERE read_at IS NULL AND severity IN ('warn', 'critical')",
+      )
+      .run(now, now);
+    return Number(result.changes);
+  }
+
   private findOpenByDedupeKey(dedupeKey: string): AlertRow | undefined {
     const row = this.db
       .prepare(
@@ -236,6 +271,7 @@ export class AlertQueue {
       deliveredAt: (r["delivered_at"] as string | null) ?? null,
       lastError: (r["last_error"] as string | null) ?? null,
       channel: (r["channel"] as string | null) ?? null,
+      readAt: (r["read_at"] as string | null) ?? null,
     };
   }
 }

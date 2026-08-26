@@ -55,6 +55,8 @@ importers:
         specifier: ^8.0.1
         version: 8.0.1
 
+  apps/updater: {}
+
   apps/watch:
     dependencies:
       '@butler/adapter-hermes':
