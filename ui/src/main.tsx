@@ -16,11 +16,23 @@ import { GatewayPage } from "./pages/Gateway.js";
 import { SettingsPage } from "./pages/Settings.js";
 import { SkillsPage } from "./pages/Skills.js";
 import { VersionsPage } from "./pages/Versions.js";
-import { antdTheme, applyThemeCssBridge } from "./theme/tokens.js";
+import { ThemeProvider, antdThemeFor, useTheme } from "./theme/ThemeProvider.js";
+import { initialThemeMode, applyThemeCssBridge } from "./theme/tokens.js";
 import "./styles.css";
-import "./styles/app.css";
 
-applyThemeCssBridge();
+const initialMode = initialThemeMode(
+  getLocalStorage(),
+  typeof window === "undefined" ? undefined : (query) => window.matchMedia(query),
+);
+applyThemeCssBridge(initialMode);
+
+function getLocalStorage(): Storage | undefined {
+  try {
+    return typeof window === "undefined" ? undefined : window.localStorage;
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * antd v6 的 locale 子路径在 NodeNext + 声明输出模式下默认导出解析异常：
@@ -35,25 +47,34 @@ const el = document.getElementById("root");
 if (el) {
   createRoot(el).render(
     <StrictMode>
-      <ConfigProvider locale={zhCN} theme={antdTheme}>
-        <AntdApp>
-          <BrowserRouter>
-            <Routes>
-              <Route element={<Layout />}>
-                <Route index element={<Navigate to="/dashboard" replace />} />
-                <Route path="/dashboard" element={<DashboardPage />} />
-                <Route path="/versions" element={<VersionsPage />} />
-                <Route path="/gateway" element={<GatewayPage />} />
-                <Route path="/evolution" element={<EvolutionPage />} />
-                <Route path="/prompt" element={<Navigate to="/gateway" replace />} />
-                <Route path="/skills" element={<SkillsPage />} />
-                <Route path="/settings" element={<SettingsPage />} />
-                <Route path="*" element={<Navigate to="/dashboard" replace />} />
-              </Route>
-            </Routes>
-          </BrowserRouter>
-        </AntdApp>
-      </ConfigProvider>
+      <ThemeProvider>
+        <ThemedApp locale={zhCN} />
+      </ThemeProvider>
     </StrictMode>,
+  );
+}
+
+function ThemedApp({ locale }: { locale: React.ComponentProps<typeof ConfigProvider>["locale"] }) {
+  const { mode } = useTheme();
+  return (
+    <ConfigProvider locale={locale} theme={antdThemeFor(mode)}>
+      <AntdApp>
+        <BrowserRouter>
+          <Routes>
+            <Route element={<Layout />}>
+              <Route index element={<Navigate to="/dashboard" replace />} />
+              <Route path="/dashboard" element={<DashboardPage />} />
+              <Route path="/versions" element={<VersionsPage />} />
+              <Route path="/gateway" element={<GatewayPage />} />
+              <Route path="/evolution" element={<EvolutionPage />} />
+              <Route path="/prompt" element={<Navigate to="/gateway" replace />} />
+              <Route path="/skills" element={<SkillsPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="*" element={<Navigate to="/dashboard" replace />} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      </AntdApp>
+    </ConfigProvider>
   );
 }

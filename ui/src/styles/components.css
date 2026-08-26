@@ -1,0 +1,22 @@
+.advanced-details .ant-collapse-header { font-weight: 600; }
+.advanced-details-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; }
+.advanced-details-extra { color: var(--butler-muted); font-weight: 400; }
+.danger-modal-title { font-size: 16px; }
+.danger-impact-alert { margin-block: 12px; }
+
+.card, .ant-card, .ant-table-wrapper, .ant-collapse, .ant-tabs-tabpane {
+  transition: background-color var(--butler-dur-base) var(--butler-ease), border-color var(--butler-dur-base) var(--butler-ease), color var(--butler-dur-base) var(--butler-ease);
+}
+
+body[data-theme="dark"], html[data-theme="dark"] body { color: var(--butler-ink); }
+html[data-theme="dark"] .sidebar,
+html[data-theme="dark"] .card,
+html[data-theme="dark"] .ant-card,
+html[data-theme="dark"] .ant-modal-content,
+html[data-theme="dark"] .ant-drawer-content { background: var(--butler-surface) !important; color: var(--butler-ink); }
+html[data-theme="dark"] .ant-table,
+html[data-theme="dark"] .ant-table-container { background: var(--butler-surface); color: var(--butler-ink); }
+html[data-theme="dark"] .ant-input,
+html[data-theme="dark"] .ant-input-number,
+html[data-theme="dark"] .ant-select-selector,
+html[data-theme="dark"] textarea { background: var(--butler-sunken) !important; color: var(--butler-ink) !important; border-color: var(--butler-rule) !important; }

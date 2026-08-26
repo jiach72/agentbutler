@@ -4,6 +4,18 @@
 
 ## [Unreleased]
 
+## [1.0.0-beta.6] - 2026-08-26
+
+### Improved
+
+- Agent Butler UI 支持「纸墨管家」亮色与「墨青夜灯」暗色主题，首屏读取系统偏好并持久化用户选择。
+- 重构响应式导航与顶栏：移动端使用 Drawer，桌面端显示当前页面标题和主题切换入口。
+- 拆分 UI 样式层，统一主题 token、键盘焦点环、动效时长与 `prefers-reduced-motion` 支持。
+
+### Fixed
+
+- 修复主题入口引用旧 API 导致的 TypeScript/Vite 构建失败。
+
 ## [1.0.0-beta.2] - 2026-08-25
 
 ### Added
@@ -65,7 +77,8 @@
 - Hermes Bridge 需要在目标 Hermes 环境中单独安装和接线。
 - 真实消息通道、升级与回滚应先在隔离环境验证。
 
-[Unreleased]: https://github.com/jiach72/agentbutler/compare/v1.0.0-beta.2...HEAD
+[Unreleased]: https://github.com/jiach72/agentbutler/compare/v1.0.0-beta.6...HEAD
+[1.0.0-beta.6]: https://github.com/jiach72/agentbutler/releases/tag/v1.0.0-beta.6
 [1.0.0-beta.2]: https://github.com/jiach72/agentbutler/releases/tag/v1.0.0-beta.2
 [1.0.0-beta.1]: https://github.com/jiach72/agentbutler/releases/tag/v1.0.0-beta.1
 [0.1.0-dev.2]: https://github.com/jiach72/agentbutler/releases/tag/v0.1.0-dev.2

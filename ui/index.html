@@ -4,6 +4,20 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Agent Butler</title>
+    <script>
+      (() => {
+        try {
+          const stored = localStorage.getItem("butler.theme");
+          const mode = stored === "light" || stored === "dark"
+            ? stored
+            : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+          document.documentElement.dataset.theme = mode;
+          document.documentElement.style.colorScheme = mode;
+        } catch {
+          document.documentElement.dataset.theme = "light";
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

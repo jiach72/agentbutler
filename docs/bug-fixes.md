@@ -942,3 +942,12 @@
 - 回归测试：新增宿主 API 地址优先、宿主进程跳过、只读记忆探针跳过测试；Watch 定向测试 35/35 通过。
 - 验证命令：`corepack pnpm exec vitest run apps/watch/tests/pipeline.test.ts apps/watch/tests/memory-probe.test.ts --maxWorkers=1`；`corepack pnpm exec tsc -b --pretty false`；`git diff --check`。
 - 部署/运行验证：重建 `butler-watch` 后调用 `POST http://127.0.0.1:7531/api/inspect/run`，`/api/dashboard` 返回 `overall=healthy`；`process-alive=skipped`、`api-connectivity=pass (host.docker.internal:8642)`、`memory-probe=skipped`、`channel-probe=pass`。三个 Compose 服务均 healthy。
+
+## 2026-08-26 · UI 双主题入口与响应式导航
+
+- 问题：主题 token 已迁移但入口仍引用已删除的 `antdTheme` 和无参 `applyThemeCssBridge`，导致 UI TypeScript/Vite 编译失败；页面没有主题持久化、首屏主题读取或移动端导航入口，旧 CSS 的多层根变量也会覆盖主题切换。
+- 风险/影响：前端无法发布；用户切换系统深浅色时会闪烁或无法保持选择，小屏设备难以访问六个页面，暗色模式下 antd 表格、输入框和弹窗对比度不稳定。
+- 改动范围：新增 `ui/src/theme/ThemeProvider.tsx` 与可测试的主题解析函数；`ui/src/main.tsx` 使用模式化 `ConfigProvider`；`ui/index.html` 增加首屏主题预加载；`ui/src/components/Layout.tsx` 增加页面标题、主题切换和 860px Drawer 导航；新增 `ui/src/styles/{base,layout,components,pages/*}.css`，将历史规则隔离到 `ui/src/styles/legacy.css`，统一 token、focus、motion 和 reduced-motion 覆盖，并删除仅作转发的 `styles/app.css`。
+- 回归测试：新增 `ui/tests/theme.test.ts` 覆盖合法/非法 localStorage、系统主题回退、异常存储和主题持久化；UI 测试 24 项通过；TypeScript 构建与 Vite 构建通过；ESLint 与 `git diff --check` 通过。
+- 验证命令：`corepack pnpm exec tsc -b --pretty false`；`corepack pnpm --filter @butler/ui exec vitest run --project ui`；`corepack pnpm --filter @butler/ui exec vite build`；`corepack pnpm lint`；`git diff --check`。
+- 部署/运行验证：未停止或重启现有服务；Vite 产物已成功生成。发布前仍需在 1920/1280/860px 浏览器宽度走查六页亮暗主题、Drawer Escape 关闭和键盘焦点可见性。
