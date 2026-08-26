@@ -162,8 +162,11 @@ interface ButlerSelfView {
   commit: string | null;
   tag: string | null;
   repository: string | null;
+  repositorySource?: "git-origin" | "configured-default";
+  repositoryConfigured?: boolean;
   repoClean: boolean;
   remoteConfigured: boolean;
+  upgradeSupported?: boolean;
   prefs: ButlerSelfPrefs;
   snapshots: ButlerSelfSnapshot[];
   availableUpdates: ButlerAvailableUpdate[];
@@ -342,6 +345,16 @@ function versionSourceLabel(source: string): string {
   if (source === "github-releases-mirror") return "GitHub 镜像源";
   if (source === "docker-hub") return "Docker 镜像";
   return source;
+}
+
+function repositoryBadge(butler: ButlerVersionView): { cls: string; label: string } {
+  if (butler.repositorySource === "git-origin") {
+    return { cls: "badge-healthy", label: "仓库已连接" };
+  }
+  if (butler.repositorySource === "configured-default" || butler.repositoryConfigured === true) {
+    return { cls: "badge-degraded", label: "仓库已配置" };
+  }
+  return { cls: "badge-down", label: "仓库未配置" };
 }
 
 /** 发布时间的短格式（如 8 月 21 日发布）。 */
@@ -867,8 +880,8 @@ export function VersionsPage() {
                 <span className="butler-version-label">Agent Butler</span>
                 <strong className="butler-version-number">{butler.version ?? "版本未知"}</strong>
               </div>
-              <span className={`badge-pill ${butler.repositoryConfigured === false ? "badge-degraded" : "badge-healthy"}`}>
-                {butler.repositoryConfigured === false ? "仓库未绑定" : "仓库已连接"}
+              <span className={`badge-pill ${repositoryBadge(butler).cls}`}>
+                {repositoryBadge(butler).label}
               </span>
             </div>
             <div className="butler-version-grid">
@@ -877,7 +890,13 @@ export function VersionsPage() {
                 <strong title={butler.repository ?? undefined}>
                   {butler.repository ?? "尚未配置源码仓库"}
                 </strong>
-                <small>{butler.repositoryConfigured === false ? "展示项目默认地址，当前目录未检测到 origin" : "来自当前源码目录的 Git origin"}</small>
+                <small>
+                  {butler.repositorySource === "git-origin"
+                    ? "来自当前源码目录的 Git origin"
+                    : butler.repositorySource === "configured-default"
+                      ? "容器未挂载 Git 元数据，使用部署配置地址"
+                      : "尚未配置仓库地址"}
+                </small>
               </div>
               <div className="butler-version-fact">
                 <span>管家代码目录</span>
@@ -901,8 +920,14 @@ export function VersionsPage() {
               </div>
               <div className="butler-version-fact">
                 <span>可用更新</span>
-                <strong>{butler.repositoryConfigured === false ? "无法在线检查" : "检查后显示候选"}</strong>
-                <small>{butler.repositoryConfigured === false ? "绑定 origin 后启用自升级" : "升级前会自动备份并支持回滚"}</small>
+                <strong>
+                  {butler.repositorySource === "configured-default" ? "需在宿主机更新" : "检查后显示候选"}
+                </strong>
+                <small>
+                  {butler.repositorySource === "configured-default"
+                    ? "当前镜像不含 Git 工作树，请使用 scripts/deploy.sh 更新"
+                    : "升级前会自动备份并支持回滚"}
+                </small>
               </div>
             </div>
             {butlerSelf !== null && butlerSelf.reachable && (
@@ -966,7 +991,9 @@ export function VersionsPage() {
                   <strong>最新可用版本</strong>
                   {selfUpgradeCandidate === null ? (
                     <p className="hint">
-                      {butlerSelf.remoteConfigured === false || butlerSelf.repository === null || butlerSelf.repository === ""
+                      {butlerSelf.upgradeSupported === false || butlerSelf.commit === null
+                        ? "当前为容器部署：仓库地址已配置，但镜像未挂载 Git 工作树，请在宿主机执行 scripts/deploy.sh 更新。"
+                        : butlerSelf.remoteConfigured === false || butlerSelf.repository === null || butlerSelf.repository === ""
                         ? "没有检测到 Git 仓库地址，无法查询管家更新。请检查 BUTLER_SRC 与 origin。"
                         : butlerSelf.repoClean === false
                           ? "当前源码目录有未提交改动，升级入口已保护；请先提交或清理改动。"
@@ -1014,7 +1041,11 @@ export function VersionsPage() {
                         <button
                           type="button"
                           className="btn btn-secondary"
-                          disabled={selfBusy || butlerSelf.lastJob?.status === "running"}
+                          disabled={
+                            selfBusy ||
+                            butlerSelf.lastJob?.status === "running" ||
+                            butlerSelf.upgradeSupported === false
+                          }
                           onClick={() => requestSelfRollback(previousSelfSnapshot)}
                         >
                           退回上一版本

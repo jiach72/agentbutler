@@ -88,8 +88,11 @@ export interface ButlerSelfStatus {
   commit: string | null;
   tag: string | null;
   repository: string | null;
+  repositorySource?: "git-origin" | "configured-default";
+  repositoryConfigured?: boolean;
   repoClean: boolean;
   remoteConfigured: boolean;
+  upgradeSupported?: boolean;
   prefs: ButlerSelfPrefs;
   snapshots: ButlerSelfSnapshot[];
   snapshotRetention: number;
@@ -123,6 +126,8 @@ export interface CommandResult {
 export interface ButlerSelfUpgradeDeps {
   sourceDir: string;
   homeDir: string;
+  /** Docker 镜像不含 .git 时用于展示的部署仓库地址。 */
+  repositoryUrl?: string;
   now?: () => number;
   exec?: (cmd: string, args: string[], cwd?: string, timeoutMs?: number) => CommandResult;
   build?: (sourceDir: string) => CommandResult;
@@ -472,6 +477,7 @@ export function createButlerSelfUpgradeService(
     commit: string | null;
     tag: string | null;
     repository: string | null;
+    repositorySource: "git-origin" | "configured-default" | null;
     repoClean: boolean;
   } {
     const branchResult = git(["branch", "--show-current"]);
@@ -482,14 +488,22 @@ export function createButlerSelfUpgradeService(
     const tag = tagResult.ok && tagResult.stdout !== "" && !/^[0-9a-f]{7,40}$/i.test(tagResult.stdout)
       ? tagResult.stdout
       : null;
+    const configuredRepository = deps.repositoryUrl?.trim().replace(/\.git$/, "") || null;
+    const gitRepository =
+      remoteResult.ok && remoteResult.stdout !== ""
+        ? remoteResult.stdout.replace(/\.git$/, "")
+        : null;
     return {
       branch: branchResult.ok && branchResult.stdout !== "" ? branchResult.stdout : null,
       commit: commitResult.ok && commitResult.stdout !== "" ? commitResult.stdout : null,
       tag,
-      repository:
-        remoteResult.ok && remoteResult.stdout !== ""
-          ? remoteResult.stdout.replace(/\.git$/, "")
-          : null,
+      repository: gitRepository ?? configuredRepository,
+      repositorySource:
+        gitRepository !== null
+          ? "git-origin"
+          : configuredRepository !== null
+            ? "configured-default"
+            : null,
       repoClean: statusResult.ok && statusResult.stdout === "",
     };
   }
@@ -663,8 +677,11 @@ export function createButlerSelfUpgradeService(
         commit: info.commit,
         tag: info.tag,
         repository: info.repository,
+        repositorySource: info.repositorySource ?? undefined,
+        repositoryConfigured: info.repository !== null,
         repoClean: info.repoClean,
-        remoteConfigured: info.repository !== null,
+        remoteConfigured: info.repositorySource === "git-origin",
+        upgradeSupported: info.commit !== null,
         prefs: prefs(),
         snapshots: snapshots(),
         snapshotRetention: SELF_SNAPSHOT_KEEP,

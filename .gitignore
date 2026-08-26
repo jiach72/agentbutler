@@ -29,10 +29,12 @@ Thumbs.db
 .superpowers/
 .trae/
 .workbuddy/
+.omo/
 .idea/
 .vscode/
 
 # local runtime data and generated overrides
+.runtime/
 *.db
 *.db-*
 *.sqlite

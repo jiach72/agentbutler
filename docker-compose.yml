@@ -1,17 +1,28 @@
 name: agent-butler
 
+# 三容器统一日志轮转，避免 docker logs 无上限增长吃满磁盘。
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   butler-gateway:
     build:
       context: .
       dockerfile: apps/gateway/Dockerfile
+    # 显式镜像名便于按版本回滚；生产部署应使用不可变版本标签而非 latest。
+    image: agent-butler-butler-gateway:${BUTLER_VERSION:-latest}
     environment:
       BUTLER_HOME: /home/butler
       BUTLER_GATEWAY_HOST: 0.0.0.0
       BUTLER_GATEWAY_PORT: 7532
       BUTLER_GATEWAY_PACE_SEC: ${BUTLER_GATEWAY_PACE_SEC:-30}
-      # 配置齐全时 Gateway 会自动接入 Hermes Bridge；Bridge 暂时离线不会拖垮 Gateway。
       BUTLER_ENABLE_HERMES_MESSAGE_RUNTIME: ${BUTLER_ENABLE_HERMES_MESSAGE_RUNTIME:-auto}
+      # 配置齐全时 Gateway 会自动接入 Hermes Bridge；Bridge 暂时离线不会拖垮 Gateway。
+      # Bridge 仅监听宿主 loopback 时（如 WSL 原生 Docker），使用 bridge-forward
+      # profile，并把此值设为 http://host.docker.internal:8755。
       BUTLER_HERMES_BRIDGE_URL: ${BUTLER_HERMES_BRIDGE_URL:-}
       BUTLER_HERMES_INSTANCE_ID: ${BUTLER_HERMES_INSTANCE_ID:-hermes-main}
       BUTLER_HERMES_ROOT: /home/butler/hermes
@@ -36,12 +47,14 @@ services:
     volumes:
       - butler-data:/home/butler
       - ${BUTLER_HERMES_HOST_PATH:-./.runtime/hermes}:/home/butler/hermes:ro
+    logging: *default-logging
     restart: unless-stopped
 
   butler-watch:
     build:
       context: .
       dockerfile: apps/watch/Dockerfile
+    image: agent-butler-butler-watch:${BUTLER_VERSION:-latest}
     environment:
       BUTLER_HOME: /home/butler
       BUTLER_FRAMEWORK: ${BUTLER_FRAMEWORK:-hermes}
@@ -53,6 +66,7 @@ services:
       HERMES_ROOT: /home/butler/hermes
       BUTLER_OPENCLAW_ROOT: /home/butler/openclaw
       OPENCLAW_HOME: /home/butler/openclaw
+      BUTLER_REPOSITORY_URL: ${BUTLER_REPOSITORY_URL:-https://github.com/jiach72/agentbutler}
       OPENCLAW_GATEWAY_HOST: ${OPENCLAW_GATEWAY_HOST:-host.docker.internal}
       OPENCLAW_GATEWAY_PORT: ${OPENCLAW_GATEWAY_PORT:-18789}
       BUTLER_HERMES_API_HOST: ${BUTLER_HERMES_API_HOST:-host.docker.internal}
@@ -72,12 +86,14 @@ services:
       - ${DOCKER_SOCKET_PATH:-/dev/null}:/var/run/docker.sock
     group_add:
       - "${DOCKER_GID:-999}"
+    logging: *default-logging
     restart: unless-stopped
 
   butler-web:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
+    image: agent-butler-butler-web:${BUTLER_VERSION:-latest}
     environment:
       BUTLER_HOME: /home/butler
       BUTLER_WEB_HOST: 0.0.0.0
@@ -94,7 +110,21 @@ services:
       - "${BUTLER_WEB_PUBLISH_HOST:-127.0.0.1}:${BUTLER_WEB_PORT:-7531}:7531"
     volumes:
       - butler-data:/home/butler
+    logging: *default-logging
     restart: unless-stopped
+
+  # 可选：Hermes Bridge 只监听宿主 loopback 时，用它把 8755 转发到 127.0.0.1:8754。
+  # 启用：docker compose --profile bridge-forward up -d
+  # 链路：gateway → host.docker.internal:8755 →（host 网络）127.0.0.1:8754
+  # 8755 是未鉴权的 TCP 转发入口，应由宿主防火墙限制为本机/Docker 网段。
+  butler-bridge-forwarder:
+    image: alpine/socat:latest
+    network_mode: host
+    command: tcp-listen:8755,fork,reuseaddr tcp:127.0.0.1:8754
+    logging: *default-logging
+    restart: unless-stopped
+    profiles:
+      - bridge-forward
 
 volumes:
   butler-data:

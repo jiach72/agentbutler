@@ -302,8 +302,10 @@ function validateBridgeUrl(raw: string, allowNonLoopback: boolean): string {
   if (url.protocol !== "http:")
     throw new Error(`${MESSAGE_RUNTIME_ENV.bridgeUrl} must use http on loopback`);
   const loopbackHosts = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
-  const dockerHost = allowNonLoopback && ["host.docker.internal", "gateway.docker.internal"].includes(url.hostname);
-  if (!loopbackHosts.has(url.hostname) && !dockerHost) {
+  // allowNonLoopback: permit any host (used when the bridge runs on a WSL/host
+  // address that is not the Docker internal gateway, e.g. 172.29.x.x).
+  const loopbackOk = loopbackHosts.has(url.hostname);
+  if (!loopbackOk && !allowNonLoopback) {
     throw new Error(`${MESSAGE_RUNTIME_ENV.bridgeUrl} must use a loopback host`);
   }
   if (url.username !== "" || url.password !== "" || url.search !== "" || url.hash !== "") {

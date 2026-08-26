@@ -117,6 +117,26 @@ describe("管家自身版本管理服务", () => {
     expect(status.snapshotRetention).toBe(3);
   });
 
+  it("Docker 无 Git 元数据时保留部署仓库地址并标记不可自升级", () => {
+    const service = createButlerSelfUpgradeService(
+      makeDeps({
+        repositoryUrl: "https://github.com/jiach72/agentbutler.git",
+        exec: (cmd) =>
+          cmd === "git"
+            ? { ok: false, stdout: "", error: "not a git repository" }
+            : { ok: true, stdout: "", error: "" },
+      }),
+    );
+
+    const status = service.status();
+    expect(status.repository).toBe("https://github.com/jiach72/agentbutler");
+    expect(status.repositorySource).toBe("configured-default");
+    expect(status.repositoryConfigured).toBe(true);
+    expect(status.remoteConfigured).toBe(false);
+    expect(status.upgradeSupported).toBe(false);
+    expect(status.availableUpdates).toEqual([]);
+  });
+
   it("按 SemVer 排序预发布标签，并将 dev 版本归入测试通道", () => {
     const exec: ButlerSelfUpgradeDeps["exec"] = (cmd, args) => {
       if (cmd !== "git") return ok("");

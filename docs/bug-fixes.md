@@ -1,5 +1,23 @@
 # Bug Fixes
 
+## 2026-08-25 · Docker 版本页误报仓库未绑定
+
+- 问题：生产 Watch 镜像按设计不包含 `.git`，`/api/butler/version` 却把 Git origin 缺失当成仓库未配置，Versions 页面因此显示“仓库未绑定”。
+- 风险/影响：用户无法确认当前部署对应的代码仓库；容器内并不具备完整 Git 工作树时，页面还可能让人误以为可以直接执行管家自升级。
+- 改动范围：新增 `BUTLER_REPOSITORY_URL` 配置并由 Compose 注入；Watch 在无 Git 元数据时返回配置仓库及 `configured-default` 来源；Versions 区分“仓库已连接”和“仓库已配置”，明确提示容器应使用宿主 `scripts/deploy.sh` 更新；自升级状态增加 `upgradeSupported`，禁用容器内必然失败的自升级/回滚入口。
+- 回归测试：新增 `apps/watch/tests/self-upgrade.test.ts` 的无 Git 元数据用例，覆盖仓库地址、来源、远程状态和升级能力字段。
+- 验证命令：`docker compose config --quiet`、`git diff --check`；TypeScript/Vitest/Vite 验证因当前工作区依赖二进制缺失未能运行。
+- 部署/运行验证：未重启现有容器或执行真实自升级；发布后需重建 Watch/Web 镜像并检查 `/api/butler/version`、`/api/butler/self` 与版本页。
+
+## 2026-08-25 · Docker 部署拓扑、真实 readiness 与备份门禁
+
+- 问题：部署文档宣称 Compose 环境已硬编码，但实际仍受 `.env`/shell 插值影响；README、`.env.example` 与事故文档对 Hermes Bridge 的监听地址、8754/8755 转发方式和 Hermes 挂载路径互相矛盾；部署脚本只检查 Web `/api/health`，可能在 Gateway 不可达时误报成功；Bridge 体检只检查宿主端口，未验证 Gateway 容器链路；数据卷备份可能选错自定义卷，恢复命令也不会清除隐藏文件。
+- 风险/影响：WSL 新部署可能启动后消息链路断开；错误的 `HERMES_BUTLER_HOST` 配置会触发 Hermes 崩溃循环；健康误报会让故障版本继续上线；备份/恢复错误可能造成数据丢失或恢复到不一致状态。
+- 改动范围：统一 README、`.env.example`、Compose 注释和 Docker 运维文档的 loopback Bridge + 8755 转发模型；`scripts/deploy.sh` 增加配置解析、token 预检、dirty worktree 警告、按实际卷名备份、备份失败门禁、WSL 转发器 profile 选择和 Web/Gateway/Watch 三路 readiness；`scripts/deploy.ps1` 同步真实 Gateway/Watch readiness；`scripts/bridge-healthcheck.sh` 增加配置路径解析、Compose/systemd 转发器二选一判断、Gateway 容器内 Bridge 探测和消息状态检查；修正回滚/恢复示例及 portproxy 误导示例。
+- 回归测试：Bash 脚本 `bash -n scripts/deploy.sh scripts/bridge-healthcheck.sh`；Compose 语法 `docker compose config --quiet`；`git diff --check`。尚未执行真实容器重建、Bridge 外部连接或 Windows 管理员 portproxy 操作。
+- 验证命令：同上；发布前需在目标 WSL 执行 `bash scripts/deploy.sh`、`bash scripts/bridge-healthcheck.sh`，并记录 `docker compose ps`、Web `/api/health`、Gateway `/api/messages/status`、Bridge `/v1/health` 和镜像 digest。
+- 部署/运行验证：本轮未停止现有服务、未发送真实消息、未修改 Hermes 宿主配置；真实 WSL Bridge/token、转发器端口和 Windows 访问仍需授权环境验收。
+
 ## 2026-08-25 · Beta 1.0 页面可用性与分级恢复
 
 - 问题：技能/记忆列表随数据量无限拉长；Dashboard 一键处理只暴露重启/重连；升级候选为空或请求失败时反馈不充分；进化页依赖手填指标，客户只能看到失败而无法完成真实评估闭环。

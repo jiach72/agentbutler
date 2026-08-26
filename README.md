@@ -1,8 +1,37 @@
 # Agent Butler
 
-Agent Butler 是一个本地优先的 AI Agent 运维控制台。目前重点支持 Hermes，提供巡检、日志与诊断、版本升级与回滚、补丁管理、技能/插件/记忆只读盘点，以及消息队列治理。
+**本地优先的 AI Agent 运维控制台。**
 
-当前版本：`1.0.0-beta.1`。这是 1.0 测试版，默认只监听本机回环地址，管理面尚未提供公网鉴权，请勿直接暴露到不可信网络。
+[![CI](https://github.com/jiach72/agentbutler/actions/workflows/ci.yml/badge.svg)](https://github.com/jiach72/agentbutler/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+Agent Butler 把 Agent 运行时的健康检查、消息接入、日志诊断、版本管理和数据恢复收进一个可审计的控制面。它适合在个人电脑、家庭服务器或团队内网中运行，让 Agent 保持可见、可维护、可回滚。
+
+> 当前开发版本：`1.0.0-beta.5`（`main`）。这是测试版，默认只监听本机回环地址，管理面尚未提供公网鉴权。请勿将 Web 端口直接暴露到不可信网络。
+
+## 能做什么
+
+- **运行时巡检**：查看 Hermes、OpenClaw 等受管实例的连接、进程、端口和基础健康状态。
+- **消息接入治理**：通过 Gateway 接管 Hermes Bridge 消息，支持断线重试、Outbox 同步和状态诊断。
+- **版本升级与回滚**：展示当前版本、更新候选和恢复点；升级前自动备份，容器部署则明确引导在宿主机更新。
+- **日志与诊断**：集中查看服务状态、部署问题和修复建议，减少在多个终端之间来回切换。
+- **技能、插件与记忆盘点**：以只读方式了解 Agent 当前可用能力和数据状态。
+- **本地安全边界**：默认不开放 Docker Socket、不暴露公网端口，敏感 token 通过宿主机目录注入。
+
+## 工作方式
+
+```text
++--------------+      +--------------+      +----------------+
+| Agent Butler |----->| Gateway      |----->| Hermes Bridge  |
+| Web 7531     |      | 消息与策略    |      | 宿主机 loopback |
++------+-------+      +------+-------+      +----------------+
+       |                      |
+       v                      v
+  Watch 7533             持久化数据卷
+  巡检/版本/备份
+```
+
+Web 是控制台入口，Gateway 负责消息运行时，Watch 负责巡检、版本和后台任务。Docker Compose 默认只发布 Web 的 `127.0.0.1:7531`；Gateway 和 Watch 保持在内部网络中。
 
 ## 快速安装
 
@@ -16,7 +45,6 @@ Agent Butler 是一个本地优先的 AI Agent 运维控制台。目前重点支
 ```bash
 git clone https://github.com/jiach72/agentbutler.git
 cd agentbutler
-git checkout v1.0.0-beta.1
 corepack enable
 corepack prepare pnpm@10.20.0 --activate
 corepack pnpm install --frozen-lockfile
@@ -25,6 +53,8 @@ corepack pnpm start
 ```
 
 启动后访问 `http://127.0.0.1:7531`。默认服务端口：Web `7531`、Gateway `7532`、Watch `7533`。
+
+第一次使用建议先打开 **设置** 检查运行时路径，再进入 **版本** 和 **连接** 页面确认服务状态。
 
 `pnpm start` 会以前台并行方式启动三个服务，适合首次体验和 Agent 自动化安装。生产或长期运行建议为三个应用分别配置进程守护：
 
@@ -46,6 +76,15 @@ docker compose logs -f
 
 Compose 默认从 `.env` 读取运行时目录与通知凭据，使用命名卷 `agent-butler-data` 持久化状态，并只将 Web 的 `7531` 端口发布到宿主机回环地址。Docker Socket 默认关闭；需要容器控制能力时才设置 `DOCKER_SOCKET_PATH=/var/run/docker.sock` 和 `DOCKER_GID`。
 
+生产更新使用宿主机脚本完成备份、镜像重建和 readiness 检查：
+
+```bash
+bash scripts/deploy.sh
+bash scripts/bridge-healthcheck.sh  # 启用 Hermes 时
+```
+
+容器镜像按设计不携带 `.git`。版本页中的“仓库已配置”表示部署仓库地址可识别，并不表示容器内可以直接执行 Git 自升级。
+
 推荐一键部署：
 
 ```bash
@@ -62,16 +101,18 @@ cd agentbutler
 .\scripts\deploy.ps1
 ```
 
+WSL Hermes 部署请在 WSL shell 使用 `bash scripts/deploy.sh`；该路径包含 Hermes token/loopback 预检、数据卷备份门禁和 Bridge 转发器选择。PowerShell 脚本适合 Docker Desktop 或不启用 Hermes 消息数据面的场景。
+
 首次部署前复制并检查 `.env.example` 生成的 `.env`：`BUTLER_FRAMEWORK` 选择 `hermes` 或 `openclaw`；`BUTLER_HERMES_HOST_PATH` / `BUTLER_OPENCLAW_HOST_PATH` 指向宿主机状态目录；UI 默认仅绑定 `127.0.0.1`。通知凭据可选，未配置时提醒仍写入持久化队列。
 
 ### Hermes 消息连接
 
-要让 Gateway 持续接管 Hermes 消息，先确保宿主 Hermes Bridge 已启动并使用同一份 token：
+要让 Gateway 持续接管 Hermes 消息，先确保宿主 Hermes Bridge 已启动并使用同一份 token。Bridge 保持 loopback 监听 `127.0.0.1:8754`；WSL 原生 Docker 通过转发器接入：
 
-- Bridge 监听 `8754`，容器部署时需监听宿主机可达地址（例如 `HERMES_BUTLER_HOST=0.0.0.0`），并显式开启 Bridge 的非回环监听开关；
-- `BUTLER_HERMES_HOST_PATH` 下必须存在 `agent-butler/bridge.token`，文件内容只放一个 token；
-- `.env.example` 已给出 Docker 默认值：`BUTLER_HERMES_BRIDGE_URL=http://host.docker.internal:8754`、容器内 token 路径和投影库路径；
-- Bridge 短暂离线时 Gateway 保持运行并持续重试，恢复后会自动重新安装策略、继续同步 Outbox。可用下面三个请求复核：
+- 将 `BUTLER_HERMES_HOST_PATH` 指向 Linux 侧 Hermes 目录（例如 `/home/<user>/.hermes`），其中必须存在 `agent-butler/bridge.token`；
+- 设置 `BUTLER_HERMES_BRIDGE_URL=http://host.docker.internal:8755`、`BUTLER_HERMES_BRIDGE_ALLOW_NON_LOOPBACK=true`；
+- 启用 `COMPOSE_PROFILES=bridge-forward`，或保留现有 systemd user 转发器，但不要同时启用两种转发器；
+- Bridge 短暂离线时 Gateway 保持运行并持续重试，恢复后会自动继续同步 Outbox。部署后用 `bash scripts/bridge-healthcheck.sh` 验证实际容器链路。
 
 ```bash
 curl http://127.0.0.1:7531/api/health
@@ -89,6 +130,13 @@ corepack pnpm version:check
 corepack pnpm lint
 corepack pnpm test
 corepack pnpm build
+```
+
+提交前最小检查：
+
+```bash
+docker compose config --quiet
+git diff --check
 ```
 
 Hermes Bridge 测试需在 Linux/WSL 运行，因为安全用例会校验 token 与附件文件的 POSIX `0600` 权限：
@@ -109,7 +157,7 @@ PYTHONPATH=packages/adapters/hermes/bridge python -m unittest discover -s packag
 统一修改版本号：
 
 ```bash
-corepack pnpm version:set 1.0.0-beta.1
+corepack pnpm version:set <version>
 ```
 
 ## 文档
@@ -119,6 +167,11 @@ corepack pnpm version:set 1.0.0-beta.1
 - PRD 符合性审计：`docs/prd-audit-report.md`
 - 缺陷与修复记录：`docs/bug-fixes.md`
 - 发布流程：`docs/releasing.md`
+- Docker 运维手册（更新/回滚/备份/访问链路）：`docs/docker-operations.md`
+
+## 项目状态
+
+Agent Butler 仍处于 Beta 阶段。当前优先保证本地部署、运行时可观测性和恢复路径；公网鉴权、多租户隔离和托管版能力不在本版本承诺范围内。欢迎通过 Issue 提交复现步骤、环境信息和日志片段。
 
 ## License
 

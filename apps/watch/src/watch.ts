@@ -1488,6 +1488,10 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
         // 源码目录没有 package.json（打包/安装形态）时保留 dev 版本
       }
       const remote = gitDescribe(["-C", source, "remote", "get-url", "origin"]);
+      const configuredRepository =
+        process.env["BUTLER_REPOSITORY_URL"]?.trim().replace(/\.git$/, "") ||
+        DEFAULT_BUTLER_REPOSITORY;
+      const repository = remote?.replace(/\.git$/, "") ?? configuredRepository;
       return {
         version,
         source,
@@ -1495,8 +1499,8 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
         branch: gitDescribe(["-C", source, "branch", "--show-current"]),
         commit: gitDescribe(["-C", source, "rev-parse", "--short", "HEAD"]),
         tag: gitDescribe(["-C", source, "describe", "--tags", "--exact-match", "--always"]),
-        repository: remote?.replace(/\.git$/, "") ?? DEFAULT_BUTLER_REPOSITORY,
-        repositoryConfigured: remote !== null,
+        repository,
+        repositoryConfigured: repository !== "",
         repositorySource: remote !== null ? ("git-origin" as const) : ("configured-default" as const),
         changelog: gitLog(source),
         checkedAt: new Date().toISOString(),
@@ -1510,6 +1514,9 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
   const butlerSelf: ButlerSelfService = createButlerSelfUpgradeService({
     sourceDir: resolveButlerSourceDir(process.env["BUTLER_SRC"]?.trim() || process.cwd()),
     homeDir: core.paths.home,
+    repositoryUrl:
+      process.env["BUTLER_REPOSITORY_URL"]?.trim().replace(/\.git$/, "") ||
+      DEFAULT_BUTLER_REPOSITORY,
     services: (process.env["BUTLER_SELF_SERVICES"] ?? "butler-watch butler-web butler-vite")
       .split(/\s+/)
       .map((name) => name.trim())
