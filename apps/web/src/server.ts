@@ -1288,6 +1288,11 @@ function isLoopback(host: string): boolean {
   return host === "localhost" || host === "::1" || host.startsWith("127.");
 }
 
+function readPositiveDuration(raw: string | undefined, fallback: number): number {
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? Math.min(value, 24 * 60 * 60_000) : fallback;
+}
+
 /**
  * 组装 butler-web 服务：静态 SPA + 只读 API + /ws 事件流。
  * 返回 Fastify 实例但不 listen —— 由 main.ts（或测试 inject）驱动。
@@ -1631,9 +1636,10 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     };
   });
 
-  // 发起升级：body 透传转发；watch 的 202/400/409/503 原样透传（状态码+body），不可达 → 502。
+  // 发起升级包含升级前备份，可能超过普通控制请求的 5 秒；必须给备份和流水线
+  // 足够时间完成登记，否则 Web 会误报“未执行”，而 watch 仍在后台继续升级。
   app.post("/api/upgrade/run", async (request, reply) =>
-    proxyWatchPost("/api/upgrade/run", request.body, reply),
+    proxyWatchPost("/api/upgrade/run", request.body, reply, 120_000),
   );
 
   // 快照回滚：:id 为 snapshots 表行 id；watch 的 200/404/503 原样透传，不可达 → 502。
@@ -2300,7 +2306,14 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
         : latestInspectionsPerInstance(
             store.listEvents({ type: "inspection-completed", limit: 500 }),
           );
-    const fingerprints = store === null ? [] : store.listFingerprints(10);
+    const fingerprintWindowMs = readPositiveDuration(
+      process.env["BUTLER_FINGERPRINT_WINDOW_MS"],
+      5 * 60_000,
+    );
+    const fingerprints =
+      store === null
+        ? []
+        : store.listFingerprints(10, new Date(Date.now() - fingerprintWindowMs).toISOString());
     const inspectStatus = await inspectStatusFromWatch();
     return {
       instances,

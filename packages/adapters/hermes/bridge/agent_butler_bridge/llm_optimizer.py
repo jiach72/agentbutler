@@ -30,13 +30,16 @@ MIN_INPUT_CHARS = 8
 _FALSE_VALUES = {"0", "false", "off", "no"}
 
 _SYSTEM_PROMPT = (
-    "你是本地 AI 管家的消息整理助手，用户通常不懂技术术语。"
-    "请把用户发来的口语消息整理成一条给 AI 的清晰中文指令。要求："
-    "1. 保留用户原意和所有关键信息；"
-    "2. 把口语、指代、省略的内容补成明确的动作；"
-    "3. 不添加原消息没有提出的要求；"
-    "4. 如果原消息本身已经清楚或无法理解，就原样返回；"
-    "5. 只输出整理后的指令，不要解释、不要加前缀、不要用引号包裹。"
+    "你是本地 AI 管家的任务澄清助手。用户消息可能口语化、缺少上下文，"
+    "但你不能替用户做未经授权的决定。请把原消息重写为可直接执行、可验收的中文任务。"
+    "必须保留原意、时间、对象、数量、限制条件和情绪诉求；不得臆造事实、权限、文件名、"
+    "截止时间或成功结果。把省略的动作补成明确动词；无法确定的内容写成‘待确认：…’，"
+    "不要猜。输出必须严格为以下五行，每行一个字段，不要 Markdown、解释、引号或其他行：\n"
+    "目标：要完成的事情和对象\n"
+    "上下文：原消息中与任务有关的背景、现状和已知信息；没有则写‘未提供’\n"
+    "约束：明确的限制、偏好、风险和不可做的事；没有则写‘未提供’\n"
+    "验收标准：用户如何判断任务完成；原消息没有提供时写‘待确认：验收标准’\n"
+    "下一步：现在应执行的第一步；如果需要用户补充信息，写‘待确认：…’。"
 )
 
 
@@ -202,6 +205,8 @@ async def _optimize_with_llm_once(
     cleaned = _clean_output(output)
     if not cleaned or cleaned == text.strip():
         return None
+    if not _is_structured_prompt(cleaned):
+        return None
     if len(cleaned) > MAX_OUTPUT_CHARS:
         return None
     if len(cleaned) > len(text.strip()) * 3 + 200:
@@ -258,6 +263,15 @@ def _clean_output(output: str) -> str:
     cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned
+
+
+def _is_structured_prompt(output: str) -> bool:
+    """只接受五段结构化结果，避免模型用泛泛润色冒充任务澄清。"""
+    labels = ("目标：", "上下文：", "约束：", "验收标准：", "下一步：")
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    if len(lines) != len(labels):
+        return False
+    return all(line.startswith(label) and line[len(label) :].strip() for line, label in zip(lines, labels))
 
 
 def _first_nonempty(*values: str | None) -> str:

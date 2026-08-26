@@ -452,6 +452,7 @@ export function DashboardPage() {
     finished: false,
   });
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const recoveryTimers = useRef<number[]>([]);
   const advancedRef = useRef<HTMLDetailsElement>(null);
 
   const showToast = useCallback((kind: "ok" | "err", text: string) => {
@@ -508,6 +509,25 @@ export function DashboardPage() {
     }
   }, [confirmFix, loadLogAnalyze, showToast]);
 
+  const verifyRecovery = useCallback(async (label: string, delayMs: number) => {
+    await new Promise<void>((resolve) => {
+      const timer = window.setTimeout(resolve, delayMs);
+      recoveryTimers.current.push(timer);
+    });
+    const diagnosis = await postJson("/api/recovery/diagnose", {}, 15_000);
+    if (!diagnosis.ok || diagnosis.data === null || typeof diagnosis.data !== "object") {
+      showToast("err", `「${label}」复验失败：暂时无法确认当前状态`);
+      return;
+    }
+    const next = diagnosis.data as RecoveryDiagnosisView;
+    setRecovery(next);
+    if (next.severity === "ok") {
+      showToast("ok", `「${label}」已复验通过，问题已解决`);
+    } else {
+      showToast("err", `「${label}」复验未通过：${next.rootCause}，请查看诊断详情`);
+    }
+  }, [showToast]);
+
   const diagnoseRecovery = useCallback(async (autoRepair = false) => {
     setRecoveryBusy(true);
     const diagnosis = await postJson("/api/recovery/diagnose", {}, 15_000);
@@ -522,14 +542,18 @@ export function DashboardPage() {
       const lowRisk = next.recommendedActions.find((action) => action.available && action.risk === "low");
       if (lowRisk !== undefined) {
         const result = await postJson(`/api/recovery/actions/${encodeURIComponent(lowRisk.id)}/execute`, {}, 70_000);
-        if (result.ok) showToast("ok", `已自动执行「${lowRisk.label}」，正在复验结果`);
+        if (result.ok) {
+          showToast("ok", `已启动「${lowRisk.label}」，将在 2 秒和 60 秒后复验`);
+          void verifyRecovery(lowRisk.label, 2_000);
+          void verifyRecovery(lowRisk.label, 60_000);
+        }
         else showToast("err", `诊断完成，但「${lowRisk.label}」执行失败`);
       } else {
-        showToast("ok", `诊断完成：${next.rootCause}。请从下方选择合适处理方式`);
+        showToast("err", `诊断完成：${next.rootCause}。没有可自动执行的低风险动作，需要人工确认`);
       }
     }
     setRecoveryBusy(false);
-  }, [showToast]);
+  }, [showToast, verifyRecovery]);
 
   const executeRecoveryAction = useCallback(async (action: RecoveryActionView) => {
     setRecoveryBusy(true);
@@ -537,14 +561,15 @@ export function DashboardPage() {
     setRecoveryBusy(false);
     setConfirmRecovery(null);
     if (result.ok) {
-      showToast("ok", `已开始「${action.label}」，完成后会自动复验`);
-      window.setTimeout(() => void diagnoseRecovery(false), 10_000);
+      showToast("ok", `已启动「${action.label}」，将在 2 秒和 60 秒后复验`);
+      void verifyRecovery(action.label, 2_000);
+      void verifyRecovery(action.label, 60_000);
     } else if (result.status === 409) {
       showToast("err", `「${action.label}」暂时不能执行：${typeof result.data === "object" && result.data !== null && "detail" in result.data ? String(result.data.detail) : "保护机制或当前状态不允许"}`);
     } else {
       showToast("err", `「${action.label}」执行失败，请查看诊断详情`);
     }
-  }, [diagnoseRecovery, showToast]);
+  }, [showToast, verifyRecovery]);
 
   const loadLogTail = useCallback(async (sourceId: string, before?: number | null) => {
     setLogLoading(true);
@@ -573,6 +598,8 @@ export function DashboardPage() {
   useEffect(
     () => () => {
       if (toastTimer.current !== undefined) clearTimeout(toastTimer.current);
+      for (const timer of recoveryTimers.current) window.clearTimeout(timer);
+      recoveryTimers.current = [];
     },
     [],
   );
@@ -759,11 +786,6 @@ export function DashboardPage() {
     [latestInspections],
   );
 
-  const firstAvailableRunbook = useMemo(
-    () => (runbooks?.runbooks ?? []).find((item) => item.breakerTripped !== true) ?? null,
-    [runbooks],
-  );
-
   const issues = useMemo<IssueView[]>(() => {
     const list: IssueView[] = [];
 
@@ -773,7 +795,6 @@ export function DashboardPage() {
         tone: "idle",
         title: "正在读取管家状态",
         detail: "首次加载中；如果一直没更新，可以点击下方「立即检查」再试一次。",
-        runbook: firstAvailableRunbook ?? undefined,
       });
       return list;
     }
@@ -784,7 +805,6 @@ export function DashboardPage() {
         tone: "idle",
         title: "还没有读取到管家状态",
         detail: "暂时无法判断本机 AI 是否正常，建议先点击「立即检查」。",
-        runbook: firstAvailableRunbook ?? undefined,
       });
     } else if (!inspectStatus.reachable) {
       list.push({
@@ -792,7 +812,6 @@ export function DashboardPage() {
         tone: "warn",
         title: "管家服务暂时连不上",
         detail: "已看到部分旧数据，但暂时无法开始新的检查。请稍等管家恢复后再试。",
-        runbook: firstAvailableRunbook ?? undefined,
       });
     }
 
@@ -805,7 +824,6 @@ export function DashboardPage() {
           tone: "error",
           title: `AI 助手（${instanceLabel(inspection.instanceId)}）出问题了`,
           detail: `${failed} 项检查不通过${warned > 0 ? `，另有 ${warned} 项提醒` : ""}；可能是进程未运行或服务暂时连不上。`,
-          runbook: firstAvailableRunbook ?? undefined,
         });
       } else if (inspection.overall === "degraded") {
         list.push({
@@ -813,7 +831,6 @@ export function DashboardPage() {
           tone: "warn",
           title: `AI 助手（${instanceLabel(inspection.instanceId)}）需要留意`,
           detail: `${warned} 项检查提醒${failed > 0 ? `，${failed} 项不通过` : ""}；不影响使用时可以先观察。`,
-          runbook: firstAvailableRunbook ?? undefined,
         });
       }
     }
@@ -824,7 +841,6 @@ export function DashboardPage() {
         tone: "error",
         title: `最近出现 ${fp.count} 次相同问题`,
         detail: `最近一次在 ${formatRelative(fp.lastSeen)}；可以在「高级详情」里查看错误内容。`,
-        runbook: firstAvailableRunbook ?? undefined,
       });
     }
 
@@ -834,7 +850,6 @@ export function DashboardPage() {
         tone: "ok",
         title: "一切正常",
         detail: `管家刚检查过 ${latestInspections.length} 个 AI 助手，没有发现需要处理的事。`,
-        runbook: firstAvailableRunbook ?? undefined,
       });
     } else if (list.length === 0 && instances.length === 0 && inspectStatus?.reachable === true) {
       list.push({
@@ -842,7 +857,6 @@ export function DashboardPage() {
         tone: "idle",
         title: "暂未发现可管理的 AI 助手",
         detail: "可能还没接入 AI 助手，或者管家还没有完成一次检查。",
-        runbook: firstAvailableRunbook ?? undefined,
       });
     } else if (list.length === 0) {
       list.push({
@@ -850,13 +864,11 @@ export function DashboardPage() {
         tone: "idle",
         title: "还没有检查结果",
         detail: "管家还没完成第一次检查，点击「立即检查」开始。",
-        runbook: firstAvailableRunbook ?? undefined,
       });
     }
     return list;
   }, [
     dashboard,
-    firstAvailableRunbook,
     fingerprints,
     inspectStatus,
     instances.length,

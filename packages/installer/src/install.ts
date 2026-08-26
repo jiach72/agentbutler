@@ -403,6 +403,18 @@ export function buildHostServiceUnits(
     "butler-gateway": unit("butler-gateway", "Agent Butler Gateway", [], [
       "BUTLER_GATEWAY_HOST=127.0.0.1",
       "BUTLER_GATEWAY_PORT=" + DEFAULT_GATEWAY_HOST_PORT,
+      // Gateway 持久消息运行时：配置齐全时自动接入本机 Bridge；Bridge
+      // 暂时离线仍由 Gateway 内部重试，不影响普通控制面启动。
+      "BUTLER_ENABLE_HERMES_MESSAGE_RUNTIME=auto",
+      "BUTLER_HERMES_BRIDGE_URL=http://127.0.0.1:8754",
+      "BUTLER_HERMES_INSTANCE_ID=hermes-main",
+      "BUTLER_HERMES_ROOT=%h/.hermes",
+      "BUTLER_HERMES_BRIDGE_TOKEN_FILE=%h/.hermes/agent-butler/bridge.token",
+      "BUTLER_MESSAGE_PROJECTION_DB=%h/.agent-butler/messages.sqlite",
+      "BUTLER_HERMES_BRIDGE_ALLOW_NON_LOOPBACK=false",
+      "BUTLER_MESSAGE_REQUEST_TIMEOUT_MS=120000",
+      "BUTLER_MESSAGE_POLL_INTERVAL_MS=1000",
+      "BUTLER_MESSAGE_STOP_TIMEOUT_MS=5000",
     ]),
     "butler-watch": unit("butler-watch", "Agent Butler Watch", [
       "After=butler-gateway.service",

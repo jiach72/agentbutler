@@ -88,6 +88,16 @@ describe("SqliteStore", () => {
     expect(store.updateFingerprintStatus("missing", "resolved")).toBe(false);
   });
 
+  it("fingerprints：可按 last_seen 时间窗口过滤", () => {
+    store.upsertFingerprint("recent");
+    const cutoff = new Date(Date.now() + 1_000).toISOString();
+    expect(store.listFingerprints(100, cutoff)).toHaveLength(0);
+
+    store.upsertFingerprint("newer");
+    const since = new Date(Date.now() - 1_000).toISOString();
+    expect(store.listFingerprints(100, since).map((item) => item.signature)).toEqual(["newer", "recent"]);
+  });
+
   it("jobs：按 idempotencyKey/jobId 查询、状态更新、steps 回程", () => {
     store.insertJob({
       jobId: "job-1",

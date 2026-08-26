@@ -534,10 +534,12 @@ export class SqliteStore {
     return this.mapFingerprint(row);
   }
 
-  listFingerprints(limit = 100): FingerprintRow[] {
+  listFingerprints(limit = 100, since?: string): FingerprintRow[] {
     const rows = this.db
-      .prepare("SELECT * FROM fingerprints ORDER BY last_seen DESC LIMIT ?")
-      .all(limit) as Record<string, unknown>[];
+      .prepare(
+        "SELECT * FROM fingerprints WHERE (? IS NULL OR last_seen >= ?) ORDER BY last_seen DESC LIMIT ?",
+      )
+      .all(since ?? null, since ?? null, limit) as Record<string, unknown>[];
     return rows.map((r) => this.mapFingerprint(r));
   }
 

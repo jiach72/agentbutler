@@ -29,8 +29,6 @@ function fakeFetch(handler: (url: string) => Response | Promise<Response>): type
 
 const GITHUB_RELEASES_URL = "https://api.github.com/repos/NousResearch/hermes-agent/releases";
 const DOCKER_TAGS_URL = "https://hub.docker.com/v2/repositories/hermes-agent/hermes/tags";
-const PYPI_URL = "https://pypi.org/pypi/hermes-agent/json";
-
 const releasesBody = [
   {
     tag_name: "v2026.8.19",

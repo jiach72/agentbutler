@@ -294,6 +294,11 @@ describe("buildHostServiceUnits", () => {
     expect(units["butler-web"]).toContain("BUTLER_WEB_PORT=17531");
     expect(units["butler-web"]).toContain("After=butler-gateway.service butler-watch.service");
     expect(units["butler-gateway"]).toContain("BUTLER_GATEWAY_PORT=7532");
+    expect(units["butler-gateway"]).toContain("BUTLER_ENABLE_HERMES_MESSAGE_RUNTIME=auto");
+    expect(units["butler-gateway"]).toContain("BUTLER_HERMES_BRIDGE_URL=http://127.0.0.1:8754");
+    expect(units["butler-gateway"]).toContain("BUTLER_HERMES_BRIDGE_TOKEN_FILE=%h/.hermes/agent-butler/bridge.token");
+    expect(units["butler-gateway"]).toContain("BUTLER_MESSAGE_PROJECTION_DB=%h/.agent-butler/messages.sqlite");
+    expect(units["butler-gateway"]).toContain("BUTLER_MESSAGE_REQUEST_TIMEOUT_MS=120000");
   });
 });
 

@@ -5,6 +5,7 @@ from pathlib import Path
 from agent_butler_bridge.llm_optimizer import (
     LlmConfig,
     _clean_output,
+    _is_structured_prompt,
     should_attempt_llm,
 )
 
@@ -79,6 +80,20 @@ custom_providers:
             _clean_output('```text\n"检查今天杭州的天气"\n```'),
             "检查今天杭州的天气",
         )
+
+    def test_structured_prompt_requires_all_five_sections(self) -> None:
+        valid = "\n".join(
+            [
+                "目标：整理部署问题",
+                "上下文：版本页显示仓库未绑定",
+                "约束：不要臆造运行结果",
+                "验收标准：页面显示真实仓库地址",
+                "下一步：检查版本接口返回",
+            ]
+        )
+        self.assertTrue(_is_structured_prompt(valid))
+        self.assertFalse(_is_structured_prompt("请把这句话说得更清楚"))
+        self.assertFalse(_is_structured_prompt(valid + "\n补充说明：无"))
 
 
 if __name__ == "__main__":

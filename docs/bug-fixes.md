@@ -1,5 +1,14 @@
 # Bug Fixes
 
+## 2026-08-26 · 版本升级、仓库绑定、消息持久化与首页修复闭环
+
+- 问题：版本页在仅返回 `repository` 的旧 Watch 载荷下误显示“仓库未配置”；升级请求超时过短，点击后容易被误认为没有执行；Gateway 宿主 unit 未注入 Hermes Bridge 消息运行时配置，无法保持消息链路持久运行；提示词优化容易退化为泛化润色；首页一键修复在动作尚未完成时直接宣称成功，并把同一通用 Runbook 绑定到所有问题。
+- 风险/影响：用户可能重复点击升级、误判仓库未绑定或消息服务离线；提示词缺少可执行验收标准；首页会对未解决故障给出虚假的“已修复”反馈，降低恢复操作可信度。
+- 改动范围：Web/Versions 将升级超时延长到 120 秒并兼容旧仓库字段，超时后继续查询后台任务；Gateway 宿主 unit 注入 Bridge、token、投影数据库、轮询和超时配置；指纹查询默认限制最近 5 分钟并支持环境变量调整；LLM 优化器强制输出“目标/上下文/约束/验收标准/下一步”五段结构，无法结构化时回退原文；Dashboard 在动作启动后 2 秒和 60 秒复验，只有 `severity=ok` 才提示解决，并在无低风险动作时要求人工确认，移除通用 Runbook 误绑定。
+- 回归测试：新增 `apps/web/tests/dashboard-ui-recovery.test.ts`；更新安装器、Hermes 版本源、Core 指纹窗口和提示词优化测试。完整 Vitest 94 个文件、820 项通过（1 个文件、3 项按既有条件跳过）；Python 提示词专项测试 6 项通过。
+- 验证命令：`corepack pnpm install`；`corepack pnpm exec tsc -b --pretty false`；`corepack pnpm --filter @butler/ui exec vite build`；`corepack pnpm lint`；相关 Vitest；`python -m compileall packages/adapters/hermes/bridge`；`git diff --check`。
+- 部署/运行验证：未执行真实 Hermes 升级、Bridge 外部消息投递或宿主 unit 写入；Windows 上 Python 全量测试仍受既有 POSIX `0600`/HOME 权限差异影响。发布后需在目标环境验证 `/api/butler/version`、升级任务状态、Bridge `/v1/health`、消息投影持续同步及首页复验时间线。
+
 ## 2026-08-25 · Docker 版本页误报仓库未绑定
 
 - 问题：生产 Watch 镜像按设计不包含 `.git`，`/api/butler/version` 却把 Git origin 缺失当成仓库未配置，Versions 页面因此显示“仓库未绑定”。

@@ -351,7 +351,12 @@ function repositoryBadge(butler: ButlerVersionView): { cls: string; label: strin
   if (butler.repositorySource === "git-origin") {
     return { cls: "badge-healthy", label: "仓库已连接" };
   }
-  if (butler.repositorySource === "configured-default" || butler.repositoryConfigured === true) {
+  // 兼容旧 Watch payload：只返回非空 repository 也代表地址已配置。
+  if (
+    butler.repositorySource === "configured-default" ||
+    butler.repositoryConfigured === true ||
+    (typeof butler.repository === "string" && butler.repository.trim() !== "")
+  ) {
     return { cls: "badge-degraded", label: "仓库已配置" };
   }
   return { cls: "badge-down", label: "仓库未配置" };
@@ -733,7 +738,7 @@ export function VersionsPage() {
     if (target.channel !== undefined && target.channel !== "") body.channel = target.channel;
     if (targetInstance !== "") body.instanceId = targetInstance;
 
-    const result = await postJson("/api/upgrade/run", body);
+    const result = await postJson("/api/upgrade/run", body, 120_000);
     if (result.status === 202) {
       const response =
         result.data !== null && typeof result.data === "object"
@@ -754,6 +759,9 @@ export function VersionsPage() {
     } else if (result.status === 409) {
       setManagedUpgradePending(null);
       showToast("err", "已经有升级正在进行，请等它完成后再试");
+    } else if (result.status === 0) {
+      showToast("ok", "请求等待超时，正在继续查询后台升级任务，请不要重复点击");
+      await refresh();
     } else if (result.status === 502) {
       setManagedUpgradePending(null);
       showToast("err", "管家服务暂时连不上，无法发起升级");
@@ -895,7 +903,9 @@ export function VersionsPage() {
                     ? "来自当前源码目录的 Git origin"
                     : butler.repositorySource === "configured-default"
                       ? "容器未挂载 Git 元数据，使用部署配置地址"
-                      : "尚未配置仓库地址"}
+                      : typeof butler.repository === "string" && butler.repository.trim() !== ""
+                        ? "来自旧版管家接口的仓库地址"
+                        : "尚未配置仓库地址"}
                 </small>
               </div>
               <div className="butler-version-fact">
