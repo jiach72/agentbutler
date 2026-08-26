@@ -105,6 +105,8 @@ WSL Hermes 部署请在 WSL shell 使用 `bash scripts/deploy.sh`；该路径包
 
 首次部署前复制并检查 `.env.example` 生成的 `.env`：`BUTLER_FRAMEWORK` 选择 `hermes` 或 `openclaw`；`BUTLER_HERMES_HOST_PATH` / `BUTLER_OPENCLAW_HOST_PATH` 指向宿主机状态目录；UI 默认仅绑定 `127.0.0.1`。通知凭据可选，未配置时提醒仍写入持久化队列。
 
+在 WSL 中使用 `bash scripts/deploy.sh` 时，如果 `BUTLER_HERMES_HOST_PATH` 仍是示例默认值 `./.runtime/hermes`，脚本会自动探测并优先使用当前 Linux 用户的 `~/.hermes`（要求其中存在 `hermes-agent` 目录）。如果 Hermes 安装在其他位置，请在 `.env` 中明确填写该路径；明确配置不会被自动探测覆盖。
+
 ### Hermes 消息连接
 
 要让 Gateway 持续接管 Hermes 消息，先确保宿主 Hermes Bridge 已启动并使用同一份 token。Bridge 保持 loopback 监听 `127.0.0.1:8754`；WSL 原生 Docker 通过转发器接入：

@@ -160,9 +160,15 @@ export function defaultCommandRunner(): CommandExecutor {
  */
 export function apiEndpointOf(config: Awaited<ReturnType<typeof readHermesConfig>>): { host: string; port: number } {
   const port = config?.apiServer.port ?? DEFAULT_API_PORT;
-  const rawHost = config?.apiServer.host;
+  // 容器部署时 Hermes 在宿主机运行，Compose 注入的 API host 必须优先于
+  // Hermes config.yaml 中的 loopback 地址；否则容器会错误探测自己的 127.0.0.1。
+  const rawHost = process.env["BUTLER_HERMES_API_HOST"]?.trim() || config?.apiServer.host;
   const host = !rawHost || rawHost === "0.0.0.0" || rawHost === "::" ? "127.0.0.1" : rawHost;
-  return { host, port };
+  const configuredPort = Number(process.env["BUTLER_HERMES_API_PORT"] ?? "");
+  return {
+    host,
+    port: Number.isInteger(configuredPort) && configuredPort > 0 ? configuredPort : port,
+  };
 }
 
 /** process-alive：pgrep -f 仅匹配实例 rootPath 下的 venv/python 或 hermes-agent；docker 形态 skipped（容器状态覆盖，V1 简化 pgrep）。结论写 shared 供 stall-write 复用。 */
@@ -173,9 +179,18 @@ export function createProcessAliveStage(deps: StageDeps = {}): InspectionStage {
     id: "process-alive",
     label: "进程存活",
     async run(ctx) {
-      if (ctx.runtime === "docker") {
+      const externalHostRuntime =
+        process.env["BUTLER_HERMES_EXTERNAL_RUNTIME"] === "true" ||
+        (process.env["BUTLER_HERMES_API_HOST"] ?? "").trim() === "host.docker.internal";
+      if (ctx.runtime === "docker" || externalHostRuntime) {
         ctx.shared[SHARED_PROCESS_ALIVE] = "skipped";
-        return { id: "process-alive", status: "skipped", detail: "docker 形态跳过进程探测（由容器状态覆盖）" };
+        return {
+          id: "process-alive",
+          status: "skipped",
+          detail: externalHostRuntime
+            ? "Hermes 在宿主机运行，容器内不可见宿主进程；改用 API/Bridge 探活"
+            : "docker 形态跳过进程探测（由容器状态覆盖）",
+        };
       }
       const patterns = [join(ctx.rootPath, "venv", "bin", "python"), join(ctx.rootPath, "hermes-agent")];
       for (const pattern of patterns) {

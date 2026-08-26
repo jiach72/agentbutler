@@ -59,6 +59,14 @@ done
 
 hermes_host_path="${BUTLER_HERMES_HOST_PATH:-$(env_value BUTLER_HERMES_HOST_PATH)}"
 hermes_host_path="${hermes_host_path:-./.runtime/hermes}"
+# WSL 常见安装位置自动探测：.env.example 的相对目录适合无 Hermes 的只读部署，
+# 但 WSL Hermes 通常位于用户家目录。只有仍使用默认相对路径时才自动替换，
+# 明确指定的自定义路径不被覆盖。
+if [[ "$hermes_host_path" == "./.runtime/hermes" && -d "$HOME/.hermes/hermes-agent" ]]; then
+  hermes_host_path="$HOME/.hermes"
+  export BUTLER_HERMES_HOST_PATH="$hermes_host_path"
+  echo "Detected WSL Hermes at $hermes_host_path; using it for Compose mounts."
+fi
 if [[ "$hermes_host_path" != /* ]]; then
   hermes_host_path="$ROOT_DIR/$hermes_host_path"
 fi

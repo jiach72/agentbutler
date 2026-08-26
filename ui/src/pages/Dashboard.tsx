@@ -114,6 +114,20 @@ interface DashboardPayload {
   latestInspections?: InspectionView[];
   fingerprints?: FingerprintView[];
   inspectStatus?: InspectStatusView;
+  messageStatus?: MessageStatusPayload;
+}
+
+interface MessageStatusPayload {
+  reachable: boolean;
+  status?: {
+    bridge: {
+      connected: boolean;
+      running: boolean;
+      attached: boolean;
+      outboxWritable: boolean;
+    };
+    counts?: Record<string, number>;
+  } | null;
 }
 
 interface ConnectionCheckView {
@@ -261,7 +275,17 @@ interface StatusCardView {
 const REFRESH_THROTTLE_MS = 5000;
 
 /** 触发首页刷新的事件类型前缀（与 Task 10 数据面相关的事件族）。 */
-const REFRESH_EVENT_PREFIXES = ["inspection-", "runbook-", "fingerprint-"];
+const REFRESH_EVENT_PREFIXES = [
+  "inspection-",
+  "runbook-",
+  "fingerprint-",
+  "message-",
+  "alert-",
+  "gateway-",
+  "delivery-",
+  "dnd-",
+  "patch-",
+];
 
 /** 常见检查项的通俗名称；未知检查项仍展示原始 id，不编造。 */
 const CHECK_LABELS: Record<string, string> = {
@@ -626,14 +650,20 @@ export function DashboardPage() {
   }, []);
 
   const refreshConnections = useCallback(async () => {
-    const [next, openclaw] = await Promise.all([
+    const [next, openclaw, messageStatus] = await Promise.all([
       fetchJson<ConnectionsPayload>("/api/connections", 8_000),
       fetchJson<OpenClawStatusView>("/api/openclaw/status", 8_000),
+      fetchJson<MessageStatusPayload>("/api/messages/status", 8_000),
     ]);
     if (next !== null) setConnections(next);
     if (openclaw !== null) {
       setOpenClawStatus(openclaw);
       if (openclaw.job !== undefined) setOpenClawInstallJob(openclaw.job ?? null);
+    }
+    if (messageStatus !== null) {
+      setDashboard((current) =>
+        current === null ? current : { ...current, messageStatus },
+      );
     }
   }, []);
 
@@ -901,6 +931,15 @@ export function DashboardPage() {
   const degradedInstanceCount = latestInspections.filter(
     (item) => item.overall === "degraded",
   ).length;
+  const messageStatus = dashboard?.messageStatus;
+  const messageBridge = messageStatus?.status?.bridge ?? null;
+  const messageConnected =
+    messageStatus?.reachable === true &&
+    messageBridge?.connected === true &&
+    messageBridge.attached === true &&
+    messageBridge.outboxWritable === true;
+  const messageStatusKnown = dashboard?.messageStatus !== undefined;
+  const pendingMessageAlerts = undeliveredCriticalCount + failedAlertCount;
 
   const hero = useMemo(() => {
     if (dashboard === null) {
@@ -1059,37 +1098,30 @@ export function DashboardPage() {
       },
       {
         id: "gateway",
-        tone:
-          alerts === null
-            ? "idle"
-            : !alerts.reachable || undeliveredCriticalCount > 0 || failedAlertCount > 0
-              ? "error"
-              : deliveredCriticalCount > 0
-                ? "warn"
-                : "ok",
+        tone: !messageStatusKnown
+          ? "idle"
+          : messageConnected
+            ? pendingMessageAlerts > 0 || deliveredCriticalCount > 0
+              ? "warn"
+              : "ok"
+            : "error",
         label: "消息通知",
-        value:
-          alerts === null
-            ? "读取中"
-            : !alerts.reachable || undeliveredCriticalCount > 0 || failedAlertCount > 0
-              ? "离线"
-              : "正常",
-        detail:
-          alerts === null
-            ? "正在读取通知通道"
-            : !alerts.reachable
-              ? "提醒会保留在面板，不会丢"
-              : undeliveredCriticalCount > 0
-                ? `有 ${undeliveredCriticalCount} 条紧急提醒没送到`
+        value: !messageStatusKnown ? "读取中" : messageConnected ? "在线" : "离线",
+        detail: !messageStatusKnown
+          ? "正在读取消息接管状态"
+          : !messageConnected
+            ? "消息接管暂时未连接，提醒会保留在面板"
+            : undeliveredCriticalCount > 0
+              ? `有 ${undeliveredCriticalCount} 条紧急提醒没送到`
               : failedAlertCount > 0
                 ? `${failedAlertCount} 条提醒发送失败`
                 : deliveredCriticalCount > 0
                   ? `有 ${deliveredCriticalCount} 条紧急提醒已送到`
-                : "通知通道正常",
+                  : "消息接管通道正常",
         action:
-          alerts === null
+          !messageStatusKnown
             ? undefined
-            : !alerts.reachable || undeliveredCriticalCount > 0 || failedAlertCount > 0
+            : !messageConnected || pendingMessageAlerts > 0
               ? { label: "去处理", kind: "link", to: "/gateway" }
               : deliveredCriticalCount > 0
                 ? { label: "去看看", kind: "link", to: "/gateway" }
@@ -1123,7 +1155,6 @@ export function DashboardPage() {
       },
     ];
   }, [
-    alerts,
     attentionCount,
     degradedInstanceCount,
     deliveredCriticalCount,
@@ -1135,6 +1166,9 @@ export function DashboardPage() {
     inspectStatus,
     instances.length,
     undeliveredCriticalCount,
+    messageConnected,
+    messageStatusKnown,
+    pendingMessageAlerts,
   ]);
 
   if (!initialLoad.finished) {

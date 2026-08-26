@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createMemoryProbeStage,
   MEMORY_PROBE_CATEGORY,
@@ -203,5 +203,20 @@ describe("memory-probe（记忆写入召回）", () => {
     const result = await createMemoryProbeStage({ now: () => NOW }).run(ctxOf());
     expect(result.status).toBe("skipped");
     expect(result.detail).toContain("不存在");
+  });
+
+  it("只读挂载 → skipped，避免写入探针误报故障", async () => {
+    vi.stubEnv("BUTLER_HERMES_READ_ONLY", "true");
+    const result = await createMemoryProbeStage({
+      open: () => {
+        throw new Error("should not open read-only database");
+      },
+      now: () => NOW,
+    }).run(ctxOf());
+    expect(result).toMatchObject({
+      status: "skipped",
+      detail: "Hermes 数据目录以只读方式挂载，跳过写入型记忆探针",
+    });
+    vi.unstubAllEnvs();
   });
 });

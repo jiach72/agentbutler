@@ -155,6 +155,61 @@ describe("butler-web 服务（fastify inject）", () => {
     });
   });
 
+  it("/api/messages/status：Bridge 在线时独立返回在线状态，不受历史告警影响", async () => {
+    const status = {
+      bridge: {
+        connected: true,
+        running: true,
+        inFlight: false,
+        attached: true,
+        outboxWritable: true,
+        protocolVersion: 1,
+        bridgeVersion: "0.1.0",
+        instanceId: "hermes-main",
+        policyVersion: "message-policy-v1",
+        policyHash: "hash",
+        remotePolicyVersion: "message-policy-v1",
+        channels: { weixin: "ok" },
+        coverage: { runtime: "ok" },
+        startedAt: "2026-08-26T00:00:00.000Z",
+        lastCycleAt: "2026-08-26T00:01:00.000Z",
+        lastError: null,
+      },
+      counts: {
+        captured: 0,
+        policy_pending: 0,
+        held_dnd: 0,
+        held_pacing: 0,
+        ready: 0,
+        delivering: 0,
+        retry_wait: 0,
+        delivered: 0,
+        delivery_unknown: 0,
+        absorbed: 0,
+        policy_error: 0,
+        dead_letter: 0,
+        cancelled: 0,
+      },
+    };
+    const app = createWebServer({
+      home: tmp,
+      gatewayUrl: "http://gateway.test:7532",
+      uiDist,
+      fetchImpl: (async (input) => {
+        expect(String(input)).toBe("http://gateway.test:7532/api/messages/status");
+        return new Response(JSON.stringify(status), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }) as typeof fetch,
+    });
+    apps.push(app);
+
+    const res = await app.inject({ method: "GET", url: "/api/messages/status" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ reachable: true, status });
+  });
+
   it("/api/connections：通过 web 代理 watch 连接路由，不再落到 web 404", async () => {
     const app = createWebServer({
       home: tmp,

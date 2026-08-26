@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CommandResult } from "@butler/adapter-hermes";
 import {
   apiEndpointOf,
@@ -177,6 +177,22 @@ describe("process-alive 阶段", () => {
     expect(outcome.status).toBe("skipped");
     expect(called).toBe(false);
   });
+
+  it("Hermes 在宿主机运行 → skipped 且不在容器内执行 pgrep", async () => {
+    vi.stubEnv("BUTLER_HERMES_EXTERNAL_RUNTIME", "true");
+    let called = false;
+    const exec = async (): Promise<CommandResult> => {
+      called = true;
+      return { code: 0, stdout: "1\n", stderr: "" };
+    };
+    const outcome = await createProcessAliveStage({ exec: { exec, spawnDetached: () => {} } }).run(makeCtx());
+    expect(outcome).toMatchObject({
+      status: "skipped",
+      detail: "Hermes 在宿主机运行，容器内不可见宿主进程；改用 API/Bridge 探活",
+    });
+    expect(called).toBe(false);
+    vi.unstubAllEnvs();
+  });
 });
 
 describe("api-connectivity 阶段", () => {
@@ -296,5 +312,15 @@ describe("apiEndpointOf", () => {
       host: "127.0.0.1",
       port: 9000,
     });
+  });
+
+  it("Compose 注入宿主机 API 地址和端口时优先于 Hermes config", () => {
+    vi.stubEnv("BUTLER_HERMES_API_HOST", "host.docker.internal");
+    vi.stubEnv("BUTLER_HERMES_API_PORT", "18642");
+    expect(apiEndpointOf({ apiServer: { host: "127.0.0.1", port: 8642, key: null }, weixinExtra: null, hasDashboard: false })).toEqual({
+      host: "host.docker.internal",
+      port: 18642,
+    });
+    vi.unstubAllEnvs();
   });
 });

@@ -906,3 +906,39 @@
 - 回归测试：`packages/adapters/hermes/tests/version-source.test.ts`、`apps/watch/tests/upgrade.test.ts` 定向测试 29 项通过；`corepack pnpm exec tsc -b --pretty false`；`corepack pnpm --filter @butler/ui exec vite build`。
 - 验证命令：上述定向 Vitest、TypeScript 构建、Vite 构建；发布前继续执行全量 Vitest、`git diff --check`、版本一致性检查。
 - 部署/运行验证：未在 Ubuntu-24.04 WSL 中执行真实 npm 安装或 Gateway 启动；未停止现有服务。部署后必须验证 `/api/runtime`、`/api/upgrade/versions`、`/api/openclaw/status`、`/api/openclaw/install/status` 和 `/ws`，并记录真实安装日志与健康复验结果。
+
+## 2026-08-26 · WSL 原生 Docker 的 Windows 浏览器访问
+
+- 问题：在 WSL 原生 Docker 引擎中使用默认 `BUTLER_WEB_PUBLISH_HOST=127.0.0.1` 时，Web 容器虽已健康，WSL 内请求正常，但 Windows 浏览器访问 `127.0.0.1:7531` 会被重置。
+- 风险/影响：用户误以为部署失败，无法从 Windows 浏览器打开控制台。
+- 改动范围：本机忽略配置 `.env` 将 `BUTLER_WEB_PUBLISH_HOST` 设为 `0.0.0.0`，未修改源码或 `.env.example` 的安全默认值。
+- 回归测试：WSL 内 `curl http://127.0.0.1:7531/api/health` 返回 200；Windows `curl.exe http://127.0.0.1:7531/api/health` 返回 200；三个 Compose 服务均为 healthy。
+- 验证命令：`docker compose ps`；`curl http://127.0.0.1:7531/api/health`；`curl.exe http://127.0.0.1:7531/api/health`；`git diff --check`。
+- 部署/运行验证：已在 Ubuntu-24.04 WSL 中重建 Web 容器并确认 Windows 侧可访问 `http://127.0.0.1:7531`。
+
+## 2026-08-26 · WSL Hermes 根目录挂载路径
+
+- 问题：`.env` 将 `BUTLER_HERMES_HOST_PATH` 保留为项目相对目录 `./.runtime/hermes`，而实际 Hermes 安装位于 WSL `/home/jiach/.hermes`；Watch 因此报告缺少 `hermes-agent` 与 venv，Gateway 消息面显示离线。
+- 风险/影响：Hermes 版本识别、升级检查、Bridge token 挂载和消息接管均无法正常工作。
+- 改动范围：本机忽略配置 `.env` 改为 `BUTLER_HERMES_HOST_PATH=/home/jiach/.hermes`，并配置现有 WSL Bridge 转发器 `http://host.docker.internal:8755` 与非回环访问许可；未修改源码或 `.env.example`。
+- 回归测试：`/api/versions` 识别 Hermes `0.20.4`；Gateway `/api/messages/status` 返回 `connected=true`、`attached=true`、`outboxWritable=true`；三个 Compose 服务均 healthy。
+- 验证命令：`docker compose up -d --force-recreate butler-gateway butler-watch`；`curl http://127.0.0.1:7531/api/versions`；Gateway 容器内 Hermes Bridge 健康检查。
+- 部署/运行验证：已在 Ubuntu-24.04 WSL 中重建 Gateway/Watch，确认真实 Hermes `/home/jiach/.hermes`、token 和 8755 转发链路均可用。
+
+## 2026-08-26 · 首页消息网关状态与 WSL 路径可移植性
+
+- 问题：首页把“历史未送达告警”与“消息 Bridge 是否在线”混为一个状态，因此 Bridge 已连接时仍显示“消息通知离线”；首页大盘也没有单独高频刷新 Bridge 状态。新用户在 WSL 使用示例默认路径时，还可能把真实 `~/.hermes` 误当成项目相对目录。
+- 风险/影响：用户误判消息接管已中断；其他 WSL 用户首次部署可能因绝对路径差异遇到同样的 Hermes 缺失提示。
+- 改动范围：新增 Web `/api/messages/status` 轻量代理；首页聚合并每 2 秒更新 Bridge 状态，扩大事件流刷新范围；消息卡片将在线状态与未送达告警分开显示；`scripts/deploy.sh` 在默认相对路径下自动探测 `$HOME/.hermes`，README 与 `.env.example` 补充行为说明。
+- 回归测试：`apps/web/tests/server.test.ts` 新增 Bridge 在线状态代理测试；`apps/web/tests/server.test.ts` 与 `apps/web/tests/dashboard.test.ts` 共 16 项通过；TypeScript 构建和 Docker 内 Vite 构建通过。全量 `pnpm test` 通过 820 项，另有既有 Windows 临时目录清理测试 `apps/watch/tests/watch.test.ts` 因 `EPERM` 超时失败，与本次改动无关。
+- 验证命令：`corepack pnpm exec vitest run apps/web/tests/server.test.ts apps/web/tests/dashboard.test.ts --maxWorkers=1`；`corepack pnpm exec tsc -b --pretty false`；`git diff --check`；WSL `curl http://127.0.0.1:7531/api/messages/status` 返回 `reachable=true`、`connected=true`、`attached=true`、`outboxWritable=true`。
+- 部署/运行验证：已重建 Web 容器并确认 `/api/dashboard` 携带在线消息状态；历史 pending 告警仍独立保留为待处理，不再伪装成网关离线。
+
+## 2026-08-26 · WSL 宿主 Hermes 巡检误报
+
+- 问题：Watch 运行在 Docker 容器、Hermes 运行在 WSL 宿主机时，巡检仍用容器内 `127.0.0.1:8642` 和 `pgrep` 查找宿主进程；Hermes 数据目录又以只读方式挂载，写入型记忆探针会失败，首页因此显示 `AI 助手 0/1 正常`。
+- 风险/影响：真实 Hermes/API/Bridge 在线时被误判为离线或故障，用户无法信任首页健康状态；只读部署还可能反复产生无效告警。
+- 改动范围：`apps/watch/src/pipeline.ts` 优先使用 `BUTLER_HERMES_API_HOST/PORT`，宿主运行时跳过容器内进程探测；`apps/watch/src/probes/memory-probe.ts` 在 `BUTLER_HERMES_READ_ONLY=true` 时跳过写入探针；`docker-compose.yml` 为 Watch 注入宿主运行和只读标记。
+- 回归测试：新增宿主 API 地址优先、宿主进程跳过、只读记忆探针跳过测试；Watch 定向测试 35/35 通过。
+- 验证命令：`corepack pnpm exec vitest run apps/watch/tests/pipeline.test.ts apps/watch/tests/memory-probe.test.ts --maxWorkers=1`；`corepack pnpm exec tsc -b --pretty false`；`git diff --check`。
+- 部署/运行验证：重建 `butler-watch` 后调用 `POST http://127.0.0.1:7531/api/inspect/run`，`/api/dashboard` 返回 `overall=healthy`；`process-alive=skipped`、`api-connectivity=pass (host.docker.internal:8642)`、`memory-probe=skipped`、`channel-probe=pass`。三个 Compose 服务均 healthy。

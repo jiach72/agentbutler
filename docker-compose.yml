@@ -63,6 +63,8 @@ services:
       BUTLER_GATEWAY_URL: http://butler-gateway:7532
       BUTLER_AUTO_START: ${BUTLER_AUTO_START:-true}
       BUTLER_HERMES_ROOT: /home/butler/hermes
+      BUTLER_HERMES_EXTERNAL_RUNTIME: "true"
+      BUTLER_HERMES_READ_ONLY: "true"
       HERMES_ROOT: /home/butler/hermes
       BUTLER_OPENCLAW_ROOT: /home/butler/openclaw
       OPENCLAW_HOME: /home/butler/openclaw

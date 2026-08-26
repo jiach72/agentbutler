@@ -115,6 +115,13 @@ export function createMemoryProbeStage(deps: MemoryProbeDeps = {}): InspectionSt
     id: MEMORY_PROBE_CHECK_ID,
     label: "记忆写入召回",
     async run(ctx) {
+      if (process.env["BUTLER_HERMES_READ_ONLY"] === "true") {
+        return {
+          id: MEMORY_PROBE_CHECK_ID,
+          status: "skipped",
+          detail: "Hermes 数据目录以只读方式挂载，跳过写入型记忆探针",
+        };
+      }
       const dbPath = join(ctx.rootPath, "memory_store.db");
       if (!existsSync(dbPath)) {
         return { id: MEMORY_PROBE_CHECK_ID, status: "skipped", detail: "memory_store.db 不存在，记忆探针无对象" };

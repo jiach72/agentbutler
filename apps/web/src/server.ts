@@ -1399,6 +1399,18 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   // 告警代理：网关不可达/响应异常一律 200 + 降级载荷（面板显示"告警通道不可达"黄条）。
   app.get("/api/alerts", async () => alertsFromGateway());
 
+  // 消息网关状态轻量代理：首页高频轮询此接口，避免把历史未送达告警误判成 Bridge 离线。
+  app.get("/api/messages/status", async () => {
+    const response = await fetchGateway("/api/messages/status");
+    if (response === null || !response.ok) return { reachable: false, status: null };
+    try {
+      const status = parseMessageStatus(await response.json());
+      return { reachable: status !== null, status };
+    } catch {
+      return { reachable: false, status: null };
+    }
+  });
+
   /* ---------------------- watch 控制通道代理（Task 10） ---------------------- */
 
   /** GET watch 控制通道；不可达/超时返回 null（调用方走各自降级策略）。 */
@@ -2296,7 +2308,7 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
 
   /* --------------------------- 大盘聚合（Task 10） --------------------------- */
 
-  // 一次取齐面板首页数据（实例 + 每实例最新巡检 + 指纹 + 巡检控制状态），
+  // 一次取齐面板首页数据（实例 + 每实例最新巡检 + 指纹 + 巡检控制状态 + 消息网关状态），
   // 减少前端多次往返；db 不可达时对应字段为空数组并附 degraded 标记。
   app.get("/api/dashboard", async () => {
     const instances: InstanceApiView[] = store === null ? [] : toInstanceViews(store);
@@ -2314,12 +2326,27 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
       store === null
         ? []
         : store.listFingerprints(10, new Date(Date.now() - fingerprintWindowMs).toISOString());
-    const inspectStatus = await inspectStatusFromWatch();
+    const [inspectStatus, messageStatusResponse] = await Promise.all([
+      inspectStatusFromWatch(),
+      fetchGateway("/api/messages/status"),
+    ]);
+    let messageStatus: MessageStatusView | null = null;
+    if (messageStatusResponse?.ok === true) {
+      try {
+        messageStatus = parseMessageStatus(await messageStatusResponse.json());
+      } catch {
+        messageStatus = null;
+      }
+    }
     return {
       instances,
       latestInspections,
       fingerprints,
       inspectStatus,
+      messageStatus: {
+        reachable: messageStatus !== null,
+        status: messageStatus,
+      },
       ...(store === null ? { degraded: ["db:unreachable"] } : {}),
     };
   });
