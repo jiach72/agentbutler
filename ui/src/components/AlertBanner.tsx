@@ -35,7 +35,7 @@ export function AlertBanner() {
 
   const parts: string[] = [];
   if (hasError) {
-    if (!alerts.reachable) parts.push("通知服务暂时连不上，提醒不会丢");
+    if (!alerts.reachable) parts.push("通知服务暂时连不上，提醒记录已保留");
     if (undeliveredCritical.length > 0) parts.push(`${undeliveredCritical.length} 条紧急提醒还没送到`);
     if (failedCount > 0) parts.push(`${failedCount} 条提醒发送失败`);
     if (parts.length === 0) parts.push("有提醒需要处理");

@@ -108,30 +108,30 @@ export const paperPalette: ButlerPalette = {
 
 /** 墨青夜灯：石墨墨蓝底 + 暖白文字 + 青瓷交互，语义色整体提亮保证对比度。 */
 export const nightPalette: ButlerPalette = {
-  bg: "#14181d",
-  surface: "#1b2128",
-  surfaceSubtle: "#1f262e",
-  sunken: "#10141a",
-  raised: "#232b33",
-  ink: "#e9e6de",
-  inkSoft: "#c9c6bc",
-  inkFaint: "#767f78",
-  muted: "#96a09b",
-  rule: "#2b3540",
-  accent: "#4aa89d",
-  accentSoft: "#1d2e2c",
-  cinnabar: "#e07a6b",
-  cinnabarSoft: "#33211e",
-  teal: "#56b3a8",
-  tealSoft: "#16302c",
-  ok: "#5cb385",
-  okSoft: "#17281f",
-  warn: "#d99a3d",
-  warnSoft: "#2e2415",
-  error: "#e0685a",
-  errorSoft: "#32201d",
-  shadow: "0 1px 2px rgb(0 0 0 / 40%), 0 2px 8px rgb(0 0 0 / 30%)",
-  focusRing: "0 0 0 3px rgb(74 168 157 / 30%)",
+  bg: "#0f1418",
+  surface: "#171e24",
+  surfaceSubtle: "#1d262d",
+  sunken: "#0b1014",
+  raised: "#222c33",
+  ink: "#f1efe8",
+  inkSoft: "#d2d7d3",
+  inkFaint: "#8d9995",
+  muted: "#a2ada8",
+  rule: "#2e3b43",
+  accent: "#62c7ba",
+  accentSoft: "#173a37",
+  cinnabar: "#ef8a76",
+  cinnabarSoft: "#3b2422",
+  teal: "#6acfc1",
+  tealSoft: "#153c38",
+  ok: "#76c99b",
+  okSoft: "#173527",
+  warn: "#e7b35b",
+  warnSoft: "#3b2d17",
+  error: "#ef8174",
+  errorSoft: "#3b2523",
+  shadow: "0 1px 2px rgb(0 0 0 / 50%), 0 12px 32px rgb(0 0 0 / 24%)",
+  focusRing: "0 0 0 3px rgb(98 199 186 / 34%)",
 };
 
 export const radius = {
@@ -210,6 +210,7 @@ const paletteVars = (p: ButlerPalette): Record<string, string> => ({
   // 兼容历史命别名（text-muted 与 muted 同源），样式迁移期保留。
   "--butler-text-muted": p.muted,
   "--butler-shadow": p.shadow,
+  "--butler-surface-strong": p.raised,
 });
 
 /**

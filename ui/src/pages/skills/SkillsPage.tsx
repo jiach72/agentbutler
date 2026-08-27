@@ -26,7 +26,7 @@ export function SkillsPage() {
   const [mainState, setMainState] = useState<FetchState<SkillsPayload>>({ status: "loading" });
   // 最近一次完整数据：检索期间/失败时记忆面板仍显示它，不再伪装成空态。
   const [lastGood, setLastGood] = useState<SkillsPayload | null>(null);
-  const [libraryTab, setLibraryTab] = useState<"skills" | "plugins">("skills");
+  const [activeTab, setActiveTab] = useState<"skills" | "plugins" | "memory">("skills");
   const [activeKeyword, setActiveKeyword] = useState("");
   const [memoryPreview, setMemoryPreview] = useState<MemoryPreview>({ status: "default" });
   const [backupBusy, setBackupBusy] = useState(false);
@@ -133,7 +133,7 @@ export function SkillsPage() {
         <div>
           <span className="skills-eyebrow">只读查看</span>
           <h1>技能与记忆</h1>
-          <p>查看 AI 学会的东西和记住的事；当前版本只读，不会改动技能或删除记忆。</p>
+          <p>查看已安装技能、插件及本机记忆。当前版本仅支持只读查看，不提供修改或删除操作。</p>
         </div>
         <div className="skills-header-status">
           <ConnectionChip
@@ -149,89 +149,124 @@ export function SkillsPage() {
         </div>
       </header>
 
-      <div className="skills-workspace">
-        <section className="skills-pane skills-library">
-          <Tabs
-            className="skills-library-tabs"
-            activeKey={libraryTab}
-            onChange={(key) => setLibraryTab(key === "plugins" ? "plugins" : "skills")}
-            items={[
-              { key: "skills", label: `技能库 ${formatNumber(libraryData?.skills.total ?? 0)}` },
-              { key: "plugins", label: `插件库 ${formatNumber(libraryData?.plugins.total ?? 0)}` },
-            ]}
-          />
-
-          {mainState.status === "loading" && (
-            <>
-              <div className="skills-driver-note">
-                <strong>{modeLabel("unavailable")}</strong>
-                <span>{libraryTab === "skills" ? "正在读取技能状态" : "正在读取插件状态"}</span>
-              </div>
-              <div className="skills-list" aria-busy>
-                <div className="skills-empty">
-                  <Spin />
-                  <p>正在读取技能清单…</p>
-                </div>
-              </div>
-            </>
-          )}
-
-          {mainState.status === "failed" && (
-            <DegradedBanner
-              severity="warn"
-              message="这一项暂时读不到"
-              description={mainState.reason}
-              action={
-                <button type="button" className="btn btn-small" onClick={() => void loadLibrary()}>
-                  重试
-                </button>
-              }
-            />
-          )}
-
-          {libraryTab === "skills" && mainState.status === "ready" && (
-            <SkillLibrary skills={mainState.data.skills} />
-          )}
-
-          {libraryTab === "plugins" && mainState.status === "ready" && (
-            <div className="plugin-section">
-              <div className="skills-section-head plugin-section-head">
-                <div>
-                  <span className="skills-kicker">插件库</span>
-                  <h2>{formatNumber(mainState.data.plugins.total)} 个插件</h2>
-                </div>
-                <span className={`skills-mode is-${mainState.data.plugins.mode}`}>
-                  {modeLabel(mainState.data.plugins.mode)}
-                </span>
-              </div>
-              <div className="skills-driver-note">
-                <strong>{modeLabel(mainState.data.plugins.mode)}</strong>
-                <span>{mainState.data.plugins.notice}</span>
-              </div>
-              {mainState.data.plugins.mode === "directory-fallback" && (
-                <DirectoryFallback directory={mainState.data.plugins.directory} />
-              )}
-              <PluginLibrary plugins={mainState.data.plugins} />
-            </div>
-          )}
-        </section>
-
-        <section className="skills-pane memory-library">
-          <MemoryPanel
-            data={lastGood}
-            searching={searching}
-            searchError={searchError}
-            activeKeyword={activeKeyword}
-            refreshing={refreshing}
-            selfCheck={selfCheck}
-            backupBusy={backupBusy}
-            onSearch={(keyword) => void runMemorySearch(keyword)}
-            onRefresh={refreshMemoryView}
-            onSelfCheck={() => void runSelfCheck()}
-            onBackup={() => void runMemoryBackup()}
-          />
-        </section>
-      </div>
+      <section className="skills-pane skills-tab-surface">
+        <Tabs
+          className="skills-content-tabs"
+          activeKey={activeTab}
+          onChange={(key) => setActiveTab(key === "plugins" || key === "memory" ? key : "skills")}
+          items={[
+            {
+              key: "skills",
+              label: `技能库 ${formatNumber(libraryData?.skills.total ?? 0)}`,
+              children: (
+                <>
+                  {mainState.status === "loading" && (
+                    <>
+                      <div className="skills-driver-note">
+                        <strong>{modeLabel("unavailable")}</strong>
+                        <span>正在读取技能状态</span>
+                      </div>
+                      <div className="skills-list" aria-busy>
+                        <div className="skills-empty">
+                          <Spin />
+                          <p>正在读取技能清单…</p>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                  {mainState.status === "failed" && (
+                    <DegradedBanner
+                      severity="warn"
+                      message="这一项暂时读不到"
+                      description={mainState.reason}
+                      action={
+                        <button type="button" className="btn btn-small" onClick={() => void loadLibrary()}>
+                          重试
+                        </button>
+                      }
+                    />
+                  )}
+                  {mainState.status === "ready" && <SkillLibrary skills={mainState.data.skills} />}
+                </>
+              ),
+            },
+            {
+              key: "plugins",
+              label: `插件库 ${formatNumber(libraryData?.plugins.total ?? 0)}`,
+              children: (
+                <>
+                  {mainState.status === "loading" && (
+                    <>
+                      <div className="skills-driver-note">
+                        <strong>{modeLabel("unavailable")}</strong>
+                        <span>正在读取插件状态</span>
+                      </div>
+                      <div className="skills-list" aria-busy>
+                        <div className="skills-empty">
+                          <Spin />
+                          <p>正在读取插件清单…</p>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                  {mainState.status === "failed" && (
+                    <DegradedBanner
+                      severity="warn"
+                      message="这一项暂时读不到"
+                      description={mainState.reason}
+                      action={
+                        <button type="button" className="btn btn-small" onClick={() => void loadLibrary()}>
+                          重试
+                        </button>
+                      }
+                    />
+                  )}
+                  {mainState.status === "ready" && (
+                    <div className="plugin-section">
+                      <div className="skills-section-head plugin-section-head">
+                        <div>
+                          <span className="skills-kicker">插件库</span>
+                          <h2>{formatNumber(mainState.data.plugins.total)} 个插件</h2>
+                        </div>
+                        <span className={`skills-mode is-${mainState.data.plugins.mode}`}>
+                          {modeLabel(mainState.data.plugins.mode)}
+                        </span>
+                      </div>
+                      <div className="skills-driver-note">
+                        <strong>{modeLabel(mainState.data.plugins.mode)}</strong>
+                        <span>{mainState.data.plugins.notice}</span>
+                      </div>
+                      {mainState.data.plugins.mode === "directory-fallback" && (
+                        <DirectoryFallback directory={mainState.data.plugins.directory} />
+                      )}
+                      <PluginLibrary plugins={mainState.data.plugins} />
+                    </div>
+                  )}
+                </>
+              ),
+            },
+            {
+              key: "memory",
+              label: "记忆库",
+              children: (
+                <MemoryPanel
+                  data={lastGood}
+                  searching={searching}
+                  searchError={searchError}
+                  activeKeyword={activeKeyword}
+                  refreshing={refreshing}
+                  selfCheck={selfCheck}
+                  backupBusy={backupBusy}
+                  onSearch={(keyword) => void runMemorySearch(keyword)}
+                  onRefresh={refreshMemoryView}
+                  onSelfCheck={() => void runSelfCheck()}
+                  onBackup={() => void runMemoryBackup()}
+                />
+              ),
+            },
+          ]}
+        />
+      </section>
     </section>
   );
 }

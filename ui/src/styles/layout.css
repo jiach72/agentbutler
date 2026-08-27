@@ -1,9 +1,20 @@
 .sidebar-desktop {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
   width: 276px;
   background: var(--butler-surface) !important;
   border-right: 1px solid var(--butler-rule) !important;
   box-shadow: var(--butler-shadow) !important;
   transition: width var(--butler-dur-base) var(--butler-ease), background-color var(--butler-dur-base) var(--butler-ease);
+}
+
+.sidebar-desktop .sidebar-bottom {
+  margin-top: auto;
+}
+
+.sidebar-desktop .sidebar-bottom .sidebar-meta {
+  margin-top: 0;
 }
 
 .sidebar-mobile { width: 100%; min-height: 100%; height: auto; padding: 4px 0; background: transparent; position: static; overflow: visible; border: 0; box-shadow: none; }

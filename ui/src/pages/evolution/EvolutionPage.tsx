@@ -228,9 +228,9 @@ export function EvolutionPage() {
     <section className="page evolution-page">
       <header className="evolution-header">
         <div>
-          <span className="evolution-eyebrow">自我进化安全锁</span>
-          <h1>给 AI 的自我改进装上安全锁</h1>
-          <p>让 AI 自己变聪明之前，先检查、备份、记录结果；正式采用只接受服务端受信评估。</p>
+          <span className="evolution-eyebrow">改进安全控制</span>
+          <h1>AI 改进流程与发布控制</h1>
+          <p>运行前完成检查与备份，记录评估结果后才允许采用改进。</p>
         </div>
         <ConnectionChip
           reachable={data?.watchReachable}

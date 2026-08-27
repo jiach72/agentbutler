@@ -3,7 +3,7 @@
  * 30 秒轻量轮询让备份/审计在管家自动动作后出现；危险操作统一走确认弹窗。
  */
 import { useCallback, useEffect, useState } from "react";
-import { App } from "antd";
+import { App, Tabs } from "antd";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
 import { loadJson, postJson, type LoadResult } from "../../lib/api.js";
 import { usePolling } from "../../hooks/usePolling.js";
@@ -29,12 +29,14 @@ import {
 } from "./helpers.js";
 import { DiagnosticsCenter } from "./DiagnosticsCenter.js";
 import { SecurityBaseline } from "./SecurityBaseline.js";
+import { PreferencesPanel } from "../preferences/PreferencesPage.js";
 
 export function SettingsPage() {
   const { message } = App.useApp();
   const [sources, setSources] = useState(createInitialSources);
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<SettingsConfirmAction | null>(null);
+  const [activeTab, setActiveTab] = useState("security");
 
   const applyResult = useCallback((key: SettingsSourceKey, result: LoadResult<unknown>) => {
     setSources((prev) =>
@@ -186,10 +188,10 @@ export function SettingsPage() {
     <section className="page product-page settings-page">
       <header className="page-heading product-heading">
         <div>
-          <span className="product-eyebrow">安全设置</span>
-          <h1>安全与设置</h1>
+          <span className="product-eyebrow">应用设置</span>
+          <h1>设置</h1>
           <p className="hint">
-            查看本机安全状态、告警方式和备份情况；未完成的能力会明确标注，不让你误以为已开启。
+            管理本机安全、备份与还原、诊断报告，以及界面和通知偏好。
           </p>
         </div>
         <span className={`page-live ${securityOnline ? "is-online" : "is-offline"}`}>
@@ -198,54 +200,80 @@ export function SettingsPage() {
         </span>
       </header>
 
-      {sources.baseline.status === "ready" && sources.baseline.data.warnings.length > 0 && (
-        <div className="settings-risk" role="status">
-          <strong>当前风险提示</strong>
-          <span>{sources.baseline.data.warnings.join("；")}</span>
-        </div>
-      )}
-
-      <div className="settings-grid">
-        <section className="settings-column card">
-          <SecurityBaseline
-            baseline={sources.baseline}
-            alerts={sources.alerts}
-            runbooks={sources.runbooks}
-            security={sources.security}
-            audit={sources.audit}
-            backups={sources.backups}
-            busy={busy}
-            onRetry={retrySource}
-            onRequestReset={requestResetBreaker}
-          />
-        </section>
-
-        <section className="settings-column card">
-          <div className="settings-tools-row">
-            <div className="backup-tool-panel">
-              <BackupCenter
-                backups={sources.backups}
-                butlerSelf={sources.butlerSelf}
-                busy={busy}
-                onRetry={retrySource}
-                onRunBackup={onRunBackup}
-                onRequestRestore={onRequestRestore}
-              />
-            </div>
-            <DiagnosticsCenter actionBusy={busy !== null} />
-          </div>
-
-          <AuditLog audit={sources.audit} onRetry={() => retrySource("audit")} />
-
-          <div className="settings-boundary">
-            <span>目前能做到</span>
-            <p>
-              本页展示的是真实的安全状态、备份和操作记录；完整密钥库和 26
-              条配置规则会在后续版本补上，不会提前显示成已开启。
-            </p>
-          </div>
-        </section>
-      </div>
+      <Tabs
+        className="settings-tabs"
+        activeKey={activeTab}
+        onChange={setActiveTab}
+        items={[
+          {
+            key: "security",
+            label: "本机安全",
+            children: (
+              <section className="settings-tab-panel">
+                {sources.baseline.status === "ready" && sources.baseline.data.warnings.length > 0 && (
+                  <div className="settings-risk" role="status">
+                    <strong>当前风险提示</strong>
+                    <span>{sources.baseline.data.warnings.join("；")}</span>
+                  </div>
+                )}
+                <SecurityBaseline
+                  baseline={sources.baseline}
+                  alerts={sources.alerts}
+                  runbooks={sources.runbooks}
+                  security={sources.security}
+                  audit={sources.audit}
+                  backups={sources.backups}
+                  busy={busy}
+                  onRetry={retrySource}
+                  onRequestReset={requestResetBreaker}
+                />
+              </section>
+            ),
+          },
+          {
+            key: "backups",
+            label: "备份与还原",
+            children: (
+              <section className="settings-tab-panel">
+                <BackupCenter
+                  backups={sources.backups}
+                  butlerSelf={sources.butlerSelf}
+                  busy={busy}
+                  onRetry={retrySource}
+                  onRunBackup={onRunBackup}
+                  onRequestRestore={onRequestRestore}
+                />
+              </section>
+            ),
+          },
+          {
+            key: "diagnostics",
+            label: "诊断报告",
+            children: (
+              <section className="settings-tab-panel">
+                <DiagnosticsCenter actionBusy={busy !== null} />
+                <AuditLog audit={sources.audit} onRetry={() => retrySource("audit")} />
+                <div className="settings-boundary">
+                  <span>目前能做到</span>
+                  <p>
+                    本页展示的是真实的安全状态、备份和操作记录；完整密钥库和 26
+                    条配置规则会在后续版本补上，不会提前显示成已开启。
+                  </p>
+                </div>
+              </section>
+            ),
+          },
+          {
+            key: "preferences",
+            label: "常规偏好",
+            children: (
+              <section className="settings-tab-panel">
+                <PreferencesPanel />
+              </section>
+            ),
+          },
+        ]}
+      />
 
       {confirmAction !== null && (
         <DangerConfirmModal

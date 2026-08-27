@@ -1,14 +1,11 @@
 /**
- * 面板布局：左侧固定导航栏（品牌标识 + 6 页链接，当前页高亮）
- * + 右侧内容区（告警横幅 / 安全黄条 / 路由出口 / 事件 ticker）。
+ * 面板布局：左侧固定业务导航 + 左下角应用设置入口（当前页高亮）
+ * + 右侧内容区（路由出口）。
  */
 import { MenuOutlined, MoonOutlined, SettingOutlined, SunOutlined } from "@ant-design/icons";
 import { Button, Drawer } from "antd";
 import { useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { AlertBanner } from "./AlertBanner.js";
-import { EventTicker } from "./EventTicker.js";
-import { SecurityNotice } from "./SecurityNotice.js";
 import { NotificationCenter } from "./NotificationCenter.js";
 import { NotificationsProvider } from "../hooks/useNotifications.js";
 import { useTheme } from "../theme/ThemeProvider.js";
@@ -16,17 +13,16 @@ import { useTheme } from "../theme/ThemeProvider.js";
 const NAV_ITEMS = [
   { to: "/dashboard", index: "首", label: "首页", note: "你的本地 AI 管家" },
   { to: "/versions", index: "版", label: "版本管理", note: "升级前会自动备份，失败会还原" },
-  { to: "/gateway", index: "信", label: "消息通知", note: "帮你管住消息频率，重要消息不丢" },
-  { to: "/evolution", index: "进", label: "进化与优化", note: "给 AI 的自我改进装上安全锁" },
-  { to: "/skills", index: "识", label: "技能与记忆", note: "查看 AI 学会的东西和记住的事" },
-  { to: "/settings", index: "安", label: "安全与设置", note: "本机安全、告警和备份" },
+  { to: "/gateway", index: "信", label: "消息通知", note: "消息频率控制与送达记录" },
+  { to: "/evolution", index: "进", label: "进化与优化", note: "改进评估与发布风险控制" },
+  { to: "/skills", index: "识", label: "技能与记忆", note: "技能、插件与记忆管理" },
 ];
 
-const PREFERENCES_ITEM = {
-  to: "/preferences",
+const SETTINGS_ITEM = {
+  to: "/settings",
   index: "设",
   label: "设置",
-  note: "主题与通知偏好",
+  note: "本机安全、备份与偏好",
 };
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
@@ -61,14 +57,14 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         </nav>
         <div className="sidebar-bottom">
           <NavLink
-            to={PREFERENCES_ITEM.to}
+            to={SETTINGS_ITEM.to}
             onClick={onNavigate}
             className={({ isActive }) => `nav-link nav-link-preferences${isActive ? " active" : ""}`}
           >
             <span className="nav-index" aria-hidden="true"><SettingOutlined /></span>
             <span className="nav-copy">
-              <strong>{PREFERENCES_ITEM.label}</strong>
-              <small>{PREFERENCES_ITEM.note}</small>
+              <strong>{SETTINGS_ITEM.label}</strong>
+              <small>{SETTINGS_ITEM.note}</small>
             </span>
           </NavLink>
           <div className="sidebar-meta">
@@ -87,8 +83,8 @@ export function Layout() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const { mode, toggleMode } = useTheme();
   const location = useLocation();
-  const currentPage = location.pathname.startsWith(PREFERENCES_ITEM.to)
-    ? PREFERENCES_ITEM
+  const currentPage = location.pathname.startsWith(SETTINGS_ITEM.to) || location.pathname.startsWith("/preferences")
+    ? SETTINGS_ITEM
     : NAV_ITEMS.find((item) => location.pathname.startsWith(item.to)) ?? NAV_ITEMS[0];
   const themeLabel = mode === "dark" ? "切换到亮色主题" : "切换到暗色主题";
 
@@ -127,12 +123,9 @@ export function Layout() {
             />
           </div>
         </header>
-        <AlertBanner />
-        <SecurityNotice />
         <main className="content">
           <Outlet />
         </main>
-        <EventTicker />
       </div>
     </div>
     </NotificationsProvider>

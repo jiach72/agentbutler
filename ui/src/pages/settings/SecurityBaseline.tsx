@@ -308,7 +308,7 @@ export function SecurityBaseline({
         <div className="settings-section-head is-compact">
           <div>
             <span className="product-kicker">通知方式</span>
-            <h2>消息不会悄悄丢掉</h2>
+            <h2>消息送达与保留</h2>
           </div>
         </div>
         {alerts.status === "failed" && retryBanner("alerts", alerts.reason, onRetry)}

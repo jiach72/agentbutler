@@ -479,16 +479,21 @@ describe("installDockerForm 容器形态", () => {
     const { exec, calls } = fakeExec((_command, args) =>
       args.includes("config") ? { code: 1, stdout: "", stderr: "services.openclaw.environment must be a mapping" } : { code: 0, stdout: "", stderr: "" },
     );
-    const result = await installDockerForm(fakePlan({}), {
-      framework: "openclaw",
-      exec,
-      repoDir: "/repo",
-      composeFile: "/repo/docker-compose.yml",
-      overridePath: "/repo/docker-compose.override.yml",
-    });
-    expect(result.steps.at(-1)).toMatchObject({ id: "compose-config", status: "failed" });
-    expect(calls.some((call) => call.args.includes("up"))).toBe(false);
-    expect(result.success).toBe(false);
+    const tmp = makeTempDir();
+    try {
+      const result = await installDockerForm(fakePlan({}), {
+        framework: "openclaw",
+        exec,
+        repoDir: tmp,
+        composeFile: path.join(tmp, "docker-compose.yml"),
+        overridePath: path.join(tmp, "docker-compose.override.yml"),
+      });
+      expect(result.steps.at(-1)).toMatchObject({ id: "compose-config", status: "failed" });
+      expect(calls.some((call) => call.args.includes("up"))).toBe(false);
+      expect(result.success).toBe(false);
+    } finally {
+      rmTempDir(tmp);
+    }
   });
 
   it("registry 全部不可达 → registry-mirror 失败，不执行 compose up", async () => {

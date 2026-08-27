@@ -20,9 +20,9 @@ export function IssuesSection({ issues, attentionCount, onRepair, onOpenAdvanced
       <div className="manager-section-head">
         <div>
           <span className="product-kicker">当前状态</span>
-          <h2>{attentionCount > 0 ? `有 ${attentionCount} 件事需要处理` : "管家正在替你看着"}</h2>
+          <h2>{attentionCount > 0 ? `有 ${attentionCount} 件事需要处理` : "当前没有待处理事项"}</h2>
         </div>
-        <span className="manager-section-note">没事就不用管；专业细节收在下面</span>
+        <span className="manager-section-note">无待处理事项；详细信息见下方</span>
       </div>
       <div className="issue-list">
         {visibleIssues.map((issue) => (

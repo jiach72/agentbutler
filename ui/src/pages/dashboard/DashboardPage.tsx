@@ -195,7 +195,7 @@ export function DashboardPage() {
         <div>
           <span className="product-eyebrow">首页</span>
           <h1>你的本地 AI 管家</h1>
-          <p className="hint">管家帮你看着电脑上的 AI，有问题先说清楚，再告诉你怎么处理。</p>
+          <p className="hint">集中查看本机 AI 状态，按优先级处理异常。</p>
         </div>
         <span className={`page-live ${inspectStatus?.reachable ? "is-online" : "is-offline"}`}>
           <i />

@@ -302,10 +302,9 @@ export function GatewayPage() {
       <div className="page-heading gateway-heading">
         <div>
           <span className="product-eyebrow">消息通知</span>
-          <h1>帮你管住消息频率，重要消息不丢</h1>
+          <h1>消息通知与送达策略</h1>
           <p className="hint gateway-mode-note">
-            管家会记录本机 AI 发出的消息，自动合并类似内容、避开免打扰时间，
-            重要消息仍然会按时送达。技术细节收在下方。
+            记录消息发送结果，合并重复内容，并按免打扰规则调度；所有通知保留可追溯记录。
           </p>
         </div>
         <div className="gateway-refresh">
@@ -339,11 +338,11 @@ export function GatewayPage() {
         <DegradedBanner
           severity="critical"
           message="暂时读不到消息记录"
-          description="管家稍后会自动重试，不会丢失已经排队的消息。"
+          description="服务恢复后将自动重试，已排队消息会继续保留。"
         />
       )}
       {(messageData?.degraded.length ?? 0) > 0 && messageData?.reachable === true && (
-        <DegradedBanner severity="warn" message="⚠ 部分消息记录暂时不完整，稍后会自动补回来" />
+        <DegradedBanner severity="warn" message="⚠ 部分消息记录暂时不完整，服务恢复后将自动补齐" />
       )}
       {messageBridge !== null && !bridgeReady && (
         <DegradedBanner

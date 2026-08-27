@@ -43,6 +43,9 @@ Thumbs.db
 backups/
 docker-compose.override.yml
 docs/
+!docs/
+docs/*
+!docs/bug-fixes.md
 tmp/
 .tmp*/
 .cache/
