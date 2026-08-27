@@ -134,6 +134,8 @@ services:
       BUTLER_COMPOSE_BIN: docker-compose
       BUTLER_REPOSITORY_URL: ${BUTLER_REPOSITORY_URL:-https://github.com/jiach72/agentbutler}
       BUTLER_UPDATER_SERVICES: butler-gateway butler-watch butler-web
+      # apt docker.io(20.10, API 1.41) 太旧，daemon 要求 >=1.44；用 env 强制协商
+      DOCKER_API_VERSION: ${DOCKER_API_VERSION:-1.44}
     expose:
       - "7540"
     volumes:
