@@ -3,6 +3,8 @@
 .loopx
 .trae
 .workbuddy
+.zcode
+backups
 node_modules
 **/node_modules
 **/dist

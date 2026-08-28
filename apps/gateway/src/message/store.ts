@@ -946,7 +946,10 @@ function validateInboundEnvelope(inbound: InboundEnvelope): void {
   requireNonEmptyString(inbound.adapterId, "inbound.adapterId");
   requireNonEmptyString(inbound.channel, "inbound.channel");
   requireNonEmptyString(inbound.chatId, "inbound.chatId");
-  requireNonEmptyString(inbound.content, "inbound.content");
+  // Hermes emits legitimate system/placeholder inbound records with empty text.
+  // The envelope contract requires a string, but an empty string must not poison
+  // the whole ordered Bridge batch and prevent later replies from being delivered.
+  requireString(inbound.content, "inbound.content");
   requireIsoTimestamp(inbound.receivedAt, "inbound.receivedAt");
   validateOptionalNullableString(inbound.threadId, "inbound.threadId");
   validateOptionalNullableString(inbound.userId, "inbound.userId");
@@ -1009,6 +1012,10 @@ function validatePrewarmCacheEntry(entry: PrewarmCacheEntry): void {
 
 function requireNonEmptyString(value: unknown, field: string): asserts value is string {
   if (typeof value !== "string" || value.trim() === "") throw new Error(`${field} must be a non-empty string`);
+}
+
+function requireString(value: unknown, field: string): asserts value is string {
+  if (typeof value !== "string") throw new Error(`${field} must be a string`);
 }
 
 function validateOptionalNullableString(value: unknown, field: string): void {

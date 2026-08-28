@@ -1,5 +1,14 @@
 # Bug Fixes
 
+## 2026-08-28 - 微信回复因空入站记录阻塞投递
+
+- **Problem:** Hermes Bridge 的历史 outbox 批次包含合法的空文本系统/占位入站记录；Gateway 将 `inbound.content` 强制校验为非空，导致整批导入失败，Bridge 游标停滞，新微信回复一直停留在 `captured`。
+- **Impact:** 微信入站和 Hermes 生成回复均正常，但 Gateway 无法继续同步 outbox，用户收不到回复；后续批次也会被同一条历史记录持续阻塞。
+- **Changed scope:** `apps/gateway/src/message/store.ts` 将入站正文校验调整为“必须是字符串，可为空”，保留其它路由字段和时间戳校验；新增空文本入站批次推进回归测试。`.dockerignore` 排除本地 `.zcode/` 与 `backups/`，避免 WSL 镜像构建上传无关本地数据。
+- **Regression coverage:** `corepack pnpm exec vitest run apps/gateway/tests/message-store.test.ts --reporter=dot`（15 passed）；`corepack pnpm exec tsc -b --force` 通过。
+- **Verification:** WSL Ubuntu-24.04 内执行 `docker compose build butler-gateway` 并强制重建 Gateway；`git diff --check`；健康端点和消息状态接口验证。
+- **Runtime validation:** WSL Compose 中 Web/Watch/Gateway 均为 `healthy`；Gateway `/healthz` 返回 `1.0.0-beta.10` 与 `evolution-v2-charts-v1`，`/api/messages/status` 显示 Bridge `connected=true`、`attached=true`、`lastError=null`、`captured=0`，已投递计数从 98 增至 132，证明游标已越过阻塞批次并恢复投递。
+
 ## 2026-08-28 - Hermes 多模型 API Key 管理与进化闭环
 
 - **Problem:** Different Hermes skills/plugins could share or overwrite a global LLM key; invalid credentials and endpoint failures were discovered too late; evolution runs had no explicit model binding and discovered Hermes configuration could not be migrated safely.

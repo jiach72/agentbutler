@@ -134,6 +134,22 @@ describe("MessagePolicyStore", () => {
     reopened.close();
   });
 
+  it("accepts empty-text inbound records without blocking the ordered batch", () => {
+    const store = new MessagePolicyStore(dbFile);
+    const batch: OutboxChangeBatch = {
+      afterSequence: 0,
+      nextSequence: 2,
+      items: [{ ...BATCH.items[0], sequence: 1 }],
+      taskEvents: [],
+      inbound: [{ ...BATCH.inbound[0], content: "", receivedAt: "2026-08-22T10:00:00.000Z" }],
+    };
+
+    expect(() => store.ingestBatch(batch)).not.toThrow();
+    expect(store.cursor("hermes-main")).toBe(2);
+    expect(store.messageView("m1")?.state).toBe("captured");
+    store.close();
+  });
+
   it("accepts Bridge JSON with explicit null optional routing fields", () => {
     const store = new MessagePolicyStore(dbFile);
     const bridgeJsonBatch = {
