@@ -28,6 +28,16 @@ const sourceVersions = [
     value: (version) => `web@${version}+\${CONTRACT_VERSION}`,
   },
   {
+    file: "apps/watch/src/http.ts",
+    pattern: /watch@[0-9A-Za-z.+-]+\+\$\{CONTRACT_VERSION\}/,
+    value: (version) => `watch@${version}+\${CONTRACT_VERSION}`,
+  },
+  {
+    file: "apps/gateway/src/server.ts",
+    pattern: /gateway@[0-9A-Za-z.+-]+\+\$\{CONTRACT_VERSION\}/,
+    value: (version) => `gateway@${version}+\${CONTRACT_VERSION}`,
+  },
+  {
     file: "packages/adapters/hermes/src/manifest.ts",
     pattern: /adapterVersion: "[^"]+"/,
     value: (version) => `adapterVersion: "${version}"`,

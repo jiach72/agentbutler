@@ -1,6 +1,6 @@
 {
   "name": "agent-butler",
-  "version": "1.0.0-beta.8",
+  "version": "1.0.0-beta.9",
   "private": true,
   "description": "Local-first operations console and control plane for AI agent runtimes.",
   "license": "MIT",

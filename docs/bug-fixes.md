@@ -1,5 +1,13 @@
 # Bug Fixes
 
+## 2026-08-28 - Release version synchronization for runtime services
+
+- **Problem:** After the `1.0.0-beta.8` release, Web reported the new version while Watch and Gateway still reported `1.0.0-beta.7`; the version checker did not cover their runtime constants.
+- **Impact:** The control plane could falsely present a synchronized deployment even though service binaries came from different releases, weakening schema/version diagnostics and making chart/evolution troubleshooting harder.
+- **Changed scope:** Extended `scripts/version.mjs` to validate and update `apps/watch/src/http.ts` and `apps/gateway/src/server.ts`; bumped all workspace, adapter, bridge, runtime, README, and changelog version references to `1.0.0-beta.9`.
+- **Regression coverage:** `corepack pnpm version:check`, full `corepack pnpm release:check` (lint, TypeScript build, 99 test files / 870 passed / 3 skipped, UI build), and runtime health/version checks after Compose rebuild.
+- **Verification:** `git diff --check`; tag `v1.0.0-beta.9` pushed to GitHub; Web/Watch/Gateway health payloads verified to report the same release version.
+
 ## 2026-08-27 - Hermes WSL 自我进化闭环与全页面图表修复
 
 - **Problem:** “进化与优化”页只能手工填写指标，无法连接 Hermes WSL 自我进化运行；无鉴权探针会把 `401/403` 误判为可用，API Key 失效、端点错误和任务失败不能及时阻断。上一版图表能力也只在版本页可见，网关、技能和进化页缺少真实数据、空态与错误态。
