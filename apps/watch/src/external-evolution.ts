@@ -41,11 +41,13 @@ export interface ExternalEvolutionProposal {
     actions: string[];
   };
   apply: { appliedAt?: string; backupId?: number };
+  sourceInsightId?: string;
+  evidenceIssueIds?: string[];
 }
 
 export interface ExternalEvolutionService {
   targets(): Promise<ExternalEvolutionTarget[]>;
-  create(input: { targetRef: string; problem: string; evidence?: string[]; profileId?: string }): Promise<ExternalEvolutionProposal | { error: string; detail: string; fix: string; actions: string[] }>;
+  create(input: { targetRef: string; problem: string; evidence?: string[]; profileId?: string; sourceInsightId?: string; evidenceIssueIds?: string[] }): Promise<ExternalEvolutionProposal | { error: string; detail: string; fix: string; actions: string[] }>;
   list(): ExternalEvolutionProposal[];
   get(id: string): ExternalEvolutionProposal | null;
   validate(id: string): Promise<ExternalEvolutionProposal | { error: string; detail: string; fix: string; actions: string[] }>;
@@ -160,6 +162,8 @@ export function createExternalEvolutionService(deps: {
         candidatePath,
         validation: { status: "unknown", reason: "尚未验证", fix: "运行隔离验证", actions: ["隔离验证"] },
         apply: {},
+        ...(input.sourceInsightId ? { sourceInsightId: input.sourceInsightId } : {}),
+        ...(input.evidenceIssueIds ? { evidenceIssueIds: input.evidenceIssueIds.slice(0, 20) } : {}),
       };
       state.proposals = [proposal, ...state.proposals].slice(0, 200);
       save();

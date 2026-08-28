@@ -14,6 +14,7 @@ import type {
   EvolutionEvaluateOutcome,
 } from "../src/evolution.js";
 import { startWatchHttp, type WatchHttp, type WatchHttpDeps } from "../src/http.js";
+import type { EvolutionInsightsService } from "../src/evolution-insights.js";
 
 const READY: EvolutionPreflightOutcome = {
   runId: "run-16",
@@ -195,6 +196,13 @@ function makeDeps(): { deps: WatchHttpDeps; state: EvolutionFakeState } {
         detectPatch: async () => ({ status: "unknown-patch" }),
       },
       evolution,
+      evolutionInsights: {
+        analyze: async (_instanceId, range = "7d") => ({ instanceId: "hermes-main", range, coverage: { from: "2026-08-27T00:00:00.000Z", to: "2026-08-28T00:00:00.000Z", sources: 1, lines: 2, rotatedLogs: false }, issues: [], directions: [], analyzedAt: "2026-08-28T00:00:00.000Z" }),
+        get: () => null,
+        summarize: async () => ({ error: "direction-not-found", detail: "不存在", fix: "重新分析" }),
+        confirm: () => ({ error: "direction-not-found", detail: "不存在", fix: "重新分析" }),
+        start: async () => ({ error: "direction-not-found", detail: "不存在", fix: "重新分析" }),
+      } as EvolutionInsightsService,
     },
   };
 }
@@ -283,6 +291,14 @@ describe("startWatchHttp 进化守门端点", () => {
     expect(exported.headers.get("content-type")).toContain("text/markdown");
     expect(exported.headers.get("content-disposition")).toContain("evolution-run-16.md");
     await expect(exported.text()).resolves.toContain("进化实验台账");
+  });
+
+  it("提供日志洞察窗口并拒绝非法范围", async () => {
+    const ok = await fetch(`${base}/api/evolution/insights?range=24h`);
+    expect(ok.status).toBe(200);
+    await expect(ok.json()).resolves.toMatchObject({ range: "24h" });
+    const bad = await fetch(`${base}/api/evolution/insights?range=2d`);
+    expect(bad.status).toBe(400);
   });
 
   it("接线新诊断与任务生命周期接口", async () => {

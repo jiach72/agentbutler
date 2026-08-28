@@ -82,6 +82,7 @@ import { createSkillsMemoryService, type SkillsMemoryService } from "./skills.js
 import { createExternalEvolutionService, type ExternalEvolutionService } from "./external-evolution.js";
 import { createSkillAssetService, type SkillAssetService } from "./skill-assets.js";
 import { createLogAnalyzer } from "./log-analyzer.js";
+import { createEvolutionInsightsService } from "./evolution-insights.js";
 import {
   createPromptOptimizationService,
   type PromptOptimizationService,
@@ -168,6 +169,7 @@ export interface WatchApp {
   /** Task 17：技能与记忆只读清单、统计、检索预览与目录降级服务。 */
   skills: SkillsMemoryService;
   externalEvolution: ExternalEvolutionService;
+  evolutionInsights: import("./evolution-insights.js").EvolutionInsightsService;
   skillAssets: SkillAssetService;
   /** M5 切片 1/2：提示词 Registry + 候选持久化 + 成对评估服务。 */
   promptOptimization: PromptOptimizationService;
@@ -1719,6 +1721,14 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
   // 使用统计依赖同一份只读日志服务；必须在日志服务完成组装后创建。
   const skillAssets = createSkillAssetService({ core, skills, backup, logs: logsService, now: options.now });
   const logAnalyzer = createLogAnalyzer(logsService);
+  const evolutionInsights = createEvolutionInsightsService({
+    core,
+    analyzeLogs: (instanceId, range) => logAnalyzer.analyze(instanceId, range),
+    evolution: evolutionWithBackup,
+    externalEvolution,
+    skills,
+    now: options.now,
+  });
 
   // 记忆按需自检：只跑 memory-probe 单阶段（写入并召回一条测试记忆，随后清理），
   // 用于「记忆服务看似正常但实际写不进/召不回」的即时排查（PRD S5）。
@@ -1759,13 +1769,14 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       executeRunbook: executeRunbookViaHttp,
       resetRunbookBreaker: resetRunbookBreakerViaHttp,
       logs: logsService,
-      analyzeLogs: (instanceId?: string) => logAnalyzer.analyze(instanceId),
+      analyzeLogs: (instanceId?: string, range?: "24h" | "7d" | "30d") => logAnalyzer.analyze(instanceId, range),
       butler,
       butlerSelf,
       upgrade: upgradeWithBackup,
       gateway,
       evolution: evolutionWithBackup,
       externalEvolution,
+      evolutionInsights,
       skillAssets,
       llm,
       skills,
@@ -1774,7 +1785,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
         renderDiagnosticReport({
           core,
           butler,
-          analyzeLogs: (instanceId?: string) => logAnalyzer.analyze(instanceId),
+          analyzeLogs: (instanceId?: string, range?: "24h" | "7d" | "30d") => logAnalyzer.analyze(instanceId, range),
           security,
           gateway,
           evolution,
@@ -1834,6 +1845,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     llm,
     skills,
     externalEvolution,
+    evolutionInsights,
     skillAssets,
     promptOptimization,
     backup,

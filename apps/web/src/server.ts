@@ -2575,6 +2575,20 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   // 对外保留与 Watch 一致的显式 status 路径，便于探针和运维脚本直接验收。
   app.get("/api/evolution/status", evolutionStatusHandler);
 
+  app.get("/api/evolution/insights", async (request, reply) => {
+    const query = request.query as Record<string, unknown>;
+    const params = new URLSearchParams();
+    if (typeof query["instanceId"] === "string") params.set("instanceId", query["instanceId"] as string);
+    if (typeof query["range"] === "string") params.set("range", query["range"] as string);
+    return proxyWatchGet("/api/evolution/insights" + (params.size > 0 ? "?" + params.toString() : ""), reply, 30_000);
+  });
+  app.post("/api/evolution/directions/:id/:action", async (request, reply) => {
+    const params = request.params as { id?: string; action?: string };
+    if (!["summarize", "confirm", "start"].includes(params.action ?? "")) return reply.status(404).send({ error: "not-found" });
+    const id = encodeURIComponent(params.id ?? "");
+    return proxyWatchPost(`/api/evolution/directions/${id}/${params.action}`, request.body, reply, 70_000);
+  });
+
   // 外部协助 Hermes 改进工作台（与旧 self-evolution CLI 兼容并存）。
   app.get("/api/evolution/targets", async (_request, reply) => proxyWatchGet("/api/evolution/targets", reply));
   app.get("/api/evolution/proposals", async (_request, reply) => proxyWatchGet("/api/evolution/proposals", reply));
