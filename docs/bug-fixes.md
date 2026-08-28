@@ -128,6 +128,6 @@
 
 - **Problem:** Web 的 `/api/butler/self` 使用 5 秒统一超时；Watch 刷新版本时还要访问 Updater 与 GitHub，慢响应会被 Web 误判为不可达并返回空的 `availableUpdates`。
 - **Impact:** 用户刷新版本页后看不到 GitHub 上的最新版本，页面显示为离线或无更新。
-- **Changed scope:** `apps/web/src/server.ts` 为 Watch GET 代理增加可配置超时，并将自身版本刷新超时提高到 30 秒；不改变其他高频控制接口的 5 秒降级语义。
-- **Regression coverage:** 新增慢响应回归测试；`pnpm exec vitest run apps/web/tests/butler-self.test.ts --run`（5 passed）；`pnpm exec tsc -b --pretty false`；`git diff --check`。
+- **Changed scope:** `apps/web/src/server.ts` 为 Watch GET 代理增加可配置超时，并将自身版本刷新超时提高到 30 秒；`ui/src/pages/versions/VersionsPage.tsx` 对应延长前端请求等待时间；不改变其他高频控制接口的 5 秒降级语义。
+- **Regression coverage:** 新增慢响应回归测试；`pnpm exec vitest run apps/web/tests/butler-self.test.ts --run`（5 passed）；`pnpm exec tsc -b --pretty false`；`pnpm --filter @butler/ui exec vitest run tests/api.test.ts --run`；`git diff --check`。
 - **Runtime validation:** 重建 WSL Compose Web/Watch/Updater；`GET http://127.0.0.1:7531/api/butler/self` 在约 6.7 秒内返回 `reachable: true`，当前版本 `1.0.0-beta.12`，并包含 GitHub `v1.0.0-beta.12` 更新记录。

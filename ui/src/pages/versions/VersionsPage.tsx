@@ -46,6 +46,9 @@ const REFRESH_THROTTLE_MS = 5000;
 /** 管家自身 Job 运行期间的轮询间隔。 */
 const SELF_JOB_POLL_MS = 5000;
 
+/** 自身版本刷新可能触发 Updater/GitHub 探测，前端等待时间需覆盖网络尾延迟。 */
+const SELF_REFRESH_TIMEOUT_MS = 30_000;
+
 /** 受管实例升级提交/运行期间的轮询间隔。 */
 const UPGRADE_POLL_MS = 2000;
 
@@ -82,7 +85,7 @@ export function VersionsPage() {
         if (payload !== null) setButler(payload);
         mark("butler");
       }),
-      fetchJson<ButlerSelfView>("/api/butler/self").then((payload) => {
+      fetchJson<ButlerSelfView>("/api/butler/self", SELF_REFRESH_TIMEOUT_MS).then((payload) => {
         if (payload !== null) setButlerSelf(payload);
         mark("self");
       }),
