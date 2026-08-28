@@ -1,5 +1,13 @@
 # Bug Fixes
 
+## 2026-08-28 - 版本页刷新无法发现 GitHub 新 tag
+
+- **Problem:** updater 只在进程启动时写入共享状态文件；GitHub 推送 `v1.0.0-beta.12` 后，版本页刷新仍读取旧的 `availableUpdates`，看不到新 tag。容器中的 Watch 还会把 updater 源码目录版本误显示为正在运行版本。
+- **Impact:** 本地自动更新测试无法发现刚发布的版本，页面显示的当前运行版本和 updater 源码版本可能混淆。
+- **Changed scope:** Watch `/api/butler/self` 刷新时主动请求 updater `/api/status`，更新远端 tag 缓存；当前版本改为读取运行中 Watch 包的 `package.json`，仅在运行目录无 Git 元数据时使用 updater 的 commit/repo 状态作为补充。
+- **Regression coverage:** `apps/watch/tests/http-self-upgrade.test.ts`、`apps/web/tests/butler-self.test.ts`、`apps/watch/tests/self-upgrade.test.ts` 共 21 项通过；`pnpm exec tsc -b --pretty false` 通过。
+- **Verification:** `pnpm version:check`、`git diff --check`；重建容器后通过 `/api/butler/self` 检查当前版本与远端 tag 列表。
+
 ## 2026-08-28 - Hermes 外部协助改进工作台与技能资产中心
 
 - **Problem:** 进化页把“外部协助 Hermes 改进”误实现为直接运行 Hermes self-evolution CLI；历史台账中的 productivity/teams-meeting-pipeline 已不在当前技能清单，却继续出现在任务和阻断聚合；阻断项没有给出可执行的解决方案；技能页缺少使用统计与资产生命周期入口。

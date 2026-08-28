@@ -296,6 +296,8 @@ function isSemanticVersion(version: string): boolean {
 
 export interface ButlerSelfService {
   status(): ButlerSelfStatus;
+  /** 刷新 updater 侧的远端 tag 缓存；容器部署的版本页刷新会调用。 */
+  refresh?(): Promise<void>;
   startUpgrade(input: {
     target?: string;
     channel?: "stable" | "beta";
@@ -491,6 +493,22 @@ export function createButlerSelfUpgradeService(
       };
     } catch {
       return null;
+    }
+  }
+
+  async function refreshUpdaterStatus(): Promise<void> {
+    if (updaterUrl === null) return;
+    try {
+      const response = await updaterFetch(updaterUrl + "/api/status", {
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!response.ok) return;
+      const parsed = (await response.json().catch(() => null)) as unknown;
+      if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+        writeJsonAtomic(updaterStatusFile, parsed);
+      }
+    } catch {
+      // 刷新失败时继续使用最近一次缓存；不伪造“已同步”。
     }
   }
 
@@ -713,11 +731,11 @@ export function createButlerSelfUpgradeService(
       const lastJob = readJson<ButlerSelfJobView | null>(stateFile, null);
       return {
         reachable: existsSync(sourceDir) || upstream?.reachable === true,
-        source: typeof upstream?.source === "string" ? upstream.source : sourceDir,
-        version: typeof upstream?.version === "string" ? upstream.version : currentVersion(),
-        branch: typeof upstream?.branch === "string" ? upstream.branch : info.branch,
-        commit: typeof upstream?.commit === "string" ? upstream.commit : info.commit,
-        tag: typeof upstream?.tag === "string" ? upstream.tag : info.tag,
+        source: sourceDir,
+        version: currentVersion(),
+        branch: info.branch ?? (typeof upstream?.branch === "string" ? upstream.branch : null),
+        commit: info.commit ?? (typeof upstream?.commit === "string" ? upstream.commit : null),
+        tag: info.tag ?? (typeof upstream?.tag === "string" ? upstream.tag : null),
         repository:
           typeof upstream?.repository === "string" || upstream?.repository === null
             ? upstream.repository
@@ -730,7 +748,7 @@ export function createButlerSelfUpgradeService(
           typeof upstream?.repositoryConfigured === "boolean"
             ? upstream.repositoryConfigured
             : info.repository !== null,
-        repoClean: typeof upstream?.repoClean === "boolean" ? upstream.repoClean : info.repoClean,
+        repoClean: info.commit !== null ? info.repoClean : typeof upstream?.repoClean === "boolean" ? upstream.repoClean : false,
         remoteConfigured:
           typeof upstream?.remoteConfigured === "boolean"
             ? upstream.remoteConfigured
@@ -747,6 +765,10 @@ export function createButlerSelfUpgradeService(
         checkedAt:
           typeof upstream?.checkedAt === "string" ? upstream.checkedAt : isoNow(now),
       };
+    },
+
+    async refresh() {
+      await refreshUpdaterStatus();
     },
 
     async startUpgrade(input): Promise<SelfUpgradeOutcome> {

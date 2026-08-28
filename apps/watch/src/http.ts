@@ -933,6 +933,7 @@ async function handle(
       if (deps.butlerSelf === undefined) {
         return sendJson(res, 503, { error: "butler-self-unavailable" });
       }
+      if (deps.butlerSelf.refresh !== undefined) await deps.butlerSelf.refresh();
       return sendJson(res, 200, deps.butlerSelf.status());
     }
 
