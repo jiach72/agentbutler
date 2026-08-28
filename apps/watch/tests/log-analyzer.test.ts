@@ -109,4 +109,19 @@ describe("createLogAnalyzer 日志错误指纹聚合", () => {
     );
     expect(analyzer.analyze().issues).toEqual([]);
   });
+
+  it("支持时间窗口、轮转日志和脱敏样例", () => {
+    const analyzer = createLogAnalyzer({
+      listSources: () => [{ id: "hermes.1.log.gz", path: "/tmp/hermes.1.log.gz", format: "text", modifiedAt: null, sizeBytes: 10 }],
+      readTail: () => ({ sourceId: "hermes.1.log.gz", path: "/tmp/hermes.1.log.gz", format: "text", lines: [
+        "2026-08-28 10:00:00 ERROR tool call skill=productivity/demo failed token=secret-value",
+        "2026-08-01 10:00:00 ERROR tool call skill=productivity/demo failed token=old",
+      ], truncated: false, limit: 300, totalLines: 2 }),
+    });
+    const view = analyzer.analyze(undefined, "24h");
+    expect(view.coverage?.rotatedLogs).toBe(true);
+    expect(view.issues[0]?.count).toBe(1);
+    expect(view.issues[0]?.examples[0]).not.toContain("secret-value");
+    expect(view.issues[0]?.skill).toBe("productivity/demo");
+  });
 });

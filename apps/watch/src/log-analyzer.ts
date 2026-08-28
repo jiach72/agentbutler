@@ -42,6 +42,10 @@ export interface LogIssueView {
   examples: string[];
   suggestedAction: "rb-restart" | "rb-reconnect" | null;
   actionLabel: string | null;
+  lastSeenAt?: string | null;
+  skill?: string | null;
+  tool?: string | null;
+  candidateSkills?: string[];
 }
 
 export interface LogAnalyzeView {
@@ -49,6 +53,7 @@ export interface LogAnalyzeView {
   scannedSources: number;
   scannedLines: number;
   analyzedAt: string;
+  coverage?: { from: string | null; to: string | null; sources: number; lines: number; rotatedLogs: boolean; range: "24h" | "7d" | "30d" };
 }
 
 export interface LogAnalyzerDeps {
@@ -243,23 +248,53 @@ interface Bucket {
   examples: string[];
   action: "rb-restart" | "rb-reconnect" | null;
   actionLabel: string | null;
+  lastSeenAt: number | null;
+  skill: string | null;
+  tool: string | null;
 }
 
 export interface LogAnalyzer {
-  analyze(instanceId?: string): LogAnalyzeView;
+  analyze(instanceId?: string, range?: "24h" | "7d" | "30d"): LogAnalyzeView;
 }
 
 export function createLogAnalyzer(deps: LogAnalyzerDeps): LogAnalyzer {
-  function analyze(instanceId?: string): LogAnalyzeView {
+  function analyze(instanceId?: string, range: "24h" | "7d" | "30d" = "7d"): LogAnalyzeView {
     const sources = deps.listSources(instanceId);
     const buckets = new Map<string, Bucket>();
     let scannedLines = 0;
+    const now = Date.now();
+    const windowMs = range === "24h" ? 24 * 3600_000 : range === "30d" ? 30 * 86400_000 : 7 * 86400_000;
+    const from = new Date(now - windowMs);
+    let minSeen: number | null = null;
+    let maxSeen: number | null = null;
+    let rotatedLogs = false;
+    const parseTimestamp = (line: string): number | null => {
+      const match = line.match(/(20\d\d[-/]\d\d?[-/]\d\d?(?:[T ]\d\d?:\d\d(?::\d\d(?:\.\d+)?)?(?:Z|[+-]\d\d:?\d\d)?)?)/);
+      if (!match) return null;
+      const value = Date.parse(match[1]!.replace(/\//g, "-"));
+      return Number.isFinite(value) ? value : null;
+    };
+    const redact = (line: string): string => line
+      .replace(/((?:api[_ -]?key|token|secret|password|authorization)\s*[:=]\s*)[^\s,;]+/gi, "$1[REDACTED]")
+      .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer [REDACTED]")
+      .replace(/((?:prompt|message|content|chat)\s*[:=])[^\n]*/gi, "$1 [REDACTED]")
+      .replace(/(?:[A-Za-z]:\\|\/home\/|\/Users\/|\/mnt\/)[^\s]+/g, "[PATH]")
+      .slice(0, 240);
+    const extractSkill = (line: string): string | null => line.match(/(?:skills?[\\/]|--skill[= ]|skill(?:Name|Ref)?[=: ]+)([A-Za-z0-9._/-]+)/i)?.[1] ?? null;
+    const extractTool = (line: string): string | null => line.match(/(?:tool|function)(?:\s+call|\s+invocation)?[=: ]+([A-Za-z0-9._/-]+)/i)?.[1] ?? null;
 
     for (const source of sources) {
       const tail = deps.readTail(source.id, instanceId, TAIL_LIMIT);
       if (tail === null || tail.error !== undefined) continue;
+      if (/rotat|\.\d+(?:\.[A-Za-z0-9]+)*$|\.bak(?:\.gz)?$|\.gz$/i.test(source.path)) rotatedLogs = true;
       for (const line of tail.lines) {
         if (scannedLines >= MAX_SCANNED_LINES) break;
+        const seen = parseTimestamp(line);
+        if (seen !== null) {
+          if (seen < from.getTime()) continue;
+          minSeen = minSeen === null ? seen : Math.min(minSeen, seen);
+          maxSeen = maxSeen === null ? seen : Math.max(maxSeen, seen);
+        }
         scannedLines += 1;
         const rule = RULES.find((item) => item.match.test(line));
         if (rule === undefined) continue;
@@ -278,12 +313,20 @@ export function createLogAnalyzer(deps: LogAnalyzerDeps): LogAnalyzer {
             examples: [],
             action: rule.action,
             actionLabel: rule.actionLabel,
+            lastSeenAt: null,
+            skill: null,
+            tool: null,
           };
           buckets.set(key, bucket);
         }
         bucket.count += 1;
+        if (seen !== null) bucket.lastSeenAt = bucket.lastSeenAt === null ? seen : Math.max(bucket.lastSeenAt, seen);
+        const rawSkill = extractSkill(line);
+        const rawTool = extractTool(line);
+        if (rawSkill !== null) bucket.skill = rawSkill;
+        if (rawTool !== null) bucket.tool = rawTool;
         if (bucket.sources.size < MAX_SOURCES) bucket.sources.add(source.id);
-        if (bucket.examples.length < MAX_EXAMPLES) bucket.examples.push(line.slice(0, 240));
+        if (bucket.examples.length < MAX_EXAMPLES) bucket.examples.push(redact(line));
       }
     }
 
@@ -304,6 +347,10 @@ export function createLogAnalyzer(deps: LogAnalyzerDeps): LogAnalyzer {
         examples: bucket.examples,
         suggestedAction: bucket.action,
         actionLabel: bucket.actionLabel,
+        lastSeenAt: bucket.lastSeenAt === null ? null : new Date(bucket.lastSeenAt).toISOString(),
+        skill: bucket.skill,
+        tool: bucket.tool,
+        candidateSkills: [],
       }));
 
     return {
@@ -311,6 +358,7 @@ export function createLogAnalyzer(deps: LogAnalyzerDeps): LogAnalyzer {
       scannedSources: sources.length,
       scannedLines,
       analyzedAt: new Date().toISOString(),
+      coverage: { from: minSeen === null ? from.toISOString() : new Date(minSeen).toISOString(), to: maxSeen === null ? new Date(now).toISOString() : new Date(maxSeen).toISOString(), sources: sources.length, lines: scannedLines, rotatedLogs, range },
     };
   }
 

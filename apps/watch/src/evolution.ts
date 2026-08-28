@@ -2208,7 +2208,8 @@ export function createEvolutionService(deps: EvolutionServiceDeps): EvolutionSer
 
   function inferTargetRef(issue: LogIssueView): string {
     const match = issue.examples.join("\n").match(/(?:skills?[\\/]|--skill\s+)([A-Za-z0-9._-]+)/i);
-    return match?.[1] ?? "待从日志定位";
+    // 日志无法证明目标技能时保持空值，必须经过洞察页人工选择，不能直接创建运行。
+    return match?.[1] ?? "";
   }
 
   function diagnose(input: { issues?: LogIssueView[]; scannedSources?: number; scannedLines?: number } = {}): EvolutionDiagnosis {
@@ -2227,7 +2228,7 @@ export function createEvolutionService(deps: EvolutionServiceDeps): EvolutionSer
         return recommendation;
       }
       if (issue.kind === "dependency") return { ...base, targetType: "version-upgrade", targetRef, nextAction: "open-version-upgrade", title: issue.title, detail: issue.detail };
-      if (["tool-failure", "trajectory-interrupted"].includes(issue.kind)) return { ...base, targetType: "skill", targetRef, nextAction: targetRef === "待从日志定位" ? "inspect" : "create-run", title: issue.title, detail: issue.detail };
+      if (["tool-failure", "trajectory-interrupted"].includes(issue.kind)) return { ...base, targetType: "skill", targetRef, nextAction: targetRef === "" ? "inspect" : "create-run", title: issue.title, detail: issue.detail };
       if (issue.kind === "quality-loop") return { ...base, targetType: "prompt", targetRef, nextAction: "open-prompt-optimization", title: issue.title, detail: issue.detail };
       return { ...base, targetType: "diagnostic", targetRef, nextAction: "inspect", title: issue.title, detail: issue.detail };
     });

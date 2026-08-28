@@ -140,3 +140,10 @@
 - **Changed scope:** `apps/web/src/server.ts` 为 Watch GET 代理增加可配置超时，并将自身版本刷新超时提高到 30 秒；`ui/src/pages/versions/VersionsPage.tsx` 对应延长前端请求等待时间；不改变其他高频控制接口的 5 秒降级语义。
 - **Regression coverage:** 新增慢响应回归测试；`pnpm exec vitest run apps/web/tests/butler-self.test.ts --run`（5 passed）；`pnpm exec tsc -b --pretty false`；`pnpm --filter @butler/ui exec vitest run tests/api.test.ts --run`；`git diff --check`。
 - **Runtime validation:** 重建 WSL Compose Web/Watch/Updater；`GET http://127.0.0.1:7531/api/butler/self` 在约 6.7 秒内返回 `reachable: true`，当前版本 `1.0.0-beta.12`，并包含 GitHub `v1.0.0-beta.12` 更新记录。
+## 2026-08-28 - 进化页改为基于 Hermes 错误日志的确认式工作台
+
+- **问题：** 进化页原先要求客户手工选择技能并直接创建提案，无法解释 Hermes 日志中的重复错误；配置、网络和依赖故障被用户感知为全局阻断，历史目标 `teams-meeting-pipeline` 还可能进入可操作流程。
+- **风险/影响：** 客户无法从真实故障证据判断改进方向，可能在系统问题未修复时启动进化，或误操作已不存在的技能目标。
+- **修复范围：** 扩展日志分析器支持 24 小时/7 天/30 天窗口、覆盖范围、轮转日志、最近出现时间、技能提取和脱敏样例；新增 `evolution-insights` 服务与 `/api/evolution/insights`、`/api/evolution/directions/:id/{summarize,confirm,start}`；方向逐条确认后才能选择 Hermes 隔离引擎或手工提案，手工提案绑定日志洞察和问题证据；系统修复信号只显示“先修复”建议，历史 `teams-meeting-pipeline` 标记为不可重试；旧 `inferTargetRef` 无法定位时返回空目标，不再直接创建运行；重写进化页面为日志驱动流程，保留旧 runs/proposals 接口兼容。
+- **回归测试：** `apps/watch/tests/log-analyzer.test.ts` 覆盖时间窗口、轮转日志和脱敏；`apps/watch/tests/evolution-insights.test.ts` 覆盖技能错误、系统问题和历史目标过滤；`apps/watch/tests/http-evolution.test.ts` 覆盖洞察窗口和非法范围。
+- **验证命令：** `pnpm exec tsc -b --pretty false`；`pnpm exec vitest run apps/watch/tests/log-analyzer.test.ts apps/watch/tests/evolution-insights.test.ts --reporter=dot`（10 passed）；`pnpm --filter @butler/ui exec vite build`；`git diff --check`。

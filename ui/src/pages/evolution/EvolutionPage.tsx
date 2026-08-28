@@ -1,125 +1,63 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { App, Alert, Button, Descriptions, Empty, Input, Select, Space, Table, Tag } from "antd";
+import { Alert, App, Button, Descriptions, Empty, Select, Space, Table, Tag, Typography } from "antd";
 import { ReloadOutlined, SafetyCertificateOutlined, ThunderboltOutlined } from "@ant-design/icons";
-import { ConnectionChip } from "../../components/ConnectionChip.js";
 import { loadJson, postJson } from "../../lib/api.js";
 import { formatTime, isRecord } from "../../lib/format.js";
+import { ConnectionChip } from "../../components/ConnectionChip.js";
 
-type Target = { targetRef: string; name: string; source: string; version: string; category: string; description: string; canApply: boolean };
-type Validation = { status: "unknown" | "pass" | "fail"; reason: string; fix: string; actions: string[] };
-type Proposal = {
-  id: string; targetRef: string; target: Target; problem: string; evidence: string[]; profileId: string | null;
-  generation: "manual" | "model"; status: "draft" | "validating" | "ready-to-apply" | "applied" | "failed";
-  createdAt: string; updatedAt: string; baselineHash: string; candidateHash: string; diff: string; candidatePath: string;
-  validation: Validation; apply: { appliedAt?: string; backupId?: number };
-};
-
-const statusLabel: Record<Proposal["status"], string> = { draft: "草稿", validating: "验证中", "ready-to-apply": "可应用", applied: "已应用", failed: "验证失败" };
-const sourceLabel: Record<string, string> = { builtin: "内置", market: "市场", "self-evolved": "自动改进", user: "用户" };
+type Direction = { id: string; targetType: "skill" | "prompt" | "config" | "diagnostic"; targetRef: string | null; title: string; summary: string; impact: "high" | "medium" | "low"; confidence: number; occurrences: number; lastSeenAt: string | null; sources: string[]; examples: string[]; blocked: boolean; blockReason: string | null; recommendedAction: string; candidateSkills: string[]; confirmedAt: string | null; executionMode: "hermes" | "manual" | null; execution?: { kind: "run" | "proposal"; id: string; status?: string } };
+type Insights = { instanceId: string | null; range: "24h" | "7d" | "30d"; coverage?: { from: string | null; to: string | null; sources: number; lines: number; rotatedLogs: boolean }; directions: Direction[]; analyzedAt: string };
+type Proposal = { id: string; status: string; targetRef: string; problem: string; diff: string; baselineHash: string; candidateHash: string; validation: { status: string; reason: string; fix: string }; target: { name: string; canApply: boolean } };
+const impactLabel = { high: "高", medium: "中", low: "低" } as const;
+const impactColor = { high: "red", medium: "orange", low: "blue" } as const;
 
 export function EvolutionPage() {
   const { message } = App.useApp();
-  const [targets, setTargets] = useState<Target[]>([]);
+  const [instanceId, setInstanceId] = useState("");
+  const [instances, setInstances] = useState<Array<{ instanceId: string; version?: string; state?: string }>>([]);
+  const [range, setRange] = useState<"24h" | "7d" | "30d">("7d");
+  const [data, setData] = useState<Insights | null>(null);
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [targetRef, setTargetRef] = useState("");
-  const [problem, setProblem] = useState("");
-  const [evidence, setEvidence] = useState("");
+  const [selectedSkill, setSelectedSkill] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    const [targetResult, proposalResult] = await Promise.all([
-      loadJson<{ targets: Target[] }>("/api/evolution/targets", 10_000),
+    const query = new URLSearchParams({ range });
+    if (instanceId) query.set("instanceId", instanceId);
+    const [insightResult, instanceResult, proposalResult] = await Promise.all([
+      loadJson<Insights>(`/api/evolution/insights?${query.toString()}`, 30_000),
+      loadJson<{ instances: Array<{ instanceId: string; version?: string; state?: string }> }>("/api/instances", 10_000),
       loadJson<{ proposals: Proposal[] }>("/api/evolution/proposals", 10_000),
     ]);
-    if (!targetResult.ok || !proposalResult.ok) { setError("无法读取 Hermes 技能或改进提案，请确认 Watch 服务已启动"); return; }
-    setTargets(targetResult.data.targets ?? []);
-    setProposals(proposalResult.data.proposals ?? []);
-    if (selectedId === null && proposalResult.data.proposals?.[0]) setSelectedId(proposalResult.data.proposals[0].id);
-  }, [selectedId]);
+    if (!insightResult.ok) { setError(insightResult.reason); return; }
+    setError(null); setData(insightResult.data); setProposals(proposalResult.ok ? proposalResult.data.proposals ?? [] : []);
+    if (instanceResult.ok) { const next = instanceResult.data.instances ?? []; setInstances(next); if (!instanceId && next[0]) setInstanceId(next[0].instanceId); }
+    if (selectedId === null && insightResult.data.directions[0]) setSelectedId(insightResult.data.directions[0].id);
+  }, [instanceId, range, selectedId]);
   useEffect(() => { void refresh(); }, [refresh]);
-
-  const selected = proposals.find((item) => item.id === selectedId) ?? null;
-  const createProposal = async () => {
-    if (!targetRef || !problem.trim()) { message.warning("请选择真实技能并描述要改进的问题"); return; }
-    setBusy("create");
-    const result = await postJson("/api/evolution/proposals", { targetRef, problem, evidence: evidence.split(/\r?\n/).map((v) => v.trim()).filter(Boolean) }, 20_000);
-    setBusy(null);
-    if (!result.ok || !isRecord(result.data) || typeof result.data["id"] !== "string") { const detail = isRecord(result.data) ? [result.data["detail"], result.data["fix"], Array.isArray(result.data["actions"]) ? result.data["actions"].join("、") : ""].filter((item): item is string => typeof item === "string" && item !== "").join("；") : ""; message.error("提案创建失败" + (detail ? "：" + detail : "，请确认技能仍在当前清单中")); return; }
-    const proposal = result.data as unknown as Proposal;
-    setProblem(""); setEvidence(""); setSelectedId(proposal.id); await refresh(); message.success("改进提案已创建，可在右侧查看差异");
-  };
-  const validate = async (id: string) => {
-    setBusy(`validate:${id}`);
-    const result = await postJson(`/api/evolution/proposals/${encodeURIComponent(id)}/validate`, {}, 30_000);
-    setBusy(null);
-    if (!result.ok) { const detail = isRecord(result.data) ? [result.data["detail"], result.data["fix"]].filter((item): item is string => typeof item === "string" && item !== "").join("；") : ""; message.error("隔离验证失败" + (detail ? "：" + detail : "")); return; }
-    await refresh(); message.info("隔离验证已完成");
-  };
-  const apply = async (id: string) => {
-    setBusy(`apply:${id}`);
-    const result = await postJson(`/api/evolution/proposals/${encodeURIComponent(id)}/apply`, { confirmed: true }, 30_000);
-    setBusy(null);
-    if (!result.ok) { const detail = isRecord(result.data) ? [result.data["detail"], result.data["fix"], Array.isArray(result.data["actions"]) ? result.data["actions"].join("、") : ""].filter((item): item is string => typeof item === "string" && item !== "").join("；") : ""; message.error("应用失败" + (detail ? "：" + detail : "：baseline 可能已变化，或备份未成功")); return; }
-    await refresh(); message.success("改进已应用到 Hermes，并已写入审计记录");
-  };
-
+  const selected = data?.directions.find((item) => item.id === selectedId) ?? null;
+  const selectedProposal = selected?.execution?.kind === "proposal" ? proposals.find((item) => item.id === selected.execution?.id) ?? null : null;
+  const confirm = async () => { if (!selected) return; setBusy("confirm"); const result = await postJson(`/api/evolution/directions/${encodeURIComponent(selected.id)}/confirm`, selected.targetRef ? {} : { targetRef: selectedSkill }, 10_000); setBusy(null); if (!result.ok) { message.error(detailOf(result.data, "无法确认该方向")); return; } await refresh(); message.success("已记录确认，可以选择执行方式"); };
+  const summarize = async () => { if (!selected) return; setBusy("summarize"); const result = await postJson(`/api/evolution/directions/${encodeURIComponent(selected.id)}/summarize`, {}, 30_000); setBusy(null); if (!result.ok) message.error(detailOf(result.data, "总结失败")); else { await refresh(); message.success("已生成方向总结"); } };
+  const start = async (mode: "hermes" | "manual") => { if (!selected) return; setBusy(`start:${mode}`); const result = await postJson(`/api/evolution/directions/${encodeURIComponent(selected.id)}/start`, { mode, ...(instanceId ? { instanceId } : {}) }, 70_000); setBusy(null); if (!result.ok) { message.error(detailOf(result.data, "启动执行失败")); return; } await refresh(); message.success(mode === "manual" ? "手工提案已生成，可查看差异并验证" : "Hermes 隔离进化已启动"); };
+  const validate = async (id: string) => { setBusy("validate"); const result = await postJson(`/api/evolution/proposals/${encodeURIComponent(id)}/validate`, {}, 30_000); setBusy(null); if (!result.ok) message.error(detailOf(result.data, "隔离验证失败")); else { await refresh(); message.success("隔离验证完成"); } };
+  const apply = async (id: string) => { setBusy("apply"); const result = await postJson(`/api/evolution/proposals/${encodeURIComponent(id)}/apply`, { confirmed: true }, 30_000); setBusy(null); if (!result.ok) message.error(detailOf(result.data, "应用失败")); else { await refresh(); message.success("已应用到 Hermes"); } };
   const columns = useMemo(() => [
-    { title: "技能", render: (_: unknown, item: Proposal) => <div><strong>{item.target.name}</strong><div className="evolution-muted-action">{sourceLabel[item.target.source] ?? item.target.source} · {item.target.category}</div></div> },
-    { title: "状态", width: 110, render: (_: unknown, item: Proposal) => <Tag color={item.status === "ready-to-apply" ? "green" : item.status === "failed" ? "red" : "blue"}>{statusLabel[item.status]}</Tag> },
-    { title: "更新时间", width: 150, render: (_: unknown, item: Proposal) => formatTime(item.updatedAt) },
+    { title: "进化方向", render: (_: unknown, item: Direction) => <div><strong>{item.title}</strong><div className="evolution-muted-action">{item.targetRef ?? "未能定位技能"} · {item.occurrences} 次</div></div> },
+    { title: "影响", width: 90, render: (_: unknown, item: Direction) => <Tag color={impactColor[item.impact]}>{impactLabel[item.impact]}</Tag> },
+    { title: "置信度", width: 100, render: (_: unknown, item: Direction) => `${Math.round(item.confidence * 100)}%` },
+    { title: "最近出现", width: 150, render: (_: unknown, item: Direction) => item.lastSeenAt ? formatTime(item.lastSeenAt) : "未知" },
+    { title: "状态", width: 120, render: (_: unknown, item: Direction) => item.execution ? <Tag color="green">已启动</Tag> : item.blocked ? <Tag>需处理</Tag> : item.confirmedAt ? <Tag color="blue">已确认</Tag> : <Tag>待确认</Tag> },
   ], []);
-
   return <section className="page evolution-page">
-    <header className="evolution-header">
-      <div><span className="evolution-eyebrow">外部改进工作台</span><h1>协助 Hermes 改进</h1><p>选择当前 Hermes 已安装的真实技能，提出问题，先在 Butler 隔离验证，再由你确认应用。</p></div>
-      <ConnectionChip reachable={error === null} connectingText="正在读取 Hermes 技能清单" offlineText="改进工作台暂时不可用" />
-    </header>
-    {error && <Alert type="error" showIcon message="无法读取改进工作台" description={error} action={<Button icon={<ReloadOutlined />} onClick={() => { setError(null); void refresh(); }}>重试</Button>} />}
-    <section className="evolution-health">
-      <div className="evolution-section-head"><div><span className="evolution-kicker">主流程</span><h2>从问题到可控改进</h2></div><Button size="small" icon={<ReloadOutlined />} onClick={() => void refresh()}>刷新技能清单</Button></div>
-      <Descriptions size="small" column={{ xs: 1, sm: 3 }}>
-        <Descriptions.Item label="1 · 选择技能">只显示当前 Hermes 清单中的技能</Descriptions.Item>
-        <Descriptions.Item label="2 · 描述问题">支持补充日志片段或复现证据</Descriptions.Item>
-        <Descriptions.Item label="3 · 隔离验证">通过后才允许应用到 Hermes</Descriptions.Item>
-      </Descriptions>
-    </section>
-    <div className="evolution-workspace">
-      <section className="evolution-diagnosis">
-        <div className="evolution-section-head"><div><span className="evolution-kicker">新建提案</span><h2>描述要改进的问题</h2></div><ThunderboltOutlined /></div>
-        <label className="skills-filter"><span>目标技能</span><Select showSearch value={targetRef || undefined} placeholder="选择真实存在的技能" optionFilterProp="label" options={targets.map((item) => ({ value: item.targetRef, label: `${item.name} · ${item.category}` }))} onChange={setTargetRef} /></label>
-        {targetRef && <p className="evolution-health-detail">{targets.find((item) => item.targetRef === targetRef)?.description ?? "暂无简介"}</p>}
-        <label className="skills-filter"><span>问题描述</span><Input.TextArea rows={6} value={problem} onChange={(event) => setProblem(event.target.value)} placeholder="例如：该技能在会议纪要中经常遗漏负责人和截止时间。" /></label>
-        <label className="skills-filter"><span>可选证据（每行一条）</span><Input.TextArea rows={4} value={evidence} onChange={(event) => setEvidence(event.target.value)} placeholder="粘贴脱敏日志、失败样例或期望输出" /></label>
-        <Button type="primary" loading={busy === "create"} onClick={() => void createProposal()}>生成改进提案</Button>
-      </section>
-      <section className="evolution-tasks">
-        <div className="evolution-section-head"><div><span className="evolution-kicker">改进提案</span><h2>{proposals.length} 项</h2></div></div>
-        <Table rowKey="id" size="small" pagination={{ pageSize: 8, hideOnSinglePage: true }} dataSource={proposals} columns={columns} onRow={(item) => ({ onClick: () => setSelectedId(item.id), className: item.id === selectedId ? "is-selected" : "" })} locale={{ emptyText: <Empty description="还没有提案" /> }} />
-      </section>
-    </div>
-    <section className="evolution-inspector">
-      <div className="evolution-section-head"><div><span className="evolution-kicker">提案详情</span><h2>{selected?.target.name ?? "选择一个提案"}</h2></div>{selected && <Tag color={selected.status === "ready-to-apply" ? "green" : "blue"}>{statusLabel[selected.status]}</Tag>}</div>
-      {!selected ? <div className="evolution-empty">提案详情会显示问题、baseline hash、差异和验证结果。</div> : <>
-        <p className="evolution-run-detail">{selected.problem}</p>
-        <Descriptions size="small" column={{ xs: 1, sm: 2 }} className="evolution-run-facts">
-          <Descriptions.Item label="来源">{sourceLabel[selected.target.source] ?? selected.target.source}</Descriptions.Item><Descriptions.Item label="版本">{selected.target.version}</Descriptions.Item>
-          <Descriptions.Item label="baseline hash"><code>{selected.baselineHash}</code></Descriptions.Item><Descriptions.Item label="候选 hash"><code>{selected.candidateHash}</code></Descriptions.Item>
-          <Descriptions.Item label="验证结果">{selected.validation.reason}</Descriptions.Item><Descriptions.Item label="解决方案">{selected.validation.fix}</Descriptions.Item>
-        </Descriptions>
-        <Space wrap className="evolution-run-actions">
-          <Button icon={<SafetyCertificateOutlined />} loading={busy === `validate:${selected.id}`} onClick={() => void validate(selected.id)} disabled={selected.status === "applied"}>隔离验证</Button>
-          <Button type="primary" danger loading={busy === `apply:${selected.id}`} onClick={() => void apply(selected.id)} disabled={selected.status !== "ready-to-apply" || !selected.target.canApply}>应用到 Hermes</Button>
-        </Space>
-        <CollapseDetails title="查看差异" content={selected.diff} />
-        {selected.validation.status === "fail" && <Alert type="warning" showIcon message="当前操作被阻断" description={<>{selected.validation.reason}。建议：{selected.validation.fix}。下一步：{selected.validation.actions.join("、")}</>} />}
-      </>}
-    </section>
+    <header className="evolution-header"><div><span className="evolution-eyebrow">日志驱动进化工作台</span><h1>协助 Hermes 改进</h1><p>读取 Hermes 错误日志，归纳重复问题，由你逐条确认后再执行进化。</p></div><ConnectionChip reachable={error === null} connectingText="正在扫描 Hermes 日志" offlineText="进化工作台暂时不可用" /></header>
+    {error && <Alert type="error" showIcon message="无法读取 Hermes 日志洞察" description={error} action={<Button icon={<ReloadOutlined />} onClick={() => void refresh()}>重试</Button>} />}
+    <section className="evolution-health"><div className="evolution-section-head"><div><span className="evolution-kicker">分析范围</span><h2>从错误日志发现改进方向</h2></div><Space><Select value={instanceId || undefined} placeholder="选择 Hermes 实例" style={{ minWidth: 190 }} options={instances.map((item) => ({ value: item.instanceId, label: `${item.instanceId}${item.version ? ` · ${item.version}` : ""}` }))} onChange={setInstanceId} /><Select value={range} options={[{ value: "24h", label: "最近 24 小时" }, { value: "7d", label: "最近 7 天" }, { value: "30d", label: "最近 30 天" }]} onChange={setRange} /><Button size="small" icon={<ReloadOutlined />} onClick={() => void refresh()}>重新分析</Button></Space></div><Descriptions size="small" column={{ xs: 1, sm: 4 }}><Descriptions.Item label="日志覆盖">{data?.coverage?.from ? `${formatTime(data.coverage.from)} 至 ${formatTime(data.coverage.to ?? "")}` : "暂无数据"}</Descriptions.Item><Descriptions.Item label="扫描文件 / 行数">{data?.coverage ? `${data.coverage.sources} / ${data.coverage.lines}` : "-"}</Descriptions.Item><Descriptions.Item label="包含轮转日志">{data?.coverage?.rotatedLogs ? "是" : "否"}</Descriptions.Item><Descriptions.Item label="最近分析">{data?.analyzedAt ? formatTime(data.analyzedAt) : "-"}</Descriptions.Item></Descriptions></section>
+    <div className="evolution-workspace"><section className="evolution-tasks"><div className="evolution-section-head"><div><span className="evolution-kicker">进化方向</span><h2>{data?.directions.length ?? 0} 项</h2></div></div><Table rowKey="id" size="small" pagination={{ pageSize: 8, hideOnSinglePage: true }} dataSource={data?.directions ?? []} columns={columns} onRow={(item) => ({ onClick: () => { setSelectedId(item.id); setSelectedSkill(item.targetRef ?? ""); }, className: item.id === selectedId ? "is-selected" : "" })} locale={{ emptyText: <Empty description="当前窗口没有可归纳的问题" /> }} /></section>
+      <section className="evolution-diagnosis"><div className="evolution-section-head"><div><span className="evolution-kicker">方向详情</span><h2>{selected?.title ?? "选择一个方向"}</h2></div>{selected && <Tag color={impactColor[selected.impact]}>{impactLabel[selected.impact]}影响</Tag>}</div>{!selected ? <div className="evolution-empty">选择左侧方向查看问题总结、日志证据和执行方式。</div> : <><Typography.Paragraph>{selected.summary}</Typography.Paragraph><Descriptions size="small" column={1} className="evolution-run-facts"><Descriptions.Item label="关联技能">{selected.targetRef ?? "未能定位"}</Descriptions.Item><Descriptions.Item label="证据">{selected.occurrences} 次 · {selected.sources.join("、") || "未知来源"}</Descriptions.Item><Descriptions.Item label="置信度">{Math.round(selected.confidence * 100)}%</Descriptions.Item><Descriptions.Item label="推荐动作">{selected.recommendedAction}</Descriptions.Item></Descriptions>{selected.examples.length > 0 && <><Typography.Text strong>脱敏日志示例</Typography.Text><pre className="evolution-code">{selected.examples.join("\n")}</pre></>}{selected.blockReason && <Alert type={selected.targetType === "config" ? "info" : "warning"} showIcon message={selected.targetType === "config" ? "先修复系统问题" : "需要人工选择技能"} description={selected.blockReason} />}{selected.targetRef === null && selected.candidateSkills.length > 0 && <Select showSearch style={{ width: "100%", marginTop: 12 }} placeholder="选择关联技能" value={selectedSkill || undefined} options={selected.candidateSkills.map((name) => ({ value: name, label: name }))} onChange={setSelectedSkill} />}<Space wrap className="evolution-run-actions"><Button onClick={() => void summarize()} loading={busy === "summarize"}>生成补充总结</Button>{(selected.targetType === "skill" || selected.targetType === "prompt") && <Button type="primary" onClick={() => void confirm()} loading={busy === "confirm"} disabled={Boolean(selected.confirmedAt) || (selected.targetRef === null && !selectedSkill)}>{selected.confirmedAt ? "已确认这个方向" : "确认这个方向"}</Button>}{selected.confirmedAt && <><Button icon={<ThunderboltOutlined />} onClick={() => void start("hermes")} loading={busy === "start:hermes"}>Hermes 进化引擎</Button><Button onClick={() => void start("manual")} loading={busy === "start:manual"}>手工提案</Button></>}</Space>{selectedProposal && <section className="evolution-inspector"><Typography.Title level={5}>候选差异与应用</Typography.Title><Descriptions size="small" column={1}><Descriptions.Item label="baseline hash"><code>{selectedProposal.baselineHash}</code></Descriptions.Item><Descriptions.Item label="候选 hash"><code>{selectedProposal.candidateHash}</code></Descriptions.Item><Descriptions.Item label="验证">{selectedProposal.validation.reason}</Descriptions.Item></Descriptions><pre className="evolution-code">{selectedProposal.diff}</pre><Space><Button icon={<SafetyCertificateOutlined />} loading={busy === "validate"} onClick={() => void validate(selectedProposal.id)} disabled={selectedProposal.status === "applied"}>隔离验证</Button><Button type="primary" danger loading={busy === "apply"} onClick={() => void apply(selectedProposal.id)} disabled={selectedProposal.status !== "ready-to-apply" || !selectedProposal.target.canApply}>应用到 Hermes</Button></Space></section>}</>}</section></div>
+    <section className="evolution-health"><div className="evolution-section-head"><div><span className="evolution-kicker">历史记录</span><h2>已执行方向</h2></div></div>{(data?.directions.filter((item) => item.execution).length ?? 0) === 0 ? <Empty description="暂无执行记录；历史运行仍保留在进化台账中" /> : <ul>{data?.directions.filter((item) => item.execution).map((item) => <li key={item.id}>{item.title} · {item.execution?.kind === "proposal" ? "手工提案" : "Hermes 引擎"} · {item.execution?.status ?? "已提交"}</li>)}</ul>}</section>
   </section>;
 }
-
-function CollapseDetails({ title, content }: { title: string; content: string }) {
-  const [open, setOpen] = useState(false);
-  return <div className="evolution-expander"><Button type="link" onClick={() => setOpen(!open)}>{open ? "收起差异" : title}</Button>{open && <pre className="evolution-code">{content}</pre>}</div>;
-}
+function detailOf(value: unknown, fallback: string): string { if (!isRecord(value)) return fallback; return [value["detail"], value["fix"], Array.isArray(value["actions"]) ? value["actions"].join("、") : ""].filter((item): item is string => typeof item === "string" && item.trim() !== "").join("；") || fallback; }

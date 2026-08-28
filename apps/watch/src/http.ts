@@ -117,6 +117,7 @@ import type { UpgradeService } from "./upgrade.js";
 import type { ButlerSelfService } from "./self-upgrade.js";
 import type { PromptOptimizationService } from "./prompt-optimization.js";
 import type { LogAnalyzeView } from "./log-analyzer.js";
+import type { EvolutionInsightsService, InsightRange } from "./evolution-insights.js";
 import type { BackupService } from "./backup.js";
 import type { SecurityService } from "./invariants.js";
 import type { ButlerRuntimeInfo } from "./runtime.js";
@@ -253,6 +254,7 @@ export interface WatchHttpDeps {
   evolution?: EvolutionService;
   /** 外部协助 Hermes 改进工作台；与旧 self-evolution CLI 隔离。 */
   externalEvolution?: ExternalEvolutionService;
+  evolutionInsights?: EvolutionInsightsService;
   llm?: LlmCredentialService;
   /** Task 17：技能与记忆只读列表服务；可选以兼容尚未接线的嵌入式测试。 */
   skills?: SkillsMemoryService;
@@ -294,7 +296,7 @@ export interface WatchHttpDeps {
     } | null;
   };
   /** 系统日志智能体检（V1.7）：扫描日志尾部并按指纹聚合错误，给出可执行修复建议。 */
-  analyzeLogs?: (instanceId?: string) => LogAnalyzeView;
+  analyzeLogs?: (instanceId?: string, range?: InsightRange) => LogAnalyzeView;
   /** 管家自身版本信息（源码仓库 tag / 提交 / 分支）。 */
   butler?: {
     version(): {
@@ -1520,6 +1522,42 @@ async function handle(
         schemaVersion: CONTROL_API_SCHEMA_VERSION,
         ...deps.evolution.status(),
       });
+    }
+
+    if (path === "/api/evolution/insights") {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.evolutionInsights === undefined) return sendJson(res, 503, { error: "evolution-insights-unavailable" });
+      const instanceId = url.searchParams.get("instanceId")?.trim() || undefined;
+      const rawRange = url.searchParams.get("range") ?? "7d";
+      if (rawRange !== "24h" && rawRange !== "7d" && rawRange !== "30d") return sendJson(res, 400, { error: "invalid-range" });
+      return sendJson(res, 200, await deps.evolutionInsights.analyze(instanceId, rawRange));
+    }
+    const directionAction = /^\/api\/evolution\/directions\/([^/]+)\/(summarize|confirm|start)$/.exec(path);
+    if (directionAction !== null) {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.evolutionInsights === undefined) return sendJson(res, 503, { error: "evolution-insights-unavailable" });
+      const body = await readJsonBody(req, res);
+      if (body === null) return;
+      const id = decodeURIComponent(directionAction[1]!);
+      const action = directionAction[2]!;
+      if (action === "summarize") {
+        if (body["profileId"] !== undefined && typeof body["profileId"] !== "string") return sendJson(res, 400, { error: "invalid-profileId" });
+        const result = await deps.evolutionInsights.summarize(id, typeof body["profileId"] === "string" ? body["profileId"] : undefined);
+        return sendJson(res, "error" in result ? 404 : 200, result);
+      }
+      if (action === "confirm") {
+        if (body["targetRef"] !== undefined && typeof body["targetRef"] !== "string") return sendJson(res, 400, { error: "invalid-target-ref" });
+        const result = deps.evolutionInsights.confirm(id, typeof body["targetRef"] === "string" ? body["targetRef"] : undefined);
+        return sendJson(res, "error" in result ? 409 : 200, result);
+      }
+      if (body["mode"] !== "hermes" && body["mode"] !== "manual") return sendJson(res, 400, { error: "invalid-execution-mode" });
+      const result = await deps.evolutionInsights.start(id, {
+        mode: body["mode"],
+        ...(typeof body["targetRef"] === "string" ? { targetRef: body["targetRef"] } : {}),
+        ...(typeof body["profileId"] === "string" ? { profileId: body["profileId"] } : {}),
+        ...(typeof body["instanceId"] === "string" ? { instanceId: body["instanceId"] } : {}),
+      });
+      return sendJson(res, "error" in result ? 409 : 200, result);
     }
 
     if (path === "/api/evolution/targets") {
