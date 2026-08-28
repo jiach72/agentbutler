@@ -49,9 +49,15 @@ export interface SkillMeta {
   enabled: boolean;
   /** 分类：SKILL.md frontmatter 的 category/分类，缺省按目录推断。 */
   category?: string;
+  description?: string;
   /** 风险扫描状态；未执行扫描时必须明确标记为 unscanned。 */
   riskStatus?: AssetRiskStatus;
   riskDetail?: string;
+  usage?: number;
+  lastUsedAt?: string | null;
+  successRate?: number | null;
+  avgDurationMs?: number | null;
+  usageCoverage?: { from: string | null; to: string | null; days: number; source: string; complete: boolean };
 }
 
 export interface ValidationIssue {

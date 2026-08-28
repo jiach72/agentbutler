@@ -2264,6 +2264,7 @@ export function createEvolutionService(deps: EvolutionServiceDeps): EvolutionSer
       },
       endpointHealth,
       blocked: [...entries.values()]
+        .filter((entry) => entry.targetRef !== "productivity/teams-meeting-pipeline")
         .filter((entry) => entry.status === "preflight-failed" || entry.status === "rejected-preflight")
         .map((entry) => ({
           category: entry.checks.some((check) => check.id === "endpoint") ? endpointHealth.category : "unknown" as EvolutionEndpointCategory,
@@ -2273,7 +2274,7 @@ export function createEvolutionService(deps: EvolutionServiceDeps): EvolutionSer
       tasks: [...entries.values()]
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
         .slice(0, 50)
-        .map((entry) => viewOf(entry)),
+        .map((entry) => ({ ...viewOf(entry), ...(entry.targetRef === "productivity/teams-meeting-pipeline" ? { legacy: true, detail: "历史目标已不存在，不可重试" } : {}) })),
       history: [...entries.values()]
         .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt))
         .map((entry) => entry.metrics)

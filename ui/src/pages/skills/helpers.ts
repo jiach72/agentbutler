@@ -22,6 +22,12 @@ export interface SkillItem {
   source: string;
   enabled: boolean;
   category?: string;
+  description?: string;
+  usage?: number;
+  lastUsedAt?: string | null;
+  successRate?: number | null;
+  avgDurationMs?: number | null;
+  usageCoverage?: { from: string | null; to: string | null; days: number; source: string; complete: boolean };
   riskStatus?: AssetRiskStatus;
   riskDetail?: string;
 }

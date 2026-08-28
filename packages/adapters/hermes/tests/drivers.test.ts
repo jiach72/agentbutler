@@ -123,6 +123,7 @@ describe("hermes-skill read-only driver", () => {
         source: "builtin",
         enabled: true,
         category: "research",
+        description: "Search research papers.",
       },
       {
         ref: { name: "reviewer", version: "0.3.0", source: "self-evolved" },
@@ -131,6 +132,7 @@ describe("hermes-skill read-only driver", () => {
         source: "self-evolved",
         enabled: false,
         category: "custom",
+        description: "Review local documents.",
       },
     ]);
 

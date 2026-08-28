@@ -3,7 +3,7 @@
  * 记忆检索独立于技能/插件列表——搜索只更新右侧预览区，失败不回滚列表。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { App, Button, Spin, Tabs } from "antd";
+import { App, Button, Empty, Spin, Tabs } from "antd";
 import { ConnectionChip } from "../../components/ConnectionChip.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { loadJson, postJson } from "../../lib/api.js";
@@ -20,13 +20,14 @@ import { DirectoryFallback } from "./DirectoryFallback.js";
 import { MemoryPanel } from "./MemoryPanel.js";
 import { PluginLibrary } from "./PluginLibrary.js";
 import { SkillLibrary } from "./SkillLibrary.js";
+import { AssetCenter } from "./AssetCenter.js";
 
 export function SkillsPage() {
   const { message } = App.useApp();
   const [mainState, setMainState] = useState<FetchState<SkillsPayload>>({ status: "loading" });
   // 最近一次完整数据：检索期间/失败时记忆面板仍显示它，不再伪装成空态。
   const [lastGood, setLastGood] = useState<SkillsPayload | null>(null);
-  const [activeTab, setActiveTab] = useState<"skills" | "plugins" | "memory">("skills");
+  const [activeTab, setActiveTab] = useState<"skills" | "plugins" | "memory" | "assets">("skills");
   const [activeKeyword, setActiveKeyword] = useState("");
   const [memoryPreview, setMemoryPreview] = useState<MemoryPreview>({ status: "default" });
   const [backupBusy, setBackupBusy] = useState(false);
@@ -153,7 +154,7 @@ export function SkillsPage() {
         <Tabs
           className="skills-content-tabs"
           activeKey={activeTab}
-          onChange={(key) => setActiveTab(key === "plugins" || key === "memory" ? key : "skills")}
+          onChange={(key) => setActiveTab(key === "plugins" || key === "memory" || key === "assets" ? key : "skills")}
           items={[
             {
               key: "skills",
@@ -236,6 +237,11 @@ export function SkillsPage() {
                   )}
                 </>
               ),
+            },
+            {
+              key: "assets",
+              label: "资产中心",
+              children: mainState.status === "ready" ? <AssetCenter skills={mainState.data.skills} /> : <Empty description="技能清单加载后可查看资产中心" />,
             },
             {
               key: "memory",

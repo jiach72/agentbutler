@@ -79,6 +79,8 @@ import { renderDiagnosticReport } from "./diagnostics.js";
 import type { LogMtimeSampler } from "./probes/stall-write.js";
 import type { SqliteOpener } from "./probes/memory-probe.js";
 import { createSkillsMemoryService, type SkillsMemoryService } from "./skills.js";
+import { createExternalEvolutionService, type ExternalEvolutionService } from "./external-evolution.js";
+import { createSkillAssetService, type SkillAssetService } from "./skill-assets.js";
 import { createLogAnalyzer } from "./log-analyzer.js";
 import {
   createPromptOptimizationService,
@@ -165,6 +167,8 @@ export interface WatchApp {
   llm: LlmCredentialService;
   /** Task 17：技能与记忆只读清单、统计、检索预览与目录降级服务。 */
   skills: SkillsMemoryService;
+  externalEvolution: ExternalEvolutionService;
+  skillAssets: SkillAssetService;
   /** M5 切片 1/2：提示词 Registry + 候选持久化 + 成对评估服务。 */
   promptOptimization: PromptOptimizationService;
   /** Task 18：备份服务（每日全量/记忆增量/事件触发 + 还原）。 */
@@ -801,7 +805,6 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       await backup.run("event", label);
     },
   });
-
   // Task 18：备份服务（每日全量 + 每小时记忆增量 + 事件触发 + 还原）。
   // 备份/安全以实际检出的实例根目录为准（检测结果优先）。
   const managedRoot =
@@ -817,6 +820,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     now: options.now,
     driver,
   });
+  const externalEvolution = createExternalEvolutionService({ core, skills, backup, llm, now: options.now });
 
   // Task 18：安全基线（三条配置不变式 + 密钥文件 0600 扫描）。
   const security = createSecurityService({
@@ -1712,6 +1716,8 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       };
     },
   };
+  // 使用统计依赖同一份只读日志服务；必须在日志服务完成组装后创建。
+  const skillAssets = createSkillAssetService({ core, skills, backup, logs: logsService, now: options.now });
   const logAnalyzer = createLogAnalyzer(logsService);
 
   // 记忆按需自检：只跑 memory-probe 单阶段（写入并召回一条测试记忆，随后清理），
@@ -1759,6 +1765,8 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       upgrade: upgradeWithBackup,
       gateway,
       evolution: evolutionWithBackup,
+      externalEvolution,
+      skillAssets,
       llm,
       skills,
       memorySelfCheck: runMemorySelfCheck,
@@ -1825,6 +1833,8 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     evolution,
     llm,
     skills,
+    externalEvolution,
+    skillAssets,
     promptOptimization,
     backup,
     security,

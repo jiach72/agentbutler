@@ -183,4 +183,32 @@ describe("startWatchHttp 技能与记忆端点", () => {
     base = `http://127.0.0.1:${address.port}`;
     expect((await fetch(`${base}/api/skills`)).status).toBe(503);
   });
+
+  it("透传技能资产统计，并保留未知字段语义", async () => {
+    http.close();
+    const assets = {
+      usage: async () => ({
+        rangeDays: 180,
+        coverage: { from: "2026-08-01T00:00:00.000Z", to: "2026-08-02T00:00:00.000Z", days: 1, source: "Hermes 日志", complete: true },
+        series: [{ date: "2026-08-01", calls: 2 }],
+        skills: [{ name: "arxiv", calls: 2, lastUsedAt: "2026-08-02T00:00:00.000Z", successRate: null, avgDurationMs: null, status: "known" as const }],
+        notice: "成功率和耗时只有在日志明确记录时展示，否则为未知。",
+      }),
+      archive: async () => ({ ok: true }),
+      restore: async () => ({ ok: true }),
+      purge: async () => ({ ok: true }),
+      githubTrends: async () => ({ items: [] }),
+      refreshGithubTrends: async () => ({ items: [] }),
+      recommendations: async () => ({ items: [] }),
+      stageRecommendation: async () => ({ ok: true }),
+      installStaged: async () => ({ ok: true }),
+    };
+    http = startWatchHttp({ ...fake.deps, skillAssets: assets }, { port: 0 });
+    const address = await http.start();
+    base = `http://127.0.0.1:${address.port}`;
+    const status = await fetch(`${base}/api/skills`);
+    expect(status.status).toBe(200);
+    expect((await status.json()).skills.items[0]).toMatchObject({ usage: 2, successRate: null, avgDurationMs: null });
+    expect((await fetch(`${base}/api/skills/usage?range=30d`)).status).toBe(200);
+  });
 });

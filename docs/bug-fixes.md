@@ -1,5 +1,14 @@
 # Bug Fixes
 
+## 2026-08-28 - Hermes 外部协助改进工作台与技能资产中心
+
+- **Problem:** 进化页把“外部协助 Hermes 改进”误实现为直接运行 Hermes self-evolution CLI；历史台账中的 productivity/teams-meeting-pipeline 已不在当前技能清单，却继续出现在任务和阻断聚合；阻断项没有给出可执行的解决方案；技能页缺少使用统计与资产生命周期入口。
+- **Impact:** 用户无法按“选择真实技能 → 描述问题 → 提案 → 隔离验证 → 应用”协助 Hermes；不存在的历史目标污染当前判断；成功率、耗时和调用量缺少可信来源时容易被误读。
+- **Changed scope:** 新增 apps/watch/src/external-evolution.ts 外部提案服务和 apps/watch/src/skill-assets.ts 技能资产服务；Watch/Web 接入提案、统计、归档恢复删除、GitHub 趋势和隔离 staging API；技能页新增资产中心、趋势、排行、覆盖范围、未知态和归档入口；旧历史目标标记 legacy 且不计入当前阻断；使用统计复用 Hermes 日志并在字段无法证明时显示未知。
+- **Regression coverage:** TypeScript 检查覆盖 Watch、Web、UI；外部目标过滤、baseline hash、备份门槛、提案验证状态和资产统计接口已接线，后续 focused HTTP/服务测试应继续覆盖历史目标、轮转日志、归档 hash 冲突和隔离安装扫描。
+- **Verification:** pnpm exec tsc -p apps/watch/tsconfig.json --noEmit --pretty false；pnpm exec tsc -p apps/web/tsconfig.json --noEmit --pretty false；pnpm exec tsc -p ui/tsconfig.json --noEmit --pretty false；git diff --check。
+- **Runtime validation:** 本次改动未宣称真实 GitHub 网络同步或 Hermes 生产应用已完成；安装候选先写入 Butler 隔离区，确认前不写入 Hermes，生产运行验证需在服务启动后执行。
+
 ## 2026-08-28 - 本地容器版本不同步与 native 消息状态误判
 
 - **Problem:** 工作区已更新到 `1.0.0-beta.11`，但正在运行的 Web/Watch/Gateway 容器仍分别报告 `beta.7`、`beta.7`、`beta.10`；同时 Web 只接受包含完整 Bridge 字段的状态，导致 Hermes native 模式的正常 `200` 响应被显示为 `reachable:false`。

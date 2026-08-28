@@ -109,8 +109,10 @@ import type {
   EvolutionResultInput,
   EvolutionService,
 } from "./evolution.js";
+import type { ExternalEvolutionService } from "./external-evolution.js";
 import type { GatewayPanelService } from "./gateway-stats.js";
 import type { SkillsMemoryService } from "./skills.js";
+import type { SkillAssetService } from "./skill-assets.js";
 import type { UpgradeService } from "./upgrade.js";
 import type { ButlerSelfService } from "./self-upgrade.js";
 import type { PromptOptimizationService } from "./prompt-optimization.js";
@@ -249,9 +251,13 @@ export interface WatchHttpDeps {
   gateway: GatewayPanelService;
   /** Task 16：进化守门服务；可选以兼容尚未接线的嵌入式测试。 */
   evolution?: EvolutionService;
+  /** 外部协助 Hermes 改进工作台；与旧 self-evolution CLI 隔离。 */
+  externalEvolution?: ExternalEvolutionService;
   llm?: LlmCredentialService;
   /** Task 17：技能与记忆只读列表服务；可选以兼容尚未接线的嵌入式测试。 */
   skills?: SkillsMemoryService;
+  /** 技能资产中心：使用统计、生命周期、趋势与隔离安装。 */
+  skillAssets?: SkillAssetService;
   /** M6 P1/P2 写操作开关；V1 默认关闭并以 404 隐藏写路由。 */
   m6WritesEnabled?: boolean;
   /** Task 6/17：按需记忆写入召回自检（只跑 memory-probe 单阶段）。 */
@@ -852,15 +858,68 @@ async function handle(
           return sendJson(res, 400, { error: "invalid-limit" });
         }
       }
-      return sendJson(
-        res,
-        200,
-        await deps.skills.status({
+      const status = await deps.skills.status({
           ...(instanceId === undefined ? {} : { instanceId }),
           ...(keyword === undefined ? {} : { keyword }),
           ...(limit === undefined ? {} : { limit }),
-        }),
-      );
+        });
+      if (deps.skillAssets !== undefined) {
+        const usage = await deps.skillAssets.usage(180);
+        const byName = new Map(usage.skills.map((item) => [item.name, item]));
+        status.skills.items = status.skills.items.map((item) => {
+          const observed = byName.get(item.name);
+          return observed === undefined ? item : { ...item, usage: observed.calls, lastUsedAt: observed.lastUsedAt, successRate: observed.successRate, avgDurationMs: observed.avgDurationMs, usageCoverage: usage.coverage };
+        });
+      }
+      return sendJson(res, 200, status);
+    }
+
+    if (path === "/api/skills/usage") {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.skillAssets === undefined) return sendJson(res, 503, { error: "skill-assets-unavailable" });
+      const range = Number(url.searchParams.get("range")?.replace(/d$/, "") ?? "180");
+      return sendJson(res, 200, await deps.skillAssets.usage([30, 90, 180].includes(range) ? range : 180));
+    }
+
+    const skillLifecycle = /^\/api\/skills\/([^/]+)\/(archive|restore|purge)$/.exec(path);
+    if (skillLifecycle !== null) {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.skillAssets === undefined) return sendJson(res, 503, { error: "skill-assets-unavailable" });
+      const body = await readJsonBody(req, res); if (body === null) return;
+      const name = decodeURIComponent(skillLifecycle[1]!); const action = skillLifecycle[2]!;
+      const result = action === "archive" ? await deps.skillAssets.archive(name, typeof body["thresholdDays"] === "number" ? body["thresholdDays"] : 90) : action === "restore" ? await deps.skillAssets.restore(name) : await deps.skillAssets.purge(name, body["confirmed"] === true);
+      return sendJson(res, result.ok === true ? 200 : 409, result);
+    }
+
+    if (path === "/api/skills/github-trends") {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.skillAssets === undefined) return sendJson(res, 503, { error: "skill-assets-unavailable" });
+      return sendJson(res, 200, await deps.skillAssets.githubTrends({ filter: url.searchParams.get("filter") ?? undefined, sort: url.searchParams.get("sort") ?? undefined }));
+    }
+    if (path === "/api/skills/github-trends/refresh") {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.skillAssets === undefined) return sendJson(res, 503, { error: "skill-assets-unavailable" });
+      return sendJson(res, 200, await deps.skillAssets.refreshGithubTrends());
+    }
+    if (path === "/api/skills/recommendations") {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.skillAssets === undefined) return sendJson(res, 503, { error: "skill-assets-unavailable" });
+      return sendJson(res, 200, await deps.skillAssets.recommendations());
+    }
+    const stageMatch = /^\/api\/skills\/recommendations\/([^/]+)\/stage$/.exec(path);
+    if (stageMatch !== null) {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.skillAssets === undefined) return sendJson(res, 503, { error: "skill-assets-unavailable" });
+      const result = await deps.skillAssets.stageRecommendation(decodeURIComponent(stageMatch[1]!));
+      return sendJson(res, result.ok === true ? 200 : 409, result);
+    }
+    const installMatch = /^\/api\/skills\/staged\/([^/]+)\/install$/.exec(path);
+    if (installMatch !== null) {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.skillAssets === undefined) return sendJson(res, 503, { error: "skill-assets-unavailable" });
+      const body = await readJsonBody(req, res); if (body === null) return;
+      const result = await deps.skillAssets.installStaged(decodeURIComponent(installMatch[1]!), body["confirmed"] === true);
+      return sendJson(res, result.ok === true ? 200 : 409, result);
     }
 
     if (path === "/api/butler/version") {
@@ -1460,6 +1519,45 @@ async function handle(
         schemaVersion: CONTROL_API_SCHEMA_VERSION,
         ...deps.evolution.status(),
       });
+    }
+
+    if (path === "/api/evolution/targets") {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.externalEvolution === undefined) return sendJson(res, 503, { error: "external-evolution-unavailable" });
+      return sendJson(res, 200, { targets: await deps.externalEvolution.targets() });
+    }
+    if (path === "/api/evolution/proposals") {
+      if (deps.externalEvolution === undefined) return sendJson(res, 503, { error: "external-evolution-unavailable" });
+      if (method === "GET") return sendJson(res, 200, { proposals: deps.externalEvolution.list() });
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      const body = await readJsonBody(req, res);
+      if (body === null) return;
+      if (typeof body["targetRef"] !== "string" || typeof body["problem"] !== "string") return sendJson(res, 400, { error: "invalid-proposal" });
+      const result = await deps.externalEvolution.create({ targetRef: body["targetRef"], problem: body["problem"], ...(Array.isArray(body["evidence"]) ? { evidence: body["evidence"].filter((item): item is string => typeof item === "string") } : {}), ...(typeof body["profileId"] === "string" ? { profileId: body["profileId"] } : {}) });
+      return sendJson(res, "error" in result ? 400 : 201, result);
+    }
+    const proposalMatch = /^\/api\/evolution\/proposals\/([^/]+)$/.exec(path);
+    if (proposalMatch !== null) {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.externalEvolution === undefined) return sendJson(res, 503, { error: "external-evolution-unavailable" });
+      const proposal = deps.externalEvolution.get(decodeURIComponent(proposalMatch[1]!));
+      return proposal === null ? sendJson(res, 404, { error: "proposal-not-found" }) : sendJson(res, 200, proposal);
+    }
+    const validateMatch = /^\/api\/evolution\/proposals\/([^/]+)\/validate$/.exec(path);
+    if (validateMatch !== null) {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.externalEvolution === undefined) return sendJson(res, 503, { error: "external-evolution-unavailable" });
+      const result = await deps.externalEvolution.validate(decodeURIComponent(validateMatch[1]!));
+      return sendJson(res, "error" in result ? 404 : 200, result);
+    }
+    const applyMatch = /^\/api\/evolution\/proposals\/([^/]+)\/apply$/.exec(path);
+    if (applyMatch !== null) {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.externalEvolution === undefined) return sendJson(res, 503, { error: "external-evolution-unavailable" });
+      const body = await readJsonBody(req, res);
+      if (body === null) return;
+      const result = await deps.externalEvolution.apply(decodeURIComponent(applyMatch[1]!), body["confirmed"] === true);
+      return sendJson(res, "error" in result ? 409 : 200, result);
     }
 
     if (path === "/api/llm/profiles") {

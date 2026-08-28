@@ -172,6 +172,7 @@ function toMeta(skill: LocatedSkill): SkillMeta {
     version,
     source,
     enabled: skill.enabled,
+    ...(skill.definition.description === undefined ? {} : { description: skill.definition.description }),
     ...(skill.category === undefined ? {} : { category: skill.category }),
   };
 }

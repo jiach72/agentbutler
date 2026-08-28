@@ -11,6 +11,7 @@ import {
   collectCategories,
   collectSources,
   formatNumber,
+  formatTime,
   groupByCategory,
   modeLabel,
   riskDetail,
@@ -113,9 +114,12 @@ export function SkillLibrary({ skills }: SkillLibraryProps) {
                 <div className="skills-row-main">
                   <strong>{skill.name}</strong>
                   <span>{SOURCE_LABELS[skill.source] ?? skill.source}</span>
+                  <small className="skill-description">{skill.description ?? "暂无简介"}</small>
                 </div>
                 <div className="skills-row-meta">
                   <code>{skill.version}</code>
+                  <span>{skill.usage === undefined ? "调用未知" : String(skill.usage) + " 次"}</span>
+                  <span>{skill.lastUsedAt ? "最近 " + formatTime(skill.lastUsedAt) : "最近使用未知"}</span>
                   <span className={skill.enabled ? "is-enabled" : "is-disabled"}>
                     {skill.enabled ? "已启用" : "已停用"}
                   </span>

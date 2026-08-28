@@ -455,6 +455,12 @@ export interface SkillsApiView {
       source: string;
       enabled: boolean;
       category?: string;
+      description?: string;
+      usage?: number;
+      lastUsedAt?: string | null;
+      successRate?: number | null;
+      avgDurationMs?: number | null;
+      usageCoverage?: { from: string | null; to: string | null; days: number; source: string; complete: boolean };
       riskStatus?: AssetRiskStatus;
       riskDetail?: string;
     }>;
@@ -711,6 +717,12 @@ function parseSkillsStatus(value: unknown): Omit<SkillsApiView, "watchReachable"
       typeof item["source"] === "string" &&
       typeof item["enabled"] === "boolean" &&
       (item["category"] === undefined || typeof item["category"] === "string") &&
+      (item["description"] === undefined || typeof item["description"] === "string") &&
+      (item["usage"] === undefined || isNonNegativeNumber(item["usage"])) &&
+      (item["lastUsedAt"] === undefined || item["lastUsedAt"] === null || typeof item["lastUsedAt"] === "string") &&
+      (item["successRate"] === undefined || item["successRate"] === null || typeof item["successRate"] === "number") &&
+      (item["avgDurationMs"] === undefined || item["avgDurationMs"] === null || typeof item["avgDurationMs"] === "number") &&
+      (item["usageCoverage"] === undefined || isRecord(item["usageCoverage"])) &&
       (item["riskStatus"] === undefined || isAssetRiskStatus(item["riskStatus"])) &&
       (item["riskDetail"] === undefined || typeof item["riskDetail"] === "string"),
   ).map((item) => ({
@@ -720,6 +732,12 @@ function parseSkillsStatus(value: unknown): Omit<SkillsApiView, "watchReachable"
     source: String(item["source"]),
     enabled: Boolean(item["enabled"]),
     ...(item["category"] === undefined ? {} : { category: String(item["category"]) }),
+    ...(item["description"] === undefined ? {} : { description: String(item["description"]) }),
+    ...(item["usage"] === undefined ? {} : { usage: Number(item["usage"]) }),
+    ...(item["lastUsedAt"] === undefined ? {} : { lastUsedAt: item["lastUsedAt"] === null ? null : String(item["lastUsedAt"]) }),
+    ...(item["successRate"] === undefined ? {} : { successRate: item["successRate"] === null ? null : Number(item["successRate"]) }),
+    ...(item["avgDurationMs"] === undefined ? {} : { avgDurationMs: item["avgDurationMs"] === null ? null : Number(item["avgDurationMs"]) }),
+    ...(item["usageCoverage"] === undefined ? {} : { usageCoverage: item["usageCoverage"] as SkillsApiView["skills"]["items"][number]["usageCoverage"] }),
     ...(item["riskStatus"] === undefined ? {} : { riskStatus: item["riskStatus"] as AssetRiskStatus }),
     ...(item["riskDetail"] === undefined ? {} : { riskDetail: String(item["riskDetail"]) }),
   })) as SkillsApiView["skills"]["items"];
@@ -2555,6 +2573,51 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   app.get("/api/evolution", evolutionStatusHandler);
   // 对外保留与 Watch 一致的显式 status 路径，便于探针和运维脚本直接验收。
   app.get("/api/evolution/status", evolutionStatusHandler);
+
+  // 外部协助 Hermes 改进工作台（与旧 self-evolution CLI 兼容并存）。
+  app.get("/api/evolution/targets", async (_request, reply) => proxyWatchGet("/api/evolution/targets", reply));
+  app.get("/api/evolution/proposals", async (_request, reply) => proxyWatchGet("/api/evolution/proposals", reply));
+  app.post("/api/evolution/proposals", async (request, reply) => proxyWatchPost("/api/evolution/proposals", request.body, reply, 30_000));
+  app.get("/api/evolution/proposals/:id", async (request, reply) => {
+    const id = encodeURIComponent((request.params as { id?: string }).id ?? "");
+    return proxyWatchGet(`/api/evolution/proposals/${id}`, reply);
+  });
+
+  // 技能资产中心代理：统计、生命周期、公开趋势和隔离安装均透传 Watch 语义。
+  app.get("/api/skills/usage", async (request, reply) => {
+    const query = request.query as Record<string, unknown>;
+    const range = typeof query["range"] === "string" ? "?range=" + encodeURIComponent(query["range"] as string) : "";
+    return proxyWatchGet("/api/skills/usage" + range, reply);
+  });
+  app.post("/api/skills/:name/:action", async (request, reply) => {
+    const params = request.params as { name?: string; action?: string };
+    if (!["archive", "restore", "purge"].includes(params.action ?? "")) return reply.status(404).send({ error: "not-found" });
+    return proxyWatchPost("/api/skills/" + encodeURIComponent(params.name ?? "") + "/" + params.action, request.body, reply);
+  });
+  app.get("/api/skills/github-trends", async (request, reply) => {
+    const query = request.query as Record<string, unknown>;
+    const params = new URLSearchParams();
+    for (const key of ["filter", "sort"] as const) if (typeof query[key] === "string") params.set(key, query[key] as string);
+    return proxyWatchGet("/api/skills/github-trends" + (params.size > 0 ? "?" + params.toString() : ""), reply);
+  });
+  app.post("/api/skills/github-trends/refresh", async (_request, reply) => proxyWatchPost("/api/skills/github-trends/refresh", {}, reply, 30_000));
+  app.get("/api/skills/recommendations", async (_request, reply) => proxyWatchGet("/api/skills/recommendations", reply));
+  app.post("/api/skills/recommendations/:id/stage", async (request, reply) => {
+    const id = encodeURIComponent((request.params as { id?: string }).id ?? "");
+    return proxyWatchPost("/api/skills/recommendations/" + id + "/stage", request.body, reply, 30_000);
+  });
+  app.post("/api/skills/staged/:id/install", async (request, reply) => {
+    const id = encodeURIComponent((request.params as { id?: string }).id ?? "");
+    return proxyWatchPost("/api/skills/staged/" + id + "/install", request.body, reply, 30_000);
+  });
+  app.post("/api/evolution/proposals/:id/validate", async (request, reply) => {
+    const id = encodeURIComponent((request.params as { id?: string }).id ?? "");
+    return proxyWatchPost(`/api/evolution/proposals/${id}/validate`, request.body, reply, 30_000);
+  });
+  app.post("/api/evolution/proposals/:id/apply", async (request, reply) => {
+    const id = encodeURIComponent((request.params as { id?: string }).id ?? "");
+    return proxyWatchPost(`/api/evolution/proposals/${id}/apply`, request.body, reply, 30_000);
+  });
 
   app.get("/api/llm/profiles", async (_request, reply) => proxyWatchGet("/api/llm/profiles", reply));
   app.post("/api/llm/profiles", async (request, reply) => proxyWatchPost("/api/llm/profiles", request.body, reply, 30_000));

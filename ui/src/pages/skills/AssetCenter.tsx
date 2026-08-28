@@ -1,0 +1,75 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Alert, App, Button, Empty, Select, Table, Tag } from "antd";
+import { ReloadOutlined, InboxOutlined, DownloadOutlined } from "@ant-design/icons";
+import { loadJson, postJson } from "../../lib/api.js";
+import { formatTime } from "../../lib/format.js";
+import type { SkillsPayload } from "./helpers.js";
+
+type UsageItem = { name: string; calls: number; lastUsedAt: string | null; successRate: number | null; avgDurationMs: number | null; status: "known" | "unknown" };
+type UsageView = { rangeDays: number; coverage: { from: string | null; to: string | null; days: number; source: string; complete: boolean }; series: Array<{ date: string; calls: number }>; skills: UsageItem[]; notice: string };
+type TrendView = { items: Array<{ name: string; url: string; stars: number; forks: number; updatedAt: string }>; syncedAt: string | null; notice: string };
+type Recommendation = { id: string; name: string; reason: string; sourceUrl: string };
+
+export function AssetCenter({ skills }: { skills: SkillsPayload["skills"] }) {
+  const { message, modal } = App.useApp();
+  const [range, setRange] = useState("30");
+  const [usage, setUsage] = useState<UsageView | null>(null);
+  const [trends, setTrends] = useState<TrendView | null>(null);
+  const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    setBusy("refresh");
+    const [u, t, r] = await Promise.all([
+      loadJson<UsageView>("/api/skills/usage?range=" + range + "d", 15_000),
+      loadJson<TrendView>("/api/skills/github-trends", 10_000),
+      loadJson<{ items: Recommendation[] }>("/api/skills/recommendations", 10_000),
+    ]);
+    if (u.ok) setUsage(u.data);
+    if (t.ok) setTrends(t.data);
+    if (r.ok) setRecommendations(r.data.items ?? []);
+    setBusy(null);
+  }, [range]);
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  const maxCalls = Math.max(1, ...(usage?.series.map((item) => item.calls) ?? [0]));
+  const known = useMemo(() => new Set(skills.items.map((item) => item.name)), [skills.items]);
+  const archive = (name: string) => {
+    modal.confirm({ title: "归档技能 " + name + "？", content: "归档前会自动备份；内置技能不可归档。", okText: "归档", cancelText: "取消", onOk: async () => {
+      const result = await postJson("/api/skills/" + encodeURIComponent(name) + "/archive", { thresholdDays: 90 }, 20_000);
+      if (result.ok) { message.success("技能已归档"); await refresh(); } else message.error("归档被阻止：请查看返回的原因和解决方案");
+    } });
+  };
+  const stage = async (id: string) => {
+    setBusy("stage:" + id);
+    const result = await postJson("/api/skills/recommendations/" + encodeURIComponent(id) + "/stage", {}, 30_000);
+    setBusy(null);
+    if (!result.ok) { message.error("下载失败，请检查网络或稍后重试"); return; }
+    const stageId = result.data && typeof result.data === "object" && "id" in result.data ? String((result.data as { id: unknown }).id) : "";
+    message.success("已下载到 Butler 隔离区，尚未写入 Hermes");
+    if (stageId !== "") modal.confirm({ title: "确认应用这个技能到 Hermes？", content: "安装前会再次校验 SKILL.md、路径和备份；取消则只保留在隔离区。", okText: "应用到 Hermes", cancelText: "暂不应用", onOk: async () => {
+      const install = await postJson("/api/skills/staged/" + encodeURIComponent(stageId) + "/install", { confirmed: true }, 30_000);
+      if (install.ok) message.success("技能已应用到 Hermes"); else message.error("安装被阻止：请查看原因和解决方案");
+    } });
+  };
+
+  const columns = [
+    { title: "技能", dataIndex: "name", render: (name: string, item: UsageItem) => <><strong>{name}</strong>{item.status === "unknown" && <Tag color="default">未知技能</Tag>}</> },
+    { title: "调用次数", dataIndex: "calls", sorter: (a: UsageItem, b: UsageItem) => b.calls - a.calls },
+    { title: "成功率", render: (_: unknown, item: UsageItem) => item.successRate === null ? "未知" : (item.successRate * 100).toFixed(1) + "%" },
+    { title: "平均耗时", render: (_: unknown, item: UsageItem) => item.avgDurationMs === null ? "未知" : Math.round(item.avgDurationMs) + " ms" },
+    { title: "最近使用", render: (_: unknown, item: UsageItem) => item.lastUsedAt ? formatTime(item.lastUsedAt) : "未知" },
+    { title: "操作", render: (_: unknown, item: UsageItem) => known.has(item.name) ? <Button size="small" icon={<InboxOutlined />} disabled={skills.items.find((skill) => skill.name === item.name)?.source === "builtin"} onClick={() => archive(item.name)}>归档</Button> : null },
+  ];
+
+  return <div className="asset-center">
+    <div className="skills-section-head"><div><span className="skills-kicker">使用统计</span><h2>技能资产中心</h2></div><Select value={range} onChange={setRange} options={[{ value: "30", label: "近 30 天" }, { value: "90", label: "近 90 天" }, { value: "180", label: "近 180 天" }]} /></div>
+    {usage && <>
+      <Alert type={usage.coverage.complete ? "info" : "warning"} showIcon message={"数据覆盖：" + (usage.coverage.from ? formatTime(usage.coverage.from) + " 至 " + formatTime(usage.coverage.to ?? usage.coverage.from) : "未知")} description={usage.coverage.source + "；实际覆盖 " + usage.coverage.days + " 天。" + usage.notice} />
+      <div className="asset-trend" aria-label="技能调用次数趋势">{usage.series.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前范围没有可证明的调用记录" /> : usage.series.map((item) => <div className="asset-bar" key={item.date} title={item.date + ": " + item.calls + " 次"}><span style={{ height: Math.max(4, item.calls / maxCalls * 100) + "%" }} /><small>{item.date.slice(5)}</small></div>)}</div>
+      <Table rowKey="name" size="small" pagination={{ pageSize: 8, hideOnSinglePage: true }} dataSource={usage.skills} columns={columns} />
+    </>}
+    <div className="asset-center-section"><div className="skills-section-head"><div><span className="skills-kicker">公开趋势</span><h2>GitHub Agent 技能</h2></div><Button icon={<ReloadOutlined />} loading={busy === "refresh"} onClick={() => void refresh()}>刷新</Button></div><p className="asset-note">公开仓库趋势，不代表官方 Hermes 技能排名。{trends?.syncedAt ? "同步于 " + formatTime(trends.syncedAt) : "尚未同步"}</p><div className="asset-trends-list">{(trends?.items ?? []).slice(0, 8).map((item) => <div className="asset-trend-row" key={item.name}><a href={item.url} target="_blank" rel="noreferrer">{item.name}</a><span>{item.stars.toLocaleString()} stars · {item.forks.toLocaleString()} forks</span><small>更新于 {item.updatedAt ? formatTime(item.updatedAt) : "未知"}</small></div>)}</div></div>
+    <div className="asset-center-section"><div className="skills-section-head"><div><span className="skills-kicker">个性化推荐</span><h2>可先隔离检查的技能</h2></div></div>{recommendations.length === 0 ? <p className="asset-note">暂无推荐；推荐会排除已安装技能。</p> : recommendations.slice(0, 6).map((item) => <div className="asset-recommendation" key={item.id}><div><strong>{item.name}</strong><p>{item.reason}</p></div><Button icon={<DownloadOutlined />} loading={busy === "stage:" + item.id} onClick={() => void stage(item.id)}>下载到隔离区</Button></div>)}</div>
+  </div>;
+}
