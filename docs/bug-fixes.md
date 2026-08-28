@@ -1,5 +1,14 @@
 # Bug Fixes
 
+## 2026-08-28 - Hermes 多模型 API Key 管理与进化闭环
+
+- **Problem:** Different Hermes skills/plugins could share or overwrite a global LLM key; invalid credentials and endpoint failures were discovered too late; evolution runs had no explicit model binding and discovered Hermes configuration could not be migrated safely.
+- **Impact:** A skill could call the wrong provider, failed keys could trigger expensive runs, and operators had no reliable way to distinguish credential, endpoint, rate-limit, upstream, or unsupported-protocol failures.
+- **Changed scope:** Added the AES-256-GCM `SecretVault` and SQLite profile/version/binding tables; added masked profile APIs, real authenticated probes, rotation with pending versions, explicit binding precedence, read-only Hermes config discovery/import, loopback-only credential writes, and per-run WSL environment isolation with temporary overlays. Settings now exposes profile creation, probe, rotation, disable, binding, discovered-config import, and key-free Hermes configuration drafts. Evolution preflight blocks unbound/unsupported profiles and records the selected profile without changing Hermes global configuration.
+- **Regression coverage:** Core tests cover vault encryption, malformed/tampered secrets, probe classification for `401/403/404/429/5xx`, rotation rollback, binding precedence, and discovered-config redaction. Existing evolution and HTTP suites cover preflight blocking, WSL lifecycle, cancellation, promote gates, and API wiring.
+- **Verification:** `corepack pnpm exec tsc -b --pretty false`; `corepack pnpm exec vitest run packages/core/tests/llm-credentials.test.ts apps/watch/tests/evolution.test.ts apps/watch/tests/http.test.ts --reporter=dot` (39 passed); `git diff --check`; `corepack pnpm version:check`.
+- **Runtime validation:** Credential writes remain disabled for non-loopback Watch listeners; discovered responses contain only masked keys; failed rotation leaves the prior active version unchanged; profile keys are injected only into the selected Hermes child process and temporary overlays are removed after sourcing.
+
 ## 2026-08-28 - Release version synchronization for runtime services
 
 - **Problem:** After the `1.0.0-beta.8` release, Web reported the new version while Watch and Gateway still reported `1.0.0-beta.7`; the version checker did not cover their runtime constants.

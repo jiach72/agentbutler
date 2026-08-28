@@ -19,7 +19,7 @@ import {
 import { isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { findVenvPython, type CommandExecutor } from "@butler/adapter-hermes";
 import type { ControlAdapter, InstanceRef } from "@butler/contract";
-import type { Core, InstanceRecord } from "@butler/core";
+import type { Core, InstanceRecord, ResolvedProfile } from "@butler/core";
 import type { AlertPoster } from "./alert-forward.js";
 import type { FetchLike } from "./dashboard-signal.js";
 import type { LogIssueView } from "./log-analyzer.js";
@@ -95,6 +95,7 @@ export interface EvolutionRunCreateInput {
   datasetPath?: string;
   iterations?: number;
   dryRun?: boolean;
+  profileId?: string;
 }
 
 export interface EvolutionRunView {
@@ -158,6 +159,7 @@ export interface EvolutionPreflightInput {
   errors?: string[];
   rootCause?: string;
   fixes?: string[];
+  llmConfig?: { baseUrl?: string; apiKey?: string; model?: string; provider?: string };
 }
 
 export interface EvolutionPreflightOutcome {
@@ -366,6 +368,11 @@ export interface EvolutionServiceDeps {
   poster: AlertPoster;
   defaultEndpoint?: string;
   llm?: { baseUrl?: string; apiKey?: string; model?: string };
+  llmCredentials?: {
+    resolveBinding(input: { instanceId?: string; frameworkId?: string; scope?: "skill" | "plugin" | "evolution"; targetRef?: string; profileId?: string }): ResolvedProfile | null;
+    vaultAvailable?(): boolean;
+    buildEnvironment?(profile: ResolvedProfile): Record<string, string>;
+  };
   /** WSL 中的 ~/.hermes；Windows 宿主也通过 runtime executor 访问它。 */
   hermesRoot?: string;
   /** Hermes self-evolution skill checkout；缺省为 <hermesRoot>/skills/hermes-agent-self-evolution。 */
@@ -1011,7 +1018,7 @@ export function createEvolutionService(deps: EvolutionServiceDeps): EvolutionSer
           .filter(Boolean),
       ),
     ];
-    const hermesLlm = await readHermesLlmConfig();
+    const hermesLlm = input.llmConfig ?? (await readHermesLlmConfig());
     const endpoint = (input.endpoint ?? hermesLlm.baseUrl ?? deps.defaultEndpoint ?? "").trim();
     const holdoutCount =
       Number.isInteger(input.holdoutCount) && input.holdoutCount >= 0 ? input.holdoutCount : 0;
@@ -1847,12 +1854,40 @@ export function createEvolutionService(deps: EvolutionServiceDeps): EvolutionSer
       return viewOf(entry);
     }
 
+    let resolvedProfile: ResolvedProfile | null = null;
+    if (deps.llmCredentials !== undefined) {
+      resolvedProfile = deps.llmCredentials.resolveBinding({ instanceId: input.instanceId, frameworkId: "hermes", scope: "skill", targetRef, ...(input.profileId !== undefined ? { profileId: input.profileId } : {}) });
+      if (resolvedProfile === null) {
+        const explicit = input.profileId === undefined ? undefined : core.store.getLlmProfile(input.profileId);
+        const error = deps.llmCredentials.vaultAvailable?.() === false
+          ? "secret-vault-unavailable"
+          : explicit?.status === "unsupported"
+            ? "provider-unsupported"
+            : "profile-unbound";
+        const detail = error === "secret-vault-unavailable"
+          ? "Butler 加密凭据库不可用，拒绝回退到 Hermes 全局 Key"
+          : error === "provider-unsupported"
+            ? `profile 使用 ${explicit?.protocol ?? "未知"} 协议，当前 Hermes 进化链路不支持`
+            : input.profileId !== undefined
+              ? "指定 profile 未绑定到该技能/实例，或当前版本不可用"
+              : "没有找到该技能/实例的可用模型配置绑定";
+        const entry: EvolutionLedgerEntry = {
+          runId, createdAt: timestamp, updatedAt: timestamp, instanceId: input.instanceId ?? null, targetType, targetRef,
+          status: "preflight-failed", holdoutCount: Math.max(0, Math.floor(input.holdoutCount ?? MIN_HOLDOUT_COUNT)), dependencies: [...DEFAULT_EVOLUTION_DEPENDENCIES], endpoint: "", config: { profileId: input.profileId ?? null },
+          checks: [{ id: "endpoint", label: "模型配置绑定", status: "fail", detail, action: "前往设置 → 模型与 API Key，添加、探针并建立精确绑定" }], errors: [error], rootCause: error === "provider-unsupported" ? "模型协议尚未适配" : error === "secret-vault-unavailable" ? "加密凭据库不可用" : "模型配置未绑定", fixes: ["创建并探针一个支持的 profile，然后绑定到实例或技能"], runDetail: "模型凭据预检未通过，Hermes 未启动", ...labels("preflight-failed"),
+        };
+        persist(entry);
+        return viewOf(entry);
+      }
+    }
+
     const preflight = await runPreflight({
       instanceId: input.instanceId,
-      endpoint: input.endpoint,
+      endpoint: resolvedProfile?.profile.endpoint ?? input.endpoint,
       holdoutCount: Math.max(0, Math.floor(input.holdoutCount ?? MIN_HOLDOUT_COUNT)),
       datasetPath: input.datasetPath,
-      config: { targetType, targetRef, iterations: Math.max(1, Math.floor(input.iterations ?? 3)), dryRun: input.dryRun !== false },
+      config: { targetType, targetRef, iterations: Math.max(1, Math.floor(input.iterations ?? 3)), dryRun: input.dryRun !== false, profileId: resolvedProfile?.profile.profileId ?? null },
+      ...(resolvedProfile ? { llmConfig: { baseUrl: resolvedProfile.profile.endpoint, apiKey: resolvedProfile.apiKey, model: resolvedProfile.profile.model, provider: resolvedProfile.profile.provider } } : {}),
     }, runId);
     let entry = entries.get(runId)!;
     const workspace = preflight.allowRun ? await checkHermesWorkspace(targetRef, runId) : null;
@@ -1914,13 +1949,14 @@ export function createEvolutionService(deps: EvolutionServiceDeps): EvolutionSer
       return { status: "error", error: "hermes-unavailable", detail: "Hermes 运行环境不可用" };
     }
     const engineRoot = posix.join(entry.remoteRunDir, "engine");
-    const hermesEnvPath = posix.join(posix.dirname(hermesAgentRoot), ".env");
-    // Hermes 的 dspy/litellm 读取 OpenAI 兼容环境变量；配置文件本身保持只读，
-    // 只在子进程环境中注入已发现的 provider/base URL，不把密钥写入命令摘要或产物。
-    const hermesLlm = await readHermesLlmConfig();
-    const providerEnv = hermesLlm.provider
-      ? `${hermesLlm.provider.replace(/[^A-Za-z0-9]+/g, "_").toUpperCase()}_API_KEY`
-      : null;
+    const requestedProfileId = typeof entry.config["profileId"] === "string" ? entry.config["profileId"] : undefined;
+    const resolvedProfile = deps.llmCredentials === undefined
+      ? null
+      : deps.llmCredentials.resolveBinding({ instanceId: entry.instanceId ?? undefined, frameworkId: "hermes", scope: "skill", targetRef: entry.targetRef, ...(requestedProfileId ? { profileId: requestedProfileId } : {}) });
+    if (deps.llmCredentials !== undefined && resolvedProfile === null) {
+      return { status: "error", error: "profile-unbound", detail: "模型 profile 已失效、被禁用或绑定发生变化；拒绝回退到 Hermes 全局 Key" };
+    }
+    const hermesLlm = resolvedProfile === null ? await readHermesLlmConfig() : { baseUrl: resolvedProfile.profile.endpoint, model: resolvedProfile.profile.model, provider: resolvedProfile.profile.provider };
     const modelName = hermesLlm.model
       ? hermesLlm.model.includes("/")
         ? hermesLlm.model
@@ -1944,19 +1980,34 @@ export function createEvolutionService(deps: EvolutionServiceDeps): EvolutionSer
     ].join(" ");
     const exitPath = posix.join(entry.remoteRunDir, "exit-code");
     const pidPath = posix.join(entry.remoteRunDir, "pid");
+    const overlayPath = posix.join(entry.remoteRunDir, "llm.env");
+    const profileEnvironment = resolvedProfile === null
+      ? {}
+      : deps.llmCredentials?.buildEnvironment?.(resolvedProfile) ?? {
+          OPENAI_API_KEY: resolvedProfile.apiKey,
+          OPENAI_BASE_URL: resolvedProfile.profile.endpoint,
+          OPENAI_MODEL: resolvedProfile.profile.model,
+        };
+    const environmentKeys = Object.keys(profileEnvironment).filter((key) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(key));
+    const isolatedEnvironment = [
+      `PATH="$PATH"`,
+      `HOME="$HOME"`,
+      `HERMES_AGENT_REPO="$HERMES_AGENT_REPO"`,
+      ...environmentKeys.map((key) => `${key}="\$${key}"`),
+      `PYTHONPATH=${shellQuote(engineRoot)}:"\$PYTHONPATH"`,
+    ].join(" ");
     const runner = [
       "set +e",
-      `if [ -f ${shellQuote(hermesEnvPath)} ]; then set -a; . ${shellQuote(hermesEnvPath)}; set +a; fi`,
+      ...(resolvedProfile === null ? [`if [ -f ${shellQuote(posix.join(posix.dirname(hermesAgentRoot), ".env"))} ]; then set -a; . ${shellQuote(posix.join(posix.dirname(hermesAgentRoot), ".env"))}; set +a; fi`] : [
+        `test -f ${shellQuote(overlayPath)}; set -a; . ${shellQuote(overlayPath)}; set +a; rm -f ${shellQuote(overlayPath)}`,
+      ]),
       // Hermes 的进化脚本会在构造配置时先读取 HERMES_AGENT_REPO，
       // 因此必须显式指向容器内的只读 checkout，不能依赖宿主绝对路径。
       `export HERMES_AGENT_REPO=${shellQuote(hermesRoot)}`,
-      ...(providerEnv
-        ? [`if [ -n "\${${providerEnv}:-}" ]; then export OPENAI_API_KEY="$${providerEnv}"; fi`]
-        : []),
-      'export OPENAI_API_KEY="${OPENAI_API_KEY:-${DEEPSEEK_API_KEY:-${XIAOMI_API_KEY:-${OPENROUTER_API_KEY:-}}}}"',
       ...(hermesLlm.baseUrl ? [`export OPENAI_BASE_URL=${shellQuote(hermesLlm.baseUrl)}`] : []),
       `cd ${shellQuote(engineRoot)}`,
-      `${pythonResolver()} && PYTHONPATH=${shellQuote(engineRoot)}:"\${PYTHONPATH:-}" "$python" ${args}`,
+      pythonResolver(),
+      `${resolvedProfile === null ? `PYTHONPATH=${shellQuote(engineRoot)}:"\${PYTHONPATH:-}" "$python"` : `env -i ${isolatedEnvironment} "$python"`} ${args}`,
       "code=$?",
       `printf '%s\\n' "$code" > ${shellQuote(exitPath)}`,
       "exit $code",
@@ -1965,6 +2016,9 @@ export function createEvolutionService(deps: EvolutionServiceDeps): EvolutionSer
       "set -eu",
       `mkdir -p ${shellQuote(entry.remoteRunDir)}`,
       `rm -f ${shellQuote(exitPath)} ${shellQuote(pidPath)}`,
+      ...(resolvedProfile === null ? [] : [
+        `umask 077; : > ${shellQuote(overlayPath)}; ${environmentKeys.map((key) => `printf '%s=%s\\n' ${shellQuote(key)} "\$${key}" >> ${shellQuote(overlayPath)}`).join("; ")}; chmod 600 ${shellQuote(overlayPath)}`,
+      ]),
       `: > ${shellQuote(entry.stdoutPath)}`,
       `: > ${shellQuote(entry.stderrPath)}`,
       `setsid sh -lc ${shellQuote(runner)} < /dev/null > ${shellQuote(entry.stdoutPath)} 2> ${shellQuote(entry.stderrPath)} &`,
@@ -1972,7 +2026,7 @@ export function createEvolutionService(deps: EvolutionServiceDeps): EvolutionSer
       `printf '%s\\n' "$pid" > ${shellQuote(pidPath)}`,
       "printf '%s\\n' \"$pid\"",
     ].join("; ");
-    const result = await wsl(launch, 20_000);
+    const result = await deps.exec.exec("sh", ["-lc", launch], { timeoutMs: 20_000, ...(resolvedProfile === null ? {} : { env: profileEnvironment }) });
     const pid = Number(result.stdout.trim().split(/\r?\n/).at(-1));
     if (result.code !== 0 || !Number.isInteger(pid) || pid <= 1) {
       const updated: EvolutionLedgerEntry = {
@@ -2144,6 +2198,7 @@ export function createEvolutionService(deps: EvolutionServiceDeps): EvolutionSer
     if (!entry) return { status: "error", error: "run-not-found", detail: "运行不存在" };
     if (entry.status !== "running" || !entry.pid || !deps.useWsl) return { status: "error", error: "run-not-running", detail: "只有运行中的 Hermes 任务可以取消" };
     await wsl(`kill -TERM -- -${String(entry.pid)} 2>/dev/null || kill -TERM ${String(entry.pid)} 2>/dev/null || true`);
+    if (entry.remoteRunDir) void wsl(`rm -f ${shellQuote(posix.join(entry.remoteRunDir, "llm.env"))}`);
     const updated: EvolutionLedgerEntry = { ...entry, updatedAt: new Date(now()).toISOString(), completedAt: new Date(now()).toISOString(), status: "cancelled", runDetail: "用户取消了 Hermes 任务；baseline 未修改", ...labels("cancelled") };
     activeTargets.delete(targetKeyOf(updated.targetType ?? "skill", updated.targetRef ?? ""));
     persist(updated);

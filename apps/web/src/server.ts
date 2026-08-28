@@ -37,7 +37,7 @@ import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import { recentEventsAscending, selectNewEvents } from "./events-pump.js";
 
-export const WEB_VERSION = `web@1.0.0-beta.9+${CONTRACT_VERSION}`;
+export const WEB_VERSION = `web@1.0.0-beta.10+${CONTRACT_VERSION}`;
 
 /** 告警网关默认基址（butler-gateway 的固定回环端口）。 */
 export const DEFAULT_GATEWAY_URL = "http://127.0.0.1:7532";
@@ -2561,6 +2561,35 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   app.get("/api/evolution", evolutionStatusHandler);
   // 对外保留与 Watch 一致的显式 status 路径，便于探针和运维脚本直接验收。
   app.get("/api/evolution/status", evolutionStatusHandler);
+
+  app.get("/api/llm/profiles", async (_request, reply) => proxyWatchGet("/api/llm/profiles", reply));
+  app.post("/api/llm/profiles", async (request, reply) => proxyWatchPost("/api/llm/profiles", request.body, reply, 30_000));
+  app.get("/api/llm/bindings", async (_request, reply) => proxyWatchGet("/api/llm/bindings", reply));
+  app.post("/api/llm/bindings", async (request, reply) => proxyWatchPost("/api/llm/bindings", request.body, reply));
+  app.get("/api/llm/status", async (_request, reply) => proxyWatchGet("/api/llm/status", reply));
+  app.get("/api/llm/discovered", async (_request, reply) => proxyWatchGet("/api/llm/discovered", reply));
+  app.post("/api/llm/discovered/:id/import", async (request, reply) => {
+    const id = encodeURIComponent((request.params as { id?: string }).id ?? "");
+    return proxyWatchPost(`/api/llm/discovered/${id}/import`, request.body, reply, 30_000);
+  });
+  app.post("/api/llm/profiles/:id/:action", async (request, reply) => {
+    const params = request.params as { id?: string; action?: string };
+    if (!["rotate", "probe", "disable"].includes(params.action ?? "")) return reply.status(404).send({ error: "not-found" });
+    return proxyWatchPost(`/api/llm/profiles/${encodeURIComponent(params.id ?? "")}/${params.action}`, request.body, reply, 30_000);
+  });
+  app.delete("/api/llm/bindings/:id", async (request, reply) => {
+    const id = encodeURIComponent((request.params as { id?: string }).id ?? "");
+    let res: Response;
+    try {
+      res = await doFetch(`${watchUrl}/api/llm/bindings/${id}`, { method: "DELETE", signal: AbortSignal.timeout(5_000) });
+    } catch {
+      return reply.status(502).send({ error: "watch-unreachable" });
+    }
+    const raw = await res.text();
+    if (raw === "") return reply.status(res.status).send();
+    try { return reply.status(res.status).send(JSON.parse(raw)); }
+    catch { return reply.status(502).send({ error: "watch-invalid-response" }); }
+  });
 
   app.post("/api/evolution/diagnose", async (request, reply) =>
     proxyWatchPost("/api/evolution/diagnose", request.body, reply, 30_000),

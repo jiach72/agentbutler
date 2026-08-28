@@ -73,6 +73,45 @@
   line-height: 1.65;
 }
 
+.settings-llm {
+  display: grid;
+  gap: var(--butler-space-4);
+}
+.settings-llm-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--butler-space-5);
+}
+.settings-llm-grid > div,
+.settings-llm-discovered {
+  min-width: 0;
+  padding: var(--butler-space-4);
+  border: 1px solid var(--butler-rule);
+  border-radius: var(--butler-radius-card);
+  background: var(--butler-surface-subtle);
+}
+.settings-llm-grid h3,
+.settings-llm-discovered h3 {
+  margin: 0 0 var(--butler-space-3);
+  font-size: var(--butler-text-md);
+}
+.settings-llm-summary {
+  border-block: 1px solid var(--butler-rule);
+  padding-block: var(--butler-space-3);
+}
+.settings-llm-discovered {
+  display: grid;
+  gap: var(--butler-space-3);
+}
+.settings-llm-discovered .hint {
+  margin: 0;
+}
+@media (max-width: 840px) {
+  .settings-llm-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ---- 本机安全 ---- */
 
 .baseline-list {

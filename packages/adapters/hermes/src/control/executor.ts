@@ -33,7 +33,7 @@ export interface CommandResult {
  * 默认基于 node:child_process execFile/spawn，测试注入 fake。
  */
 export interface CommandExecutor {
-  exec(cmd: string, args: string[], opts?: { timeoutMs?: number }): Promise<CommandResult>;
+  exec(cmd: string, args: string[], opts?: { timeoutMs?: number; env?: Record<string, string> }): Promise<CommandResult>;
   /** 后台拉起进程（fire-and-forget，不等待退出）。 */
   spawnDetached(cmd: string, args: string[]): void;
 }
@@ -43,7 +43,7 @@ export function createExecFileExecutor(): CommandExecutor {
   return {
     exec: (cmd, args, opts) =>
       new Promise<CommandResult>((resolve) => {
-        execFile(cmd, args, { timeout: opts?.timeoutMs }, (err, stdout, stderr) => {
+        execFile(cmd, args, { timeout: opts?.timeoutMs, ...(opts?.env === undefined ? {} : { env: { ...process.env, ...opts.env } }) }, (err, stdout, stderr) => {
           const code =
             err && typeof (err as { code?: unknown }).code === "number"
               ? (err as { code: number }).code

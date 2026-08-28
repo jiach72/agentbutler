@@ -40,6 +40,8 @@ import {
   createCore,
   FingerprintEngine,
   LogTailer,
+  LlmCredentialService,
+  SecretVault,
   toInstanceRow,
   type Core,
   type InspectionCompletedPayload,
@@ -160,6 +162,7 @@ export interface WatchApp {
   gateway: GatewayPanelService;
   /** Task 16：进化预检、扩集、写入守门与 Markdown 台账服务。 */
   evolution: EvolutionService;
+  llm: LlmCredentialService;
   /** Task 17：技能与记忆只读清单、统计、检索预览与目录降级服务。 */
   skills: SkillsMemoryService;
   /** M5 切片 1/2：提示词 Registry + 候选持久化 + 成对评估服务。 */
@@ -423,6 +426,10 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     ...(options.home !== undefined ? { home: options.home } : {}),
   });
   const core = createCore({ home: config.home });
+  const llm = new LlmCredentialService(core.store, new SecretVault(), options.fetchFn === undefined ? undefined : async (url, init) => {
+    const response = await options.fetchFn!(url, init);
+    return { status: response.status };
+  });
   const runtime = detectButlerRuntime({
     sourceDir: process.env["BUTLER_SRC"]?.trim() || process.cwd(),
     butlerDataDir: config.home,
@@ -430,6 +437,43 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     openclawRoot: config.openclawRoot,
   });
   const commandExec = options.exec ?? createRuntimeCommandExecutor(runtime);
+  llm.setDiscoveryReader(async () => {
+    const script = [
+      "import json, os, re, sys",
+      "from pathlib import Path",
+      "root = Path(sys.argv[1])",
+      "env = {}",
+      "try:",
+      "  for raw in (root / '.env').read_text(errors='ignore').splitlines():",
+      "    line = raw.strip()",
+      "    if line and not line.startswith('#') and '=' in line:",
+      "      k, v = line.split('=', 1); env[k.strip().upper()] = v.strip().strip(\"'\\\"\")",
+      "except OSError: pass",
+      "cfg = {}",
+      "try:",
+      "  import yaml",
+      "  value = yaml.safe_load((root / 'config.yaml').read_text(errors='ignore')) or {}",
+      "  cfg = value if isinstance(value, dict) else {}",
+      "except Exception: pass",
+      "model_cfg = cfg.get('model') if isinstance(cfg.get('model'), dict) else {}",
+      "provider = str(model_cfg.get('provider') or '').strip()",
+      "model = str(model_cfg.get('default') or model_cfg.get('model') or '').strip()",
+      "endpoint = str(model_cfg.get('base_url') or model_cfg.get('baseUrl') or '').strip()",
+      "prefix = re.sub(r'[^A-Za-z0-9]+', '_', provider).strip('_').upper()",
+      "key = str(model_cfg.get('api_key') or env.get(prefix + '_API_KEY') or env.get('OPENAI_API_KEY') or env.get('LLM_API_KEY') or '').strip()",
+      "endpoint = endpoint or str(env.get(prefix + '_BASE_URL') or env.get('OPENAI_BASE_URL') or env.get('LLM_BASE_URL') or '').strip()",
+      "model = model or str(env.get('BUTLER_LLM_MODEL') or env.get('LLM_MODEL') or '').strip()",
+      "if provider or endpoint or model or key:",
+      "  print(json.dumps([{'id':'hermes-default','source':str(root),'provider':provider or 'OpenAI-compatible','protocol':'openai-compatible','endpoint':endpoint,'model':model,'apiKey':key}], ensure_ascii=False))",
+      "else: print('[]')",
+    ].join("\n");
+    const result = await commandExec.exec("python3", ["-c", script, runtime.hermesRoot], { timeoutMs: 8_000 });
+    if (result.code !== 0) return [];
+    try {
+      const parsed = JSON.parse(result.stdout.trim()) as unknown;
+      return Array.isArray(parsed) ? parsed.filter((item): item is { id: string; source: string; provider: string; protocol: "openai-compatible"; endpoint: string; model: string; apiKey: string } => typeof item === "object" && item !== null && typeof (item as Record<string, unknown>)["id"] === "string" && typeof (item as Record<string, unknown>)["apiKey"] === "string") : [];
+    } catch { return []; }
+  });
 
   // 控制面复用 core 的 store/snapshotsDir，避免适配器自建第二连接。
   const adapter =
@@ -729,6 +773,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     poster: alertPoster,
     defaultEndpoint: config.llm.baseUrl,
     llm: config.llm,
+    llmCredentials: llm,
     hermesRoot: runtime.hermesRoot,
     evolutionRoot: posix.join(runtime.hermesRoot, "skills", "hermes-agent-self-evolution"),
     runRoot: config.evolutionRunRoot ?? posix.join(runtime.butlerDataDir.replaceAll("\\", "/"), "evolution-runs"),
@@ -1714,6 +1759,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       upgrade: upgradeWithBackup,
       gateway,
       evolution: evolutionWithBackup,
+      llm,
       skills,
       memorySelfCheck: runMemorySelfCheck,
       renderDiagnostics: () =>
@@ -1773,6 +1819,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     upgrade,
     gateway,
     evolution,
+    llm,
     skills,
     promptOptimization,
     backup,

@@ -118,6 +118,7 @@ import type { LogAnalyzeView } from "./log-analyzer.js";
 import type { BackupService } from "./backup.js";
 import type { SecurityService } from "./invariants.js";
 import type { ButlerRuntimeInfo } from "./runtime.js";
+import type { LlmCredentialService, LlmProtocol } from "@butler/core";
 
 /** 记忆按需自检（memory-probe 单阶段）的结论。 */
 export interface MemorySelfCheckResult {
@@ -133,7 +134,7 @@ export type MemorySelfCheckOutcome =
 
 /** 请求体解析上限（字节）。 */
 export const HTTP_BODY_LIMIT_BYTES = 16 * 1024;
-export const WATCH_SERVICE_VERSION = `watch@1.0.0-beta.9+${CONTRACT_VERSION}`;
+export const WATCH_SERVICE_VERSION = `watch@1.0.0-beta.10+${CONTRACT_VERSION}`;
 
 /** runbook 执行结果（由接线层判定，HTTP 层只做状态码映射）。 */
 export type RunbookExecuteOutcome =
@@ -248,6 +249,7 @@ export interface WatchHttpDeps {
   gateway: GatewayPanelService;
   /** Task 16：进化守门服务；可选以兼容尚未接线的嵌入式测试。 */
   evolution?: EvolutionService;
+  llm?: LlmCredentialService;
   /** Task 17：技能与记忆只读列表服务；可选以兼容尚未接线的嵌入式测试。 */
   skills?: SkillsMemoryService;
   /** M6 P1/P2 写操作开关；V1 默认关闭并以 404 隐藏写路由。 */
@@ -327,6 +329,7 @@ export interface WatchHttp {
 }
 
 function sendJson(res: import("node:http").ServerResponse, status: number, body: unknown): void {
+  if (status === 204) { res.writeHead(204); res.end(); return; }
   const payload = JSON.stringify(body);
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
@@ -518,9 +521,10 @@ async function readJsonBody(
 export function startWatchHttp(deps: WatchHttpDeps, options: WatchHttpOptions = {}): WatchHttp {
   const host = options.host ?? "127.0.0.1";
   const requestedPort = options.port ?? 7533;
+  const credentialWritesAllowed = host === "127.0.0.1" || host === "localhost" || host === "::1";
 
   const server: Server = createServer((req, res) => {
-    void handle(deps, req, res);
+    void handle(deps, req, res, { credentialWritesAllowed });
   });
   // 长连接（keep-alive）不阻碍关闭：close() 时统一断开。
   server.keepAliveTimeout = 5_000;
@@ -562,6 +566,7 @@ async function handle(
   deps: WatchHttpDeps,
   req: import("node:http").IncomingMessage,
   res: import("node:http").ServerResponse,
+  options: { credentialWritesAllowed: boolean } = { credentialWritesAllowed: true },
 ): Promise<void> {
   const url = new URL(req.url ?? "/", "http://butler-watch.local");
   const path = url.pathname.replace(/\/+$/, "") || "/";
@@ -1451,6 +1456,99 @@ async function handle(
       });
     }
 
+    if (path === "/api/llm/profiles") {
+      if (deps.llm === undefined) return sendJson(res, 503, { error: "llm-manager-unavailable" });
+      if (method === "GET") return sendJson(res, 200, { profiles: deps.llm.listProfiles() });
+      if (!options.credentialWritesAllowed) return sendJson(res, 403, { error: "credential-writes-require-loopback" });
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      const body = await readJsonBody(req, res);
+      if (body === null) return;
+      const protocol = body["protocol"];
+      if (typeof body["provider"] !== "string" || typeof body["endpoint"] !== "string" || body["endpoint"].trim() === "" || typeof body["model"] !== "string" || body["model"].trim() === "" || typeof body["apiKey"] !== "string" || body["apiKey"] === "" || !["openai-compatible", "anthropic", "gemini"].includes(String(protocol))) {
+        return sendJson(res, 400, { error: "invalid-llm-profile" });
+      }
+      try {
+        const profile = await deps.llm.createProfile({
+          profileId: randomUUID(), provider: body["provider"].trim(), protocol: protocol as LlmProtocol,
+          endpoint: body["endpoint"].trim(), model: body["model"].trim(), apiKey: body["apiKey"],
+          ...(typeof body["instanceId"] === "string" ? { instanceId: body["instanceId"] } : {}),
+        });
+        return sendJson(res, 201, { profile });
+      } catch (error) {
+        const code = error instanceof Error ? error.message : "llm-profile-create-failed";
+        return sendJson(res, code === "secret-vault-unavailable" ? 503 : code === "profile-not-found" ? 404 : 409, { error: code });
+      }
+    }
+
+    if (path === "/api/llm/bindings") {
+      if (deps.llm === undefined) return sendJson(res, 503, { error: "llm-manager-unavailable" });
+      if (method === "GET") return sendJson(res, 200, { bindings: deps.llm.listBindings() });
+      if (!options.credentialWritesAllowed) return sendJson(res, 403, { error: "credential-writes-require-loopback" });
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      const body = await readJsonBody(req, res);
+      if (body === null) return;
+      if (typeof body["profileId"] !== "string" || !["instance", "framework", "skill", "plugin", "evolution"].includes(String(body["scope"]))) return sendJson(res, 400, { error: "invalid-llm-binding" });
+      try {
+        const binding = deps.llm.addBinding({ bindingId: randomUUID(), scope: body["scope"] as "instance" | "framework" | "skill" | "plugin" | "evolution", profileId: body["profileId"], ...(typeof body["instanceId"] === "string" ? { instanceId: body["instanceId"] } : {}), ...(typeof body["frameworkId"] === "string" ? { frameworkId: body["frameworkId"] } : {}), ...(typeof body["targetRef"] === "string" ? { targetRef: body["targetRef"] } : {}) });
+        return sendJson(res, 201, { binding });
+      } catch (error) {
+        const code = error instanceof Error ? error.message : "llm-binding-conflict";
+        const status = code === "profile-not-found" ? 404 : ["binding-target-required", "binding-instance-required", "binding-framework-required"].includes(code) ? 400 : 409;
+        return sendJson(res, status, { error: code });
+      }
+    }
+
+    if (path === "/api/llm/status") {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      return deps.llm === undefined ? sendJson(res, 503, { error: "llm-manager-unavailable" }) : sendJson(res, 200, deps.llm.status());
+    }
+
+    const llmProfileAction = /^\/api\/llm\/profiles\/([^/]+)\/(rotate|probe|disable)$/.exec(path);
+    if (llmProfileAction !== null) {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (!options.credentialWritesAllowed) return sendJson(res, 403, { error: "credential-writes-require-loopback" });
+      if (deps.llm === undefined) return sendJson(res, 503, { error: "llm-manager-unavailable" });
+      const body = await readJsonBody(req, res);
+      if (body === null) return;
+      const profileId = decodeURIComponent(llmProfileAction[1]!);
+      try {
+        if (llmProfileAction[2] === "rotate") {
+          if (typeof body["apiKey"] !== "string" || body["apiKey"] === "") return sendJson(res, 400, { error: "invalid-api-key" });
+          return sendJson(res, 200, { profile: await deps.llm.rotateProfile(profileId, body["apiKey"]) });
+        }
+        if (llmProfileAction[2] === "probe") return sendJson(res, 200, { probe: await deps.llm.probeProfile(profileId) });
+        return sendJson(res, 200, { profile: deps.llm.disableProfile(profileId) });
+      } catch (error) {
+        const code = error instanceof Error ? error.message : "llm-profile-action-failed";
+        return sendJson(res, code === "profile-not-found" || code === "profile-version-not-found" ? 404 : code === "secret-vault-unavailable" ? 503 : 409, { error: code });
+      }
+    }
+
+    const llmBindingMatch = /^\/api\/llm\/bindings\/([^/]+)$/.exec(path);
+    if (llmBindingMatch !== null) {
+      if (method !== "DELETE") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.llm === undefined) return sendJson(res, 503, { error: "llm-manager-unavailable" });
+      if (!options.credentialWritesAllowed) return sendJson(res, 403, { error: "credential-writes-require-loopback" });
+      return deps.llm.deleteBinding(decodeURIComponent(llmBindingMatch[1]!)) ? sendJson(res, 204, null) : sendJson(res, 404, { error: "llm-binding-not-found" });
+    }
+
+    if (path === "/api/llm/discovered") {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.llm === undefined || typeof deps.llm.discover !== "function") return sendJson(res, 503, { error: "llm-discovery-unavailable" });
+      return sendJson(res, 200, { configs: await deps.llm.discover() });
+    }
+    const discoveredImport = /^\/api\/llm\/discovered\/([^/]+)\/import$/.exec(path);
+    if (discoveredImport !== null) {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (!options.credentialWritesAllowed) return sendJson(res, 403, { error: "credential-writes-require-loopback" });
+      if (deps.llm === undefined || typeof deps.llm.importDiscovered !== "function") return sendJson(res, 503, { error: "llm-discovery-unavailable" });
+      try { return sendJson(res, 201, { profile: await deps.llm.importDiscovered(decodeURIComponent(discoveredImport[1]!)) }); }
+      catch (error) {
+        const code = error instanceof Error ? error.message : "llm-discovery-import-failed";
+        return sendJson(res, code === "discovered-config-not-found" ? 404 : code === "secret-vault-unavailable" ? 503 : 409, { error: code });
+      }
+    }
+
     if (path === "/api/evolution/diagnose") {
       if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
       if (deps.evolution === undefined) return sendJson(res, 503, { error: "evolution-unavailable" });
@@ -1475,6 +1573,7 @@ async function handle(
         return sendJson(res, 400, { error: "invalid-target-ref" });
       }
       if (body["instanceId"] !== undefined && typeof body["instanceId"] !== "string") return sendJson(res, 400, { error: "invalid-instanceId" });
+      if (body["profileId"] !== undefined && typeof body["profileId"] !== "string") return sendJson(res, 400, { error: "invalid-profileId" });
       if (body["endpoint"] !== undefined && typeof body["endpoint"] !== "string") return sendJson(res, 400, { error: "invalid-endpoint" });
       if (body["datasetPath"] !== undefined && typeof body["datasetPath"] !== "string") return sendJson(res, 400, { error: "invalid-dataset-path" });
       if (body["holdoutCount"] !== undefined && (!Number.isInteger(body["holdoutCount"]) || (body["holdoutCount"] as number) < 0)) return sendJson(res, 400, { error: "invalid-holdout-count" });
@@ -1484,6 +1583,7 @@ async function handle(
         targetType: body["targetType"],
         targetRef: body["targetRef"],
         ...(typeof body["instanceId"] === "string" ? { instanceId: body["instanceId"] } : {}),
+        ...(typeof body["profileId"] === "string" ? { profileId: body["profileId"] } : {}),
         ...(typeof body["endpoint"] === "string" ? { endpoint: body["endpoint"] } : {}),
         ...(typeof body["datasetPath"] === "string" ? { datasetPath: body["datasetPath"] } : {}),
         ...(typeof body["holdoutCount"] === "number" ? { holdoutCount: body["holdoutCount"] } : {}),

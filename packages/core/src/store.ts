@@ -265,6 +265,84 @@ export interface PromptEvaluationCaseRow extends PromptEvaluationCaseInput {
   id: number;
 }
 
+export type LlmProtocol = "openai-compatible" | "anthropic" | "gemini";
+export type LlmProfileStatus = "active" | "disabled" | "unsupported";
+export type LlmVersionStatus = "active" | "disabled" | "pending";
+export type LlmBindingScope = "instance" | "framework" | "skill" | "plugin" | "evolution";
+
+export interface LlmProfileRow {
+  profileId: string;
+  instanceId: string | null;
+  provider: string;
+  protocol: LlmProtocol;
+  endpoint: string;
+  model: string;
+  status: LlmProfileStatus;
+  currentVersion: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LlmProfileInput {
+  profileId: string;
+  instanceId?: string;
+  provider: string;
+  protocol: LlmProtocol;
+  endpoint: string;
+  model: string;
+  status?: LlmProfileStatus;
+  currentVersion?: number;
+}
+
+export interface LlmProfileVersionRow {
+  id: number;
+  profileId: string;
+  version: number;
+  ciphertext: string;
+  nonce: string;
+  authTag: string;
+  keyVersion: number;
+  status: LlmVersionStatus;
+  probeStatus: "pass" | "fail" | "unknown";
+  probeCategory: string;
+  probeDetail: string;
+  probedAt: string | null;
+  createdAt: string;
+}
+
+export interface LlmProfileVersionInput {
+  profileId: string;
+  version: number;
+  ciphertext: string;
+  nonce: string;
+  authTag: string;
+  keyVersion: number;
+  status?: LlmVersionStatus;
+  probeStatus?: "pass" | "fail" | "unknown";
+  probeCategory?: string;
+  probeDetail?: string;
+  probedAt?: string | null;
+}
+
+export interface LlmBindingRow {
+  bindingId: string;
+  scope: LlmBindingScope;
+  instanceId: string | null;
+  frameworkId: string | null;
+  targetRef: string | null;
+  profileId: string;
+  createdAt: string;
+}
+
+export interface LlmBindingInput {
+  bindingId: string;
+  scope: LlmBindingScope;
+  instanceId?: string;
+  frameworkId?: string;
+  targetRef?: string;
+  profileId: string;
+}
+
 const DDL = `
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -432,6 +510,50 @@ CREATE TABLE IF NOT EXISTS prompt_evaluation_cases (
   UNIQUE(evaluation_id, case_id)
 );
 CREATE INDEX IF NOT EXISTS idx_prompt_eval_cases_eval ON prompt_evaluation_cases(evaluation_id);
+
+CREATE TABLE IF NOT EXISTS llm_profiles (
+  profile_id TEXT PRIMARY KEY,
+  instance_id TEXT,
+  provider TEXT NOT NULL,
+  protocol TEXT NOT NULL,
+  endpoint TEXT NOT NULL,
+  model TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'disabled',
+  current_version INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_llm_profiles_instance ON llm_profiles(instance_id);
+
+CREATE TABLE IF NOT EXISTS llm_profile_versions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  profile_id TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  ciphertext TEXT NOT NULL,
+  nonce TEXT NOT NULL,
+  auth_tag TEXT NOT NULL,
+  key_version INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  probe_status TEXT NOT NULL DEFAULT 'unknown',
+  probe_category TEXT NOT NULL DEFAULT 'unknown',
+  probe_detail TEXT NOT NULL DEFAULT '',
+  probed_at TEXT,
+  created_at TEXT NOT NULL,
+  UNIQUE(profile_id, version)
+);
+CREATE INDEX IF NOT EXISTS idx_llm_profile_versions_profile ON llm_profile_versions(profile_id, version DESC);
+
+CREATE TABLE IF NOT EXISTS llm_bindings (
+  binding_id TEXT PRIMARY KEY,
+  scope TEXT NOT NULL,
+  instance_id TEXT,
+  framework_id TEXT,
+  target_ref TEXT,
+  profile_id TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_llm_bindings_exact ON llm_bindings(scope, COALESCE(instance_id, ''), COALESCE(framework_id, ''), COALESCE(target_ref, ''));
+CREATE INDEX IF NOT EXISTS idx_llm_bindings_profile ON llm_bindings(profile_id);
 `;
 
 function nowIso(): string {
@@ -1363,6 +1485,102 @@ export class SqliteStore {
       unknown
     >[];
     return rows.map((r) => this.mapInstance(r));
+  }
+
+  insertLlmProfile(input: LlmProfileInput): LlmProfileRow {
+    const ts = nowIso();
+    this.db.prepare(`INSERT INTO llm_profiles (profile_id, instance_id, provider, protocol, endpoint, model, status, current_version, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      input.profileId, input.instanceId ?? null, input.provider, input.protocol, input.endpoint, input.model,
+      input.status ?? "disabled", input.currentVersion ?? 0, ts, ts,
+    );
+    return this.getLlmProfile(input.profileId)!;
+  }
+
+  getLlmProfile(profileId: string): LlmProfileRow | undefined {
+    const row = this.db.prepare("SELECT * FROM llm_profiles WHERE profile_id = ?").get(profileId) as Record<string, unknown> | undefined;
+    return row === undefined ? undefined : this.mapLlmProfile(row);
+  }
+
+  listLlmProfiles(): LlmProfileRow[] {
+    const rows = this.db.prepare("SELECT * FROM llm_profiles ORDER BY updated_at DESC").all() as Record<string, unknown>[];
+    return rows.map((row) => this.mapLlmProfile(row));
+  }
+
+  updateLlmProfile(profileId: string, patch: Partial<Pick<LlmProfileInput, "status" | "currentVersion" | "endpoint" | "model" | "provider" | "protocol" | "instanceId">>): LlmProfileRow | undefined {
+    const current = this.getLlmProfile(profileId);
+    if (!current) return undefined;
+    this.db.prepare(`UPDATE llm_profiles SET instance_id = ?, provider = ?, protocol = ?, endpoint = ?, model = ?, status = ?, current_version = ?, updated_at = ? WHERE profile_id = ?`).run(
+      patch.instanceId ?? current.instanceId, patch.provider ?? current.provider, patch.protocol ?? current.protocol,
+      patch.endpoint ?? current.endpoint, patch.model ?? current.model, patch.status ?? current.status,
+      patch.currentVersion ?? current.currentVersion, nowIso(), profileId,
+    );
+    return this.getLlmProfile(profileId);
+  }
+
+  insertLlmProfileVersion(input: LlmProfileVersionInput): LlmProfileVersionRow {
+    const ts = nowIso();
+    this.db.prepare(`INSERT INTO llm_profile_versions (profile_id, version, ciphertext, nonce, auth_tag, key_version, status, probe_status, probe_category, probe_detail, probed_at, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      input.profileId, input.version, input.ciphertext, input.nonce, input.authTag, input.keyVersion,
+      input.status ?? "pending", input.probeStatus ?? "unknown", input.probeCategory ?? "unknown",
+      input.probeDetail ?? "", input.probedAt ?? null, ts,
+    );
+    return this.getLlmProfileVersion(input.profileId, input.version)!;
+  }
+
+  getLlmProfileVersion(profileId: string, version?: number): LlmProfileVersionRow | undefined {
+    const row = version === undefined
+      ? this.db.prepare("SELECT * FROM llm_profile_versions WHERE profile_id = ? ORDER BY version DESC LIMIT 1").get(profileId)
+      : this.db.prepare("SELECT * FROM llm_profile_versions WHERE profile_id = ? AND version = ?").get(profileId, version);
+    return row === undefined ? undefined : this.mapLlmProfileVersion(row as Record<string, unknown>);
+  }
+
+  listLlmProfileVersions(profileId: string): LlmProfileVersionRow[] {
+    const rows = this.db.prepare("SELECT * FROM llm_profile_versions WHERE profile_id = ? ORDER BY version DESC").all(profileId) as Record<string, unknown>[];
+    return rows.map((row) => this.mapLlmProfileVersion(row));
+  }
+
+  updateLlmProfileVersion(profileId: string, version: number, patch: Partial<Pick<LlmProfileVersionInput, "status" | "probeStatus" | "probeCategory" | "probeDetail" | "probedAt">>): LlmProfileVersionRow | undefined {
+    const current = this.getLlmProfileVersion(profileId, version);
+    if (!current) return undefined;
+    this.db.prepare(`UPDATE llm_profile_versions SET status = ?, probe_status = ?, probe_category = ?, probe_detail = ?, probed_at = ? WHERE profile_id = ? AND version = ?`).run(
+      patch.status ?? current.status, patch.probeStatus ?? current.probeStatus, patch.probeCategory ?? current.probeCategory,
+      patch.probeDetail ?? current.probeDetail, patch.probedAt === undefined ? current.probedAt : patch.probedAt,
+      profileId, version,
+    );
+    return this.getLlmProfileVersion(profileId, version);
+  }
+
+  insertLlmBinding(input: LlmBindingInput): LlmBindingRow {
+    const ts = nowIso();
+    this.db.prepare(`INSERT INTO llm_bindings (binding_id, scope, instance_id, framework_id, target_ref, profile_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`).run(input.bindingId, input.scope, input.instanceId ?? null, input.frameworkId ?? null, input.targetRef ?? null, input.profileId, ts);
+    return this.getLlmBinding(input.bindingId)!;
+  }
+
+  getLlmBinding(bindingId: string): LlmBindingRow | undefined {
+    const row = this.db.prepare("SELECT * FROM llm_bindings WHERE binding_id = ?").get(bindingId) as Record<string, unknown> | undefined;
+    return row === undefined ? undefined : this.mapLlmBinding(row);
+  }
+
+  listLlmBindings(filter: { profileId?: string; instanceId?: string } = {}): LlmBindingRow[] {
+    const rows = this.db.prepare("SELECT * FROM llm_bindings WHERE (? IS NULL OR profile_id = ?) AND (? IS NULL OR instance_id = ?) ORDER BY created_at DESC").all(filter.profileId ?? null, filter.profileId ?? null, filter.instanceId ?? null, filter.instanceId ?? null) as Record<string, unknown>[];
+    return rows.map((row) => this.mapLlmBinding(row));
+  }
+
+  deleteLlmBinding(bindingId: string): boolean {
+    return this.db.prepare("DELETE FROM llm_bindings WHERE binding_id = ?").run(bindingId).changes > 0;
+  }
+
+  private mapLlmProfile(r: Record<string, unknown>): LlmProfileRow {
+    return { profileId: String(r["profile_id"]), instanceId: (r["instance_id"] as string | null) ?? null, provider: String(r["provider"]), protocol: String(r["protocol"]) as LlmProtocol, endpoint: String(r["endpoint"]), model: String(r["model"]), status: String(r["status"]) as LlmProfileStatus, currentVersion: Number(r["current_version"]), createdAt: String(r["created_at"]), updatedAt: String(r["updated_at"]) };
+  }
+  private mapLlmProfileVersion(r: Record<string, unknown>): LlmProfileVersionRow {
+    return { id: Number(r["id"]), profileId: String(r["profile_id"]), version: Number(r["version"]), ciphertext: String(r["ciphertext"]), nonce: String(r["nonce"]), authTag: String(r["auth_tag"]), keyVersion: Number(r["key_version"]), status: String(r["status"]) as LlmVersionStatus, probeStatus: String(r["probe_status"]) as "pass" | "fail" | "unknown", probeCategory: String(r["probe_category"]), probeDetail: String(r["probe_detail"]), probedAt: (r["probed_at"] as string | null) ?? null, createdAt: String(r["created_at"]) };
+  }
+  private mapLlmBinding(r: Record<string, unknown>): LlmBindingRow {
+    return { bindingId: String(r["binding_id"]), scope: String(r["scope"]) as LlmBindingScope, instanceId: (r["instance_id"] as string | null) ?? null, frameworkId: (r["framework_id"] as string | null) ?? null, targetRef: (r["target_ref"] as string | null) ?? null, profileId: String(r["profile_id"]), createdAt: String(r["created_at"]) };
   }
 
   private mapInstance(r: Record<string, unknown>): InstanceRow {

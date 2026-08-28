@@ -190,7 +190,7 @@ function requireDefaultExecutor(): CommandExecutor {
   return {
     exec: (cmd, args, opts) =>
       new Promise<CommandResult>((resolveResult) => {
-        execFile(cmd, args, { timeout: opts?.timeoutMs }, (err, stdout, stderr) => {
+        execFile(cmd, args, { timeout: opts?.timeoutMs, ...(opts?.env === undefined ? {} : { env: { ...process.env, ...opts.env } }) }, (err, stdout, stderr) => {
           const code = err && typeof (err as { code?: unknown }).code === "number" ? (err as { code: number }).code : err ? 127 : 0;
           resolveResult({ code, stdout: stdout ?? "", stderr: stderr ?? "" });
         });

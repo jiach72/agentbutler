@@ -134,6 +134,9 @@ interface EvolutionPayload {
   history: EvolutionMetrics[];
 }
 
+interface LlmProfileSummary { profileId: string; provider: string; model: string; status: string; maskedKey: string; probe?: { status: string; category: string; detail: string } | null; }
+interface LlmBindingSummary { bindingId: string; scope: string; targetRef: string | null; profileId: string; instanceId: string | null; }
+
 type BusyAction = "diagnose" | "create" | "start" | "evaluate" | "promote" | "cancel" | null;
 
 function isEvolutionPayload(value: unknown): value is EvolutionPayload {
@@ -217,9 +220,20 @@ export function EvolutionPage() {
   const [busy, setBusy] = useState<BusyAction>(null);
   const [startConfirmRunId, setStartConfirmRunId] = useState<string | null>(null);
   const [promoteConfirmRunId, setPromoteConfirmRunId] = useState<string | null>(null);
+  const [llmProfiles, setLlmProfiles] = useState<LlmProfileSummary[]>([]);
+  const [llmBindings, setLlmBindings] = useState<LlmBindingSummary[]>([]);
+  const [llmVaultAvailable, setLlmVaultAvailable] = useState<boolean | null>(null);
 
   const refresh = useCallback(async () => {
-    const result = await loadJson<unknown>("/api/evolution", 8_000);
+    const [result, profilesResult, bindingsResult, statusResult] = await Promise.all([
+      loadJson<unknown>("/api/evolution", 8_000),
+      loadJson<{ profiles: LlmProfileSummary[] }>("/api/llm/profiles", 8_000),
+      loadJson<{ bindings: LlmBindingSummary[] }>("/api/llm/bindings", 8_000),
+      loadJson<{ vault?: { available?: boolean } }>("/api/llm/status", 8_000),
+    ]);
+    if (profilesResult.ok) setLlmProfiles(profilesResult.data.profiles);
+    if (bindingsResult.ok) setLlmBindings(bindingsResult.data.bindings);
+    if (statusResult.ok) setLlmVaultAvailable(statusResult.data.vault?.available ?? null);
     if (!result.ok) {
       setState({ status: "failed", reason: result.reason });
       return;
@@ -274,9 +288,10 @@ export function EvolutionPage() {
 
   const createRun = async (item: EvolutionRecommendation) => {
     setBusy("create");
+    const exact = llmBindings.find((binding) => (binding.scope === "skill" || binding.scope === "plugin" || binding.scope === "evolution") && binding.targetRef === item.targetRef);
     const result = await postJson(
       "/api/evolution/runs",
-      { targetType: "skill", targetRef: item.targetRef, dryRun: true },
+      { targetType: "skill", targetRef: item.targetRef, dryRun: true, ...(exact ? { profileId: exact.profileId } : {}) },
       70_000,
     );
     setBusy(null);
@@ -525,6 +540,8 @@ export function EvolutionPage() {
             <Descriptions.Item label="检查时间">{formatTime(data.endpointHealth.checkedAt)}</Descriptions.Item>
           </Descriptions>
           <p className="evolution-health-detail">{data.hermes.detail} · {data.endpointHealth.detail}</p>
+          {llmVaultAvailable === false && <Alert type="error" showIcon message="模型凭据库不可用" description="未配置有效的 BUTLER_SECRET_MASTER_KEY，进化任务会被阻断。" action={<Button size="small" onClick={() => navigate("/settings")}>去配置模型</Button>} />}
+          {llmVaultAvailable !== false && llmProfiles.filter((profile) => profile.status === "active").length === 0 && <Alert type="warning" showIcon message="尚未配置可用模型 profile" description="进化任务不会猜测 Hermes 的全局 Key；请先保存并探针一个模型，再建立实例或技能绑定。" action={<Button size="small" onClick={() => navigate("/settings")}>去配置模型</Button>} />}
           {data.blocked.length > 0 && (
             <Alert
               type="warning"

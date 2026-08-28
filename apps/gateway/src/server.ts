@@ -31,7 +31,7 @@ const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 const MAX_BODY_BYTES = 1024 * 1024;
 const DND_SCOPES = new Set(["global", "channel", "session"]);
-export const GATEWAY_SERVICE_VERSION = `gateway@1.0.0-beta.9+${CONTRACT_VERSION}`;
+export const GATEWAY_SERVICE_VERSION = `gateway@1.0.0-beta.10+${CONTRACT_VERSION}`;
 
 export interface MessageGatewayController {
   status(): Promise<MessageGatewayStatus>;

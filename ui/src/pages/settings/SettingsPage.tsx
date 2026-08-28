@@ -30,6 +30,7 @@ import {
 import { DiagnosticsCenter } from "./DiagnosticsCenter.js";
 import { SecurityBaseline } from "./SecurityBaseline.js";
 import { PreferencesPanel } from "../preferences/PreferencesPage.js";
+import { LlmProfileManager } from "./LlmProfileManager.js";
 
 export function SettingsPage() {
   const { message } = App.useApp();
@@ -247,6 +248,11 @@ export function SettingsPage() {
             ),
           },
           {
+            key: "llm",
+            label: "模型与 API Key",
+            children: <section className="settings-tab-panel"><LlmProfileManager /></section>,
+          },
+          {
             key: "diagnostics",
             label: "诊断报告",
             children: (
@@ -255,10 +261,7 @@ export function SettingsPage() {
                 <AuditLog audit={sources.audit} onRetry={() => retrySource("audit")} />
                 <div className="settings-boundary">
                   <span>目前能做到</span>
-                  <p>
-                    本页展示的是真实的安全状态、备份和操作记录；完整密钥库和 26
-                    条配置规则会在后续版本补上，不会提前显示成已开启。
-                  </p>
+                  <p>本页展示真实的安全状态、备份、操作记录和脱敏的凭据管理状态。</p>
                 </div>
               </section>
             ),
