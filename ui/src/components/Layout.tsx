@@ -5,7 +5,9 @@
 import {
   ApiOutlined,
   CloudUploadOutlined,
+  DatabaseOutlined,
   DashboardOutlined,
+  FileTextOutlined,
   MenuOutlined,
   MoonOutlined,
   NotificationOutlined,
@@ -13,6 +15,7 @@ import {
   SettingOutlined,
   SunOutlined,
   ThunderboltOutlined,
+  ToolOutlined,
 } from "@ant-design/icons";
 import { Button, Drawer } from "antd";
 import { useState } from "react";
@@ -27,6 +30,9 @@ const NAV_ITEMS = [
   { to: "/gateway", icon: <NotificationOutlined />, label: "消息通知", note: "频率控制与送达记录" },
   { to: "/evolution", icon: <ThunderboltOutlined />, label: "进化与优化", note: "改进评估与风险控制" },
   { to: "/skills", icon: <ApiOutlined />, label: "技能与记忆", note: "技能、插件与记忆" },
+  { to: "/recovery", icon: <ToolOutlined />, label: "诊断与修复", note: "分级动作与执行进度" },
+  { to: "/logs", icon: <FileTextOutlined />, label: "系统日志", note: "错误证据与修复建议" },
+  { to: "/assets", icon: <DatabaseOutlined />, label: "技能资产中心", note: "使用统计与公开趋势" },
 ];
 
 const SETTINGS_ITEM = {

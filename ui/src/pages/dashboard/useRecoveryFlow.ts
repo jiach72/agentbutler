@@ -5,10 +5,10 @@
  */
 import { useCallback, useState } from "react";
 import { App } from "antd";
-import { postJson } from "../../lib/api.js";
+import { loadJson, postJson } from "../../lib/api.js";
 import { isRecord, pickErrorText } from "../../lib/format.js";
 import { usePolling } from "../../hooks/usePolling.js";
-import type { RecoveryActionView, RecoveryDiagnosisView } from "./types.js";
+import type { RecoveryActionView, RecoveryDiagnosisView, RecoveryJobView } from "./types.js";
 
 const VERIFY_POLL_MS = 3_000;
 const VERIFY_WINDOW_MS = 60_000;
@@ -19,6 +19,21 @@ export function useRecoveryFlow() {
   const [busy, setBusy] = useState(false);
   const [confirmAction, setConfirmAction] = useState<RecoveryActionView | null>(null);
   const [verifying, setVerifying] = useState<{ label: string; startedAt: number } | null>(null);
+  const [job, setJob] = useState<RecoveryJobView | null>(null);
+  const [jobStartedAt, setJobStartedAt] = useState<number | null>(null);
+
+  const pollJob = useCallback(async () => {
+    if (job === null || job.status !== "running") return;
+    const result = await loadJson<RecoveryJobView>(`/api/recovery/jobs/${encodeURIComponent(job.jobId)}`, 8_000);
+    if (!result.ok) return;
+    setJob(result.data);
+    if (result.data.status !== "running") {
+      if (result.data.status === "done") message.success(`「${result.data.label}」执行完成`);
+      else message.error(`「${result.data.label}」执行未完成：${result.data.detail}`);
+      setVerifying({ label: result.data.label, startedAt: Date.now() });
+    }
+  }, [job, message]);
+  usePolling(() => void pollJob(), job?.status === "running" ? 1000 : null);
 
   const verifyTick = useCallback(async () => {
     if (verifying === null) return;
@@ -61,8 +76,10 @@ export function useRecoveryFlow() {
       if (lowRisk !== undefined) {
         const result = await postJson(`/api/recovery/actions/${encodeURIComponent(lowRisk.id)}/execute`, {}, 70_000);
         if (result.ok) {
-          message.success(`已启动「${lowRisk.label}」，将在 2 秒和 60 秒后复验`);
-          setVerifying({ label: lowRisk.label, startedAt: Date.now() });
+          const payload = isRecord(result.data) ? result.data : {};
+          setJob(typeof payload.jobId === "string" ? { jobId: payload.jobId, actionId: lowRisk.id, label: lowRisk.label, instanceId: null, status: "running", progress: 8, detail: "已确认，正在准备执行", startedAt: new Date().toISOString(), finishedAt: null } : null);
+          setJobStartedAt(Date.now());
+          message.success(`已启动「${lowRisk.label}」，可在进度条中查看执行状态`);
         }
         else message.error(`诊断完成，但「${lowRisk.label}」执行失败`);
       } else {
@@ -78,8 +95,10 @@ export function useRecoveryFlow() {
     setBusy(false);
     setConfirmAction(null);
     if (result.ok) {
-      message.success(`已启动「${action.label}」，将在 2 秒和 60 秒后复验`);
-      setVerifying({ label: action.label, startedAt: Date.now() });
+      const payload = isRecord(result.data) ? result.data : {};
+      setJob(typeof payload.jobId === "string" ? { jobId: payload.jobId, actionId: action.id, label: action.label, instanceId: null, status: "running", progress: 8, detail: "已确认，正在准备执行", startedAt: new Date().toISOString(), finishedAt: null } : null);
+      setJobStartedAt(Date.now());
+      if (!isRecord(result.data) || typeof payload.jobId !== "string") setVerifying({ label: action.label, startedAt: Date.now() });
     } else if (result.status === 409) {
       message.error(`「${action.label}」暂时不能执行：${pickErrorText(result.data, "保护机制或当前状态不允许")}`);
     } else {
@@ -91,6 +110,8 @@ export function useRecoveryFlow() {
     recovery,
     busy,
     confirmAction,
+    job,
+    jobStartedAt,
     requestConfirm: setConfirmAction,
     cancelConfirm: useCallback(() => setConfirmAction(null), []),
     diagnose,

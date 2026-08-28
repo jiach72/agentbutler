@@ -168,6 +168,97 @@ export interface RecoveryDiagnosisView {
   checkedAt: string;
 }
 
+export interface RecoveryJobView {
+  jobId: string;
+  actionId: string;
+  label: string;
+  instanceId: string | null;
+  status: "running" | "done" | "failed" | "unknown";
+  progress: number;
+  detail: string;
+  startedAt: string;
+  finishedAt: string | null;
+}
+
+const recoveryJobs = new Map<string, RecoveryJobView>();
+const recoveryJobTimers = new Map<string, ReturnType<typeof setInterval>>();
+const recoveryCompletionTimers = new Map<string, ReturnType<typeof setInterval>>();
+
+function startRecoveryJob(actionId: string, label: string, estimatedSeconds: number, instanceId?: string, holdForVerification = false): RecoveryJobView {
+  const jobId = `recovery-${randomUUID()}`;
+  const startedAt = new Date().toISOString();
+  const job: RecoveryJobView = {
+    jobId,
+    actionId,
+    label,
+    instanceId: instanceId ?? null,
+    status: "running",
+    progress: 8,
+    detail: "已确认，正在准备执行",
+    startedAt,
+    finishedAt: null,
+  };
+  recoveryJobs.set(jobId, job);
+  const duration = Math.max(5, estimatedSeconds) * 1000;
+  const tickMs = 1000;
+  const timer = setInterval(() => {
+    const current = recoveryJobs.get(jobId);
+    if (!current || current.status !== "running") return;
+    const elapsed = Date.now() - Date.parse(current.startedAt);
+    const progress = Math.min(92, Math.max(current.progress, 8 + Math.round((elapsed / duration) * 84)));
+    current.progress = progress;
+    current.detail = progress >= 90 ? "正在进行最后复验" : "正在执行修复步骤";
+    if (elapsed >= duration && !holdForVerification) {
+      current.progress = 100;
+      current.status = "done";
+      current.detail = "修复步骤已完成，等待复验结果";
+      current.finishedAt = new Date().toISOString();
+      clearInterval(timer);
+      recoveryJobTimers.delete(jobId);
+    }
+    if (elapsed >= duration + 30_000 && holdForVerification) {
+      current.progress = 95;
+      current.status = "unknown";
+      current.detail = "执行时间已到，但 Watch 尚未返回最终复验结果";
+      current.finishedAt = new Date().toISOString();
+      clearInterval(timer);
+      recoveryJobTimers.delete(jobId);
+      const completionTimer = recoveryCompletionTimers.get(jobId);
+      if (completionTimer) clearInterval(completionTimer);
+      recoveryCompletionTimers.delete(jobId);
+    }
+  }, tickMs);
+  recoveryJobTimers.set(jobId, timer);
+  return job;
+}
+
+function finishRecoveryJob(jobId: string, status: "done" | "failed" | "unknown", detail: string): void {
+  const job = recoveryJobs.get(jobId);
+  if (!job) return;
+  job.status = status;
+  job.progress = status === "done" ? 100 : Math.min(job.progress, 95);
+  job.detail = detail;
+  job.finishedAt = new Date().toISOString();
+  const timer = recoveryJobTimers.get(jobId);
+  if (timer) clearInterval(timer);
+  recoveryJobTimers.delete(jobId);
+  const completionTimer = recoveryCompletionTimers.get(jobId);
+  if (completionTimer) clearInterval(completionTimer);
+  recoveryCompletionTimers.delete(jobId);
+}
+
+function monitorRunbookJob(jobId: string, deps: WatchHttpDeps, runbookId: string, startedAt: number, before: string | null): void {
+  const timer = setInterval(() => {
+    const current = recoveryJobs.get(jobId);
+    if (!current || current.status !== "running") return;
+    const lastRun = deps.runbooks().find((item) => item.id === runbookId)?.lastRun;
+    if (lastRun && lastRun.at !== before && Date.parse(lastRun.at) >= startedAt) {
+      finishRecoveryJob(jobId, lastRun.success ? "done" : "failed", lastRun.success ? "Runbook 已完成并通过复验" : "Runbook 执行失败，请查看诊断日志");
+    }
+  }, 1000);
+  recoveryCompletionTimers.set(jobId, timer);
+}
+
 /** 人工解除 runbook 熔断的结果（HTTP 层只做状态码映射）。 */
 export type RunbookResetOutcome =
   | { status: "reset"; keys: string[] }
@@ -388,6 +479,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function recoveryActionCatalog(deps: WatchHttpDeps): RecoveryActionView[] {
   const hasRunbook = (id: string) => deps.runbooks().some((runbook) => runbook.id === id);
+  const hasGatewayPatch = deps.gateway !== undefined;
   return [
     {
       id: "refresh-probe",
@@ -422,6 +514,17 @@ function recoveryActionCatalog(deps: WatchHttpDeps): RecoveryActionView[] {
       requiresConfirmation: true,
       available: deps.connections !== undefined,
       ...(deps.connections === undefined ? { unavailableReason: "连接管理服务未接线" } : {}),
+    },
+    {
+      id: "apply-throttle-patch",
+      label: "调整网关发送节流参数",
+      description: "根据最近限流指纹，把发送间隔调整到补丁允许的安全范围，并保留可回滚审计记录。",
+      risk: "medium",
+      impact: "消息发送会按新的节流参数排队",
+      estimatedSeconds: 15,
+      requiresConfirmation: true,
+      available: hasGatewayPatch,
+      ...(!hasGatewayPatch ? { unavailableReason: "网关补丁服务未接线" } : {}),
     },
     {
       id: "cleanup-gateway",
@@ -753,19 +856,34 @@ async function handle(
       const instanceId = typeof body["instanceId"] === "string" && body["instanceId"].trim() !== ""
         ? body["instanceId"].trim()
         : undefined;
-      const jobId = `recovery-${randomUUID()}`;
+      const job = startRecoveryJob(actionId, action.label, action.estimatedSeconds, instanceId, actionId === "cleanup-gateway" || actionId === "restart-instance");
+      const jobId = job.jobId;
       if (actionId === "refresh-probe") {
         const started = deps.scheduler.runNow();
-        return sendJson(res, started ? 202 : 409, started ? { jobId, actionId, status: "running" } : { error: "inspection-in-flight" });
+        if (!started) {
+          finishRecoveryJob(jobId, "failed", "巡检已在执行中");
+          return sendJson(res, 409, { error: "inspection-in-flight" });
+        }
+        return sendJson(res, 202, { jobId, actionId, status: "running" });
       }
       if (actionId === "rebuild-memory-index") {
-        if (deps.skills === undefined || deps.m6WritesEnabled !== true) return sendJson(res, 409, { error: "memory-write-disabled" });
+        if (deps.skills === undefined || deps.m6WritesEnabled !== true) {
+          finishRecoveryJob(jobId, "failed", "记忆写操作未启用");
+          return sendJson(res, 409, { error: "memory-write-disabled", jobId });
+        }
         const result = await deps.skills.rebuildIndex(instanceId === undefined ? {} : { instanceId });
-        return sendJson(res, result.ok ? 200 : 409, result.ok ? { jobId, actionId, status: "done", verification: result.report } : { error: result.error ?? "rebuild-index-failed" });
+        if (!result.ok) finishRecoveryJob(jobId, "failed", result.error ?? "重建索引失败");
+        else finishRecoveryJob(jobId, "done", "记忆索引重建完成");
+        return sendJson(res, result.ok ? 200 : 409, result.ok ? { jobId, actionId, status: "done", verification: result.report } : { error: result.error ?? "rebuild-index-failed", jobId });
       }
       if (actionId === "reconnect-channel") {
-        if (deps.connections === undefined) return sendJson(res, 503, { error: "connections-unavailable" });
+        if (deps.connections === undefined) {
+          finishRecoveryJob(jobId, "failed", "连接管理服务未接线");
+          return sendJson(res, 503, { error: "connections-unavailable", jobId });
+        }
         const result = await deps.connections.connect(instanceId);
+        if (result.status === "failed") finishRecoveryJob(jobId, "failed", "消息通道重连失败");
+        else if (result.status === "connected" || result.status === "disconnected") finishRecoveryJob(jobId, "done", "消息通道状态已更新");
         return sendJson(res, result.status === "no-instance" ? 404 : result.status === "failed" ? 409 : 202, {
           jobId,
           actionId,
@@ -773,12 +891,44 @@ async function handle(
           ...("connection" in result ? { verification: result.connection } : {}),
         });
       }
+      if (actionId === "apply-throttle-patch") {
+        if (deps.gateway === undefined) {
+          finishRecoveryJob(jobId, "failed", "网关补丁服务未接线");
+          return sendJson(res, 503, { error: "gateway-unavailable", jobId });
+        }
+        const stats = await deps.gateway.stats();
+        const suggestion = stats.suggestions[0];
+        if (!suggestion) {
+          finishRecoveryJob(jobId, "done", "当前没有需要调整的节流参数");
+          return sendJson(res, 200, { jobId, actionId, status: "done", detail: "当前没有需要调整的节流参数" });
+        }
+        const applied = await deps.gateway.applyPatch({ patchId: suggestion.patchId, params: { [suggestion.param]: suggestion.suggested }, instanceId });
+        if (applied.status !== "ok") {
+          finishRecoveryJob(jobId, "failed", "代码补丁应用失败");
+          return sendJson(res, 409, { error: "patch-apply-failed", detail: applied.status, jobId });
+        }
+        finishRecoveryJob(jobId, "done", "网关节流补丁已应用");
+        return sendJson(res, 200, { jobId, actionId, status: "done", verification: applied });
+      }
       const runbookId = actionId === "cleanup-gateway" ? "rb-cleanup-gateway" : "rb-restart";
+      const beforeRunAt = deps.runbooks().find((item) => item.id === runbookId)?.lastRun?.at ?? null;
       const outcome = await deps.executeRunbook(runbookId, instanceId);
-      if (outcome.status === "started") return sendJson(res, 202, { jobId, actionId, status: "running", instanceId: outcome.instanceId });
+      if (outcome.status === "started") {
+        monitorRunbookJob(jobId, deps, runbookId, Date.parse(job.startedAt), beforeRunAt);
+        return sendJson(res, 202, { jobId, actionId, status: "running", instanceId: outcome.instanceId });
+      }
+      finishRecoveryJob(jobId, "failed", outcome.status === "circuit-breaker-tripped" ? "保护机制暂时阻止了执行" : "没有可用的 Hermes 实例");
       if (outcome.status === "unknown-runbook") return sendJson(res, 404, { error: "runbook-not-found" });
       if (outcome.status === "circuit-breaker-tripped") return sendJson(res, 409, { error: "circuit-breaker-tripped" });
       return sendJson(res, 503, { error: "no-servicing-instance" });
+    }
+
+    const recoveryJobMatch = /^\/api\/recovery\/jobs\/([^/]+)$/.exec(path);
+    if (recoveryJobMatch !== null) {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      const job = recoveryJobs.get(decodeURIComponent(recoveryJobMatch[1]!));
+      if (!job) return sendJson(res, 404, { error: "recovery-job-not-found" });
+      return sendJson(res, 200, job);
     }
 
     if (path === "/api/connections") {
@@ -1045,8 +1195,15 @@ async function handle(
         typeof body["instanceId"] === "string" && body["instanceId"] !== ""
           ? body["instanceId"]
           : undefined;
+      const actionLabel = action === "rb-reconnect" ? "重新连接消息通道" : "重启 AI 实例";
+      const job = startRecoveryJob(action, actionLabel, action === "rb-reconnect" ? 20 : 90, instanceId, true);
+      const beforeRunAt = deps.runbooks().find((item) => item.id === action)?.lastRun?.at ?? null;
       const outcome = await deps.executeRunbook(action, instanceId);
-      if (outcome.status === "started") return sendJson(res, 202, { started: true });
+      if (outcome.status === "started") {
+        monitorRunbookJob(job.jobId, deps, action, Date.parse(job.startedAt), beforeRunAt);
+        return sendJson(res, 202, { started: true, jobId: job.jobId, status: "running" });
+      }
+      finishRecoveryJob(job.jobId, "failed", outcome.status === "circuit-breaker-tripped" ? "保护机制暂时阻止了执行" : "没有可用的 Hermes 实例");
       if (outcome.status === "unknown-runbook") {
         return sendJson(res, 404, { error: `unknown-runbook: ${action}` });
       }
@@ -1054,6 +1211,14 @@ async function handle(
         return sendJson(res, 409, { error: "circuit-breaker-tripped" });
       }
       return sendJson(res, 503, { error: "no-servicing-instance" });
+    }
+
+    const logFixJobMatch = /^\/api\/logs\/fix\/([^/]+)$/.exec(path);
+    if (logFixJobMatch !== null) {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      const job = recoveryJobs.get(decodeURIComponent(logFixJobMatch[1]!));
+      if (!job) return sendJson(res, 404, { error: "log-fix-job-not-found" });
+      return sendJson(res, 200, job);
     }
 
     if (path === "/api/logs" || path.startsWith("/api/logs/")) {

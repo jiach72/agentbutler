@@ -16,6 +16,9 @@ import { GatewayPage } from "./pages/Gateway.js";
 import { SettingsPage } from "./pages/Settings.js";
 import { SkillsPage } from "./pages/Skills.js";
 import { VersionsPage } from "./pages/Versions.js";
+import { LogsPage } from "./pages/Logs.js";
+import { RecoveryPage } from "./pages/Recovery.js";
+import { AssetsPage } from "./pages/Assets.js";
 import { ThemeProvider, antdThemeFor, useTheme } from "./theme/ThemeProvider.js";
 import { initialThemeMode, applyThemeCssBridge } from "./theme/tokens.js";
 import "./styles.css";
@@ -67,6 +70,9 @@ function ThemedApp({ locale }: { locale: React.ComponentProps<typeof ConfigProvi
               <Route path="/versions" element={<VersionsPage />} />
               <Route path="/gateway" element={<GatewayPage />} />
               <Route path="/evolution" element={<EvolutionPage />} />
+              <Route path="/recovery" element={<RecoveryPage />} />
+              <Route path="/logs" element={<LogsPage />} />
+              <Route path="/assets" element={<AssetsPage />} />
               <Route path="/prompt" element={<Navigate to="/gateway" replace />} />
               <Route path="/skills" element={<SkillsPage />} />
               <Route path="/settings" element={<SettingsPage />} />

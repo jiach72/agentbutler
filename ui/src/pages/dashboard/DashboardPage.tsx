@@ -267,6 +267,7 @@ export function DashboardPage() {
         <RecoveryPanel
           recovery={recovery.recovery}
           busy={recovery.busy}
+          job={recovery.job}
           onDiagnose={() => void recovery.diagnose(false)}
           onExecute={(action) => void recovery.execute(action)}
           onRequestConfirm={recovery.requestConfirm}

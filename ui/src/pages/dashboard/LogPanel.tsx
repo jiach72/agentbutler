@@ -3,18 +3,20 @@
  * 面板自身的加载/分析/修复确认状态全部内聚在本组件内。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { App, Button } from "antd";
+import { App, Button, Progress } from "antd";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
-import { fetchJson, postJson } from "../../lib/api.js";
+import { fetchJson, loadJson, postJson } from "../../lib/api.js";
+import { usePolling } from "../../hooks/usePolling.js";
 import { formatBytes, formatNumber } from "../../lib/format.js";
 import type { LogAnalyzeView, LogIssueView, LogSourceView, LogTailView } from "./types.js";
 
 interface LogPanelProps {
-  open: boolean;
-  onClose: () => void;
+  open?: boolean;
+  onClose?: () => void;
+  embedded?: boolean;
 }
 
-export function LogPanel({ open, onClose }: LogPanelProps) {
+export function LogPanel({ open = true, onClose = () => undefined, embedded = false }: LogPanelProps) {
   const { message } = App.useApp();
   const [sources, setSources] = useState<LogSourceView[]>([]);
   const [activeLog, setActiveLog] = useState<LogTailView | null>(null);
@@ -24,7 +26,18 @@ export function LogPanel({ open, onClose }: LogPanelProps) {
   const [analyzeLoading, setAnalyzeLoading] = useState(false);
   const [confirmFix, setConfirmFix] = useState<LogIssueView | null>(null);
   const [fixBusy, setFixBusy] = useState(false);
+  const [fixJob, setFixJob] = useState<{ jobId: string; progress: number; status: string; detail: string; label: string } | null>(null);
   const recheckTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  usePolling(async () => {
+    if (fixJob === null || fixJob.status !== "running") return;
+    const result = await loadJson<{ jobId: string; progress: number; status: string; detail: string; label: string }>(`/api/logs/fix/${encodeURIComponent(fixJob.jobId)}`, 8_000);
+    if (result.ok) {
+      setFixJob(result.data);
+      if (result.data.status === "done") message.success(`「${result.data.label}」执行完成，正在复检`);
+      if (result.data.status === "failed") message.error(`修复未完成：${result.data.detail}`);
+    }
+  }, fixJob?.status === "running" ? 1000 : null);
 
   const loadLogTail = useCallback(async (sourceId: string, before?: number | null) => {
     setLoading(true);
@@ -102,7 +115,9 @@ export function LogPanel({ open, onClose }: LogPanelProps) {
     setFixBusy(false);
     setConfirmFix(null);
     if (result.ok) {
-      message.success(`修复已开始：${confirmFix.actionLabel ?? "重启服务"}。稍后自动复检。`);
+      const payload = result.data && typeof result.data === "object" ? result.data as Record<string, unknown> : {};
+      if (typeof payload.jobId === "string") setFixJob({ jobId: payload.jobId, progress: 8, status: "running", detail: "已确认，正在准备执行", label: confirmFix.actionLabel ?? "修复服务" });
+      message.success(`修复已开始：${confirmFix.actionLabel ?? "重启服务"}。可在进度条中查看执行状态。`);
       if (recheckTimer.current !== undefined) clearTimeout(recheckTimer.current);
       recheckTimer.current = setTimeout(() => void loadLogAnalyze(), 10_000);
     } else if (result.status === 409) {
@@ -116,25 +131,25 @@ export function LogPanel({ open, onClose }: LogPanelProps) {
     <>
       {open && (
         <div
-          className="log-drawer-backdrop"
+          className={embedded ? "log-page-shell" : "log-drawer-backdrop"}
           role="dialog"
           aria-modal="true"
           aria-labelledby="log-drawer-title"
           onClick={(event) => {
+            if (embedded) return;
             if (event.target === event.currentTarget) onClose();
           }}
         >
-          <div className="log-drawer">
+          <div className={embedded ? "log-page-shell-inner" : "log-drawer"}>
             <div className="log-drawer-head">
               <div>
                 <span className="log-drawer-eyebrow">只读查看</span>
                 <h3 id="log-drawer-title">系统日志</h3>
               </div>
-              <Button type="text" size="small" onClick={onClose}>
-                关闭
-              </Button>
+              {!embedded && <Button type="text" size="small" onClick={onClose}>关闭</Button>}
             </div>
             <div className="log-drawer-body">
+              {fixJob !== null && <section className="log-fix-progress"><strong>{fixJob.label}</strong><Progress percent={fixJob.progress} status={fixJob.status === "failed" ? "exception" : fixJob.status === "done" ? "success" : "active"} /><small>{fixJob.detail}</small></section>}
               <section className="log-diagnosis">
                 <div className="log-diagnosis-head">
                   <strong>智能体检</strong>

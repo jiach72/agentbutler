@@ -335,6 +335,27 @@
   color: var(--butler-muted);
   font-size: var(--butler-text-xs);
 }
+.recovery-job-card {
+  border-left: 3px solid var(--butler-accent);
+}
+.recovery-job-card .ant-progress {
+  margin: 8px 0 2px;
+}
+.recovery-job-card small,
+.log-fix-progress small {
+  display: block;
+  color: var(--butler-muted);
+  font-size: var(--butler-text-xs);
+}
+.log-fix-progress {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--butler-rule);
+  border-left: 3px solid var(--butler-accent);
+  border-radius: var(--butler-radius-control);
+  background: var(--butler-surface-subtle);
+}
 
 /* ---- 高级详情 ---- */
 
@@ -725,6 +746,23 @@
   border: 1px solid var(--butler-rule);
   border-radius: var(--butler-radius-card);
   box-shadow: 0 24px 64px rgb(0 0 0 / 30%);
+}
+.log-page-shell {
+  width: 100%;
+}
+.log-page-shell-inner {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--butler-surface);
+  border: 1px solid var(--butler-rule);
+  border-radius: var(--butler-radius-card);
+}
+.log-page-shell-inner .log-drawer-head {
+  padding-inline: 18px;
+}
+.log-page-shell-inner .log-drawer-body {
+  max-height: min(72dvh, 780px);
 }
 .log-drawer-head {
   display: flex;

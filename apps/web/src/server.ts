@@ -1873,6 +1873,11 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     return proxyWatchPost(`/api/recovery/actions/${id}/execute`, request.body, reply, 70_000);
   });
 
+  app.get("/api/recovery/jobs/:id", async (request, reply) => {
+    const id = encodeURIComponent((request.params as { id?: string })["id"] ?? "");
+    return proxyWatchGet(`/api/recovery/jobs/${id}`, reply);
+  });
+
   /** 连接管理视图：watch 不可达时保留明确的降级标记，不伪造实例已连接。 */
   app.get("/api/connections", async () => {
     const res = await fetchWatch("/api/connections");
@@ -2434,6 +2439,11 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   app.post("/api/logs/fix", async (request, reply) =>
     proxyWatchPost("/api/logs/fix", request.body, reply),
   );
+
+  app.get("/api/logs/fix/:id", async (request, reply) => {
+    const id = encodeURIComponent((request.params as { id?: string })["id"] ?? "");
+    return proxyWatchGet(`/api/logs/fix/${id}`, reply);
+  });
   app.get("/api/logs/:sourceId", async (request, reply) => {
     const params = request.params as { sourceId?: string };
     const query = request.query as Record<string, unknown>;

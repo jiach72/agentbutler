@@ -147,3 +147,12 @@
 - **修复范围：** 扩展日志分析器支持 24 小时/7 天/30 天窗口、覆盖范围、轮转日志、最近出现时间、技能提取和脱敏样例；新增 `evolution-insights` 服务与 `/api/evolution/insights`、`/api/evolution/directions/:id/{summarize,confirm,start}`；方向逐条确认后才能选择 Hermes 隔离引擎或手工提案，手工提案绑定日志洞察和问题证据；系统修复信号只显示“先修复”建议，历史 `teams-meeting-pipeline` 标记为不可重试；旧 `inferTargetRef` 无法定位时返回空目标，不再直接创建运行；重写进化页面为日志驱动流程，保留旧 runs/proposals 接口兼容。
 - **回归测试：** `apps/watch/tests/log-analyzer.test.ts` 覆盖时间窗口、轮转日志和脱敏；`apps/watch/tests/evolution-insights.test.ts` 覆盖技能错误、系统问题和历史目标过滤；`apps/watch/tests/http-evolution.test.ts` 覆盖洞察窗口和非法范围。
 - **验证命令：** `pnpm exec tsc -b --pretty false`；`pnpm exec vitest run apps/watch/tests/log-analyzer.test.ts apps/watch/tests/evolution-insights.test.ts --reporter=dot`（10 passed）；`pnpm --filter @butler/ui exec vite build`；`git diff --check`。
+
+## 2026-08-28 - 诊断入口、修复进度与技能资产中心可见性
+
+- **问题：** 诊断与系统日志只能从首页深层面板打开；日志一键修复返回“已启动”但没有可查询进度；恢复动作缺少代码级修复入口；技能资产中心、公开趋势和个性化推荐缺少独立入口与明确空态。
+- **风险/影响：** 客户无法确认修复是否完成，也无法从进化建议直接进入日志证据；当公开趋势缓存为空时页面看起来像功能失效，容易重复点击或误判没有推荐数据。
+- **修复范围：** 新增 `/recovery`、`/logs`、`/assets` 路由和侧边栏入口；Watch 增加恢复/日志修复任务状态查询与进度收口（`/api/recovery/jobs/:id`、`/api/logs/fix/:id`）；恢复动作增加“调整网关发送节流参数”代码级补丁入口；进化页系统修复方向增加跳转日志页按钮；资产中心首次无缓存时自动尝试同步 GitHub 公开趋势，并展示同步失败、缓存、无推荐等可解释空态。
+- **回归测试：** 既有 Watch HTTP、Web Evolution 测试保持通过；TypeScript 构建覆盖新路由、任务载荷和资产中心页面。
+- **验证命令：** `pnpm exec tsc -b --pretty false`；`pnpm vitest run apps/watch/tests/http.test.ts apps/watch/tests/http-evolution.test.ts apps/web/tests/evolution.test.ts`（26 passed）；`pnpm --filter @butler/ui exec vite build`；`git diff --check`。
+- **运行验证：** `POST http://127.0.0.1:7531/api/skills/github-trends/refresh` 成功返回公开仓库数据；随后 `GET /api/skills/recommendations` 返回可隔离推荐列表。

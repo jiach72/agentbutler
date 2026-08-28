@@ -7,7 +7,7 @@ import type { SkillsPayload } from "./helpers.js";
 
 type UsageItem = { name: string; calls: number; lastUsedAt: string | null; successRate: number | null; avgDurationMs: number | null; status: "known" | "unknown" };
 type UsageView = { rangeDays: number; coverage: { from: string | null; to: string | null; days: number; source: string; complete: boolean }; series: Array<{ date: string; calls: number }>; skills: UsageItem[]; notice: string };
-type TrendView = { items: Array<{ name: string; url: string; stars: number; forks: number; updatedAt: string }>; syncedAt: string | null; notice: string };
+type TrendView = { items: Array<{ name: string; url: string; stars: number; forks: number; updatedAt: string }>; syncedAt: string | null; notice: string; error?: string };
 type Recommendation = { id: string; name: string; reason: string; sourceUrl: string };
 
 export function AssetCenter({ skills }: { skills: SkillsPayload["skills"] }) {
@@ -26,10 +26,31 @@ export function AssetCenter({ skills }: { skills: SkillsPayload["skills"] }) {
       loadJson<{ items: Recommendation[] }>("/api/skills/recommendations", 10_000),
     ]);
     if (u.ok) setUsage(u.data);
-    if (t.ok) setTrends(t.data);
-    if (r.ok) setRecommendations(r.data.items ?? []);
+    let nextTrend = t.ok ? t.data : null;
+    let nextRecommendations = r.ok ? r.data.items ?? [] : [];
+    if (nextTrend?.items.length === 0 && nextTrend.syncedAt === null) {
+      const sync = await postJson("/api/skills/github-trends/refresh", {}, 30_000);
+      if (sync.ok) {
+        const [trendAgain, recommendationsAgain] = await Promise.all([
+          loadJson<TrendView>("/api/skills/github-trends", 10_000),
+          loadJson<{ items: Recommendation[] }>("/api/skills/recommendations", 10_000),
+        ]);
+        if (trendAgain.ok) nextTrend = trendAgain.data;
+        if (recommendationsAgain.ok) nextRecommendations = recommendationsAgain.data.items ?? [];
+      }
+    }
+    if (nextTrend) setTrends(nextTrend);
+    setRecommendations(nextRecommendations);
     setBusy(null);
   }, [range]);
+  const syncTrends = async () => {
+    setBusy("sync");
+    const result = await postJson("/api/skills/github-trends/refresh", {}, 30_000);
+    setBusy(null);
+    if (!result.ok) { message.error("公开趋势同步失败，请检查网络或稍后重试"); return; }
+    message.success("公开趋势已刷新");
+    await refresh();
+  };
   useEffect(() => { void refresh(); }, [refresh]);
 
   const maxCalls = Math.max(1, ...(usage?.series.map((item) => item.calls) ?? [0]));
@@ -69,7 +90,7 @@ export function AssetCenter({ skills }: { skills: SkillsPayload["skills"] }) {
       <div className="asset-trend" aria-label="技能调用次数趋势">{usage.series.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前范围没有可证明的调用记录" /> : usage.series.map((item) => <div className="asset-bar" key={item.date} title={item.date + ": " + item.calls + " 次"}><span style={{ height: Math.max(4, item.calls / maxCalls * 100) + "%" }} /><small>{item.date.slice(5)}</small></div>)}</div>
       <Table rowKey="name" size="small" pagination={{ pageSize: 8, hideOnSinglePage: true }} dataSource={usage.skills} columns={columns} />
     </>}
-    <div className="asset-center-section"><div className="skills-section-head"><div><span className="skills-kicker">公开趋势</span><h2>GitHub Agent 技能</h2></div><Button icon={<ReloadOutlined />} loading={busy === "refresh"} onClick={() => void refresh()}>刷新</Button></div><p className="asset-note">公开仓库趋势，不代表官方 Hermes 技能排名。{trends?.syncedAt ? "同步于 " + formatTime(trends.syncedAt) : "尚未同步"}</p><div className="asset-trends-list">{(trends?.items ?? []).slice(0, 8).map((item) => <div className="asset-trend-row" key={item.name}><a href={item.url} target="_blank" rel="noreferrer">{item.name}</a><span>{item.stars.toLocaleString()} stars · {item.forks.toLocaleString()} forks</span><small>更新于 {item.updatedAt ? formatTime(item.updatedAt) : "未知"}</small></div>)}</div></div>
-    <div className="asset-center-section"><div className="skills-section-head"><div><span className="skills-kicker">个性化推荐</span><h2>可先隔离检查的技能</h2></div></div>{recommendations.length === 0 ? <p className="asset-note">暂无推荐；推荐会排除已安装技能。</p> : recommendations.slice(0, 6).map((item) => <div className="asset-recommendation" key={item.id}><div><strong>{item.name}</strong><p>{item.reason}</p></div><Button icon={<DownloadOutlined />} loading={busy === "stage:" + item.id} onClick={() => void stage(item.id)}>下载到隔离区</Button></div>)}</div>
+    <div className="asset-center-section"><div className="skills-section-head"><div><span className="skills-kicker">公开趋势</span><h2>GitHub Agent 技能</h2></div><Button icon={<ReloadOutlined />} loading={busy === "sync" || busy === "refresh"} onClick={() => void syncTrends()}>同步公开数据</Button></div><p className="asset-note">公开仓库趋势，不代表官方 Hermes 技能排名。{trends?.syncedAt ? "同步于 " + formatTime(trends.syncedAt) : "尚未同步"}{trends?.error ? "；上次同步失败，当前显示缓存。" : ""}</p><div className="asset-trends-list">{(trends?.items ?? []).length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚未同步公开趋势" /> : (trends?.items ?? []).slice(0, 8).map((item) => <div className="asset-trend-row" key={item.name}><a href={item.url} target="_blank" rel="noreferrer">{item.name}</a><span>{item.stars.toLocaleString()} stars · {item.forks.toLocaleString()} forks</span><small>更新于 {item.updatedAt ? formatTime(item.updatedAt) : "未知"}</small></div>)}</div></div>
+    <div className="asset-center-section"><div className="skills-section-head"><div><span className="skills-kicker">个性化推荐</span><h2>可先隔离检查的技能</h2></div><Button icon={<ReloadOutlined />} loading={busy === "refresh"} onClick={() => void refresh()}>重新计算</Button></div>{recommendations.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={trends?.items?.length ? "当前没有匹配的未安装技能" : "同步公开趋势后，才能结合本地缺口生成推荐"} /> : recommendations.slice(0, 6).map((item) => <div className="asset-recommendation" key={item.id}><div><strong>{item.name}</strong><p>{item.reason}</p></div><Button icon={<DownloadOutlined />} loading={busy === "stage:" + item.id} onClick={() => void stage(item.id)}>下载到隔离区</Button></div>)}</div>
   </div>;
 }

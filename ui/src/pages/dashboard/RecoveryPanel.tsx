@@ -1,11 +1,11 @@
 /**
  * 专业处理区：先诊断再按低/中/高风险分级修复；探针结果与动作卡片。
  */
-import { Alert, Badge, Button, Card } from "antd";
+import { Alert, Badge, Button, Card, Progress } from "antd";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { formatRelative } from "../../lib/format.js";
 import { quickProbeBadge } from "./helpers.js";
-import type { RecoveryActionView, RecoveryDiagnosisView } from "./types.js";
+import type { RecoveryActionView, RecoveryDiagnosisView, RecoveryJobView } from "./types.js";
 
 interface RecoveryPanelProps {
   recovery: RecoveryDiagnosisView | null;
@@ -13,6 +13,7 @@ interface RecoveryPanelProps {
   onDiagnose: () => void;
   onExecute: (action: RecoveryActionView) => void;
   onRequestConfirm: (action: RecoveryActionView) => void;
+  job?: RecoveryJobView | null;
 }
 
 export function RecoveryPanel({
@@ -21,6 +22,7 @@ export function RecoveryPanel({
   onDiagnose,
   onExecute,
   onRequestConfirm,
+  job = null,
 }: RecoveryPanelProps) {
   return (
     <section className="recovery-panel" aria-live="polite">
@@ -42,6 +44,13 @@ export function RecoveryPanel({
         />
       ) : (
         <>
+          {job !== null && (
+            <Card size="small" className="recovery-job-card" aria-live="polite">
+              <div className="recovery-action-head"><strong>{job.label}</strong><Badge status={job.status === "done" ? "success" : job.status === "failed" ? "error" : "processing"} text={job.status === "done" ? "已完成" : job.status === "failed" ? "执行失败" : "执行中"} /></div>
+              <Progress percent={job.progress} status={job.status === "failed" ? "exception" : job.status === "done" ? "success" : "active"} />
+              <small>{job.detail}</small>
+            </Card>
+          )}
           <Alert
             type={recovery.severity === "error" ? "error" : recovery.severity === "warn" ? "warning" : "success"}
             showIcon

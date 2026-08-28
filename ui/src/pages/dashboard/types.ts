@@ -73,6 +73,18 @@ export interface RecoveryDiagnosisView {
   checkedAt: string;
 }
 
+export interface RecoveryJobView {
+  jobId: string;
+  actionId: string;
+  label: string;
+  instanceId: string | null;
+  status: "running" | "done" | "failed" | "unknown";
+  progress: number;
+  detail: string;
+  startedAt: string;
+  finishedAt: string | null;
+}
+
 export interface InspectStatusView {
   reachable: boolean;
   lastAt?: string | null;
