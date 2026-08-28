@@ -247,12 +247,12 @@ function finishRecoveryJob(jobId: string, status: "done" | "failed" | "unknown",
   recoveryCompletionTimers.delete(jobId);
 }
 
-function monitorRunbookJob(jobId: string, deps: WatchHttpDeps, runbookId: string, startedAt: number, before: string | null): void {
+function monitorRunbookJob(jobId: string, deps: WatchHttpDeps, runbookId: string, before: string | null): void {
   const timer = setInterval(() => {
     const current = recoveryJobs.get(jobId);
     if (!current || current.status !== "running") return;
     const lastRun = deps.runbooks().find((item) => item.id === runbookId)?.lastRun;
-    if (lastRun && lastRun.at !== before && Date.parse(lastRun.at) >= startedAt) {
+    if (lastRun && lastRun.at !== before) {
       finishRecoveryJob(jobId, lastRun.success ? "done" : "failed", lastRun.success ? "Runbook 已完成并通过复验" : "Runbook 执行失败，请查看诊断日志");
     }
   }, 1000);
@@ -914,7 +914,7 @@ async function handle(
       const beforeRunAt = deps.runbooks().find((item) => item.id === runbookId)?.lastRun?.at ?? null;
       const outcome = await deps.executeRunbook(runbookId, instanceId);
       if (outcome.status === "started") {
-        monitorRunbookJob(jobId, deps, runbookId, Date.parse(job.startedAt), beforeRunAt);
+        monitorRunbookJob(jobId, deps, runbookId, beforeRunAt);
         return sendJson(res, 202, { jobId, actionId, status: "running", instanceId: outcome.instanceId });
       }
       finishRecoveryJob(jobId, "failed", outcome.status === "circuit-breaker-tripped" ? "保护机制暂时阻止了执行" : "没有可用的 Hermes 实例");
@@ -1200,7 +1200,7 @@ async function handle(
       const beforeRunAt = deps.runbooks().find((item) => item.id === action)?.lastRun?.at ?? null;
       const outcome = await deps.executeRunbook(action, instanceId);
       if (outcome.status === "started") {
-        monitorRunbookJob(job.jobId, deps, action, Date.parse(job.startedAt), beforeRunAt);
+        monitorRunbookJob(job.jobId, deps, action, beforeRunAt);
         return sendJson(res, 202, { started: true, jobId: job.jobId, status: "running" });
       }
       finishRecoveryJob(job.jobId, "failed", outcome.status === "circuit-breaker-tripped" ? "保护机制暂时阻止了执行" : "没有可用的 Hermes 实例");
