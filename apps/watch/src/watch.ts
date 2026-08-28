@@ -1324,6 +1324,14 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       if (checked.status === "failed" && connectionMemoryFor(record.instanceId).lastError !== null) {
         return checked;
       }
+      // 连接操作必须幂等：探针已确认通道在线时，不再调用 control.start。
+      // 这也避免只读/外部 WSL 部署因重复 start 被错误标记为控制冲突。
+      if (
+        checked.status === "checked" &&
+        (checked.connection["connected"] === true || checked.connection["connectionState"] === "connected")
+      ) {
+        return { status: "connected", connection: checked.connection };
+      }
     }
     const memory = connectionMemoryFor(record.instanceId);
     memory.busy = true;

@@ -335,6 +335,10 @@
   color: var(--butler-muted);
   font-size: var(--butler-text-xs);
 }
+.recovery-action-card .recovery-action-fix {
+  color: var(--butler-ink-soft);
+  margin-top: -6px;
+}
 .recovery-job-card {
   border-left: 3px solid var(--butler-accent);
 }

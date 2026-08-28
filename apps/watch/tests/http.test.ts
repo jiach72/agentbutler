@@ -281,6 +281,10 @@ describe("startWatchHttp（注入依赖，回环真实端口）", () => {
   });
 
   it("恢复诊断先给根因与分级动作；低风险可执行，高风险必须确认", async () => {
+    fake.deps.connections!.status = () => ({
+      checkedAt: "2026-08-24T00:00:00.000Z",
+      connections: [{ instanceId: "hermes-main", connectionState: "disconnected", connected: false, capabilities: { control: "ok", messaging: "ok" } }],
+    });
     fake.state.runbooks = () => [
       { id: "rb-restart", label: "重启实例", description: "重启并复验", breakerTripped: false },
       { id: "rb-cleanup-gateway", label: "清理网关", description: "清理并复验", breakerTripped: false },
@@ -303,6 +307,41 @@ describe("startWatchHttp（注入依赖，回环真实端口）", () => {
     const refresh = await fetch(`${base}/api/recovery/actions/refresh-probe/execute`, { method: "POST" });
     expect(refresh.status).toBe(202);
     await expect(refresh.json()).resolves.toMatchObject({ actionId: "refresh-probe", status: "running" });
+  });
+
+  it("恢复动作按实例能力门禁：control 降级时提前展示原因，不在点击后才返回 409", async () => {
+    fake.state.runbooks = () => [
+      { id: "rb-restart", label: "重启实例", description: "重启并复验", breakerTripped: false },
+    ];
+    fake.deps.connections!.status = () => ({
+      checkedAt: "2026-08-28T00:00:00.000Z",
+      connections: [{
+        instanceId: "hermes-main",
+        connectionState: "disconnected",
+        connected: false,
+        capabilities: { control: "degraded", messaging: "not-implemented" },
+        lastError: "未找到可启动的 venv 入口",
+      }],
+    });
+
+    const diagnosis = await fetch(`${base}/api/recovery/diagnose`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ instanceId: "hermes-main" }),
+    });
+    const body = (await diagnosis.json()) as { recommendedActions: Array<{ id: string; available: boolean; unavailableReason?: string; unavailableFix?: string }> };
+    const reconnect = body.recommendedActions.find((action) => action.id === "reconnect-channel");
+    const restart = body.recommendedActions.find((action) => action.id === "restart-instance");
+    expect(reconnect).toMatchObject({ available: false, unavailableReason: expect.stringContaining("消息通道能力未通过探针"), unavailableFix: expect.any(String) });
+    expect(restart).toMatchObject({ available: false, unavailableReason: expect.stringContaining("Hermes 控制能力不可用"), unavailableFix: expect.any(String) });
+
+    const execute = await fetch(`${base}/api/recovery/actions/restart-instance/execute`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirmed: true, instanceId: "hermes-main" }),
+    });
+    expect(execute.status).toBe(409);
+    await expect(execute.json()).resolves.toMatchObject({ error: "recovery-action-unavailable" });
   });
 
   it("连接管理端点：查询、手动检查、连接和断开均透传结构化状态", async () => {

@@ -178,6 +178,29 @@ describe("startWatchHttp 网关端点（fake 网关面板服务，回环真实�
     await expect(res.json()).resolves.toEqual({ patches: PATCHES_VIEW });
   });
 
+  it("恢复入口遇到未纳管手工补丁时返回可执行提示，不包装成 patch-apply-failed", async () => {
+    fake.state.patchesView = [{
+      ...PATCHES_VIEW[0],
+      observed: {
+        params: { minSendIntervalSec: 30 },
+        checkedAt: "2026-08-28T00:00:00.000Z",
+        targetPath: "/hermes/hermes-agent/gateway/platforms/weixin.py",
+      },
+    }, PATCHES_VIEW[1]!];
+    const res = await fetch(`${base}/api/recovery/actions/apply-throttle-patch/execute`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirmed: true }),
+    });
+    expect(res.status).toBe(409);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "patch-observed",
+      nextAction: "open-gateway-patches",
+      current: { minSendIntervalSec: 30 },
+    });
+    expect(fake.state.applyCalls).toHaveLength(0);
+  });
+
   it("POST /api/gateway/patches/:id/apply → 200 { status, result, targetPath, params }（params/instanceId/:id 透传）", async () => {
     const res = await fetch(`${base}/api/gateway/patches/wx-send-throttle/apply`, {
       method: "POST",

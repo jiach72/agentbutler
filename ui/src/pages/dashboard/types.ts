@@ -62,6 +62,7 @@ export interface RecoveryActionView {
   requiresConfirmation: boolean;
   available: boolean;
   unavailableReason?: string;
+  unavailableFix?: string;
 }
 
 export interface RecoveryDiagnosisView {

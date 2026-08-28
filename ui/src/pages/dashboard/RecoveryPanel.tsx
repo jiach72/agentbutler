@@ -79,6 +79,7 @@ export function RecoveryPanel({
                 </div>
                 <p>{action.description}</p>
                 <small>{action.impact} · 约 {action.estimatedSeconds} 秒</small>
+                {!action.available && action.unavailableFix && <small className="recovery-action-fix">解决：{action.unavailableFix}</small>}
                 <Button
                   size="small"
                   type={action.risk === "high" ? "primary" : "default"}

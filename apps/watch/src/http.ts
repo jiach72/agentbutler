@@ -157,6 +157,7 @@ export interface RecoveryActionView {
   requiresConfirmation: boolean;
   available: boolean;
   unavailableReason?: string;
+  unavailableFix?: string;
 }
 
 export interface RecoveryDiagnosisView {
@@ -253,7 +254,13 @@ function monitorRunbookJob(jobId: string, deps: WatchHttpDeps, runbookId: string
     if (!current || current.status !== "running") return;
     const lastRun = deps.runbooks().find((item) => item.id === runbookId)?.lastRun;
     if (lastRun && lastRun.at !== before) {
-      finishRecoveryJob(jobId, lastRun.success ? "done" : "failed", lastRun.success ? "Runbook 已完成并通过复验" : "Runbook 执行失败，请查看诊断日志");
+      finishRecoveryJob(
+        jobId,
+        lastRun.success ? "done" : "failed",
+        lastRun.success
+          ? "Runbook 已完成并通过复验"
+          : "Runbook 未完成：请打开连接诊断，确认 control 能力、实例运行环境和快照步骤；修复前置问题后再重试。",
+      );
     }
   }, 1000);
   recoveryCompletionTimers.set(jobId, timer);
@@ -477,9 +484,30 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function recoveryActionCatalog(deps: WatchHttpDeps): RecoveryActionView[] {
+function recoveryActionCatalog(deps: WatchHttpDeps, instanceId?: string): RecoveryActionView[] {
   const hasRunbook = (id: string) => deps.runbooks().some((runbook) => runbook.id === id);
   const hasGatewayPatch = deps.gateway !== undefined;
+  const connection = deps.connections?.status().connections.find((item) => item["instanceId"] === instanceId) ??
+    deps.connections?.status().connections[0];
+  const capabilities = isRecord(connection?.["capabilities"]) ? connection["capabilities"] as Record<string, unknown> : {};
+  const capability = (name: string): string | undefined => typeof capabilities[name] === "string" ? capabilities[name] as string : undefined;
+  const controlCapability = capability("control");
+  const messagingCapability = capability("messaging");
+  const connected = connection?.["connected"] === true || connection?.["connectionState"] === "connected";
+  const controlUnavailableReason = connection === undefined
+    ? "未发现可控制的 Hermes 实例"
+    : controlCapability !== "ok"
+      ? `Hermes 控制能力不可用${typeof connection["lastError"] === "string" && connection["lastError"] !== "" ? `：${connection["lastError"]}` : "，请先重新探测并确认运行环境提供 control 能力"}`
+      : undefined;
+  const messagingUnavailableReason = connection === undefined
+    ? "未发现可检查的 Hermes 实例"
+    : connected
+      ? "当前消息通道已连接，无需重连"
+      : messagingCapability !== "ok"
+        ? `消息通道能力未通过探针（当前：${messagingCapability ?? "未知"}）`
+        : controlCapability !== "ok"
+          ? controlUnavailableReason
+          : undefined;
   return [
     {
       id: "refresh-probe",
@@ -512,8 +540,19 @@ function recoveryActionCatalog(deps: WatchHttpDeps): RecoveryActionView[] {
       impact: "消息可能短暂延迟",
       estimatedSeconds: 20,
       requiresConfirmation: true,
-      available: deps.connections !== undefined,
-      ...(deps.connections === undefined ? { unavailableReason: "连接管理服务未接线" } : {}),
+      available: deps.connections !== undefined && messagingUnavailableReason === undefined,
+      ...(deps.connections === undefined
+        ? { unavailableReason: "连接管理服务未接线", unavailableFix: "检查 Watch 连接管理服务配置" }
+        : messagingUnavailableReason !== undefined
+          ? {
+              unavailableReason: messagingUnavailableReason,
+              unavailableFix: connected
+                ? "无需操作；如状态异常请先执行重新探测"
+                : controlUnavailableReason !== undefined
+                  ? "在 Hermes 所在环境运行可控的 Watch，或切换到可控制实例"
+                  : "先执行重新探测并确认消息通道能力",
+            }
+          : {}),
     },
     {
       id: "apply-throttle-patch",
@@ -524,7 +563,7 @@ function recoveryActionCatalog(deps: WatchHttpDeps): RecoveryActionView[] {
       estimatedSeconds: 15,
       requiresConfirmation: true,
       available: hasGatewayPatch,
-      ...(!hasGatewayPatch ? { unavailableReason: "网关补丁服务未接线" } : {}),
+      ...(!hasGatewayPatch ? { unavailableReason: "网关补丁服务未接线", unavailableFix: "检查 Watch 与网关服务的连接后重新诊断" } : {}),
     },
     {
       id: "cleanup-gateway",
@@ -545,8 +584,12 @@ function recoveryActionCatalog(deps: WatchHttpDeps): RecoveryActionView[] {
       impact: "AI 服务中断约 30-90 秒",
       estimatedSeconds: 90,
       requiresConfirmation: true,
-      available: hasRunbook("rb-restart"),
-      ...(!hasRunbook("rb-restart") ? { unavailableReason: "重启 Runbook 未注册" } : {}),
+      available: hasRunbook("rb-restart") && controlUnavailableReason === undefined,
+      ...(!hasRunbook("rb-restart")
+        ? { unavailableReason: "重启 Runbook 未注册", unavailableFix: "重新加载 Watch 内置 Runbook" }
+        : controlUnavailableReason !== undefined
+          ? { unavailableReason: controlUnavailableReason, unavailableFix: "在 Hermes 所在环境运行可控的 Watch，并确认 venv 入口和实例运行时可见" }
+          : {}),
     },
   ];
 }
@@ -589,16 +632,14 @@ async function diagnoseRecovery(deps: WatchHttpDeps, instanceId?: string): Promi
   const failed = probes.filter((probe) => probe.status === "fail");
   const severity: RecoveryDiagnosisView["severity"] = failed.length > 0 ? "error" : probes.some((probe) => probe.status === "warn") ? "warn" : "ok";
   const rootCause = failed[0]?.detail ?? (issueCount > 0 ? logView?.issues?.[0]?.title ?? "日志中存在待分析问题" : "未发现需要处理的根因");
-  const actions = recoveryActionCatalog(deps);
-  const recommendedIds = severity === "error"
-    ? connection?.["connected"] === false ? ["reconnect-channel", "refresh-probe"] : ["refresh-probe", "rebuild-memory-index", "restart-instance"]
-    : ["refresh-probe"];
+  const actions = recoveryActionCatalog(deps, instanceId);
   return {
     incidentId: `incident-${randomUUID()}`,
     severity,
     rootCause,
     probes,
-    recommendedActions: actions.filter((action) => recommendedIds.includes(action.id) || action.available),
+    // 保留所有动作卡片：不可执行动作也必须展示原因和解决方案，避免用户点击后才发现 409。
+    recommendedActions: actions,
     checkedAt: new Date().toISOString(),
   };
 }
@@ -847,15 +888,15 @@ async function handle(
       const body = await readJsonBody(req, res);
       if (body === null) return;
       const actionId = decodeURIComponent(recoveryActionMatch[1]!);
-      const action = recoveryActionCatalog(deps).find((item) => item.id === actionId);
+      const instanceId = typeof body["instanceId"] === "string" && body["instanceId"].trim() !== ""
+        ? body["instanceId"].trim()
+        : undefined;
+      const action = recoveryActionCatalog(deps, instanceId).find((item) => item.id === actionId);
       if (action === undefined) return sendJson(res, 404, { error: "recovery-action-not-found" });
       if (!action.available) return sendJson(res, 409, { error: "recovery-action-unavailable", detail: action.unavailableReason });
       if (action.requiresConfirmation && body["confirmed"] !== true) {
         return sendJson(res, 400, { error: "confirmation-required", action });
       }
-      const instanceId = typeof body["instanceId"] === "string" && body["instanceId"].trim() !== ""
-        ? body["instanceId"].trim()
-        : undefined;
       const job = startRecoveryJob(actionId, action.label, action.estimatedSeconds, instanceId, actionId === "cleanup-gateway" || actionId === "restart-instance");
       const jobId = job.jobId;
       if (actionId === "refresh-probe") {
@@ -901,6 +942,19 @@ async function handle(
         if (!suggestion) {
           finishRecoveryJob(jobId, "done", "当前没有需要调整的节流参数");
           return sendJson(res, 200, { jobId, actionId, status: "done", detail: "当前没有需要调整的节流参数" });
+        }
+        const patchView = (await deps.gateway.patches()).find((patch) => patch.id === suggestion.patchId);
+        if (patchView?.observed !== null && patchView?.observed !== undefined && patchView.applied === null) {
+          const detail = "已检测到同等的手工补丁，但 Butler 尚未纳管，不能直接覆盖。请先在网关补丁页核对差异并选择纳管或手工调整。";
+          finishRecoveryJob(jobId, "failed", detail);
+          return sendJson(res, 409, {
+            error: "patch-observed",
+            detail,
+            current: patchView.observed.params,
+            targetPath: patchView.observed.targetPath,
+            nextAction: "open-gateway-patches",
+            jobId,
+          });
         }
         const applied = await deps.gateway.applyPatch({ patchId: suggestion.patchId, params: { [suggestion.param]: suggestion.suggested }, instanceId });
         if (applied.status !== "ok") {

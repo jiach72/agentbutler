@@ -156,3 +156,12 @@
 - **回归测试：** 既有 Watch HTTP、Web Evolution 测试保持通过；TypeScript 构建覆盖新路由、任务载荷和资产中心页面。
 - **验证命令：** `pnpm exec tsc -b --pretty false`；`pnpm vitest run apps/watch/tests/http.test.ts apps/watch/tests/http-evolution.test.ts apps/web/tests/evolution.test.ts`（26 passed）；`pnpm --filter @butler/ui exec vite build`；`git diff --check`。
 - **运行验证：** `POST http://127.0.0.1:7531/api/skills/github-trends/refresh` 成功返回公开仓库数据；随后 `GET /api/skills/recommendations` 返回可隔离推荐列表。
+
+## 2026-08-28 - 恢复动作能力门禁与手工补丁冲突提示
+
+- **问题：** 外部 WSL/Docker 只读部署中 Hermes 的 `control=degraded`、`messaging=not-implemented` 仍被恢复页显示为可执行，点击后才返回 409；已存在但未被 Butler 纳管的网关手工补丁被恢复入口包装成笼统的 `patch-apply-failed`；通道已连接时重复重连还会再次调用 `control.start`。
+- **风险/影响：** 客户会误以为重启/重连可用，直到执行阶段才失败；手工参数可能被误覆盖；重复启动会放大外部 WSL 控制面冲突。
+- **修复范围：** 恢复动作目录现在读取实例能力快照，控制或消息能力未通过探针时提前标记不可用并返回原因与解决方案；诊断响应保留不可执行动作卡片，避免阻断项被隐藏；恢复节流入口识别未纳管的 observed 补丁，返回当前参数、目标文件和“前往网关补丁页核对/纳管”的下一步；消息连接探针已确认在线时采用幂等成功，不再调用 `control.start`；Runbook 失败详情补充连接能力、运行环境和快照检查指引。
+- **回归测试：** 新增 `apps/watch/tests/http.test.ts` 能力降级门禁用例；新增 `apps/watch/tests/http-gateway.test.ts` 手工补丁冲突响应与不触达 apply 用例；既有 HTTP 网关和恢复测试保持通过。
+- **验证命令：** `pnpm exec vitest run apps/watch/tests/http.test.ts apps/watch/tests/http-gateway.test.ts --maxWorkers=1 --testTimeout=20000 --reporter=dot`（29 passed）；`pnpm exec tsc -b --pretty false`；`git diff --check`。
+- **运行验证：** 真实环境仍需在 Hermes 所在 WSL 与 Watch 同一控制域部署后确认 `control=ok`，否则重启/重连会保持不可执行；当前改动不会覆盖未纳管手工网关实现。
