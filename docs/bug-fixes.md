@@ -165,3 +165,19 @@
 - **回归测试：** 新增 `apps/watch/tests/http.test.ts` 能力降级门禁用例；新增 `apps/watch/tests/http-gateway.test.ts` 手工补丁冲突响应与不触达 apply 用例；既有 HTTP 网关和恢复测试保持通过。
 - **验证命令：** `pnpm exec vitest run apps/watch/tests/http.test.ts apps/watch/tests/http-gateway.test.ts --maxWorkers=1 --testTimeout=20000 --reporter=dot`（29 passed）；`pnpm exec tsc -b --pretty false`；`git diff --check`。
 - **运行验证：** 真实环境仍需在 Hermes 所在 WSL 与 Watch 同一控制域部署后确认 `control=ok`，否则重启/重连会保持不可执行；当前改动不会覆盖未纳管手工网关实现。
+
+## 2026-08-29 - 首页与侧边栏功能职责收敛
+
+- **问题：** 诊断结果、修复动作、Runbook、系统日志和技能资产同时出现在首页与侧边栏页面；诊断页标题强调“先找原因，再执行修复”，进入页面时却还要手动触发诊断；技能页也重复嵌入资产中心，改进相关文案带有较强的 AI 产品化表达。
+- **风险/影响：** 首页信息密度过高，用户难以判断入口职责；诊断结果不能直接看到，资产统计存在重复入口，术语不够中性。
+- **修复范围：** 首页移除诊断/修复面板、Runbook 列表、检查明细和日志抽屉，仅保留状态总览、连接状态和问题摘要；“待处理”状态卡改为跳转诊断页；诊断页进入后自动读取结果，标题改为“诊断结果”；资产中心保留独立侧边栏入口并从技能页标签移除；侧边栏、资产中心和改进页统一使用“改进方向、变更建议、日志依据、实例”等中性文案。
+- **回归测试：** TypeScript 项目构建通过；UI 页面路由与原有 API 接口保持不变；首页不再请求 Runbook 列表。
+- **验证命令：** `pnpm exec tsc -b --pretty false`；`pnpm --filter @butler/ui exec vite build`；`git diff --check`。
+
+## 2026-08-28 - 优化页面中性化文案
+
+- **问题：** 消息整理页面仍使用“AI 改写”“交给 AI”“用于哪个 AI”等产品化表述，与本地软件管家的操作语境不一致。
+- **风险/影响：** 用户容易把规则整理误解为需要人工选择的模型操作，页面职责和处理结果不够直观。
+- **修复范围：** 将消息优化面板统一调整为“消息整理、自动整理、所属实例、整理后的内容”等中性术语；保留设置页中必要的模型配置技术字段。
+- **回归测试：** 保持消息优化 API 与数据结构不变，仅调整展示文案和统计分组标签。
+- **验证命令：** `corepack pnpm exec tsc -b --pretty false`；`corepack pnpm --filter @butler/ui exec vite build`；`git diff --check`。

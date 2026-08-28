@@ -67,10 +67,10 @@ export function AssetCenter({ skills }: { skills: SkillsPayload["skills"] }) {
     setBusy(null);
     if (!result.ok) { message.error("下载失败，请检查网络或稍后重试"); return; }
     const stageId = result.data && typeof result.data === "object" && "id" in result.data ? String((result.data as { id: unknown }).id) : "";
-    message.success("已下载到 Butler 隔离区，尚未写入 Hermes");
-    if (stageId !== "") modal.confirm({ title: "确认应用这个技能到 Hermes？", content: "安装前会再次校验 SKILL.md、路径和备份；取消则只保留在隔离区。", okText: "应用到 Hermes", cancelText: "暂不应用", onOk: async () => {
+    message.success("已下载到 Butler 隔离区，尚未写入实例");
+    if (stageId !== "") modal.confirm({ title: "确认安装这个技能？", content: "安装前会再次校验 SKILL.md、路径和备份；取消则只保留在隔离区。", okText: "确认安装", cancelText: "暂不安装", onOk: async () => {
       const install = await postJson("/api/skills/staged/" + encodeURIComponent(stageId) + "/install", { confirmed: true }, 30_000);
-      if (install.ok) message.success("技能已应用到 Hermes"); else message.error("安装被阻止：请查看原因和解决方案");
+      if (install.ok) message.success("技能已安装"); else message.error("安装未完成：请查看原因和处理建议");
     } });
   };
 
@@ -84,13 +84,13 @@ export function AssetCenter({ skills }: { skills: SkillsPayload["skills"] }) {
   ];
 
   return <div className="asset-center">
-    <div className="skills-section-head"><div><span className="skills-kicker">使用统计</span><h2>技能资产中心</h2></div><Select value={range} onChange={setRange} options={[{ value: "30", label: "近 30 天" }, { value: "90", label: "近 90 天" }, { value: "180", label: "近 180 天" }]} /></div>
+    <div className="skills-section-head"><div><span className="skills-kicker">使用统计</span><h2>技能使用情况</h2></div><Select value={range} onChange={setRange} options={[{ value: "30", label: "近 30 天" }, { value: "90", label: "近 90 天" }, { value: "180", label: "近 180 天" }]} /></div>
     {usage && <>
       <Alert type={usage.coverage.complete ? "info" : "warning"} showIcon message={"数据覆盖：" + (usage.coverage.from ? formatTime(usage.coverage.from) + " 至 " + formatTime(usage.coverage.to ?? usage.coverage.from) : "未知")} description={usage.coverage.source + "；实际覆盖 " + usage.coverage.days + " 天。" + usage.notice} />
       <div className="asset-trend" aria-label="技能调用次数趋势">{usage.series.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前范围没有可证明的调用记录" /> : usage.series.map((item) => <div className="asset-bar" key={item.date} title={item.date + ": " + item.calls + " 次"}><span style={{ height: Math.max(4, item.calls / maxCalls * 100) + "%" }} /><small>{item.date.slice(5)}</small></div>)}</div>
       <Table rowKey="name" size="small" pagination={{ pageSize: 8, hideOnSinglePage: true }} dataSource={usage.skills} columns={columns} />
     </>}
-    <div className="asset-center-section"><div className="skills-section-head"><div><span className="skills-kicker">公开趋势</span><h2>GitHub Agent 技能</h2></div><Button icon={<ReloadOutlined />} loading={busy === "sync" || busy === "refresh"} onClick={() => void syncTrends()}>同步公开数据</Button></div><p className="asset-note">公开仓库趋势，不代表官方 Hermes 技能排名。{trends?.syncedAt ? "同步于 " + formatTime(trends.syncedAt) : "尚未同步"}{trends?.error ? "；上次同步失败，当前显示缓存。" : ""}</p><div className="asset-trends-list">{(trends?.items ?? []).length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚未同步公开趋势" /> : (trends?.items ?? []).slice(0, 8).map((item) => <div className="asset-trend-row" key={item.name}><a href={item.url} target="_blank" rel="noreferrer">{item.name}</a><span>{item.stars.toLocaleString()} stars · {item.forks.toLocaleString()} forks</span><small>更新于 {item.updatedAt ? formatTime(item.updatedAt) : "未知"}</small></div>)}</div></div>
-    <div className="asset-center-section"><div className="skills-section-head"><div><span className="skills-kicker">个性化推荐</span><h2>可先隔离检查的技能</h2></div><Button icon={<ReloadOutlined />} loading={busy === "refresh"} onClick={() => void refresh()}>重新计算</Button></div>{recommendations.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={trends?.items?.length ? "当前没有匹配的未安装技能" : "同步公开趋势后，才能结合本地缺口生成推荐"} /> : recommendations.slice(0, 6).map((item) => <div className="asset-recommendation" key={item.id}><div><strong>{item.name}</strong><p>{item.reason}</p></div><Button icon={<DownloadOutlined />} loading={busy === "stage:" + item.id} onClick={() => void stage(item.id)}>下载到隔离区</Button></div>)}</div>
+    <div className="asset-center-section"><div className="skills-section-head"><div><span className="skills-kicker">公开来源</span><h2>GitHub 技能项目</h2></div><Button icon={<ReloadOutlined />} loading={busy === "sync" || busy === "refresh"} onClick={() => void syncTrends()}>同步公开数据</Button></div><p className="asset-note">数据来自公开仓库，仅供参考。{trends?.syncedAt ? "同步于 " + formatTime(trends.syncedAt) : "尚未同步"}{trends?.error ? "；上次同步失败，当前显示缓存。" : ""}</p><div className="asset-trends-list">{(trends?.items ?? []).length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚未同步公开项目" /> : (trends?.items ?? []).slice(0, 8).map((item) => <div className="asset-trend-row" key={item.name}><a href={item.url} target="_blank" rel="noreferrer">{item.name}</a><span>{item.stars.toLocaleString()} stars · {item.forks.toLocaleString()} forks</span><small>更新于 {item.updatedAt ? formatTime(item.updatedAt) : "未知"}</small></div>)}</div></div>
+    <div className="asset-center-section"><div className="skills-section-head"><div><span className="skills-kicker">推荐项目</span><h2>可先下载检查的技能</h2></div><Button icon={<ReloadOutlined />} loading={busy === "refresh"} onClick={() => void refresh()}>重新获取</Button></div>{recommendations.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={trends?.items?.length ? "当前没有匹配的未安装技能" : "同步公开项目后，可结合本机使用情况生成推荐"} /> : recommendations.slice(0, 6).map((item) => <div className="asset-recommendation" key={item.id}><div><strong>{item.name}</strong><p>{item.reason}</p></div><Button icon={<DownloadOutlined />} loading={busy === "stage:" + item.id} onClick={() => void stage(item.id)}>下载到隔离区</Button></div>)}</div>
   </div>;
 }

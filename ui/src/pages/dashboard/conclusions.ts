@@ -50,7 +50,7 @@ function buildIssues(dashboard: DashboardPayload | null): IssueView[] {
       id: "unknown-inspect",
       tone: "idle",
       title: "还没有读取到管家状态",
-      detail: "暂时无法判断本机 AI 是否正常，建议先点击「立即检查」。",
+      detail: "暂时无法判断本机服务是否正常，建议先点击「立即检查」。",
     });
   } else if (!inspectStatus.reachable) {
     list.push({
@@ -68,14 +68,14 @@ function buildIssues(dashboard: DashboardPayload | null): IssueView[] {
       list.push({
         id: `down-${inspection.instanceId}`,
         tone: "error",
-        title: `AI 助手（${instanceLabel(inspection.instanceId)}）出问题了`,
+        title: `实例（${instanceLabel(inspection.instanceId)}）存在异常`,
         detail: `${failed} 项检查不通过${warned > 0 ? `，另有 ${warned} 项提醒` : ""}；可能是进程未运行或服务暂时连不上。`,
       });
     } else if (inspection.overall === "degraded") {
       list.push({
         id: `degraded-${inspection.instanceId}`,
         tone: "warn",
-        title: `AI 助手（${instanceLabel(inspection.instanceId)}）需要留意`,
+        title: `实例（${instanceLabel(inspection.instanceId)}）需要留意`,
         detail: `${warned} 项检查提醒${failed > 0 ? `，${failed} 项不通过` : ""}；不影响使用时可以先观察。`,
       });
     }
@@ -95,14 +95,14 @@ function buildIssues(dashboard: DashboardPayload | null): IssueView[] {
       id: "all-ok",
       tone: "ok",
       title: "一切正常",
-      detail: `管家刚检查过 ${latestInspections.length} 个 AI 助手，没有发现需要处理的事。`,
+      detail: `管家刚检查过 ${latestInspections.length} 个实例，没有发现需要处理的事。`,
     });
   } else if (list.length === 0 && instances.length === 0 && inspectStatus?.reachable === true) {
     list.push({
       id: "no-instance",
       tone: "idle",
-      title: "暂未发现可管理的 AI 助手",
-      detail: "可能还没接入 AI 助手，或者管家还没有完成一次检查。",
+      title: "暂未发现可管理的实例",
+      detail: "可能尚未接入实例，或者管家还没有完成一次检查。",
     });
   } else if (list.length === 0) {
     list.push({
@@ -167,7 +167,7 @@ export function buildConclusions(
     hero = {
       tone: "idle",
       title: "正在确认管家状态",
-      copy: "正在读取本机 AI 的运行情况，请稍等。",
+      copy: "正在读取本机服务的运行情况，请稍等。",
     };
   } else if (hasError) {
     hero = {
@@ -187,14 +187,14 @@ export function buildConclusions(
     else if (instances.length === 0)
       hero = {
         tone: "idle",
-        title: "暂未发现 AI 助手",
+        title: "暂未发现实例",
         copy: "管家还没有发现可管理的实例，可能是尚未接入。",
       };
     else
       hero = {
         tone: "idle",
         title: "还没有检查结果",
-        copy: "点击「立即检查」，管家会开始确认本机 AI 是否正常。",
+        copy: "点击「立即检查」，管家会开始确认本机服务是否正常。",
       };
   }
 

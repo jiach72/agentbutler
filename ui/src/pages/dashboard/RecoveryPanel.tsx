@@ -28,8 +28,8 @@ export function RecoveryPanel({
     <section className="recovery-panel" aria-live="polite">
       <div className="manager-section-head">
         <div>
-          <span className="manager-section-kicker">专业处理</span>
-          <h2>诊断与分级修复</h2>
+          <span className="manager-section-kicker">诊断</span>
+          <h2>诊断结果</h2>
         </div>
         <Button size="small" loading={busy} onClick={onDiagnose}>
           重新诊断
@@ -39,8 +39,8 @@ export function RecoveryPanel({
         <Alert
           type="info"
           showIcon
-          message="先诊断再处理"
-          description="系统会先确认根因，再按低、中、高风险给出动作；不会默认直接重启实例。"
+          message="正在读取诊断结果"
+          description="完成后会显示检查结果、问题依据和可执行处理。"
         />
       ) : (
         <>

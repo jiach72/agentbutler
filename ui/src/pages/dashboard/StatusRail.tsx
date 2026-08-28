@@ -1,8 +1,7 @@
 /**
- * 状态总览条：管家服务 / 消息通知 / 待处理 / AI 助手 四张卡片。
+ * 状态总览条：管家服务 / 消息通知 / 待处理 / 受管实例 四张卡片。
  */
 import { Link } from "react-router-dom";
-import { Button } from "antd";
 import { Sparkline } from "../../components/charts/Sparkline.js";
 import { formatRelative } from "../../lib/format.js";
 import type { MessageStats } from "./conclusions.js";
@@ -20,7 +19,6 @@ interface StatusRailProps {
   messageStats: MessageStats;
   inspectionHistory: Array<{ date: string; avgDurationMs: number | null }>;
   deliveryHistory: Array<{ date: string; delivered: number; failed: number; uncertain: number }>;
-  onOpenAdvanced: () => void;
 }
 
 export function StatusRail({
@@ -35,7 +33,6 @@ export function StatusRail({
   messageStats,
   inspectionHistory,
   deliveryHistory,
-  onOpenAdvanced,
 }: StatusRailProps) {
   const inspectionValues = inspectionHistory
     .map((point) => point.avgDurationMs)
@@ -123,12 +120,12 @@ export function StatusRail({
         : hasWarn
           ? "有需要留意的事"
           : "暂无待办",
-      action: attentionCount > 0 ? { label: "查看详情", kind: "detail" } : undefined,
+      action: attentionCount > 0 ? { label: "查看诊断", kind: "link", to: "/recovery" } : undefined,
     },
     {
       id: "assistant",
       tone: assistantTone,
-      label: "AI 助手",
+      label: "受管实例",
       value: `${healthyInspectionCount}/${instanceCount} 正常`,
       detail:
         downInstanceCount > 0
@@ -136,7 +133,7 @@ export function StatusRail({
           : degradedInstanceCount > 0
             ? `${degradedInstanceCount} 个需要留意`
             : instanceCount === 0
-              ? "尚未发现可管理的助手"
+              ? "尚未发现可管理的实例"
               : "运行正常",
     },
   ];
@@ -166,14 +163,7 @@ export function StatusRail({
                 {card.action.label} →
               </Link>
             ) : (
-              <Button
-                type="link"
-                size="small"
-                className="manager-status-action"
-                onClick={onOpenAdvanced}
-              >
-                {card.action.label}
-              </Button>
+              <span className="manager-status-action">{card.action.label}</span>
             ))}
         </article>
       ))}

@@ -11,5 +11,5 @@ export function AssetsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => { void (async () => { const result = await loadJson<SkillsPayload>("/api/skills", 10_000); if (result.ok) setSkills(result.data.skills); else setError(result.reason); setLoading(false); })(); }, []);
-  return <section className="page product-page assets-page"><header className="page-heading product-heading"><div><span className="product-eyebrow">技能资产中心</span><h1>技能资产与使用趋势</h1><p className="hint">查看真实使用记录、公开仓库趋势和可隔离安装的推荐技能。</p></div></header>{loading ? <Spin tip="正在读取技能清单" /> : error ? <Alert type="warning" showIcon message="技能清单暂时不可用" description={error} /> : null}<AssetCenter skills={skills} /></section>;
+  return <section className="page product-page assets-page"><header className="page-heading product-heading"><div><span className="product-eyebrow">技能资产</span><h1>技能使用与来源</h1><p className="hint">查看本机技能的使用记录、公开来源和待安装项目。</p></div></header>{loading ? <Spin tip="正在读取技能清单" /> : error ? <Alert type="warning" showIcon message="技能清单暂时不可用" description={error} /> : null}<AssetCenter skills={skills} /></section>;
 }

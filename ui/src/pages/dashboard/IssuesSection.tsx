@@ -3,16 +3,14 @@
  */
 import { useState } from "react";
 import { Button } from "antd";
-import type { IssueView, RunbookView } from "./types.js";
+import type { IssueView } from "./types.js";
 
 interface IssuesSectionProps {
   issues: IssueView[];
   attentionCount: number;
-  onRepair: (runbook: RunbookView) => void;
-  onOpenAdvanced: () => void;
 }
 
-export function IssuesSection({ issues, attentionCount, onRepair, onOpenAdvanced }: IssuesSectionProps) {
+export function IssuesSection({ issues, attentionCount }: IssuesSectionProps) {
   const [expanded, setExpanded] = useState(false);
   const visibleIssues = expanded ? issues : issues.slice(0, 5);
 
@@ -23,7 +21,7 @@ export function IssuesSection({ issues, attentionCount, onRepair, onOpenAdvanced
           <span className="product-kicker">当前状态</span>
           <h2>{attentionCount > 0 ? `有 ${attentionCount} 件事需要处理` : "当前没有待处理事项"}</h2>
         </div>
-        <span className="manager-section-note">无待处理事项；详细信息见下方</span>
+        <span className="manager-section-note">详细信息请查看诊断与修复</span>
       </div>
       <div className="issue-list">
         {visibleIssues.map((issue) => (
@@ -31,16 +29,6 @@ export function IssuesSection({ issues, attentionCount, onRepair, onOpenAdvanced
             <div className="issue-main">
               <strong>{issue.title}</strong>
               <p>{issue.detail}</p>
-            </div>
-            <div className="issue-actions">
-              {issue.runbook !== undefined && issue.tone !== "ok" && (
-                <Button size="small" onClick={() => onRepair(issue.runbook!)}>
-                  一键修复
-                </Button>
-              )}
-              <Button type="text" size="small" onClick={onOpenAdvanced}>
-                查看详情
-              </Button>
             </div>
           </article>
         ))}

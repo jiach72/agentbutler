@@ -1,5 +1,5 @@
 /**
- * 英雄结论区：一句话结论 + 主行动（立即检查 / 诊断并处理）+ 元信息。
+ * 英雄结论区：一句话结论 + 主行动（立即检查）+ 元信息。
  */
 import { Button } from "antd";
 import { formatRelative } from "../../lib/format.js";
@@ -10,21 +10,14 @@ interface HeroConclusionProps {
   inspectStatus: InspectStatusView | null;
   /** 「立即检查」请求在途（busy 标志，替代原 1.5s 定时复位）。 */
   inspectRequested: boolean;
-  recoveryBusy: boolean;
-  /** 是否存在需要处理/留意的事，决定「诊断并处理」是否可用。 */
-  canDiagnose: boolean;
   onInspect: () => void;
-  onDiagnose: () => void;
 }
 
 export function HeroConclusion({
   hero,
   inspectStatus,
   inspectRequested,
-  recoveryBusy,
-  canDiagnose,
   onInspect,
-  onDiagnose,
 }: HeroConclusionProps) {
   const inspectInFlight =
     inspectRequested || inspectStatus?.inFlight === true;
@@ -47,14 +40,6 @@ export function HeroConclusion({
           onClick={onInspect}
         >
           立即检查
-        </Button>
-        <Button
-          className="manager-action"
-          loading={recoveryBusy}
-          disabled={!canDiagnose}
-          onClick={onDiagnose}
-        >
-          诊断并处理
         </Button>
       </div>
       <div className="manager-hero-meta">

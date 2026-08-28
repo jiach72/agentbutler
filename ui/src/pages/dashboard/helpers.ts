@@ -28,12 +28,12 @@ export const CHECK_LABELS: Record<string, string> = {
   dashboard: "官方管理页是否能连接",
   memory: "记忆读写是否正常",
   channel: "消息通道是否正常",
-  model: "AI 模型能否连接",
-  "process-alive": "AI 进程是否在运行",
+  model: "模型服务是否可连接",
+  "process-alive": "服务进程是否在运行",
   "api-connectivity": "服务是否能连接",
   "memory-probe": "记忆读写是否正常",
   "channel-probe": "消息通道是否正常",
-  "llm-probe": "AI 模型能否连接",
+  "llm-probe": "模型服务是否可连接",
   "stall-write": "数据是否还在正常写入",
 };
 

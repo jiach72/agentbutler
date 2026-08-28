@@ -1,21 +1,28 @@
 import { Link } from "react-router-dom";
 import { Alert } from "antd";
+import { useEffect, useRef } from "react";
 import { DangerConfirmModal } from "../components/DangerConfirmModal.js";
 import { RecoveryPanel } from "./dashboard/RecoveryPanel.js";
 import { useRecoveryFlow } from "./dashboard/useRecoveryFlow.js";
 
 export function RecoveryPage() {
   const recovery = useRecoveryFlow();
+  const loaded = useRef(false);
+  useEffect(() => {
+    if (loaded.current) return;
+    loaded.current = true;
+    void recovery.diagnose(false);
+  }, [recovery.diagnose]);
   return (
     <section className="page product-page recovery-page">
       <header className="page-heading product-heading">
         <div>
-          <span className="product-eyebrow">诊断与分级修复</span>
-          <h1>先找原因，再执行修复</h1>
-          <p className="hint">修复动作按风险分级，执行期间会显示进度，完成后自动复验。</p>
+          <span className="product-eyebrow">诊断与修复</span>
+          <h1>诊断结果</h1>
+          <p className="hint">查看检查结果、问题依据和可执行处理。</p>
         </div>
       </header>
-      <Alert type="info" showIcon message="需要查看原始证据？" description={<Link to="/logs">前往系统日志执行修复建议</Link>} />
+      <Alert type="info" showIcon message="查看日志依据" description={<Link to="/logs">打开系统日志</Link>} />
       <RecoveryPanel
         recovery={recovery.recovery}
         busy={recovery.busy}

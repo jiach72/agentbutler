@@ -16,7 +16,6 @@ import type {
   MessageStatusPayload,
   OpenClawInstallJobView,
   OpenClawStatusView,
-  RunbooksPayload,
 } from "./types.js";
 
 export function useDashboardData() {
@@ -24,29 +23,23 @@ export function useDashboardData() {
   const [connections, setConnections] = useState<ConnectionsPayload | null>(null);
   const [openClawStatus, setOpenClawStatus] = useState<OpenClawStatusView | null>(null);
   const [openClawInstallJob, setOpenClawInstallJob] = useState<OpenClawInstallJobView | null>(null);
-  const [runbooks, setRunbooks] = useState<RunbooksPayload | null>(null);
   const [alerts, setAlerts] = useState<AlertsPayload | null>(null);
   const [deliveryHistory, setDeliveryHistory] = useState<DeliveryHistoryPayload | null>(null);
   const [inspectionHistory, setInspectionHistory] = useState<InspectionHistoryPayload | null>(null);
   const [initialLoad, setInitialLoad] = useState({
     dashboard: false,
-    runbooks: false,
     alerts: false,
     finished: false,
   });
 
   const refresh = useCallback(async (trackInitial = false) => {
-    const mark = (key: "dashboard" | "runbooks" | "alerts") => {
+    const mark = (key: "dashboard" | "alerts") => {
       if (trackInitial) setInitialLoad((current) => ({ ...current, [key]: true }));
     };
     await Promise.all([
       fetchJson<DashboardPayload>("/api/dashboard").then((dash) => {
         if (dash !== null) setDashboard(dash);
         mark("dashboard");
-      }),
-      fetchJson<RunbooksPayload>("/api/runbooks").then((books) => {
-        if (books !== null) setRunbooks(books);
-        mark("runbooks");
       }),
       fetchJson<AlertsPayload>("/api/alerts").then((nextAlerts) => {
         if (nextAlerts !== null) setAlerts(nextAlerts);
@@ -108,9 +101,8 @@ export function useDashboardData() {
     () =>
       initialLoad.finished &&
       dashboard === null &&
-      (runbooks === null || runbooks.reachable !== true) &&
       (alerts === null || alerts.reachable !== true),
-    [alerts, dashboard, initialLoad.finished, runbooks],
+    [alerts, dashboard, initialLoad.finished],
   );
 
   return {
@@ -119,7 +111,6 @@ export function useDashboardData() {
     openClawStatus,
     openClawInstallJob,
     setOpenClawInstallJob,
-    runbooks,
     alerts,
     initialLoad,
     refresh,

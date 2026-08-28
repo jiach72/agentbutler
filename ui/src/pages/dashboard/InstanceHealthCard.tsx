@@ -1,5 +1,5 @@
 /**
- * AI 助手状态卡片网格：实例概览 + 最近一次检查明细（高级详情内）。
+ * 实例状态卡片网格：实例概览 + 最近一次检查明细。
  */
 import { useMemo } from "react";
 import { StatusBadge } from "../../components/StatusBadge.js";
@@ -31,7 +31,7 @@ export function InstanceHealthCard({ instances, inspections }: InstanceHealthCar
   if (instances.length === 0) {
     return (
       <div className="empty-state">
-        还没有发现可管理的 AI 助手：管家检查完成后，这里会显示它的状态。
+        还没有发现可管理的实例：管家检查完成后，这里会显示状态。
       </div>
     );
   }

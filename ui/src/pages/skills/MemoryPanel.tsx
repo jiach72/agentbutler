@@ -143,7 +143,7 @@ export function MemoryPanel({
           <span>{months.length > 0 ? `最近 ${months.length} 个月` : "历史数据"}</span>
         </div>
         {months.length === 0 || months.every((item) => item.count === 0) ? (
-          <ChartEmpty hint="还没有按月写入历史；和 AI 正常对话后，这里会出现记忆健康趋势。" />
+          <ChartEmpty hint="还没有按月写入历史；使用服务后，这里会出现记忆趋势。" />
         ) : (
           <TrendColumn
             data={months}

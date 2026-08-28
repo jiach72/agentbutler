@@ -28,11 +28,11 @@ const NAV_ITEMS = [
   { to: "/dashboard", icon: <DashboardOutlined />, label: "首页", note: "运行总览与一键检查" },
   { to: "/versions", icon: <CloudUploadOutlined />, label: "版本管理", note: "升级前自动备份" },
   { to: "/gateway", icon: <NotificationOutlined />, label: "消息通知", note: "频率控制与送达记录" },
-  { to: "/evolution", icon: <ThunderboltOutlined />, label: "进化与优化", note: "改进评估与风险控制" },
+  { to: "/evolution", icon: <ThunderboltOutlined />, label: "改进与优化", note: "日志分析与变更评估" },
   { to: "/skills", icon: <ApiOutlined />, label: "技能与记忆", note: "技能、插件与记忆" },
-  { to: "/recovery", icon: <ToolOutlined />, label: "诊断与修复", note: "分级动作与执行进度" },
+  { to: "/recovery", icon: <ToolOutlined />, label: "诊断与修复", note: "诊断结果与处理" },
   { to: "/logs", icon: <FileTextOutlined />, label: "系统日志", note: "错误证据与修复建议" },
-  { to: "/assets", icon: <DatabaseOutlined />, label: "技能资产中心", note: "使用统计与公开趋势" },
+  { to: "/assets", icon: <DatabaseOutlined />, label: "技能资产", note: "使用情况与来源" },
 ];
 
 const SETTINGS_ITEM = {
@@ -51,7 +51,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         </span>
         <span className="brand-copy">
           Agent Butler
-          <small>本地 AI 运维控制台</small>
+          <small>本地运维控制台</small>
         </span>
       </div>
       <nav className="nav" aria-label="主导航">
@@ -140,7 +140,7 @@ export function Layout() {
                 onClick={() => setDrawerOpen(true)}
               />
               <strong className="topbar-title">{currentPage.label}</strong>
-              <span className="topbar-brand">Agent Butler · 本地 AI 运维控制台</span>
+              <span className="topbar-brand">Agent Butler · 本地运维控制台</span>
             </div>
             <div className="topbar-actions">
               <span className="topbar-note">只在你的电脑上运行</span>

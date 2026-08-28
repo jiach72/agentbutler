@@ -1,5 +1,5 @@
 /**
- * 消息优化面板：口语消息改写对照历史、规则文件改进记录与候选版本采用。
+ * 消息整理面板：消息整理对照历史、规则文件改进记录与候选版本采用。
  * 从 components/ 迁入 gateway 子目录；轮询改走 usePolling（后台自动暂停）。
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -116,7 +116,7 @@ interface OptimizationHistoryPayload {
 function promptTargetLabel(targetId: string): string {
   const labels: Record<string, string> = {
     "hermes-soul": "人设与性格",
-    "hermes-prompt-builder": "AI 的说话方式",
+    "hermes-prompt-builder": "消息表达方式",
     "hermes-system-prompt": "系统提示",
     "hermes-tool-guardrails": "使用工具的安全规则",
   };
@@ -190,10 +190,10 @@ function channelLabel(channel: string): string {
 }
 
 function missingDecisionLabel(item: InboundHistoryEntry, now: Date): string {
-  if (item.inbound.channel === "api-server") return "接口消息，不优化";
+  if (item.inbound.channel === "api-server") return "接口消息，不整理";
   const received = new Date(item.inbound.receivedAt);
   if (Number.isNaN(received.getTime()) || now.getTime() - received.getTime() > 5 * 60_000) {
-    return "没有优化记录";
+    return "没有整理记录";
   }
   return "正在处理";
 }
@@ -205,8 +205,8 @@ function modeLabel(
 ): string {
   if (!hasDecision) return pendingText;
   if (mode === "quick") return "快捷指令";
-  if (mode === "rule") return "已改写";
-  if (mode === "llm") return "AI 改写";
+  if (mode === "rule") return "规则整理";
+  if (mode === "llm") return "自动整理";
   return "原样发送";
 }
 
@@ -233,7 +233,7 @@ function isSameDay(value: string | null, now: Date): boolean {
 
 /* ---- 30 天趋势聚合 ---- */
 
-const OPT_BUCKETS = ["AI 改写", "快捷指令", "原样发送"] as const;
+const OPT_BUCKETS = ["自动整理", "快捷指令", "原样发送"] as const;
 
 const DAY_MS = 86_400_000;
 function dayLabel(d: Date): string {
@@ -243,7 +243,7 @@ function dayLabel(d: Date): string {
 function optimizationBucket(mode: OptimizeMode | undefined): (typeof OPT_BUCKETS)[number] {
   if (mode === "quick") return "快捷指令";
   if (mode === undefined || mode === "pass-through") return "原样发送";
-  return "AI 改写";
+  return "自动整理";
 }
 
 interface TrendRow {
@@ -284,7 +284,7 @@ function buildOptimizationTrend(items: InboundHistoryEntry[], days = 30) {
   return {
     rows,
     hasData: total > 0,
-    summary: `近 ${days} 天处理 ${total} 条 · 改写占比 ${rewrittenShare}%`,
+    summary: `近 ${days} 天处理 ${total} 条 · 整理占比 ${rewrittenShare}%`,
   };
 }
 
@@ -361,7 +361,7 @@ export function PromptOptimizationPanel() {
   const trendSeries = useMemo(
     () =>
       semanticSeries(mode, [
-        ["AI 改写", "AI 改写", "accent"],
+        ["自动整理", "自动整理", "accent"],
         ["快捷指令", "快捷指令", "teal"],
         ["原样发送", "原样发送", "ok"],
       ]),
@@ -386,10 +386,10 @@ export function PromptOptimizationPanel() {
     <section className="prompt-panel">
       <div className="prompt-panel-head">
         <div>
-          <span className="evolution-kicker">消息优化</span>
-          <h2>消息优化</h2>
+          <span className="evolution-kicker">消息整理</span>
+          <h2>消息整理</h2>
           <p>
-            你发来的口语消息，管家会先整理成更明确的指令再交给 AI；每条消息都会留下对照记录，方便你看到改了什么。
+            你发来的消息会先按规则整理成更明确的内容；每条消息都会留下对照记录，方便查看具体改动。
           </p>
         </div>
         <span className="evolution-connection">
@@ -402,10 +402,10 @@ export function PromptOptimizationPanel() {
         </span>
       </div>
 
-      <div className="po-stats" aria-label="今日消息优化统计">
+      <div className="po-stats" aria-label="今日消息整理统计">
         <div className="po-stat">
           <strong>{todayRewritten}</strong>
-          <span>今天改写</span>
+          <span>今天整理</span>
         </div>
         <div className="po-stat">
           <strong>{todayQuick}</strong>
@@ -422,9 +422,9 @@ export function PromptOptimizationPanel() {
       </div>
 
       {history.status === "failed" ? (
-        <ChartEmpty hint={`消息优化趋势接口不可用：${history.reason}`} />
+        <ChartEmpty hint={`消息整理趋势接口不可用：${history.reason}`} />
       ) : trend.hasData ? (
-        <TrendCard title="消息优化趋势" summary={trend.summary}>
+        <TrendCard title="消息整理趋势" summary={trend.summary}>
           <TrendColumn
             data={trend.rows}
             xField="date"
@@ -441,27 +441,27 @@ export function PromptOptimizationPanel() {
           />
         </TrendCard>
       ) : (
-        <ChartEmpty hint="还没有优化记录；管家处理消息后，这里会出现近 30 天的处理趋势。" />
+        <ChartEmpty hint="还没有整理记录；处理消息后，这里会出现近 30 天的趋势。" />
       )}
 
       <div className="po-note">
-        管家会先按规则整理口语消息；规则拿不准时会请 AI 帮忙改写，失败或结果不可用时仍会原样发送，不会卡住或漏掉你的消息。
+        消息会先按规则整理；规则无法判断时会保留原文发送，避免因整理失败而中断或漏发。
       </div>
 
       <div className="prompt-subhead">
         <div>
           <span className="evolution-kicker">对照历史</span>
-          <h3>你发的消息和优化后的指令</h3>
+          <h3>你发的消息和整理后的内容</h3>
         </div>
         <span className="po-retention">保留最近 30 天</span>
       </div>
 
       {history.status === "loading" && (
-        <div className="prompt-empty">正在读取优化记录…</div>
+        <div className="prompt-empty">正在读取整理记录…</div>
       )}
 
       {history.status === "failed" && (
-        <div className="prompt-empty">优化记录读取失败：{history.reason}</div>
+        <div className="prompt-empty">整理记录读取失败：{history.reason}</div>
       )}
 
       {history.status === "ready" && !history.data.reachable && (
@@ -472,7 +472,7 @@ export function PromptOptimizationPanel() {
 
       {history.status === "ready" && history.data.reachable && history.data.items.length === 0 && (
         <div className="prompt-empty">
-          还没有消息记录。现在去给 AI 发一条消息，这里就会显示“你发的原文”和“优化后的指令”对照。
+          还没有消息记录。发送一条消息后，这里会显示“你发的原文”和“整理后的内容”对照。
         </div>
       )}
 
@@ -506,7 +506,7 @@ export function PromptOptimizationPanel() {
                     →
                   </div>
                   <div className={"po-col po-optimized" + (changed ? " is-changed" : "")}>
-                    <span className="po-col-label">优化后的指令</span>
+                    <span className="po-col-label">整理后的内容</span>
                     <p>{optimized || "（无文字内容）"}</p>
                     {!changed && hasDecision && (
                       <span className="po-unchanged">没有改动，原样发送</span>
@@ -539,7 +539,7 @@ export function PromptOptimizationPanel() {
       >
         {data !== null && data.targets.length === 0 && (
           <div className="prompt-empty">
-            还没有找到可查看的规则；等 AI 配置好规则后，这里会显示真实内容。
+            还没有找到可查看的规则；完成规则配置后，这里会显示真实内容。
           </div>
         )}
 
@@ -562,7 +562,7 @@ export function PromptOptimizationPanel() {
                     ),
                   },
                   {
-                    title: "用于哪个 AI",
+                    title: "所属实例",
                     width: 130,
                     render: (_, target) =>
                       target.instanceId === "hermes-main"

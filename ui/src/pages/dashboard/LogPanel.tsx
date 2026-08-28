@@ -1,5 +1,5 @@
 /**
- * 系统日志面板：只读查看日志文件 + 智能体检（错误聚合与一键修复）。
+ * 系统日志面板：只读查看日志文件、错误聚合与处理建议。
  * 面板自身的加载/分析/修复确认状态全部内聚在本组件内。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -152,7 +152,7 @@ export function LogPanel({ open = true, onClose = () => undefined, embedded = fa
               {fixJob !== null && <section className="log-fix-progress"><strong>{fixJob.label}</strong><Progress percent={fixJob.progress} status={fixJob.status === "failed" ? "exception" : fixJob.status === "done" ? "success" : "active"} /><small>{fixJob.detail}</small></section>}
               <section className="log-diagnosis">
                 <div className="log-diagnosis-head">
-                  <strong>智能体检</strong>
+                  <strong>日志分析</strong>
                   {analyzeLoading ? (
                     <span className="log-diagnosis-state">正在扫描日志…</span>
                   ) : issues.length === 0 ? (

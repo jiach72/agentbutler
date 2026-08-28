@@ -20,14 +20,13 @@ import { DirectoryFallback } from "./DirectoryFallback.js";
 import { MemoryPanel } from "./MemoryPanel.js";
 import { PluginLibrary } from "./PluginLibrary.js";
 import { SkillLibrary } from "./SkillLibrary.js";
-import { AssetCenter } from "./AssetCenter.js";
 
 export function SkillsPage() {
   const { message } = App.useApp();
   const [mainState, setMainState] = useState<FetchState<SkillsPayload>>({ status: "loading" });
   // 最近一次完整数据：检索期间/失败时记忆面板仍显示它，不再伪装成空态。
   const [lastGood, setLastGood] = useState<SkillsPayload | null>(null);
-  const [activeTab, setActiveTab] = useState<"skills" | "plugins" | "memory" | "assets">("skills");
+  const [activeTab, setActiveTab] = useState<"skills" | "plugins" | "memory">("skills");
   const [activeKeyword, setActiveKeyword] = useState("");
   const [memoryPreview, setMemoryPreview] = useState<MemoryPreview>({ status: "default" });
   const [backupBusy, setBackupBusy] = useState(false);
@@ -134,7 +133,7 @@ export function SkillsPage() {
         <div>
           <span className="skills-eyebrow">只读查看</span>
           <h1>技能与记忆</h1>
-          <p>查看已安装技能、插件及本机记忆。当前版本仅支持只读查看，不提供修改或删除操作。</p>
+          <p>查看已安装技能、插件及本机记忆。当前页面仅支持只读查看。</p>
         </div>
         <div className="skills-header-status">
           <ConnectionChip
@@ -144,8 +143,8 @@ export function SkillsPage() {
           />
           <span className="skills-instance">
             {libraryData === null || libraryData.instance === null
-              ? "尚未发现 AI 助手"
-              : `AI 助手版本：${libraryData.instance.version ?? "版本未知"}`}
+              ? "尚未发现实例"
+              : `实例版本：${libraryData.instance.version ?? "版本未知"}`}
           </span>
         </div>
       </header>
@@ -154,7 +153,7 @@ export function SkillsPage() {
         <Tabs
           className="skills-content-tabs"
           activeKey={activeTab}
-          onChange={(key) => setActiveTab(key === "plugins" || key === "memory" || key === "assets" ? key : "skills")}
+          onChange={(key) => setActiveTab(key === "plugins" || key === "memory" ? key : "skills")}
           items={[
             {
               key: "skills",
@@ -237,11 +236,6 @@ export function SkillsPage() {
                   )}
                 </>
               ),
-            },
-            {
-              key: "assets",
-              label: "资产中心",
-              children: mainState.status === "ready" ? <AssetCenter skills={mainState.data.skills} /> : <Empty description="技能清单加载后可查看资产中心" />,
             },
             {
               key: "memory",
