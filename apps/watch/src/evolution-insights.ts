@@ -65,7 +65,7 @@ export function directionFrom(issue: LogIssueView, skills: string[]): EvolutionD
   const detectedSkill = legacy ? null : issue.skill ?? null;
   const skill = detectedSkill !== null && skills.includes(detectedSkill) ? detectedSkill : null;
   const targetType: DirectionTargetType = legacy ? "diagnostic" : issue.kind === "quality-loop" ? "prompt" : "skill";
-  const candidates = skill || legacy ? [] : skills.filter((name) => !name.includes("teams-meeting-pipeline")).slice(0, 8);
+  const candidates = !isEvolutionSignal(issue) || skill || legacy ? [] : skills.filter((name) => !name.includes("teams-meeting-pipeline")).slice(0, 8);
   const blocked = legacy || !isEvolutionSignal(issue) || skill === null;
   const blockReason = issue.skill === "teams-meeting-pipeline"
     ? "历史目标 teams-meeting-pipeline 已不存在，不可重试。"
