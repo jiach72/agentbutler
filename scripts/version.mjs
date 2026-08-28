@@ -52,6 +52,11 @@ const sourceVersions = [
     pattern: /adapterVersion: "[^"]+"/,
     value: (version) => `adapterVersion: "${version}"`,
   },
+  {
+    file: "README.md",
+    pattern: /当前开发版本：`[^`]+`/,
+    value: (version) => `当前开发版本：\`${version}\``,
+  },
 ];
 const semverPattern = /^(0|[1-9]\d*)$/;
 const releasePattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
