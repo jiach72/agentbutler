@@ -7,6 +7,7 @@
 - **Changed scope:** 安装器现在优先使用当前 Node 同目录的 Corepack，并在 macOS 服务指引中输出可直接执行的命令；发布流程需将发布提交同步到默认 `main` 后再通知客户安装。
 - **Regression coverage:** `pnpm exec vitest run packages/installer/tests/install.test.ts packages/installer/tests/openclaw.test.ts --run`（39 passed）；`pnpm exec tsc -b packages/installer/tsconfig.json --pretty false`；`git diff --check`。
 - **Runtime validation:** `git ls-remote` 确认 `origin/main` 为 `ce07f01`/beta.9、`v1.0.0-beta.12` 为 `9b1043e`；客户日志的 `HEAD ce07f01` 与该远端状态一致。
+- **Resolution:** 已将 beta.12 提交快进同步到 GitHub 默认 `main`（当前 `e1a29e7`），保留既有 `v1.0.0-beta.12` tag 不重写；后续普通 `git clone` 默认获取 beta.12。
 
 ## 2026-08-28 - 版本页刷新无法发现 GitHub 新 tag
 
