@@ -26,6 +26,14 @@
 - **Verification:** WSL Ubuntu-24.04 内执行 `docker compose build butler-gateway` 并强制重建 Gateway；`git diff --check`；健康端点和消息状态接口验证。
 - **Runtime validation:** WSL Compose 中 Web/Watch/Gateway 均为 `healthy`；Gateway `/healthz` 返回 `1.0.0-beta.10` 与 `evolution-v2-charts-v1`，`/api/messages/status` 显示 Bridge `connected=true`、`attached=true`、`lastError=null`、`captured=0`，已投递计数从 98 增至 132，证明游标已越过阻塞批次并恢复投递。
 
+## 2026-08-28 - WSL/Docker LLM profile credential-write boundary
+
+- **Problem:** Watch listened on `0.0.0.0` inside Docker/WSL, and the credential API used that bind address as the security decision. Local `GET/POST /api/llm/profiles` requests forwarded from Windows to `127.0.0.1:7531` were therefore rejected with `403 credential-writes-require-loopback`. Binding the Web service itself to container-loopback would avoid the check but breaks the Windows-to-WSL port proxy with `ECONNRESET`.
+- **Impact:** Operators could view the LLM profile page but could not create profiles or rotate keys in the intended local WSL deployment. The failure looked like a frontend/API outage even though Watch and the database were healthy.
+- **Changed scope:** Added explicit `BUTLER_CREDENTIAL_WRITES_ALLOWED` configuration separate from the HTTP listen address. The default remains fail-closed for non-loopback listeners, while the local WSL/Docker `.env` explicitly enables writes without changing the `0.0.0.0` bind required for port forwarding. Added config and HTTP regression coverage plus a clear UI message for the loopback boundary error. Documented the setting in `.env.example` and passed it through Compose to Watch.
+- **Regression coverage:** `pnpm exec vitest run --config vitest.focused.config.ts apps/watch/tests/config.test.ts apps/watch/tests/http.test.ts --reporter=dot` (24 passed); `pnpm exec tsc -b --pretty false`; `pnpm version:check`; `git diff --check`.
+- **Runtime validation:** Rebuilt WSL Ubuntu-24.04 Compose services; Web/Watch/Gateway/Updater reported healthy at `1.0.0-beta.11`. Windows `http://127.0.0.1:7531/api/health` and `/api/llm/profiles` returned `200`; an invalid profile POST reached validation and returned `400 invalid-llm-profile` instead of `403`, proving the local write path is enabled. The Watch container reports `BUTLER_CREDENTIAL_WRITES_ALLOWED=true`. The environment override is local-only and is not committed.
+
 ## 2026-08-28 - Hermes 多模型 API Key 管理与进化闭环
 
 - **Problem:** Different Hermes skills/plugins could share or overwrite a global LLM key; invalid credentials and endpoint failures were discovered too late; evolution runs had no explicit model binding and discovered Hermes configuration could not be migrated safely.

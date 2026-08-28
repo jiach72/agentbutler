@@ -51,4 +51,24 @@ describe("loadWatchConfig", () => {
     expect(loadWatchConfig().hermesRoot).toBe("/legacy/hermes");
     expect(loadWatchConfig({ hermesRoot: "/test/hermes" }).hermesRoot).toBe("/test/hermes");
   });
+
+  it("keeps credential writes closed for non-loopback listeners unless explicitly enabled", () => {
+    vi.stubEnv("BUTLER_WATCH_HOST", "0.0.0.0");
+    vi.stubEnv("BUTLER_CREDENTIAL_WRITES_ALLOWED", "");
+    expect(loadWatchConfig().credentialWritesAllowed).toBe(false);
+
+    vi.stubEnv("BUTLER_CREDENTIAL_WRITES_ALLOWED", "true");
+    expect(loadWatchConfig().credentialWritesAllowed).toBe(true);
+  });
+
+  it("allows credential writes by default for loopback listeners", () => {
+    vi.stubEnv("BUTLER_WATCH_HOST", "127.0.0.1");
+    vi.stubEnv("BUTLER_CREDENTIAL_WRITES_ALLOWED", "");
+    expect(loadWatchConfig().credentialWritesAllowed).toBe(true);
+  });
+
+  it("derives the default from an explicit host override", () => {
+    vi.stubEnv("BUTLER_CREDENTIAL_WRITES_ALLOWED", "");
+    expect(loadWatchConfig({ watchHttpHost: "0.0.0.0" }).credentialWritesAllowed).toBe(false);
+  });
 });

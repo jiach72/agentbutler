@@ -22,6 +22,8 @@
  * - BUTLER_RUNBOOK_DEBOUNCE_MIN  自动触发防抖窗口（分钟，默认 15）
  * - BUTLER_WATCH_HOST / BUTLER_WATCH_PORT
  *                            HTTP 控制通道监听地址（默认 127.0.0.1:7533；Task 10 面板入口）
+ * - BUTLER_CREDENTIAL_WRITES_ALLOWED
+ *                            是否允许写入凭据库（默认仅回环监听时允许）
  * - BUTLER_VERSION_MIRROR_HOST  GitHub API 镜像前缀（版本源逐源探测，可选；Task 13.2）
  * - BUTLER_VERSION_REPO     版本源 GitHub 仓库（默认 hermes-agent/hermes；Task 13.2）
  * - BUTLER_VERSION_DOCKER_IMAGE  版本源 Docker Hub 镜像，兼 docker 拉取镜像
@@ -74,6 +76,8 @@ export interface WatchConfig {
   watchHttpHost: string;
   /** HTTP 控制通道监听端口（默认 7533；0 = 随机端口，测试用）。 */
   watchHttpPort: number;
+  /** 是否允许 LLM 凭据写入；与监听地址解耦，公网部署默认关闭。 */
+  credentialWritesAllowed: boolean;
   /** GitHub API 镜像前缀（版本源逐源探测插入镜像源；未配置则无镜像源）。 */
   versionMirrorHost?: string;
   /** 版本源 GitHub 仓库（默认 hermes-agent/hermes）。 */
@@ -159,6 +163,10 @@ function readBoolEnv(name: string, fallback: boolean): boolean {
   return !(raw === "0" || raw === "false" || raw === "off" || raw === "no");
 }
 
+function isLoopbackHost(host: string): boolean {
+  return host === "127.0.0.1" || host === "localhost" || host === "::1";
+}
+
 /** LLM 探针 env：显式覆盖 > BUTLER_LLM_* env。 */
 function readLlmEnv(overrides?: LlmProbeEnv): LlmProbeEnv {
   return {
@@ -184,6 +192,7 @@ function readChannelDryRun(overrides?: ChannelDryRunConfig): ChannelDryRunConfig
  * 测试注入 Partial<WatchConfig> 即可隔离全部外部依赖。
  */
 export function loadWatchConfig(overrides: Partial<WatchConfig> = {}): WatchConfig {
+  const watchHttpHost = overrides.watchHttpHost ?? readStrEnv("BUTLER_WATCH_HOST") ?? DEFAULT_WATCH_HTTP_HOST;
   const config: WatchConfig = {
     framework:
       overrides.framework ??
@@ -213,10 +222,15 @@ export function loadWatchConfig(overrides: Partial<WatchConfig> = {}): WatchConf
     runbookDebounceMs:
       overrides.runbookDebounceMs ??
       readIntEnv("BUTLER_RUNBOOK_DEBOUNCE_MIN", DEFAULT_RUNBOOK_DEBOUNCE_MIN) * 60_000,
-    watchHttpHost:
-      overrides.watchHttpHost ?? readStrEnv("BUTLER_WATCH_HOST") ?? DEFAULT_WATCH_HTTP_HOST,
+    watchHttpHost,
     watchHttpPort:
       overrides.watchHttpPort ?? readPortEnv("BUTLER_WATCH_PORT", DEFAULT_WATCH_HTTP_PORT),
+    credentialWritesAllowed:
+      overrides.credentialWritesAllowed ??
+      readBoolEnv(
+        "BUTLER_CREDENTIAL_WRITES_ALLOWED",
+        isLoopbackHost(watchHttpHost),
+      ),
     versionMirrorHost: overrides.versionMirrorHost ?? readStrEnv("BUTLER_VERSION_MIRROR_HOST"),
     versionRepo: overrides.versionRepo ?? readStrEnv("BUTLER_VERSION_REPO") ?? DEFAULT_VERSION_REPO,
     versionDockerImage:

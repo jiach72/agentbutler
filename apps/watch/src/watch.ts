@@ -1776,7 +1776,11 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       backup,
       security,
     },
-    { host: config.watchHttpHost, port: config.watchHttpPort },
+    {
+      host: config.watchHttpHost,
+      port: config.watchHttpPort,
+      credentialWritesAllowed: config.credentialWritesAllowed,
+    },
   );
   await watchHttp.start();
 

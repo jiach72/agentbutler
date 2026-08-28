@@ -60,6 +60,9 @@ services:
       BUTLER_FRAMEWORK: ${BUTLER_FRAMEWORK:-hermes}
       BUTLER_WATCH_HOST: 0.0.0.0
       BUTLER_WATCH_PORT: 7533
+      # Watch 在容器内必须监听 0.0.0.0 才能被 Web 访问；凭据写入权限单独控制。
+      # 仅在 Web 绑定本机回环且当前部署没有其他认证层时开启。
+      BUTLER_CREDENTIAL_WRITES_ALLOWED: ${BUTLER_CREDENTIAL_WRITES_ALLOWED:-false}
       BUTLER_GATEWAY_URL: http://butler-gateway:7532
       BUTLER_AUTO_START: ${BUTLER_AUTO_START:-true}
       BUTLER_HERMES_ROOT: /home/butler/hermes

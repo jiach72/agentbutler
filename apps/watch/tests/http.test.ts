@@ -119,6 +119,60 @@ describe("startWatchHttp（注入依赖，回环真实端口）", () => {
     });
   });
 
+  it("非回环监听时默认拒绝凭据写入，避免误把容器监听地址当成本机安全边界", async () => {
+    const llm = {
+      listProfiles: () => [],
+      createProfile: async () => ({}),
+    } as unknown as NonNullable<WatchHttpDeps["llm"]>;
+    const remote = startWatchHttp({ ...fake.deps, llm }, { host: "0.0.0.0", port: 0 });
+    const address = await remote.start();
+    try {
+      const res = await fetch(`http://127.0.0.1:${address.port}/api/llm/profiles`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          provider: "OpenAI",
+          protocol: "openai-compatible",
+          endpoint: "https://api.example.com/v1",
+          model: "gpt-test",
+          apiKey: "sk-test-key",
+        }),
+      });
+      expect(res.status).toBe(403);
+      await expect(res.json()).resolves.toEqual({ error: "credential-writes-require-loopback" });
+    } finally {
+      remote.close();
+    }
+  });
+
+  it("显式开启凭据写入时允许容器监听地址承载本机 Web 代理", async () => {
+    const llm = {
+      listProfiles: () => [],
+      createProfile: async () => ({}),
+    } as unknown as NonNullable<WatchHttpDeps["llm"]>;
+    const remote = startWatchHttp(
+      { ...fake.deps, llm },
+      { host: "0.0.0.0", port: 0, credentialWritesAllowed: true },
+    );
+    const address = await remote.start();
+    try {
+      const res = await fetch(`http://127.0.0.1:${address.port}/api/llm/profiles`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          provider: "OpenAI",
+          protocol: "openai-compatible",
+          endpoint: "https://api.example.com/v1",
+          model: "gpt-test",
+          apiKey: "sk-test-key",
+        }),
+      });
+      expect(res.status).toBe(201);
+    } finally {
+      remote.close();
+    }
+  });
+
   it("GET /api/runbooks → 三段结构（id/label/description/breakerTripped/lastRun 可选）", async () => {
     fake.state.runbooks = () => [
       {

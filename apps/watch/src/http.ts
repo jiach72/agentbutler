@@ -317,6 +317,11 @@ export interface WatchHttpDeps {
 export interface WatchHttpOptions {
   host?: string;
   port?: number;
+  /**
+   * 凭据写入是独立于监听地址的部署策略。
+   * 未显式提供时保留旧的回环默认值，避免测试/嵌入式调用意外放开公网写入。
+   */
+  credentialWritesAllowed?: boolean;
 }
 
 export interface WatchHttp {
@@ -521,7 +526,8 @@ async function readJsonBody(
 export function startWatchHttp(deps: WatchHttpDeps, options: WatchHttpOptions = {}): WatchHttp {
   const host = options.host ?? "127.0.0.1";
   const requestedPort = options.port ?? 7533;
-  const credentialWritesAllowed = host === "127.0.0.1" || host === "localhost" || host === "::1";
+  const loopbackHost = host === "127.0.0.1" || host === "localhost" || host === "::1";
+  const credentialWritesAllowed = options.credentialWritesAllowed ?? loopbackHost;
 
   const server: Server = createServer((req, res) => {
     void handle(deps, req, res, { credentialWritesAllowed });

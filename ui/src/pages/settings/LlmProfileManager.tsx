@@ -19,6 +19,16 @@ interface Binding { bindingId: string; scope: string; instanceId: string | null;
 interface Status { vault: { available: boolean }; profiles: number; activeProfiles: number; blocked: Array<{ profileId: string; status: string; detail: string }>; }
 interface DiscoveredConfig { id: string; source: string; provider: string; protocol: Profile["protocol"]; endpoint: string; model: string; maskedKey: string; }
 
+function credentialWriteError(result: { status: number; data: unknown }): string {
+  if (result.status === 403 && result.data !== null && typeof result.data === "object") {
+    const error = (result.data as Record<string, unknown>).error;
+    if (error === "credential-writes-require-loopback") {
+      return "凭据写入已被安全策略阻断：本机 WSL/Docker 部署可设置 BUTLER_CREDENTIAL_WRITES_ALLOWED=true 后重启服务。若 Web 发布到局域网或公网，必须先接入认证并保持该开关关闭。";
+    }
+  }
+  return "保存或探针失败。请检查端点、模型名和 API Key。";
+}
+
 const providerOptions = ["OpenAI", "DeepSeek", "通义", "智谱", "Kimi", "豆包", "MiniMax", "百川", "自定义 OpenAI-compatible", "Claude", "Gemini"].map((value) => ({ label: value, value }));
 
 export function LlmProfileManager() {
@@ -51,7 +61,7 @@ export function LlmProfileManager() {
     setSaving(true);
     const result = await postJson("/api/llm/profiles", values, 30_000);
     setSaving(false);
-    if (!result.ok) return message.error("保存或探针失败。请检查端点、模型名和 API Key。");
+    if (!result.ok) return message.error(credentialWriteError(result));
     message.success("模型配置已加密保存并完成探针。");
     profileForm.resetFields();
     await refresh();
