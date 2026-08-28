@@ -1951,7 +1951,7 @@ export function createEvolutionService(deps: EvolutionServiceDeps): EvolutionSer
       // 因此必须显式指向容器内的只读 checkout，不能依赖宿主绝对路径。
       `export HERMES_AGENT_REPO=${shellQuote(hermesRoot)}`,
       ...(providerEnv
-        ? [`if [ -n "\${${providerEnv}:-}" ]; then export OPENAI_API_KEY="\$${providerEnv}"; fi`]
+        ? [`if [ -n "\${${providerEnv}:-}" ]; then export OPENAI_API_KEY="$${providerEnv}"; fi`]
         : []),
       'export OPENAI_API_KEY="${OPENAI_API_KEY:-${DEEPSEEK_API_KEY:-${XIAOMI_API_KEY:-${OPENROUTER_API_KEY:-}}}}"',
       ...(hermesLlm.baseUrl ? [`export OPENAI_BASE_URL=${shellQuote(hermesLlm.baseUrl)}`] : []),
