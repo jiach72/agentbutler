@@ -148,7 +148,7 @@ describe("message policy", () => {
     expect(crossMidnight.held).toBe(true);
   });
 
-  it("uses both pacing lanes, keeps Weixin at 30 seconds, and does not floor API Server", () => {
+  it("uses both pacing lanes, keeps Weixin at 45 seconds, and does not floor API Server", () => {
     const weixin = evaluatePacing({
       message: message(),
       channelLane: { ...lane("weixin", null, 2), lastSentAt: "2026-08-22T10:00:00.000Z" },
@@ -171,7 +171,7 @@ describe("message policy", () => {
       now: "2026-08-22T10:00:30.000Z",
     });
 
-    expect(weixin.availableAt).toBe("2026-08-22T10:00:30.000Z");
+    expect(weixin.availableAt).toBe("2026-08-22T10:00:45.000Z");
     expect(api.held).toBe(false);
     expect(chatBound.availableAt).toBe("2026-08-22T10:01:00.000Z");
   });
@@ -244,7 +244,7 @@ describe("message policy", () => {
     expect(unrelated.accepted).toBe(false);
   });
 
-  it("holds the first progress digest for its aggregation window", () => {
+  it("absorbs ordinary progress instead of scheduling a user-visible delivery", () => {
     const result = decideOutboundPolicy({
       message: message(),
       taskEvents: events(),
@@ -255,15 +255,12 @@ describe("message policy", () => {
       config: DEFAULT_MESSAGE_POLICY,
     });
 
-    expect(result.decision).toMatchObject({
-      messageId: "m1",
-      state: "held_pacing",
-      availableAt: "2026-08-22T10:02:00.000Z",
-    });
-    expect(result.decision.transformTrace).toContain("digest:window-held");
+    expect(result.decision).toMatchObject({ messageId: "m1", state: "absorbed" });
+    expect(result.decision.availableAt).toBeUndefined();
+    expect(result.decision.transformTrace).toContain("progress:background-only");
   });
 
-  it("updates the earliest progress holder before absorbing a later duplicate", () => {
+  it("absorbs later progress without updating or pacing an earlier holder", () => {
     const result = decideOutboundPolicy({
       message: message({ messageId: "later", sequence: 2, capturedAt: "2026-08-22T10:00:30.000Z" }),
       holder: message({ messageId: "holder", sequence: 1, state: "held_pacing", availableAt: "2026-08-22T10:02:00.000Z" }),
@@ -276,13 +273,7 @@ describe("message policy", () => {
     });
 
     expect(result.decision).toMatchObject({ messageId: "later", state: "absorbed" });
-    expect(result.companionDecisions).toHaveLength(1);
-    expect(result.companionDecisions[0]).toMatchObject({
-      messageId: "holder",
-      state: "held_pacing",
-      availableAt: "2026-08-22T10:02:00.000Z",
-    });
-    expect(result.companionDecisions[0]?.optimizedContent).toContain("正在验证长文本");
+    expect(result.companionDecisions).toEqual([]);
   });
 
   it("does not absorb or update a terminal progress holder", () => {
@@ -312,7 +303,7 @@ describe("message policy", () => {
       now: "2026-08-22T15:30:00.000Z",
     });
     const decision = decideOutboundPolicy({
-      message: message(),
+      message: message({ messageKind: "final" }),
       taskEvents: events(),
       dndRules: [rule({ pausedUntil: "2026-08-22T12:00:30.000Z" })],
       channelLane: lane("weixin", null),

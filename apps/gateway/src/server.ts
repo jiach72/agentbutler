@@ -31,7 +31,10 @@ const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 const MAX_BODY_BYTES = 1024 * 1024;
 const DND_SCOPES = new Set(["global", "channel", "session"]);
-export const GATEWAY_SERVICE_VERSION = `gateway@1.0.0-beta.10+${CONTRACT_VERSION}`;
+const DEFAULT_WEIXIN_MIN_INTERVAL_SEC = 45;
+export const GATEWAY_SERVICE_VERSION = `gateway@1.0.0-beta.11+${CONTRACT_VERSION}`;
+
+export type MessageDeliveryMode = "native" | "observe" | "disabled";
 
 export interface MessageGatewayController {
   status(): Promise<MessageGatewayStatus>;
@@ -60,6 +63,9 @@ export interface GatewayServerOptions {
   messageStore?: MessagePolicyStore;
   /** M5 入站消息优化对照历史（由 Hermes 消息运行时提供）。 */
   inboundHistory?: (limit?: number) => Promise<Result<InboundHistoryView>>;
+  /** Hermes native is authoritative by default; the Butler runtime is observe-only when enabled. */
+  messageMode?: MessageDeliveryMode;
+  nativeMinIntervalSec?: number;
 }
 
 export interface GatewayHandle {
@@ -171,15 +177,25 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
   });
 
   app.get("/healthz", async () => {
+    const mode = resolveMessageMode(options);
     const message =
       options.messageService !== undefined && options.messageStore !== undefined
         ? await options.messageService.status().then((status) => ({
+            mode,
             connected: status.bridgeConnected,
             running: status.running,
+            nativeMinIntervalSec: resolveNativeMinInterval(options, status),
             lastCycleAt: status.lastCycleAt,
             lastError: status.lastError === null ? null : "Hermes Bridge unavailable",
           }))
-        : undefined;
+        : {
+            mode,
+            connected: mode === "native",
+            running: false,
+            nativeMinIntervalSec: resolveNativeMinInterval(options),
+            lastCycleAt: null,
+            lastError: null,
+          };
     return {
       ok: true,
       service: "gateway",
@@ -195,6 +211,8 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
     options.messageService,
     options.messageStore,
     options.inboundHistory,
+    options.messageMode,
+    options.nativeMinIntervalSec,
   );
 
   if (options.startLoop !== false) loop.start();
@@ -206,16 +224,48 @@ function registerMessageRoutes(
   messageService: MessageGatewayController | undefined,
   messageStore: MessagePolicyStore | undefined,
   inboundHistory?: (limit?: number) => Promise<Result<InboundHistoryView>>,
+  messageMode?: MessageDeliveryMode,
+  nativeMinIntervalSec?: number,
 ): void {
   const hints = new BoundedHintDeduper(10_000);
 
   app.get("/api/messages/status", async (_request, reply) => {
-    if (messageService === undefined || messageStore === undefined)
-      return bridgeUnavailable(reply, "E302");
+    const mode = resolveMessageMode({ messageMode, messageService, messageStore });
+    const emptyCounts = {
+      captured: 0,
+      policy_pending: 0,
+      held_dnd: 0,
+      held_pacing: 0,
+      ready: 0,
+      delivering: 0,
+      retry_wait: 0,
+      delivered: 0,
+      delivery_unknown: 0,
+      absorbed: 0,
+      policy_error: 0,
+      dead_letter: 0,
+      cancelled: 0,
+    } as const;
+    if (messageService === undefined || messageStore === undefined) {
+      return {
+        mode,
+        nativeMinIntervalSec: resolveNativeMinInterval({ nativeMinIntervalSec }),
+        hermesGateway: { authoritative: mode === "native", connected: mode === "native", running: false },
+        bridge: { connected: false, running: false, inFlight: false, attached: false, outboxWritable: false, lastError: null },
+        counts: emptyCounts,
+        absorbedProgress: 0,
+        pendingFinalResults: 0,
+        recent: { rateLimited: 0, connectionFailures: 0, deliveryUnknown: 0 },
+      };
+    }
     try {
       const status = await messageService.status();
       const health = status.bridgeHealth;
+      const summary = messageStore.messageStatusSummary();
       return {
+        mode,
+        nativeMinIntervalSec: resolveNativeMinInterval({ nativeMinIntervalSec }, status),
+        hermesGateway: { authoritative: mode === "native", connected: mode === "native" || status.bridgeConnected, running: status.running },
         bridge: {
           connected: status.bridgeConnected,
           running: status.running,
@@ -235,6 +285,15 @@ function registerMessageRoutes(
           lastError: status.lastError === null ? null : "Hermes Bridge unavailable",
         },
         counts: messageStore.counts(),
+        absorbedProgress: summary.absorbedProgress,
+        pendingFinalResults: summary.pendingFinalResults,
+        recent: {
+          rateLimited: summary.rateLimited,
+          connectionFailures: summary.connectionFailures,
+          deliveryUnknown: summary.deliveryUnknown,
+          lastRateLimitedAt: summary.lastRateLimitedAt,
+          lastConnectionFailureAt: summary.lastConnectionFailureAt,
+        },
       };
     } catch {
       return bridgeUnavailable(reply, "E302");
@@ -402,6 +461,16 @@ function registerMessageRoutes(
     const body = asRecord(request.body);
     return acceptHint("inbound", readString(body?.["inboundMessageId"]), reply);
   });
+}
+
+function resolveMessageMode(options: Pick<GatewayServerOptions, "messageMode" | "messageService" | "messageStore">): MessageDeliveryMode {
+  return options.messageMode ?? (options.messageService !== undefined && options.messageStore !== undefined ? "observe" : "disabled");
+}
+
+function resolveNativeMinInterval(options: Pick<GatewayServerOptions, "nativeMinIntervalSec">, _status?: MessageGatewayStatus): number {
+  const configured = options.nativeMinIntervalSec;
+  if (configured !== undefined && Number.isFinite(configured) && configured >= 0) return configured;
+  return DEFAULT_WEIXIN_MIN_INTERVAL_SEC;
 }
 
 class BoundedHintDeduper {

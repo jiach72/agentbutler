@@ -19,7 +19,7 @@ services:
       BUTLER_GATEWAY_HOST: 0.0.0.0
       BUTLER_GATEWAY_PORT: 7532
       BUTLER_GATEWAY_PACE_SEC: ${BUTLER_GATEWAY_PACE_SEC:-30}
-      BUTLER_ENABLE_HERMES_MESSAGE_RUNTIME: ${BUTLER_ENABLE_HERMES_MESSAGE_RUNTIME:-auto}
+      BUTLER_ENABLE_HERMES_MESSAGE_RUNTIME: ${BUTLER_ENABLE_HERMES_MESSAGE_RUNTIME:-false}
       # 配置齐全时 Gateway 会自动接入 Hermes Bridge；Bridge 暂时离线不会拖垮 Gateway。
       # Bridge 仅监听宿主 loopback 时（如 WSL 原生 Docker），使用 bridge-forward
       # profile，并把此值设为 http://host.docker.internal:8755。
@@ -65,6 +65,8 @@ services:
       BUTLER_HERMES_ROOT: /home/butler/hermes
       BUTLER_HERMES_EXTERNAL_RUNTIME: "true"
       BUTLER_HERMES_READ_ONLY: "true"
+      # AES-256-GCM 主密钥仅注入 Watch；缺失时凭据库 fail-closed。
+      BUTLER_SECRET_MASTER_KEY: ${BUTLER_SECRET_MASTER_KEY:-}
       # 候选、日志和引擎副本始终写 Butler 数据卷，不写 Hermes checkout。
       BUTLER_EVOLUTION_RUN_ROOT: /home/butler/evolution-runs
       HERMES_ROOT: /home/butler/hermes

@@ -12,11 +12,15 @@ import {
   type HermesMessageRuntime,
 } from "./message/runtime.js";
 
-const RUNTIME_FLAG = "BUTLER_ENABLE_HERMES_MESSAGE_RUNTIME";
+export const RUNTIME_FLAG = "BUTLER_ENABLE_HERMES_MESSAGE_RUNTIME";
 
 function isTruthy(value: string | undefined): boolean {
   const normalized = value?.trim().toLowerCase();
   return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+}
+
+export function shouldEnableHermesMessageRuntime(value: string | undefined): boolean {
+  return isTruthy(value);
 }
 
 function hasHermesRuntimeConfiguration(env: NodeJS.ProcessEnv): boolean {
@@ -30,15 +34,13 @@ function hasHermesRuntimeConfiguration(env: NodeJS.ProcessEnv): boolean {
 }
 
 /**
- * 默认 Gateway 仍支持无 Bridge 的只读/告警模式；配置完整时自动装配
- * Hermes 消息运行时。Bridge 暂时不可用由 MessageGatewayService 自己重试，
- * 不再因为一次启动时序问题让 7532 整体退出。
+ * Hermes 原生微信发送路径是默认路径。Butler 消息运行时属于显式 opt-in
+ * 的观察/实验能力，避免 Bridge 故障把微信消息截留在 Gateway 内。
  */
 async function createConfiguredRuntime(env: NodeJS.ProcessEnv): Promise<HermesMessageRuntime | null> {
   const flag = env[RUNTIME_FLAG]?.trim().toLowerCase();
-  const explicit = isTruthy(flag);
-  const auto = flag === undefined || flag === "" || flag === "auto";
-  if (!explicit && !(auto && hasHermesRuntimeConfiguration(env))) return null;
+  const explicit = shouldEnableHermesMessageRuntime(flag);
+  if (!explicit) return null;
   if (explicit && !hasHermesRuntimeConfiguration(env)) {
     throw new Error(`${RUNTIME_FLAG}=true requires complete Hermes Bridge configuration`);
   }
@@ -56,14 +58,14 @@ async function main(): Promise<void> {
   try {
     runtime = await createConfiguredRuntime(env);
   } catch (error) {
-    if (isTruthy(env[RUNTIME_FLAG])) throw error;
-    console.warn("[gateway] Hermes Bridge 配置不完整，消息运行时保持离线:", error);
+    throw error;
   }
 
   const app = createGatewayServer({
     messageService: runtime?.service,
     messageStore: runtime?.store,
     inboundHistory: runtime ? (limit) => runtime!.inboundHistory(limit) : undefined,
+    messageMode: runtime === null ? "native" : "observe",
   }); // home 由 BUTLER_HOME / ~/.agent-butler 解析
   await app.listen({ host, port });
   console.log(`[gateway] listening on http://${host}:${port} (home=${resolveButlerHome()})`);

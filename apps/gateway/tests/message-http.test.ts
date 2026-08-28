@@ -111,6 +111,7 @@ describe("gateway message HTTP API", () => {
       startLoop: false,
       messageStore: store,
       messageService,
+      messageMode: "observe" as const,
     };
     app = createGatewayServer(options);
   });
@@ -137,6 +138,8 @@ describe("gateway message HTTP API", () => {
         channels: { weixin: "ok", a2a: "ok" },
         coverage: { runtime: "ok", apiJson: "ok", apiSse: "ok" },
       },
+      mode: "observe",
+      nativeMinIntervalSec: 45,
       counts: { held_dnd: 1, delivery_unknown: 0 },
     });
 
@@ -372,5 +375,21 @@ describe("gateway message HTTP API", () => {
       payload: { inboundMessageId: "large", content: "x".repeat(1024 * 1024) },
     });
     expect(response.statusCode).toBe(413);
+  });
+
+  it("reports native mode instead of returning a misleading Bridge 503 when runtime is disabled", async () => {
+    const nativeApp = createGatewayServer({ queue, channels: [], startLoop: false, messageMode: "native" });
+    try {
+      const response = await nativeApp.inject({ method: "GET", url: "/api/messages/status" });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        mode: "native",
+        nativeMinIntervalSec: 45,
+        hermesGateway: { authoritative: true, connected: true, running: false },
+        bridge: { connected: false },
+      });
+    } finally {
+      await nativeApp.close();
+    }
   });
 });

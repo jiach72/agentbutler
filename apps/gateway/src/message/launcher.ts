@@ -48,6 +48,7 @@ export async function launchHermesGateway(
       messageService: runtime.service,
       messageStore: runtime.store,
       inboundHistory: (limit) => runtime.inboundHistory(limit),
+      messageMode: "observe",
     });
     await app.listen({ host, port });
   } catch (error) {

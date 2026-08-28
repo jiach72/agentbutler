@@ -1,5 +1,22 @@
 # Bug Fixes
 
+## 2026-08-28 - 本地容器版本不同步与 native 消息状态误判
+
+- **Problem:** 工作区已更新到 `1.0.0-beta.11`，但正在运行的 Web/Watch/Gateway 容器仍分别报告 `beta.7`、`beta.7`、`beta.10`；同时 Web 只接受包含完整 Bridge 字段的状态，导致 Hermes native 模式的正常 `200` 响应被显示为 `reachable:false`。
+- **Impact:** 设置页加载的是旧 bundle，模型凭据按钮状态与当前代码不一致；网关页把 native 发送路径误报为不可达，无法解释微信消息状态。
+- **Changed scope:** Web 状态解析兼容 native 精简载荷并补默认 Bridge 元数据；Compose 将 `BUTLER_SECRET_MASTER_KEY` 注入 Watch；本机 `.env` 配置 32 字节 hex 主密钥（不提交）；使用当前源码重建并重启全部服务。
+- **Regression coverage:** 新增 Web native `/api/messages/status` 解析测试；`pnpm exec tsc -b --pretty false` 与 Web 服务测试通过。
+- **Verification:** `pnpm exec vitest run --config vitest.focused.config.ts apps/web/tests/server.test.ts --reporter=dot`（12 passed）；`git diff --check`；重建后核对 `/api/health`、`/api/llm/status`、`/api/messages/status` 和四个服务版本。
+
+## 2026-08-28 - Hermes 微信断流与重复消息修复
+
+- **Problem:** Hermes 微信通道开启全量工具进度、最小发送间隔为 30 秒，且 Gateway 的 Message Runtime 使用 `auto` 介入热路径；历史进度积压还会被误判为待发送消息，触发 iLink `429` 和重复通知。
+- **Impact:** 长任务期间微信被进度消息轰炸，最终回复可能因限流或 Bridge 延迟无法到达；Bridge 故障也可能错误阻断 Hermes 原生发送。
+- **Changed scope:** Gateway 仅在 `BUTLER_ENABLE_HERMES_MESSAGE_RUNTIME=true` 时启动观察 Runtime；默认恢复 Hermes 原生通道。普通 `task-progress` 在 Butler 投影中进入 `absorbed`，保留审计但不进入投递队列；新增幂等积压清理和状态摘要。微信策略下限调整为 45 秒。WSL Hermes 配置新增 `display.platforms.weixin.tool_progress=off`、`streaming=false`，并将 `platforms.weixin.extra.min_send_interval_seconds` 调整为 45 秒；原配置已备份。
+- **Regression coverage:** Gateway 消息策略、HTTP 状态、配置、积压清理和 Runtime 开关测试共 41 项通过；`corepack pnpm exec tsc -b --pretty false` 通过。
+- **Verification:** `corepack pnpm version:set 1.0.0-beta.11`、`corepack pnpm version:check`、`git diff --check`；`.env` 本机覆盖已改为 `BUTLER_ENABLE_HERMES_MESSAGE_RUNTIME=false`，未提交。
+- **Runtime validation:** 已在 WSL `/home/jiach/.hermes/config.yaml` 完成备份和幂等配置修改，并确认微信平台级进度关闭、流式关闭、间隔 45 秒。Compose 重建和微信端到端投递仍需在本机执行后记录结果，未在此处提前宣称断流已完全解决。
+
 ## 2026-08-28 - 微信回复因空入站记录阻塞投递
 
 - **Problem:** Hermes Bridge 的历史 outbox 批次包含合法的空文本系统/占位入站记录；Gateway 将 `inbound.content` 强制校验为非空，导致整批导入失败，Bridge 游标停滞，新微信回复一直停留在 `captured`。

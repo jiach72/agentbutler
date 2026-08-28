@@ -177,6 +177,16 @@ export interface PrewarmCacheEntry {
   detail: string | null;
 }
 
+export interface MessageStatusSummary {
+  absorbedProgress: number;
+  pendingFinalResults: number;
+  rateLimited: number;
+  connectionFailures: number;
+  deliveryUnknown: number;
+  lastRateLimitedAt: string | null;
+  lastConnectionFailureAt: string | null;
+}
+
 /**
  * Butler's durable read model of the authoritative WSL Bridge outbox.
  * It never originates messages; reconciliation writes Bridge observations here first.
@@ -567,6 +577,81 @@ export class MessagePolicyStore {
       if (state in counts) counts[state] = Number(row["count"]);
     }
     return counts;
+  }
+
+  /** Small operational summary used by health/status pages without exposing message bodies. */
+  messageStatusSummary(now = new Date()): MessageStatusSummary {
+    const cutoff = now.getTime() - 24 * 60 * 60 * 1_000;
+    const rows = this.db
+      .prepare("SELECT payload_json, state, updated_at FROM message_projection")
+      .all() as Record<string, unknown>[];
+    const pendingStates = new Set(["captured", "policy_pending", "held_dnd", "held_pacing", "ready", "delivering", "retry_wait"]);
+    let absorbedProgress = 0;
+    let pendingFinalResults = 0;
+    let rateLimited = 0;
+    let connectionFailures = 0;
+    let deliveryUnknown = 0;
+    let lastRateLimitedAt: string | null = null;
+    let lastConnectionFailureAt: string | null = null;
+
+    for (const row of rows) {
+      const state = String(row["state"]);
+      const payload = JSON.parse(String(row["payload_json"])) as OutboxMessageView;
+      if (state === "absorbed" && payload.messageKind === "task-progress") absorbedProgress += 1;
+      if (pendingStates.has(state) && payload.messageKind === "final") pendingFinalResults += 1;
+      if (state === "delivery_unknown") deliveryUnknown += 1;
+      const error = typeof payload.lastError === "string" ? payload.lastError : "";
+      const updatedAt = String(row["updated_at"]);
+      const isRecent = Date.parse(updatedAt) >= cutoff;
+      if (!isRecent) continue;
+      if (/\b429\b|rate[- ]?limit/i.test(error)) {
+        rateLimited += 1;
+        if (lastRateLimitedAt === null || updatedAt > lastRateLimitedAt) lastRateLimitedAt = updatedAt;
+      }
+      if (/disconnect|network|timeout|econn|unreachable|connection/i.test(error)) {
+        connectionFailures += 1;
+        if (lastConnectionFailureAt === null || updatedAt > lastConnectionFailureAt) lastConnectionFailureAt = updatedAt;
+      }
+    }
+    return { absorbedProgress, pendingFinalResults, rateLimited, connectionFailures, deliveryUnknown, lastRateLimitedAt, lastConnectionFailureAt };
+  }
+
+  /**
+   * Converts legacy queued progress rows into an observational terminal state.
+   * The authoritative Hermes outbox is never deleted or rewritten here; this
+   * only prevents the Butler projection from replaying stale progress after a
+   * policy change. The operation is idempotent.
+   */
+  absorbPendingProgress(now = new Date().toISOString()): number {
+    requireIsoTimestamp(now, "now");
+    return this.withImmediateTransaction(() => {
+      const rows = this.db
+        .prepare(
+          `SELECT message_id, payload_json FROM message_projection
+           WHERE state IN ('captured', 'policy_pending', 'held_dnd', 'held_pacing', 'ready', 'retry_wait')`,
+        )
+        .all() as Record<string, unknown>[];
+      let changed = 0;
+      const update = this.db.prepare(
+        `UPDATE message_projection
+         SET payload_json = ?, state = 'absorbed', available_at = NULL,
+             pending_decision_json = NULL, last_policy_error = NULL, updated_at = ?
+         WHERE message_id = ? AND state IN ('captured', 'policy_pending', 'held_dnd', 'held_pacing', 'ready', 'retry_wait')`,
+      );
+      for (const row of rows) {
+        const payload = JSON.parse(String(row["payload_json"])) as OutboxMessageView;
+        if (payload.messageKind !== "task-progress" || payload.metadata.solicitedReply === true) continue;
+        const updated: OutboxMessageView = {
+          ...payload,
+          state: "absorbed",
+          availableAt: null,
+          transformTrace: [...payload.transformTrace, "backfill:progress-background-only"],
+        };
+        const result = update.run(JSON.stringify(updated), now, String(row["message_id"]));
+        changed += Number(result.changes);
+      }
+      return changed;
+    });
   }
 
   /** 近 N 天送达结果按日聚合（本地时区；独立历史表不受 7 天投影清理影响）。 */

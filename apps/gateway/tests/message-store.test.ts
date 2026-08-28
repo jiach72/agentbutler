@@ -194,6 +194,44 @@ describe("MessagePolicyStore", () => {
     store.close();
   });
 
+  it("absorbs queued progress backlog idempotently without touching final or failure messages", () => {
+    const store = new MessagePolicyStore(dbFile);
+    const progressStates = ["held_pacing", "ready", "retry_wait"] as const;
+    const items = [
+      ...progressStates.map((state, index) => ({
+        ...BATCH.items[0],
+        messageId: `progress-${state}`,
+        messageKind: "task-progress" as const,
+        state,
+        sequence: index + 1,
+        availableAt: state === "retry_wait" ? "2026-08-22T10:01:00.000Z" : null,
+        lastError: state === "retry_wait" ? "429 rate limited" : null,
+      })),
+      {
+        ...BATCH.items[0],
+        messageId: "final-kept",
+        messageKind: "final" as const,
+        state: "ready" as const,
+        sequence: 4,
+      },
+      {
+        ...BATCH.items[0],
+        messageId: "failure-kept",
+        messageKind: "failure" as const,
+        state: "retry_wait" as const,
+        sequence: 5,
+      },
+    ];
+    store.ingestBatch({ afterSequence: 0, nextSequence: items.length, items, taskEvents: [], inbound: [] }, "hermes-main");
+
+    expect(store.absorbPendingProgress("2026-08-22T10:00:10.000Z")).toBe(3);
+    expect(store.counts()).toMatchObject({ absorbed: 3, ready: 1, retry_wait: 1 });
+    expect(store.messageView("final-kept")?.state).toBe("ready");
+    expect(store.messageView("failure-kept")?.state).toBe("retry_wait");
+    expect(store.absorbPendingProgress("2026-08-22T10:00:11.000Z")).toBe(0);
+    store.close();
+  });
+
   it("prunes only terminal message history older than the retention cutoff", () => {
     const store = new MessagePolicyStore(dbFile);
     const oldDelivered = { ...BATCH.items[0], messageId: "old-delivered", state: "delivered" as const };

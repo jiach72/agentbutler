@@ -152,6 +152,7 @@ export class MessageGatewayService {
 
   private async startInternal(): Promise<void> {
     this.running = true;
+    this.options.store.absorbPendingProgress(this.clock().toISOString());
     try {
       await this.updatePolicy(this.config);
     } catch (error) {

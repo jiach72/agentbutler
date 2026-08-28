@@ -35,6 +35,23 @@ export function decideOutboundPolicy(input: OutboundPolicyInput): OutboundPolicy
     return { decision: buildMessageDecision(input.message, input.config.version, "policy_error", ["policy:unknown-channel"], "channel has no policy"), companionDecisions: [] };
   }
 
+  // Progress is an internal task signal, not a user-facing Weixin message. Keep
+  // it in the projection/task timeline for observability, but never enqueue it
+  // for pacing or delivery. The final/failure message remains the user-facing
+  // result of the run.
+  if (input.message.messageKind === "task-progress" && input.message.metadata.solicitedReply !== true) {
+    return {
+      decision: buildMessageDecision(
+        input.message,
+        input.config.version,
+        "absorbed",
+        ["policy:queued-push", "progress:background-only"],
+        "task progress retained for observation",
+      ),
+      companionDecisions: [],
+    };
+  }
+
   const digest = buildProgressDigest({ holder: input.holder, incoming: input.message, events: input.taskEvents, config: input.config.digest });
   const companionDecisions: MessageDecision[] = [];
   if (digest.accepted && digest.absorbHolder && input.holder !== undefined && isPolicyActiveHolder(input.holder)) {

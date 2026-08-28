@@ -216,6 +216,31 @@ describe("butler-web 服务（fastify inject）", () => {
     expect(res.json()).toEqual({ reachable: true, status });
   });
 
+  it("/api/messages/status：Hermes native 模式的精简状态可被 Web 正确识别", async () => {
+    const nativeStatus = {
+      mode: "native",
+      nativeMinIntervalSec: 45,
+      hermesGateway: { authoritative: true, connected: true, running: false },
+      bridge: { connected: false, running: false, inFlight: false, attached: false, outboxWritable: false, lastError: null },
+      counts: {
+        captured: 0, policy_pending: 0, held_dnd: 0, held_pacing: 0, ready: 0,
+        delivering: 0, retry_wait: 0, delivered: 0, delivery_unknown: 0,
+        absorbed: 3, policy_error: 0, dead_letter: 0, cancelled: 0,
+      },
+    };
+    const app = createWebServer({
+      home: tmp,
+      gatewayUrl: "http://gateway.test:7532",
+      uiDist,
+      fetchImpl: (async () => new Response(JSON.stringify(nativeStatus), { status: 200 })) as typeof fetch,
+    });
+    apps.push(app);
+
+    const res = await app.inject({ method: "GET", url: "/api/messages/status" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ reachable: true, status: { counts: { absorbed: 3 }, bridge: { connected: false, channels: {}, coverage: {} } } });
+  });
+
   it("/api/connections：通过 web 代理 watch 连接路由，不再落到 web 404", async () => {
     const app = createWebServer({
       home: tmp,

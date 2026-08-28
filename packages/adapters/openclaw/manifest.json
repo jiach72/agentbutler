@@ -2,7 +2,7 @@
   "frameworkId": "openclaw",
   "displayName": "OpenClaw",
   "contractVersion": "1.x",
-  "adapterVersion": "1.0.0-beta.10",
+  "adapterVersion": "1.0.0-beta.11",
   "declaredLevel": 2,
   "capabilities": [
     "probe",

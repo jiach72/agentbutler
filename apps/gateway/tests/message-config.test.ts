@@ -23,8 +23,8 @@ function reverseObjectKeys(value: unknown): unknown {
 }
 
 describe("message policy configuration", () => {
-  it("keeps the Weixin terminal interval at or above 30 seconds", () => {
-    expect(DEFAULT_MESSAGE_POLICY.channels.weixin.nativeMinIntervalSec).toBe(30);
+  it("keeps the Weixin terminal interval at or above 45 seconds", () => {
+    expect(DEFAULT_MESSAGE_POLICY.channels.weixin.nativeMinIntervalSec).toBe(45);
     expect(() =>
       validateMessagePolicy({
         ...DEFAULT_MESSAGE_POLICY,
@@ -32,11 +32,11 @@ describe("message policy configuration", () => {
           ...DEFAULT_MESSAGE_POLICY.channels,
           weixin: {
             ...DEFAULT_MESSAGE_POLICY.channels.weixin,
-            nativeMinIntervalSec: 29,
+            nativeMinIntervalSec: 44,
           },
         },
       }),
-    ).toThrow(/30/);
+    ).toThrow(/45/);
   });
 
   it("rejects a deserialized inline response other than allow", () => {

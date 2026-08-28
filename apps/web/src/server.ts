@@ -37,7 +37,7 @@ import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import { recentEventsAscending, selectNewEvents } from "./events-pump.js";
 
-export const WEB_VERSION = `web@1.0.0-beta.10+${CONTRACT_VERSION}`;
+export const WEB_VERSION = `web@1.0.0-beta.11+${CONTRACT_VERSION}`;
 
 /** 告警网关默认基址（butler-gateway 的固定回环端口）。 */
 export const DEFAULT_GATEWAY_URL = "http://127.0.0.1:7532";
@@ -1124,47 +1124,41 @@ function parseMessageStatus(value: unknown): MessageStatusView | null {
   if (!isRecord(value) || !isRecord(value["bridge"])) return null;
   const bridge = value["bridge"];
   const counts = parseMessageCounts(value["counts"]);
-  const channels = parseStringRecord(bridge["channels"]);
-  const coverage = parseStringRecord(bridge["coverage"]);
-  if (
-    counts === null ||
-    channels === null ||
-    coverage === null ||
-    typeof bridge["connected"] !== "boolean" ||
-    typeof bridge["running"] !== "boolean" ||
-    typeof bridge["inFlight"] !== "boolean" ||
-    typeof bridge["attached"] !== "boolean" ||
-    typeof bridge["outboxWritable"] !== "boolean" ||
-    !(bridge["protocolVersion"] === null || typeof bridge["protocolVersion"] === "number") ||
-    !isNullableString(bridge["bridgeVersion"]) ||
-    !isNullableString(bridge["instanceId"]) ||
-    !isNullableString(bridge["policyVersion"]) ||
-    !isNullableString(bridge["policyHash"]) ||
-    !isNullableString(bridge["remotePolicyVersion"]) ||
-    !isNullableString(bridge["startedAt"]) ||
-    !isNullableString(bridge["lastCycleAt"]) ||
-    !isNullableString(bridge["lastError"])
-  ) {
+  if (counts === null) {
     return null;
   }
+  // Native Hermes mode intentionally has no Bridge metadata. Normalize the
+  // compact native payload to the richer shape expected by existing pages.
+  const booleanField = (name: string): boolean => bridge[name] === undefined ? false : bridge[name] as boolean;
+  const nullableString = (name: string): string | null => bridge[name] === undefined ? null : bridge[name] as string | null;
+  const protocolVersion = bridge["protocolVersion"] === undefined ? null : bridge["protocolVersion"];
+  const channels = bridge["channels"] === undefined ? {} : parseStringRecord(bridge["channels"]);
+  const coverage = bridge["coverage"] === undefined ? {} : parseStringRecord(bridge["coverage"]);
+  if (
+    !["connected", "running", "inFlight", "attached", "outboxWritable"].every((name) => bridge[name] === undefined || typeof bridge[name] === "boolean") ||
+    !(protocolVersion === null || typeof protocolVersion === "number") ||
+    channels === null ||
+    coverage === null ||
+    !["bridgeVersion", "instanceId", "policyVersion", "policyHash", "remotePolicyVersion", "startedAt", "lastCycleAt", "lastError"].every((name) => bridge[name] === undefined || isNullableString(bridge[name]))
+  ) return null;
   return {
     bridge: {
-      connected: bridge["connected"],
-      running: bridge["running"],
-      inFlight: bridge["inFlight"],
-      attached: bridge["attached"],
-      outboxWritable: bridge["outboxWritable"],
-      protocolVersion: bridge["protocolVersion"],
-      bridgeVersion: bridge["bridgeVersion"],
-      instanceId: bridge["instanceId"],
-      policyVersion: bridge["policyVersion"],
-      policyHash: bridge["policyHash"],
-      remotePolicyVersion: bridge["remotePolicyVersion"],
+      connected: booleanField("connected"),
+      running: booleanField("running"),
+      inFlight: booleanField("inFlight"),
+      attached: booleanField("attached"),
+      outboxWritable: booleanField("outboxWritable"),
+      protocolVersion: protocolVersion as number | null,
+      bridgeVersion: nullableString("bridgeVersion"),
+      instanceId: nullableString("instanceId"),
+      policyVersion: nullableString("policyVersion"),
+      policyHash: nullableString("policyHash"),
+      remotePolicyVersion: nullableString("remotePolicyVersion"),
       channels,
       coverage,
-      startedAt: bridge["startedAt"],
-      lastCycleAt: bridge["lastCycleAt"],
-      lastError: bridge["lastError"],
+      startedAt: nullableString("startedAt"),
+      lastCycleAt: nullableString("lastCycleAt"),
+      lastError: nullableString("lastError"),
     },
     counts,
   };

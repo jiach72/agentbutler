@@ -26,7 +26,7 @@ export const DEFAULT_MESSAGE_POLICY: MessagePolicyConfig = {
       additiveStep: 0.25,
       multiplicativeFactor: 0.5,
       successWindow: 4,
-      nativeMinIntervalSec: 30,
+      nativeMinIntervalSec: 45,
       prewarmTtlSec: 300,
     },
     a2a: {
@@ -91,8 +91,8 @@ function validateChannelPolicy(channelId: ChannelId, policy: ChannelPolicy): voi
     throw new Error(`channels.${channelId}.successWindow must be at least 1`);
   }
 
-  if (channelId === "weixin" && policy.nativeMinIntervalSec < 30) {
-    throw new Error("channels.weixin.nativeMinIntervalSec must be at least 30 seconds");
+  if (channelId === "weixin" && policy.nativeMinIntervalSec < 45) {
+    throw new Error("channels.weixin.nativeMinIntervalSec must be at least 45 seconds");
   }
 }
 
