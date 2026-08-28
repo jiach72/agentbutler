@@ -60,6 +60,21 @@ describe("butler-web 管家自身与记忆重建代理", () => {
     expect(body.availableUpdates).toEqual([]);
   });
 
+  it("GET /api/butler/self 允许版本刷新期间的慢响应", async () => {
+    const fetchImpl: typeof fetch = async (input) => {
+      expect(String(input)).toBe(`${WATCH_URL}/api/butler/self`);
+      await new Promise((resolve) => setTimeout(resolve, 5_200));
+      return new Response(JSON.stringify({ version: "1.0.0-beta.12", availableUpdates: [{ tag: "v1.0.0-beta.12" }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+    const app = build(fetchImpl);
+    const res = await app.inject({ method: "GET", url: "/api/butler/self" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ reachable: true, version: "1.0.0-beta.12" });
+  }, 15_000);
+
   it("POST /api/butler/self/upgrade 透传 watch 的 202", async () => {
     const fetchImpl: typeof fetch = async (input, init) => {
       expect(String(input)).toBe(`${WATCH_URL}/api/butler/self/upgrade`);

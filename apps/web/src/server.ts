@@ -1749,9 +1749,9 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   /* ---------------------- watch 控制通道代理（Task 10） ---------------------- */
 
   /** GET watch 控制通道；不可达/超时返回 null（调用方走各自降级策略）。 */
-  const fetchWatch = async (watchPath: string): Promise<Response | null> => {
+  const fetchWatch = async (watchPath: string, timeoutMs = 5_000): Promise<Response | null> => {
     try {
-      return await doFetch(`${watchUrl}${watchPath}`, { signal: AbortSignal.timeout(5000) });
+      return await doFetch(`${watchUrl}${watchPath}`, { signal: AbortSignal.timeout(timeoutMs) });
     } catch {
       return null;
     }
@@ -2259,7 +2259,8 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
 
   // 管家自身版本管理（V1.7）：状态 / 一键升级 / 回滚 / 更新偏好（透传 watch）。
   app.get("/api/butler/self", async () => {
-    const res = await fetchWatch("/api/butler/self");
+    // Watch 刷新状态时会访问 Updater/GitHub，允许网络探测有更长的尾延迟。
+    const res = await fetchWatch("/api/butler/self", 30_000);
     if (res === null || !res.ok) {
       return {
         reachable: false,
