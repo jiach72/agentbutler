@@ -1,5 +1,13 @@
 # Bug Fixes
 
+## 2026-08-28 - macOS 安装默认分支版本落后与 Corepack PATH
+
+- **Problem:** 客户按 README 执行普通 `git clone` 时，GitHub 默认分支 `main` 仍停在 `ce07f01`（`v1.0.0-beta.9`）；`v1.0.0-beta.12` 只存在于发布 tag 和 `codex/llm-key-manager` 分支，因此安装后构建出的服务仍报告 beta.9。日志还显示 Hermes 自带 Node/Corepack 位于自定义目录，后台 shell 找不到裸 `corepack` 命令。
+- **Impact:** 已推送的新版本对默认安装路径不可见；macOS 后台启动可能在安装完成后才因 PATH 缺失失败，用户需要手工改用绝对路径。
+- **Changed scope:** 安装器现在优先使用当前 Node 同目录的 Corepack，并在 macOS 服务指引中输出可直接执行的命令；发布流程需将发布提交同步到默认 `main` 后再通知客户安装。
+- **Regression coverage:** `pnpm exec vitest run packages/installer/tests/install.test.ts packages/installer/tests/openclaw.test.ts --run`（39 passed）；`pnpm exec tsc -b packages/installer/tsconfig.json --pretty false`；`git diff --check`。
+- **Runtime validation:** `git ls-remote` 确认 `origin/main` 为 `ce07f01`/beta.9、`v1.0.0-beta.12` 为 `9b1043e`；客户日志的 `HEAD ce07f01` 与该远端状态一致。
+
 ## 2026-08-28 - 版本页刷新无法发现 GitHub 新 tag
 
 - **Problem:** updater 只在进程启动时写入共享状态文件；GitHub 推送 `v1.0.0-beta.12` 后，版本页刷新仍读取旧的 `availableUpdates`，看不到新 tag。容器中的 Watch 还会把 updater 源码目录版本误显示为正在运行版本。

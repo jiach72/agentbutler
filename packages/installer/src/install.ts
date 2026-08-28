@@ -40,6 +40,25 @@ export const DEFAULT_GATEWAY_HOST_PORT = 7532;
 export const HOST_HEALTH_RETRY_COUNT = 5;
 export const HOST_HEALTH_RETRY_DELAY_MS = 1_000;
 
+/**
+ * Hermes 在 macOS 上可能把 Node/Corepack 放在 ~/.hermes/node/bin，后台 shell
+ * 的 PATH 不一定包含该目录。优先使用当前 Node 同目录的 Corepack，找不到时
+ * 保留裸命令以兼容系统安装与测试环境。
+ */
+export function resolveCorepackCommand(nodePath = process.execPath): string {
+  const directory = path.dirname(nodePath);
+  const candidates =
+    process.platform === "win32"
+      ? [path.join(directory, "corepack.cmd"), path.join(directory, "corepack")]
+      : [path.join(directory, "corepack")];
+  return candidates.find((candidate) => fs.existsSync(candidate)) ?? "corepack";
+}
+
+function shellCommand(command: string, args: string[]): string {
+  const rendered = command.includes(" ") ? JSON.stringify(command) : command;
+  return [rendered, ...args].join(" ");
+}
+
 /** 本仓三服务。 */
 export const BUTLER_SERVICES = ["butler-watch", "butler-web", "butler-gateway"] as const;
 export type HostServiceManager = "auto" | "systemd-user" | "guide";
@@ -449,14 +468,15 @@ async function installHostServices(
   const manager: HostServiceManager = configured ?? (opts.exec === undefined ? "auto" : "guide");
   const steps: InstallStep[] = [];
   if (manager === "guide") {
+    const corepackCommand = resolveCorepackCommand(opts.hostServices?.nodePath ?? process.execPath);
     steps.push({
       id: "services-guide",
       status: "ok",
       detail: [
         "宿主三服务未写入系统服务管理器，请按以下命令启动：",
-        "  - butler-watch:   corepack pnpm --filter @butler/watch start",
-        "  - butler-web:     corepack pnpm --filter @butler/web start（http://127.0.0.1:" + (opts.webHostPort ?? DEFAULT_WEB_HOST_PORT) + "）",
-        "  - butler-gateway: corepack pnpm --filter @butler/gateway start",
+        "  - butler-watch:   " + shellCommand(corepackCommand, ["pnpm", "--filter", "@butler/watch", "start"]),
+        "  - butler-web:     " + shellCommand(corepackCommand, ["pnpm", "--filter", "@butler/web", "start"]) + "（http://127.0.0.1:" + (opts.webHostPort ?? DEFAULT_WEB_HOST_PORT) + "）",
+        "  - butler-gateway: " + shellCommand(corepackCommand, ["pnpm", "--filter", "@butler/gateway", "start"]),
       ].join("\\n"),
     });
     return steps;
@@ -671,6 +691,7 @@ export async function installHostForm(plan: InstallPlan, opts: InstallOptions = 
   const exec = opts.exec ?? defaultExec;
   const dryRun = opts.dryRun ?? false;
   const repoDir = opts.repoDir ?? process.cwd();
+  const corepackCommand = resolveCorepackCommand(opts.hostServices?.nodePath ?? process.execPath);
   const framework = opts.framework ?? "hermes";
   const hermesUrl = opts.hermesInstallUrl ?? DEFAULT_HERMES_INSTALL_URL;
   const openclawPackage = opts.openclawPackage ?? DEFAULT_OPENCLAW_PACKAGE;
@@ -799,7 +820,7 @@ export async function installHostForm(plan: InstallPlan, opts: InstallOptions = 
       exec,
       "corepack-enable",
       "启用 pnpm 运行时 shim",
-      { command: "corepack", args: ["enable"] },
+      { command: corepackCommand, args: ["enable"] },
       dryRun,
     ),
   );
@@ -808,7 +829,7 @@ export async function installHostForm(plan: InstallPlan, opts: InstallOptions = 
   // 5/6. 本仓 pnpm install + build
   steps.push(
     await runExecStep(exec, "repo-install", "安装本仓依赖", {
-      command: "corepack",
+      command: corepackCommand,
       args: ["pnpm", "install"],
       cwd: repoDir,
     }, dryRun),
@@ -816,7 +837,7 @@ export async function installHostForm(plan: InstallPlan, opts: InstallOptions = 
   if (steps[steps.length - 1]!.status === "failed") return finish("host", framework, steps);
   steps.push(
     await runExecStep(exec, "repo-build", "构建本仓", {
-      command: "corepack",
+      command: corepackCommand,
       args: ["pnpm", "run", "build"],
       cwd: repoDir,
     }, dryRun),

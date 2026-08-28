@@ -1,10 +1,22 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildComposeOverride, buildHostServiceUnits, buildOpenClawComposeOverride, installDockerForm, installHostForm, runInstaller } from "../src/install.js";
+import { buildComposeOverride, buildHostServiceUnits, buildOpenClawComposeOverride, installDockerForm, installHostForm, resolveCorepackCommand, runInstaller } from "../src/install.js";
 import { fakeExec, fakePlan, fakeProbeFetch, makeTempDir, rmTempDir } from "./helpers.js";
 
 describe("installHostForm 宿主形态", () => {
+  it("优先使用 Node 同目录的 Corepack，避免 macOS 后台 shell 丢失 PATH", () => {
+    const tmp = makeTempDir();
+    try {
+      const nodePath = path.join(tmp, process.platform === "win32" ? "node.exe" : "node");
+      const corepackPath = path.join(tmp, process.platform === "win32" ? "corepack.cmd" : "corepack");
+      fs.writeFileSync(corepackPath, "");
+      expect(resolveCorepackCommand(nodePath)).toBe(corepackPath);
+    } finally {
+      rmTempDir(tmp);
+    }
+  });
+
   it("dry-run：步骤序列完整、零命令执行", async () => {
     const { exec, calls } = fakeExec();
     const result = await installHostForm(fakePlan({}), { exec, dryRun: true, repoDir: "/repo" });
