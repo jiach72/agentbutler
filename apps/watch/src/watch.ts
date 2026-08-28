@@ -25,7 +25,7 @@
  * apply/reapply/detect，全部动作落审计）。
  */
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
+import { join, posix } from "node:path";
 import { closeSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import type { ControlAdapter, DiscoveryHint, InstanceRef, Result } from "@butler/contract";
@@ -182,16 +182,57 @@ export function withEvolutionBackup(
   backup: BackupService,
   core: Core,
 ): EvolutionService {
+  const backupFailureRun = (
+    targetType: "skill" | "prompt" | "config",
+    targetRef: string,
+    instanceId: string | undefined,
+    detail: string,
+  ) => {
+    const runId = `backup-rejected-${randomUUID()}`;
+    const timestamp = new Date().toISOString();
+    core.audit.append({
+      actor: EVOLUTION_ACTOR,
+      action: EVOLUTION_PREFLIGHT_ACTION,
+      target: instanceId ?? targetRef,
+      detail: { runId, status: "preflight-failed", reason: "prebackup-failed", error: detail },
+    });
+    return {
+      runId,
+      targetType,
+      targetRef,
+      status: "preflight-failed" as const,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      checks: [{
+        id: "snapshot" as const,
+        label: "运行前快照",
+        status: "fail" as const,
+        detail: `进化前事件备份失败：${detail}`,
+        action: "修复备份目录、权限或数据库后重试",
+      }],
+      blocked: true,
+      detail: "备份失败，Hermes 未启动且 baseline 未修改",
+      logTail: { stdout: [], stderr: [] },
+    };
+  };
+
+  const takeBackup = async (): Promise<string | null> => {
+    try {
+      const snapshot = await backup.run("event", "进化前自动备份");
+      if (!Number.isInteger(snapshot.id) || snapshot.id <= 0) {
+        throw new Error("进化前备份未返回有效登记 ID");
+      }
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  };
+
   return {
     ...evolution,
     async preflight(input) {
-      try {
-        const snapshot = await backup.run("event", "进化前自动备份");
-        if (!Number.isInteger(snapshot.id) || snapshot.id <= 0) {
-          throw new Error("进化前备份未返回有效登记 ID");
-        }
-      } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error);
+      const detail = await takeBackup();
+      if (detail !== null) {
         const runId = `backup-rejected-${randomUUID()}`;
         const ledgerPath = "";
         const rejected: EvolutionPreflightOutcome = {
@@ -219,6 +260,12 @@ export function withEvolutionBackup(
         return rejected;
       }
       return evolution.preflight(input);
+    },
+    async createRun(input) {
+      const detail = await takeBackup();
+      return detail === null
+        ? evolution.createRun(input)
+        : backupFailureRun(input.targetType, input.targetRef, input.instanceId, detail);
     },
   };
 }
@@ -681,6 +728,15 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     fetchFn: options.fetchFn,
     poster: alertPoster,
     defaultEndpoint: config.llm.baseUrl,
+    llm: config.llm,
+    hermesRoot: runtime.hermesRoot,
+    evolutionRoot: posix.join(runtime.hermesRoot, "skills", "hermes-agent-self-evolution"),
+    runRoot: config.evolutionRunRoot ?? posix.join(runtime.butlerDataDir.replaceAll("\\", "/"), "evolution-runs"),
+    // Windows 宿主经 wsl.exe；Docker-in-WSL 与原生 Linux 容器可直接访问挂载的 Hermes 路径。
+    useWsl:
+      runtime.kind === "windows-wsl" ||
+      runtime.kind === "wsl" ||
+      (runtime.kind === "linux" && config.hermesRoot !== undefined),
     fetchTimeoutMs: config.fetchTimeoutMs,
     now: options.now,
   });

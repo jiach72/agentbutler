@@ -65,6 +65,7 @@ describe("butler-web 进化守门代理", () => {
 
   it("GET /api/evolution 返回已校验的守门状态，watch 失败时固定降级", async () => {
     const status = {
+      schemaVersion: "evolution-v2-charts-v1",
       minHoldoutCount: 10,
       defaultDependencies: ["dspy", "gepa", "optuna"],
       defaultEndpoint: "https://llm.example/v1",
@@ -82,6 +83,28 @@ describe("butler-web 进化守门代理", () => {
           disposition: "允许引擎替换 baseline",
         },
       ],
+      hermes: {
+        status: "ready",
+        root: "/home/jiach/.hermes",
+        detail: "WSL Hermes 已就绪",
+      },
+      endpointHealth: {
+        status: "pass",
+        category: "ok",
+        detail: "带鉴权探针通过",
+        checkedAt: "2026-08-27T08:00:00.000Z",
+      },
+      blocked: [],
+      tasks: [],
+      history: [
+        {
+          baselineQuality: 0.5,
+          candidateQuality: 0.58,
+          successRate: 1,
+          failureRate: 0,
+          elapsedSeconds: 12.3,
+        },
+      ],
     };
     const transport = makeFetch({
       [`GET ${WATCH_URL}/api/evolution/status`]: { status: 200, body: status },
@@ -90,17 +113,39 @@ describe("butler-web 进化守门代理", () => {
 
     const result = await app.inject({ method: "GET", url: "/api/evolution" });
     expect(result.statusCode).toBe(200);
-    expect(result.json()).toEqual({ watchReachable: true, ...status });
+    expect(result.json()).toEqual({
+      watchReachable: true,
+      connectionStatus: "ready",
+      detail: null,
+      ...status,
+    });
+
+    const statusAlias = await app.inject({ method: "GET", url: "/api/evolution/status" });
+    expect(statusAlias.statusCode).toBe(200);
+    expect(statusAlias.json()).toEqual(result.json());
 
     const offline = makeFetch({ [`GET ${WATCH_URL}/api/evolution/status`]: "throw" });
     const offlineApp = build(offline.fetch);
     const degraded = await offlineApp.inject({ method: "GET", url: "/api/evolution" });
     expect(degraded.json()).toEqual({
       watchReachable: false,
+      connectionStatus: "watch-unreachable",
+      detail: "Watch 控制通道不可达",
+      schemaVersion: null,
       minHoldoutCount: 10,
       defaultDependencies: [],
       defaultEndpoint: "",
       ledger: [],
+      hermes: { status: "unknown", root: null, detail: "尚未读取 Watch 状态" },
+      endpointHealth: {
+        status: "unknown",
+        category: "unknown",
+        detail: "尚未执行带鉴权的 LLM 探针",
+        checkedAt: null,
+      },
+      blocked: [],
+      tasks: [],
+      history: [],
     });
   });
 
@@ -183,5 +228,79 @@ describe("butler-web 进化守门代理", () => {
     });
     expect(exported.statusCode).toBe(502);
     expect(exported.json()).toEqual({ error: "watch-unreachable" });
+  });
+
+  it("旧 Watch 没有新接口或返回旧 schema 时，页面能明确显示同步状态", async () => {
+    const missing = makeFetch({
+      [`GET ${WATCH_URL}/api/evolution/status`]: { status: 404, body: { error: "not-found" } },
+    });
+    const missingApp = build(missing.fetch);
+    expect((await missingApp.inject({ method: "GET", url: "/api/evolution" })).json()).toMatchObject({
+      watchReachable: false,
+      connectionStatus: "watch-route-missing",
+    });
+
+    const mismatched = makeFetch({
+      [`GET ${WATCH_URL}/api/evolution/status`]: {
+        status: 200,
+        body: {
+          schemaVersion: "evolution-v1",
+          minHoldoutCount: 10,
+          defaultDependencies: [],
+          defaultEndpoint: "",
+          ledger: [],
+          hermes: { status: "unknown", root: null, detail: "旧 Watch" },
+          endpointHealth: { status: "unknown", category: "unknown", detail: "", checkedAt: null },
+          blocked: [],
+          tasks: [],
+          history: [],
+        },
+      },
+    });
+    const mismatchApp = build(mismatched.fetch);
+    expect((await mismatchApp.inject({ method: "GET", url: "/api/evolution" })).json()).toMatchObject({
+      watchReachable: true,
+      connectionStatus: "watch-version-mismatch",
+      schemaVersion: "evolution-v1",
+    });
+
+    const malformed = makeFetch({
+      [`GET ${WATCH_URL}/api/evolution/status`]: { status: 200, body: { schemaVersion: "evolution-v2-charts-v1" } },
+    });
+    const malformedApp = build(malformed.fetch);
+    expect((await malformedApp.inject({ method: "GET", url: "/api/evolution" })).json()).toMatchObject({
+      watchReachable: true,
+      connectionStatus: "watch-schema-mismatch",
+    });
+  });
+
+  it("透传新进化诊断、任务详情、启动、评估、采用和取消接口", async () => {
+    const routes: Record<string, FakeRoute> = {
+      [`POST ${WATCH_URL}/api/evolution/diagnose`]: { status: 200, body: { recommendations: [] } },
+      [`POST ${WATCH_URL}/api/evolution/runs`]: { status: 201, body: { runId: "run/16", status: "ready" } },
+      [`GET ${WATCH_URL}/api/evolution/runs/run%2F16`]: { status: 200, body: { runId: "run/16", status: "ready" } },
+      [`POST ${WATCH_URL}/api/evolution/runs/run%2F16/start`]: { status: 202, body: { runId: "run/16", status: "running" } },
+      [`POST ${WATCH_URL}/api/evolution/runs/run%2F16/evaluate`]: { status: 200, body: { status: "accepted" } },
+      [`POST ${WATCH_URL}/api/evolution/runs/run%2F16/promote`]: { status: 200, body: { status: "promoted" } },
+      [`POST ${WATCH_URL}/api/evolution/runs/run%2F16/cancel`]: { status: 200, body: { runId: "run/16", status: "cancelled" } },
+    };
+    const transport = makeFetch(routes);
+    const app = build(transport.fetch);
+    expect((await app.inject({ method: "POST", url: "/api/evolution/diagnose", payload: {} })).statusCode).toBe(200);
+    expect((await app.inject({ method: "POST", url: "/api/evolution/runs", payload: { targetType: "skill", targetRef: "demo" } })).statusCode).toBe(201);
+    expect((await app.inject({ method: "GET", url: "/api/evolution/runs/run%2F16" })).statusCode).toBe(200);
+    expect((await app.inject({ method: "POST", url: "/api/evolution/runs/run%2F16/start", payload: {} })).statusCode).toBe(202);
+    expect((await app.inject({ method: "POST", url: "/api/evolution/runs/run%2F16/evaluate", payload: {} })).statusCode).toBe(200);
+    expect((await app.inject({ method: "POST", url: "/api/evolution/runs/run%2F16/promote", payload: { token: "redacted" } })).statusCode).toBe(200);
+    expect((await app.inject({ method: "POST", url: "/api/evolution/runs/run%2F16/cancel", payload: {} })).statusCode).toBe(200);
+    expect(transport.calls.map((call) => `${call.method} ${new URL(call.url).pathname}`)).toEqual([
+      "POST /api/evolution/diagnose",
+      "POST /api/evolution/runs",
+      "GET /api/evolution/runs/run%2F16",
+      "POST /api/evolution/runs/run%2F16/start",
+      "POST /api/evolution/runs/run%2F16/evaluate",
+      "POST /api/evolution/runs/run%2F16/promote",
+      "POST /api/evolution/runs/run%2F16/cancel",
+    ]);
   });
 });

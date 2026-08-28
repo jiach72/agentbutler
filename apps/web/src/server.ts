@@ -23,6 +23,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  CONTROL_API_SCHEMA_VERSION,
   CONTRACT_VERSION,
   MEMORY_PREVIEW_LIMIT,
   type CapabilityReport,
@@ -321,6 +322,20 @@ export interface MessageOptimizationHistoryView {
   items: InboundHistoryEntry[];
 }
 
+export interface DeliveryHistoryDayView {
+  date: string;
+  delivered: number;
+  failed: number;
+  uncertain: number;
+}
+
+export interface DeliveryHistoryView {
+  reachable: boolean;
+  days: number;
+  retentionDays: number;
+  items: DeliveryHistoryDayView[];
+}
+
 export interface MessageTaskView {
   runId: string;
   sessionId: string;
@@ -353,10 +368,32 @@ export interface EvolutionLedgerView {
 
 export interface EvolutionApiView {
   watchReachable: boolean;
+  connectionStatus:
+    | "ready"
+    | "watch-unreachable"
+    | "watch-route-missing"
+    | "watch-schema-mismatch"
+    | "watch-version-mismatch";
+  detail: string | null;
+  schemaVersion: string | null;
   minHoldoutCount: number;
   defaultDependencies: string[];
   defaultEndpoint: string;
   ledger: EvolutionLedgerView[];
+  hermes: {
+    status: "ready" | "unavailable" | "unknown";
+    root: string | null;
+    detail: string;
+  };
+  endpointHealth: {
+    status: "pass" | "fail" | "unknown";
+    category: string;
+    detail: string;
+    checkedAt: string | null;
+  };
+  blocked: Array<{ category: string; detail: string; affectedRuns: string[] }>;
+  tasks: unknown[];
+  history: unknown[];
 }
 
 /** M5 切片 1/2：提示词 Registry 与候选评估视图（不与消息热路径共享状态）。 */
@@ -810,13 +847,29 @@ function parseSkillsStatus(value: unknown): Omit<SkillsApiView, "watchReachable"
   };
 }
 
-function degradedEvolution(): EvolutionApiView {
+function degradedEvolution(
+  connectionStatus: Exclude<EvolutionApiView["connectionStatus"], "ready"> = "watch-unreachable",
+  detail: string | null = "Watch 控制通道不可达",
+): EvolutionApiView {
   return {
     watchReachable: false,
+    connectionStatus,
+    detail,
+    schemaVersion: null,
     minHoldoutCount: 10,
     defaultDependencies: [],
     defaultEndpoint: "",
     ledger: [],
+    hermes: { status: "unknown", root: null, detail: "尚未读取 Watch 状态" },
+    endpointHealth: {
+      status: "unknown",
+      category: "unknown",
+      detail: "尚未执行带鉴权的 LLM 探针",
+      checkedAt: null,
+    },
+    blocked: [],
+    tasks: [],
+    history: [],
   };
 }
 
@@ -882,12 +935,18 @@ function parsePromptOptimization(
 function parseEvolutionStatus(value: unknown): Omit<EvolutionApiView, "watchReachable"> | null {
   if (
     !isRecord(value) ||
+    typeof value["schemaVersion"] !== "string" ||
     typeof value["minHoldoutCount"] !== "number" ||
     !Number.isInteger(value["minHoldoutCount"]) ||
     !Array.isArray(value["defaultDependencies"]) ||
     !value["defaultDependencies"].every((item) => typeof item === "string") ||
     typeof value["defaultEndpoint"] !== "string" ||
-    !Array.isArray(value["ledger"])
+    !Array.isArray(value["ledger"]) ||
+    !isRecord(value["hermes"]) ||
+    !isRecord(value["endpointHealth"]) ||
+    !Array.isArray(value["blocked"]) ||
+    !Array.isArray(value["tasks"]) ||
+    !Array.isArray(value["history"])
   ) {
     return null;
   }
@@ -902,11 +961,51 @@ function parseEvolutionStatus(value: unknown): Omit<EvolutionApiView, "watchReac
       typeof item["conclusion"] === "string" &&
       typeof item["disposition"] === "string",
   );
+  if (ledger.length !== value["ledger"].length) return null;
+  const hermes = value["hermes"];
+  const endpointHealth = value["endpointHealth"];
+  if (
+    (hermes["status"] !== "ready" && hermes["status"] !== "unavailable" && hermes["status"] !== "unknown") ||
+    !(typeof hermes["root"] === "string" || hermes["root"] === null) ||
+    typeof hermes["detail"] !== "string" ||
+    (endpointHealth["status"] !== "pass" && endpointHealth["status"] !== "fail" && endpointHealth["status"] !== "unknown") ||
+    typeof endpointHealth["category"] !== "string" ||
+    typeof endpointHealth["detail"] !== "string" ||
+    !(typeof endpointHealth["checkedAt"] === "string" || endpointHealth["checkedAt"] === null)
+  ) {
+    return null;
+  }
+  const blocked = value["blocked"].filter(
+    (item): item is EvolutionApiView["blocked"][number] =>
+      isRecord(item) &&
+      typeof item["category"] === "string" &&
+      typeof item["detail"] === "string" &&
+      Array.isArray(item["affectedRuns"]) &&
+      item["affectedRuns"].every((runId) => typeof runId === "string"),
+  );
+  if (blocked.length !== value["blocked"].length) return null;
   return {
+    connectionStatus: "ready",
+    detail: null,
+    schemaVersion: value["schemaVersion"],
     minHoldoutCount: value["minHoldoutCount"],
     defaultDependencies: value["defaultDependencies"] as string[],
     defaultEndpoint: value["defaultEndpoint"],
     ledger,
+    hermes: {
+      status: hermes["status"],
+      root: hermes["root"],
+      detail: hermes["detail"],
+    },
+    endpointHealth: {
+      status: endpointHealth["status"],
+      category: endpointHealth["category"],
+      detail: endpointHealth["detail"],
+      checkedAt: endpointHealth["checkedAt"],
+    },
+    blocked,
+    tasks: value["tasks"],
+    history: value["history"],
   };
 }
 
@@ -1211,6 +1310,16 @@ function defaultUiDist(): string {
   return path.resolve(here, "..", "..", "..", "ui", "dist");
 }
 
+/** 从当前 index.html 读取实际被 Web 静态服务引用的入口 bundle，而非猜测构建产物。 */
+function readBundleVersion(uiDist: string): string | null {
+  try {
+    const html = fs.readFileSync(path.join(uiDist, "index.html"), "utf8");
+    return /(?:src=|href=)["']\/?assets\/(index-[A-Za-z0-9_-]+\.js)["']/.exec(html)?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** query 里的 limit 归一化：非法值回落默认，上限 1000。 */
 function clampLimit(raw: unknown, fallback: number): number {
   const n = Number(raw);
@@ -1289,13 +1398,142 @@ export function latestInspectionsPerInstance(events: StoredEvent[]): LatestInspe
   return [...byInstance.values()];
 }
 
-/** 探测网关可达性（健康检查用，2s 短超时）。 */
-async function probeGateway(gatewayUrl: string): Promise<boolean> {
+/** 巡检历史单日聚合行：次数 / 平均耗时 / 异常（overall 非 ok）次数。 */
+export interface InspectionDayPoint {
+  date: string;
+  count: number;
+  avgDurationMs: number | null;
+  errorCount: number;
+}
+
+type InspectionAggregateRow = Pick<InspectionDayPoint, "date" | "count" | "avgDurationMs" | "errorCount">;
+
+function localDateKey(value: Date): string {
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(
+    value.getDate(),
+  ).padStart(2, "0")}`;
+}
+
+function inspectionWindow(days: number, now: Date): Map<string, { count: number; totalMs: number; timed: number; errors: number }> {
+  const start = new Date(now.getTime());
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() - (days - 1));
+  const buckets = new Map<string, { count: number; totalMs: number; timed: number; errors: number }>();
+  for (let i = 0; i < days; i += 1) {
+    const day = new Date(start);
+    day.setDate(start.getDate() + i);
+    buckets.set(localDateKey(day), { count: 0, totalMs: 0, timed: 0, errors: 0 });
+  }
+  return buckets;
+}
+
+/** 将 SQLite 聚合行补齐为连续的本地日窗口。 */
+export function inspectionDailyMetricsHistory(
+  rows: InspectionAggregateRow[],
+  days: number,
+  now = new Date(),
+): InspectionDayPoint[] {
+  if (!Number.isInteger(days) || days < 1 || days > 90) {
+    throw new Error("inspection history days must be an integer from 1 through 90");
+  }
+  const buckets = inspectionWindow(days, now);
+  for (const row of rows) {
+    const bucket = buckets.get(row.date);
+    if (bucket === undefined) continue;
+    bucket.count = row.count;
+    bucket.errors = row.errorCount;
+    if (row.avgDurationMs !== null) {
+      bucket.totalMs = row.avgDurationMs;
+      bucket.timed = 1;
+    }
+  }
+  return [...buckets.entries()].map(([date, value]) => ({
+    date,
+    count: value.count,
+    avgDurationMs: value.timed > 0 ? Math.round(value.totalMs / value.timed) : null,
+    errorCount: value.errors,
+  }));
+}
+
+/**
+ * 近 N 天巡检按日聚合（本地时区）。传入新在前的 inspection-completed 事件列表；
+ * payload 缺 durationMs 的条目只计入次数不参与均值。
+ */
+export function inspectionDailyHistory(events: StoredEvent[], days: number): InspectionDayPoint[] {
+  if (!Number.isInteger(days) || days < 1 || days > 90) {
+    throw new Error("inspection history days must be an integer from 1 through 90");
+  }
+  const buckets = inspectionWindow(days, new Date());
+  for (const event of events) {
+    const time = Date.parse(event.ts);
+    if (Number.isNaN(time)) continue;
+    const payload = event.payload as Record<string, unknown> | null;
+    if (payload === null || typeof payload !== "object") continue;
+    const day = new Date(time);
+    const key = localDateKey(day);
+    const bucket = buckets.get(key);
+    if (bucket === undefined) continue;
+    bucket.count += 1;
+    if (
+      typeof payload["overall"] === "string" &&
+      payload["overall"] !== "ok" &&
+      payload["overall"] !== "healthy"
+    ) {
+      bucket.errors += 1;
+    }
+    // 全部 check 的可计时部分取平均作为本次巡检耗时；无法计时的巡检不参与均值。
+    if (Array.isArray(payload["checks"])) {
+      let sumMs = 0;
+      let timed = 0;
+      for (const check of payload["checks"] as Array<unknown>) {
+        if (
+          check !== null &&
+          typeof check === "object" &&
+          typeof (check as Record<string, unknown>)["durationMs"] === "number"
+        ) {
+          sumMs += (check as Record<string, unknown>)["durationMs"] as number;
+          timed += 1;
+        }
+      }
+      if (timed > 0) {
+        bucket.totalMs += sumMs / timed;
+        bucket.timed += 1;
+      }
+    }
+  }
+  return [...buckets.entries()].map(([date, value]) => ({
+    date,
+    count: value.count,
+    avgDurationMs: value.timed > 0 ? Math.round(value.totalMs / value.timed) : null,
+    errorCount: value.errors,
+  }));
+}
+
+interface RemoteServiceHealth {
+  reachable: boolean;
+  serviceVersion: string | null;
+  schemaVersion: string | null;
+}
+
+/** 探测本地服务健康与控制面版本。畸形响应也视为不可用，避免伪造同步状态。 */
+async function probeServiceHealth(
+  doFetch: typeof fetch,
+  serviceUrl: string,
+): Promise<RemoteServiceHealth> {
   try {
-    const res = await fetch(`${gatewayUrl}/api/alerts`, { signal: AbortSignal.timeout(2000) });
-    return res.ok;
+    const res = await doFetch(`${serviceUrl}/healthz`, { signal: AbortSignal.timeout(2000) });
+    if (!res.ok) return { reachable: false, serviceVersion: null, schemaVersion: null };
+    const body = (await res.json()) as unknown;
+    if (!isRecord(body) || body["ok"] !== true) {
+      return { reachable: false, serviceVersion: null, schemaVersion: null };
+    }
+    return {
+      reachable: true,
+      serviceVersion: typeof body["serviceVersion"] === "string" ? body["serviceVersion"] : null,
+      schemaVersion: typeof body["schemaVersion"] === "string" ? body["schemaVersion"] : null,
+    };
   } catch {
-    return false;
+    return { reachable: false, serviceVersion: null, schemaVersion: null };
   }
 }
 
@@ -1318,6 +1556,7 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   const watchUrl = options.watchUrl ?? process.env["BUTLER_WATCH_URL"] ?? DEFAULT_WATCH_URL;
   const doFetch = options.fetchImpl ?? fetch;
   const uiDist = path.resolve(options.uiDist ?? defaultUiDist());
+  const bundleVersion = readBundleVersion(uiDist);
   const listenHost = process.env["BUTLER_WEB_HOST"]?.trim() || "127.0.0.1";
 
   const app = Fastify({ logger: false });
@@ -1362,11 +1601,23 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   /* -------------------------------- API 路由 -------------------------------- */
 
   app.get("/api/health", async () => {
+    const [gatewayHealth, watchHealth] = await Promise.all([
+      probeServiceHealth(doFetch, gatewayUrl),
+      probeServiceHealth(doFetch, watchUrl),
+    ]);
     return {
       ok: true,
       db: store !== null,
-      gateway: await probeGateway(gatewayUrl),
+      gateway: gatewayHealth.reachable,
+      watch: watchHealth.reachable,
       version: WEB_VERSION,
+      serviceVersion: WEB_VERSION,
+      schemaVersion: CONTROL_API_SCHEMA_VERSION,
+      bundleVersion,
+      services: {
+        gateway: gatewayHealth,
+        watch: watchHealth,
+      },
     };
   });
 
@@ -1382,6 +1633,25 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
       typeof query["type"] === "string" && query["type"] !== "" ? query["type"] : undefined;
     const items = store.listEvents({ type, limit: clampLimit(query["limit"], 100) });
     return { items };
+  });
+
+  /** 巡检按日历史（近 N 天）：首页检查耗时 sparkline 数据源。 */
+  app.get("/api/inspections/history", async (request) => {
+    if (store === null) return { days: 14, degraded: ["db:unreachable"], items: [] };
+    const query = request.query as Record<string, unknown>;
+    const raw = typeof query["days"] === "string" ? Number(query["days"]) : NaN;
+    const days = Number.isFinite(raw) ? Math.floor(raw) : 14;
+    if (days < 1 || days > 90) {
+      return { days: 14, degraded: ["inspections:invalid-days"], items: [] };
+    }
+    const now = new Date();
+    const since = new Date(now);
+    since.setHours(0, 0, 0, 0);
+    since.setDate(since.getDate() - (days - 1));
+    return {
+      days,
+      items: inspectionDailyMetricsHistory(store.dailyInspectionMetrics(since.toISOString()), days, now),
+    };
   });
 
   app.get("/api/fingerprints", async (request) => {
@@ -1499,6 +1769,30 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
         body: JSON.stringify(body ?? {}),
         signal: AbortSignal.timeout(timeoutMs),
       });
+    } catch {
+      return reply.status(502).send({ error: "watch-unreachable" });
+    }
+    const raw = await res.text();
+    let parsed: unknown = {};
+    if (raw !== "") {
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        parsed = { raw };
+      }
+    }
+    return reply.status(res.status).send(parsed);
+  };
+
+  /** GET 代理与 POST 代理保持同样的错误语义，供进化任务详情等控制面读取使用。 */
+  const proxyWatchGet = async (
+    watchPath: string,
+    reply: FastifyReply,
+    timeoutMs = 5_000,
+  ): Promise<FastifyReply> => {
+    let res: Response;
+    try {
+      res = await doFetch(`${watchUrl}${watchPath}`, { signal: AbortSignal.timeout(timeoutMs) });
     } catch {
       return reply.status(502).send({ error: "watch-unreachable" });
     }
@@ -1840,6 +2134,40 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
       return parseMessageOptimizationHistory(await response.json()) ?? { reachable: false, items: [] };
     } catch {
       return { reachable: false, items: [] };
+    }
+  });
+
+  /** 送达历史代理：网关独立历史表保留 365 天，端点原样返回空档补零后的序列。 */
+  app.get("/api/messages/delivery-history", async (request): Promise<DeliveryHistoryView> => {
+    const query = request.query as Record<string, unknown>;
+    const parsed = Number(query["days"] ?? "7");
+    const days = Number.isFinite(parsed) ? Math.max(1, Math.min(365, Math.floor(parsed))) : 7;
+    const response = await fetchGateway(`/api/messages/delivery-history?days=${String(days)}`);
+    if (response === null || !response.ok) {
+      return { reachable: false, days, retentionDays: 365, items: [] };
+    }
+    try {
+      const body = (await response.json()) as Record<string, unknown>;
+      const items = Array.isArray(body["items"])
+        ? body["items"].filter((item): item is DeliveryHistoryDayView => {
+            if (item === null || typeof item !== "object") return false;
+            const row = item as Record<string, unknown>;
+            return (
+              typeof row["date"] === "string" &&
+              typeof row["delivered"] === "number" &&
+              typeof row["failed"] === "number" &&
+              typeof row["uncertain"] === "number"
+            );
+          })
+        : [];
+      return {
+        reachable: true,
+        days: typeof body["days"] === "number" ? body["days"] : days,
+        retentionDays: typeof body["retentionDays"] === "number" ? body["retentionDays"] : 365,
+        items,
+      };
+    } catch {
+      return { reachable: false, days, retentionDays: 365, items: [] };
     }
   });
 
@@ -2192,15 +2520,64 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
 
   /* -------------------------- 进化守门代理（Task 16） -------------------------- */
 
-  app.get("/api/evolution", async (): Promise<EvolutionApiView> => {
+  const evolutionStatusHandler = async (): Promise<EvolutionApiView> => {
     const res = await fetchWatch("/api/evolution/status");
-    if (res === null || !res.ok) return degradedEvolution();
+    if (res === null) return degradedEvolution("watch-unreachable", "Watch 控制通道不可达");
+    if (res.status === 404)
+      return degradedEvolution("watch-route-missing", "当前 Watch 实例未提供进化状态接口，请同步部署 Watch");
+    if (!res.ok)
+      return degradedEvolution("watch-unreachable", `Watch 返回 HTTP ${String(res.status)}，无法读取进化状态`);
     try {
       const parsed = parseEvolutionStatus(await res.json());
-      return parsed === null ? degradedEvolution() : { watchReachable: true, ...parsed };
+      if (parsed === null) {
+        return {
+          ...degradedEvolution(
+            "watch-schema-mismatch",
+            "Watch 返回的进化状态不符合当前页面需要的 schema，请同步部署 Watch",
+          ),
+          watchReachable: true,
+        };
+      }
+      if (parsed.schemaVersion !== CONTROL_API_SCHEMA_VERSION) {
+        return {
+          watchReachable: true,
+          ...parsed,
+          connectionStatus: "watch-version-mismatch",
+          detail: `Web schema ${CONTROL_API_SCHEMA_VERSION} 与 Watch schema ${parsed.schemaVersion} 不一致`,
+        };
+      }
+      return { watchReachable: true, ...parsed };
     } catch {
-      return degradedEvolution();
+      return {
+        ...degradedEvolution(
+          "watch-schema-mismatch",
+          "Watch 返回的进化状态无法解析，请同步部署 Watch",
+        ),
+        watchReachable: true,
+      };
     }
+  };
+
+  app.get("/api/evolution", evolutionStatusHandler);
+  // 对外保留与 Watch 一致的显式 status 路径，便于探针和运维脚本直接验收。
+  app.get("/api/evolution/status", evolutionStatusHandler);
+
+  app.post("/api/evolution/diagnose", async (request, reply) =>
+    proxyWatchPost("/api/evolution/diagnose", request.body, reply, 30_000),
+  );
+
+  app.post("/api/evolution/runs", async (request, reply) =>
+    proxyWatchPost("/api/evolution/runs", request.body, reply, 70_000),
+  );
+
+  app.get("/api/evolution/runs/:id", async (request, reply) => {
+    const id = encodeURIComponent((request.params as { id?: string })["id"] ?? "");
+    return proxyWatchGet(`/api/evolution/runs/${id}`, reply, 15_000);
+  });
+
+  app.post("/api/evolution/runs/:id/start", async (request, reply) => {
+    const id = encodeURIComponent((request.params as { id?: string })["id"] ?? "");
+    return proxyWatchPost(`/api/evolution/runs/${id}/start`, request.body, reply, 30_000);
   });
 
   app.post("/api/evolution/preflight", async (request, reply) =>
@@ -2210,6 +2587,16 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   app.post("/api/evolution/runs/:id/evaluate", async (request, reply) => {
     const id = encodeURIComponent((request.params as { id?: string })["id"] ?? "");
     return proxyWatchPost(`/api/evolution/runs/${id}/evaluate`, request.body, reply, 70_000);
+  });
+
+  app.post("/api/evolution/runs/:id/promote", async (request, reply) => {
+    const id = encodeURIComponent((request.params as { id?: string })["id"] ?? "");
+    return proxyWatchPost(`/api/evolution/runs/${id}/promote`, request.body, reply, 30_000);
+  });
+
+  app.post("/api/evolution/runs/:id/cancel", async (request, reply) => {
+    const id = encodeURIComponent((request.params as { id?: string })["id"] ?? "");
+    return proxyWatchPost(`/api/evolution/runs/${id}/cancel`, request.body, reply, 30_000);
   });
 
   app.post("/api/evolution/runs/:id/expand", async (request, reply) => {

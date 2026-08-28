@@ -16,23 +16,129 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { findVenvPython, type CommandExecutor } from "@butler/adapter-hermes";
 import type { ControlAdapter, InstanceRef } from "@butler/contract";
 import type { Core, InstanceRecord } from "@butler/core";
 import type { AlertPoster } from "./alert-forward.js";
 import type { FetchLike } from "./dashboard-signal.js";
+import type { LogIssueView } from "./log-analyzer.js";
 
 export const EVOLUTION_ACTOR = "evolution";
 export const EVOLUTION_PREFLIGHT_ACTION = "preflight";
 export const EVOLUTION_EXPAND_ACTION = "dataset-expand";
 export const EVOLUTION_GATE_ACTION = "gate-decision";
+export const EVOLUTION_RUN_ACTION = "run";
+export const EVOLUTION_CANCEL_ACTION = "run-cancel";
+export const EVOLUTION_PROMOTE_ACTION = "artifact-promote";
 export const MIN_HOLDOUT_COUNT = 10;
 export const DEFAULT_EVOLUTION_DEPENDENCIES = ["dspy", "gepa", "optuna"] as const;
 
-export type EvolutionCheckId = "dependencies" | "endpoint" | "dataset" | "snapshot";
+export type EvolutionCheckId = "dependencies" | "endpoint" | "dataset" | "snapshot" | "hermes";
 export type EvolutionRunStatus =
-  "rejected-preflight" | "ready" | "accepted" | "kept-baseline" | "rejected-regression";
+  | "diagnosing"
+  | "rejected-preflight"
+  | "preflight-failed"
+  | "ready"
+  | "running"
+  | "evaluating"
+  | "accepted"
+  | "kept-baseline"
+  | "rejected-regression"
+  | "promoted"
+  | "cancelled"
+  | "failed";
+
+export type EvolutionTargetType = "skill" | "prompt" | "config";
+export type EvolutionEndpointCategory =
+  | "ok"
+  | "credentials"
+  | "configuration"
+  | "rate-limit"
+  | "upstream"
+  | "network"
+  | "unknown";
+
+export interface EvolutionEndpointHealth {
+  status: "pass" | "fail" | "unknown";
+  category: EvolutionEndpointCategory;
+  detail: string;
+  checkedAt: string | null;
+}
+
+export interface EvolutionRecommendation {
+  id: string;
+  targetType: EvolutionTargetType | "version-upgrade" | "diagnostic";
+  targetRef: string;
+  confidence: number;
+  window: { sources: number; lines: number; occurrences: number };
+  sources: string[];
+  examples: string[];
+  blocked: boolean;
+  nextAction: "create-run" | "open-prompt-optimization" | "open-version-upgrade" | "fix-config" | "inspect";
+  title: string;
+  detail: string;
+}
+
+export interface EvolutionDiagnosis {
+  analyzedAt: string;
+  issues: LogIssueView[];
+  recommendations: EvolutionRecommendation[];
+}
+
+export interface EvolutionRunCreateInput {
+  targetType: EvolutionTargetType;
+  targetRef: string;
+  instanceId?: string;
+  holdoutCount?: number;
+  endpoint?: string;
+  datasetPath?: string;
+  iterations?: number;
+  dryRun?: boolean;
+}
+
+export interface EvolutionRunView {
+  runId: string;
+  targetType: EvolutionTargetType;
+  targetRef: string;
+  status: EvolutionRunStatus;
+  createdAt: string;
+  updatedAt: string;
+  startedAt?: string;
+  completedAt?: string;
+  pid?: number;
+  commandSummary?: string;
+  stdoutPath?: string;
+  stderrPath?: string;
+  artifacts?: {
+    baselinePath?: string;
+    candidatePath?: string;
+    metricsPath?: string;
+    diff?: string;
+  };
+  metrics?: EvolutionMetrics;
+  checks: EvolutionCheck[];
+  blocked: boolean;
+  detail: string;
+  logTail: { stdout: string[]; stderr: string[] };
+  writeAuthority?: EvolutionWriteAuthority;
+}
+
+export interface EvolutionMetrics {
+  baselineQuality?: number;
+  candidateQuality?: number;
+  qualityDelta?: number;
+  holdoutCount?: number;
+  elapsedSeconds?: number;
+  successRate?: number;
+  failureRate?: number;
+  confidence?: number | null;
+  constraintsPassed?: boolean;
+  structureGate?: "pass" | "fail" | "unknown";
+  safetyGate?: "pass" | "fail" | "unknown";
+  tokenCount?: number;
+  cost?: number;
+}
 
 export interface EvolutionCheck {
   id: EvolutionCheckId;
@@ -187,6 +293,23 @@ export interface EvolutionLedgerEntry {
   writeAuthorityIssuedAt?: string;
   promotedAt?: string;
   promotedTargetPath?: string;
+  targetType?: EvolutionTargetType;
+  targetRef?: string;
+  startedAt?: string;
+  completedAt?: string;
+  pid?: number;
+  commandSummary?: string;
+  stdoutPath?: string;
+  stderrPath?: string;
+  remoteRunDir?: string;
+  targetPath?: string;
+  candidatePath?: string;
+  baselinePath?: string;
+  metricsPath?: string;
+  candidateDiff?: string;
+  runDetail?: string;
+  dryRun?: boolean;
+  metrics?: EvolutionMetrics;
 }
 
 export interface EvolutionLedgerSummary {
@@ -207,10 +330,26 @@ export interface EvolutionStatusView {
   defaultDependencies: string[];
   defaultEndpoint: string;
   ledger: EvolutionLedgerSummary[];
+  hermes: {
+    status: "ready" | "unavailable" | "unknown";
+    root: string | null;
+    detail: string;
+  };
+  endpointHealth: EvolutionEndpointHealth;
+  blocked: Array<{ category: EvolutionEndpointCategory; detail: string; affectedRuns: string[] }>;
+  tasks: EvolutionRunView[];
+  history: EvolutionMetrics[];
 }
 
 export interface EvolutionService {
   status(): EvolutionStatusView;
+  diagnose(input?: { issues?: LogIssueView[]; scannedSources?: number; scannedLines?: number }): EvolutionDiagnosis;
+  createRun(input: EvolutionRunCreateInput): Promise<EvolutionRunView>;
+  getRun(runId: string): Promise<EvolutionRunView | null>;
+  startRun(runId: string): Promise<EvolutionRunView | { status: "error"; error: string; detail: string }>;
+  evaluateRun(runId: string): Promise<EvolutionEvaluateOutcome>;
+  promoteRun(input: EvolutionPromoteInput): Promise<EvolutionPromoteOutcome>;
+  cancelRun(runId: string): Promise<EvolutionRunView | { status: "error"; error: string; detail: string }>;
   preflight(input: EvolutionPreflightInput): Promise<EvolutionPreflightOutcome>;
   expandDataset(input: EvolutionExpandInput): Promise<EvolutionExpandOutcome>;
   recordResult(input: EvolutionResultInput): Promise<EvolutionGateOutcome>;
@@ -226,6 +365,19 @@ export interface EvolutionServiceDeps {
   fetchFn?: FetchLike;
   poster: AlertPoster;
   defaultEndpoint?: string;
+  llm?: { baseUrl?: string; apiKey?: string; model?: string };
+  /** WSL 中的 ~/.hermes；Windows 宿主也通过 runtime executor 访问它。 */
+  hermesRoot?: string;
+  /** Hermes self-evolution skill checkout；缺省为 <hermesRoot>/skills/hermes-agent-self-evolution。 */
+  evolutionRoot?: string;
+  /**
+   * 命令执行器能直接访问 Hermes 文件系统时为 true：Windows 宿主经 wsl.exe，
+   * 或 Docker-in-WSL / Linux 容器内的原生 shell。路径和落盘均交给该 shell。
+   */
+  useWsl?: boolean;
+  /** 候选、日志和克隆后的进化引擎目录；必须位于 Butler 可写数据卷。 */
+  runRoot?: string;
+  runTimeoutMs?: number;
   fetchTimeoutMs?: number;
   now?: () => number;
 }
@@ -264,12 +416,19 @@ function atomicReplace(path: string, content: Buffer | string): void {
 }
 
 function labels(status: EvolutionRunStatus): { conclusion: string; disposition: string } {
+  if (status === "diagnosing") return { conclusion: "正在诊断", disposition: "等待生成进化方向" };
   if (status === "ready") return { conclusion: "预检通过", disposition: "允许外部引擎开始进化" };
+  if (status === "running") return { conclusion: "Hermes 正在进化", disposition: "候选写入隔离运行目录" };
+  if (status === "evaluating") return { conclusion: "正在评估候选", disposition: "baseline 保持只读" };
   if (status === "accepted")
     return { conclusion: "显著提升", disposition: "允许引擎替换 baseline" };
   if (status === "kept-baseline") return { conclusion: "无显著提升", disposition: "baseline 保留" };
   if (status === "rejected-regression")
     return { conclusion: "负优化", disposition: "拒绝落盘 · baseline 保留" };
+  if (status === "promoted") return { conclusion: "候选已采用", disposition: "已原子替换 baseline" };
+  if (status === "cancelled") return { conclusion: "任务已取消", disposition: "baseline 保留" };
+  if (status === "failed") return { conclusion: "运行失败", disposition: "baseline 保留，查看日志诊断" };
+  if (status === "preflight-failed") return { conclusion: "预检失败", disposition: "仅阻断受影响任务" };
   return { conclusion: "预检拒绝", disposition: "不启动进化" };
 }
 
@@ -396,11 +555,106 @@ function synthesizeMinimum(seed: unknown[], targetCount: number, generatedAt: st
   return rows;
 }
 
+function shellQuote(value: string): string {
+  // POSIX 单引号安全转义；所有 WSL 路径与 CLI 参数均经此函数进入 shell。
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+
+function safeTargetRef(value: string): string | null {
+  const normalized = value.trim();
+  return /^[A-Za-z0-9][A-Za-z0-9._/-]{0,159}$/.test(normalized) &&
+    !normalized.includes("..") &&
+    !normalized.startsWith("/")
+    ? normalized
+    : null;
+}
+
+function trimLog(value: string, limit = 120): string[] {
+  return value
+    .split(/\r?\n/)
+    .filter((line) => line.trim() !== "")
+    .slice(-limit)
+    .map((line) => redactSecret(line).slice(0, 500));
+}
+
+function redactSecret(value: string): string {
+  return value
+    .replace(/(authorization\s*[:=]\s*bearer\s+)[^\s"']+/gi, "$1[REDACTED]")
+    .replace(/((?:api[_-]?key|token|secret)\s*[:=]\s*["']?)[^\s,"']+/gi, "$1[REDACTED]");
+}
+
+function readJson<T>(raw: string): T | null {
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+function chatCompletionUrl(endpoint: string): string {
+  const base = endpoint.replace(/\/+$/, "");
+  return /\/chat\/completions$/i.test(base) ? base : `${base}/chat/completions`;
+}
+
+function endpointCategory(status: number | null): EvolutionEndpointCategory {
+  if (status === null) return "network";
+  if (status === 401 || status === 403) return "credentials";
+  if (status === 404) return "configuration";
+  if (status === 429) return "rate-limit";
+  if (status >= 500) return "upstream";
+  return status >= 200 && status < 300 ? "ok" : "unknown";
+}
+
+function endpointAction(category: EvolutionEndpointCategory): string {
+  if (category === "credentials") return "检查 Hermes API Key 是否失效或权限不足后重试";
+  if (category === "configuration") return "检查模型名、API Base URL 与 /chat/completions 路径";
+  if (category === "rate-limit") return "等待限流窗口恢复或降低并发后重试";
+  if (category === "upstream") return "上游服务异常，稍后重试并查看供应商状态";
+  if (category === "network") return "检查 DNS、代理、证书和网络连通性";
+  return "检查模型端点配置后重试";
+}
+
+function endpointDetail(host: string, status: number | null, category: EvolutionEndpointCategory): string {
+  if (category === "ok") return `${host} 带鉴权补全探针通过${status === null ? "" : `（HTTP ${status}）`}`;
+  if (category === "network") return `${host} 不可达`;
+  return `${host} 补全探针返回 HTTP ${status ?? "未知"}（${category}）`;
+}
+
 export function createEvolutionService(deps: EvolutionServiceDeps): EvolutionService {
   const core = deps.core;
   const now = deps.now ?? Date.now;
   const fetchTimeoutMs = deps.fetchTimeoutMs ?? 5000;
   const fetchFn = deps.fetchFn ?? ((url, init) => fetch(url, init));
+  const runTimeoutMs = deps.runTimeoutMs ?? 45 * 60_000;
+  const hermesRoot = deps.hermesRoot?.trim() || null;
+  const evolutionRoot = deps.evolutionRoot?.trim() ||
+    (hermesRoot === null ? null : posix.join(hermesRoot.replaceAll("\\", "/"), "skills", "hermes-agent-self-evolution"));
+  const hermesAgentRoot = hermesRoot === null ? null : posix.join(hermesRoot.replaceAll("\\", "/"), "hermes-agent");
+  // 候选不能落在 Hermes checkout：生产容器将其挂为只读，baseline 也必须保持隔离。
+  const runRoot = deps.runRoot?.trim() ||
+    (hermesRoot === null ? null : posix.join(hermesRoot.replaceAll("\\", "/"), ".butler-evolution-runs"));
+  // WSL venv 的 python 常是指向宿主绝对路径的符号链接；容器内需要映射到
+  // 当前挂载点，随后所有 Hermes 探测与任务启动都复用同一解析结果。
+  const pythonResolver = (): string => {
+    if (hermesAgentRoot === null || hermesRoot === null) return "false";
+    const primary = posix.join(hermesAgentRoot, "venv", "bin", "python3");
+    const runtimeRoot = posix.join(hermesAgentRoot, ".hermes-runtime");
+    const venvSite = posix.join(hermesAgentRoot, "venv", "lib", "python3.11", "site-packages");
+    return [
+      `python=${shellQuote(primary)}`,
+      `if [ ! -x "$python" ]; then link=$(readlink "$python" 2>/dev/null || true); case "$link" in /home/*/.hermes/*) python=${shellQuote(hermesRoot)}"/\${link#*/.hermes/}";; esac; fi`,
+      `if [ ! -x "$python" ]; then python=$(find ${shellQuote(runtimeRoot)} -type f -name 'python3.11' -perm -111 -print -quit 2>/dev/null || true); fi`,
+      `test -x "$python"`,
+      `if [ -n "\${PYTHONPATH:-}" ]; then export PYTHONPATH=${shellQuote(venvSite)}:"$PYTHONPATH"; else export PYTHONPATH=${shellQuote(venvSite)}; fi`,
+    ].join("; ");
+  };
+  const activeTargets = new Map<string, string>();
+  let endpointHealth: EvolutionEndpointHealth = {
+    status: "unknown",
+    category: "unknown",
+    detail: "尚未执行带鉴权模型探针",
+    checkedAt: null,
+  };
   const ledgerDir = join(core.paths.ledgerDir, "evolution");
   const datasetDir = join(core.paths.home, "evolution", "datasets");
   mkdirSync(ledgerDir, { recursive: true });
@@ -418,6 +672,12 @@ export function createEvolutionService(deps: EvolutionServiceDeps): EvolutionSer
     }
   }
 
+  for (const entry of entries.values()) {
+    if (entry.status === "running" && entry.targetType !== undefined && entry.targetRef !== undefined) {
+      activeTargets.set(`${entry.targetType}:${entry.targetRef}`, entry.runId);
+    }
+  }
+
   const ledgerPathOf = (runId: string): string => join(ledgerDir, `${safeRunId(runId)}.md`);
   const persist = (entry: EvolutionLedgerEntry): string => {
     const path = ledgerPathOf(entry.runId);
@@ -430,6 +690,53 @@ export function createEvolutionService(deps: EvolutionServiceDeps): EvolutionSer
     record: InstanceRecord | undefined,
     dependencies: string[],
   ): Promise<EvolutionCheck> {
+    if (deps.useWsl && hermesAgentRoot !== null) {
+      const script =
+        "import importlib.util,json,sys; print(json.dumps({n: importlib.util.find_spec(n) is not None for n in sys.argv[1:]}))";
+      const result = await deps.exec.exec(
+        "sh",
+        [
+          "-lc",
+          `${pythonResolver()} && "$python" -c ${shellQuote(script)} ${dependencies.map(shellQuote).join(" ")}`,
+        ],
+        { timeoutMs: 10_000 },
+      );
+      if (result.code !== 0) {
+        return {
+          id: "dependencies",
+          label: "技能依赖",
+          status: "fail",
+          detail: redactSecret(result.stderr.trim() || `WSL Hermes venv 依赖探测退出码 ${result.code}`),
+          action: "前往版本升级页检查 Hermes venv 与依赖版本；Butler 不会自动安装依赖",
+        };
+      }
+      try {
+        const found = JSON.parse(result.stdout.trim()) as Record<string, unknown>;
+        const missing = dependencies.filter((name) => found[name] !== true);
+        return missing.length === 0
+          ? {
+              id: "dependencies",
+              label: "技能依赖",
+              status: "pass",
+              detail: `${dependencies.join(" · ")} 均存在于 WSL Hermes venv`,
+            }
+          : {
+              id: "dependencies",
+              label: "技能依赖",
+              status: "fail",
+              detail: `WSL Hermes venv 缺少：${missing.join("、")}`,
+              action: "前往版本升级页处理依赖缺失；Butler 不会自动安装依赖",
+            };
+      } catch {
+        return {
+          id: "dependencies",
+          label: "技能依赖",
+          status: "fail",
+          detail: "WSL Hermes venv 依赖探测返回无法解析",
+          action: "检查 Hermes Python 环境后重试",
+        };
+      }
+    }
     if (record === undefined || record.rootPath === "") {
       return {
         id: "dependencies",
@@ -496,14 +803,94 @@ export function createEvolutionService(deps: EvolutionServiceDeps): EvolutionSer
     }
   }
 
-  async function checkEndpoint(endpoint: string): Promise<EvolutionCheck> {
+  async function readHermesLlmConfig(): Promise<{ baseUrl?: string; apiKey?: string; model?: string; provider?: string }> {
+    const explicit = {
+      ...(deps.llm?.baseUrl?.trim() ? { baseUrl: deps.llm.baseUrl.trim() } : {}),
+      ...(deps.llm?.apiKey?.trim() ? { apiKey: deps.llm.apiKey.trim() } : {}),
+      ...(deps.llm?.model?.trim() ? { model: deps.llm.model.trim() } : {}),
+    };
+    if (hermesRoot === null) return explicit;
+    // Key 只在进程内短暂用于探针，绝不写入台账、审计、告警或 HTTP 响应。
+    const script = [
+      "import json, os, re",
+      "from pathlib import Path",
+      "root = Path(" + JSON.stringify(hermesRoot) + ")",
+      "env_values = {}",
+      "for path in (root / '.env',):",
+      "  try:",
+      "    for raw in path.read_text(errors='ignore').splitlines():",
+      "      line = raw.strip()",
+      "      if not line or line.startswith('#') or '=' not in line: continue",
+      "      key, value = line.split('=', 1)",
+      "      key = key.strip().upper().replace('-', '_')",
+      "      value = value.strip().strip(\"'\\\"\")",
+      "      value = re.sub(r'\\$\\{([^}]+)\\}', lambda m: os.getenv(m.group(1), env_values.get(m.group(1), '')), value)",
+      "      env_values.setdefault(key, value)",
+      "  except OSError: pass",
+      "config = {}",
+      "try:",
+      "  import yaml",
+      "  parsed = yaml.safe_load((root / 'config.yaml').read_text(errors='ignore')) or {}",
+      "  if isinstance(parsed, dict): config = parsed",
+      "except Exception: pass",
+      "model_cfg = config.get('model') if isinstance(config.get('model'), dict) else {}",
+      "provider = str(model_cfg.get('provider') or '').strip()",
+      "model = str(model_cfg.get('default') or model_cfg.get('model') or '').strip()",
+      "base = str(model_cfg.get('base_url') or model_cfg.get('baseUrl') or '').strip()",
+      "custom = config.get('custom_providers') if isinstance(config.get('custom_providers'), list) else []",
+      "for item in custom:",
+      "  if not isinstance(item, dict): continue",
+      "  item_provider = str(item.get('provider') or item.get('name') or '').strip()",
+      "  item_model = str(item.get('model') or '').strip()",
+      "  if (provider and item_provider.lower() == provider.lower()) or (model and item_model == model):",
+      "    base = base or str(item.get('base_url') or '').strip()",
+      "    model = model or item_model",
+      "    break",
+      "merged = {**env_values, **os.environ}",
+      "prefix = re.sub(r'[^A-Za-z0-9]+', '_', provider).strip('_').upper()",
+      "base_candidates = ([base] if base else []) + ([merged.get(prefix + '_BASE_URL')] if prefix else []) + [merged.get('OPENAI_BASE_URL'), merged.get('LLM_BASE_URL')]",
+      "key_candidates = ([str(model_cfg.get('api_key')).strip()] if model_cfg.get('api_key') else []) + ([merged.get(prefix + '_API_KEY')] if prefix else []) + [merged.get('OPENAI_API_KEY'), merged.get('DEEPSEEK_API_KEY'), merged.get('XIAOMI_API_KEY'), merged.get('OPENROUTER_API_KEY'), merged.get('LLM_API_KEY')]",
+      "base = next((str(v).strip() for v in base_candidates if isinstance(v, str) and str(v).strip()), None)",
+      "key = next((str(v).strip() for v in key_candidates if isinstance(v, str) and str(v).strip()), None)",
+      "model = model or next((str(merged.get(k)).strip() for k in ('BUTLER_LLM_MODEL', 'LLM_MODEL') if merged.get(k)), None)",
+      "overrides = os.environ",
+      "base = overrides.get('BUTLER_LLM_BASE_URL') or base",
+      "key = overrides.get('BUTLER_LLM_API_KEY') or key",
+      "model = overrides.get('BUTLER_LLM_MODEL') or model",
+      "print(json.dumps({'baseUrl': base or None, 'apiKey': key or None, 'model': model or None, 'provider': provider or None}))",
+    ].join("\\n");
+    const result = await deps.exec.exec("sh", ["-lc", `${pythonResolver()} && "$python" -c ${shellQuote(script)}`], { timeoutMs: 8_000 });
+    if (result.code !== 0) return explicit;
+    const parsed = readJson<{ baseUrl?: unknown; apiKey?: unknown; model?: unknown; provider?: unknown }>(result.stdout.trim());
+    if (parsed === null) return explicit;
+    return {
+      ...(typeof parsed.baseUrl === "string" && parsed.baseUrl.trim() ? { baseUrl: parsed.baseUrl.trim() } : {}),
+      ...(typeof parsed.apiKey === "string" && parsed.apiKey.trim() ? { apiKey: parsed.apiKey.trim() } : {}),
+      ...(typeof parsed.model === "string" && parsed.model.trim() ? { model: parsed.model.trim() } : {}),
+      ...(typeof parsed.provider === "string" && parsed.provider.trim() ? { provider: parsed.provider.trim() } : {}),
+      ...explicit,
+    };
+  }
+
+  async function checkEndpoint(
+    endpointInput: string,
+    configOverride?: { baseUrl?: string; apiKey?: string; model?: string },
+  ): Promise<EvolutionCheck> {
+    const hermesConfig = configOverride ?? (await readHermesLlmConfig());
+    const endpoint = endpointInput || hermesConfig.baseUrl || "";
     if (endpoint === "") {
+      endpointHealth = {
+        status: "fail",
+        category: "configuration",
+        detail: "未在 Hermes 配置或 BUTLER_LLM_BASE_URL 中找到模型端点",
+        checkedAt: new Date(now()).toISOString(),
+      };
       return {
         id: "endpoint",
         label: "模型端点",
         status: "fail",
-        detail: "未配置模型端点",
-        action: "填写仅用于连通性探测的 API Base URL",
+        detail: endpointHealth.detail,
+        action: "修复 Hermes config.yaml/.env 中的模型端点后重检",
       };
     }
     let parsed: URL;
@@ -512,6 +899,12 @@ export function createEvolutionService(deps: EvolutionServiceDeps): EvolutionSer
       if (parsed.protocol !== "http:" && parsed.protocol !== "https:")
         throw new Error("bad protocol");
     } catch {
+      endpointHealth = {
+        status: "fail",
+        category: "configuration",
+        detail: "端点 URL 无效",
+        checkedAt: new Date(now()).toISOString(),
+      };
       return {
         id: "endpoint",
         label: "模型端点",
@@ -520,36 +913,67 @@ export function createEvolutionService(deps: EvolutionServiceDeps): EvolutionSer
         action: "改为 http(s) URL",
       };
     }
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), fetchTimeoutMs);
-    try {
-      const response = await fetchFn(parsed.toString(), {
-        method: "HEAD",
-        signal: controller.signal,
-      });
-      // 401/403/404/405 均证明路由可达；5xx 表示上游当前不可用。
-      const reachable = response.status > 0 && response.status < 500;
-      return reachable
-        ? {
-            id: "endpoint",
-            label: "模型端点",
-            status: "pass",
-            detail: `${parsed.host} 可达（HTTP ${response.status}）`,
-          }
-        : {
-            id: "endpoint",
-            label: "模型端点",
-            status: "fail",
-            detail: `端点返回 HTTP ${response.status}`,
-            action: "检查端点、代理与供应商服务状态后重检",
-          };
-    } catch (error) {
+    if (!hermesConfig.apiKey) {
+      endpointHealth = {
+        status: "fail",
+        category: "credentials",
+        detail: `${parsed.host} 未找到可用 API Key`,
+        checkedAt: new Date(now()).toISOString(),
+      };
       return {
         id: "endpoint",
         label: "模型端点",
         status: "fail",
-        detail: error instanceof Error ? error.message : String(error),
-        action: "检查端点、DNS、代理与证书后重检",
+        detail: endpointHealth.detail,
+        action: endpointAction("credentials"),
+      };
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), fetchTimeoutMs);
+    try {
+      const response = await fetchFn(chatCompletionUrl(parsed.toString()), {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${hermesConfig.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: hermesConfig.model ?? "gpt-4.1-mini",
+          messages: [{ role: "user", content: "health check" }],
+          max_tokens: 1,
+        }),
+        signal: controller.signal,
+      });
+      const category = endpointCategory(response.status);
+      endpointHealth = {
+        status: category === "ok" ? "pass" : "fail",
+        category,
+        detail: endpointDetail(parsed.host, response.status, category),
+        checkedAt: new Date(now()).toISOString(),
+      };
+      return category === "ok"
+        ? { id: "endpoint", label: "模型端点", status: "pass", detail: endpointHealth.detail }
+        : {
+            id: "endpoint",
+            label: "模型端点",
+            status: "fail",
+            detail: endpointHealth.detail,
+            action: endpointAction(category),
+          };
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      endpointHealth = {
+        status: "fail",
+        category: "network",
+        detail: `${parsed.host} 补全探针异常：${detail}`,
+        checkedAt: new Date(now()).toISOString(),
+      };
+      return {
+        id: "endpoint",
+        label: "模型端点",
+        status: "fail",
+        detail: endpointHealth.detail,
+        action: endpointAction("network"),
       };
     } finally {
       clearTimeout(timer);
@@ -587,14 +1011,15 @@ export function createEvolutionService(deps: EvolutionServiceDeps): EvolutionSer
           .filter(Boolean),
       ),
     ];
-    const endpoint = (input.endpoint ?? deps.defaultEndpoint ?? "").trim();
+    const hermesLlm = await readHermesLlmConfig();
+    const endpoint = (input.endpoint ?? hermesLlm.baseUrl ?? deps.defaultEndpoint ?? "").trim();
     const holdoutCount =
       Number.isInteger(input.holdoutCount) && input.holdoutCount >= 0 ? input.holdoutCount : 0;
     const record = resolveInstance(core, input.instanceId);
 
     const [dependencyCheck, endpointCheck] = await Promise.all([
       checkDependencies(record, dependencies),
-      checkEndpoint(endpoint),
+      checkEndpoint(endpoint, hermesLlm),
     ]);
     const datasetCheck = checkDataset(holdoutCount);
     const checks: EvolutionCheck[] = [dependencyCheck, endpointCheck, datasetCheck];
@@ -1043,9 +1468,11 @@ export function createEvolutionService(deps: EvolutionServiceDeps): EvolutionSer
       persist({
         ...entry,
         updatedAt: promotedAt,
+        status: "promoted",
         promotedAt,
         promotedTargetPath: targetPath,
-        disposition: "候选已通过门禁并替换 baseline",
+        runDetail: "用户已确认采用，候选已原子替换 baseline",
+        ...labels("promoted"),
       });
       authorities.delete(input.token);
       usedAuthorities.add(input.token);
@@ -1085,6 +1512,673 @@ export function createEvolutionService(deps: EvolutionServiceDeps): EvolutionSer
     }
   }
 
+  const runDirectory = (runId: string): string | null =>
+    runRoot === null ? null : posix.join(runRoot, safeRunId(runId));
+
+  const targetKeyOf = (type: EvolutionTargetType, ref: string): string => `${type}:${ref}`;
+
+  function detailOf(entry: EvolutionLedgerEntry): string {
+    if (entry.runDetail?.trim()) return entry.runDetail;
+    return labels(entry.status).disposition;
+  }
+
+  function viewOf(
+    entry: EvolutionLedgerEntry,
+    logTail: EvolutionRunView["logTail"] = { stdout: [], stderr: [] },
+  ): EvolutionRunView {
+    const targetType = entry.targetType ?? "skill";
+    const targetRef = entry.targetRef ?? "";
+    const artifacts = {
+      ...(entry.baselinePath ? { baselinePath: entry.baselinePath } : {}),
+      ...(entry.candidatePath ? { candidatePath: entry.candidatePath } : {}),
+      ...(entry.metricsPath ? { metricsPath: entry.metricsPath } : {}),
+      ...(entry.candidateDiff ? { diff: entry.candidateDiff } : {}),
+    };
+    return {
+      runId: entry.runId,
+      targetType,
+      targetRef,
+      status: entry.status,
+      createdAt: entry.createdAt,
+      updatedAt: entry.updatedAt,
+      ...(entry.startedAt ? { startedAt: entry.startedAt } : {}),
+      ...(entry.completedAt ? { completedAt: entry.completedAt } : {}),
+      ...(entry.pid !== undefined ? { pid: entry.pid } : {}),
+      ...(entry.commandSummary ? { commandSummary: entry.commandSummary } : {}),
+      ...(entry.stdoutPath ? { stdoutPath: entry.stdoutPath } : {}),
+      ...(entry.stderrPath ? { stderrPath: entry.stderrPath } : {}),
+      ...(Object.keys(artifacts).length > 0 ? { artifacts } : {}),
+      ...(entry.metrics ? { metrics: entry.metrics } : {}),
+      checks: entry.checks,
+      blocked: entry.status === "preflight-failed" || entry.status === "rejected-preflight",
+      detail: detailOf(entry),
+      logTail,
+    };
+  }
+
+  async function wsl(script: string, timeoutMs = 15_000) {
+    return deps.exec.exec("sh", ["-lc", script], { timeoutMs });
+  }
+
+  async function readRemoteTail(entry: EvolutionLedgerEntry): Promise<EvolutionRunView["logTail"]> {
+    if (!deps.useWsl || !entry.stdoutPath || !entry.stderrPath) return { stdout: [], stderr: [] };
+    const read = async (path: string): Promise<string[]> => {
+      const result = await wsl(`test -f ${shellQuote(path)} && tail -n 120 ${shellQuote(path)} || true`);
+      return result.code === 0 ? trimLog(result.stdout) : [];
+    };
+    const [stdout, stderr] = await Promise.all([read(entry.stdoutPath), read(entry.stderrPath)]);
+    return { stdout, stderr };
+  }
+
+  async function remoteJson(script: string): Promise<Record<string, unknown> | null> {
+    const result = await wsl(`${pythonResolver()} && "$python" -c ${shellQuote(script)}`);
+    if (result.code !== 0) return null;
+    const parsed = readJson<unknown>(result.stdout.trim());
+    return isRecord(parsed) ? parsed : null;
+  }
+
+  async function checkHermesWorkspace(
+    targetRef: string,
+    runId: string,
+  ): Promise<
+    | { ok: true; targetPath: string; runDir: string; baselinePath: string; stdoutPath: string; stderrPath: string }
+    | { ok: false; detail: string }
+  > {
+    const runDir = runDirectory(runId);
+    if (!deps.useWsl || evolutionRoot === null || hermesAgentRoot === null || hermesRoot === null || runDir === null) {
+      return { ok: false, detail: "当前运行环境未提供可访问的 Hermes 自我进化工作区" };
+    }
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,79}(?:\/[A-Za-z0-9][A-Za-z0-9._-]{0,79}){0,7}$/.test(targetRef)) {
+      return { ok: false, detail: "Hermes skill 名称只能包含字母、数字、点、下划线和连字符" };
+    }
+    const skillRoot = posix.join(hermesRoot, "skills");
+    const engineRoot = posix.join(runDir, "engine");
+    const result = await wsl(
+      [
+        "set -eu",
+        `test -d ${shellQuote(evolutionRoot)}`,
+        pythonResolver(),
+        `target=$(find ${shellQuote(skillRoot)} -type f -name SKILL.md -path ${shellQuote(`*/${targetRef}/SKILL.md`)} -print -quit)`,
+        'test -n "$target"',
+        `mkdir -p ${shellQuote(runDir)}`,
+        `cp -- "$target" ${shellQuote(posix.join(runDir, "baseline_skill.md"))}`,
+        // Hermes CLI 使用相对 output/ 路径；克隆引擎副本确保候选只落在 run 目录。
+        `test ! -e ${shellQuote(engineRoot)}`,
+        `mkdir -p ${shellQuote(engineRoot)}`,
+        `(cd ${shellQuote(evolutionRoot)} && find . -mindepth 1 -maxdepth 1 ! -name .git ! -name output -exec cp -a -- {} ${shellQuote(engineRoot)} \\;)`,
+        'printf "%s\\n" "$target"',
+      ].join("; "),
+      20_000,
+    );
+    const targetPath = result.stdout.trim().split(/\r?\n/).filter(Boolean).at(-1);
+    if (result.code !== 0 || !targetPath) {
+      return {
+        ok: false,
+        detail: redactSecret(result.stderr.trim() || `未在 Hermes skills 中找到 ${targetRef}，或自我进化 venv 不可用`),
+      };
+    }
+    return {
+      ok: true,
+      targetPath,
+      runDir,
+      baselinePath: posix.join(runDir, "baseline_skill.md"),
+      stdoutPath: posix.join(runDir, "stdout.log"),
+      stderrPath: posix.join(runDir, "stderr.log"),
+    };
+  }
+
+  async function collectRunArtifacts(entry: EvolutionLedgerEntry): Promise<EvolutionLedgerEntry> {
+    if (!deps.useWsl || !entry.remoteRunDir) return entry;
+    const script = [
+      "import difflib, json, shutil",
+      "from pathlib import Path",
+      `run = Path(${JSON.stringify(entry.remoteRunDir)})`,
+      "outputs = sorted((run / 'engine' / 'output').glob('**/evolved_skill.md'), key=lambda p: p.stat().st_mtime)",
+      "source_candidate = outputs[-1] if outputs else None",
+      "candidate = source_candidate",
+      "metrics = None",
+      "if candidate:",
+      "  local_candidate = run / 'evolved_skill.md'",
+      "  shutil.copy2(candidate, local_candidate)",
+      "  candidate = local_candidate",
+      "  source_metrics = source_candidate.parent / 'metrics.json'",
+      "  if source_metrics.is_file():",
+      "    local_metrics = run / 'metrics.json'",
+      "    shutil.copy2(source_metrics, local_metrics)",
+      "    metrics = local_metrics",
+      "  baseline = run / 'baseline_skill.md'",
+      "  if baseline.is_file():",
+      "    (run / 'candidate.diff').write_text(''.join(difflib.unified_diff(baseline.read_text(errors='ignore').splitlines(True), candidate.read_text(errors='ignore').splitlines(True), fromfile='baseline_skill.md', tofile='evolved_skill.md')))",
+      "print(json.dumps({'candidatePath': str(candidate) if candidate else None, 'metricsPath': str(metrics) if metrics else None, 'diffPath': str(run / 'candidate.diff') if candidate else None}))",
+    ].join("\n");
+    const result = await remoteJson(script);
+    if (result === null) return entry;
+    const candidatePath = typeof result["candidatePath"] === "string" ? result["candidatePath"] : undefined;
+    const metricsPath = typeof result["metricsPath"] === "string" ? result["metricsPath"] : undefined;
+    const diffPath = typeof result["diffPath"] === "string" ? result["diffPath"] : undefined;
+    let candidateDiff: string | undefined;
+    if (diffPath) {
+      const diffResult = await wsl(`test -f ${shellQuote(diffPath)} && sed -n '1,800p' ${shellQuote(diffPath)} || true`);
+      candidateDiff = redactSecret(diffResult.stdout).slice(0, 60_000);
+    }
+    return {
+      ...entry,
+      ...(candidatePath ? { candidatePath } : {}),
+      ...(metricsPath ? { metricsPath } : {}),
+      ...(candidateDiff ? { candidateDiff } : {}),
+    };
+  }
+
+  function metricsFrom(raw: Record<string, unknown>, holdoutFallback: number): EvolutionMetrics | null {
+    const number = (keys: string[]): number | undefined => {
+      for (const key of keys) if (typeof raw[key] === "number" && Number.isFinite(raw[key])) return raw[key] as number;
+      return undefined;
+    };
+    const baselineQuality = number(["baseline_score", "baselineMetric", "baseline_quality"]);
+    const candidateQuality = number(["evolved_score", "candidateMetric", "candidate_quality"]);
+    const qualityDelta = number(["improvement", "delta"]) ??
+      (baselineQuality !== undefined && candidateQuality !== undefined ? candidateQuality - baselineQuality : undefined);
+    if (baselineQuality === undefined || candidateQuality === undefined || qualityDelta === undefined) return null;
+    const holdoutCount = number(["holdout_examples", "holdoutCount", "sampleCount"]) ?? holdoutFallback;
+    const successRate = number(["success_rate", "successRate"]);
+    const failureRate = number(["failure_rate", "failureRate"]) ??
+      (successRate === undefined ? undefined : Math.max(0, 1 - successRate));
+    const constraintsPassed = raw["constraints_passed"] === undefined
+      ? raw["constraintsPassed"] === undefined ? true : raw["constraintsPassed"] === true
+      : raw["constraints_passed"] === true;
+    return {
+      baselineQuality,
+      candidateQuality,
+      qualityDelta,
+      holdoutCount,
+      ...(number(["elapsed_seconds", "elapsedSeconds"]) !== undefined ? { elapsedSeconds: number(["elapsed_seconds", "elapsedSeconds"]) } : {}),
+      ...(successRate !== undefined ? { successRate } : {}),
+      ...(failureRate !== undefined ? { failureRate } : {}),
+      confidence: number(["confidence"] ) ?? null,
+      constraintsPassed,
+      structureGate: constraintsPassed ? "pass" : "fail",
+      safetyGate: raw["safety_passed"] === false ? "fail" : "unknown",
+      ...(number(["token_count", "tokenCount"]) !== undefined ? { tokenCount: number(["token_count", "tokenCount"]) } : {}),
+      ...(number(["cost"]) !== undefined ? { cost: number(["cost"]) } : {}),
+    };
+  }
+
+  async function readRunMetrics(entry: EvolutionLedgerEntry): Promise<EvolutionMetrics | null> {
+    if (!deps.useWsl || !entry.metricsPath) return entry.metrics ?? null;
+    const result = await wsl(`test -f ${shellQuote(entry.metricsPath)} && cat ${shellQuote(entry.metricsPath)} || true`);
+    const parsed = readJson<unknown>(result.stdout);
+    return isRecord(parsed) ? metricsFrom(parsed, entry.holdoutCount) : null;
+  }
+
+  async function refreshRun(entry: EvolutionLedgerEntry): Promise<EvolutionLedgerEntry> {
+    if (entry.status !== "running" || !deps.useWsl || !entry.remoteRunDir) return entry;
+    const state = await remoteJson([
+      "import json, os",
+      "from pathlib import Path",
+      `run = Path(${JSON.stringify(entry.remoteRunDir)})`,
+      "pid = int((run / 'pid').read_text().strip()) if (run / 'pid').is_file() and (run / 'pid').read_text().strip().isdigit() else None",
+      "code_raw = (run / 'exit-code').read_text().strip() if (run / 'exit-code').is_file() else ''",
+      "try: code = int(code_raw)\nexcept ValueError: code = None",
+      "alive = False",
+      "if pid is not None and code is None:",
+      "  try: os.kill(pid, 0); alive = True",
+      "  except OSError: alive = False",
+      "print(json.dumps({'pid': pid, 'code': code, 'alive': alive}))",
+    ].join("\n"));
+    if (state === null) return entry;
+    const pid = typeof state["pid"] === "number" ? state["pid"] : entry.pid;
+    const code = typeof state["code"] === "number" ? state["code"] : null;
+    const alive = state["alive"] === true;
+    const elapsed = entry.startedAt ? now() - Date.parse(entry.startedAt) : 0;
+    if (code === null && alive && elapsed <= runTimeoutMs) return { ...entry, ...(pid !== undefined ? { pid } : {}) };
+
+    const completedAt = new Date(now()).toISOString();
+    if (code === 0) {
+      const collected = await collectRunArtifacts({ ...entry, ...(pid !== undefined ? { pid } : {}) });
+      const finalStatus: EvolutionRunStatus = collected.candidatePath ? "evaluating" : "kept-baseline";
+      const updated: EvolutionLedgerEntry = {
+        ...collected,
+        updatedAt: completedAt,
+        completedAt,
+        status: finalStatus,
+        runDetail: collected.candidatePath
+          ? "Hermes 已生成隔离候选，等待读取 metrics.json 并评估；baseline 未修改"
+          : entry.dryRun
+            ? "Hermes dry-run 通过；没有生成候选，baseline 未修改"
+            : "Hermes 未生成可评估候选，baseline 保留",
+        ...labels(finalStatus),
+      };
+      activeTargets.delete(targetKeyOf(updated.targetType ?? "skill", updated.targetRef ?? ""));
+      persist(updated);
+      return updated;
+    }
+
+    const timedOut = code === null && elapsed > runTimeoutMs;
+    if (timedOut && pid !== undefined) {
+      await wsl(`kill -TERM -- -${String(pid)} 2>/dev/null || kill -TERM ${String(pid)} 2>/dev/null || true`);
+    }
+    const updated: EvolutionLedgerEntry = {
+      ...entry,
+      updatedAt: completedAt,
+      completedAt,
+      ...(pid !== undefined ? { pid } : {}),
+      status: "failed",
+      runDetail: timedOut
+        ? `Hermes 运行超过 ${Math.round(runTimeoutMs / 60_000)} 分钟超时，已尝试终止；baseline 保留`
+        : `Hermes 进化进程异常退出（${code === null ? "未写入退出码" : `exit ${code}`}）；baseline 保留`,
+      ...labels("failed"),
+    };
+    activeTargets.delete(targetKeyOf(updated.targetType ?? "skill", updated.targetRef ?? ""));
+    persist(updated);
+    await deps.poster.post({
+      kind: "evolution-run-failed",
+      severity: "critical",
+      title: "Hermes 自我进化任务失败",
+      body: `${updated.targetRef ?? updated.runId}：${updated.runDetail}`,
+      source: "butler-watch",
+      dedupeKey: `evolution-run-failed:${updated.runId}`,
+    });
+    core.audit.append({
+      actor: EVOLUTION_ACTOR,
+      action: EVOLUTION_RUN_ACTION,
+      target: updated.targetRef ?? updated.instanceId ?? "",
+      detail: { runId: updated.runId, status: "failed", timedOut, exitCode: code },
+    });
+    return updated;
+  }
+
+  async function createRun(input: EvolutionRunCreateInput): Promise<EvolutionRunView> {
+    const targetRef = safeTargetRef(input.targetRef);
+    const timestamp = new Date(now()).toISOString();
+    const runId = randomUUID();
+    const targetType = input.targetType;
+    const invalid = targetRef === null || !["skill", "prompt", "config"].includes(targetType);
+    if (invalid) {
+      const entry: EvolutionLedgerEntry = {
+        runId,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        instanceId: input.instanceId ?? null,
+        targetType,
+        targetRef: input.targetRef,
+        status: "preflight-failed",
+        holdoutCount: Math.max(0, Math.floor(input.holdoutCount ?? MIN_HOLDOUT_COUNT)),
+        dependencies: [...DEFAULT_EVOLUTION_DEPENDENCIES],
+        endpoint: input.endpoint ?? "",
+        config: {},
+        checks: [],
+        errors: ["invalid-target"],
+        rootCause: "目标引用不合法",
+        fixes: ["使用相对 skill / prompt / config 名称，不允许绝对路径或 .."],
+        runDetail: "目标引用不合法，未启动 Hermes",
+        ...labels("preflight-failed"),
+      };
+      persist(entry);
+      return viewOf(entry);
+    }
+
+    if (targetType !== "skill") {
+      const entry: EvolutionLedgerEntry = {
+        runId,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        instanceId: input.instanceId ?? null,
+        targetType,
+        targetRef,
+        status: "preflight-failed",
+        holdoutCount: Math.max(0, Math.floor(input.holdoutCount ?? MIN_HOLDOUT_COUNT)),
+        dependencies: [],
+        endpoint: input.endpoint ?? "",
+        config: {},
+        checks: [{
+          id: "hermes",
+          label: "Hermes 候选生成器",
+          status: "fail",
+          detail: targetType === "prompt" ? "当前 Hermes CLI 只接受 --skill；请使用提示词优化页生成候选" : "配置类建议仅只读展示，Butler 不会自动修改 Hermes 配置",
+          action: targetType === "prompt" ? "前往提示词优化页" : "查看配置诊断并手动修复",
+        }],
+        errors: [],
+        rootCause: "当前 Hermes 自我进化 CLI 不支持该目标类型",
+        fixes: [],
+        runDetail: targetType === "prompt" ? "请转到提示词优化页" : "配置建议保持只读",
+        ...labels("preflight-failed"),
+      };
+      persist(entry);
+      return viewOf(entry);
+    }
+
+    const preflight = await runPreflight({
+      instanceId: input.instanceId,
+      endpoint: input.endpoint,
+      holdoutCount: Math.max(0, Math.floor(input.holdoutCount ?? MIN_HOLDOUT_COUNT)),
+      datasetPath: input.datasetPath,
+      config: { targetType, targetRef, iterations: Math.max(1, Math.floor(input.iterations ?? 3)), dryRun: input.dryRun !== false },
+    }, runId);
+    let entry = entries.get(runId)!;
+    const workspace = preflight.allowRun ? await checkHermesWorkspace(targetRef, runId) : null;
+    const hermesCheck: EvolutionCheck | null = workspace === null
+      ? null
+      : workspace.ok
+        ? { id: "hermes", label: "Hermes 自我进化", status: "pass", detail: "WSL CLI 与隔离运行目录已就绪" }
+        : { id: "hermes", label: "Hermes 自我进化", status: "fail", detail: workspace.detail, action: "检查 WSL Ubuntu-24.04、Hermes 项目和 venv" };
+    const ready = preflight.allowRun && workspace?.ok === true;
+    const status: EvolutionRunStatus = ready ? "ready" : "preflight-failed";
+    entry = {
+      ...entry,
+      updatedAt: new Date(now()).toISOString(),
+      status,
+      targetType,
+      targetRef,
+      dryRun: input.dryRun !== false,
+      ...(workspace?.ok ? {
+        remoteRunDir: workspace.runDir,
+        targetPath: workspace.targetPath,
+        baselinePath: workspace.baselinePath,
+        stdoutPath: workspace.stdoutPath,
+        stderrPath: workspace.stderrPath,
+        commandSummary: `${posix.join(hermesAgentRoot ?? "~/.hermes/hermes-agent", "venv/bin/python3")} -m evolution.skills.evolve_skill --skill ${targetRef}${input.dryRun === false ? "" : " --dry-run"}`,
+      } : {}),
+      checks: hermesCheck === null ? entry.checks : [...entry.checks, hermesCheck],
+      runDetail: ready ? "预检通过，已创建隔离候选目录；等待用户启动 Hermes" : "预检或 Hermes 工作区未通过，未触碰 baseline",
+      ...labels(status),
+    };
+    persist(entry);
+    if (!ready) {
+      const failed = entry.checks.filter((item) => item.status === "fail");
+      const endpointFailure = failed.find((item) => item.id === "endpoint");
+      if (endpointFailure) {
+        await deps.poster.post({
+          kind: "evolution-preflight-blocked",
+          severity: "critical",
+          title: "Hermes 进化被模型连接阻断",
+          body: endpointFailure.detail,
+          source: "butler-watch",
+          dedupeKey: `evolution-preflight:${endpointHealth.category}:${targetRef}`,
+        });
+      }
+    }
+    return viewOf(entry);
+  }
+
+  async function startRun(runId: string): Promise<EvolutionRunView | { status: "error"; error: string; detail: string }> {
+    let entry = entries.get(runId);
+    if (!entry) return { status: "error", error: "run-not-found", detail: "运行不存在" };
+    if (entry.status === "running") return viewOf(await refreshRun(entry));
+    if (entry.status !== "ready" || !entry.targetType || !entry.targetRef || !entry.remoteRunDir || !entry.targetPath) {
+      return { status: "error", error: "run-not-ready", detail: "只有预检通过的技能任务可以启动" };
+    }
+    const key = targetKeyOf(entry.targetType, entry.targetRef);
+    const active = activeTargets.get(key);
+    if (active && active !== runId) return { status: "error", error: "target-busy", detail: `该目标已有运行中的任务：${active}` };
+    if (!deps.useWsl || evolutionRoot === null || hermesAgentRoot === null || hermesRoot === null || !entry.stdoutPath || !entry.stderrPath) {
+      return { status: "error", error: "hermes-unavailable", detail: "Hermes 运行环境不可用" };
+    }
+    const engineRoot = posix.join(entry.remoteRunDir, "engine");
+    const hermesEnvPath = posix.join(posix.dirname(hermesAgentRoot), ".env");
+    // Hermes 的 dspy/litellm 读取 OpenAI 兼容环境变量；配置文件本身保持只读，
+    // 只在子进程环境中注入已发现的 provider/base URL，不把密钥写入命令摘要或产物。
+    const hermesLlm = await readHermesLlmConfig();
+    const providerEnv = hermesLlm.provider
+      ? `${hermesLlm.provider.replace(/[^A-Za-z0-9]+/g, "_").toUpperCase()}_API_KEY`
+      : null;
+    const modelName = hermesLlm.model
+      ? hermesLlm.model.includes("/")
+        ? hermesLlm.model
+        : `openai/${hermesLlm.model}`
+      : null;
+    // Hermes 自我进化脚本按技能目录 basename 查找；Butler 对外保留
+    // category/name 形式的 targetRef，启动时转换为 CLI 所需的名称。
+    const hermesSkillName = entry.targetRef.split("/").filter(Boolean).at(-1) ?? entry.targetRef;
+    const args = [
+      "-m",
+      "evolution.skills.evolve_skill",
+      "--skill",
+      shellQuote(hermesSkillName),
+      "--hermes-repo",
+      shellQuote(hermesRoot),
+      "--iterations",
+      String(Math.max(1, Math.floor(typeof entry.config["iterations"] === "number" ? entry.config["iterations"] : 3))),
+      ...(entry.datasetPath ? ["--dataset-path", shellQuote(entry.datasetPath)] : []),
+      ...(modelName ? ["--optimizer-model", shellQuote(modelName), "--eval-model", shellQuote(modelName)] : []),
+      ...(entry.dryRun ? ["--dry-run"] : []),
+    ].join(" ");
+    const exitPath = posix.join(entry.remoteRunDir, "exit-code");
+    const pidPath = posix.join(entry.remoteRunDir, "pid");
+    const runner = [
+      "set +e",
+      `if [ -f ${shellQuote(hermesEnvPath)} ]; then set -a; . ${shellQuote(hermesEnvPath)}; set +a; fi`,
+      // Hermes 的进化脚本会在构造配置时先读取 HERMES_AGENT_REPO，
+      // 因此必须显式指向容器内的只读 checkout，不能依赖宿主绝对路径。
+      `export HERMES_AGENT_REPO=${shellQuote(hermesRoot)}`,
+      ...(providerEnv
+        ? [`if [ -n "\${${providerEnv}:-}" ]; then export OPENAI_API_KEY="\$${providerEnv}"; fi`]
+        : []),
+      'export OPENAI_API_KEY="${OPENAI_API_KEY:-${DEEPSEEK_API_KEY:-${XIAOMI_API_KEY:-${OPENROUTER_API_KEY:-}}}}"',
+      ...(hermesLlm.baseUrl ? [`export OPENAI_BASE_URL=${shellQuote(hermesLlm.baseUrl)}`] : []),
+      `cd ${shellQuote(engineRoot)}`,
+      `${pythonResolver()} && PYTHONPATH=${shellQuote(engineRoot)}:"\${PYTHONPATH:-}" "$python" ${args}`,
+      "code=$?",
+      `printf '%s\\n' "$code" > ${shellQuote(exitPath)}`,
+      "exit $code",
+    ].join("; ");
+    const launch = [
+      "set -eu",
+      `mkdir -p ${shellQuote(entry.remoteRunDir)}`,
+      `rm -f ${shellQuote(exitPath)} ${shellQuote(pidPath)}`,
+      `: > ${shellQuote(entry.stdoutPath)}`,
+      `: > ${shellQuote(entry.stderrPath)}`,
+      `setsid sh -lc ${shellQuote(runner)} < /dev/null > ${shellQuote(entry.stdoutPath)} 2> ${shellQuote(entry.stderrPath)} &`,
+      "pid=$!",
+      `printf '%s\\n' "$pid" > ${shellQuote(pidPath)}`,
+      "printf '%s\\n' \"$pid\"",
+    ].join("; ");
+    const result = await wsl(launch, 20_000);
+    const pid = Number(result.stdout.trim().split(/\r?\n/).at(-1));
+    if (result.code !== 0 || !Number.isInteger(pid) || pid <= 1) {
+      const updated: EvolutionLedgerEntry = {
+        ...entry,
+        updatedAt: new Date(now()).toISOString(),
+        completedAt: new Date(now()).toISOString(),
+        status: "failed",
+        runDetail: redactSecret(result.stderr.trim() || "无法启动 Hermes 自我进化进程"),
+        ...labels("failed"),
+      };
+      persist(updated);
+      await deps.poster.post({ kind: "evolution-run-failed", severity: "critical", title: "Hermes 自我进化未能启动", body: updated.runDetail ?? "无法启动 Hermes 自我进化进程", source: "butler-watch", dedupeKey: `evolution-start:${runId}` });
+      return viewOf(updated);
+    }
+    entry = {
+      ...entry,
+      updatedAt: new Date(now()).toISOString(),
+      startedAt: new Date(now()).toISOString(),
+      status: "running",
+      pid,
+      runDetail: entry.dryRun ? "Hermes dry-run 正在验证配置与技能路径" : "Hermes 正在生成隔离候选",
+      ...labels("running"),
+    };
+    activeTargets.set(key, runId);
+    persist(entry);
+    core.audit.append({ actor: EVOLUTION_ACTOR, action: EVOLUTION_RUN_ACTION, target: entry.targetRef, detail: { runId, pid, dryRun: entry.dryRun === true, commandSummary: entry.commandSummary } });
+    return viewOf(entry);
+  }
+
+  async function getRun(runId: string): Promise<EvolutionRunView | null> {
+    const entry = entries.get(runId);
+    if (!entry) return null;
+    const refreshed = await refreshRun(entry);
+    return viewOf(refreshed, await readRemoteTail(refreshed));
+  }
+
+  async function evaluateRun(runId: string): Promise<EvolutionEvaluateOutcome> {
+    let entry = entries.get(runId);
+    const error = (kind: Extract<EvolutionEvaluateOutcome, { status: "error" }>["error"], detail: string): EvolutionEvaluateOutcome => ({
+      status: "error", error: kind, detail, allowWrite: false, baselinePreserved: true, delta: null, ledgerPath: entry ? ledgerPathOf(entry.runId) : null,
+    });
+    if (!entry) return error("run-not-found", "运行不存在");
+    entry = await refreshRun(entry);
+    if (entry.status === "running") return error("run-not-ready", "Hermes 仍在运行，尚不能评估");
+    if (entry.status !== "evaluating" || !entry.candidatePath || !entry.targetPath || !entry.baselinePath) {
+      return error("run-not-ready", "没有可评估的隔离候选；dry-run 和失败运行不会产生可发布产物");
+    }
+    const metrics = await readRunMetrics(entry);
+    if (!metrics || metrics.baselineQuality === undefined || metrics.candidateQuality === undefined || metrics.qualityDelta === undefined) {
+      return error("invalid-evaluator-response", "metrics.json 缺少 baseline_score/evolved_score/improvement，baseline 保留");
+    }
+    const completedAt = new Date(now()).toISOString();
+    const passesGates = metrics.constraintsPassed !== false && metrics.structureGate !== "fail" && metrics.safetyGate !== "fail";
+    const status: EvolutionRunStatus = !passesGates || metrics.qualityDelta < 0
+      ? "rejected-regression"
+      : metrics.qualityDelta > 0 && (metrics.holdoutCount ?? 0) >= MIN_HOLDOUT_COUNT
+        ? "accepted"
+        : "kept-baseline";
+    let writeAuthority: EvolutionWriteAuthority | undefined;
+    if (status === "accepted" && deps.useWsl) {
+      const result = await remoteJson([
+        "import hashlib, json",
+        "from pathlib import Path",
+        `target = Path(${JSON.stringify(entry.targetPath)})`,
+        `candidate = Path(${JSON.stringify(entry.candidatePath)})`,
+        `skill_root = Path(${JSON.stringify(posix.join(hermesAgentRoot ?? "", "skills"))})`,
+        `run_root = Path(${JSON.stringify(runRoot ?? "")})`,
+        "def inside(path, root):",
+        "  try: path.resolve().relative_to(root.resolve()); return True",
+        "  except ValueError: return False",
+        "def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()",
+        "allowed = inside(target, skill_root) and inside(candidate, run_root)",
+        "print(json.dumps({'target': target.is_file(), 'candidate': candidate.is_file(), 'allowed': allowed, 'baselineSha256': digest(target) if target.is_file() and allowed else None, 'candidateSha256': digest(candidate) if candidate.is_file() and allowed else None}))",
+      ].join("\n"));
+      if (result?.["target"] === true && result["candidate"] === true && result["allowed"] === true && typeof result["baselineSha256"] === "string" && typeof result["candidateSha256"] === "string") {
+        writeAuthority = {
+          token: randomUUID(), runId, instanceId: entry.instanceId ?? "hermes-wsl", targetPath: entry.targetPath,
+          candidatePath: entry.candidatePath, baselineSha256: result["baselineSha256"], candidateSha256: result["candidateSha256"], issuedAt: completedAt,
+        };
+        authorities.set(writeAuthority.token, writeAuthority);
+      } else {
+        return error("invalid-evaluator-response", "候选或 baseline 路径不受发布门禁允许，未签发发布令牌");
+      }
+    }
+    const label = labels(status);
+    entry = {
+      ...entry,
+      updatedAt: completedAt,
+      completedAt,
+      status,
+      baselineMetric: metrics.baselineQuality,
+      candidateMetric: metrics.candidateQuality,
+      delta: metrics.qualityDelta,
+      significant: status === "accepted",
+      metrics,
+      ...(writeAuthority ? { writeAuthorityIssuedAt: writeAuthority.issuedAt } : {}),
+      runDetail: status === "accepted"
+        ? "候选质量提升且结构门禁通过；等待用户确认采用"
+        : status === "rejected-regression"
+          ? "候选质量回落或结构/安全门禁失败，baseline 保留"
+          : "候选未达到采用门槛，baseline 保留",
+      ...label,
+    };
+    persist(entry);
+    if (status === "rejected-regression") {
+      await deps.poster.post({ kind: "evolution-regression", severity: "critical", title: "Hermes 进化候选被守门器拦截", body: `${entry.targetRef ?? runId}：${entry.runDetail}`, source: "butler-watch", dedupeKey: `evolution-regression:${runId}` });
+    }
+    core.audit.append({ actor: EVOLUTION_ACTOR, action: EVOLUTION_GATE_ACTION, target: entry.targetRef ?? entry.instanceId ?? "", detail: { runId, status, baselineQuality: metrics.baselineQuality, candidateQuality: metrics.candidateQuality, qualityDelta: metrics.qualityDelta, constraintsPassed: metrics.constraintsPassed, writeAuthorized: writeAuthority !== undefined } });
+    return {
+      status: status as "accepted" | "kept-baseline" | "rejected-regression",
+      sampleCount: metrics.holdoutCount ?? entry.holdoutCount,
+      confidence: metrics.confidence ?? null,
+      baselineMetric: metrics.baselineQuality,
+      candidateMetric: metrics.candidateQuality,
+      delta: metrics.qualityDelta,
+      canPromote: writeAuthority !== undefined,
+      report: metrics as unknown as Record<string, unknown>,
+      allowWrite: false,
+      baselinePreserved: true,
+      ledgerPath: ledgerPathOf(runId),
+      ...(writeAuthority ? { writeAuthority } : {}),
+    };
+  }
+
+  async function promoteRun(input: EvolutionPromoteInput): Promise<EvolutionPromoteOutcome> {
+    if (!deps.useWsl) return promoteArtifact(input);
+    const entry = entries.get(input.runId);
+    const authority = authorities.get(input.token);
+    if (!entry) return { status: "error", error: "run-not-found", detail: "运行不存在", ledgerPath: null };
+    if (!authority || authority.runId !== input.runId) return { status: "error", error: usedAuthorities.has(input.token) ? "authority-used" : "authority-not-found", detail: "发布令牌不存在、已过期或不属于该运行", ledgerPath: ledgerPathOf(input.runId) };
+    if (entry.status !== "accepted" || input.targetPath || input.candidatePath) return { status: "error", error: "path-not-allowed", detail: "只能采用评估通过后原样签发的隔离候选", ledgerPath: ledgerPathOf(input.runId) };
+    const script = [
+      "import hashlib, os, sys",
+      "from pathlib import Path",
+      `target = Path(${JSON.stringify(authority.targetPath)})`,
+      `candidate = Path(${JSON.stringify(authority.candidatePath)})`,
+      `skill_root = Path(${JSON.stringify(posix.join(hermesAgentRoot ?? "", "skills"))})`,
+      `run_root = Path(${JSON.stringify(runRoot ?? "")})`,
+      `expected_target = ${JSON.stringify(authority.baselineSha256)}`,
+      `expected_candidate = ${JSON.stringify(authority.candidateSha256)}`,
+      "def inside(path, root):",
+      "  try: path.resolve().relative_to(root.resolve()); return True",
+      "  except ValueError: return False",
+      "def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()",
+      "if not inside(target, skill_root) or not inside(candidate, run_root): sys.exit(14)",
+      "if not target.is_file() or not candidate.is_file(): sys.exit(11)",
+      "if digest(target) != expected_target: sys.exit(12)",
+      "if digest(candidate) != expected_candidate: sys.exit(13)",
+      "temp = target.with_name(target.name + '.butler-promote-' + os.urandom(8).hex() + '.tmp')",
+      "temp.write_bytes(candidate.read_bytes())",
+      "os.replace(temp, target)",
+    ].join("\n");
+    const result = await wsl(`python3 -c ${shellQuote(script)}`, 20_000);
+    if (result.code !== 0) {
+      const mapping: Record<number, "candidate-tampered" | "target-changed" | "path-not-allowed"> = { 11: "candidate-tampered", 12: "target-changed", 13: "candidate-tampered", 14: "path-not-allowed" };
+      return { status: "error", error: mapping[result.code] ?? "write-failed", detail: redactSecret(result.stderr.trim() || "候选原子替换失败"), ledgerPath: ledgerPathOf(input.runId) };
+    }
+    const promotedAt = new Date(now()).toISOString();
+    const updated: EvolutionLedgerEntry = { ...entry, updatedAt: promotedAt, completedAt: promotedAt, status: "promoted", promotedAt, promotedTargetPath: authority.targetPath, runDetail: "用户已确认采用，候选已原子替换 baseline", ...labels("promoted") };
+    persist(updated);
+    authorities.delete(input.token);
+    usedAuthorities.add(input.token);
+    core.audit.append({ actor: EVOLUTION_ACTOR, action: EVOLUTION_PROMOTE_ACTION, target: authority.instanceId, detail: { runId: input.runId, targetPath: authority.targetPath, candidatePath: authority.candidatePath, baselineSha256: authority.baselineSha256, candidateSha256: authority.candidateSha256 } });
+    return { status: "promoted", runId: input.runId, targetPath: authority.targetPath, candidatePath: authority.candidatePath, baselineSha256: authority.baselineSha256, candidateSha256: authority.candidateSha256, ledgerPath: ledgerPathOf(input.runId) };
+  }
+
+  async function cancelRun(runId: string): Promise<EvolutionRunView | { status: "error"; error: string; detail: string }> {
+    const entry = entries.get(runId);
+    if (!entry) return { status: "error", error: "run-not-found", detail: "运行不存在" };
+    if (entry.status !== "running" || !entry.pid || !deps.useWsl) return { status: "error", error: "run-not-running", detail: "只有运行中的 Hermes 任务可以取消" };
+    await wsl(`kill -TERM -- -${String(entry.pid)} 2>/dev/null || kill -TERM ${String(entry.pid)} 2>/dev/null || true`);
+    const updated: EvolutionLedgerEntry = { ...entry, updatedAt: new Date(now()).toISOString(), completedAt: new Date(now()).toISOString(), status: "cancelled", runDetail: "用户取消了 Hermes 任务；baseline 未修改", ...labels("cancelled") };
+    activeTargets.delete(targetKeyOf(updated.targetType ?? "skill", updated.targetRef ?? ""));
+    persist(updated);
+    core.audit.append({ actor: EVOLUTION_ACTOR, action: EVOLUTION_CANCEL_ACTION, target: updated.targetRef ?? updated.instanceId ?? "", detail: { runId, pid: entry.pid } });
+    return viewOf(updated, await readRemoteTail(updated));
+  }
+
+  function inferTargetRef(issue: LogIssueView): string {
+    const match = issue.examples.join("\n").match(/(?:skills?[\\/]|--skill\s+)([A-Za-z0-9._-]+)/i);
+    return match?.[1] ?? "待从日志定位";
+  }
+
+  function diagnose(input: { issues?: LogIssueView[]; scannedSources?: number; scannedLines?: number } = {}): EvolutionDiagnosis {
+    const issues = input.issues ?? [];
+    const sources = Math.max(0, Math.floor(input.scannedSources ?? new Set(issues.flatMap((issue) => issue.sources)).size));
+    const lines = Math.max(0, Math.floor(input.scannedLines ?? 0));
+    const recommendations: EvolutionRecommendation[] = issues.map((issue): EvolutionRecommendation => {
+      const targetRef = inferTargetRef(issue);
+      const occurrences = issue.count;
+      const confidence = Math.min(0.98, 0.45 + Math.min(occurrences, 6) * 0.08 + (issue.severity === "error" ? 0.08 : 0));
+      const base = { id: `evolution-${issue.id}`, confidence, window: { sources, lines, occurrences }, sources: issue.sources, examples: issue.examples.map((line) => redactSecret(line)), blocked: false };
+      if (["llm-auth", "llm-route", "config-error"].includes(issue.kind)) {
+        const category = issue.kind === "llm-auth" ? "credentials" : "configuration";
+        const recommendation: EvolutionRecommendation = { ...base, targetType: "config", targetRef, blocked: true, nextAction: "fix-config", title: issue.title, detail: issue.detail };
+        void deps.poster.post({ kind: "evolution-config-blocked", severity: "critical", title: "Hermes 配置错误阻断进化", body: issue.detail, source: "butler-watch", dedupeKey: `evolution-config:${category}:${issue.id}` });
+        return recommendation;
+      }
+      if (issue.kind === "dependency") return { ...base, targetType: "version-upgrade", targetRef, nextAction: "open-version-upgrade", title: issue.title, detail: issue.detail };
+      if (["tool-failure", "trajectory-interrupted"].includes(issue.kind)) return { ...base, targetType: "skill", targetRef, nextAction: targetRef === "待从日志定位" ? "inspect" : "create-run", title: issue.title, detail: issue.detail };
+      if (issue.kind === "quality-loop") return { ...base, targetType: "prompt", targetRef, nextAction: "open-prompt-optimization", title: issue.title, detail: issue.detail };
+      return { ...base, targetType: "diagnostic", targetRef, nextAction: "inspect", title: issue.title, detail: issue.detail };
+    });
+    return { analyzedAt: new Date(now()).toISOString(), issues, recommendations };
+  }
+
   return {
     status: () => ({
       minHoldoutCount: MIN_HOLDOUT_COUNT,
@@ -1106,7 +2200,37 @@ export function createEvolutionService(deps: EvolutionServiceDeps): EvolutionSer
           conclusion: entry.conclusion,
           disposition: entry.disposition,
         })),
+      hermes: {
+        status: deps.useWsl && evolutionRoot !== null && hermesAgentRoot !== null && runRoot !== null ? "ready" : hermesRoot === null ? "unknown" : "unavailable",
+        root: hermesRoot,
+        detail: deps.useWsl
+          ? `Hermes 进化引擎：${evolutionRoot ?? "未配置自我进化目录"}；隔离运行目录：${runRoot ?? "未配置"}`
+          : "当前 Watch 未连接可执行的 Hermes runtime",
+      },
+      endpointHealth,
+      blocked: [...entries.values()]
+        .filter((entry) => entry.status === "preflight-failed" || entry.status === "rejected-preflight")
+        .map((entry) => ({
+          category: entry.checks.some((check) => check.id === "endpoint") ? endpointHealth.category : "unknown" as EvolutionEndpointCategory,
+          detail: detailOf(entry),
+          affectedRuns: [entry.runId],
+        })),
+      tasks: [...entries.values()]
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        .slice(0, 50)
+        .map((entry) => viewOf(entry)),
+      history: [...entries.values()]
+        .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt))
+        .map((entry) => entry.metrics)
+        .filter((metric): metric is EvolutionMetrics => metric !== undefined),
     }),
+    diagnose,
+    createRun,
+    getRun,
+    startRun,
+    evaluateRun,
+    promoteRun,
+    cancelRun,
     preflight: (input) => runPreflight(input),
     expandDataset,
     recordResult,

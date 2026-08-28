@@ -2,6 +2,8 @@
  * 状态总览条：管家服务 / 消息通知 / 待处理 / AI 助手 四张卡片。
  */
 import { Link } from "react-router-dom";
+import { Button } from "antd";
+import { Sparkline } from "../../components/charts/Sparkline.js";
 import { formatRelative } from "../../lib/format.js";
 import type { MessageStats } from "./conclusions.js";
 import type { InspectStatusView, StatusCardView } from "./types.js";
@@ -16,6 +18,8 @@ interface StatusRailProps {
   degradedInstanceCount: number;
   inspectStatus: InspectStatusView | null;
   messageStats: MessageStats;
+  inspectionHistory: Array<{ date: string; avgDurationMs: number | null }>;
+  deliveryHistory: Array<{ date: string; delivered: number; failed: number; uncertain: number }>;
   onOpenAdvanced: () => void;
 }
 
@@ -29,8 +33,17 @@ export function StatusRail({
   degradedInstanceCount,
   inspectStatus,
   messageStats,
+  inspectionHistory,
+  deliveryHistory,
   onOpenAdvanced,
 }: StatusRailProps) {
+  const inspectionValues = inspectionHistory
+    .map((point) => point.avgDurationMs)
+    .filter((value): value is number => value !== null);
+  const deliveryValues = deliveryHistory.map((point) => point.delivered);
+  const deliveryTone = deliveryHistory.some((point) => point.failed > 0 || point.uncertain > 0)
+    ? "warn"
+    : "ok";
   const assistantTone: StatusCardView["tone"] =
     downInstanceCount > 0
       ? "error"
@@ -52,6 +65,14 @@ export function StatusRail({
           : inspectStatus.reachable
             ? `上次检查 ${formatRelative(inspectStatus.lastAt)}`
             : "暂时连不上，稍后会自动重试",
+      trend:
+        inspectionValues.length > 1
+          ? {
+              values: inspectionValues,
+              label: "近 14 天巡检平均耗时走势",
+              tone: "accent",
+            }
+          : undefined,
     },
     {
       id: "gateway",
@@ -75,6 +96,14 @@ export function StatusRail({
               : messageStats.deliveredCriticalCount > 0
                 ? `有 ${messageStats.deliveredCriticalCount} 条紧急提醒已送到`
                 : "消息接管通道正常",
+      trend:
+        deliveryValues.length > 1
+          ? {
+              values: deliveryValues,
+              label: "近 7 天每日已送达消息数量走势",
+              tone: deliveryTone,
+            }
+          : undefined,
       action:
         !messageStats.messageStatusKnown
           ? undefined
@@ -120,7 +149,16 @@ export function StatusRail({
             <span className={`manager-status-dot is-${card.tone}`} aria-hidden="true" />
             <span className="manager-status-label">{card.label}</span>
           </div>
-          <strong className="manager-status-value">{card.value}</strong>
+          <div className="manager-status-value-row">
+            <strong className="manager-status-value">{card.value}</strong>
+            {card.trend !== undefined && (
+              <Sparkline
+                values={card.trend.values}
+                label={card.trend.label}
+                tone={card.trend.tone}
+              />
+            )}
+          </div>
           <p className="manager-status-detail">{card.detail}</p>
           {card.action !== undefined &&
             (card.action.kind === "link" ? (
@@ -128,9 +166,14 @@ export function StatusRail({
                 {card.action.label} →
               </Link>
             ) : (
-              <button type="button" className="manager-status-action" onClick={onOpenAdvanced}>
-                {card.action.label} →
-              </button>
+              <Button
+                type="link"
+                size="small"
+                className="manager-status-action"
+                onClick={onOpenAdvanced}
+              >
+                {card.action.label}
+              </Button>
             ))}
         </article>
       ))}

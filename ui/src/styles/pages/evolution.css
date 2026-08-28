@@ -1,1 +1,465 @@
-.evolution-page { color: var(--butler-ink); }
+/**
+ * 进化与优化页（evolution）局部样式：双栏工作台、预检清单、决策卡、
+ * 门禁表单与结论框。
+ */
+
+.evolution-page {
+  gap: var(--butler-space-5);
+}
+
+.evolution-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--butler-space-3);
+}
+.evolution-eyebrow {
+  color: var(--butler-accent);
+  font-size: var(--butler-text-xs);
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.evolution-header h1 {
+  margin-top: 2px;
+  font-size: var(--butler-text-xxl);
+  letter-spacing: -0.015em;
+}
+.evolution-header p {
+  margin-top: 4px;
+  color: var(--butler-muted);
+  font-size: var(--butler-text-sm);
+}
+@media (max-width: 760px) {
+  .evolution-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+.evolution-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--butler-space-5);
+  align-items: start;
+}
+@media (max-width: 1080px) {
+  .evolution-workspace {
+    grid-template-columns: 1fr;
+  }
+}
+
+.evolution-column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--butler-space-4);
+}
+
+.evolution-section-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--butler-space-3);
+}
+.evolution-section-head h2 {
+  margin-top: 2px;
+  font-size: var(--butler-text-lg);
+  letter-spacing: -0.01em;
+}
+
+/* ---- 状态胶囊 ---- */
+
+.evolution-state {
+  padding: 3px 12px;
+  border-radius: 999px;
+  background: var(--butler-sunken);
+  color: var(--butler-muted);
+  font-size: var(--butler-text-xs);
+  font-weight: 600;
+}
+.evolution-state.is-pass {
+  background: var(--butler-ok-soft);
+  color: var(--butler-ok);
+}
+.evolution-state.is-fail {
+  background: var(--butler-error-soft);
+  color: var(--butler-error);
+}
+
+/* ---- 预检清单 ---- */
+
+.evolution-form-grid {
+  display: grid;
+  gap: 0 var(--butler-space-3);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.evolution-form-grid .ant-form-item {
+  margin-bottom: 12px;
+}
+@media (max-width: 640px) {
+  .evolution-form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.evolution-checks {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.evolution-checks li {
+  --tone-color: var(--butler-muted);
+  --tone-bg: var(--butler-sunken);
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--butler-rule);
+  border-radius: var(--butler-radius-control);
+  background: var(--butler-surface);
+  animation: check-in var(--butler-dur-base) var(--butler-ease) both;
+}
+@keyframes check-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+.evolution-checks li.is-pass {
+  --tone-color: var(--butler-ok);
+  --tone-bg: var(--butler-ok-soft);
+}
+.evolution-checks li.is-fail {
+  --tone-color: var(--butler-error);
+  --tone-bg: var(--butler-error-soft);
+}
+.evolution-check-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--tone-color);
+  box-shadow: 0 0 0 3px var(--tone-bg);
+}
+.evolution-checks li strong {
+  font-size: var(--butler-text-sm);
+  font-weight: 600;
+}
+.evolution-checks li p {
+  color: var(--butler-muted);
+  font-size: var(--butler-text-xs);
+  line-height: 1.5;
+}
+.evolution-checks li em {
+  display: block;
+  margin-top: 2px;
+  color: var(--butler-accent);
+  font-size: var(--butler-text-xs);
+  font-style: normal;
+}
+.evolution-check-status {
+  color: var(--tone-color);
+  font-size: var(--butler-text-xs);
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+/* ---- 主行动与决策卡 ---- */
+
+.evolution-primary-action {
+  display: flex;
+  align-items: center;
+  gap: var(--butler-space-3);
+}
+.evolution-primary-action > span {
+  color: var(--butler-muted);
+  font-size: var(--butler-text-xs);
+  line-height: 1.5;
+}
+
+.evolution-decision {
+  padding: var(--butler-space-4);
+  border-left: 3px solid var(--butler-rule);
+  border-radius: var(--butler-radius-card);
+  background: var(--butler-surface-subtle);
+}
+.evolution-decision.is-rejected {
+  border-left-color: var(--butler-error);
+}
+.evolution-decision.is-ready {
+  border-left-color: var(--butler-ok);
+}
+.evolution-decision-label {
+  color: var(--butler-muted);
+  font-size: var(--butler-text-xs);
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.evolution-decision.is-rejected .evolution-decision-label {
+  color: var(--butler-error);
+}
+.evolution-decision.is-ready .evolution-decision-label {
+  color: var(--butler-ok);
+}
+.evolution-decision h3 {
+  margin-top: 4px;
+  font-size: var(--butler-text-md);
+}
+.evolution-decision p {
+  margin-top: 4px;
+  color: var(--butler-muted);
+  font-size: var(--butler-text-sm);
+  line-height: 1.55;
+}
+.evolution-expander {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+  margin-top: var(--butler-space-3);
+  padding-top: var(--butler-space-3);
+  border-top: 1px dashed var(--butler-rule);
+}
+
+/* ---- 门禁表单与结论 ---- */
+
+.evolution-gate-form {
+  display: flex;
+  flex-direction: column;
+}
+.evolution-gate-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-bottom: var(--butler-space-3);
+}
+.evolution-gate-title strong {
+  font-size: var(--butler-text-sm);
+}
+.evolution-gate-title span {
+  color: var(--butler-muted);
+  font-size: var(--butler-text-xs);
+}
+.evolution-metric-grid {
+  display: grid;
+  gap: 0 var(--butler-space-3);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+@media (max-width: 560px) {
+  .evolution-metric-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.evolution-gate-result {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  padding: var(--butler-space-3) var(--butler-space-4);
+  border: 1px solid var(--butler-rule);
+  border-left: 3px solid var(--butler-warn);
+  border-radius: var(--butler-radius-card);
+  background: var(--butler-surface-subtle);
+}
+.evolution-gate-result.is-blocked {
+  border-left-color: var(--butler-warn);
+}
+.evolution-gate-result strong {
+  font-size: var(--butler-text-md);
+  font-variant-numeric: tabular-nums;
+}
+.evolution-gate-result p {
+  color: var(--butler-muted);
+  font-size: var(--butler-text-sm);
+  line-height: 1.55;
+}
+
+/* ---- 台账与边界说明 ---- */
+
+.ledger-time-cell {
+  display: grid;
+  gap: 1px;
+}
+.ledger-time-cell strong {
+  font-family: var(--butler-mono-font);
+  font-size: var(--butler-text-sm);
+  font-weight: 550;
+}
+.ledger-time-cell span {
+  color: var(--butler-muted);
+  font-size: 11px;
+}
+.ledger-export-link {
+  font-size: var(--butler-text-xs);
+  font-weight: 550;
+}
+
+.evolution-scope-note {
+  display: grid;
+  gap: 4px;
+  margin-top: var(--butler-space-4);
+  padding-top: var(--butler-space-3);
+  border-top: 1px dashed var(--butler-rule);
+}
+.evolution-scope-note span {
+  color: var(--butler-accent);
+  font-size: var(--butler-text-xs);
+  font-weight: 650;
+}
+.evolution-scope-note p {
+  color: var(--butler-muted);
+  font-size: var(--butler-text-xs);
+  line-height: 1.65;
+}
+
+/* ---- Hermes 自我进化工作区 ---- */
+
+.evolution-health,
+.evolution-diagnosis,
+.evolution-tasks,
+.evolution-inspector {
+  display: grid;
+  gap: var(--butler-space-4);
+  padding: var(--butler-space-4);
+  border: 1px solid var(--butler-rule);
+  border-radius: var(--butler-radius-card);
+  background: var(--butler-surface);
+  box-shadow: var(--butler-shadow);
+}
+
+/* 指标区本身承载多个独立图表卡片，保持开放布局，避免卡片嵌套卡片。 */
+.evolution-metrics-section {
+  display: grid;
+  gap: var(--butler-space-4);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.evolution-health-detail,
+.evolution-run-detail {
+  margin: 0;
+  color: var(--butler-muted);
+  font-size: var(--butler-text-sm);
+  line-height: 1.6;
+}
+
+.evolution-kicker {
+  color: var(--butler-accent);
+  font-size: var(--butler-text-xs);
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.evolution-task-target,
+.evolution-recommendation-title,
+.evolution-recommendation-detail {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.evolution-task-target strong,
+.evolution-recommendation-title strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.evolution-task-target span,
+.evolution-recommendation-title span,
+.evolution-recommendation-detail small,
+.evolution-muted-action,
+.evolution-time,
+.evolution-metric-summary {
+  color: var(--butler-muted);
+  font-size: var(--butler-text-xs);
+}
+.evolution-recommendation-detail span {
+  color: var(--butler-ink);
+  line-height: 1.45;
+}
+.evolution-recommendation-detail small {
+  line-height: 1.4;
+}
+
+.evolution-run-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--butler-space-2);
+}
+
+.evolution-check-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.evolution-check-list li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 8px 0;
+  border-bottom: 1px dashed var(--butler-rule);
+}
+.evolution-check-list li:last-child { border-bottom: 0; }
+.evolution-check-list li > div { display: grid; gap: 2px; }
+.evolution-check-list li span { color: var(--butler-muted); font-size: var(--butler-text-xs); line-height: 1.45; }
+.evolution-check-list li.is-fail span { color: var(--butler-error); }
+
+.evolution-log-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--butler-space-3);
+}
+@media (max-width: 760px) {
+  .evolution-log-grid { grid-template-columns: 1fr; }
+}
+.evolution-log-grid > div { display: grid; gap: 6px; min-width: 0; }
+.evolution-log-grid > div > strong { color: var(--butler-muted); font-size: var(--butler-text-xs); }
+.evolution-code {
+  max-height: 260px;
+  overflow: auto;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--butler-rule);
+  border-radius: var(--butler-radius-control);
+  background: var(--butler-sunken);
+  color: var(--butler-ink);
+  font-family: var(--butler-mono-font);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.evolution-evidence {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--butler-surface-subtle);
+}
+.evolution-evidence > span { color: var(--butler-muted); font-size: var(--butler-text-xs); }
+
+.evolution-charts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--butler-space-4);
+}
+@media (max-width: 1080px) {
+  .evolution-charts { grid-template-columns: 1fr; }
+}
+.evolution-charts .chart-card { min-width: 0; }
+
+.evolution-run-facts .ant-descriptions-item-content {
+  overflow-wrap: anywhere;
+}

@@ -61,6 +61,22 @@ describe("SqliteStore", () => {
     expect(store.listEvents()).toHaveLength(3);
   });
 
+  it("inspection-completed：在 SQLite 中按本地日聚合次数、耗时和异常数", () => {
+    store.insertEvent({
+      type: "inspection-completed",
+      payload: { overall: "ok", checks: [{ durationMs: 100 }, { durationMs: 300 }] },
+    });
+    store.insertEvent({
+      type: "inspection-completed",
+      payload: { overall: "degraded", checks: [{ durationMs: 60 }] },
+    });
+
+    const rows = store.dailyInspectionMetrics(new Date(Date.now() - 60_000).toISOString());
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ count: 2, avgDurationMs: 130, errorCount: 1 });
+  });
+
   it("fingerprints：同签名 upsert 计数递增、状态可更新", () => {
     const first = store.upsertFingerprint("sig-1", "sample-1");
     expect(first.count).toBe(1);

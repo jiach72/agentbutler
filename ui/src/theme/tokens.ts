@@ -1,5 +1,6 @@
 /**
- * 主题真源：「纸墨管家」（亮色，默认）与「墨青夜灯」（暗色）两套色板、圆角、字体、动效的唯一定义处。
+ * 主题真源：「Console Light」（亮色，默认）与「Graphite Night」（暗色）两套冷中性色板、
+ * 圆角、字号、间距、动效的唯一定义处。
  * antd ConfigProvider 与 CSS 变量桥都从这里取值；界面样式只允许引用 --butler-* 变量，
  * 硬编码色值仅允许出现在本文件。
  */
@@ -78,78 +79,78 @@ export interface ButlerPalette {
   focusRing: string;
 }
 
-/** 纸墨管家：暖纸底 + 墨色文字 + 墨蓝交互 + 朱砂印记。 */
-export const paperPalette: ButlerPalette = {
-  bg: "#f7f4ee",
-  surface: "#fffdf8",
-  surfaceSubtle: "#f8f5ee",
-  sunken: "#efe9dc",
+/** Console Light：冷灰白底 + 近黑文字 + 青蓝交互，发丝线边框优先于投影。 */
+export const lightPalette: ButlerPalette = {
+  bg: "#f4f6f8",
+  surface: "#ffffff",
+  surfaceSubtle: "#f9fafb",
+  sunken: "#edf0f3",
   raised: "#ffffff",
-  ink: "#2b2620",
-  inkSoft: "#4a4438",
-  inkFaint: "#97907f",
-  muted: "#8a8072",
-  rule: "#e6dfd1",
-  accent: "#2e5e8f",
-  accentSoft: "#e7eef4",
-  cinnabar: "#b83a2e",
-  cinnabarSoft: "#f9e9e5",
-  teal: "#2f8a80",
-  tealSoft: "#e3f1ef",
-  ok: "#3d7a52",
-  okSoft: "#e7f2ea",
-  warn: "#a8681f",
-  warnSoft: "#f9efdd",
-  error: "#bf3b30",
-  errorSoft: "#faeae7",
-  shadow: "0 1px 2px rgb(62 50 34 / 6%), 0 2px 6px rgb(62 50 34 / 5%)",
-  focusRing: "0 0 0 3px rgb(46 94 143 / 20%)",
+  ink: "#16191e",
+  inkSoft: "#40474f",
+  inkFaint: "#939ba6",
+  muted: "#5d6672",
+  rule: "#e3e7eb",
+  accent: "#0e7683",
+  accentSoft: "#e2f3f5",
+  cinnabar: "#ce3b45",
+  cinnabarSoft: "#fbe9ea",
+  teal: "#3a67c9",
+  tealSoft: "#e7edfb",
+  ok: "#16803c",
+  okSoft: "#e6f5ea",
+  warn: "#b25e09",
+  warnSoft: "#fbf0dd",
+  error: "#d02f35",
+  errorSoft: "#fceaec",
+  shadow: "0 1px 2px rgb(16 24 40 / 5%), 0 1px 3px rgb(16 24 40 / 6%)",
+  focusRing: "0 0 0 3px rgb(14 118 131 / 28%)",
 };
 
-/** 墨青夜灯：石墨墨蓝底 + 暖白文字 + 青瓷交互，语义色整体提亮保证对比度。 */
+/** Graphite Night：石墨底 + 暖白文字 + 亮青交互；语义色整体提亮保证对比度。 */
 export const nightPalette: ButlerPalette = {
-  bg: "#0f1418",
-  surface: "#171e24",
-  surfaceSubtle: "#1d262d",
-  sunken: "#0b1014",
-  raised: "#222c33",
-  ink: "#f1efe8",
-  inkSoft: "#d2d7d3",
-  inkFaint: "#8d9995",
-  muted: "#a2ada8",
-  rule: "#2e3b43",
-  accent: "#62c7ba",
-  accentSoft: "#173a37",
-  cinnabar: "#ef8a76",
-  cinnabarSoft: "#3b2422",
-  teal: "#6acfc1",
-  tealSoft: "#153c38",
-  ok: "#76c99b",
-  okSoft: "#173527",
-  warn: "#e7b35b",
-  warnSoft: "#3b2d17",
-  error: "#ef8174",
-  errorSoft: "#3b2523",
-  shadow: "0 1px 2px rgb(0 0 0 / 50%), 0 12px 32px rgb(0 0 0 / 24%)",
-  focusRing: "0 0 0 3px rgb(98 199 186 / 34%)",
+  bg: "#0e1116",
+  surface: "#151a20",
+  surfaceSubtle: "#191f26",
+  sunken: "#0a0d11",
+  raised: "#1d242b",
+  ink: "#e9edf0",
+  inkSoft: "#c5ccd2",
+  inkFaint: "#7f8993",
+  muted: "#97a1ab",
+  rule: "#262e36",
+  accent: "#41b7c4",
+  accentSoft: "#113b42",
+  cinnabar: "#ef7d76",
+  cinnabarSoft: "#3c2220",
+  teal: "#8da6f2",
+  tealSoft: "#1c2743",
+  ok: "#55c583",
+  okSoft: "#14301f",
+  warn: "#e4af4c",
+  warnSoft: "#3a2d12",
+  error: "#ef7a70",
+  errorSoft: "#3d211e",
+  shadow: "0 1px 2px rgb(0 0 0 / 45%), 0 8px 24px rgb(0 0 0 / 22%)",
+  focusRing: "0 0 0 3px rgb(65 183 196 / 38%)",
 };
 
 export const radius = {
-  card: 14,
-  control: 10,
+  card: 10,
+  control: 6,
 } as const;
 
-export const fontFamily =
-  '"Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif';
+const fontStack =
+  '"Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif';
 
-/** 品牌印记字体：楷体系最接近印章手写感。走查备注：Windows 下 KaiTi 笔画偏细，
- * 若「管」字印记观感不佳，回退方案是 Microsoft YaHei 加粗。 */
-export const sealFontFamily =
-  '"Kaiti SC", "STKaiti", "KaiTi", "楷体", Georgia, serif';
+export const fontFamily = fontStack;
 
-/** 大号数字/展示性西文用衬线，配 tabular-nums 保证对齐。 */
-export const displayFontFamily =
-  'Georgia, "Times New Roman", "Songti SC", "SimSun", serif';
+/** 等宽栈：日志、ID、指标等数据型文本。 */
+export const monoFontFamily =
+  '"Cascadia Mono", Consolas, "SF Mono", Menlo, "Courier New", monospace';
+
+/** 展示型标题沿用正文字体（加字重），不再引入衬线/网络字体。 */
+export const displayFontFamily = fontStack;
 
 const motion = {
   durFast: "120ms",
@@ -158,7 +159,24 @@ const motion = {
   ease: "cubic-bezier(0.2, 0, 0, 1)",
 } as const;
 
+/**
+ * 字号阶梯（px）：全站最小 12，正文 14，区块题 16-18，页面题 20-24。
+ * CSS 一律通过 --butler-text-* 引用。
+ */
+const typeScale = {
+  xs: "12px",
+  sm: "13px",
+  md: "14px",
+  lg: "16px",
+  xl: "20px",
+  xxl: "24px",
+} as const;
+
+/** 4/8 间距网格。CSS 通过 --butler-space-* 引用。 */
+const spaceScale = [4, 8, 12, 16, 24, 32] as const;
+
 function buildThemeConfig(p: ButlerPalette, mode: ThemeMode): ThemeConfig {
+  const darkPrimaryText = mode === "dark" ? "#06282e" : "#ffffff";
   return {
     algorithm: mode === "dark" ? theme.darkAlgorithm : theme.defaultAlgorithm,
     token: {
@@ -167,21 +185,60 @@ function buildThemeConfig(p: ButlerPalette, mode: ThemeMode): ThemeConfig {
       colorSuccess: p.ok,
       colorWarning: p.warn,
       colorError: p.error,
+      // 语义柔和底统一走本文件色板的 soft 变体，避免 antd 默认派生色与页面不协调。
+      colorInfoBg: p.accentSoft,
+      colorInfoBgHover: p.accentSoft,
+      colorSuccessBg: p.okSoft,
+      colorSuccessBgHover: p.okSoft,
+      colorWarningBg: p.warnSoft,
+      colorWarningBgHover: p.warnSoft,
+      colorErrorBg: p.errorSoft,
+      colorErrorBgHover: p.errorSoft,
       colorBgLayout: p.bg,
       colorBgContainer: p.surface,
+      colorBgElevated: mode === "dark" ? p.raised : p.raised,
       colorText: p.ink,
       colorTextSecondary: p.muted,
+      colorBorder: mode === "dark" ? p.rule : "#cfd5db",
       colorBorderSecondary: p.rule,
       borderRadius: radius.control,
       borderRadiusLG: radius.card,
+      borderRadiusSM: 4,
       boxShadowTertiary: p.shadow,
       fontFamily,
+      fontSize: 14,
+    },
+    components: {
+      Button: {
+        fontWeight: 500,
+        primaryColor: darkPrimaryText,
+        defaultBorderColor: mode === "dark" ? p.rule : "#cbd2d9",
+      },
+      Table: {
+        headerBg: p.surfaceSubtle,
+        headerSplitColor: "transparent",
+        cellFontSizeSM: 13,
+        cellPaddingBlockSM: 6,
+        rowHoverBg: p.surfaceSubtle,
+      },
+      Tag: {
+        defaultBg: p.sunken,
+      },
+      Modal: {
+        titleFontSize: 16,
+      },
+      Tooltip: {
+        fontSize: 12,
+      },
+      Collapse: {
+        headerBg: p.surfaceSubtle,
+      },
     },
   };
 }
 
 export function themeConfigFor(mode: ThemeMode): ThemeConfig {
-  return buildThemeConfig(mode === "dark" ? nightPalette : paperPalette, mode);
+  return buildThemeConfig(mode === "dark" ? nightPalette : lightPalette, mode);
 }
 
 const paletteVars = (p: ButlerPalette): Record<string, string> => ({
@@ -218,7 +275,7 @@ const paletteVars = (p: ButlerPalette): Record<string, string> => ({
  * 内联优先级高于任何样式表声明，杜绝历史 :root 残留干扰。
  */
 export function applyThemeCssBridge(mode: ThemeMode): void {
-  const p = mode === "dark" ? nightPalette : paperPalette;
+  const p = mode === "dark" ? nightPalette : lightPalette;
   const root = document.documentElement;
   root.dataset.theme = mode;
   root.style.colorScheme = mode;
@@ -232,10 +289,23 @@ export function applyThemeCssBridge(mode: ThemeMode): void {
     "--butler-dur-slow": motion.durSlow,
     "--butler-ease": motion.ease,
     "--butler-body-font": fontFamily,
-    "--butler-display-font": displayFontFamily,
-    "--butler-seal-font": sealFontFamily,
+    "--butler-mono-font": monoFontFamily,
+    ...Object.fromEntries(typeScaleEntries()),
+    ...spaceVars(),
   };
   for (const [name, value] of Object.entries(vars)) {
     root.style.setProperty(name, value);
   }
+}
+
+function typeScaleEntries(): Array<[string, string]> {
+  return Object.entries(typeScale).map(([key, value]) => [`--butler-text-${key}`, value]);
+}
+
+function spaceVars(): Record<string, string> {
+  const entries: Array<[string, string]> = spaceScale.map((value, index) => [
+    `--butler-space-${index + 1}`,
+    `${value}px`,
+  ]);
+  return Object.fromEntries(entries);
 }

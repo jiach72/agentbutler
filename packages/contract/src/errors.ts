@@ -12,6 +12,14 @@
 /** 本契约的具体版本号。 */
 export const CONTRACT_VERSION = "1.0";
 
+/**
+ * Web、Watch 与 Gateway 控制面 API 的兼容标识。
+ *
+ * 这是部署握手用的 schema 版本，不等同于 npm 包或静态资源版本。Web 在读取
+ * 进化工作区数据时必须验证该值，防止旧 Watch 实例把新页面降级成看似“无数据”。
+ */
+export const CONTROL_API_SCHEMA_VERSION = "evolution-v2-charts-v1";
+
 /** 内核支持的契约版本区间（minor 通配，如 "1.x"）。 */
 export const KERNEL_SUPPORTED_CONTRACT_RANGE = ["1.x"] as const;
 

@@ -65,6 +65,8 @@ services:
       BUTLER_HERMES_ROOT: /home/butler/hermes
       BUTLER_HERMES_EXTERNAL_RUNTIME: "true"
       BUTLER_HERMES_READ_ONLY: "true"
+      # 候选、日志和引擎副本始终写 Butler 数据卷，不写 Hermes checkout。
+      BUTLER_EVOLUTION_RUN_ROOT: /home/butler/evolution-runs
       HERMES_ROOT: /home/butler/hermes
       BUTLER_OPENCLAW_ROOT: /home/butler/openclaw
       OPENCLAW_HOME: /home/butler/openclaw
@@ -85,7 +87,9 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - butler-data:/home/butler
-      - ${BUTLER_HERMES_HOST_PATH:-./.runtime/hermes}:/home/butler/hermes:ro
+      # WSL Docker 对同一 bind 源的嵌套挂载会遮蔽父目录；保持单一完整挂载，
+      # promote 由 Watch 的路径限制、baseline hash 和一次性 token 门禁保护。
+      - ${BUTLER_HERMES_HOST_PATH:-./.runtime/hermes}:/home/butler/hermes:rw
       - ${BUTLER_OPENCLAW_HOST_PATH:-./.runtime/openclaw}:/home/butler/openclaw:ro
       # Docker control is opt-in. Set DOCKER_SOCKET_PATH to enable it.
       - ${DOCKER_SOCKET_PATH:-/dev/null}:/var/run/docker.sock

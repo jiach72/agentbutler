@@ -203,6 +203,80 @@ describe("MessagePolicyStore", () => {
     store.close();
   });
 
+  it("aggregates terminal delivery outcomes by local day and fills empty days", () => {
+    const store = new MessagePolicyStore(dbFile);
+    const items = [
+      { ...BATCH.items[0], messageId: "history-delivered", state: "delivered" as const },
+      { ...BATCH.items[0], messageId: "history-failed", state: "dead_letter" as const },
+      { ...BATCH.items[0], messageId: "history-uncertain", state: "delivery_unknown" as const },
+    ];
+    store.ingestBatch({
+      afterSequence: 0,
+      nextSequence: 3,
+      items: items.map((item, index) => ({ ...item, sequence: index + 1 })),
+      taskEvents: [],
+      inbound: [],
+    });
+    const now = new Date();
+    now.setHours(12, 0, 0, 0);
+    const today = new Date(now);
+    const yesterday = new Date(now.getTime() - 86_400_000);
+    const stamp = (value: Date) => value.toISOString();
+    const seed = new DatabaseSync(dbFile);
+    seed
+      .prepare("UPDATE message_outcome_history SET occurred_at = ? WHERE message_id = ?")
+      .run(stamp(today), "history-delivered");
+    seed
+      .prepare("UPDATE message_outcome_history SET occurred_at = ? WHERE message_id = ?")
+      .run(stamp(today), "history-failed");
+    seed
+      .prepare("UPDATE message_outcome_history SET occurred_at = ? WHERE message_id = ?")
+      .run(stamp(yesterday), "history-uncertain");
+    seed.close();
+
+    const history = store.dailyOutcomeHistory(3, now);
+
+    expect(history).toHaveLength(3);
+    expect(history.reduce((total, row) => total + row.delivered, 0)).toBe(1);
+    expect(history.reduce((total, row) => total + row.failed, 0)).toBe(1);
+    expect(history.reduce((total, row) => total + row.uncertain, 0)).toBe(1);
+    expect(history.filter((row) => row.delivered + row.failed + row.uncertain === 0)).toHaveLength(1);
+    store.close();
+  });
+
+  it("keeps long-term delivery history after the short-term projection is pruned", () => {
+    const store = new MessagePolicyStore(dbFile);
+    const now = new Date();
+    const occurredAt = new Date(now.getTime() - 25 * 86_400_000).toISOString();
+    const delivered = {
+      ...BATCH.items[0],
+      messageId: "long-term-delivered",
+      state: "delivered" as const,
+      deliveredAt: occurredAt,
+    };
+    store.ingestBatch({
+      afterSequence: 0,
+      nextSequence: 1,
+      items: [{ ...delivered, sequence: 1 }],
+      taskEvents: [],
+      inbound: [],
+    });
+    const seed = new DatabaseSync(dbFile);
+    seed
+      .prepare("UPDATE message_projection SET updated_at = ? WHERE message_id = ?")
+      .run(occurredAt, delivered.messageId);
+    seed.close();
+
+    expect(store.pruneMessageHistory(new Date(now.getTime() - 7 * 86_400_000).toISOString())).toBe(1);
+    expect(store.messageView(delivered.messageId)).toBeUndefined();
+
+    const history = store.dailyOutcomeHistory(30, now);
+    const day = occurredAt.slice(0, 10);
+    expect(history.find((row) => row.date === day)?.delivered).toBe(1);
+    expect(history.reduce((total, row) => total + row.delivered, 0)).toBe(1);
+    store.close();
+  });
+
   it("rejects a skipped Bridge cursor before it writes a partial projection", () => {
     const store = new MessagePolicyStore(dbFile);
     store.ingestBatch(BATCH);

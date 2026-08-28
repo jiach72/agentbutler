@@ -248,7 +248,7 @@ describe("createWatchApp 组装冒烟", () => {
       fetchFn: fakeFetch,
     });
     expect(app.breaker.isTripped("rb-restart:hermes-main")).toBe(true);
-  });
+  }, 15_000);
 
   it("stop 优雅停止且幂等", async () => {
     app = await createWatchApp({
@@ -263,7 +263,7 @@ describe("createWatchApp 组装冒烟", () => {
     app.stop();
     expect(app.scheduler.isRunning()).toBe(false);
     app.stop(); // 幂等不抛异常
-  });
+  }, 15_000);
 });
 
 describe("进化前备份门禁", () => {

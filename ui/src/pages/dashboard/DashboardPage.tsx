@@ -41,6 +41,8 @@ export function DashboardPage() {
     refresh,
     refreshConnections,
     criticalLoadFailed,
+    inspectionHistory,
+    deliveryHistory,
   } = useDashboardData();
   const recovery = useRecoveryFlow();
   const openClawInstall = useOpenClawInstall({
@@ -236,6 +238,8 @@ export function DashboardPage() {
         degradedInstanceCount={degradedInstanceCount}
         inspectStatus={inspectStatus}
         messageStats={messageStats}
+        inspectionHistory={inspectionHistory?.items ?? []}
+        deliveryHistory={deliveryHistory?.items ?? []}
         onOpenAdvanced={openAdvanced}
       />
 
@@ -284,13 +288,7 @@ export function DashboardPage() {
               <FingerprintsTable fingerprints={fingerprints} onOpenLogs={() => setLogPanelOpen(true)} />
 
               <div className="manager-logs-entry">
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => setLogPanelOpen(true)}
-                >
-                  打开系统日志
-                </button>
+                <Button onClick={() => setLogPanelOpen(true)}>打开系统日志</Button>
                 <span>Hermes 运行日志、网关日志与探针日志（只读查看，不会修改任何文件）</span>
               </div>
             </div>

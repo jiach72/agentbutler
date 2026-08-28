@@ -1,6 +1,7 @@
 /**
  * 版本页 · 最新可升级版本：版本源诊断、目标实例选择与候选列表。
  */
+import { Button, Select } from "antd";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { formatRelative } from "../../lib/format.js";
@@ -67,34 +68,33 @@ export function CandidateList({
             ))}
           </>
         }
-        action={
-          <button type="button" className="btn btn-quiet" onClick={onRefresh}>重新检查版本</button>
-        }
+        action={<Button size="small" onClick={onRefresh}>重新检查版本</Button>}
       />
     );
   }
+  const instanceOptions =
+    instances.length === 0
+      ? [{ value: "", label: "（暂未发现管家，由管家自动选择）" }]
+      : instances.map((instance) => ({
+          value: instance.instanceId,
+          label: instanceLabel(instance.instanceId),
+        }));
   return (
     <>
       <div className="version-toolbar">
         <span className="version-source">更新来源：{versionSourceLabel(available.source ?? "")}</span>
         <span className="version-source-check">已检查：{available.checkedAt ? formatRelative(available.checkedAt) : "—"}</span>
-        <label htmlFor="upgrade-target">要升级的管家：</label>
-        <select
+        <label className="field-label" htmlFor="upgrade-target">
+          要升级的管家：
+        </label>
+        <Select
           id="upgrade-target"
-          className="select"
+          className="version-target-select"
           value={targetInstance}
-          onChange={(event) => onSelectInstance(event.target.value)}
-        >
-          {instances.length === 0 ? (
-            <option value="">（暂未发现管家，由管家自动选择）</option>
-          ) : (
-            instances.map((instance) => (
-              <option key={instance.instanceId} value={instance.instanceId}>
-                {instanceLabel(instance.instanceId)}
-              </option>
-            ))
-          )}
-        </select>
+          options={instanceOptions}
+          onChange={(value) => onSelectInstance(value)}
+          popupMatchSelectWidth={false}
+        />
       </div>
       {available.attempts !== undefined && available.attempts.length > 0 && (
         <div className="version-source-timeline" aria-label="版本源探测记录">
@@ -112,7 +112,7 @@ export function CandidateList({
           {currentVersion === ""
             ? "尚未读取到目标实例当前版本；请先确认 Hermes 实例在线，再重新检查。"
             : `当前目标实例 ${instanceLabel(targetInstance)} 为 ${currentVersion}，版本源没有更高版本候选。`}
-          <button type="button" className="btn btn-quiet" onClick={onRefresh}>重新检查版本</button>
+          <Button size="small" onClick={onRefresh}>重新检查版本</Button>
         </div>
       ) : (
         <div className="cards-stack">
@@ -126,9 +126,11 @@ export function CandidateList({
             return (
               <div className="card version-item" key={entry.version}>
                 <div className="version-main">
-                  <span className="version-name">{versionDisplay(entry)}</span>
-                  {badge !== null && <StatusBadge tone={badge.tone} label={badge.label} />}
-                  {isCurrent && <StatusBadge tone="muted" label="当前版本" />}
+                  <div className="version-name-row">
+                    <span className="version-name">{versionDisplay(entry)}</span>
+                    {badge !== null && <StatusBadge tone={badge.tone} label={badge.label} />}
+                    {isCurrent && <StatusBadge tone="muted" label="当前版本" />}
+                  </div>
                   <small className="version-tag">
                     {entry.version}
                     {published !== "" ? ` · ${published}` : ""}
@@ -137,9 +139,8 @@ export function CandidateList({
                     <p className="version-notes">{entry.notes}</p>
                   )}
                 </div>
-                <button
-                  type="button"
-                  className="btn"
+                <Button
+                  type="primary"
                   disabled={isCurrent || launchPending || jobRunning}
                   onClick={() => onUpgrade(entry)}
                 >
@@ -150,7 +151,7 @@ export function CandidateList({
                       : jobRunning
                         ? "升级进行中"
                         : "升级到这一版"}
-                </button>
+                </Button>
               </div>
             );
           })}

@@ -34,6 +34,13 @@ CREATE TABLE IF NOT EXISTS message_projection (
   last_policy_error TEXT,
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS message_outcome_history (
+  message_id TEXT PRIMARY KEY,
+  outcome TEXT NOT NULL CHECK (outcome IN ('delivered', 'failed', 'uncertain')),
+  occurred_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_message_outcome_history_occurred_at
+  ON message_outcome_history(occurred_at);
 CREATE TABLE IF NOT EXISTS task_projection (
   run_id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL,
@@ -111,7 +118,10 @@ const TRANSPORT_CLASSES = new Set(["queued-push", "inline-response"]);
 const MESSAGE_PRIORITIES = new Set(["urgent", "normal", "low"]);
 const DND_SCOPES = new Set(["global", "channel", "session"]);
 export const MESSAGE_HISTORY_RETENTION_DAYS = 7;
+export const MESSAGE_OUTCOME_HISTORY_RETENTION_DAYS = 365;
 export const MESSAGE_HISTORY_RETENTION_MS = MESSAGE_HISTORY_RETENTION_DAYS * 24 * 60 * 60 * 1_000;
+export const MESSAGE_OUTCOME_HISTORY_RETENTION_MS =
+  MESSAGE_OUTCOME_HISTORY_RETENTION_DAYS * 24 * 60 * 60 * 1_000;
 
 export interface ProjectedMessageView extends OutboxMessageView {
   decisionId: string | null;
@@ -184,6 +194,7 @@ export class MessagePolicyStore {
     this.db.exec("PRAGMA foreign_keys=ON;");
     this.db.exec("PRAGMA busy_timeout=5000;");
     this.db.exec(DDL);
+    this.backfillOutcomeHistory();
   }
 
   close(): void {
@@ -221,6 +232,7 @@ export class MessagePolicyStore {
       const now = new Date().toISOString();
       for (const item of batch.items) {
         this.upsertMessage(item, undefined, now);
+        this.recordOutcome(item.messageId, item.state, item.deliveredAt ?? now, now);
       }
       for (const inbound of batch.inbound) {
         this.upsertInbound(inbound);
@@ -298,7 +310,9 @@ export class MessagePolicyStore {
     this.withImmediateTransaction(() => {
       const pending = this.pendingDecision(row.messageId);
       const clearsPending = decisionId !== undefined && pending?.decisionId === decisionId;
-      this.upsertMessage(row, decisionId, new Date().toISOString(), clearsPending);
+      const now = new Date().toISOString();
+      this.upsertMessage(row, decisionId, now, clearsPending);
+      this.recordOutcome(row.messageId, row.state, row.deliveredAt ?? now, now);
     });
   }
 
@@ -555,6 +569,47 @@ export class MessagePolicyStore {
     return counts;
   }
 
+  /** 近 N 天送达结果按日聚合（本地时区；独立历史表不受 7 天投影清理影响）。 */
+  dailyOutcomeHistory(
+    days: number,
+    now = new Date(),
+  ): Array<{ date: string; delivered: number; failed: number; uncertain: number }> {
+    if (!Number.isInteger(days) || days < 1 || days > MESSAGE_OUTCOME_HISTORY_RETENTION_DAYS) {
+      throw new Error(
+        `delivery history days must be an integer from 1 through ${MESSAGE_OUTCOME_HISTORY_RETENTION_DAYS}`,
+      );
+    }
+    const today = new Date(now.getTime());
+    today.setHours(0, 0, 0, 0);
+    const start = new Date(today);
+    start.setDate(start.getDate() - (days - 1));
+    const buckets = new Map<string, { delivered: number; failed: number; uncertain: number }>();
+    for (let i = 0; i < days; i += 1) {
+      const day = new Date(start);
+      day.setDate(start.getDate() + i);
+      const key = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(
+        day.getDate(),
+      ).padStart(2, "0")}`;
+      buckets.set(key, { delivered: 0, failed: 0, uncertain: 0 });
+    }
+    const rows = this.db
+      .prepare(
+        `SELECT date(occurred_at, 'localtime') AS day,
+                outcome,
+                COUNT(*) AS count
+         FROM message_outcome_history
+         WHERE occurred_at >= ?
+         GROUP BY day, outcome`,
+      )
+      .all(start.toISOString()) as Record<string, unknown>[];
+    for (const row of rows) {
+      const bucket = buckets.get(String(row["day"]));
+      if (bucket === undefined) continue;
+      bucket[String(row["outcome"]) as "delivered" | "failed" | "uncertain"] += Number(row["count"]);
+    }
+    return [...buckets.entries()].map(([date, value]) => ({ date, ...value }));
+  }
+
   /**
    * Removes only terminal local projections older than the retention cutoff. The Bridge
    * outbox remains authoritative and is never mutated by this local housekeeping pass.
@@ -637,6 +692,75 @@ export class MessagePolicyStore {
         updatedAt,
         clearPendingDecision ? 1 : 0,
       );
+  }
+
+  /**
+   * Persists only terminal delivery outcomes. Replaying the same terminal state
+   * keeps its original occurrence time; a category change replaces the row.
+   */
+  private recordOutcome(
+    messageId: string,
+    state: OutboxState,
+    occurredAt: string,
+    observedAt: string,
+  ): void {
+    const outcome =
+      state === "delivered"
+        ? "delivered"
+        : state === "dead_letter" || state === "policy_error"
+          ? "failed"
+          : state === "delivery_unknown"
+            ? "uncertain"
+            : null;
+    if (outcome === null) return;
+
+    const existing = this.db
+      .prepare("SELECT outcome FROM message_outcome_history WHERE message_id = ?")
+      .get(messageId) as Record<string, unknown> | undefined;
+    if (existing !== undefined && String(existing["outcome"]) === outcome) return;
+
+    const timestamp = isCanonicalUtcIso(occurredAt)
+      ? occurredAt
+      : isCanonicalUtcIso(observedAt)
+        ? observedAt
+        : new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO message_outcome_history (message_id, outcome, occurred_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(message_id) DO UPDATE SET
+           outcome = excluded.outcome,
+           occurred_at = excluded.occurred_at`,
+      )
+      .run(messageId, outcome, timestamp);
+  }
+
+  /** Backfills the durable history table when opening a store created before it existed. */
+  private backfillOutcomeHistory(): void {
+    const rows = this.db
+      .prepare(
+        `SELECT p.message_id, p.state, p.payload_json, p.updated_at
+         FROM message_projection AS p
+         LEFT JOIN message_outcome_history AS h ON h.message_id = p.message_id
+         WHERE h.message_id IS NULL
+           AND p.state IN ('delivered', 'delivery_unknown', 'policy_error', 'dead_letter')`,
+      )
+      .all() as Record<string, unknown>[];
+    for (const row of rows) {
+      let deliveredAt: string | undefined;
+      try {
+        const payload = JSON.parse(String(row["payload_json"] ?? "null")) as Record<string, unknown>;
+        if (typeof payload.deliveredAt === "string") deliveredAt = payload.deliveredAt;
+      } catch {
+        // Ignore malformed legacy payloads; updated_at remains a usable observation time.
+      }
+      this.recordOutcome(
+        String(row["message_id"]),
+        String(row["state"]) as OutboxState,
+        deliveredAt ?? String(row["updated_at"]),
+        String(row["updated_at"]),
+      );
+    }
   }
 
   private upsertInbound(inbound: InboundEnvelope): void {
@@ -911,6 +1035,15 @@ function requireIsoTimestamp(value: unknown, field: string): asserts value is st
   if (!value.endsWith("Z") || Number.isNaN(time) || new Date(time).toISOString() !== value) {
     throw new Error(`${field} must be a canonical UTC ISO timestamp`);
   }
+}
+
+function isCanonicalUtcIso(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.endsWith("Z") &&
+    !Number.isNaN(Date.parse(value)) &&
+    new Date(Date.parse(value)).toISOString() === value
+  );
 }
 
 function validateNullableTimestamp(value: unknown, field: string): void {

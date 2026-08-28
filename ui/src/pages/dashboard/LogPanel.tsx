@@ -3,7 +3,7 @@
  * 面板自身的加载/分析/修复确认状态全部内聚在本组件内。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { App } from "antd";
+import { App, Button } from "antd";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
 import { fetchJson, postJson } from "../../lib/api.js";
 import { formatBytes, formatNumber } from "../../lib/format.js";
@@ -130,9 +130,9 @@ export function LogPanel({ open, onClose }: LogPanelProps) {
                 <span className="log-drawer-eyebrow">只读查看</span>
                 <h3 id="log-drawer-title">系统日志</h3>
               </div>
-              <button type="button" className="btn btn-quiet" onClick={onClose}>
+              <Button type="text" size="small" onClick={onClose}>
                 关闭
-              </button>
+              </Button>
             </div>
             <div className="log-drawer-body">
               <section className="log-diagnosis">
@@ -165,13 +165,13 @@ export function LogPanel({ open, onClose }: LogPanelProps) {
                           )}
                         </div>
                         {issue.suggestedAction !== null && (
-                          <button
-                            type="button"
-                            className="btn btn-primary btn-sm"
+                          <Button
+                            type="primary"
+                            size="small"
                             onClick={() => setConfirmFix(issue)}
                           >
                             一键修复
-                          </button>
+                          </Button>
                         )}
                       </article>
                     ))}
@@ -211,24 +211,22 @@ export function LogPanel({ open, onClose }: LogPanelProps) {
                     {(activeLog.hasOlder || activeLog.hasNewer) && (
                       <div className="log-viewer-pager">
                         {activeLog.hasOlder && (
-                          <button
-                            type="button"
-                            className="btn btn-quiet btn-sm"
+                          <Button
+                            size="small"
                             disabled={loading}
                             onClick={() => void loadLogTail(activeLog.sourceId, activeLog.pageStart)}
                           >
                             更早的日志
-                          </button>
+                          </Button>
                         )}
                         {activeLog.hasNewer && (
-                          <button
-                            type="button"
-                            className="btn btn-quiet btn-sm"
+                          <Button
+                            size="small"
                             disabled={loading}
                             onClick={() => void loadLogTail(activeLog.sourceId, null)}
                           >
                             回到最新
-                          </button>
+                          </Button>
                         )}
                       </div>
                     )}

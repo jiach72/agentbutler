@@ -153,6 +153,16 @@ describe("gateway message HTTP API", () => {
     expect(task.json()).toMatchObject({ runId: "run-1", events: [{ summary: "working" }] });
   });
 
+  it("returns zero-filled delivery history up to the 365-day retention limit", async () => {
+    const history = await app.inject({ method: "GET", url: "/api/messages/delivery-history?days=365" });
+    expect(history.statusCode).toBe(200);
+    expect(history.json()).toMatchObject({ days: 365, retentionDays: 365 });
+    expect((history.json() as { items: unknown[] }).items).toHaveLength(365);
+
+    const invalid = await app.inject({ method: "GET", url: "/api/messages/delivery-history?days=366" });
+    expect(invalid.statusCode).toBe(400);
+  });
+
   it("upserts, lists, validates, and deletes scoped DND rules", async () => {
     const put = await app.inject({
       method: "PUT",

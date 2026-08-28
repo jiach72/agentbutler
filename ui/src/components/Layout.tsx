@@ -1,8 +1,19 @@
 /**
- * 面板布局：左侧固定业务导航 + 左下角应用设置入口（当前页高亮）
- * + 右侧内容区（路由出口）。
+ * 应用外壳：左侧固定导航（图标 + 双行文案，底部安全区说明）+ 顶栏（页题、通知、主题切换）
+ * + 右侧内容路由出口。移动端侧栏收进 Drawer。
  */
-import { MenuOutlined, MoonOutlined, SettingOutlined, SunOutlined } from "@ant-design/icons";
+import {
+  ApiOutlined,
+  CloudUploadOutlined,
+  DashboardOutlined,
+  MenuOutlined,
+  MoonOutlined,
+  NotificationOutlined,
+  SafetyCertificateOutlined,
+  SettingOutlined,
+  SunOutlined,
+  ThunderboltOutlined,
+} from "@ant-design/icons";
 import { Button, Drawer } from "antd";
 import { useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
@@ -11,16 +22,16 @@ import { NotificationsProvider } from "../hooks/useNotifications.js";
 import { useTheme } from "../theme/ThemeProvider.js";
 
 const NAV_ITEMS = [
-  { to: "/dashboard", index: "首", label: "首页", note: "你的本地 AI 管家" },
-  { to: "/versions", index: "版", label: "版本管理", note: "升级前会自动备份，失败会还原" },
-  { to: "/gateway", index: "信", label: "消息通知", note: "消息频率控制与送达记录" },
-  { to: "/evolution", index: "进", label: "进化与优化", note: "改进评估与发布风险控制" },
-  { to: "/skills", index: "识", label: "技能与记忆", note: "技能、插件与记忆管理" },
+  { to: "/dashboard", icon: <DashboardOutlined />, label: "首页", note: "运行总览与一键检查" },
+  { to: "/versions", icon: <CloudUploadOutlined />, label: "版本管理", note: "升级前自动备份" },
+  { to: "/gateway", icon: <NotificationOutlined />, label: "消息通知", note: "频率控制与送达记录" },
+  { to: "/evolution", icon: <ThunderboltOutlined />, label: "进化与优化", note: "改进评估与风险控制" },
+  { to: "/skills", icon: <ApiOutlined />, label: "技能与记忆", note: "技能、插件与记忆" },
 ];
 
 const SETTINGS_ITEM = {
   to: "/settings",
-  index: "设",
+  icon: <SettingOutlined />,
   label: "设置",
   note: "本机安全、备份与偏好",
 };
@@ -28,53 +39,55 @@ const SETTINGS_ITEM = {
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <>
-        <div className="brand">
-          <span className="brand-mark" aria-hidden="true">
-            管
-          </span>
-          <span className="brand-copy">
-            Agent Butler
-            <small>你的本地 AI 管家</small>
-          </span>
-        </div>
-        <nav className="nav" aria-label="主导航">
-          {NAV_ITEMS.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              onClick={onNavigate}
-              className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}
-            >
-              <span className="nav-index" aria-hidden="true">
-                {item.index}
-              </span>
-              <span className="nav-copy">
-                <strong>{item.label}</strong>
-                <small>{item.note}</small>
-              </span>
-            </NavLink>
-          ))}
-        </nav>
-        <div className="sidebar-bottom">
+      <div className="brand">
+        <span className="brand-mark" aria-hidden="true">
+          管
+        </span>
+        <span className="brand-copy">
+          Agent Butler
+          <small>本地 AI 运维控制台</small>
+        </span>
+      </div>
+      <nav className="nav" aria-label="主导航">
+        {NAV_ITEMS.map((item) => (
           <NavLink
-            to={SETTINGS_ITEM.to}
+            key={item.to}
+            to={item.to}
             onClick={onNavigate}
-            className={({ isActive }) => `nav-link nav-link-preferences${isActive ? " active" : ""}`}
+            className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}
           >
-            <span className="nav-index" aria-hidden="true"><SettingOutlined /></span>
+            <span className="nav-icon" aria-hidden="true">
+              {item.icon}
+            </span>
             <span className="nav-copy">
-              <strong>{SETTINGS_ITEM.label}</strong>
-              <small>{SETTINGS_ITEM.note}</small>
+              <strong>{item.label}</strong>
+              <small>{item.note}</small>
             </span>
           </NavLink>
-          <div className="sidebar-meta">
-          <span>
-            <i />
-            仅本机访问
+        ))}
+      </nav>
+      <div className="sidebar-bottom">
+        <NavLink
+          to={SETTINGS_ITEM.to}
+          onClick={onNavigate}
+          className={({ isActive }) => `nav-link nav-link-preferences${isActive ? " active" : ""}`}
+        >
+          <span className="nav-icon" aria-hidden="true">
+            {SETTINGS_ITEM.icon}
           </span>
-          <code>数据只保存在你的电脑上</code>
-          </div>
+          <span className="nav-copy">
+            <strong>{SETTINGS_ITEM.label}</strong>
+            <small>{SETTINGS_ITEM.note}</small>
+          </span>
+        </NavLink>
+        <div className="sidebar-meta">
+          <SafetyCertificateOutlined aria-hidden="true" />
+          <span>
+            仅本机访问
+            <small>数据只保存在你的电脑上</small>
+          </span>
         </div>
+      </div>
     </>
   );
 }
@@ -83,51 +96,64 @@ export function Layout() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const { mode, toggleMode } = useTheme();
   const location = useLocation();
-  const currentPage = location.pathname.startsWith(SETTINGS_ITEM.to) || location.pathname.startsWith("/preferences")
+  const currentPage = location.pathname.startsWith(SETTINGS_ITEM.to) ||
+      location.pathname.startsWith("/preferences")
     ? SETTINGS_ITEM
     : NAV_ITEMS.find((item) => location.pathname.startsWith(item.to)) ?? NAV_ITEMS[0];
   const themeLabel = mode === "dark" ? "切换到亮色主题" : "切换到暗色主题";
 
   return (
     <NotificationsProvider>
-    <div className="app">
-      <aside className="sidebar sidebar-desktop"><SidebarContent /></aside>
-      <Drawer
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        placement="left"
-        width={280}
-        title="Agent Butler"
-        className="mobile-nav-drawer"
-      >
-        <div className="sidebar sidebar-mobile"><SidebarContent onNavigate={() => setDrawerOpen(false)} /></div>
-      </Drawer>
-      <div className="main">
-        <header className="app-topbar">
-          <div className="topbar-leading">
-            <Button className="mobile-menu-button" type="text" icon={<MenuOutlined />} aria-label="打开导航" onClick={() => setDrawerOpen(true)} />
-            <span className="topbar-status" aria-hidden="true"><i /></span>
-            <strong>{currentPage.label}</strong>
-            <span className="topbar-brand">Agent Butler · 你的本地 AI 管家</span>
+      <a className="skip-link" href="#main-content">
+        跳到主内容
+      </a>
+      <div className="app">
+        <aside className="sidebar sidebar-desktop">
+          <SidebarContent />
+        </aside>
+        <Drawer
+          open={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+          placement="left"
+          width={280}
+          title="Agent Butler"
+          className="mobile-nav-drawer"
+        >
+          <div className="sidebar sidebar-mobile">
+            <SidebarContent onNavigate={() => setDrawerOpen(false)} />
           </div>
-          <div className="topbar-actions">
-            <span className="topbar-note">只在你的电脑上运行，不会上传数据</span>
-            <NotificationCenter />
-            <Button
-              type="text"
-              className="theme-toggle"
-              aria-label={themeLabel}
-              title={themeLabel}
-              icon={mode === "dark" ? <SunOutlined /> : <MoonOutlined />}
-              onClick={toggleMode}
-            />
-          </div>
-        </header>
-        <main className="content">
-          <Outlet />
-        </main>
+        </Drawer>
+        <div className="main">
+          <header className="app-topbar">
+            <div className="topbar-leading">
+              <Button
+                className="mobile-menu-button"
+                type="text"
+                icon={<MenuOutlined />}
+                aria-label="打开导航"
+                onClick={() => setDrawerOpen(true)}
+              />
+              <strong className="topbar-title">{currentPage.label}</strong>
+              <span className="topbar-brand">Agent Butler · 本地 AI 运维控制台</span>
+            </div>
+            <div className="topbar-actions">
+              <span className="topbar-note">只在你的电脑上运行</span>
+              <NotificationCenter />
+              <Button
+                type="text"
+                className="theme-toggle"
+                aria-label={themeLabel}
+                title={themeLabel}
+                icon={mode === "dark" ? <SunOutlined /> : <MoonOutlined />}
+                onClick={toggleMode}
+              />
+            </div>
+          </header>
+          <main className="content" id="main-content">
+            <Outlet />
+          </main>
+        </div>
       </div>
-    </div>
     </NotificationsProvider>
   );
 }

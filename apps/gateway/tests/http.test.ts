@@ -156,7 +156,7 @@ describe("gateway HTTP API", () => {
     await smtpReady.close();
   });
 
-  it("GET /healthz：{ ok: true, pending }", async () => {
+  it("GET /healthz：包含服务与 schema 版本", async () => {
     await app.inject({
       method: "POST",
       url: "/api/alerts",
@@ -164,6 +164,12 @@ describe("gateway HTTP API", () => {
     });
     const res = await app.inject({ method: "GET", url: "/healthz" });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ ok: true, pending: 1 });
+    expect(res.json()).toMatchObject({
+      ok: true,
+      pending: 1,
+      service: "gateway",
+      serviceVersion: expect.stringMatching(/^gateway@/),
+      schemaVersion: "evolution-v2-charts-v1",
+    });
   });
 });

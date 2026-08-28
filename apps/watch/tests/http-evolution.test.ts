@@ -9,6 +9,9 @@ import type {
   EvolutionPromoteOutcome,
   EvolutionResultInput,
   EvolutionService,
+  EvolutionRunCreateInput,
+  EvolutionRunView,
+  EvolutionEvaluateOutcome,
 } from "../src/evolution.js";
 import { startWatchHttp, type WatchHttp, type WatchHttpDeps } from "../src/http.js";
 
@@ -28,6 +31,14 @@ const READY: EvolutionPreflightOutcome = {
 };
 
 interface EvolutionFakeState {
+  diagnoseCalls: Array<{ instanceId?: string }>;
+  createCalls: EvolutionRunCreateInput[];
+  getCalls: string[];
+  startCalls: string[];
+  evaluateCalls: string[];
+  cancelCalls: string[];
+  runView: EvolutionRunView;
+  evaluateRunOutcome: EvolutionEvaluateOutcome;
   preflightCalls: EvolutionPreflightInput[];
   expandCalls: EvolutionExpandInput[];
   resultCalls: EvolutionResultInput[];
@@ -39,6 +50,37 @@ interface EvolutionFakeState {
 
 function makeDeps(): { deps: WatchHttpDeps; state: EvolutionFakeState } {
   const state: EvolutionFakeState = {
+    diagnoseCalls: [],
+    createCalls: [],
+    getCalls: [],
+    startCalls: [],
+    evaluateCalls: [],
+    cancelCalls: [],
+    runView: {
+      runId: "run-16",
+      targetType: "skill",
+      targetRef: "demo",
+      status: "ready",
+      createdAt: "2026-08-27T00:00:00.000Z",
+      updatedAt: "2026-08-27T00:00:00.000Z",
+      checks: [],
+      blocked: false,
+      detail: "ready",
+      logTail: { stdout: [], stderr: [] },
+    },
+    evaluateRunOutcome: {
+      status: "accepted",
+      sampleCount: 10,
+      confidence: 0.9,
+      baselineMetric: 0.5,
+      candidateMetric: 0.6,
+      delta: 0.1,
+      canPromote: false,
+      report: {},
+      allowWrite: false,
+      baselinePreserved: true,
+      ledgerPath: "/ledger/run-16.md",
+    },
     preflightCalls: [],
     expandCalls: [],
     resultCalls: [],
@@ -75,6 +117,30 @@ function makeDeps(): { deps: WatchHttpDeps; state: EvolutionFakeState } {
       defaultEndpoint: "https://llm.example/v1",
       ledger: [],
     }),
+    diagnose: (input) => {
+      state.diagnoseCalls.push(input ?? {});
+      return { analyzedAt: "2026-08-27T00:00:00.000Z", issues: [], recommendations: [] };
+    },
+    createRun: async (input) => {
+      state.createCalls.push(input);
+      return state.runView;
+    },
+    getRun: async (runId) => {
+      state.getCalls.push(runId);
+      return runId === "run-16" ? state.runView : null;
+    },
+    startRun: async (runId) => {
+      state.startCalls.push(runId);
+      return { ...state.runView, status: "running", runId };
+    },
+    evaluateRun: async (runId) => {
+      state.evaluateCalls.push(runId);
+      return state.evaluateRunOutcome;
+    },
+    cancelRun: async (runId) => {
+      state.cancelCalls.push(runId);
+      return { ...state.runView, status: "cancelled", runId };
+    },
     preflight: async (input) => {
       state.preflightCalls.push(input);
       return READY;
@@ -88,6 +154,10 @@ function makeDeps(): { deps: WatchHttpDeps; state: EvolutionFakeState } {
       return state.resultOutcome;
     },
     promoteArtifact: (input) => {
+      state.promoteCalls.push(input);
+      return state.promoteOutcome;
+    },
+    promoteRun: async (input) => {
       state.promoteCalls.push(input);
       return state.promoteOutcome;
     },
@@ -213,6 +283,43 @@ describe("startWatchHttp 进化守门端点", () => {
     expect(exported.headers.get("content-type")).toContain("text/markdown");
     expect(exported.headers.get("content-disposition")).toContain("evolution-run-16.md");
     await expect(exported.text()).resolves.toContain("进化实验台账");
+  });
+
+  it("接线新诊断与任务生命周期接口", async () => {
+    const diagnose = await fetch(`${base}/api/evolution/diagnose`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ instanceId: "hermes-main" }),
+    });
+    expect(diagnose.status).toBe(200);
+    await expect(diagnose.json()).resolves.toMatchObject({ recommendations: [] });
+    expect(fake.state.diagnoseCalls).toEqual([{}]);
+
+    const create = await fetch(`${base}/api/evolution/runs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ targetType: "skill", targetRef: "demo", dryRun: true }),
+    });
+    expect(create.status).toBe(201);
+    expect(fake.state.createCalls[0]).toMatchObject({ targetType: "skill", targetRef: "demo", dryRun: true });
+
+    const get = await fetch(`${base}/api/evolution/runs/run-16`);
+    expect(get.status).toBe(200);
+    expect(fake.state.getCalls).toEqual(["run-16"]);
+
+    const start = await fetch(`${base}/api/evolution/runs/run-16/start`, { method: "POST" });
+    expect(start.status).toBe(202);
+    expect(fake.state.startCalls).toEqual(["run-16"]);
+
+    const evaluate = await fetch(`${base}/api/evolution/runs/run-16/evaluate`, { method: "POST" });
+    expect(evaluate.status).toBe(200);
+    expect(fake.state.evaluateCalls).toEqual(["run-16"]);
+
+    const cancel = await fetch(`${base}/api/evolution/runs/run-16/cancel`, { method: "POST" });
+    expect(cancel.status).toBe(200);
+    expect(fake.state.cancelCalls).toEqual(["run-16"]);
+
+    expect((await fetch(`${base}/api/evolution/runs/missing`)).status).toBe(404);
   });
 
   it("校验非法输入并映射缺失运行、非 ready 运行与缺失台账", async () => {

@@ -3,7 +3,7 @@
  * 记忆检索独立于技能/插件列表——搜索只更新右侧预览区，失败不回滚列表。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { App, Spin, Tabs } from "antd";
+import { App, Button, Spin, Tabs } from "antd";
 import { ConnectionChip } from "../../components/ConnectionChip.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { loadJson, postJson } from "../../lib/api.js";
@@ -179,11 +179,7 @@ export function SkillsPage() {
                       severity="warn"
                       message="这一项暂时读不到"
                       description={mainState.reason}
-                      action={
-                        <button type="button" className="btn btn-small" onClick={() => void loadLibrary()}>
-                          重试
-                        </button>
-                      }
+                      action={<Button size="small" onClick={() => void loadLibrary()}>重试</Button>}
                     />
                   )}
                   {mainState.status === "ready" && <SkillLibrary skills={mainState.data.skills} />}
@@ -214,11 +210,7 @@ export function SkillsPage() {
                       severity="warn"
                       message="这一项暂时读不到"
                       description={mainState.reason}
-                      action={
-                        <button type="button" className="btn btn-small" onClick={() => void loadLibrary()}>
-                          重试
-                        </button>
-                      }
+                      action={<Button size="small" onClick={() => void loadLibrary()}>重试</Button>}
                     />
                   )}
                   {mainState.status === "ready" && (

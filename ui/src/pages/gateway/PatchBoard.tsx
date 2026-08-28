@@ -2,7 +2,7 @@
  * 形态补丁区：补丁卡片、参数草稿（antd InputNumber）、漂移检测与应用动作。
  * busy 锁按「动作:实例:补丁」粒度生效，只禁用对应按钮。
  */
-import { Input, InputNumber } from "antd";
+import { Button, Input, InputNumber } from "antd";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { formatRelative } from "../../lib/format.js";
 import { PARAM_LABELS, instanceKeyOf, patchBusyKey, schemaHint, statusTone } from "./helpers.js";
@@ -165,30 +165,28 @@ export function PatchBoard({
                 )}
 
                 <div className="patch-actions">
-                  <button
-                    type="button"
-                    className="btn"
+                  <Button
+                    type="primary"
                     disabled={applyDisabled}
+                    loading={busyKeys.has(applyKey)}
                     onClick={() => onRunAction(patch, "apply")}
                   >
-                    {busyKeys.has(applyKey) ? "应用中" : "应用这个调整"}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
+                    应用这个调整
+                  </Button>
+                  <Button
                     disabled={applyDisabled}
+                    loading={busyKeys.has(reapplyKey)}
                     onClick={() => onRunAction(patch, "reapply")}
                   >
-                    {busyKeys.has(reapplyKey) ? "恢复中" : "恢复官方默认"}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
+                    恢复官方默认
+                  </Button>
+                  <Button
                     disabled={detectDisabled}
+                    loading={busyKeys.has(detectKey)}
                     onClick={() => onRunAction(patch, "detect")}
                   >
-                    {busyKeys.has(detectKey) ? "检查中" : "检查是否被改过"}
-                  </button>
+                    检查是否被改过
+                  </Button>
                 </div>
               </article>
             );

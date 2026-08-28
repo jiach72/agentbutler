@@ -1,6 +1,7 @@
 /**
  * 版本页 · 退回上一版本：最近一次可用的升级前快照。
  */
+import { Button } from "antd";
 import { formatRelative } from "../../lib/format.js";
 import { instanceLabel } from "./helpers.js";
 import type { SnapshotView } from "./types.js";
@@ -26,13 +27,7 @@ export function SnapshotRollback({ snapshot, onRollback }: SnapshotRollbackProps
           {snapshot.label ?? "升级前自动保存"} · {formatRelative(snapshot.createdAt)}
         </span>
       </div>
-      <button
-        type="button"
-        className="btn btn-secondary"
-        onClick={() => onRollback(snapshot)}
-      >
-        退回上一版本
-      </button>
+      <Button onClick={() => onRollback(snapshot)}>退回上一版本</Button>
     </div>
   );
 }

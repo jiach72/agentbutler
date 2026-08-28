@@ -97,7 +97,8 @@ beforeEach(() => {
   writeFileSync(join(root, "venv", "bin", "python"), "");
   core = createCore({ home: join(tmp, "butler-home") });
   dependencyMissing = [];
-  endpointStatus = 401;
+  // 成功路径使用真实的 2xx 探针响应；401/403 等凭据错误由专门用例覆盖。
+  endpointStatus = 200;
   snapshotCalls = [];
   alerts = [];
   seedInstance();
@@ -106,6 +107,7 @@ beforeEach(() => {
     control,
     exec,
     fetchFn,
+    llm: { apiKey: "test-key", model: "test-model" },
     poster,
     now: () => Date.parse("2026-08-21T03:00:00.000Z"),
   });
@@ -189,6 +191,7 @@ describe("进化预检与 holdout 硬门槛", () => {
       control: noRegistrationControl,
       exec,
       fetchFn,
+      llm: { apiKey: "test-key", model: "test-model" },
       poster,
       now: () => Date.parse("2026-08-21T03:00:00.000Z"),
     });
@@ -228,8 +231,54 @@ describe("进化预检与 holdout 硬门槛", () => {
     expect(outcome.checks.find((check) => check.id === "endpoint")).toMatchObject({
       status: "fail",
       detail: expect.stringContaining("503"),
-      action: expect.stringContaining("端点"),
+      action: expect.stringContaining("上游"),
     });
+  });
+});
+
+describe("带鉴权模型探针分类", () => {
+  it.each([
+    [401, "credentials"],
+    [403, "credentials"],
+    [404, "configuration"],
+    [429, "rate-limit"],
+    [500, "upstream"],
+  ] as const)("HTTP %s 映射为 %s 并阻断预检", async (status, category) => {
+    endpointStatus = status;
+    const outcome = await service.preflight({
+      instanceId: "hermes-main",
+      dependencies: ["dspy"],
+      endpoint: "https://api.example.test/v1",
+      holdoutCount: 2,
+    });
+
+    expect(outcome.status).toBe("rejected-preflight");
+    expect(outcome.checks.find((check) => check.id === "endpoint")).toMatchObject({ status: "fail" });
+    expect(service.status().endpointHealth).toMatchObject({ status: "fail", category });
+  });
+
+  it("未找到 API Key 时在发起请求前阻断，并不把凭据写入诊断", async () => {
+    const noKey = createEvolutionService({
+      core,
+      control,
+      exec,
+      fetchFn,
+      poster,
+      now: () => Date.parse("2026-08-21T03:00:00.000Z"),
+    });
+    endpointStatus = 200;
+    const outcome = await noKey.preflight({
+      instanceId: "hermes-main",
+      dependencies: ["dspy"],
+      endpoint: "https://api.example.test/v1",
+      holdoutCount: 2,
+    });
+    expect(outcome.checks.find((check) => check.id === "endpoint")).toMatchObject({
+      status: "fail",
+      detail: expect.stringContaining("未找到可用 API Key"),
+    });
+    expect(noKey.status().endpointHealth.category).toBe("credentials");
+    expect(JSON.stringify(outcome)).not.toContain("test-key");
   });
 });
 
@@ -383,5 +432,74 @@ describe("运行后守门与台账导出", () => {
     const rejected = service.promoteArtifact({ runId, token: decision.writeAuthority!.token });
     expect(rejected).toMatchObject({ status: "error", error: "target-changed" });
     expect(readFileSync(targetPath, "utf8")).toBe("baseline-drifted\n");
+  });
+});
+
+describe("Docker-in-WSL 原生 shell 编排", () => {
+  it("创建 ready 任务并从隔离 runRoot 启动 Hermes dry-run，不写 baseline", async () => {
+    const calls: Array<{ cmd: string; args: string[] }> = [];
+    const linuxExec: CommandExecutor = {
+      exec: async (cmd, args): Promise<CommandResult> => {
+        calls.push({ cmd, args });
+        const script = args.at(-1) ?? "";
+        if (script.includes("importlib.util.find_spec")) {
+          return { code: 0, stdout: JSON.stringify({ dspy: true, gepa: true, optuna: true }), stderr: "" };
+        }
+        if (script.includes("'baseUrl'") || script.includes('"baseUrl"')) {
+          return { code: 0, stdout: JSON.stringify({ baseUrl: "https://api.example.test/v1", apiKey: "test-key", model: "test-model" }), stderr: "" };
+        }
+        if (script.includes("target=$(find")) {
+          return { code: 0, stdout: "/home/hermes/hermes-agent/skills/demo/SKILL.md\n", stderr: "" };
+        }
+        if (script.includes("setsid sh -lc")) {
+          return { code: 0, stdout: "4242\n", stderr: "" };
+        }
+        throw new Error(`unexpected shell command: ${script}`);
+      },
+      spawnDetached: () => {},
+    };
+    const isolated = createEvolutionService({
+      core,
+      control,
+      exec: linuxExec,
+      fetchFn,
+      llm: { apiKey: "test-key", model: "test-model" },
+      hermesRoot: "/home/hermes",
+      evolutionRoot: "/home/hermes/skills/hermes-agent-self-evolution",
+      runRoot: "/home/butler/evolution-runs",
+      useWsl: true,
+      poster,
+      now: () => Date.parse("2026-08-21T03:00:00.000Z"),
+    });
+
+    const run = await isolated.createRun({
+      targetType: "skill",
+      targetRef: "category/demo",
+      instanceId: "hermes-main",
+      endpoint: "https://api.example.test/v1",
+      holdoutCount: 12,
+      dryRun: true,
+    });
+
+    expect(run.status).toBe("ready");
+    expect(run.stdoutPath).toContain(`/home/butler/evolution-runs/${run.runId}/stdout.log`);
+    expect(run.artifacts?.baselinePath).toContain(`/home/butler/evolution-runs/${run.runId}/baseline_skill.md`);
+    expect(run.artifacts?.baselinePath).not.toContain("/home/hermes/hermes-agent/skills");
+
+    const started = await isolated.startRun(run.runId);
+    expect(started).toMatchObject({ status: "running", pid: 4242 });
+    const launch = calls.find(({ args }) => (args.at(-1) ?? "").includes("setsid sh -lc"));
+    expect(launch).toBeDefined();
+    const launchScript = launch!.args.at(-1)!;
+    expect(launchScript).toContain(`/home/butler/evolution-runs/${run.runId}/engine`);
+    expect(launchScript).toMatch(/cd .*\/engine/);
+    expect(launchScript).toContain(`/home/butler/evolution-runs/${run.runId}/engine`);
+    expect(launchScript).toContain("--skill");
+    expect(launchScript).toContain("demo");
+    expect(launchScript).toContain("HERMES_AGENT_REPO");
+    expect(launchScript).toContain("/home/hermes");
+    expect(launchScript).toContain("venv/lib/python3.11/site-packages");
+    expect(launchScript).toContain("--dry-run");
+    expect(launchScript).not.toContain("/home/hermes/skills/hermes-agent-self-evolution/output");
   });
 });

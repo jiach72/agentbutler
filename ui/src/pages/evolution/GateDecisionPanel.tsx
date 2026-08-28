@@ -99,9 +99,14 @@ export function GateDecisionPanel({
             <Form.Item name="fixes" label="做了哪些修复（可选）">
               <Input.TextArea rows={2} />
             </Form.Item>
-            <button type="button" onClick={onSubmitGate} disabled={busy !== null}>
-              {busy === "gate" ? "正在确认…" : "确认结果"}
-            </button>
+            <Button
+              type="primary"
+              loading={busy === "gate"}
+              disabled={busy !== null}
+              onClick={onSubmitGate}
+            >
+              确认结果
+            </Button>
           </div>
         </AdvancedDetails>
       )}

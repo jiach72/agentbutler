@@ -11,6 +11,8 @@ import type {
   AlertsPayload,
   ConnectionsPayload,
   DashboardPayload,
+  DeliveryHistoryPayload,
+  InspectionHistoryPayload,
   MessageStatusPayload,
   OpenClawInstallJobView,
   OpenClawStatusView,
@@ -24,6 +26,8 @@ export function useDashboardData() {
   const [openClawInstallJob, setOpenClawInstallJob] = useState<OpenClawInstallJobView | null>(null);
   const [runbooks, setRunbooks] = useState<RunbooksPayload | null>(null);
   const [alerts, setAlerts] = useState<AlertsPayload | null>(null);
+  const [deliveryHistory, setDeliveryHistory] = useState<DeliveryHistoryPayload | null>(null);
+  const [inspectionHistory, setInspectionHistory] = useState<InspectionHistoryPayload | null>(null);
   const [initialLoad, setInitialLoad] = useState({
     dashboard: false,
     runbooks: false,
@@ -47,6 +51,12 @@ export function useDashboardData() {
       fetchJson<AlertsPayload>("/api/alerts").then((nextAlerts) => {
         if (nextAlerts !== null) setAlerts(nextAlerts);
         mark("alerts");
+      }),
+      fetchJson<DeliveryHistoryPayload>("/api/messages/delivery-history?days=7").then((history) => {
+        if (history !== null) setDeliveryHistory(history);
+      }),
+      fetchJson<InspectionHistoryPayload>("/api/inspections/history?days=14").then((history) => {
+        if (history !== null) setInspectionHistory(history);
       }),
     ]);
     if (trackInitial) setInitialLoad((current) => ({ ...current, finished: true }));
@@ -82,7 +92,7 @@ export function useDashboardData() {
   // 连接状态包含启停动作和端口探测，使用更短的轮询窗口让按钮反馈不滞后。
   usePolling(() => void refreshConnections(), 5_000);
 
-  // 实时性：复用共享 /ws 事件流（同 EventTicker），相关事件触发节流 5s 的刷新。
+  // 实时性：复用共享 /ws 事件流（与通知中心一致），相关事件触发节流 5s 的刷新。
   const handleEventSignal = useCallback(() => {
     void refresh();
     void refreshConnections();
@@ -115,5 +125,7 @@ export function useDashboardData() {
     refresh,
     refreshConnections,
     criticalLoadFailed,
+    deliveryHistory,
+    inspectionHistory,
   };
 }

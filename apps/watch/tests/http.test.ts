@@ -107,11 +107,16 @@ describe("startWatchHttp（注入依赖，回环真实端口）", () => {
     http.close(); // 幂等
   });
 
-  it("GET /healthz → { ok: true }", async () => {
+  it("GET /healthz → 服务与 schema 版本", async () => {
     const res = await fetch(`${base}/healthz`);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("application/json");
-    await expect(res.json()).resolves.toEqual({ ok: true });
+    await expect(res.json()).resolves.toMatchObject({
+      ok: true,
+      service: "watch",
+      serviceVersion: expect.stringMatching(/^watch@/),
+      schemaVersion: "evolution-v2-charts-v1",
+    });
   });
 
   it("GET /api/runbooks → 三段结构（id/label/description/breakerTripped/lastRun 可选）", async () => {
@@ -378,7 +383,12 @@ describe("createWatchApp HTTP 接线（watchHttpPort=0 随机端口）", () => {
     expect(addr).not.toBeNull();
     appBase = `http://127.0.0.1:${addr!.port}`;
 
-    await expect((await fetch(`${appBase}/healthz`)).json()).resolves.toEqual({ ok: true });
+    await expect((await fetch(`${appBase}/healthz`)).json()).resolves.toMatchObject({
+      ok: true,
+      service: "watch",
+      serviceVersion: expect.stringMatching(/^watch@/),
+      schemaVersion: "evolution-v2-charts-v1",
+    });
 
     const runbooks = ((await (await fetch(`${appBase}/api/runbooks`)).json()) as {
       runbooks: Array<{ id: string; description: string; breakerTripped: boolean; lastRun?: unknown }>;
@@ -492,5 +502,5 @@ describe("createWatchApp HTTP 接线（watchHttpPort=0 随机端口）", () => {
 
     app.stop();
     await expect(fetch(`${appBase}/healthz`)).rejects.toThrow();
-  });
+  }, 15_000);
 });

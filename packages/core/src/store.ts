@@ -275,6 +275,7 @@ CREATE TABLE IF NOT EXISTS events (
   payload_json TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_events_type ON events(type);
+CREATE INDEX IF NOT EXISTS idx_events_type_ts ON events(type, ts);
 
 CREATE TABLE IF NOT EXISTS fingerprints (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -510,6 +511,61 @@ export class SqliteStore {
       severity: String(r["severity"]) as EventSeverity,
       source: String(r["source"]),
       payload: fromJson<unknown>(r["payload_json"] as string | null, null),
+    }));
+  }
+
+  /**
+   * Aggregates inspection-completed events in SQLite. The caller supplies the
+   * UTC lower bound for the local-calendar window; JSON1 computes per-check
+   * duration averages before averaging across inspections.
+   */
+  dailyInspectionMetrics(since: string): Array<{
+    date: string;
+    count: number;
+    avgDurationMs: number | null;
+    errorCount: number;
+  }> {
+    if (typeof since !== "string" || Number.isNaN(Date.parse(since))) {
+      throw new Error("inspection metrics since must be a valid timestamp");
+    }
+    const rows = this.db
+      .prepare(
+        `WITH inspection_rows AS (
+           SELECT
+             date(e.ts, 'localtime') AS day,
+             CASE
+               WHEN typeof(json_extract(e.payload_json, '$.overall')) = 'text'
+                AND json_extract(e.payload_json, '$.overall') NOT IN ('ok', 'healthy')
+               THEN 1 ELSE 0
+             END AS is_error,
+             (
+               SELECT AVG(
+                 CASE
+                   WHEN typeof(json_extract(check_item.value, '$.durationMs')) IN ('integer', 'real')
+                   THEN CAST(json_extract(check_item.value, '$.durationMs') AS REAL)
+                   ELSE NULL
+                 END
+               )
+               FROM json_each(e.payload_json, '$.checks') AS check_item
+             ) AS duration_ms
+           FROM events AS e
+           WHERE e.type = 'inspection-completed' AND e.ts >= ?
+         )
+         SELECT
+           day,
+           COUNT(*) AS count,
+           ROUND(AVG(duration_ms)) AS avg_duration_ms,
+           SUM(is_error) AS error_count
+         FROM inspection_rows
+         GROUP BY day
+         ORDER BY day ASC`,
+      )
+      .all(since) as Record<string, unknown>[];
+    return rows.map((row) => ({
+      date: String(row["day"]),
+      count: Number(row["count"]),
+      avgDurationMs: row["avg_duration_ms"] === null ? null : Number(row["avg_duration_ms"]),
+      errorCount: Number(row["error_count"]),
     }));
   }
 

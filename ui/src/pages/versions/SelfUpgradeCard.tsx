@@ -1,6 +1,7 @@
 /**
  * 版本页 · 管家自身卡片：版本信息、更新偏好、最新可用版本与自身恢复点。
  */
+import { Button, Checkbox, Select } from "antd";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { formatRelative } from "../../lib/format.js";
 import { channelBadge, jobBadge, repositoryBadge, selfPhaseVerb } from "./helpers.js";
@@ -110,30 +111,26 @@ export function SelfUpgradeCard({
             <div className="butler-self-prefs-controls">
               <label className="field-label">
                 更新通道
-                <select
-                  className="select"
+                <Select
+                  className="self-channel-select"
                   value={butlerSelf.prefs.channel}
                   disabled={selfBusy}
-                  onChange={(event) =>
-                    onSavePrefs(
-                      event.target.value === "beta" ? "beta" : "stable",
-                      butlerSelf.prefs.locked,
-                    )
+                  onChange={(value) =>
+                    onSavePrefs(value === "beta" ? "beta" : "stable", butlerSelf.prefs.locked)
                   }
-                >
-                  <option value="stable">稳定版</option>
-                  <option value="beta">测试版（可能不稳定）</option>
-                </select>
-              </label>
-              <label className="check-label">
-                <input
-                  type="checkbox"
-                  checked={butlerSelf.prefs.locked}
-                  disabled={selfBusy}
-                  onChange={(event) => onSavePrefs(butlerSelf.prefs.channel, event.target.checked)}
+                  options={[
+                    { value: "stable", label: "稳定版" },
+                    { value: "beta", label: "测试版（可能不稳定）" },
+                  ]}
                 />
-                锁定版本（忽略更新提醒）
               </label>
+              <Checkbox
+                checked={butlerSelf.prefs.locked}
+                disabled={selfBusy}
+                onChange={(event) => onSavePrefs(butlerSelf.prefs.channel, event.target.checked)}
+              >
+                锁定版本（忽略更新提醒）
+              </Checkbox>
             </div>
           </div>
 
@@ -178,9 +175,8 @@ export function SelfUpgradeCard({
                       label={channelBadge(candidate.channel).label}
                     />
                   </div>
-                  <button
-                    type="button"
-                    className="btn"
+                  <Button
+                    type="primary"
                     disabled={
                       selfBusy ||
                       butlerSelf.lastJob?.status === "running" ||
@@ -189,7 +185,7 @@ export function SelfUpgradeCard({
                     onClick={() => onRequestUpgrade(candidate)}
                   >
                     更新到最新版
-                  </button>
+                  </Button>
                 </li>
               </ul>
             )}
@@ -208,9 +204,7 @@ export function SelfUpgradeCard({
                     <strong>{previousSelfSnapshot.version}</strong>
                     <span>{formatRelative(previousSelfSnapshot.at)}保存</span>
                   </div>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
+                  <Button
                     disabled={
                       selfBusy ||
                       butlerSelf.lastJob?.status === "running" ||
@@ -219,7 +213,7 @@ export function SelfUpgradeCard({
                     onClick={() => onRequestRollback(previousSelfSnapshot)}
                   >
                     退回上一版本
-                  </button>
+                  </Button>
                 </li>
               </ul>
             )}

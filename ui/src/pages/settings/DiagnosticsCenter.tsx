@@ -3,7 +3,7 @@
  * 保留文本响应处理；超时与失败文案走 pickErrorText / 固定文案，成败均有 message 提示。
  */
 import { useState } from "react";
-import { App } from "antd";
+import { App, Button } from "antd";
 import { pickErrorText } from "../../lib/format.js";
 
 interface DiagnosticsCenterProps {
@@ -77,13 +77,14 @@ export function DiagnosticsCenter({ actionBusy }: DiagnosticsCenterProps) {
         打包脱敏的日志问题、错误指纹、巡检快照和配置摘要；不含密钥和聊天正文。
       </p>
       <div className="backup-actions">
-        <button
-          className="btn btn-primary"
+        <Button
+          type="primary"
+          loading={diagnostic.busy}
           disabled={actionBusy || diagnostic.busy}
           onClick={() => void runDiagnostic()}
         >
-          {diagnostic.busy ? "生成中…" : "生成诊断报告"}
-        </button>
+          生成诊断报告
+        </Button>
       </div>
       {diagnostic.error !== null && (
         <p className="diagnostic-error hint" role="status">
@@ -95,12 +96,9 @@ export function DiagnosticsCenter({ actionBusy }: DiagnosticsCenterProps) {
           <summary>查看报告（可下载）</summary>
           <div className="advanced-details-body">
             <pre className="diagnostic-preview">{diagnostic.text}</pre>
-            <button
-              className="btn btn-small"
-              onClick={() => downloadDiagnostic(diagnostic.text!)}
-            >
+            <Button size="small" onClick={() => downloadDiagnostic(diagnostic.text!)}>
               下载 Markdown
-            </button>
+            </Button>
           </div>
         </details>
       )}

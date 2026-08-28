@@ -13,7 +13,7 @@
  */
 import path from "node:path";
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
-import { isOutboxState } from "@butler/contract";
+import { CONTROL_API_SCHEMA_VERSION, CONTRACT_VERSION, isOutboxState } from "@butler/contract";
 import type { InboundHistoryView, PolicySnapshot, Result } from "@butler/contract";
 import { ensureButlerHome } from "@butler/core";
 import { buildEnvChannels, degradedChannelLabels, type AlertChannel } from "./channels.js";
@@ -21,6 +21,7 @@ import { DeliveryLoop, type Clock, type LoopScheduler } from "./loop.js";
 import { validateMessagePolicy } from "./message/config.js";
 import type { MessageGatewayStatus } from "./message/service.js";
 import type { DndRuleInput, MessagePolicyStore } from "./message/store.js";
+import { MESSAGE_OUTCOME_HISTORY_RETENTION_DAYS } from "./message/store.js";
 import type { MessagePolicyConfig } from "./message/types.js";
 import { AlertQueue, type AlertRow, type AlertSeverity } from "./queue.js";
 
@@ -30,6 +31,7 @@ const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 const MAX_BODY_BYTES = 1024 * 1024;
 const DND_SCOPES = new Set(["global", "channel", "session"]);
+export const GATEWAY_SERVICE_VERSION = `gateway@1.0.0-beta.7+${CONTRACT_VERSION}`;
 
 export interface MessageGatewayController {
   status(): Promise<MessageGatewayStatus>;
@@ -180,6 +182,9 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
         : undefined;
     return {
       ok: true,
+      service: "gateway",
+      serviceVersion: GATEWAY_SERVICE_VERSION,
+      schemaVersion: CONTROL_API_SCHEMA_VERSION,
       pending: queueRef.counts().pending,
       ...(message === undefined ? {} : { message }),
     };
@@ -339,6 +344,24 @@ function registerMessageRoutes(
       return reply.code(400).send({ error: "invalid message state" });
     }
     return { counts: messageStore.counts(), items: messageStore.listMessages(limit, rawState) };
+  });
+
+  /** 送达结果按日历史：days 缺省 7，上限为独立历史表的 365 天保留期。 */
+  app.get("/api/messages/delivery-history", async (request, reply) => {
+    if (messageStore === undefined) return bridgeUnavailable(reply, "E302");
+    const query = (request.query ?? {}) as Record<string, string | undefined>;
+    const parsed = Number(query["days"] ?? "7");
+    const days = Number.isFinite(parsed) ? Math.floor(parsed) : 7;
+    if (days < 1 || days > MESSAGE_OUTCOME_HISTORY_RETENTION_DAYS) {
+      return reply.code(400).send({
+        error: `invalid days; expected an integer from 1 through ${MESSAGE_OUTCOME_HISTORY_RETENTION_DAYS}`,
+      });
+    }
+    return {
+      days,
+      retentionDays: MESSAGE_OUTCOME_HISTORY_RETENTION_DAYS,
+      items: messageStore.dailyOutcomeHistory(days),
+    };
   });
 
   const acceptHint = async (

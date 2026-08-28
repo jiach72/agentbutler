@@ -1,7 +1,7 @@
 /**
  * 消息频率观察面：调参建议 + 限流命中表（antd Table）。
  */
-import { Table } from "antd";
+import { Button, Table } from "antd";
 import type { TableColumnsType } from "antd";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { formatRelative } from "../../lib/format.js";
@@ -68,13 +68,9 @@ export function RateLimitsTable({ rateLimit, onUseSuggestion }: RateLimitsTableP
                     </div>
                     <p>{suggestion.reason}</p>
                   </div>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => onUseSuggestion(suggestion)}
-                  >
+                  <Button size="small" onClick={() => onUseSuggestion(suggestion)}>
                     写入参数草稿
-                  </button>
+                  </Button>
                 </div>
               ))}
             </div>

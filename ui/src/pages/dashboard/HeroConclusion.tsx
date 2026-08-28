@@ -1,6 +1,7 @@
 /**
  * 英雄结论区：一句话结论 + 主行动（立即检查 / 诊断并处理）+ 元信息。
  */
+import { Button } from "antd";
 import { formatRelative } from "../../lib/format.js";
 import type { HeroView, InspectStatusView } from "./types.js";
 
@@ -25,6 +26,8 @@ export function HeroConclusion({
   onInspect,
   onDiagnose,
 }: HeroConclusionProps) {
+  const inspectInFlight =
+    inspectRequested || inspectStatus?.inFlight === true;
   return (
     <div className={`manager-hero is-${hero.tone}`}>
       <span className="manager-hero-band" aria-hidden="true" />
@@ -37,22 +40,22 @@ export function HeroConclusion({
         <p>{hero.copy}</p>
       </div>
       <div className="manager-hero-actions">
-        <button
-          type="button"
-          className="btn btn-primary manager-action"
+        <Button
+          type="primary"
+          className="manager-action"
+          loading={inspectInFlight}
           onClick={onInspect}
-          disabled={inspectRequested || inspectStatus?.inFlight === true}
         >
-          {inspectStatus?.inFlight === true ? "正在检查…" : "立即检查"}
-        </button>
-        <button
-          type="button"
-          className="btn manager-action"
+          立即检查
+        </Button>
+        <Button
+          className="manager-action"
+          loading={recoveryBusy}
+          disabled={!canDiagnose}
           onClick={onDiagnose}
-          disabled={recoveryBusy || !canDiagnose}
         >
-          {recoveryBusy ? "正在诊断…" : "诊断并处理"}
-        </button>
+          诊断并处理
+        </Button>
       </div>
       <div className="manager-hero-meta">
         <span>上次检查：{formatRelative(inspectStatus?.lastAt)}</span>

@@ -2,10 +2,20 @@
  * 消息优化面板：口语消息改写对照历史、规则文件改进记录与候选版本采用。
  * 从 components/ 迁入 gateway 子目录；轮询改走 usePolling（后台自动暂停）。
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Button, Table } from "antd";
+import type { TableColumnsType } from "antd";
+import { TrendCard, ChartEmpty, TrendColumn } from "../../components/charts/index.js";
+import {
+  chartThemeFor,
+  quietAxes,
+  semanticSeries,
+  topLegend,
+} from "../../components/charts/chartTheme.js";
+import { useTheme } from "../../theme/ThemeProvider.js";
 import { AdvancedDetails } from "../../components/AdvancedDetails.js";
 import { ConnectionChip } from "../../components/ConnectionChip.js";
-import { fetchJson, postJson } from "../../lib/api.js";
+import { fetchJson, loadJson, postJson, type FetchState } from "../../lib/api.js";
 import { formatTime } from "../../lib/format.js";
 import { usePolling } from "../../hooks/usePolling.js";
 
@@ -221,10 +231,67 @@ function isSameDay(value: string | null, now: Date): boolean {
   );
 }
 
+/* ---- 30 天趋势聚合 ---- */
+
+const OPT_BUCKETS = ["AI 改写", "快捷指令", "原样发送"] as const;
+
+const DAY_MS = 86_400_000;
+function dayLabel(d: Date): string {
+  return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function optimizationBucket(mode: OptimizeMode | undefined): (typeof OPT_BUCKETS)[number] {
+  if (mode === "quick") return "快捷指令";
+  if (mode === undefined || mode === "pass-through") return "原样发送";
+  return "AI 改写";
+}
+
+interface TrendRow {
+  date: string;
+  bucket: string;
+  count: number;
+}
+
+function buildOptimizationTrend(items: InboundHistoryEntry[], days = 30) {
+  const counts = new Map<string, Map<string, number>>();
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  for (let i = days - 1; i >= 0; i -= 1) {
+    counts.set(dayLabel(new Date(now.getTime() - i * DAY_MS)), new Map());
+  }
+  let total = 0;
+  for (const item of items) {
+    if (item.decision === null) continue;
+    const at = new Date(item.inbound.receivedAt);
+    if (Number.isNaN(at.getTime())) continue;
+    const key = dayLabel(at);
+    const perDay = counts.get(key);
+    if (perDay === undefined) continue;
+    const bucket = optimizationBucket(item.decision.mode);
+    perDay.set(bucket, (perDay.get(bucket) ?? 0) + 1);
+    total += 1;
+  }
+  const rows: TrendRow[] = [];
+  for (const [date, perDay] of counts) {
+    for (const bucket of OPT_BUCKETS) {
+      rows.push({ date, bucket, count: perDay.get(bucket) ?? 0 });
+    }
+  }
+  const rewritten = items.filter(
+    (item) => item.decision !== null && item.decision.mode !== "pass-through",
+  ).length;
+  const rewrittenShare = total === 0 ? 0 : Math.round((rewritten / total) * 100);
+  return {
+    rows,
+    hasData: total > 0,
+    summary: `近 ${days} 天处理 ${total} 条 · 改写占比 ${rewrittenShare}%`,
+  };
+}
+
 export function PromptOptimizationPanel() {
   const [data, setData] = useState<PromptPayload | null>(null);
   const [candidates, setCandidates] = useState<PromptCandidatePayload | null>(null);
-  const [history, setHistory] = useState<OptimizationHistoryPayload | null>(null);
+  const [history, setHistory] = useState<FetchState<OptimizationHistoryPayload>>({ status: "loading" });
   const [promotingCandidateId, setPromotingCandidateId] = useState<string | null>(null);
   const [promotionNotice, setPromotionNotice] = useState<string | null>(null);
 
@@ -239,10 +306,10 @@ export function PromptOptimizationPanel() {
   }, []);
 
   const refreshHistory = useCallback(async () => {
-    const payload = await fetchJson<OptimizationHistoryPayload>(
-      "/api/messages/optimization-history?limit=50",
+    const payload = await loadJson<OptimizationHistoryPayload>(
+      "/api/messages/optimization-history?limit=300",
     );
-    if (payload !== null) setHistory(payload);
+    setHistory(payload.ok ? { status: "ready", data: payload.data } : { status: "failed", reason: payload.reason });
   }, []);
 
   const promoteCandidate = useCallback(
@@ -287,7 +354,23 @@ export function PromptOptimizationPanel() {
   usePolling(refreshAll, 10_000);
 
   const now = new Date();
-  const todayItems = (history?.items ?? []).filter((item) => isSameDay(item.inbound.receivedAt, now));
+  const { mode } = useTheme();
+  const chartTheme = useMemo(() => chartThemeFor(mode), [mode]);
+  const historyData = history.status === "ready" ? history.data : null;
+  const trend = useMemo(() => buildOptimizationTrend(historyData?.items ?? []), [historyData]);
+  const trendSeries = useMemo(
+    () =>
+      semanticSeries(mode, [
+        ["AI 改写", "AI 改写", "accent"],
+        ["快捷指令", "快捷指令", "teal"],
+        ["原样发送", "原样发送", "ok"],
+      ]),
+    [mode],
+  );
+  const trendColors = useMemo(() => trendSeries.map((s) => s.color), [trendSeries]);
+  const todayItems = (historyData?.items ?? []).filter((item) =>
+    isSameDay(item.inbound.receivedAt, now),
+  );
   const todayRewritten = todayItems.filter(
     (item) => item.decision !== null && item.decision.mode !== "pass-through",
   ).length;
@@ -311,7 +394,7 @@ export function PromptOptimizationPanel() {
         </div>
         <span className="evolution-connection">
           <ConnectionChip
-            reachable={history === null ? null : history.reachable}
+            reachable={history.status === "loading" ? null : history.status === "ready" ? history.data.reachable : false}
             connectingText="正在连接管家"
             onlineText="管家服务已连接"
             offlineText="管家服务暂时连不上"
@@ -338,6 +421,29 @@ export function PromptOptimizationPanel() {
         </div>
       </div>
 
+      {history.status === "failed" ? (
+        <ChartEmpty hint={`消息优化趋势接口不可用：${history.reason}`} />
+      ) : trend.hasData ? (
+        <TrendCard title="消息优化趋势" summary={trend.summary}>
+          <TrendColumn
+            data={trend.rows}
+            xField="date"
+            yField="count"
+            colorField="bucket"
+            transform={[{ type: "stackY" }]}
+            theme={chartTheme.g2Theme}
+            autoFit
+            height={220}
+            scale={{ color: { range: trendColors } }}
+            axis={quietAxes(chartTheme)}
+            legend={topLegend(chartTheme)}
+            style={{ maxWidth: 22, radiusTopLeft: 3, radiusTopRight: 3 }}
+          />
+        </TrendCard>
+      ) : (
+        <ChartEmpty hint="还没有优化记录；管家处理消息后，这里会出现近 30 天的处理趋势。" />
+      )}
+
       <div className="po-note">
         管家会先按规则整理口语消息；规则拿不准时会请 AI 帮忙改写，失败或结果不可用时仍会原样发送，不会卡住或漏掉你的消息。
       </div>
@@ -350,25 +456,29 @@ export function PromptOptimizationPanel() {
         <span className="po-retention">保留最近 30 天</span>
       </div>
 
-      {history === null && (
+      {history.status === "loading" && (
         <div className="prompt-empty">正在读取优化记录…</div>
       )}
 
-      {history !== null && !history.reachable && (
+      {history.status === "failed" && (
+        <div className="prompt-empty">优化记录读取失败：{history.reason}</div>
+      )}
+
+      {history.status === "ready" && !history.data.reachable && (
         <div className="prompt-empty">
           暂时连不上消息服务，等管家恢复后这里会自动显示对照记录。
         </div>
       )}
 
-      {history !== null && history.reachable && history.items.length === 0 && (
+      {history.status === "ready" && history.data.reachable && history.data.items.length === 0 && (
         <div className="prompt-empty">
           还没有消息记录。现在去给 AI 发一条消息，这里就会显示“你发的原文”和“优化后的指令”对照。
         </div>
       )}
 
-      {history !== null && history.reachable && history.items.length > 0 && (
+      {history.status === "ready" && history.data.reachable && history.data.items.length > 0 && (
         <div className="po-history">
-          {history.items.map((item) => {
+          {history.data.items.map((item) => {
             const hasDecision = item.decision !== null;
             const mode = item.decision?.mode;
             const pendingText = missingDecisionLabel(item, now);
@@ -435,46 +545,65 @@ export function PromptOptimizationPanel() {
 
         {data !== null && data.targets.length > 0 && (
           <div className="prompt-table-wrap">
-            <table className="prompt-table">
-              <thead>
-                <tr>
-                  <th>规则内容</th>
-                  <th>用于哪个 AI</th>
-                  <th>保存格式</th>
-                  <th>不能改动的部分</th>
-                  <th>当前状态</th>
-                  <th>检查结果</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.targets.map((target) => (
-                  <tr key={target.targetId}>
-                    <td>
-                      <strong title={target.sourcePath}>{promptTargetLabel(target.targetId)}</strong>
-                    </td>
-                    <td>
-                      {target.instanceId === "hermes-main"
+            <Table<PromptTarget>
+              size="small"
+              rowKey="targetId"
+              dataSource={data.targets}
+              pagination={false}
+              columns={
+                [
+                  {
+                    title: "规则内容",
+                    ellipsis: true,
+                    render: (_, target) => (
+                      <strong title={target.sourcePath}>
+                        {promptTargetLabel(target.targetId)}
+                      </strong>
+                    ),
+                  },
+                  {
+                    title: "用于哪个 AI",
+                    width: 130,
+                    render: (_, target) =>
+                      target.instanceId === "hermes-main"
                         ? "Hermes 主实例"
-                        : target.instanceId || "—"}
-                    </td>
-                    <td>{promptFormatLabel(target.format)}</td>
-                    <td>{target.protectedClauseCount} 项</td>
-                    <td>
+                        : target.instanceId || "—",
+                  },
+                  {
+                    title: "保存格式",
+                    width: 90,
+                    render: (_, target) => promptFormatLabel(target.format),
+                  },
+                  {
+                    title: "不能改动的部分",
+                    width: 120,
+                    render: (_, target) => `${target.protectedClauseCount} 项`,
+                  },
+                  {
+                    title: "当前状态",
+                    width: 100,
+                    render: (_, target) => (
                       <code title={target.activeVersion}>
                         {target.activeVersion === "baseline" ? "当前版本" : "试用版本"}
                       </code>
-                    </td>
-                    <td>
-                      <span className={`prompt-gate ${gateTone(target.gate.status)}`}>
-                        {gateLabel(target.gate.status)}
-                      </span>
-                      <small title={target.gate.detail}>{target.gate.detail}</small>
-                      <em>{formatTime(target.gate.checkedAt)}</em>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    ),
+                  },
+                  {
+                    title: "检查结果",
+                    width: 220,
+                    render: (_, target) => (
+                      <div className="po-eval-cell">
+                        <span className={`prompt-gate ${gateTone(target.gate.status)}`}>
+                          {gateLabel(target.gate.status)}
+                        </span>
+                        <small title={target.gate.detail}>{target.gate.detail}</small>
+                        <em>{formatTime(target.gate.checkedAt)}</em>
+                      </div>
+                    ),
+                  },
+                ] satisfies TableColumnsType<PromptTarget>
+              }
+            />
           </div>
         )}
 
@@ -501,70 +630,89 @@ export function PromptOptimizationPanel() {
 
         {candidates !== null && candidates.candidates.length > 0 && (
           <div className="prompt-table-wrap prompt-table-spaced">
-            <table className="prompt-table">
-              <thead>
-                <tr>
-                  <th>改进版本</th>
-                  <th>谁提供的</th>
-                  <th>当前状态</th>
-                  <th>测试结果</th>
-                  <th>采用</th>
-                  <th>更新时间</th>
-                </tr>
-              </thead>
-              <tbody>
-                {candidates.candidates.map((candidate) => (
-                  <tr key={candidate.candidateId}>
-                    <td>
+            <Table<PromptCandidate>
+              size="small"
+              rowKey="candidateId"
+              dataSource={candidates.candidates}
+              pagination={false}
+              columns={
+                [
+                  {
+                    title: "改进版本",
+                    dataIndex: "description",
+                    ellipsis: true,
+                    render: (_, candidate) => (
                       <strong>{candidate.description || "改进版本"}</strong>
-                    </td>
-                    <td>{candidate.source === "generator" ? "自动改进" : "我提供的"}</td>
-                    <td>
-                      <span className={"prompt-gate " + candidateTone(candidate.status)}>
-                        {candidateLabel(candidate.status)}
-                      </span>
-                      {candidate.gateErrors.length > 0 && (
-                        <small title={candidate.gateErrors.join("；")}>
-                          {candidate.gateErrors[0]}
-                        </small>
-                      )}
-                    </td>
-                    <td>
-                      <strong>{evaluationLabel(candidate.latestEvaluation)}</strong>
-                      <span>
-                        {candidate.latestEvaluation === null
-                          ? "等待测试"
-                          : candidate.latestEvaluation.canPromote
-                            ? "可以正式采用"
-                            : candidate.latestEvaluation.tier === "exploratory"
-                              ? "还在初步测试，不能当最终结论"
-                              : "暂不建议采用"}
-                      </span>
-                    </td>
-                    <td>
-                      {candidate.status === "approval-pending" &&
-                      candidate.latestEvaluation?.canPromote ? (
-                        <button
-                          className="prompt-promote-button"
-                          type="button"
-                          disabled={promotingCandidateId !== null}
-                          onClick={() => void promoteCandidate(candidate)}
-                        >
-                          {promotingCandidateId === candidate.candidateId
-                            ? "正在采用"
-                            : "采用此版本"}
-                        </button>
-                      ) : candidate.status === "promoted" ? (
-                        "当前使用"
-                      ) : (
-                        "不可采用"
-                      )}
-                    </td>
-                    <td>{formatTime(candidate.updatedAt)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    ),
+                  },
+                  {
+                    title: "谁提供的",
+                    width: 110,
+                    render: (_, candidate) =>
+                      candidate.source === "generator" ? "自动改进" : "我提供的",
+                  },
+                  {
+                    title: "当前状态",
+                    width: 150,
+                    render: (_, candidate) => (
+                      <>
+                        <span className={"prompt-gate " + candidateTone(candidate.status)}>
+                          {candidateLabel(candidate.status)}
+                        </span>
+                        {candidate.gateErrors.length > 0 && (
+                          <small title={candidate.gateErrors.join("；")}>
+                            {candidate.gateErrors[0]}
+                          </small>
+                        )}
+                      </>
+                    ),
+                  },
+                  {
+                    title: "测试结果",
+                    width: 200,
+                    render: (_, candidate) => (
+                      <div className="po-eval-cell">
+                        <strong>{evaluationLabel(candidate.latestEvaluation)}</strong>
+                        <span>
+                          {candidate.latestEvaluation === null
+                            ? "等待测试"
+                            : candidate.latestEvaluation.canPromote
+                              ? "可以正式采用"
+                              : candidate.latestEvaluation.tier === "exploratory"
+                                ? "还在初步测试，不能当最终结论"
+                                : "暂不建议采用"}
+                        </span>
+                      </div>
+                    ),
+                  },
+                  {
+                    title: "采用",
+                    width: 120,
+                    render: (_, candidate) => {
+                      if (candidate.status === "approval-pending" && candidate.latestEvaluation?.canPromote) {
+                        return (
+                          <Button
+                            type="primary"
+                            size="small"
+                            disabled={promotingCandidateId !== null}
+                            loading={promotingCandidateId === candidate.candidateId}
+                            onClick={() => void promoteCandidate(candidate)}
+                          >
+                            采用此版本
+                          </Button>
+                        );
+                      }
+                      return candidate.status === "promoted" ? "当前使用" : "不可采用";
+                    },
+                  },
+                  {
+                    title: "更新时间",
+                    width: 130,
+                    render: (_, candidate) => formatTime(candidate.updatedAt),
+                  },
+                ] satisfies TableColumnsType<PromptCandidate>
+              }
+            />
           </div>
         )}
       </AdvancedDetails>

@@ -101,6 +101,7 @@
  */
 import { createServer, type Server } from "node:http";
 import { randomUUID } from "node:crypto";
+import { CONTROL_API_SCHEMA_VERSION, CONTRACT_VERSION } from "@butler/contract";
 import type {
   EvolutionExpandInput,
   EvolutionPreflightInput,
@@ -132,6 +133,7 @@ export type MemorySelfCheckOutcome =
 
 /** 请求体解析上限（字节）。 */
 export const HTTP_BODY_LIMIT_BYTES = 16 * 1024;
+export const WATCH_SERVICE_VERSION = `watch@1.0.0-beta.7+${CONTRACT_VERSION}`;
 
 /** runbook 执行结果（由接线层判定，HTTP 层只做状态码映射）。 */
 export type RunbookExecuteOutcome =
@@ -568,7 +570,12 @@ async function handle(
   try {
     if (path === "/healthz") {
       if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
-      return sendJson(res, 200, { ok: true });
+      return sendJson(res, 200, {
+        ok: true,
+        service: "watch",
+        serviceVersion: WATCH_SERVICE_VERSION,
+        schemaVersion: CONTROL_API_SCHEMA_VERSION,
+      });
     }
 
     if (path === "/api/runtime") {
@@ -1438,7 +1445,69 @@ async function handle(
       if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
       if (deps.evolution === undefined)
         return sendJson(res, 503, { error: "evolution-unavailable" });
-      return sendJson(res, 200, deps.evolution.status());
+      return sendJson(res, 200, {
+        schemaVersion: CONTROL_API_SCHEMA_VERSION,
+        ...deps.evolution.status(),
+      });
+    }
+
+    if (path === "/api/evolution/diagnose") {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.evolution === undefined) return sendJson(res, 503, { error: "evolution-unavailable" });
+      const body = await readJsonBody(req, res);
+      if (body === null) return;
+      if (body["instanceId"] !== undefined && typeof body["instanceId"] !== "string") {
+        return sendJson(res, 400, { error: "invalid-instanceId" });
+      }
+      const analyzed = deps.analyzeLogs?.(typeof body["instanceId"] === "string" ? body["instanceId"] : undefined);
+      return sendJson(res, 200, deps.evolution.diagnose(analyzed));
+    }
+
+    if (path === "/api/evolution/runs") {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.evolution === undefined) return sendJson(res, 503, { error: "evolution-unavailable" });
+      const body = await readJsonBody(req, res);
+      if (body === null) return;
+      if (body["targetType"] !== "skill" && body["targetType"] !== "prompt" && body["targetType"] !== "config") {
+        return sendJson(res, 400, { error: "invalid-target-type" });
+      }
+      if (typeof body["targetRef"] !== "string" || body["targetRef"].trim() === "") {
+        return sendJson(res, 400, { error: "invalid-target-ref" });
+      }
+      if (body["instanceId"] !== undefined && typeof body["instanceId"] !== "string") return sendJson(res, 400, { error: "invalid-instanceId" });
+      if (body["endpoint"] !== undefined && typeof body["endpoint"] !== "string") return sendJson(res, 400, { error: "invalid-endpoint" });
+      if (body["datasetPath"] !== undefined && typeof body["datasetPath"] !== "string") return sendJson(res, 400, { error: "invalid-dataset-path" });
+      if (body["holdoutCount"] !== undefined && (!Number.isInteger(body["holdoutCount"]) || (body["holdoutCount"] as number) < 0)) return sendJson(res, 400, { error: "invalid-holdout-count" });
+      if (body["iterations"] !== undefined && (!Number.isInteger(body["iterations"]) || (body["iterations"] as number) < 1 || (body["iterations"] as number) > 100)) return sendJson(res, 400, { error: "invalid-iterations" });
+      if (body["dryRun"] !== undefined && typeof body["dryRun"] !== "boolean") return sendJson(res, 400, { error: "invalid-dry-run" });
+      const run = await deps.evolution.createRun({
+        targetType: body["targetType"],
+        targetRef: body["targetRef"],
+        ...(typeof body["instanceId"] === "string" ? { instanceId: body["instanceId"] } : {}),
+        ...(typeof body["endpoint"] === "string" ? { endpoint: body["endpoint"] } : {}),
+        ...(typeof body["datasetPath"] === "string" ? { datasetPath: body["datasetPath"] } : {}),
+        ...(typeof body["holdoutCount"] === "number" ? { holdoutCount: body["holdoutCount"] } : {}),
+        ...(typeof body["iterations"] === "number" ? { iterations: body["iterations"] } : {}),
+        ...(typeof body["dryRun"] === "boolean" ? { dryRun: body["dryRun"] } : {}),
+      });
+      return sendJson(res, run.status === "ready" ? 201 : 409, run);
+    }
+
+    const evolutionRunMatch = /^\/api\/evolution\/runs\/([^/]+)$/.exec(path);
+    if (evolutionRunMatch !== null) {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.evolution === undefined) return sendJson(res, 503, { error: "evolution-unavailable" });
+      const run = await deps.evolution.getRun(decodeURIComponent(evolutionRunMatch[1]!));
+      return run === null ? sendJson(res, 404, { error: "run-not-found" }) : sendJson(res, 200, run);
+    }
+
+    const evolutionStartMatch = /^\/api\/evolution\/runs\/([^/]+)\/start$/.exec(path);
+    if (evolutionStartMatch !== null) {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.evolution === undefined) return sendJson(res, 503, { error: "evolution-unavailable" });
+      const outcome = await deps.evolution.startRun(decodeURIComponent(evolutionStartMatch[1]!));
+      if ("error" in outcome) return sendJson(res, outcome.error === "run-not-found" ? 404 : 409, outcome);
+      return sendJson(res, 202, outcome);
     }
 
     if (path === "/api/evolution/preflight") {
@@ -1486,7 +1555,7 @@ async function handle(
       if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
       if (deps.evolution === undefined) return sendJson(res, 503, { error: "evolution-unavailable" });
       const runId = decodeURIComponent(evolutionEvaluateMatch[1]!);
-      const outcome = await deps.evolution.evaluate({ runId });
+      const outcome = await deps.evolution.evaluateRun(runId);
       if (outcome.status === "error") return sendJson(res, outcome.error === "run-not-found" ? 404 : 409, outcome);
       return sendJson(res, 200, outcome);
     }
@@ -1600,7 +1669,7 @@ async function handle(
           ? { candidatePath: body["candidatePath"] }
           : {}),
       };
-      const outcome = deps.evolution.promoteArtifact(input);
+      const outcome = await deps.evolution.promoteRun(input);
       if (outcome.status === "error") {
         const notFound = new Set(["run-not-found", "authority-not-found"]);
         const conflict = new Set([
@@ -1618,6 +1687,15 @@ async function handle(
               : 400;
         return sendJson(res, status, outcome);
       }
+      return sendJson(res, 200, outcome);
+    }
+
+    const evolutionCancelMatch = /^\/api\/evolution\/runs\/([^/]+)\/cancel$/.exec(path);
+    if (evolutionCancelMatch !== null) {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.evolution === undefined) return sendJson(res, 503, { error: "evolution-unavailable" });
+      const outcome = await deps.evolution.cancelRun(decodeURIComponent(evolutionCancelMatch[1]!));
+      if ("error" in outcome) return sendJson(res, outcome.error === "run-not-found" ? 404 : 409, outcome);
       return sendJson(res, 200, outcome);
     }
 

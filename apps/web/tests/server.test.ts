@@ -70,11 +70,16 @@ describe("butler-web 服务（fastify inject）", () => {
     const res = await app.inject({ method: "GET", url: "/api/health" });
 
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({
+    expect(res.json()).toMatchObject({
       ok: true,
       db: true,
       gateway: false,
       version: expect.stringMatching(/^web@/),
+      serviceVersion: expect.stringMatching(/^web@/),
+      schemaVersion: "evolution-v2-charts-v1",
+      services: {
+        gateway: { reachable: false, serviceVersion: null, schemaVersion: null },
+      },
     });
   });
 

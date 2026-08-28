@@ -7,6 +7,7 @@ import { PageProgress, type PageProgressStep } from "../../components/PageProgre
 import { ConnectionChip } from "../../components/ConnectionChip.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
+import { useTheme } from "../../theme/ThemeProvider.js";
 import { useEventStream } from "../../hooks/useEventStream.js";
 import { usePolling } from "../../hooks/usePolling.js";
 import { fetchJson, postJson } from "../../lib/api.js";
@@ -18,6 +19,7 @@ import { PrecheckList } from "./PrecheckList.js";
 import { SelfUpgradeCard } from "./SelfUpgradeCard.js";
 import { SnapshotRollback } from "./SnapshotRollback.js";
 import { UpgradePipeline } from "./UpgradePipeline.js";
+import { BackupCadenceChart } from "./BackupCadenceChart.js";
 import {
   instanceLabel,
   managedUpgradeProgress,
@@ -49,6 +51,7 @@ const UPGRADE_POLL_MS = 2000;
 
 export function VersionsPage() {
   const { message } = App.useApp();
+  const { mode } = useTheme();
   const [data, setData] = useState<VersionsPayload | null>(null);
   const [butler, setButler] = useState<ButlerVersionView | null>(null);
   const [butlerSelf, setButlerSelf] = useState<ButlerSelfView | null>(null);
@@ -411,7 +414,7 @@ export function VersionsPage() {
       {(data?.degraded ?? []).includes("db:unreachable") && (
         <DegradedBanner
           severity="warn"
-          message="⚠ 本地数据暂时读不到：管家与备份信息需要等管家重新连接后查看。"
+          message="本地数据暂时读不到：管家与备份信息需要等管家重新连接后查看。"
         />
       )}
 
@@ -454,6 +457,13 @@ export function VersionsPage() {
 
       <h2 className="section-title">升级前检查</h2>
       <PrecheckList step={precheckStep} precheck={precheck} />
+
+      <h2 className="section-title">备份节奏</h2>
+      <BackupCadenceChart
+        snapshots={snapshots}
+        selfSnapshots={butlerSelf?.snapshots ?? []}
+        mode={mode}
+      />
 
       <h2 className="section-title">退回上一版本</h2>
       <SnapshotRollback snapshot={previousSnapshot} onRollback={requestRollback} />

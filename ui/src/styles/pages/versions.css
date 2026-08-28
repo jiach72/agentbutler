@@ -1,1 +1,412 @@
-.versions-page { color: var(--butler-ink); }
+/**
+ * 版本管理页局部样式：管家自身卡片、版本工具条与候选列表、升级流水线、恢复点行。
+ */
+
+/* ---- 管家自身卡片 ---- */
+
+.butler-version-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--butler-space-4);
+}
+
+.butler-version-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--butler-space-3);
+}
+.butler-version-label {
+  display: block;
+  color: var(--butler-accent);
+  font-size: var(--butler-text-xs);
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.butler-version-number {
+  font-size: var(--butler-text-xxl);
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+}
+
+.butler-version-grid {
+  display: grid;
+  gap: var(--butler-space-3) var(--butler-space-4);
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+.butler-version-fact {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.butler-version-fact > span {
+  color: var(--butler-muted);
+  font-size: var(--butler-text-xs);
+}
+.butler-version-fact strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--butler-text-sm);
+  font-weight: 600;
+}
+.butler-version-fact small {
+  color: var(--butler-muted);
+  font-size: var(--butler-text-xs);
+  line-height: 1.5;
+}
+
+.butler-self-prefs {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--butler-space-3);
+  padding: var(--butler-space-3);
+  border: 1px solid var(--butler-rule);
+  border-radius: var(--butler-radius-control);
+  background: var(--butler-surface-subtle);
+}
+.butler-self-prefs > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+.butler-self-prefs strong {
+  font-size: var(--butler-text-sm);
+}
+.butler-self-prefs span {
+  color: var(--butler-muted);
+  font-size: var(--butler-text-xs);
+}
+.butler-self-prefs-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--butler-space-3) var(--butler-space-4);
+}
+.self-channel-select {
+  min-width: 168px;
+}
+
+.check-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--butler-text-sm);
+  color: var(--butler-ink-soft);
+}
+
+.butler-self-job {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--butler-space-3);
+  padding: var(--butler-space-3);
+  border-left: 3px solid var(--butler-accent);
+  border-radius: var(--butler-radius-control);
+  background: var(--butler-accent-soft);
+}
+.butler-self-job > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.butler-self-job strong {
+  font-size: var(--butler-text-sm);
+}
+.butler-self-job p {
+  margin: 0;
+  color: var(--butler-ink-soft);
+  font-size: var(--butler-text-sm);
+}
+
+.butler-self-updates,
+.butler-self-snapshots {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.butler-self-updates > strong,
+.butler-self-snapshots > strong {
+  font-size: var(--butler-text-sm);
+}
+
+.self-update-list,
+.self-snapshot-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.self-update-list li,
+.self-snapshot-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--butler-space-3);
+  padding: 10px var(--butler-space-3);
+  border: 1px solid var(--butler-rule);
+  border-radius: var(--butler-radius-control);
+}
+.self-update-list li > div,
+.self-snapshot-list li > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.self-update-list strong,
+.self-snapshot-list strong {
+  font-size: var(--butler-text-sm);
+  font-weight: 600;
+}
+.self-snapshot-list span {
+  color: var(--butler-muted);
+  font-size: var(--butler-text-xs);
+}
+
+/* ---- 版本工具条 / 版本源 ---- */
+
+.version-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px var(--butler-space-3);
+  padding: 10px var(--butler-space-3);
+  border: 1px solid var(--butler-rule);
+  border-radius: var(--butler-radius-control);
+  background: var(--butler-surface-subtle);
+  font-size: var(--butler-text-sm);
+}
+.version-source,
+.version-source-check {
+  color: var(--butler-muted);
+  font-size: var(--butler-text-xs);
+}
+.version-target-select {
+  min-width: 200px;
+}
+
+.version-source-timeline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.version-source-attempt {
+  display: block;
+}
+.version-source-timeline-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--butler-sunken);
+  font-size: var(--butler-text-xs);
+  color: var(--butler-muted);
+}
+.version-source-timeline-item small {
+  font-family: var(--butler-mono-font);
+}
+.version-source-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--butler-ok);
+}
+.version-source-timeline-item.is-error .version-source-dot {
+  background: var(--butler-error);
+}
+.version-source-timeline-item.is-warn .version-source-dot {
+  background: var(--butler-warn);
+
+}
+
+/* ---- 候选版本卡 ---- */
+
+.version-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--butler-space-4);
+}
+.version-main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.version-name-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.version-name {
+  font-size: var(--butler-text-lg);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.version-tag {
+  color: var(--butler-muted);
+  font-family: var(--butler-mono-font);
+  font-size: var(--butler-text-xs);
+}
+.version-notes {
+  color: var(--butler-ink-soft);
+  font-size: var(--butler-text-sm);
+  line-height: 1.55;
+}
+.version-item > button {
+  flex-shrink: 0;
+}
+
+/* ---- 受管实例卡 ---- */
+
+.version-instance-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--butler-space-2);
+  margin-bottom: var(--butler-space-3);
+}
+.version-instance-kicker {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--butler-accent);
+  font-size: var(--butler-text-xs);
+  font-weight: 650;
+  letter-spacing: 0.05em;
+}
+.version-instance-head strong {
+  font-size: var(--butler-text-md);
+}
+.version-instance-facts {
+  display: grid;
+  gap: 6px;
+}
+.version-instance-facts > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--butler-space-3);
+}
+.version-instance-facts span {
+  flex-shrink: 0;
+  color: var(--butler-muted);
+  font-size: var(--butler-text-xs);
+}
+.version-instance-facts strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--butler-mono-font);
+  font-size: var(--butler-text-sm);
+  font-weight: 500;
+}
+
+/* ---- 升级流水线 ---- */
+
+.pipeline-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding-bottom: var(--butler-space-3);
+  margin-bottom: var(--butler-space-3);
+  border-bottom: 1px dashed var(--butler-rule);
+  font-size: var(--butler-text-sm);
+  color: var(--butler-muted);
+}
+.pipeline-steps {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pipeline-step {
+  --tone-color: var(--butler-muted);
+  display: grid;
+  grid-template-columns: auto auto minmax(70px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 7px 12px;
+  border-radius: var(--butler-radius-control);
+  background: var(--butler-surface-subtle);
+  font-size: var(--butler-text-sm);
+}
+.step-done {
+  --tone-color: var(--butler-ok);
+}
+.step-active {
+  --tone-color: var(--butler-accent);
+}
+.step-failed {
+  --tone-color: var(--butler-error);
+}
+.step-index {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--tone-bg, var(--butler-sunken));
+  color: var(--tone-color);
+  font-size: var(--butler-text-xs);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.pipeline-step.step-done .step-index {
+  background: var(--butler-ok-soft);
+}
+.pipeline-step.step-active .step-index {
+  background: var(--butler-accent-soft);
+}
+.pipeline-step.step-failed .step-index {
+  background: var(--butler-error-soft);
+}
+.step-label {
+  font-weight: 550;
+}
+.step-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--butler-muted);
+  font-size: var(--butler-text-xs);
+}
+.pipeline-kv {
+  margin-top: var(--butler-space-3);
+  padding-top: var(--butler-space-3);
+  border-top: 1px dashed var(--butler-rule);
+}
+
+.previous-version-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--butler-space-3);
+}
+.previous-version-row strong {
+  display: block;
+  font-size: var(--butler-text-md);
+}
+.previous-version-row span {
+  color: var(--butler-muted);
+  font-size: var(--butler-text-xs);
+}
+@media (max-width: 640px) {
+  .previous-version-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .version-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

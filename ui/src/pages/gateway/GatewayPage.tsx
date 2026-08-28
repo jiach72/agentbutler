@@ -19,6 +19,7 @@ import { fetchJson, postJson } from "../../lib/api.js";
 import { validateGatewayPatches, validatePatchParamAgainstSchema } from "../../lib/patchRules.js";
 import { AlertQueuePanel } from "./AlertQueuePanel.js";
 import { ConnectionHealth } from "./ConnectionHealth.js";
+import { DeliveryTrendCard } from "./DeliveryTrendCard.js";
 import { MessageInspector } from "./MessageInspector.js";
 import { PatchBoard } from "./PatchBoard.js";
 import { PromptOptimizationPanel } from "./PromptOptimizationPanel.js";
@@ -321,18 +322,18 @@ export function GatewayPage() {
           >
             {loading ? "刷新中" : "刷新"}
           </Button>
-          <a
+          <Button
             href="#prompt-optimization"
-            className="btn btn-secondary gateway-prompt-link"
+            className="gateway-prompt-link"
             onClick={flashPromptSection}
           >
             查看消息优化
-          </a>
+          </Button>
         </div>
       </div>
 
       {loadError && (
-        <DegradedBanner severity="warn" message="⚠ 部分服务暂时连不上，当前显示上一次成功数据" />
+        <DegradedBanner severity="warn" message="部分服务暂时连不上，当前显示上一次成功数据" />
       )}
       {messageData !== null && !messageData.reachable && (
         <DegradedBanner
@@ -342,24 +343,24 @@ export function GatewayPage() {
         />
       )}
       {(messageData?.degraded.length ?? 0) > 0 && messageData?.reachable === true && (
-        <DegradedBanner severity="warn" message="⚠ 部分消息记录暂时不完整，服务恢复后将自动补齐" />
+        <DegradedBanner severity="warn" message="部分消息记录暂时不完整，服务恢复后将自动补齐" />
       )}
       {messageBridge !== null && !bridgeReady && (
         <DegradedBanner
           severity="critical"
-          message="⚠ 消息接管还没准备好：请确认本机 AI 正在运行，稍后刷新重试。"
+          message="消息接管还没准备好：请确认本机 AI 正在运行，稍后刷新重试。"
         />
       )}
       {data?.watchReachable === false && (
         <DegradedBanner
           severity="warn"
-          message="⚠ 管家服务暂时连不上：消息频率和通知设置需要等服务恢复后查看。"
+          message="管家服务暂时连不上：消息频率和通知设置需要等服务恢复后查看。"
         />
       )}
       {alerts !== null && !alerts.reachable && (
         <DegradedBanner
           severity="warn"
-          message="⚠ 通知服务暂时离线：正在排队中的提醒暂不可见，稍后会自动恢复。"
+          message="通知服务暂时离线：正在排队中的提醒暂不可见，稍后会自动恢复。"
         />
       )}
 
@@ -368,6 +369,8 @@ export function GatewayPage() {
         bridgeReady={bridgeReady}
         messageCounts={messageCounts}
       />
+
+      <DeliveryTrendCard />
 
       <AdvancedDetails
         summary={

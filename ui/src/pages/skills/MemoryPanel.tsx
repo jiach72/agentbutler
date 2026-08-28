@@ -3,8 +3,11 @@
  * 检索只影响本面板：searching 仅预览区提示，失败单独报错，不牵动技能/插件列表。
  */
 import { useMemo, useState } from "react";
-import { Input } from "antd";
+import { Input, Button } from "antd";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
+import { ChartEmpty, TrendColumn } from "../../components/charts/index.js";
+import { chartThemeFor, primaryFill, quietAxes } from "../../components/charts/chartTheme.js";
+import { useTheme } from "../../theme/ThemeProvider.js";
 import type { MemorySelfCheckView, SkillsPayload } from "./helpers.js";
 import {
   channelLabel,
@@ -49,7 +52,8 @@ export function MemoryPanel({
     const source = data?.memory.stats?.byMonth ?? [];
     return source.slice(-8).reverse();
   }, [data?.memory.stats?.byMonth]);
-  const maxMonthCount = Math.max(1, ...months.map((item) => item.count));
+  const { mode } = useTheme();
+  const chartTheme = useMemo(() => chartThemeFor(mode), [mode]);
 
   const previewEntries = data?.memory.preview ?? [];
   const previewLimit = data?.memory.previewLimit ?? PREVIEW_LIMIT;
@@ -61,14 +65,15 @@ export function MemoryPanel({
           <span className="skills-kicker">记忆库</span>
           <h2>统计与检索预览</h2>
         </div>
-        <button
-          type="button"
+        <Button
+          type="text"
+          size="small"
           className="skills-refresh"
           onClick={onRefresh}
           disabled={refreshing}
         >
           {refreshing ? "刷新中" : "刷新"}
-        </button>
+        </Button>
       </div>
 
       <div className="memory-stats">
@@ -132,25 +137,32 @@ export function MemoryPanel({
         <DirectoryFallback directory={data.memory.directory} />
       )}
 
-      {months.length > 0 && (
-        <div className="memory-months">
-          <div className="memory-subhead">
-            <strong>按月分布</strong>
-            <span>最近 {months.length} 个月</span>
-          </div>
-          <div className="memory-bars">
-            {months.map((item) => (
-              <div className="memory-bar-row" key={item.month}>
-                <span>{item.month}</span>
-                <div>
-                  <i style={{ width: `${Math.max(4, (item.count / maxMonthCount) * 100)}%` }} />
-                </div>
-                <strong>{formatNumber(item.count)}</strong>
-              </div>
-            ))}
-          </div>
+      <div className="memory-months">
+        <div className="memory-subhead">
+          <strong>按月写入</strong>
+          <span>{months.length > 0 ? `最近 ${months.length} 个月` : "历史数据"}</span>
         </div>
-      )}
+        {months.length === 0 || months.every((item) => item.count === 0) ? (
+          <ChartEmpty hint="还没有按月写入历史；和 AI 正常对话后，这里会出现记忆健康趋势。" />
+        ) : (
+          <TrendColumn
+            data={months}
+            xField="month"
+            yField="count"
+            theme={chartTheme.g2Theme}
+            autoFit
+            height={180}
+            axis={quietAxes(chartTheme)}
+            style={{
+              maxWidth: 26,
+              fill: primaryFill(mode),
+              radiusTopLeft: 3,
+              radiusTopRight: 3,
+            }}
+            tooltip={{ items: [{ channel: "y", name: "写入条数" }] }}
+          />
+        )}
+      </div>
 
       <form
         className="memory-search"
@@ -192,11 +204,7 @@ export function MemoryPanel({
           severity="warn"
           message="这一项暂时读不到"
           description={`记忆检索失败：${searchError}`}
-          action={
-            <button type="button" className="btn btn-small" onClick={() => onSearch(activeKeyword)}>
-              重试
-            </button>
-          }
+          action={<Button size="small" onClick={() => onSearch(activeKeyword)}>重试</Button>}
         />
       )}
 

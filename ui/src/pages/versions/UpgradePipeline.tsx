@@ -52,7 +52,7 @@ export function UpgradePipeline({ job, launchPending, progress }: UpgradePipelin
           {job.rolledBack === true && (
             <DegradedBanner
               severity="warn"
-              message={`⚠ 升级后检查没有通过，管家已自动还原${job.snapshotId !== undefined ? `（备份 ${job.snapshotId}）` : ""}`}
+              message={`升级后检查没有通过，管家已自动还原${job.snapshotId !== undefined ? `（备份 ${job.snapshotId}）` : ""}`}
             />
           )}
           <ol className="pipeline-steps">

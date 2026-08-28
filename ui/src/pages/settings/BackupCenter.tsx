@@ -3,6 +3,7 @@
  * 备份/管家自检两路数据独立三态，失败时显示降级横幅与单源重试。
  */
 import { Button } from "antd";
+import { StatusBadge } from "../../components/StatusBadge.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { formatBytes, formatTime } from "../../lib/format.js";
 import type { FetchState } from "../../lib/api.js";
@@ -50,26 +51,28 @@ export function BackupCenter({
           <span className="product-kicker">备份与还原</span>
           <h2>备份记录</h2>
         </div>
-        <span className={`badge-pill ${backups.status === "ready" && backups.data.items.length > 0 ? "badge-healthy" : "badge-muted"}`}>
-          {backups.status === "ready" ? backups.data.items.length : 0} 条
-        </span>
+        <StatusBadge
+          tone={backups.status === "ready" && backups.data.items.length > 0 ? "ok" : "muted"}
+          label={`${backups.status === "ready" ? backups.data.items.length : 0} 条`}
+        />
       </div>
 
       <div className="backup-actions">
-        <button
-          className="btn btn-primary"
+        <Button
+          type="primary"
+          loading={busy === "full"}
           disabled={busy !== null}
           onClick={() => onRunBackup("full")}
         >
-          {busy === "full" ? "备份中…" : "立即全量备份"}
-        </button>
-        <button
-          className="btn"
+          立即全量备份
+        </Button>
+        <Button
+          loading={busy === "memory"}
           disabled={busy !== null}
           onClick={() => onRunBackup("memory")}
         >
-          {busy === "memory" ? "备份中…" : "备份记忆"}
-        </button>
+          备份记忆
+        </Button>
       </div>
 
       <div className="backup-policy" aria-label="备份保留策略">
@@ -138,13 +141,14 @@ export function BackupCenter({
               </div>
               <em>{snapshotStatusLabel(item.status)}</em>
               {restoreable(item) && (
-                <button
-                  className="btn btn-small"
+                <Button
+                  size="small"
                   disabled={busy !== null}
+                  loading={busy === `restore-${item.id}`}
                   onClick={() => onRequestRestore(item)}
                 >
-                  {busy === `restore-${item.id}` ? "还原中…" : "还原"}
-                </button>
+                  还原
+                </Button>
               )}
             </article>
           ))}

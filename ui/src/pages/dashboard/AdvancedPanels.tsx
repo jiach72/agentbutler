@@ -1,6 +1,8 @@
 /**
  * 高级详情内的三块面板：一键处理方案、管家最近检查、经常出现的问题。
  */
+import { Button, Table } from "antd";
+import type { ColumnsType } from "antd/es/table/interface.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { formatRelative } from "../../lib/format.js";
@@ -53,9 +55,9 @@ export function RunbooksPanel({
                     : "从未执行"}
                 </div>
               </div>
-              <button type="button" className="btn" onClick={() => onRepair(runbook)}>
+              <Button size="small" onClick={() => onRepair(runbook)}>
                 开始处理
-              </button>
+              </Button>
             </div>
           ))}
         </div>
@@ -105,13 +107,56 @@ export function InspectCard({
         <dd>{inspectStatus.inFlight ? "正在检查" : "没有在检查"}</dd>
       </dl>
       <div className="inspect-actions">
-        <button type="button" className="btn" onClick={onInspect}>
-          立即检查
-        </button>
+        <Button onClick={onInspect}>立即检查</Button>
       </div>
     </div>
   );
 }
+
+const FINGERPRINT_COLUMNS = (onOpenLogs: () => void): ColumnsType<FingerprintView> => [
+  {
+    title: "问题内容",
+    ellipsis: true,
+    render: (_, fp) => (
+      <span className="fp-sample" title={fp.lastSample ?? undefined}>
+        {formatSample(fp.lastSample)}
+      </span>
+    ),
+  },
+  {
+    title: "影响组件",
+    width: 110,
+    render: (_, fp) => (fp.instance ? instanceLabel(fp.instance) : "未知"),
+  },
+  {
+    title: "首次出现",
+    width: 110,
+    render: (_, fp) => formatRelative(fp.firstSeen),
+  },
+  { title: "次数", dataIndex: "count", width: 72, align: "right" },
+  {
+    title: "状态",
+    width: 96,
+    render: (_, fp) => {
+      const badge = fingerprintBadge(fp.status);
+      return <StatusBadge tone={badge.tone} label={badge.label} />;
+    },
+  },
+  {
+    title: "最近出现",
+    width: 110,
+    render: (_, fp) => formatRelative(fp.lastSeen),
+  },
+  {
+    title: "日志",
+    width: 88,
+    render: () => (
+      <Button type="link" size="small" style={{ paddingInline: 0 }} onClick={onOpenLogs}>
+        查看日志
+      </Button>
+    ),
+  },
+];
 
 /** 经常出现的问题：同类错误指纹表。 */
 export function FingerprintsTable({
@@ -129,48 +174,14 @@ export function FingerprintsTable({
     );
   }
   return (
-    <div className="card table-card">
-      <table className="table">
-        <thead>
-          <tr>
-            <th>问题内容</th>
-            <th>影响组件</th>
-            <th>首次出现</th>
-            <th>次数</th>
-            <th>状态</th>
-            <th>最近出现</th>
-            <th>日志</th>
-          </tr>
-        </thead>
-        <tbody>
-          {fingerprints.map((fp) => {
-            const badge = fingerprintBadge(fp.status);
-            return (
-              <tr key={fp.signature}>
-                <td className="fp-sample" title={fp.lastSample ?? undefined}>
-                  {formatSample(fp.lastSample)}
-                </td>
-                <td>{fp.instance ? instanceLabel(fp.instance) : "未知"}</td>
-                <td>{formatRelative(fp.firstSeen)}</td>
-                <td>{fp.count}</td>
-                <td>
-                  <StatusBadge tone={badge.tone} label={badge.label} />
-                </td>
-                <td>{formatRelative(fp.lastSeen)}</td>
-                <td>
-                  <button
-                    type="button"
-                    className="btn btn-quiet btn-sm"
-                    onClick={onOpenLogs}
-                  >
-                    查看日志
-                  </button>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+    <div className="table-card card">
+      <Table<FingerprintView>
+        size="small"
+        rowKey="signature"
+        pagination={false}
+        dataSource={fingerprints}
+        columns={FINGERPRINT_COLUMNS(onOpenLogs)}
+      />
     </div>
   );
 }

@@ -2,6 +2,7 @@
  * 待办清单：按重要程度排序的问题卡片；超过 5 条可展开收起。
  */
 import { useState } from "react";
+import { Button } from "antd";
 import type { IssueView, RunbookView } from "./types.js";
 
 interface IssuesSectionProps {
@@ -33,27 +34,27 @@ export function IssuesSection({ issues, attentionCount, onRepair, onOpenAdvanced
             </div>
             <div className="issue-actions">
               {issue.runbook !== undefined && issue.tone !== "ok" && (
-                <button type="button" className="btn" onClick={() => onRepair(issue.runbook!)}>
+                <Button size="small" onClick={() => onRepair(issue.runbook!)}>
                   一键修复
-                </button>
+                </Button>
               )}
-              <button type="button" className="btn btn-quiet" onClick={onOpenAdvanced}>
+              <Button type="text" size="small" onClick={onOpenAdvanced}>
                 查看详情
-              </button>
+              </Button>
             </div>
           </article>
         ))}
       </div>
       {issues.length > 5 && (
         <div className="issues-toggle-wrap">
-          <button
-            type="button"
-            className="btn btn-quiet issues-toggle"
+          <Button
+            type="text"
+            size="small"
             aria-expanded={expanded}
             onClick={() => setExpanded((value) => !value)}
           >
             {expanded ? "收起" : `展开全部 ${issues.length} 条`}
-          </button>
+          </Button>
         </div>
       )}
     </div>

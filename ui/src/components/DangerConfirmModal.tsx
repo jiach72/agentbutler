@@ -2,6 +2,7 @@
  * 统一的危险操作确认层：基于 antd Modal（自带焦点圈禁、ESC、滚动锁），
  * 叠加影响说明与执行步骤预告；确认前不触发任何外部副作用。
  */
+import { ExclamationCircleFilled } from "@ant-design/icons";
 import { Alert, Modal } from "antd";
 
 export interface DangerConfirmModalProps {
@@ -32,7 +33,11 @@ export function DangerConfirmModal({
   return (
     <Modal
       open={open}
-      title={<span className="danger-modal-title">⚠ {title}</span>}
+      title={
+        <span className="danger-modal-title">
+          <ExclamationCircleFilled aria-hidden="true" /> {title}
+        </span>
+      }
       onCancel={() => {
         if (!busy) onCancel();
       }}

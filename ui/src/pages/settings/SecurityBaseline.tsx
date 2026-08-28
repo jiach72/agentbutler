@@ -5,6 +5,7 @@
 import { useMemo } from "react";
 import { Button } from "antd";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
+import { StatusBadge } from "../../components/StatusBadge.js";
 import type { FetchState } from "../../lib/api.js";
 import {
   type AlertsPayload,
@@ -186,7 +187,7 @@ export function SecurityBaseline({
           <span className="product-kicker">本机安全</span>
           <h2>本机安全检查</h2>
         </div>
-        <span className="badge-pill badge-muted">基础检查</span>
+        <StatusBadge tone="muted" label="基础检查" />
       </div>
 
       {baseline.status === "failed" && retryBanner("baseline", baseline.reason, onRetry)}
@@ -256,25 +257,26 @@ export function SecurityBaseline({
             <span className="product-kicker">自动修复保护</span>
             <h2>反复失败时会停下</h2>
           </div>
-          <span
-            className={`badge-pill ${
+          <StatusBadge
+            tone={
               runbooks.status !== "ready" || runbooks.data.reachable === false
-                ? "badge-muted"
+                ? "muted"
                 : trippedRunbooks.length === 0
-                  ? "badge-healthy"
-                  : "badge-warning"
-            }`}
-          >
-            {runbooks.status === "loading"
-              ? "读取中"
-              : runbooks.status === "failed"
-                ? "暂不可用"
-                : runbooks.data.reachable === false
-                  ? "服务离线"
-                  : trippedRunbooks.length === 0
-                    ? "运行正常"
-                    : `${trippedRunbooks.length} 项已暂停`}
-          </span>
+                  ? "ok"
+                  : "warn"
+            }
+            label={
+              runbooks.status === "loading"
+                ? "读取中"
+                : runbooks.status === "failed"
+                  ? "暂不可用"
+                  : runbooks.data.reachable === false
+                    ? "服务离线"
+                    : trippedRunbooks.length === 0
+                      ? "运行正常"
+                      : `${trippedRunbooks.length} 项已暂停`
+            }
+          />
         </div>
         {runbooks.status === "loading" && <p className="hint">正在读取自动修复保护状态…</p>}
         {runbooks.status === "failed" && retryBanner("runbooks", runbooks.reason, onRetry)}
@@ -288,18 +290,19 @@ export function SecurityBaseline({
           runbooks.data.reachable &&
           trippedRunbooks.map((runbook) => (
             <article className="route-row" key={runbook.id}>
-              <span className="badge-pill badge-warning">已暂停</span>
+              <StatusBadge tone="warn" label="已暂停" />
               <div>
                 <strong>{runbook.label}</strong>
                 <span>{runbook.description || "连续失败后等待人工确认"}</span>
               </div>
-              <button
-                className="btn btn-small"
+              <Button
+                size="small"
                 disabled={busy !== null}
+                loading={busy === `reset-${runbook.id}`}
                 onClick={() => onRequestReset(runbook)}
               >
-                {busy === `reset-${runbook.id}` ? "解除中…" : "确认后解除"}
-              </button>
+                确认后解除
+              </Button>
             </article>
           ))}
       </div>
@@ -313,14 +316,14 @@ export function SecurityBaseline({
         </div>
         {alerts.status === "failed" && retryBanner("alerts", alerts.reason, onRetry)}
         <div className="route-row">
-          <span className="badge-pill badge-muted">规则</span>
+          <StatusBadge tone="muted" label="规则" />
           <div>
             <strong>按当前消息通道发送</strong>
             <span>系统只使用当前通道，不设置备用通知链路</span>
           </div>
         </div>
         <div className="route-row">
-          <span className="badge-pill badge-muted">当前</span>
+          <StatusBadge tone="muted" label="当前" />
           <div>
             <strong>
               {alerts.status === "ready" && alerts.data.reachable

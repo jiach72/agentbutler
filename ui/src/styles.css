@@ -1,8 +1,7 @@
-/* Tokenized layers load after the historical compatibility layer. */
-@import "./styles/legacy.css";
+/* 样式分层加载顺序：全局基础 → 应用外壳 → 共享原语 → 各页面局部样式。 */
 @import "./styles/base.css";
-@import "./styles/layout.css";
-@import "./styles/components.css";
+@import "./styles/shell.css";
+@import "./styles/primitives.css";
 @import "./styles/pages/dashboard.css";
 @import "./styles/pages/gateway.css";
 @import "./styles/pages/evolution.css";
@@ -10,4 +9,3 @@
 @import "./styles/pages/versions.css";
 @import "./styles/pages/settings.css";
 @import "./styles/pages/preferences.css";
-@import "./styles/theme-overrides.css";

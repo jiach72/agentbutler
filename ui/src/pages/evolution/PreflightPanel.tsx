@@ -2,7 +2,7 @@
  * 进化页左栏：高级运行设置（antd Form）、预检清单、运行/补齐动作与结论框。
  */
 import { useMemo } from "react";
-import { Form, Input, InputNumber } from "antd";
+import { Form, Input, InputNumber, Button } from "antd";
 import type { FormInstance } from "antd";
 import { AdvancedDetails } from "../../components/AdvancedDetails.js";
 import {
@@ -107,13 +107,14 @@ export function PreflightPanel({
       </ol>
 
       <div className="evolution-primary-action">
-        <button
-          type="button"
-          onClick={onRunPreflight}
+        <Button
+          type="primary"
+          loading={busy === "preflight"}
           disabled={busy !== null || watchReachable === false}
+          onClick={onRunPreflight}
         >
-          {busy === "preflight" ? "正在检查…" : "开始检查"}
-        </button>
+          开始检查
+        </Button>
         <span>全部通过后管家会先备份，再允许外部改进。</span>
       </div>
 
@@ -133,15 +134,13 @@ export function PreflightPanel({
                   placeholder={'{"prompt":"示例问题","expected":"期望答案"}'}
                 />
               </Form.Item>
-              <button
-                type="button"
-                onClick={onExpandDataset}
+              <Button
+                loading={busy === "expand"}
                 disabled={busy !== null || !canExpand}
+                onClick={onExpandDataset}
               >
-                {busy === "expand"
-                  ? "补齐并重新检查…"
-                  : `补齐到 ${preflight.nextAction.targetCount} 条并重检`}
-              </button>
+                {`补齐到 ${preflight.nextAction.targetCount} 条并重检`}
+              </Button>
             </div>
           )}
         </div>

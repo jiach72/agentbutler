@@ -104,6 +104,33 @@ export interface DashboardPayload {
   messageStatus?: MessageStatusPayload;
 }
 
+export interface DeliveryHistoryDay {
+  date: string;
+  delivered: number;
+  failed: number;
+  uncertain: number;
+}
+
+export interface DeliveryHistoryPayload {
+  reachable: boolean;
+  days: number;
+  retentionDays: number;
+  items: DeliveryHistoryDay[];
+}
+
+export interface InspectionHistoryDay {
+  date: string;
+  count: number;
+  avgDurationMs: number | null;
+  errorCount: number;
+}
+
+export interface InspectionHistoryPayload {
+  days: number;
+  items: InspectionHistoryDay[];
+  degraded?: string[];
+}
+
 export interface MessageStatusPayload {
   reachable: boolean;
   status?: {
@@ -255,6 +282,11 @@ export interface StatusCardView {
   label: string;
   value: string;
   detail: string;
+  trend?: {
+    values: number[];
+    label: string;
+    tone?: "accent" | "ok" | "warn" | "error";
+  };
   action?: { label: string; kind: "link" | "detail"; to?: string };
 }
 
