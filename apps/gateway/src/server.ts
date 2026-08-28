@@ -32,7 +32,7 @@ const MAX_LIMIT = 200;
 const MAX_BODY_BYTES = 1024 * 1024;
 const DND_SCOPES = new Set(["global", "channel", "session"]);
 const DEFAULT_WEIXIN_MIN_INTERVAL_SEC = 45;
-export const GATEWAY_SERVICE_VERSION = `gateway@1.0.0-beta.11+${CONTRACT_VERSION}`;
+export const GATEWAY_SERVICE_VERSION = `gateway@1.0.0-beta.12+${CONTRACT_VERSION}`;
 
 export type MessageDeliveryMode = "native" | "observe" | "disabled";
 
