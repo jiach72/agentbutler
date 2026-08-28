@@ -487,8 +487,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function recoveryActionCatalog(deps: WatchHttpDeps, instanceId?: string): RecoveryActionView[] {
   const hasRunbook = (id: string) => deps.runbooks().some((runbook) => runbook.id === id);
   const hasGatewayPatch = deps.gateway !== undefined;
-  const connection = deps.connections?.status().connections.find((item) => item["instanceId"] === instanceId) ??
-    deps.connections?.status().connections[0];
+  const connectionSnapshot = deps.connections?.status();
+  const connection = connectionSnapshot?.connections.find((item) => item["instanceId"] === instanceId) ??
+    connectionSnapshot?.connections[0];
   const capabilities = isRecord(connection?.["capabilities"]) ? connection["capabilities"] as Record<string, unknown> : {};
   const capability = (name: string): string | undefined => typeof capabilities[name] === "string" ? capabilities[name] as string : undefined;
   const controlCapability = capability("control");
