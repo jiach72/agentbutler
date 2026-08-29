@@ -10,6 +10,20 @@ type UsageView = { rangeDays: number; coverage: { from: string | null; to: strin
 type TrendView = { items: Array<{ name: string; url: string; stars: number; forks: number; updatedAt: string }>; syncedAt: string | null; notice: string; error?: string };
 type Recommendation = { id: string; name: string; reason: string; sourceUrl: string };
 
+const DAY_MS = 86_400_000;
+
+function fillUsageSeries(series: Array<{ date: string; calls: number }>, rangeDays: number) {
+  const byDate = new Map(series.map((item) => [item.date, item.calls]));
+  // 日志接口按 ISO/UTC 日期聚合，补齐时也使用 UTC，避免本地时区跨日错位。
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  return Array.from({ length: rangeDays }, (_, index) => {
+    const date = new Date(today.getTime() - (rangeDays - index - 1) * DAY_MS);
+    const key = date.toISOString().slice(0, 10);
+    return { date: key, calls: byDate.get(key) ?? 0 };
+  });
+}
+
 export function AssetCenter({ skills }: { skills: SkillsPayload["skills"] }) {
   const { message, modal } = App.useApp();
   const [range, setRange] = useState("30");
@@ -53,7 +67,11 @@ export function AssetCenter({ skills }: { skills: SkillsPayload["skills"] }) {
   };
   useEffect(() => { void refresh(); }, [refresh]);
 
-  const maxCalls = Math.max(1, ...(usage?.series.map((item) => item.calls) ?? [0]));
+  const usageSeries = useMemo(
+    () => (usage === null ? [] : fillUsageSeries(usage.series, usage.rangeDays)),
+    [usage],
+  );
+  const maxCalls = Math.max(1, ...(usageSeries.map((item) => item.calls) ?? [0]));
   const known = useMemo(() => new Set(skills.items.map((item) => item.name)), [skills.items]);
   const archive = (name: string) => {
     modal.confirm({ title: "归档技能 " + name + "？", content: "归档前会自动备份；内置技能不可归档。", okText: "归档", cancelText: "取消", onOk: async () => {
@@ -87,7 +105,24 @@ export function AssetCenter({ skills }: { skills: SkillsPayload["skills"] }) {
     <div className="skills-section-head"><div><span className="skills-kicker">使用统计</span><h2>技能使用情况</h2></div><Select value={range} onChange={setRange} options={[{ value: "30", label: "近 30 天" }, { value: "90", label: "近 90 天" }, { value: "180", label: "近 180 天" }]} /></div>
     {usage && <>
       <Alert type={usage.coverage.complete ? "info" : "warning"} showIcon message={"数据覆盖：" + (usage.coverage.from ? formatTime(usage.coverage.from) + " 至 " + formatTime(usage.coverage.to ?? usage.coverage.from) : "未知")} description={usage.coverage.source + "；实际覆盖 " + usage.coverage.days + " 天。" + usage.notice} />
-      <div className="asset-trend" aria-label="技能调用次数趋势">{usage.series.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前范围没有可证明的调用记录" /> : usage.series.map((item) => <div className="asset-bar" key={item.date} title={item.date + ": " + item.calls + " 次"}><span style={{ height: Math.max(4, item.calls / maxCalls * 100) + "%" }} /><small>{item.date.slice(5)}</small></div>)}</div>
+      <div className="asset-trend" aria-label="技能调用次数趋势">
+        {usage.series.length === 0 ? (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前范围没有可证明的调用记录" />
+        ) : (
+          <div className="asset-trend-scroll">
+            <div className="asset-trend-bars">
+              {usageSeries.map((item, index) => (
+                <div className="asset-bar" key={item.date} title={`${item.date}: ${item.calls} 次`}>
+                  <span style={{ height: `${item.calls === 0 ? 0 : Math.max(6, (item.calls / maxCalls) * 100)}%` }} />
+                  {(usage.rangeDays <= 30 || index % 7 === 0 || index === usageSeries.length - 1) && (
+                    <small>{item.date.slice(5)}</small>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
       <Table rowKey="name" size="small" pagination={{ pageSize: 8, hideOnSinglePage: true }} dataSource={usage.skills} columns={columns} />
     </>}
     <div className="asset-center-section"><div className="skills-section-head"><div><span className="skills-kicker">公开来源</span><h2>GitHub 技能项目</h2></div><Button icon={<ReloadOutlined />} loading={busy === "sync" || busy === "refresh"} onClick={() => void syncTrends()}>同步公开数据</Button></div><p className="asset-note">数据来自公开仓库，仅供参考。{trends?.syncedAt ? "同步于 " + formatTime(trends.syncedAt) : "尚未同步"}{trends?.error ? "；上次同步失败，当前显示缓存。" : ""}</p><div className="asset-trends-list">{(trends?.items ?? []).length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚未同步公开项目" /> : (trends?.items ?? []).slice(0, 8).map((item) => <div className="asset-trend-row" key={item.name}><a href={item.url} target="_blank" rel="noreferrer">{item.name}</a><span>{item.stars.toLocaleString()} stars · {item.forks.toLocaleString()} forks</span><small>更新于 {item.updatedAt ? formatTime(item.updatedAt) : "未知"}</small></div>)}</div></div>

@@ -154,10 +154,12 @@
 .asset-center { display: grid; gap: var(--butler-space-5); }
 .asset-center-section { display: grid; gap: var(--butler-space-3); padding-top: var(--butler-space-4); border-top: 1px solid var(--butler-rule); }
 .asset-note { color: var(--butler-muted); font-size: var(--butler-text-xs); line-height: 1.6; }
-.asset-trend { min-height: 150px; display: flex; align-items: end; gap: 5px; padding: 18px 12px 8px; border: 1px solid var(--butler-rule); border-radius: var(--butler-radius-control); background: var(--butler-sunken); overflow-x: auto; }
-.asset-bar { flex: 1 0 18px; min-width: 18px; height: 120px; display: flex; flex-direction: column; align-items: center; justify-content: end; gap: 5px; }
-.asset-bar span { display: block; width: 100%; min-height: 4px; border-radius: 2px 2px 0 0; background: var(--butler-accent); }
-.asset-bar small { color: var(--butler-muted); font-size: 10px; writing-mode: vertical-rl; transform: rotate(180deg); }
+.asset-trend { min-height: 150px; display: flex; align-items: stretch; padding: 14px 12px 8px; border: 1px solid var(--butler-rule); border-radius: var(--butler-radius-control); background: var(--butler-sunken); overflow: hidden; }
+.asset-trend-scroll { width: 100%; overflow-x: auto; overflow-y: hidden; }
+.asset-trend-bars { min-width: max-content; height: 128px; display: flex; align-items: end; gap: 7px; padding: 0 2px; }
+.asset-bar { width: 18px; height: 128px; flex: 0 0 18px; display: flex; flex-direction: column; align-items: center; justify-content: end; gap: 5px; }
+.asset-bar span { display: block; width: 100%; min-height: 0; border-radius: 2px 2px 0 0; background: var(--butler-accent); transition: height var(--butler-dur-base) var(--butler-ease); }
+.asset-bar small { height: 14px; color: var(--butler-muted); font-size: 10px; white-space: nowrap; }
 .asset-trends-list { display: grid; gap: 1px; border-top: 1px solid var(--butler-rule); }
 .asset-trend-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 14px; padding: 10px 0; border-bottom: 1px solid var(--butler-rule); font-size: var(--butler-text-sm); }
 .asset-trend-row a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--butler-accent); }
