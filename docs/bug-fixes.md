@@ -187,5 +187,5 @@
 - **问题：** 技能资产页的调用趋势只返回有调用的日期，前端使用弹性宽度平分柱子；当窗口内只有一天数据时，单根柱子会被拉伸成整块色带，日期刻度也难以辨认。
 - **风险/影响：** 用户无法正确判断调用趋势，容易把图表误认为渲染异常或数据重复。
 - **修复范围：** 前端按所选窗口补齐零值日期，改用固定宽度日期槽位并保留水平滚动；零值不绘制可见柱体，日期标签按窗口长度抽样显示；补齐逻辑与日志接口一致使用 UTC 日期。
-- **回归测试：** 覆盖单日数据、稀疏日期和 30/90/180 天窗口的静态渲染逻辑；不改变 `/api/skills/usage` 数据契约。
+- **回归测试：** `ui/tests/usage-trend.test.ts` 覆盖单日数据、稀疏日期和 UTC 日期边界；不改变 `/api/skills/usage` 数据契约。
 - **验证命令：** `corepack pnpm exec tsc -b --pretty false`；`corepack pnpm --filter @butler/ui exec vitest run --reporter=dot`（24 passed）；`corepack pnpm --filter @butler/ui exec vite build`；`git diff --check`。

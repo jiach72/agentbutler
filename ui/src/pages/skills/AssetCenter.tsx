@@ -4,25 +4,12 @@ import { ReloadOutlined, InboxOutlined, DownloadOutlined } from "@ant-design/ico
 import { loadJson, postJson } from "../../lib/api.js";
 import { formatTime } from "../../lib/format.js";
 import type { SkillsPayload } from "./helpers.js";
+import { fillUsageSeries } from "./usageTrend.js";
 
 type UsageItem = { name: string; calls: number; lastUsedAt: string | null; successRate: number | null; avgDurationMs: number | null; status: "known" | "unknown" };
 type UsageView = { rangeDays: number; coverage: { from: string | null; to: string | null; days: number; source: string; complete: boolean }; series: Array<{ date: string; calls: number }>; skills: UsageItem[]; notice: string };
 type TrendView = { items: Array<{ name: string; url: string; stars: number; forks: number; updatedAt: string }>; syncedAt: string | null; notice: string; error?: string };
 type Recommendation = { id: string; name: string; reason: string; sourceUrl: string };
-
-const DAY_MS = 86_400_000;
-
-function fillUsageSeries(series: Array<{ date: string; calls: number }>, rangeDays: number) {
-  const byDate = new Map(series.map((item) => [item.date, item.calls]));
-  // 日志接口按 ISO/UTC 日期聚合，补齐时也使用 UTC，避免本地时区跨日错位。
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
-  return Array.from({ length: rangeDays }, (_, index) => {
-    const date = new Date(today.getTime() - (rangeDays - index - 1) * DAY_MS);
-    const key = date.toISOString().slice(0, 10);
-    return { date: key, calls: byDate.get(key) ?? 0 };
-  });
-}
 
 export function AssetCenter({ skills }: { skills: SkillsPayload["skills"] }) {
   const { message, modal } = App.useApp();
