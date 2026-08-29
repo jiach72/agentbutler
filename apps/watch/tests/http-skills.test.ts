@@ -187,8 +187,9 @@ describe("startWatchHttp 技能与记忆端点", () => {
   it("透传技能资产统计，并保留未知字段语义", async () => {
     http.close();
     const assets = {
-      usage: async () => ({
+      usage: async (_range?: number, granularity = "day") => ({
         rangeDays: 180,
+        granularity: granularity as "day" | "week" | "month",
         coverage: { from: "2026-08-01T00:00:00.000Z", to: "2026-08-02T00:00:00.000Z", days: 1, source: "Hermes 日志", complete: true },
         series: [{ date: "2026-08-01", calls: 2 }],
         skills: [{ name: "arxiv", calls: 2, lastUsedAt: "2026-08-02T00:00:00.000Z", successRate: null, avgDurationMs: null, status: "known" as const }],
@@ -209,6 +210,6 @@ describe("startWatchHttp 技能与记忆端点", () => {
     const status = await fetch(`${base}/api/skills`);
     expect(status.status).toBe(200);
     expect((await status.json()).skills.items[0]).toMatchObject({ usage: 2, successRate: null, avgDurationMs: null });
-    expect((await fetch(`${base}/api/skills/usage?range=30d`)).status).toBe(200);
+    expect((await fetch(`${base}/api/skills/usage?range=30d&granularity=week`)).status).toBe(200);
   });
 });

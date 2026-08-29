@@ -2611,8 +2611,9 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   // 技能资产中心代理：统计、生命周期、公开趋势和隔离安装均透传 Watch 语义。
   app.get("/api/skills/usage", async (request, reply) => {
     const query = request.query as Record<string, unknown>;
-    const range = typeof query["range"] === "string" ? "?range=" + encodeURIComponent(query["range"] as string) : "";
-    return proxyWatchGet("/api/skills/usage" + range, reply);
+    const params = new URLSearchParams();
+    for (const key of ["range", "granularity"] as const) if (typeof query[key] === "string") params.set(key, query[key] as string);
+    return proxyWatchGet("/api/skills/usage" + (params.size > 0 ? "?" + params.toString() : ""), reply);
   });
   app.post("/api/skills/:name/:action", async (request, reply) => {
     const params = request.params as { name?: string; action?: string };

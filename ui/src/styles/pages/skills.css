@@ -154,6 +154,7 @@
 .asset-center { display: grid; gap: var(--butler-space-5); }
 .asset-center-section { display: grid; gap: var(--butler-space-3); padding-top: var(--butler-space-4); border-top: 1px solid var(--butler-rule); }
 .asset-note { color: var(--butler-muted); font-size: var(--butler-text-xs); line-height: 1.6; }
+.asset-selects { display: flex; flex-wrap: wrap; gap: 8px; }
 .asset-trend { min-height: 150px; display: flex; align-items: stretch; padding: 14px 12px 8px; border: 1px solid var(--butler-rule); border-radius: var(--butler-radius-control); background: var(--butler-sunken); overflow: hidden; }
 .asset-trend-scroll { width: 100%; overflow-x: auto; overflow-y: hidden; }
 .asset-trend-bars { min-width: max-content; height: 128px; display: flex; align-items: end; gap: 7px; padding: 0 2px; }
@@ -162,10 +163,13 @@
 .asset-bar small { height: 14px; color: var(--butler-muted); font-size: 10px; white-space: nowrap; }
 .asset-trends-list { display: grid; gap: 1px; border-top: 1px solid var(--butler-rule); }
 .asset-trend-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 14px; padding: 10px 0; border-bottom: 1px solid var(--butler-rule); font-size: var(--butler-text-sm); }
+.asset-trend-main { min-width: 0; }
 .asset-trend-row a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--butler-accent); }
+.asset-trend-main p { margin-top: 3px; color: var(--butler-muted); font-size: var(--butler-text-xs); line-height: 1.5; }
 .asset-trend-row span, .asset-trend-row small { color: var(--butler-muted); font-size: var(--butler-text-xs); }
 .asset-recommendation { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--butler-rule); }
 .asset-recommendation p { margin-top: 3px; color: var(--butler-muted); font-size: var(--butler-text-xs); line-height: 1.5; }
+.asset-install-detail { margin-top: 14px; color: var(--butler-ink-soft); font-size: var(--butler-text-sm); line-height: 1.55; }
 @media (max-width: 760px) { .asset-trend-row { grid-template-columns: 1fr; gap: 3px; } .asset-recommendation { align-items: flex-start; flex-direction: column; } }
 .skills-row {
   display: flex;

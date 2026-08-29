@@ -1071,7 +1071,7 @@ async function handle(
           ...(limit === undefined ? {} : { limit }),
         });
       if (deps.skillAssets !== undefined) {
-        const usage = await deps.skillAssets.usage(180);
+        const usage = await deps.skillAssets.usage(180, "day");
         const byName = new Map(usage.skills.map((item) => [item.name, item]));
         status.skills.items = status.skills.items.map((item) => {
           const observed = byName.get(item.name);
@@ -1085,7 +1085,9 @@ async function handle(
       if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
       if (deps.skillAssets === undefined) return sendJson(res, 503, { error: "skill-assets-unavailable" });
       const range = Number(url.searchParams.get("range")?.replace(/d$/, "") ?? "180");
-      return sendJson(res, 200, await deps.skillAssets.usage([30, 90, 180].includes(range) ? range : 180));
+      const requestedGranularity = url.searchParams.get("granularity");
+      const granularity = requestedGranularity === "week" || requestedGranularity === "month" ? requestedGranularity : "day";
+      return sendJson(res, 200, await deps.skillAssets.usage([30, 90, 180].includes(range) ? range : 180, granularity));
     }
 
     const skillLifecycle = /^\/api\/skills\/([^/]+)\/(archive|restore|purge)$/.exec(path);

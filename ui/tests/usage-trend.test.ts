@@ -19,4 +19,16 @@ describe("fillUsageSeries", () => {
     const result = fillUsageSeries([{ date: "2026-08-29", calls: 1 }], 1, now);
     expect(result).toEqual([{ date: "2026-08-29", calls: 1 }]);
   });
+
+  it("按周补齐周一桶", () => {
+    const result = fillUsageSeries([{ date: "2026-08-24", calls: 7 }], 30, "week", now);
+    expect(result.at(-1)).toEqual({ date: "2026-08-24", calls: 7 });
+    expect(result).toHaveLength(5);
+  });
+
+  it("按月补齐月初桶", () => {
+    const result = fillUsageSeries([{ date: "2026-08-01", calls: 12 }], 180, "month", now);
+    expect(result.at(-1)).toEqual({ date: "2026-08-01", calls: 12 });
+    expect(result).toHaveLength(6);
+  });
 });

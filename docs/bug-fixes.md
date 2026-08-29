@@ -189,3 +189,11 @@
 - **修复范围：** 前端按所选窗口补齐零值日期，改用固定宽度日期槽位并保留水平滚动；零值不绘制可见柱体，日期标签按窗口长度抽样显示；补齐逻辑与日志接口一致使用 UTC 日期。
 - **回归测试：** `ui/tests/usage-trend.test.ts` 覆盖单日数据、稀疏日期和 UTC 日期边界；不改变 `/api/skills/usage` 数据契约。
 - **验证命令：** `corepack pnpm exec tsc -b --pretty false`；`corepack pnpm --filter @butler/ui exec vitest run --reporter=dot`（24 passed）；`corepack pnpm --filter @butler/ui exec vite build`；`git diff --check`。
+
+## 2026-08-29 - 技能资产简介、直接安装反馈与多粒度统计
+
+- **问题：** GitHub 公开技能列表缺少用途说明，推荐项目重复使用同一条副标题；“下载到隔离区”不会让客户明确下一步，安装完成后也没有可见的过程反馈；技能调用趋势只支持按日查看。
+- **风险/影响：** 客户难以判断公开项目是否适合当前实例，容易误以为点击下载后操作已经结束，也无法按周或按月查看长期使用变化。
+- **修复范围：** 公开趋势和推荐接口增加稳定的中文简介与中性兜底文案；资产中心将按钮改为“直接安装”，确认后显示下载、检查、备份、安装进度及服务端失败原因，安装成功后刷新技能清单；Watch/Web/UI 新增 `granularity=day|week|month`，按 UTC 日、周一周和月初聚合并补齐图表桶。
+- **回归测试：** `ui/tests/usage-trend.test.ts` 增加周、月聚合用例；`apps/watch/tests/http-skills.test.ts` 覆盖统计粒度参数透传；保留既有安装路径、备份、SKILL.md 校验和路径安全逻辑。
+- **验证命令：** `corepack pnpm exec tsc -b --pretty false`；定向 `vitest`（5 passed）；全量 `vitest`（存在 3 个与本次无关的既有失败：网关消息节流 2 项、日志修复响应字段 1 项）；`git diff --check`。
