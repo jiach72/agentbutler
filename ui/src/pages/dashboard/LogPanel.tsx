@@ -132,8 +132,8 @@ export function LogPanel({ open = true, onClose = () => undefined, embedded = fa
       {open && (
         <div
           className={embedded ? "log-page-shell" : "log-drawer-backdrop"}
-          role="dialog"
-          aria-modal="true"
+          role={embedded ? undefined : "dialog"}
+          aria-modal={embedded ? undefined : true}
           aria-labelledby="log-drawer-title"
           onClick={(event) => {
             if (embedded) return;

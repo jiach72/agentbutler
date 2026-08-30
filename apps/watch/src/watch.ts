@@ -28,7 +28,8 @@ import { randomUUID } from "node:crypto";
 import { join, posix } from "node:path";
 import { closeSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import type { ControlAdapter, DiscoveryHint, InstanceRef, Result } from "@butler/contract";
+import type { ControlAdapter, DiscoveryHint, InstanceRef, Job, Result } from "@butler/contract";
+import { fail } from "@butler/contract";
 import {
   createHermesAdapter,
   createPatchManager,
@@ -95,6 +96,7 @@ import {
   RB_RESTART,
   RunbookExecutor,
   type CircuitBreaker,
+  type RunbookControl,
 } from "./runbook/index.js";
 import {
   createInspectionRunner,
@@ -724,10 +726,37 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       initialTrips: initialBreakerTrips,
     },
   );
+  /**
+   * 给 runbook 补上还原能力：动作没做成时，把数据退回执行前的快照。
+   *
+   * 快照是在执行器内部以 label "pre-runbook" 创建的，这里按标签回查最近一条，
+   * 拿到 snapshotId 再走控制面的 rollback。查不到就如实返回失败——
+   * 执行器会把"自动还原没成功"写进步骤里，不会假装补救过。
+   */
+  const runbookControl: RunbookControl = {
+    ...routedControl,
+    restore: async (instance: InstanceRef): Promise<Result<Job>> => {
+      const rows = core.store.listSnapshots(instance.instanceId);
+      const row = rows.find((item) => item.status === "ok" && item.label === "pre-runbook");
+      if (row === undefined) {
+        return fail("E204", `no pre-runbook snapshot for ${instance.instanceId}`, {
+          userHint: "没有找到执行前的快照，无法自动还原",
+        });
+      }
+      const scope = row.scope as { snapshotId?: unknown } | null;
+      if (typeof scope?.snapshotId !== "string" || scope.snapshotId === "") {
+        return fail("E204", `pre-runbook snapshot missing snapshotId for ${instance.instanceId}`, {
+          userHint: "快照记录不完整，无法自动还原",
+        });
+      }
+      return routedControl.rollback(instance, { snapshotId: scope.snapshotId });
+    },
+  };
+
   const runbookExecutor = new RunbookExecutor(
     {
       core,
-      control: routedControl,
+      control: runbookControl,
       stages,
       breaker,
       poster: alertPoster,

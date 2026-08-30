@@ -7,6 +7,8 @@
  */
 import { useMemo, useState } from "react";
 import { App, Button } from "antd";
+import { AdvancedDetails } from "../../components/AdvancedDetails.js";
+import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
 import { PageProgress } from "../../components/PageProgress.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { postJson } from "../../lib/api.js";
@@ -15,9 +17,14 @@ import { buildConclusions } from "./conclusions.js";
 import { HeroConclusion } from "./HeroConclusion.js";
 import { StatusRail } from "./StatusRail.js";
 import { IssuesSection } from "./IssuesSection.js";
+import { ReadinessSection } from "./ReadinessSection.js";
+import { OnboardingContinuation } from "./OnboardingContinuation.js";
 import { ConnectionSection } from "./ConnectionSection.js";
+import { FingerprintsTable, InspectCard, RunbooksPanel } from "./AdvancedPanels.js";
+import { InstanceHealthCard } from "./InstanceHealthCard.js";
 import { useDashboardData } from "./useDashboardData.js";
 import { useOpenClawInstall } from "./useOpenClawInstall.js";
+import type { RunbookView } from "./types.js";
 
 export function DashboardPage() {
   const { message } = App.useApp();
@@ -34,6 +41,11 @@ export function DashboardPage() {
     criticalLoadFailed,
     inspectionHistory,
     deliveryHistory,
+    runbooks,
+    llmStatus,
+    discoveredModels,
+    readinessRefreshing,
+    refreshReadiness,
   } = useDashboardData();
   const openClawInstall = useOpenClawInstall({
     status: openClawStatus,
@@ -44,6 +56,8 @@ export function DashboardPage() {
 
   const [inspectionRequested, setInspectionRequested] = useState(false);
   const [connectionBusy, setConnectionBusy] = useState<string | null>(null);
+  const [runbookCandidate, setRunbookCandidate] = useState<RunbookView | null>(null);
+  const [runbookBusy, setRunbookBusy] = useState(false);
 
   const runInspect = async () => {
     setInspectionRequested(true);
@@ -108,6 +122,26 @@ export function DashboardPage() {
       message.error("管家控制通道暂时连不上");
     } else {
       message.error(action === "connect" ? "连接失败，请先检查配置和服务" : "断开失败，请稍后重试");
+    }
+  };
+
+  const runRunbook = async () => {
+    if (runbookCandidate === null) return;
+    setRunbookBusy(true);
+    const result = await postJson(
+      `/api/runbooks/${encodeURIComponent(runbookCandidate.id)}/execute`,
+      { confirmed: true },
+      70_000,
+    );
+    setRunbookBusy(false);
+    setRunbookCandidate(null);
+    await refresh();
+    if (result.ok) {
+      message.success(`已开始执行「${runbookCandidate.label}」，完成后会自动更新。`);
+    } else if (result.status === 409) {
+      message.error("这个处理方案暂时被保护机制暂停，请稍后再试。");
+    } else {
+      message.error("处理方案没有启动成功，请查看检查明细后重试。");
     }
   };
 
@@ -182,6 +216,16 @@ export function DashboardPage() {
         onInspect={() => void runInspect()}
       />
 
+      <ReadinessSection
+        connections={connections}
+        llmStatus={llmStatus}
+        discoveredModels={discoveredModels}
+        refreshing={readinessRefreshing}
+        onRefresh={() => void refreshReadiness()}
+      />
+
+      <OnboardingContinuation />
+
       <StatusRail
         attentionCount={attentionCount}
         hasError={hasError}
@@ -212,7 +256,30 @@ export function DashboardPage() {
       <IssuesSection
         issues={issues}
         attentionCount={attentionCount}
+        onInspect={() => void runInspect()}
       />
+
+      <AdvancedDetails summary="检查明细" extra={`${instances.length} 个实例`}>
+        <InstanceHealthCard
+          instances={instances}
+          inspections={dashboard?.latestInspections ?? []}
+        />
+      </AdvancedDetails>
+
+      <AdvancedDetails summary="检查安排">
+        <InspectCard inspectStatus={inspectStatus} onInspect={() => void runInspect()} />
+      </AdvancedDetails>
+
+      <AdvancedDetails summary="可用的处理方案">
+        <RunbooksPanel runbooks={runbooks} onRepair={setRunbookCandidate} />
+      </AdvancedDetails>
+
+      <AdvancedDetails summary="经常出现的问题">
+        <FingerprintsTable
+          fingerprints={dashboard?.fingerprints ?? []}
+          onOpenLogs={() => { window.location.assign("/logs"); }}
+        />
+      </AdvancedDetails>
 
       {(inspectionRequested || inspectStatus?.inFlight === true) && (
         <PageProgress
@@ -222,6 +289,20 @@ export function DashboardPage() {
           detail="正在检查进程、接口、记忆、消息通道和模型连接，完成后本页会自动更新。"
         />
       )}
+
+      <DangerConfirmModal
+        open={runbookCandidate !== null}
+        title="确认开始处理"
+        confirmLabel="确认处理"
+        cancelLabel="先不处理"
+        busy={runbookBusy}
+        onCancel={() => setRunbookCandidate(null)}
+        onConfirm={() => void runRunbook()}
+        impact={runbookCandidate?.impact ?? "该操作会修改本机服务状态，完成后会自动复核。"}
+      >
+        管家将执行「<strong>{runbookCandidate?.label ?? "处理方案"}</strong>」。
+        确认后才会开始执行。
+      </DangerConfirmModal>
 
     </section>
   );

@@ -1,5 +1,23 @@
 # Bug Fixes
 
+## 2026-08-30 - Docker Desktop/WSL 真实部署验收
+
+- **Problem:** 使用 Windows NTFS 下的 `.runtime\\hermes` 作为 Hermes Bridge 运行时目录时，容器内 token 文件无法满足 Linux `0600` 私有权限检查，Gateway 按设计拒绝启动；WSL 原生 Docker 还不能重复启用已存在的 `8755` 转发器。
+- **Impact:** 直接从 PowerShell 绑定 Windows Hermes 目录会导致 Gateway 重启循环；显式启用 Compose `bridge-forward` profile 且宿主已有转发器时，辅助容器会因 `8755` 被占用而重启。两种情况都可能被误判为应用本身构建失败。
+- **Changed scope:** 本次未修改产品代码；按部署约束改用 WSL Linux Hermes 目录 `/home/jiach/.hermes`，复用已有 `agent-butler-bridge-forward.service`，使用隔离 Compose 项目 `agent-butler-smoke`、临时端口 `127.0.0.1:17531` 与临时数据卷完成验证。保留 Windows NTFS 权限失败现场作为运维边界证据。
+- **Regression coverage:** `docker compose -p agent-butler-smoke config --quiet`；Web `/api/health`、`/api/setup/status`、`/api/messages/status`；Gateway/Watch/Updater 容器内 `/healthz`；Updater 无/错 token `401`、正确 token `200`；Gateway token 文件容器内模式 `0600`；`bash scripts/bridge-healthcheck.sh`（0 个 FAIL）。
+- **Verification:** Docker Server `29.7.2`、Compose `v5.3.1`；Ubuntu-24.04 与 `docker-desktop` 均运行；四个核心容器均 `running + healthy`，Web/Gateway/Watch 版本均为 `1.0.0-beta.12+1.0`，schema 为 `evolution-v2-charts-v1`。
+- **Runtime validation:** Hermes `/v1/health` 与 Gateway 消息状态均返回 `connected=true`、`attached=true`、`outboxWritable=true`、`lastError=null`；消息统计显示 `delivered=150`、`dead_letter=1`。验证结束后仅清理本次 `agent-butler-smoke` 项目与 `agent-butler-smoke-data` 卷，不触碰既有 Agent Butler 或 WeKnora 资源。
+
+## 2026-08-30 - 产品化收口：安装入口、首次设置、诊断包与首页高级详情
+
+- **Problem:** 优化计划中 installer 虽有完整编排却不可发布，原生 Windows Hermes 宿主路径会误走 Bash；首次访问没有设置向导；诊断只能下载 Markdown；首页已写好的巡检明细、实例健康、Runbook 和错误指纹组件没有接入；侧栏仍暴露九个重复一级入口，日志整页错误使用 dialog 语义。
+- **Impact:** 普通用户无法从公开入口可靠安装或卸载，Windows 可能留下半安装状态；首次使用需要自行猜测配置；Issue 求助缺少标准附件；高级证据长期不可见；键盘用户无法选择进化方向，页面信息架构和辅助技术语义不一致。
+- **Changed scope:** installer 发布名改为 `agent-butler` 并提供 `agent-butler`/`butler` bin、Windows `.bat` 与 macOS `.command`；增加 Python/Hermes 探测、原生 Windows Hermes 引导、`reset`/`uninstall` 显式确认维护命令；新增 `/setup` 三步真实连接向导与首次访问跳转；首页接回高级详情面板和 Runbook 确认执行；侧栏收敛为首页/我的智能体/消息通知/设置；诊断接口支持脱敏 ZIP（Markdown 兼容保留）；修复日志页 dialog 语义、亮色次要文字对比度和进化表格键盘操作；根工作区包改名避免与可发布 installer 冲突。
+- **Regression coverage:** 新增 `apps/watch/tests/diagnostic-zip.test.ts`；installer 增加 reset/uninstall、维护确认与公开 CLI 入口测试；既有 updater、恢复、日志、消息和安全测试保持通过。
+- **Verification:** `corepack pnpm exec tsc -b --pretty false`；`corepack pnpm build`；`corepack pnpm test`（108 个测试文件，977 个用例通过，1 个真实环境冒烟文件按条件跳过）；`corepack pnpm exec vitest run apps/watch/tests/diagnostic-zip.test.ts packages/installer/tests/main.test.ts packages/installer/tests/install.test.ts`；`git diff --check`。
+- **Runtime validation:** 诊断 ZIP 使用标准 ZIP store 格式并限制为 `diagnostic-report.md` 与 `manifest.json`；维护命令默认只展示计划，只有 `--yes` 才执行清理，且拒绝删除根目录、用户 home 或仓库目录本身。真实 Docker/WSL 生产重建和首次浏览器流程仍需在目标部署环境执行。
+
 ## 2026-08-28 - macOS 安装默认分支版本落后与 Corepack PATH
 
 - **Problem:** 客户按 README 执行普通 `git clone` 时，GitHub 默认分支 `main` 仍停在 `ce07f01`（`v1.0.0-beta.9`）；`v1.0.0-beta.12` 只存在于发布 tag 和 `codex/llm-key-manager` 分支，因此安装后构建出的服务仍报告 beta.9。日志还显示 Hermes 自带 Node/Corepack 位于自定义目录，后台 shell 找不到裸 `corepack` 命令。
@@ -190,6 +208,14 @@
 - **回归测试：** `ui/tests/usage-trend.test.ts` 覆盖单日数据、稀疏日期和 UTC 日期边界；不改变 `/api/skills/usage` 数据契约。
 - **验证命令：** `corepack pnpm exec tsc -b --pretty false`；`corepack pnpm --filter @butler/ui exec vitest run --reporter=dot`（24 passed）；`corepack pnpm --filter @butler/ui exec vite build`；`git diff --check`。
 
+## 2026-08-29 - 移除诊断页重复的系统日志入口
+
+- **问题：** 诊断结果页顶部单独展示“查看日志依据 / 打开系统日志”，与侧边栏日志入口和诊断结果本身重复，占用首屏空间。
+- **风险/影响：** 用户进入诊断页后需要在无关入口和实际处理动作之间再次判断页面重点，且页面标题“诊断结果”重复出现。
+- **修复范围：** 移除顶部系统日志提示卡；页面说明改为直接描述检查结果和处理动作；诊断面板小标题改为“检查项与处理”，保留日志页独立入口和现有诊断接口。
+- **回归测试：** 保持诊断自动加载、重新诊断、分级动作、确认弹窗和执行进度逻辑不变；检查页面不再渲染“打开系统日志”文本。
+- **验证命令：** `corepack pnpm exec tsc -b --pretty false`；`corepack pnpm --filter @butler/ui exec vite build`；`git diff --check`。
+
 ## 2026-08-29 - 技能资产简介、直接安装反馈与多粒度统计
 
 - **问题：** GitHub 公开技能列表缺少用途说明，推荐项目重复使用同一条副标题；“下载到隔离区”不会让客户明确下一步，安装完成后也没有可见的过程反馈；技能调用趋势只支持按日查看。
@@ -197,3 +223,87 @@
 - **修复范围：** 公开趋势和推荐接口增加稳定的中文简介与中性兜底文案；资产中心将按钮改为“直接安装”，确认后显示下载、检查、备份、安装进度及服务端失败原因，安装成功后刷新技能清单；Watch/Web/UI 新增 `granularity=day|week|month`，按 UTC 日、周一周和月初聚合并补齐图表桶。
 - **回归测试：** `ui/tests/usage-trend.test.ts` 增加周、月聚合用例；`apps/watch/tests/http-skills.test.ts` 覆盖统计粒度参数透传；保留既有安装路径、备份、SKILL.md 校验和路径安全逻辑。
 - **验证命令：** `corepack pnpm exec tsc -b --pretty false`；定向 `vitest`（5 passed）；全量 `vitest`（存在 3 个与本次无关的既有失败：网关消息节流 2 项、日志修复响应字段 1 项）；`git diff --check`。
+
+## 2026-08-29 - Hermes 消息网关在配置完整时未启动
+
+- **问题：** WSL Docker 部署已具备 Bridge URL、实例目录、私有 token 和投影数据库，但本地 `.env` 写入 `BUTLER_ENABLE_HERMES_MESSAGE_RUNTIME=false`，Gateway 因此不创建消息运行时。页面只能显示 Bridge 未运行和 outbox 不可用，实际 Bridge 健康状态没有被读取。
+- **风险/影响：** Hermes 消息链路持续处于断开状态，且仅重启或重连无法恢复，因为启动配置每次都会明确关闭运行时。
+- **修复范围：** Gateway 新增 `auto` 模式：配置齐全则启动观察运行时，配置不完整则保持控制面可用；`false` 仍可显式关闭，`true` 仍要求完整配置。Compose 默认值同步为 `auto`，安装器和示例配置明确该语义。
+- **回归测试：** `apps/gateway/tests/message-main.test.ts` 覆盖 auto、显式启用和显式关闭模式；运行时既有测试继续覆盖 Bridge 离线后的重连、token 权限和策略重装。
+- **运行验证：** WSL 中验证 `/v1/health` 的 `attached=true`、`outboxWritable=true`，重建 Gateway 后验证 `/api/messages/status` 返回运行中、已连接和已挂载状态。
+
+## 2026-08-29 - 进化页面补充说明不可见且执行结果不可追踪
+
+- **问题：** 点击“生成补充说明”后结果只在接口响应中短暂存在，页面刷新或重新分析日志后消失；启动 Hermes 进化流程后页面只提示“已启动”，用户看不到运行编号、候选产物、当前阶段和下一步。
+- **风险/影响：** 用户无法判断优化内容，也无法确认修改是否真正执行，更无法在验证前审阅或应用候选变更。
+- **修复范围：** 洞察状态新增持久化的优化说明（目标、建议改动、预期结果、来源和时间）；重新分析保留已生成说明；手工提案绑定优化内容；Hermes 运行状态接入运行查询并每 5 秒刷新，展示准备、执行、候选、评估和完成阶段、运行编号、候选差异及失败详情；统一文案为“生成优化说明、按 Hermes 流程执行、生成可编辑方案、应用到 Hermes”。
+- **回归测试：** `apps/watch/tests/evolution-insights.test.ts` 新增说明持久化测试；既有日志洞察和 HTTP 进化接口测试保持通过。
+- **验证命令：** `corepack pnpm exec tsc -b --pretty false`；`corepack pnpm exec eslint apps/watch/src/evolution-insights.ts ui/src/pages/evolution/EvolutionPage.tsx`；`corepack pnpm exec vitest run --config vitest.focused.config.ts apps/watch/tests/evolution-insights.test.ts apps/watch/tests/http-evolution.test.ts`（10 passed）；`corepack pnpm --filter @butler/ui exec vite build`；`git diff --check`。
+
+## 2026-08-30 - P2 界面术语、状态徽标与键盘/触控可达性收口
+
+- **问题：** 进化、连接、通知和排查界面仍有 `baseline hash`、`置信度`、`数据：`、`npm：` 等工程术语；部分页面直接手写 Ant Design Tag 颜色；密集交互控件和日志来源按钮未统一到可触控尺寸；路由入口还经过无业务价值的一级 re-export 壳文件。
+- **风险/影响：** 普通用户难以理解页面内容，状态颜色在不同页面可能产生语义漂移，键盘和触控用户更难完成排查/连接流程；多余间接层增加维护和重构成本。
+- **修复范围：** 使用 `StatusBadge` 统一影响、评估、安装进度、通知、探针、风险和证据状态；将路径与包目录移入默认折叠的“运行环境详情”；把进化页术语改为“把握程度/当前版本标识/改进方案标识”；统一 CSS 断点到 `1200/860/600`；为 Ant Design 控件、日志来源按钮和已有自定义交互补充 44px 最小命中区；主入口直接导入实际页面并删除 6 个无引用的 re-export 壳文件；新增首页实例详情、排查现象和排查动作的静态渲染回归测试。
+- **回归测试：** 新增 `ui/tests/component-render.test.ts` 覆盖首页实例状态、排查现象键盘语义、排查动作推荐与风险展示；保留现有排查逻辑和 API 契约。
+- **验证命令：** `corepack pnpm exec tsc -b ui/tsconfig.json --pretty false`；`corepack pnpm exec vitest run --config ui/vitest.config.ts tests/component-render.test.ts --reporter=verbose`（3 passed）；`corepack pnpm test`（110 个测试文件通过、1 个条件式真实 smoke 文件跳过；986 passed、3 skipped）；`corepack pnpm build`；`corepack pnpm lint`；`corepack pnpm version:check`；`git diff --check`。
+
+## 2026-08-30 - WSL 部署 CRLF 与 Buildx 回退、beta.13 真实发布
+
+- **问题：** Windows `.env` 的 CRLF 行尾把回车字符带入 Hermes 路径，导致 WSL 部署误报 bridge token 缺失；Docker Desktop 在 WSL 中提供的 Buildx 插件发生 `input/output error`，阻断镜像构建。
+- **风险/影响：** 升级脚本在真实部署前直接退出；若强行绕过备份或构建错误，可能造成服务停机或版本未切换。
+- **修复范围：** `scripts/deploy.sh` 与 `scripts/bridge-healthcheck.sh` 读取 `.env` 时移除行尾 `\r`；部署脚本检测 Buildx 不可用时自动设置 `DOCKER_BUILDKIT=0` 与 `COMPOSE_DOCKER_CLI_BUILD=0`，回退到经典 Docker builder。版本由 `1.0.0-beta.12` 提升为 `1.0.0-beta.13`。
+- **回归测试：** `bash -n scripts/deploy.sh scripts/bridge-healthcheck.sh`；`corepack pnpm version:check`（版本一致：`1.0.0-beta.13`）；四个 Compose 镜像均以 `1.0.0-beta.13` 成功构建。
+- **验证命令：** `BUTLER_VERSION=1.0.0-beta.13 bash scripts/deploy.sh`；`curl -fsS http://127.0.0.1:7531/api/health`；容器内 Gateway/Watch/Updater `/healthz`；`bash scripts/bridge-healthcheck.sh`；`git diff --check`。
+- **运行验证：** WSL Ubuntu-24.04 的 Gateway、Watch、Web、Updater 均 running + healthy；Web 返回 `web@1.0.0-beta.13+1.0`，Gateway/Watch 返回对应 beta.13 版本；Hermes Bridge `attached=true`、`outboxWritable=true`，bridge healthcheck 结果为 0 个 FAIL。升级前真实数据卷备份保存在 `backups/butler-data-20260830-103732.tgz`。
+
+## 2026-08-30 - 恢复隐藏的版本、自进化与 GitHub 技能入口
+
+- **问题：** 优化侧栏收敛为首页、智能体和消息通知三个主入口后，版本升级、自进化和 GitHub 技能管理页面仍保留路由与后端接口，却没有可见导航入口，用户容易误认为功能被删除。
+- **风险/影响：** 已部署能力不可发现；用户无法从界面进入版本回滚、自进化分析或 GitHub 技能安装流程。
+- **修复范围：** `ui/src/components/Layout.tsx` 新增“管理工具”分组，恢复 `/versions`（版本升级）、`/evolution`（自进化）和 `/assets`（GitHub 技能管理）侧栏入口，并同步顶栏当前页面标题；`ui/src/styles/shell.css` 增加分组标题样式，兼容桌面和移动抽屉导航。
+- **回归测试：** `ui/tests/component-render.test.ts` 通过真实 `Layout` 静态渲染断言三个入口路径、文案和管理工具分组均存在。
+- **验证命令：** `corepack pnpm exec tsc -b ui/tsconfig.json --pretty false`；`corepack pnpm --filter @butler/ui exec vitest run --config vitest.config.ts tests/component-render.test.ts --reporter=verbose`（4 passed）；`corepack pnpm build`；`git diff --check`。
+- **运行验证：** 2026-08-30 在 WSL Ubuntu-24.04 中直接执行 `BUTLER_VERSION=1.0.0-beta.13 DOCKER_BUILDKIT=0 COMPOSE_DOCKER_CLI_BUILD=0 docker compose up -d --build`（按本地要求跳过数据卷备份）；Gateway、Watch、Web、Updater 均 `running + healthy`，Web `/api/health` 返回 `web@1.0.0-beta.13+1.0`，`/api/messages/status` 返回 `connected=true`、`attached=true`、`outboxWritable=true`；`scripts/bridge-healthcheck.sh` 结果为 0 个 FAIL；实际 bundle 已包含三个入口文案。
+
+## 2026-08-30 - 普通用户上手、受管模型与安全排查闭环
+
+- **问题：** 排查向导会直接提交 `confirmed: true`，中高影响修复绕过了用户确认；选择故障现象后诊断仍读取旧闭包状态，默认动作可能与刚选的现象不一致。首次使用只完成运行环境和连接检查，未覆盖受管任务模型、常用场景和完成后的下一步。模型配置页面也没有明确区分 Hermes 原生运行配置与 Butler 加密凭据绑定，侧栏同时展示所有高级工具，增加了普通用户的判断负担。
+- **风险/影响：** 用户可能在不了解影响的情况下重建索引、重连或重启；故障处理的推荐顺序可能偏离实际症状；首次使用后仍不知道模型是否可用于受管任务、该从哪里继续；无障碍弹窗缺少标准焦点圈禁，首包会预加载多个不常用页面。
+- **修复范围：** 排查动作现在按后端 `requiresConfirmation` 进入统一 `DangerConfirmModal`，确认后才发送 `confirmed: true`；诊断改为显式传入本次症状。首次向导扩展为环境、智能体、模型、连接验证、场景五步：模型真实探针后自动绑定到所选实例，已有通过探针的模型可一键绑定，场景选择只记录最合适的下一入口而不擅自安装技能或改写 Hermes。模型页将 Hermes 原生 `config.yaml`/`.env` 与 Butler 受管任务凭据明确分层，状态新增已绑定和可用判定。导航将首页、智能体与知识、消息通知、排查问题作为主路径，高级工具折叠但保持可发现；访问口令使用 Ant Design Modal 的焦点管理。页面改为路由懒加载，拆分 React/Ant Design 公共缓存；诊断未解决时按模型、消息、记忆或日志根因给出可点击的下一步。
+- **回归测试：** 新增 `ui/tests/troubleshoot-guidance.test.ts` 覆盖模型、消息、记忆问题的下一步路由；更新 `ui/tests/component-render.test.ts` 覆盖主导航与高级工具可发现性；`apps/watch/tests/log-analyzer.test.ts` 使用固定时钟，避免七天日志窗口随真实日期失效。
+- **验证命令：** `corepack pnpm test`（全量通过）；`corepack pnpm build`（通过）；`corepack pnpm exec vitest run ui/tests/troubleshoot-symptoms.test.ts ui/tests/troubleshoot-guidance.test.ts ui/tests/component-render.test.ts packages/core/tests/llm-credentials.test.ts --reporter=dot`（26 passed）；`corepack pnpm exec vitest run apps/watch/tests/watch.test.ts --reporter=dot`（11 passed）；`git diff --check`（通过）。
+- **运行验证：** 本地 Vite 开发服务器通过 `http://127.0.0.1:5174` 提供本次 UI，并继续代理本机 `/api` 与 `/ws` 到 Butler Web 服务。
+
+## 2026-08-30 - 首页问题卡补齐可执行下一步
+
+- **问题：** 首页会显示实例异常、重复错误、未发现实例或尚无检查结果，却只给出说明文字；用户必须自行判断该去首次设置、重新检查还是排查问题。即使进入排查页，也要再次选择已经在首页可推断的故障现象。
+- **风险/影响：** 普通用户在最需要帮助的时刻遇到操作断点，容易反复刷新首页或误入无关页面，拉长从发现异常到开始处理的路径。
+- **修复范围：** `IssueView` 增加明确的下一步动作；首页问题卡按状态提供“立即检查”“继续设置”“查看本机安全”或“开始排查”。实例异常和重复错误进入 `/troubleshoot` 时会预选“它报错了，我看不懂”，降级实例会预选“说不上来，你帮我查”；URL 驱动的预选只触发一次，不会在用户返回现象页时重复诊断。
+- **回归测试：** 新增 `ui/tests/dashboard-issue-actions.test.ts`，覆盖未发现实例、实例异常与无检查结果三条行动路由；既有排查症状和关键页面静态渲染测试继续通过。
+- **验证命令：** `corepack pnpm exec vitest run ui/tests/dashboard-issue-actions.test.ts ui/tests/troubleshoot-symptoms.test.ts ui/tests/component-render.test.ts`（18 passed）；`corepack pnpm build`（通过）；`git diff --check`。
+
+## 2026-08-30 - 首页持续展示本机运行就绪度
+
+- **问题：** 首次向导会区分 Hermes 原生运行模型和 Butler 受管任务模型，但完成后首页只展示巡检与连接信息；用户无法持续确认两类模型是否都处于可用状态，也无法从断开连接、缺少原生模型、凭据库不可用或未绑定模型直接进入对应处理路径。
+- **风险/影响：** 用户可能把“已连接实例”误解为智能体与所有受管任务均可运行，或把受管任务模型未就绪误判为 Hermes 原生对话不可用；本地配置变化后，已完成向导的浏览器还会跳过 `/api/setup/status` 的再次读取。
+- **修复范围：** 首页在主结论下新增“本机运行就绪度”，持续分别展示本机智能体连接、Hermes 原生模型发现、Butler 受管任务模型的状态与下一步；模型发现仅在首屏、手动复查与 30 秒低频轮询时读取，避免影响连接操作。首次引导仍只对未完成向导的浏览器自动跳转，但所有路由都会复查真实配置状态；已完成用户留在当前页面并通过首页状态修复。
+- **回归测试：** `ui/tests/readiness.test.ts` 覆盖全就绪、未发现 Hermes 原生模型、凭据库不可用和连接控制通道不可达的文案与跳转语义，并静态渲染三项状态与 `/setup` 下一步入口。
+- **验证命令：** `corepack pnpm --filter @butler/ui exec vitest run --config vitest.config.ts tests/readiness.test.ts tests/troubleshoot-symptoms.test.ts tests/component-render.test.ts --reporter=dot`（20 passed）；`corepack pnpm exec tsc -b ui/tsconfig.json --pretty false`；`corepack pnpm build`；`git diff --check` 均通过。
+- **运行验证：** 独立 Vite 预览服务在 `http://127.0.0.1:5175/` 可访问，`GET /dashboard` 返回 HTTP 200。
+
+## 2026-08-30 - 首次场景保留为首页的持续入口
+
+- **问题：** 首次使用最后一步会收集“日常问答、消息提醒、知识库问答、代码协作或定时巡检”，但完成后只跳转一次；用户回到首页后看不到自己选择的用途，也没有明确的重新设置入口。
+- **风险/影响：** 用户无法延续首次选择的任务路径，特别是消息通知、知识库和代码协作场景仍需重新理解导航；重新配置时只能依赖记忆找到首次使用路由。
+- **修复范围：** 将场景定义抽为向导与首页共用的受控数据源；首页在运行就绪度下持续显示用户选择的用途，为跨页场景提供原有下一步，并始终提供“重新设置”。未完成选择时展示“开始设置”，避免留出空白区块。
+- **回归测试：** 新增 `ui/tests/onboarding-continuation.test.ts`，覆盖消息提醒的持续入口、重新设置和无选择场景；原有就绪度、排查与导航静态渲染测试同时运行。
+- **验证命令：** `corepack pnpm --filter @butler/ui exec vitest run --config vitest.config.ts tests/onboarding-continuation.test.ts tests/readiness.test.ts tests/troubleshoot-symptoms.test.ts tests/component-render.test.ts --reporter=dot`（23 passed）；`corepack pnpm exec tsc -b ui/tsconfig.json --pretty false`；Vite 生产构建；`git diff --check` 均通过。
+
+## 2026-08-30 - 首页恢复路由与就绪状态回归覆盖
+
+- **问题：** 首页新增的恢复入口与持续就绪状态涉及多个用户分支，但先前回归只覆盖实例异常、未发现实例和无检查结果，未覆盖实例降级、控制通道离线与“已发现但尚未连接”的状态。
+- **风险/影响：** 这些边界状态一旦发生文案或路由回归，用户可能被送往错误的处理页，或把连接问题误判为模型配置问题。
+- **修复范围：** 补齐首页问题卡在降级、控制通道离线时的目标路由断言；补齐就绪度中“已发现实例但未连接”的下一步断言。测试保持在纯推导层，不依赖真实服务或凭据。
+- **回归测试：** `ui/tests/dashboard-issue-actions.test.ts` 与 `ui/tests/readiness.test.ts` 共同覆盖首次设置、原地检查、安全设置、报错排查、模糊排查和连接未完成的入口。
+- **验证命令：** `corepack pnpm --filter @butler/ui exec vitest run --config vitest.config.ts tests/dashboard-issue-actions.test.ts tests/readiness.test.ts tests/onboarding-continuation.test.ts tests/troubleshoot-symptoms.test.ts tests/component-render.test.ts --reporter=dot`（29 passed）；`corepack pnpm exec tsc -b ui/tsconfig.json --pretty false`；`corepack pnpm build`；`git diff --check` 均通过。

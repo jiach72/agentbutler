@@ -6,6 +6,9 @@ import type { FetchState } from "../../lib/api.js";
 
 export interface SecurityBaselinePayload {
   listenHost: string;
+  /** 监听地址是否为本机回环；由后端按统一口径判定，UI 不自行猜测。 */
+  loopback: boolean;
+  /** 是否已设置访问口令。 */
   auth: boolean;
   warnings: string[];
 }

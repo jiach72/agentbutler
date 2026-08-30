@@ -56,7 +56,7 @@
   background: var(--butler-error-soft);
 }
 
-@media (max-width: 680px) {
+@media (max-width: 860px) {
   .page-live {
     align-self: flex-start;
     min-width: 0;
@@ -143,7 +143,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 860px) {
   .manager-hero {
     grid-template-columns: auto 1fr;
   }
@@ -163,12 +163,12 @@
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--butler-space-3);
 }
-@media (max-width: 1100px) {
+@media (max-width: 1200px) {
   .manager-status-rail {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
-@media (max-width: 560px) {
+@media (max-width: 600px) {
   .manager-status-rail {
     grid-template-columns: 1fr;
   }
@@ -235,6 +235,173 @@
   padding-inline: 0;
 }
 
+/* ---- 本机运行就绪度 ---- */
+
+.readiness-section {
+  display: grid;
+  gap: var(--butler-space-3);
+  padding: var(--butler-space-4);
+  background: var(--butler-surface);
+  border: 1px solid var(--butler-rule);
+  border-radius: var(--butler-radius-card);
+}
+.readiness-section-head {
+  align-items: center;
+}
+.readiness-section h2 {
+  margin-top: 2px;
+}
+.readiness-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 5px;
+  color: var(--butler-muted);
+  font-size: var(--butler-text-sm);
+  line-height: 1.5;
+}
+.readiness-summary strong {
+  color: var(--butler-ink);
+  font-weight: 650;
+}
+.readiness-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.readiness-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--butler-space-3);
+}
+.readiness-card {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 10px;
+  min-width: 0;
+  padding: var(--butler-space-3);
+  background: var(--butler-sunken);
+  border: 1px solid var(--butler-rule);
+  border-left: 3px solid var(--tone-color, var(--butler-rule));
+  border-radius: var(--butler-radius-control);
+}
+.readiness-card.is-ok {
+  --tone-color: var(--butler-ok);
+}
+.readiness-card.is-warn {
+  --tone-color: var(--butler-warn);
+}
+.readiness-card.is-error {
+  --tone-color: var(--butler-error);
+}
+.readiness-card.is-idle {
+  --tone-color: var(--butler-muted);
+}
+.readiness-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  min-width: 0;
+}
+.readiness-card-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  color: var(--tone-color);
+  font-size: var(--butler-text-lg);
+}
+.readiness-card h3 {
+  color: var(--butler-muted);
+  font-size: var(--butler-text-xs);
+  font-weight: 550;
+}
+.readiness-card strong {
+  display: block;
+  margin-top: 2px;
+  color: var(--butler-ink);
+  font-size: var(--butler-text-sm);
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.readiness-card p {
+  color: var(--butler-muted);
+  font-size: var(--butler-text-xs);
+  line-height: 1.55;
+}
+.readiness-card-action {
+  justify-self: start;
+  min-height: 32px;
+  padding-inline: 0;
+}
+
+@media (max-width: 1200px) {
+  .readiness-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 860px) {
+  .readiness-section-head {
+    align-items: flex-start;
+  }
+  .readiness-actions {
+    justify-content: flex-start;
+  }
+}
+@media (max-width: 600px) {
+  .readiness-grid {
+    grid-template-columns: 1fr;
+  }
+  .readiness-actions {
+    width: 100%;
+  }
+  .readiness-actions .ant-btn {
+    flex: 1 1 0;
+  }
+}
+
+/* ---- 首次场景的持续入口 ---- */
+
+.scenario-continuation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--butler-space-4);
+  padding: var(--butler-space-4) var(--butler-space-5);
+  border-top: 1px solid var(--butler-rule);
+  border-bottom: 1px solid var(--butler-rule);
+}
+.scenario-continuation h2 {
+  margin-top: 2px;
+  font-size: var(--butler-text-lg);
+}
+.scenario-continuation p {
+  margin-top: 5px;
+  color: var(--butler-muted);
+  font-size: var(--butler-text-sm);
+  line-height: 1.5;
+}
+.scenario-continuation-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+@media (max-width: 860px) {
+  .scenario-continuation {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+@media (max-width: 600px) {
+  .scenario-continuation-actions,
+  .scenario-continuation-actions .ant-btn {
+    width: 100%;
+  }
+}
+
 /* ---- 区块标题与待办清单 ---- */
 
 .manager-section {
@@ -299,7 +466,7 @@
   justify-content: center;
 }
 
-@media (max-width: 680px) {
+@media (max-width: 860px) {
   .issue-card {
     flex-direction: column;
     align-items: stretch;
@@ -565,7 +732,7 @@
   color: var(--butler-muted);
   font-size: var(--butler-text-sm);
 }
-@media (max-width: 760px) {
+@media (max-width: 860px) {
   .connection-section-head {
     flex-direction: column;
     align-items: stretch;
@@ -890,6 +1057,8 @@
   display: flex;
   flex-direction: column;
   gap: 1px;
+  min-height: 44px;
+  justify-content: center;
   padding: 7px 12px;
   border: 1px solid var(--butler-rule);
   border-radius: var(--butler-radius-control);
@@ -972,7 +1141,7 @@
   word-break: break-all;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 600px) {
   .log-diagnosis-head {
     flex-direction: column;
     gap: 4px;
@@ -980,4 +1149,53 @@
   .log-issue {
     flex-direction: column;
   }
+}
+
+/* ---- 诊断发现列表（带证据） ---- */
+
+.recovery-findings {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--butler-rule);
+  border-radius: var(--butler-radius-card);
+  background: var(--butler-surface-subtle);
+}
+
+.recovery-findings-title {
+  display: block;
+  margin-bottom: 8px;
+  font-size: var(--butler-text-sm);
+  font-weight: 500;
+  color: var(--butler-ink);
+}
+
+.recovery-findings ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.recovery-findings li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.recovery-finding-title {
+  font-size: var(--butler-text-sm);
+  color: var(--butler-ink);
+}
+
+.recovery-findings li small {
+  font-size: var(--butler-text-xs);
+  color: var(--butler-ink-faint);
+}
+
+.recovery-diagnosed-at {
+  color: var(--butler-ink-faint);
+  font-size: var(--butler-text-xs);
 }

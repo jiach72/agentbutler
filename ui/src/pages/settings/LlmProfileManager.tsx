@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { Alert, App, Button, Descriptions, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag } from "antd";
+import { Alert, App, Button, Descriptions, Form, Input, Modal, Popconfirm, Select, Space, Table } from "antd";
 import { ApiOutlined, CopyOutlined, DeleteOutlined, ReloadOutlined, SafetyCertificateOutlined } from "@ant-design/icons";
-import { loadJson, postJson } from "../../lib/api.js";
+import { deleteJson, loadJson, postJson } from "../../lib/api.js";
+import { StatusBadge } from "../../components/StatusBadge.js";
 
 interface Profile {
   profileId: string;
@@ -16,7 +17,15 @@ interface Profile {
   probe: null | { status: "pass" | "fail"; category: string; detail: string; checkedAt: string };
 }
 interface Binding { bindingId: string; scope: string; instanceId: string | null; frameworkId: string | null; targetRef: string | null; profileId: string; }
-interface Status { vault: { available: boolean }; profiles: number; activeProfiles: number; blocked: Array<{ profileId: string; status: string; detail: string }>; }
+interface Status {
+  vault: { available: boolean };
+  profiles: number;
+  activeProfiles: number;
+  bindings: number;
+  activeBindings: number;
+  ready: boolean;
+  blocked: Array<{ profileId: string; status: string; detail: string }>;
+}
 interface DiscoveredConfig { id: string; source: string; provider: string; protocol: Profile["protocol"]; endpoint: string; model: string; maskedKey: string; }
 
 function credentialWriteError(result: { status: number; data: unknown }): string {
@@ -66,8 +75,16 @@ export function LlmProfileManager() {
     profileForm.resetFields();
     await refresh();
   };
-  const probe = async (id: string) => { const result = await postJson(`/api/llm/profiles/${encodeURIComponent(id)}/probe`, {}, 30_000); result.ok ? message.success("探针已完成") : message.error("探针失败"); await refresh(); };
-  const disable = async (id: string) => { const result = await postJson(`/api/llm/profiles/${encodeURIComponent(id)}/disable`, {}, 15_000); result.ok ? message.success("配置已禁用") : message.error("禁用失败"); await refresh(); };
+  const probe = async (id: string) => {
+    const result = await postJson(`/api/llm/profiles/${encodeURIComponent(id)}/probe`, {}, 30_000);
+    if (result.ok) message.success("探针已完成"); else message.error("探针失败");
+    await refresh();
+  };
+  const disable = async (id: string) => {
+    const result = await postJson(`/api/llm/profiles/${encodeURIComponent(id)}/disable`, {}, 15_000);
+    if (result.ok) message.success("配置已禁用"); else message.error("禁用失败");
+    await refresh();
+  };
   const rotate = async () => {
     const values = await rotateForm.validateFields();
     if (!rotateId) return;
@@ -92,13 +109,21 @@ export function LlmProfileManager() {
     catch { message.info(draft); }
   };
   const addBinding = async () => { const values = await bindingForm.validateFields(); const result = await postJson("/api/llm/bindings", values); if (!result.ok) return message.error("绑定失败，请检查该范围是否已有绑定。"); message.success("已建立明确绑定。"); bindingForm.resetFields(); await refresh(); };
-  const removeBinding = async (id: string) => { const result = await fetch(`/api/llm/bindings/${encodeURIComponent(id)}`, { method: "DELETE" }); if (!result.ok) message.error("移除绑定失败"); else { message.success("绑定已移除"); await refresh(); } };
+  const removeBinding = async (id: string) => { const result = await deleteJson(`/api/llm/bindings/${encodeURIComponent(id)}`); if (!result.ok) message.error("移除绑定失败"); else { message.success("绑定已移除"); await refresh(); } };
 
   return <section className="settings-llm">
     {status?.vault.available === false && <Alert type="error" showIcon message="凭据库未启用" description="部署环境缺少有效的 BUTLER_SECRET_MASTER_KEY。Butler 会拒绝保存、注入或明文回退 API Key。" />}
-    <div className="settings-section-head"><div><span>模型与 API Key</span><h2>隔离凭据库</h2></div><Button icon={<ReloadOutlined />} onClick={() => void refresh()}>刷新</Button></div>
-    <p className="hint">每次进化只向对应 Hermes 子进程注入一个已绑定的 Key。密钥不会出现在日志、审计或页面详情中。</p>
-    <Descriptions size="small" column={{ xs: 1, sm: 3 }} className="settings-llm-summary"><Descriptions.Item label="凭据库">{status?.vault.available ? "可用" : "未配置"}</Descriptions.Item><Descriptions.Item label="已保存">{status?.profiles ?? 0}</Descriptions.Item><Descriptions.Item label="可使用">{status?.activeProfiles ?? 0}</Descriptions.Item></Descriptions>
+    <div className="settings-section-head"><div><span>模型与 API Key</span><h2>管家任务模型配置</h2></div><Button icon={<ReloadOutlined />} onClick={() => void refresh()}>刷新</Button></div>
+    <p className="hint">这里保存的是 Butler 在进化和受管任务中注入的加密凭据，不会覆盖 Hermes 自己的 `config.yaml` 或 `.env`。密钥不会出现在日志、审计或页面详情中。</p>
+    <Descriptions size="small" column={{ xs: 1, sm: 4 }} className="settings-llm-summary"><Descriptions.Item label="凭据库">{status?.vault.available ? "可用" : "未配置"}</Descriptions.Item><Descriptions.Item label="已保存">{status?.profiles ?? 0}</Descriptions.Item><Descriptions.Item label="探针通过">{status?.activeProfiles ?? 0}</Descriptions.Item><Descriptions.Item label="已绑定">{status?.activeBindings ?? 0}</Descriptions.Item></Descriptions>
+    {status !== null && !status.ready && status.vault.available && (
+      <Alert
+        type="info"
+        showIcon
+        message="还差最后一步：把已通过探针的模型绑定到实例或框架"
+        description="保存 API Key 不会自动让任务使用它。建立绑定后，Butler 才会把对应模型安全地注入受管任务。"
+      />
+    )}
     <div className="settings-llm-grid">
       <div>
         <h3>添加模型配置</h3>
@@ -127,7 +152,7 @@ export function LlmProfileManager() {
       { title: "提供商 / 模型", render: (_, row) => <div><strong>{row.provider}</strong><br />{row.model}</div> },
       { title: "端点", dataIndex: "endpoint", ellipsis: true },
       { title: "Key", dataIndex: "maskedKey" },
-      { title: "探针", render: (_, row) => row.probe ? <span title={row.probe.detail}><Tag color={row.probe.status === "pass" ? "green" : "red"}>{row.probe.category}</Tag><small>{new Date(row.probe.checkedAt).toLocaleString()}</small></span> : <Tag>未检查</Tag> },
+      { title: "探针", render: (_, row) => row.probe ? <span title={row.probe.detail}><StatusBadge tone={row.probe.status === "pass" ? "ok" : "error"} label={row.probe.category} /><small>{new Date(row.probe.checkedAt).toLocaleString()}</small></span> : <StatusBadge tone="muted" label="未检查" /> },
       { title: "绑定", dataIndex: "bindingCount" },
       { title: "操作", render: (_, row) => <Space><Button size="small" onClick={() => void probe(row.profileId)}>探针</Button><Button size="small" onClick={() => { setRotateId(row.profileId); rotateForm.resetFields(); }}>轮换</Button><Popconfirm title="禁用此配置？" onConfirm={() => void disable(row.profileId)}><Button size="small" danger>禁用</Button></Popconfirm></Space> },
     ]} locale={{ emptyText: "还没有模型配置。添加后必须绑定到实例、技能或进化目标才会被使用。" }} />

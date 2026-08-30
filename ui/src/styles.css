@@ -2,6 +2,7 @@
 @import "./styles/base.css";
 @import "./styles/shell.css";
 @import "./styles/primitives.css";
+@import "./styles/access-gate.css";
 @import "./styles/pages/dashboard.css";
 @import "./styles/pages/gateway.css";
 @import "./styles/pages/evolution.css";
@@ -9,3 +10,5 @@
 @import "./styles/pages/versions.css";
 @import "./styles/pages/settings.css";
 @import "./styles/pages/preferences.css";
+@import "./styles/pages/troubleshoot.css";
+@import "./styles/pages/setup.css";

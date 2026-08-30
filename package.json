@@ -1,6 +1,6 @@
 {
-  "name": "agent-butler",
-  "version": "1.0.0-beta.12",
+  "name": "agent-butler-workspace",
+  "version": "1.0.0-beta.14",
   "private": true,
   "description": "Local-first operations console and control plane for AI agent runtimes.",
   "license": "MIT",
@@ -18,7 +18,7 @@
     "test": "tsc -b && vitest run",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "start": "pnpm --parallel --filter @butler/gateway --filter @butler/watch --filter @butler/web run start",
+    "start": "corepack pnpm --parallel --filter @butler/gateway --filter @butler/watch --filter @butler/web run start",
     "version:check": "node scripts/version.mjs check",
     "version:set": "node scripts/version.mjs set",
     "release:check": "corepack pnpm version:check && corepack pnpm lint && corepack pnpm test && corepack pnpm build"

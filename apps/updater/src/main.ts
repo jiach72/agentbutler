@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { execFileSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -10,8 +10,8 @@ import {
   writeFileSync,
   closeSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { delimiter, dirname, extname, join } from "node:path";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 
 type CommandResult = { ok: boolean; stdout: string; error: string };
 type JobStatus = "running" | "done" | "failed" | "rolled-back";
@@ -40,10 +40,40 @@ const repositoryUrl = process.env["BUTLER_REPOSITORY_URL"]?.trim().replace(/\.gi
 const composeProjectDir = process.env["BUTLER_COMPOSE_PROJECT_DIR"]?.trim() || sourceDir;
 const composeFile = process.env["BUTLER_COMPOSE_FILE"]?.trim() || "docker-compose.yml";
 const composeBinary = process.env["BUTLER_COMPOSE_BIN"]?.trim() || "docker-compose";
+const corepackBinary = process.env["BUTLER_UPDATER_COREPACK_BIN"]?.trim() || "corepack";
 const services = (process.env["BUTLER_UPDATER_SERVICES"] ?? "butler-gateway butler-watch butler-web")
   .split(/\s+/)
   .map((value) => value.trim())
   .filter(Boolean);
+const healthUrls = (process.env["BUTLER_UPDATER_HEALTH_URLS"]
+  ?? "http://butler-web:7531/api/health,http://butler-watch:7533/healthz,http://butler-gateway:7532/healthz")
+  .split(/[\s,]+/)
+  .map((value) => value.trim())
+  .filter((value) => value !== "");
+
+/**
+ * 访问口令：updater 会执行 git checkout、重建镜像、重启服务，是这个项目里破坏性最强的组件。
+ * 没有口令时必须拒绝一切请求，否则容器网络内任何人都能触发它。
+ */
+const accessToken = (process.env["BUTLER_ACCESS_TOKEN"] ?? "").trim();
+
+function extractToken(request: IncomingMessage, url: URL): string {
+  const auth = request.headers["authorization"];
+  if (typeof auth === "string") {
+    const match = /^Bearer\s+(.+)$/i.exec(auth.trim());
+    if (match?.[1]) return match[1].trim();
+  }
+  const header = request.headers["x-butler-token"];
+  if (typeof header === "string" && header !== "") return header.trim();
+  const queryToken = url.searchParams.get("token");
+  return queryToken === null ? "" : queryToken.trim();
+}
+
+function tokensMatch(expected: string, received: string): boolean {
+  const expectedBytes = Buffer.from(expected, "utf8");
+  const receivedBytes = Buffer.from(received, "utf8");
+  return expectedBytes.length === receivedBytes.length && timingSafeEqual(expectedBytes, receivedBytes);
+}
 
 let active = false;
 
@@ -51,14 +81,36 @@ function now(): string {
   return new Date().toISOString();
 }
 
+/**
+ * 允许作为 git 检出目标的版本标识。
+ * 只放行字母数字与 . _ / - ，且不允许以 - 开头 —— 否则 target 会被 git 当成命令行开关。
+ */
+const SAFE_TARGET = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
+
+function validateTarget(raw: string): { ok: true; value: string } | { ok: false; reason: string } {
+  const value = raw.trim();
+  if (value === "") return { ok: false, reason: "missing-target" };
+  if (value.length > 200) return { ok: false, reason: "target-too-long" };
+  if (!SAFE_TARGET.test(value)) return { ok: false, reason: "invalid-target" };
+  return { ok: true, value };
+}
+
 function run(command: string, args: string[], cwd = sourceDir, timeout = 120_000): CommandResult {
   try {
-    const stdout = execFileSync(command, args, {
+    const options: {
+      cwd: string;
+      encoding: "utf8";
+      timeout: number;
+      stdio: ["ignore", "pipe", "pipe"];
+    } = {
       cwd,
       encoding: "utf8",
       timeout,
       stdio: ["ignore", "pipe", "pipe"],
-    });
+    };
+    const stdout = isWindowsBatchCommand(command)
+      ? execSync(windowsCommandLine(command, args), options)
+      : execFileSync(command, args, options);
     return { ok: true, stdout: stdout.trim(), error: "" };
   } catch (error) {
     const detail = error as { stderr?: Buffer | string; message?: string };
@@ -68,6 +120,28 @@ function run(command: string, args: string[], cwd = sourceDir, timeout = 120_000
       error: detail.stderr !== undefined ? String(detail.stderr).trim() : detail.message ?? String(error),
     };
   }
+}
+
+/**
+ * Node cannot execute .cmd/.bat files through execFileSync on Windows. corepack and
+ * docker-compose are usually command scripts there, so invoke only those through cmd.exe.
+ * All updater-controlled arguments are validated before reaching this boundary.
+ */
+function isWindowsBatchCommand(command: string): boolean {
+  if (process.platform !== "win32") return false;
+  if (/\.(?:cmd|bat)$/i.test(extname(command))) return true;
+  const pathEntries = (process.env["PATH"] ?? "").split(delimiter).filter(Boolean);
+  return pathEntries.some((entry) =>
+    [".cmd", ".bat"].some((extension) => existsSync(join(entry, command + extension))),
+  );
+}
+
+function windowsCommandLine(command: string, args: string[]): string {
+  return ["call", quoteWindowsArgument(command), ...args.map(quoteWindowsArgument)].join(" ");
+}
+
+function quoteWindowsArgument(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`;
 }
 
 function readJson<T>(file: string, fallback: T): T {
@@ -154,7 +228,7 @@ async function waitHealthy(): Promise<boolean> {
   const deadline = Date.now() + 120_000;
   while (Date.now() < deadline) {
     let healthy = true;
-    for (const endpoint of ["http://butler-web:7531/api/health", "http://butler-watch:7533/healthz", "http://butler-gateway:7532/healthz"]) {
+    for (const endpoint of healthUrls) {
       try {
         const response = await fetch(endpoint, { signal: AbortSignal.timeout(3_000) });
         if (!response.ok) healthy = false;
@@ -179,9 +253,9 @@ function composeUp(): CommandResult {
 }
 
 function build(): CommandResult {
-  const install = run("corepack", ["pnpm", "install", "--frozen-lockfile"], sourceDir, 15 * 60_000);
+  const install = run(corepackBinary, ["pnpm", "install", "--frozen-lockfile"], sourceDir, 15 * 60_000);
   if (!install.ok) return install;
-  return run("corepack", ["pnpm", "build"], sourceDir, 15 * 60_000);
+  return run(corepackBinary, ["pnpm", "build"], sourceDir, 15 * 60_000);
 }
 
 function tryLock(): boolean {
@@ -274,8 +348,15 @@ function send(response: ServerResponse, statusCode: number, body: unknown): void
 }
 
 const server = createServer(async (request, response) => {
-  const path = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
+  const url = new URL(request.url ?? "/", "http://127.0.0.1");
+  const path = url.pathname;
   if (request.method === "GET" && path === "/healthz") return send(response, 200, { ok: true });
+
+  // 除健康检查外的一切接口都要求口令；未配置口令时一律拒绝，不做"无口令也能用"的兜底。
+  if (accessToken === "" || !tokensMatch(accessToken, extractToken(request, url))) {
+    return send(response, 401, { error: "unauthorized", reason: "需要访问口令" });
+  }
+
   if (request.method === "GET" && path === "/api/status") {
     persistStatus();
     return send(response, 200, readJson(statusFile, status()));
@@ -288,12 +369,19 @@ const server = createServer(async (request, response) => {
   } catch (error) {
     return send(response, 400, { error: error instanceof Error ? error.message : "invalid-json" });
   }
-  if (active || !tryLock()) return send(response, 409, { error: "upgrade-in-flight" });
-  const target = typeof body["target"] === "string" ? body["target"].trim() : "";
-  if (target === "") {
-    releaseLock();
-    return send(response, 400, { error: "missing-target" });
+  if (body["confirmed"] !== true) {
+    return send(response, 400, {
+      error: "confirmation-required",
+      userHint: "升级或回滚会切换代码并重启服务，必须先确认。",
+    });
   }
+  if (active || !tryLock()) return send(response, 409, { error: "upgrade-in-flight" });
+  const checked = validateTarget(typeof body["target"] === "string" ? body["target"] : "");
+  if (!checked.ok) {
+    releaseLock();
+    return send(response, 400, { error: checked.reason });
+  }
+  const target = checked.value;
   const current = git(["rev-parse", "--short", "HEAD"]);
   if (!current.ok) {
     releaseLock();

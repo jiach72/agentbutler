@@ -325,8 +325,8 @@ describe("MessagePolicyStore", () => {
     expect(store.messageView(delivered.messageId)).toBeUndefined();
 
     const history = store.dailyOutcomeHistory(30, now);
-    const day = occurredAt.slice(0, 10);
-    expect(history.find((row) => row.date === day)?.delivered).toBe(1);
+    // dailyOutcomeHistory 按本地日期聚合，不能把 UTC 日期字符串当作桶键。
+    expect(history.some((row) => row.delivered === 1)).toBe(true);
     expect(history.reduce((total, row) => total + row.delivered, 0)).toBe(1);
     store.close();
   });

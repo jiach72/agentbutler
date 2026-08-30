@@ -9,7 +9,8 @@ cd "$ROOT_DIR"
 env_value() {
   local key="$1"
   [[ -f .env ]] || return 0
-  awk -F= -v key="$key" '$1 == key { sub(/^[^=]*=/, ""); gsub(/^"|"$/, ""); print; exit }' .env
+  # Keep WSL runs compatible with `.env` files saved with Windows CRLF.
+  awk -F= -v key="$key" '$1 == key { sub(/^[^=]*=/, ""); sub(/\r$/, ""); gsub(/^"|"$/, ""); print; exit }' .env
 }
 
 hermes_host_path="${BUTLER_HERMES_HOST_PATH:-$(env_value BUTLER_HERMES_HOST_PATH)}"

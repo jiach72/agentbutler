@@ -51,6 +51,7 @@ function buildIssues(dashboard: DashboardPayload | null): IssueView[] {
       tone: "idle",
       title: "还没有读取到管家状态",
       detail: "暂时无法判断本机服务是否正常，建议先点击「立即检查」。",
+      action: { label: "立即检查" },
     });
   } else if (!inspectStatus.reachable) {
     list.push({
@@ -58,6 +59,7 @@ function buildIssues(dashboard: DashboardPayload | null): IssueView[] {
       tone: "warn",
       title: "管家服务暂时连不上",
       detail: "已看到部分旧数据，但暂时无法开始新的检查。请稍等管家恢复后再试。",
+      action: { label: "查看本机安全", to: "/settings" },
     });
   }
 
@@ -70,6 +72,7 @@ function buildIssues(dashboard: DashboardPayload | null): IssueView[] {
         tone: "error",
         title: `实例（${instanceLabel(inspection.instanceId)}）存在异常`,
         detail: `${failed} 项检查不通过${warned > 0 ? `，另有 ${warned} 项提醒` : ""}；可能是进程未运行或服务暂时连不上。`,
+        action: { label: "开始排查", to: "/troubleshoot?symptom=error" },
       });
     } else if (inspection.overall === "degraded") {
       list.push({
@@ -77,6 +80,7 @@ function buildIssues(dashboard: DashboardPayload | null): IssueView[] {
         tone: "warn",
         title: `实例（${instanceLabel(inspection.instanceId)}）需要留意`,
         detail: `${warned} 项检查提醒${failed > 0 ? `，${failed} 项不通过` : ""}；不影响使用时可以先观察。`,
+        action: { label: "帮我看看", to: "/troubleshoot?symptom=not-sure" },
       });
     }
   }
@@ -87,6 +91,7 @@ function buildIssues(dashboard: DashboardPayload | null): IssueView[] {
       tone: "error",
       title: `最近出现 ${fp.count} 次相同问题`,
       detail: `最近一次在 ${formatRelative(fp.lastSeen)}；可以在「高级详情」里查看错误内容。`,
+      action: { label: "开始排查", to: "/troubleshoot?symptom=error" },
     });
   }
 
@@ -103,6 +108,7 @@ function buildIssues(dashboard: DashboardPayload | null): IssueView[] {
       tone: "idle",
       title: "暂未发现可管理的实例",
       detail: "可能尚未接入实例，或者管家还没有完成一次检查。",
+      action: { label: "继续设置", to: "/setup" },
     });
   } else if (list.length === 0) {
     list.push({
@@ -110,6 +116,7 @@ function buildIssues(dashboard: DashboardPayload | null): IssueView[] {
       tone: "idle",
       title: "还没有检查结果",
       detail: "管家还没完成第一次检查，点击「立即检查」开始。",
+      action: { label: "立即检查" },
     });
   }
   return list;

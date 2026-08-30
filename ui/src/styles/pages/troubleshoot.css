@@ -1,0 +1,343 @@
+/* 排查向导：四步流程，每屏只回答一个问题。 */
+
+.wizard-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 20px;
+  padding: 0;
+  list-style: none;
+}
+
+.wizard-steps li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--butler-rule);
+  border-radius: 999px;
+  font-size: var(--butler-text-xs);
+  color: var(--butler-ink-faint);
+  background: var(--butler-surface);
+}
+
+.wizard-steps li.is-current {
+  border-color: var(--butler-accent);
+  color: var(--butler-ink);
+  background: var(--butler-accent-soft);
+}
+
+.wizard-steps li.is-done {
+  color: var(--butler-ink-soft);
+}
+
+.wizard-step-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--butler-sunken);
+  font-size: 11px;
+}
+
+.wizard-step {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.wizard-question {
+  margin: 0;
+  font-size: var(--butler-text-xl);
+  font-weight: 500;
+  color: var(--butler-ink);
+}
+
+.wizard-lead {
+  margin: 0;
+  font-size: var(--butler-text-md);
+  line-height: 1.7;
+  color: var(--butler-ink-soft);
+}
+
+.wizard-busy {
+  margin: 0;
+  font-size: var(--butler-text-sm);
+  color: var(--butler-ink-faint);
+}
+
+.wizard-hint {
+  margin: 8px 0 0;
+  font-size: var(--butler-text-xs);
+  line-height: 1.7;
+  color: var(--butler-ink-faint);
+}
+
+.wizard-verdict {
+  margin: 0;
+}
+
+.wizard-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+/* ---- 第 1 步：现象选择 ---- */
+
+.symptom-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.symptom-card {
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color var(--butler-dur-fast) var(--butler-ease);
+}
+
+.symptom-card:hover,
+.symptom-card:focus-visible {
+  border-color: var(--butler-accent);
+}
+
+.symptom-card strong {
+  font-size: var(--butler-text-md);
+  font-weight: 500;
+  color: var(--butler-ink);
+}
+
+.symptom-card small {
+  font-size: var(--butler-text-sm);
+  line-height: 1.6;
+  color: var(--butler-ink-soft);
+}
+
+/* ---- 第 2 步：证据 ---- */
+
+.evidence-probes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.evidence-probe {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--butler-rule);
+  border-radius: var(--butler-radius-control);
+  background: var(--butler-surface-subtle);
+}
+
+.evidence-probe strong {
+  display: block;
+  font-size: var(--butler-text-sm);
+  font-weight: 500;
+  color: var(--butler-ink);
+}
+
+.evidence-probe small {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--butler-text-xs);
+  line-height: 1.6;
+  color: var(--butler-ink-soft);
+}
+
+.evidence-findings {
+  padding: 14px;
+  border: 1px solid var(--butler-rule);
+  border-radius: var(--butler-radius-card);
+  background: var(--butler-surface-subtle);
+}
+
+.evidence-findings h3 {
+  margin: 0 0 10px;
+  font-size: var(--butler-text-md);
+  font-weight: 500;
+  color: var(--butler-ink);
+}
+
+.evidence-findings ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.evidence-findings li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.evidence-finding-title {
+  font-size: var(--butler-text-sm);
+  color: var(--butler-ink);
+}
+
+.evidence-findings li small {
+  font-size: var(--butler-text-xs);
+  color: var(--butler-ink-faint);
+}
+
+.evidence-findings li p {
+  flex: 1 0 100%;
+  margin: 2px 0 0;
+  font-size: var(--butler-text-sm);
+  line-height: 1.6;
+  color: var(--butler-ink-soft);
+}
+
+.evidence-time {
+  margin: 0;
+  font-size: var(--butler-text-xs);
+  color: var(--butler-ink-faint);
+}
+
+/* ---- 第 3 步：选动作 ---- */
+
+.action-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.action-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid var(--butler-rule);
+  border-radius: var(--butler-radius-card);
+  background: var(--butler-surface);
+}
+
+.action-choice-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--butler-text-md);
+  font-weight: 500;
+  color: var(--butler-ink);
+}
+
+.action-choice-body {
+  padding-left: 24px;
+}
+
+.action-choice-body p {
+  margin: 0 0 6px;
+  font-size: var(--butler-text-sm);
+  line-height: 1.6;
+  color: var(--butler-ink-soft);
+}
+
+.action-choice-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--butler-text-xs);
+  color: var(--butler-ink-faint);
+}
+
+.action-recommended {
+  margin: 0;
+}
+
+.action-unavailable {
+  padding: 12px 14px;
+  border: 1px dashed var(--butler-rule);
+  border-radius: var(--butler-radius-card);
+  background: var(--butler-surface-subtle);
+}
+
+.action-unavailable summary {
+  cursor: pointer;
+  font-size: var(--butler-text-sm);
+  color: var(--butler-ink-soft);
+}
+
+.action-unavailable-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.action-unavailable-card strong {
+  font-size: var(--butler-text-sm);
+  color: var(--butler-ink);
+}
+
+.action-unavailable-card p {
+  margin: 4px 0;
+  font-size: var(--butler-text-sm);
+  color: var(--butler-ink-soft);
+}
+
+.action-unavailable-fix {
+  display: block;
+  font-size: var(--butler-text-xs);
+  color: var(--butler-ink-faint);
+}
+
+/* ---- 第 4 步：结果 ---- */
+
+.wizard-next-actions {
+  margin-top: 8px;
+}
+
+/* ---- 全局悬浮入口 ---- */
+
+.troubleshoot-fab {
+  position: absolute;
+  right: 24px;
+  bottom: 24px;
+  z-index: 900;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 18px;
+  border: 1px solid var(--butler-accent);
+  border-radius: 999px;
+  background: var(--butler-accent);
+  color: #fff;
+  font-size: var(--butler-text-sm);
+  box-shadow: var(--butler-shadow);
+  cursor: pointer;
+}
+
+.troubleshoot-fab:hover {
+  filter: brightness(1.06);
+}
+
+.troubleshoot-fab:focus-visible {
+  outline: 2px solid var(--butler-focus-ring);
+  outline-offset: 2px;
+}
+
+@media (max-width: 860px) {
+  .troubleshoot-fab {
+    right: 16px;
+    bottom: 16px;
+  }
+
+  .action-choice-body {
+    padding-left: 0;
+  }
+}

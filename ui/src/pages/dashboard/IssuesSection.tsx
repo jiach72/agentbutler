@@ -2,16 +2,20 @@
  * 待办清单：按重要程度排序的问题卡片；超过 5 条可展开收起。
  */
 import { useState } from "react";
+import { ArrowRightOutlined } from "@ant-design/icons";
 import { Button } from "antd";
+import { useNavigate } from "react-router-dom";
 import type { IssueView } from "./types.js";
 
 interface IssuesSectionProps {
   issues: IssueView[];
   attentionCount: number;
+  onInspect: () => void;
 }
 
-export function IssuesSection({ issues, attentionCount }: IssuesSectionProps) {
+export function IssuesSection({ issues, attentionCount, onInspect }: IssuesSectionProps) {
   const [expanded, setExpanded] = useState(false);
+  const navigate = useNavigate();
   const visibleIssues = expanded ? issues : issues.slice(0, 5);
 
   return (
@@ -24,14 +28,27 @@ export function IssuesSection({ issues, attentionCount }: IssuesSectionProps) {
         <span className="manager-section-note">详细信息请查看诊断与修复</span>
       </div>
       <div className="issue-list">
-        {visibleIssues.map((issue) => (
-          <article className={`issue-card is-${issue.tone}`} key={issue.id}>
-            <div className="issue-main">
-              <strong>{issue.title}</strong>
-              <p>{issue.detail}</p>
-            </div>
-          </article>
-        ))}
+        {visibleIssues.map((issue) => {
+          const action = issue.action;
+          return (
+            <article className={`issue-card is-${issue.tone}`} key={issue.id}>
+              <div className="issue-main">
+                <strong>{issue.title}</strong>
+                <p>{issue.detail}</p>
+                {action !== undefined && (
+                  <Button
+                    type="link"
+                    size="small"
+                    icon={<ArrowRightOutlined />}
+                    onClick={() => action.to === undefined ? onInspect() : navigate(action.to)}
+                  >
+                    {action.label}
+                  </Button>
+                )}
+              </div>
+            </article>
+          );
+        })}
       </div>
       {issues.length > 5 && (
         <div className="issues-toggle-wrap">

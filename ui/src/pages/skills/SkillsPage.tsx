@@ -3,7 +3,7 @@
  * 记忆检索独立于技能/插件列表——搜索只更新右侧预览区，失败不回滚列表。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { App, Button, Empty, Spin, Tabs } from "antd";
+import { App, Button, Spin, Tabs } from "antd";
 import { ConnectionChip } from "../../components/ConnectionChip.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { loadJson, postJson } from "../../lib/api.js";

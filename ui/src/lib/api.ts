@@ -4,9 +4,27 @@
  * 面板组件拿到 null 时按"无数据"处理（降级展示），
  * 服务端本身已对 db/网关不可达返回 200 降级载荷，这里只兜底传输层错误。
  */
+import { getAccessToken, notifyUnauthorized } from "./accessToken.js";
+
+/** 带上访问口令的请求头；未配置口令时返回空对象，不改变原有行为。 */
+function authHeaders(): Record<string, string> {
+  const token = getAccessToken();
+  return token === "" ? {} : { "x-butler-token": token };
+}
+
+/** 401 表示口令缺失或不正确：广播给 AccessGate 弹出口令输入。 */
+function handleUnauthorized(res: Response): void {
+  if (res.status === 401) notifyUnauthorized();
+}
+
 export async function fetchJson<T>(url: string, timeoutMs = 5000): Promise<T | null> {
   try {
-    const res = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(timeoutMs) });
+    const res = await fetch(url, {
+      cache: "no-store",
+      headers: authHeaders(),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    handleUnauthorized(res);
     if (!res.ok) return null;
     return (await res.json()) as T;
   } catch {
@@ -30,15 +48,89 @@ export async function postJson(url: string, body?: unknown, timeoutMs = 5000): P
     const res = await fetch(url, {
       method: "POST",
       cache: "no-store",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...authHeaders() },
       body: JSON.stringify(body ?? {}),
       signal: AbortSignal.timeout(timeoutMs),
     });
+    handleUnauthorized(res);
     let data: unknown = null;
     try {
       data = await res.json();
     } catch {
       // 空 body / 非 JSON 响应忽略
+    }
+    return { ok: res.ok, status: res.status, data };
+  } catch {
+    return { ok: false, status: 0, data: null };
+  }
+}
+
+/**
+ * 纯文本响应（诊断报告是 Markdown，不是 JSON）。
+ * 同样要带访问口令，否则设置了口令之后这个入口会一直 401。
+ */
+export async function fetchText(
+  url: string,
+  timeoutMs = 20_000,
+): Promise<{ ok: true; text: string } | { ok: false; status: number; reason: string }> {
+  try {
+    const res = await fetch(url, {
+      cache: "no-store",
+      headers: authHeaders(),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) {
+      if (res.status === 401) {
+        notifyUnauthorized();
+        return { ok: false, status: 401, reason: "需要访问口令" };
+      }
+      return { ok: false, status: res.status, reason: `服务返回 ${res.status}` };
+    }
+    return { ok: true, text: await res.text() };
+  } catch {
+    return { ok: false, status: 0, reason: "网络连接失败，请检查管家服务是否在运行" };
+  }
+}
+
+/** 二进制附件响应（诊断 ZIP 等）；沿用统一访问口令和 401 广播。 */
+export async function fetchBlob(
+  url: string,
+  timeoutMs = 30_000,
+): Promise<{ ok: true; blob: Blob } | { ok: false; status: number; reason: string }> {
+  try {
+    const res = await fetch(url, {
+      cache: "no-store",
+      headers: authHeaders(),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) {
+      if (res.status === 401) {
+        notifyUnauthorized();
+        return { ok: false, status: 401, reason: "需要访问口令" };
+      }
+      return { ok: false, status: res.status, reason: `服务返回 ${res.status}` };
+    }
+    return { ok: true, blob: await res.blob() };
+  } catch {
+    return { ok: false, status: 0, reason: "网络连接失败，请检查管家服务是否在运行" };
+  }
+}
+
+/** DELETE 等其他方法；与 postJson 一样区分状态码。 */
+export async function deleteJson(url: string, timeoutMs = 5000): Promise<PostResult> {
+  try {
+    const res = await fetch(url, {
+      method: "DELETE",
+      cache: "no-store",
+      headers: authHeaders(),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    handleUnauthorized(res);
+    let data: unknown = null;
+    try {
+      data = await res.json();
+    } catch {
+      // 空 body 忽略
     }
     return { ok: res.ok, status: res.status, data };
   } catch {
@@ -52,8 +144,16 @@ export type LoadResult<T> = { ok: true; data: T } | { ok: false; reason: string 
 /** 可区分 GET：非 2xx 时尽力从响应体提取 error/detail 文案。 */
 export async function loadJson<T>(url: string, timeoutMs = 5000): Promise<LoadResult<T>> {
   try {
-    const res = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(timeoutMs) });
+    const res = await fetch(url, {
+      cache: "no-store",
+      headers: authHeaders(),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
     if (!res.ok) {
+      if (res.status === 401) {
+        notifyUnauthorized();
+        return { ok: false, reason: "需要访问口令才能查看，请输入管家面板的访问口令" };
+      }
       let reason = `服务返回 ${res.status}`;
       try {
         const body: unknown = await res.json();

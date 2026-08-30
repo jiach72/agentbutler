@@ -1,5 +1,3 @@
-import { Link } from "react-router-dom";
-import { Alert } from "antd";
 import { useEffect, useRef } from "react";
 import { DangerConfirmModal } from "../components/DangerConfirmModal.js";
 import { RecoveryPanel } from "./dashboard/RecoveryPanel.js";
@@ -19,10 +17,9 @@ export function RecoveryPage() {
         <div>
           <span className="product-eyebrow">诊断与修复</span>
           <h1>诊断结果</h1>
-          <p className="hint">查看检查结果、问题依据和可执行处理。</p>
+          <p className="hint">查看当前检查结果和可执行处理。</p>
         </div>
       </header>
-      <Alert type="info" showIcon message="查看日志依据" description={<Link to="/logs">打开系统日志</Link>} />
       <RecoveryPanel
         recovery={recovery.recovery}
         busy={recovery.busy}

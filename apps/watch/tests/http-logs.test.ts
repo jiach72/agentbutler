@@ -230,7 +230,11 @@ describe("startWatchHttp 系统日志与管家版本端点", () => {
       body: JSON.stringify({ action: "rb-reconnect", confirmed: true }),
     });
     expect(response.status).toBe(202);
-    await expect(response.json()).resolves.toEqual({ started: true });
+    await expect(response.json()).resolves.toMatchObject({
+      started: true,
+      status: "running",
+      jobId: expect.any(String),
+    });
   });
 
   it("未接线日志/管家服务时返回 503", async () => {

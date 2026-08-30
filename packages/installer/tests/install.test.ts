@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildComposeOverride, buildHostServiceUnits, buildOpenClawComposeOverride, installDockerForm, installHostForm, resolveCorepackCommand, runInstaller } from "../src/install.js";
+import { buildComposeOverride, buildHostServiceUnits, buildOpenClawComposeOverride, installDockerForm, installHostForm, resolveCorepackCommand, runInstaller, runMaintenance } from "../src/install.js";
 import { fakeExec, fakePlan, fakeProbeFetch, makeTempDir, rmTempDir } from "./helpers.js";
 
 describe("installHostForm 宿主形态", () => {
@@ -294,6 +294,52 @@ describe("installHostForm 宿主形态", () => {
       expect(calls.some((call) => call.command === "systemctl")).toBe(false);
     } finally {
       rmTempDir(tmp);
+    }
+  });
+});
+
+describe("runMaintenance reset/uninstall", () => {
+  it("未确认时只展示计划，不删除状态", async () => {
+    const root = makeTempDir();
+    try {
+      const home = path.join(root, "butler-home");
+      fs.mkdirSync(home, { recursive: true });
+      fs.writeFileSync(path.join(home, "state.json"), "keep");
+      const result = await runMaintenance({ command: "reset", homeDir: home, repoDir: path.join(root, "repo") });
+      expect(result.success).toBe(true);
+      expect(fs.readFileSync(path.join(home, "state.json"), "utf8")).toBe("keep");
+      expect(result.steps.some((step) => step.id === "confirmation" && step.status === "skipped")).toBe(true);
+    } finally {
+      rmTempDir(root);
+    }
+  });
+
+  it("reset --yes 清空 Butler 状态但保留目录", async () => {
+    const root = makeTempDir();
+    try {
+      const home = path.join(root, "butler-home");
+      fs.mkdirSync(path.join(home, "nested"), { recursive: true });
+      fs.writeFileSync(path.join(home, "nested", "state.json"), "remove");
+      const result = await runMaintenance({ command: "reset", confirmed: true, homeDir: home, repoDir: path.join(root, "repo") });
+      expect(result.success).toBe(true);
+      expect(fs.existsSync(home)).toBe(true);
+      expect(fs.readdirSync(home)).toEqual([]);
+    } finally {
+      rmTempDir(root);
+    }
+  });
+
+  it("uninstall --yes 删除独立 Butler 状态目录", async () => {
+    const root = makeTempDir();
+    try {
+      const home = path.join(root, "butler-home");
+      fs.mkdirSync(home, { recursive: true });
+      fs.writeFileSync(path.join(home, "state.json"), "remove");
+      const result = await runMaintenance({ command: "uninstall", confirmed: true, homeDir: home, repoDir: path.join(root, "repo") });
+      expect(result.success).toBe(true);
+      expect(fs.existsSync(home)).toBe(false);
+    } finally {
+      rmTempDir(root);
     }
   });
 });

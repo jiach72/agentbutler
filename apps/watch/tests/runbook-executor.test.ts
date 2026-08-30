@@ -66,11 +66,17 @@ const ackOf = (action: "restart"): ControlAck => ({
   startedAt: "2026-08-20T00:00:00.000Z",
 });
 
-function makeControl(overrides: Partial<Record<"restart" | "snapshot", () => Promise<Result<Job | ControlAck>>>>): RunbookControl {
-  return {
+function makeControl(
+  overrides: Partial<Record<"restart" | "snapshot", () => Promise<Result<Job | ControlAck>>>> &
+    Partial<Record<"restore", () => Promise<Result<Job>>>> = {},
+): RunbookControl {
+  const base: RunbookControl = {
     restart: (overrides.restart ?? (async () => ({ ok: true, data: ackOf("restart"), durationMs: 5 }))) as RunbookControl["restart"],
     snapshot: (overrides.snapshot ?? (async () => ({ ok: true, data: okJob(), durationMs: 5 }))) as RunbookControl["snapshot"],
   };
+  // restore 是可选能力：不传就当作控制面不支持还原，执行器必须优雅跳过而不是崩。
+  if (overrides.restore !== undefined) base.restore = overrides.restore;
+  return base;
 }
 
 interface Harness {
@@ -445,5 +451,121 @@ describe("内置 runbook 注册形态", () => {
     expect(failResult.success).toBe(false);
     expect(failResult.steps[1]).toMatchObject({ id: "restart", status: "failed", detail: expect.stringContaining("restart timeout") });
     expect(posts).toHaveLength(1);
+  });
+});
+
+/**
+ * 失败自动还原。
+ *
+ * 做了快照却还原不了，等于告诉用户"我保护了你"但其实保护不了。
+ * 这组用例守住：能动过手就必须还原得回去；还原不了要如实写进步骤里。
+ */
+describe("RunbookExecutor 失败自动还原", () => {
+  const failingRestart = () =>
+    makeControl({
+      restart: async () => ({
+        ok: false,
+        error: { code: "E202", message: "restart timeout", retryable: true },
+        durationMs: 3,
+      }),
+    });
+
+  it("动作失败且快照成功 → 自动还原，并记入步骤", async () => {
+    let restoreCalls = 0;
+    const control = failingRestart();
+    control.restore = async () => {
+      restoreCalls += 1;
+      return {
+        ok: true,
+        data: { jobId: "rollback-1", kind: "rollback", steps: [{ id: "restore", label: "还原", status: "passed" }] },
+        durationMs: 5,
+      };
+    };
+
+    const { executor } = makeHarness(createBuiltinRunbooks({ control }), {
+      control,
+      stages: [stageOf("memory-probe", "pass"), stageOf("channel-probe", "pass")],
+    });
+    const result = await executor.runRunbook(RB_RESTART, { trigger: "manual", instance });
+
+    expect(result.success).toBe(false);
+    expect(restoreCalls).toBe(1);
+    const rollback = result.steps.find((step) => step.id === "rollback");
+    expect(rollback).toMatchObject({ status: "passed" });
+    expect(rollback?.detail).toContain("已自动还原");
+  });
+
+  it("还原失败 → 如实记录，并说明快照仍在", async () => {
+    const control = failingRestart();
+    control.restore = async () => ({
+      ok: false,
+      error: { code: "E204", message: "snapshot missing", retryable: false },
+      durationMs: 2,
+    });
+
+    const { executor } = makeHarness(createBuiltinRunbooks({ control }), {
+      control,
+      stages: [stageOf("memory-probe", "pass"), stageOf("channel-probe", "pass")],
+    });
+    const result = await executor.runRunbook(RB_RESTART, { trigger: "manual", instance });
+
+    const rollback = result.steps.find((step) => step.id === "rollback");
+    expect(rollback).toMatchObject({ status: "failed" });
+    expect(rollback?.detail).toContain("快照仍然保留着");
+  });
+
+  it("快照本身失败 → 不做还原（压根没动过手）", async () => {
+    let restoreCalls = 0;
+    const control = makeControl({
+      snapshot: async () => ({
+        ok: false,
+        error: { code: "E203", message: "snapshot failed", retryable: false },
+        durationMs: 2,
+      }),
+    });
+    control.restore = async () => {
+      restoreCalls += 1;
+      return { ok: true, data: okJob(), durationMs: 1 };
+    };
+
+    const { executor } = makeHarness(createBuiltinRunbooks({ control }), {
+      control,
+      stages: [stageOf("memory-probe", "pass"), stageOf("channel-probe", "pass")],
+    });
+    const result = await executor.runRunbook(RB_RESTART, { trigger: "manual", instance });
+
+    expect(result.success).toBe(false);
+    expect(restoreCalls).toBe(0);
+    expect(result.steps.find((step) => step.id === "rollback")).toBeUndefined();
+  });
+
+  it("控制面不支持还原 → 跳过而不是崩，也不假装补救过", async () => {
+    const control = failingRestart(); // 没有 restore
+    const { executor } = makeHarness(createBuiltinRunbooks({ control }), {
+      control,
+      stages: [stageOf("memory-probe", "pass"), stageOf("channel-probe", "pass")],
+    });
+    const result = await executor.runRunbook(RB_RESTART, { trigger: "manual", instance });
+
+    expect(result.success).toBe(false);
+    expect(result.steps.find((step) => step.id === "rollback")).toBeUndefined();
+  });
+
+  it("执行成功 → 不做还原", async () => {
+    let restoreCalls = 0;
+    const control = makeControl({});
+    control.restore = async () => {
+      restoreCalls += 1;
+      return { ok: true, data: okJob(), durationMs: 1 };
+    };
+
+    const { executor } = makeHarness(createBuiltinRunbooks({ control }), {
+      control,
+      stages: [stageOf("memory-probe", "pass"), stageOf("channel-probe", "pass")],
+    });
+    const result = await executor.runRunbook(RB_RESTART, { trigger: "manual", instance });
+
+    expect(result.success).toBe(true);
+    expect(restoreCalls).toBe(0);
   });
 });

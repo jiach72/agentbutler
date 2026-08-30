@@ -1,7 +1,6 @@
 {
-  "name": "@butler/installer",
-  "version": "1.0.0-beta.12",
-  "private": true,
+  "name": "agent-butler",
+  "version": "1.0.0-beta.14",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -12,6 +11,12 @@
     }
   },
   "bin": {
-    "butler-install": "./dist/main.js"
-  }
+    "agent-butler": "./dist/main.js",
+    "butler": "./dist/main.js"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "README.md"
+  ]
 }

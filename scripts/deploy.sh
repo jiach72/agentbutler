@@ -10,7 +10,9 @@ docker compose version >/dev/null
 env_value() {
   local key="$1"
   [[ -f .env ]] || return 0
-  awk -F= -v key="$key" '$1 == key { sub(/^[^=]*=/, ""); gsub(/^"|"$/, ""); print; exit }' .env
+  # `.env` is often edited on Windows and may use CRLF; never leak `\r` into
+  # paths, URLs, or Compose values when this script runs inside WSL.
+  awk -F= -v key="$key" '$1 == key { sub(/^[^=]*=/, ""); sub(/\r$/, ""); gsub(/^"|"$/, ""); print; exit }' .env
 }
 
 mkdir -p .runtime/hermes .runtime/openclaw
@@ -34,6 +36,15 @@ if [[ "$bridge_url" == *":8755" ]]; then
 fi
 
 compose() { docker compose "${compose_args[@]}" "$@"; }
+
+# Docker Desktop's Buildx plugin can be unavailable in WSL when its mounted
+# binary reports an I/O error. Compose can still build through the classic
+# Docker builder, so fall back explicitly instead of failing the deployment.
+if ! docker buildx version >/dev/null 2>&1; then
+  export DOCKER_BUILDKIT=0
+  export COMPOSE_DOCKER_CLI_BUILD=0
+  echo "WARNING: Docker Buildx is unavailable; using the classic Docker builder." >&2
+fi
 
 if ! git diff --quiet || [[ -n "$(git ls-files --others --exclude-standard)" ]]; then
   echo "WARNING: deploying from a dirty worktree; record the commit and local diff before release." >&2

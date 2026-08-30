@@ -23,6 +23,18 @@ export function shouldEnableHermesMessageRuntime(value: string | undefined): boo
   return isTruthy(value);
 }
 
+export type HermesMessageRuntimeMode = "enabled" | "auto" | "disabled";
+
+/** auto enables the runtime when the Bridge configuration is complete. */
+export function resolveHermesMessageRuntimeMode(
+  value: string | undefined,
+): HermesMessageRuntimeMode {
+  const normalized = value?.trim().toLowerCase();
+  if (isTruthy(normalized)) return "enabled";
+  if (normalized === "auto" || normalized === undefined || normalized === "") return "auto";
+  return "disabled";
+}
+
 function hasHermesRuntimeConfiguration(env: NodeJS.ProcessEnv): boolean {
   return [
     MESSAGE_RUNTIME_ENV.bridgeUrl,
@@ -33,15 +45,12 @@ function hasHermesRuntimeConfiguration(env: NodeJS.ProcessEnv): boolean {
   ].every((name) => typeof env[name] === "string" && env[name]!.trim() !== "");
 }
 
-/**
- * Hermes 原生微信发送路径是默认路径。Butler 消息运行时属于显式 opt-in
- * 的观察/实验能力，避免 Bridge 故障把微信消息截留在 Gateway 内。
- */
+/** 配置齐全时自动接入；Bridge 短暂离线由运行时持续重试。 */
 async function createConfiguredRuntime(env: NodeJS.ProcessEnv): Promise<HermesMessageRuntime | null> {
-  const flag = env[RUNTIME_FLAG]?.trim().toLowerCase();
-  const explicit = shouldEnableHermesMessageRuntime(flag);
-  if (!explicit) return null;
-  if (explicit && !hasHermesRuntimeConfiguration(env)) {
+  const mode = resolveHermesMessageRuntimeMode(env[RUNTIME_FLAG]);
+  const configured = hasHermesRuntimeConfiguration(env);
+  if (mode === "disabled" || (mode === "auto" && !configured)) return null;
+  if (mode === "enabled" && !configured) {
     throw new Error(`${RUNTIME_FLAG}=true requires complete Hermes Bridge configuration`);
   }
   const runtime = createHermesMessageRuntime({ env });
@@ -54,12 +63,7 @@ async function main(): Promise<void> {
   const host = process.env["BUTLER_GATEWAY_HOST"]?.trim() || "127.0.0.1";
   const port = Number(process.env["BUTLER_GATEWAY_PORT"]?.trim() || 7532);
 
-  let runtime: HermesMessageRuntime | null = null;
-  try {
-    runtime = await createConfiguredRuntime(env);
-  } catch (error) {
-    throw error;
-  }
+  const runtime = await createConfiguredRuntime(env);
 
   const app = createGatewayServer({
     messageService: runtime?.service,

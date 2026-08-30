@@ -131,6 +131,8 @@ export interface ButlerSelfUpgradeDeps {
   repositoryUrl?: string;
   /** 生产 Compose 部署中的 updater sidecar 地址；为空时走本地 Git 流程。 */
   updaterUrl?: string;
+  /** updater sidecar 的访问口令；与 BUTLER_ACCESS_TOKEN 同源，缺省从 env 读取。 */
+  updaterToken?: string;
   /** updater HTTP 客户端（测试注入）。 */
   fetchImpl?: typeof fetch;
   now?: () => number;
@@ -463,6 +465,11 @@ export function createButlerSelfUpgradeService(
   const updaterStatusFile = join(stateDir, SELF_UPDATER_STATUS_FILE);
   const updaterUrl = deps.updaterUrl?.trim().replace(/\/+$/, "") || null;
   const updaterFetch = deps.fetchImpl ?? fetch;
+  const updaterToken = (deps.updaterToken ?? process.env["BUTLER_ACCESS_TOKEN"] ?? "").trim();
+  const updaterHeaders = (): Record<string, string> =>
+    updaterToken === ""
+      ? { "content-type": "application/json" }
+      : { "content-type": "application/json", "x-butler-token": updaterToken };
   const audit = deps.audit ?? { append() {} };
   let upgradePreparing = false;
 
@@ -480,7 +487,7 @@ export function createButlerSelfUpgradeService(
     try {
       const response = await updaterFetch(`${updaterUrl}${endpoint}`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: updaterHeaders(),
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(10_000),
       });
@@ -500,6 +507,7 @@ export function createButlerSelfUpgradeService(
     if (updaterUrl === null) return;
     try {
       const response = await updaterFetch(updaterUrl + "/api/status", {
+        headers: updaterHeaders(),
         signal: AbortSignal.timeout(10_000),
       });
       if (!response.ok) return;
@@ -807,6 +815,7 @@ export function createButlerSelfUpgradeService(
             target: target.tag ?? target.version,
             from: currentCommit ?? currentVersion(),
             snapshotId: snapshot.id,
+            confirmed: true,
           });
           if (response === null) {
             return { status: "backup-failed", error: "更新服务不可达，请确认 updater sidecar 已启动。" };
@@ -888,6 +897,7 @@ export function createButlerSelfUpgradeService(
           target: snapshot.commit,
           from: currentCommit ?? currentVersion(),
           snapshotId: snapshot.id,
+          confirmed: true,
         }).then((response) => {
           if (response === null || response.status >= 400) {
             writeJob({ ...job, status: "failed", phase: "failed", finishedAt: isoNow(now), error: "更新服务不可达" });

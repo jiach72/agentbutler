@@ -1,6 +1,6 @@
 {
   "name": "@butler/updater",
-  "version": "1.0.0-beta.12",
+  "version": "1.0.0-beta.14",
   "private": true,
   "type": "module",
   "main": "./dist/main.js",

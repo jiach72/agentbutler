@@ -32,7 +32,37 @@ const MAX_LIMIT = 200;
 const MAX_BODY_BYTES = 1024 * 1024;
 const DND_SCOPES = new Set(["global", "channel", "session"]);
 const DEFAULT_WEIXIN_MIN_INTERVAL_SEC = 45;
-export const GATEWAY_SERVICE_VERSION = `gateway@1.0.0-beta.12+${CONTRACT_VERSION}`;
+
+/** 会改变状态的请求方法；只有它们需要校验来源。 */
+const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+/** 来源是否指向本机；解析失败按不受信任处理。 */
+function isLoopbackOrigin(origin: string): boolean {
+  try {
+    const host = new URL(origin).hostname.toLowerCase();
+    return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
+  } catch {
+    return false;
+  }
+}
+
+function isSameRequestOrigin(origin: string, hostHeader: string | undefined): boolean {
+  if (hostHeader === undefined || hostHeader.trim() === "") return false;
+  try {
+    return new URL(origin).host.toLowerCase() === new URL(`http://${hostHeader}`).host.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
+function hasAllowedOrigin(origin: string): boolean {
+  return (process.env["BUTLER_ALLOWED_ORIGINS"] ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value !== "")
+    .includes(origin);
+}
+export const GATEWAY_SERVICE_VERSION = `gateway@1.0.0-beta.14+${CONTRACT_VERSION}`;
 
 export type MessageDeliveryMode = "native" | "observe" | "disabled";
 
@@ -99,6 +129,21 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
   });
 
   const app = Fastify({ logger: false, bodyLimit: MAX_BODY_BYTES }) as unknown as GatewayApp;
+
+  /**
+   * 来源校验（CSRF 防线）。网关能改免打扰规则、改发送策略、标记已读。
+   * 与 watch 同理：服务端代理（web → gateway）不带 Origin，一律放行；
+   * 同源的局域网面板请求也允许通过；不同 Origin 才可能是别人页面里发来的。
+   */
+  app.addHook("onRequest", async (request, reply) => {
+    if (!STATE_CHANGING_METHODS.has(request.method)) return;
+    const origin = request.headers["origin"];
+    if (typeof origin !== "string" || origin.trim() === "") return;
+    if (isLoopbackOrigin(origin) || isSameRequestOrigin(origin, request.headers.host) || hasAllowedOrigin(origin)) return;
+    reply.code(403);
+    return reply.send({ error: "origin-not-allowed" });
+  });
+
   const queueRef = queue;
   app.gateway = {
     queue,
@@ -184,7 +229,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
             mode,
             connected: status.bridgeConnected,
             running: status.running,
-            nativeMinIntervalSec: resolveNativeMinInterval(options, status),
+            nativeMinIntervalSec: resolveNativeMinInterval(options),
             lastCycleAt: status.lastCycleAt,
             lastError: status.lastError === null ? null : "Hermes Bridge unavailable",
           }))
@@ -264,7 +309,7 @@ function registerMessageRoutes(
       const summary = messageStore.messageStatusSummary();
       return {
         mode,
-        nativeMinIntervalSec: resolveNativeMinInterval({ nativeMinIntervalSec }, status),
+        nativeMinIntervalSec: resolveNativeMinInterval({ nativeMinIntervalSec }),
         hermesGateway: { authoritative: mode === "native", connected: mode === "native" || status.bridgeConnected, running: status.running },
         bridge: {
           connected: status.bridgeConnected,
@@ -467,7 +512,7 @@ function resolveMessageMode(options: Pick<GatewayServerOptions, "messageMode" | 
   return options.messageMode ?? (options.messageService !== undefined && options.messageStore !== undefined ? "observe" : "disabled");
 }
 
-function resolveNativeMinInterval(options: Pick<GatewayServerOptions, "nativeMinIntervalSec">, _status?: MessageGatewayStatus): number {
+function resolveNativeMinInterval(options: Pick<GatewayServerOptions, "nativeMinIntervalSec">): number {
   const configured = options.nativeMinIntervalSec;
   if (configured !== undefined && Number.isFinite(configured) && configured >= 0) return configured;
   return DEFAULT_WEIXIN_MIN_INTERVAL_SEC;

@@ -122,6 +122,7 @@ import type { BackupService } from "./backup.js";
 import type { SecurityService } from "./invariants.js";
 import type { ButlerRuntimeInfo } from "./runtime.js";
 import type { LlmCredentialService, LlmProtocol } from "@butler/core";
+import { createDiagnosticZip } from "./diagnostics.js";
 
 /** 记忆按需自检（memory-probe 单阶段）的结论。 */
 export interface MemorySelfCheckResult {
@@ -137,7 +138,7 @@ export type MemorySelfCheckOutcome =
 
 /** 请求体解析上限（字节）。 */
 export const HTTP_BODY_LIMIT_BYTES = 16 * 1024;
-export const WATCH_SERVICE_VERSION = `watch@1.0.0-beta.12+${CONTRACT_VERSION}`;
+export const WATCH_SERVICE_VERSION = `watch@1.0.0-beta.14+${CONTRACT_VERSION}`;
 
 /** runbook 执行结果（由接线层判定，HTTP 层只做状态码映射）。 */
 export type RunbookExecuteOutcome =
@@ -160,10 +161,46 @@ export interface RecoveryActionView {
   unavailableFix?: string;
 }
 
+/** 一条发现的证据。让用户自己判断严不严重，而不是被一句结论吓到。 */
+export interface RecoveryEvidence {
+  /** 最近一次出现的时间；日志没写时间戳时为 null（视为无法证明是"当前"问题）。 */
+  lastSeenAt: string | null;
+  /** 出现次数。 */
+  occurrences: number;
+  /** 证据来自哪个日志文件。 */
+  source: string | null;
+  /** 问题类别，如 rate-limit / oom。 */
+  kind: string;
+  /** 距离最近一次出现过去了多久（人话，如「2 小时前」）。 */
+  lastSeenLabel: string | null;
+  /** 是否为最近 24 小时内仍在发生的问题。 */
+  recent: boolean;
+}
+
+export interface RecoveryFinding {
+  id: string;
+  title: string;
+  detail: string;
+  severity: "error" | "warn";
+  evidence: RecoveryEvidence;
+  suggestedAction: "rb-restart" | "rb-reconnect" | null;
+  actionLabel: string | null;
+}
+
 export interface RecoveryDiagnosisView {
   incidentId: string;
   severity: "ok" | "warn" | "error";
-  rootCause: string;
+  /**
+   * 根因。只有探针真的失败时才命名——那时候我们确实知道哪里坏了。
+   * 探针全绿时这里是 null，改看 primaryFinding。
+   */
+  rootCause: string | null;
+  /** 当前最值得关注的一条发现（可能来自日志，也可能是"没有发现"）。 */
+  primaryFinding: RecoveryFinding | null;
+  /** 最近 24 小时内仍在发生的发现，按严重度与频次排序。 */
+  findings: RecoveryFinding[];
+  /** 24 小时以外、仅作参考的历史问题数量。 */
+  historicalFindingCount: number;
   probes: Array<{ id: string; label: string; status: "pass" | "warn" | "fail"; detail: string }>;
   recommendedActions: RecoveryActionView[];
   checkedAt: string;
@@ -474,6 +511,19 @@ function sendBytes(
   res.end(Buffer.from(data.buffer, data.byteOffset, data.byteLength));
 }
 
+function sendZip(
+  res: import("node:http").ServerResponse,
+  filename: string,
+  data: Uint8Array,
+): void {
+  res.writeHead(200, {
+    "content-type": "application/zip",
+    "content-length": data.byteLength,
+    "content-disposition": `attachment; filename="${filename.replace(/["\\\r\n]/g, "_")}"`,
+  });
+  res.end(Buffer.from(data.buffer, data.byteOffset, data.byteLength));
+}
+
 
 
 function isStringArray(value: unknown): value is string[] {
@@ -527,7 +577,7 @@ function recoveryActionCatalog(deps: WatchHttpDeps, instanceId?: string): Recove
       risk: "low",
       impact: "记忆搜索可能短暂变慢",
       estimatedSeconds: 30,
-      requiresConfirmation: false,
+      requiresConfirmation: true,
       available: deps.skills !== undefined && deps.m6WritesEnabled === true,
       ...(deps.skills === undefined || deps.m6WritesEnabled !== true
         ? { unavailableReason: "记忆写操作未启用" }
@@ -616,12 +666,17 @@ async function diagnoseRecovery(deps: WatchHttpDeps, instanceId?: string): Promi
         : connection["connected"] === true ? "消息通道正常" : "消息通道未连接",
   });
   const logView = deps.analyzeLogs?.(instanceId);
-  const issueCount = logView?.issues?.length ?? 0;
+  const { findings, historicalCount } = buildRecoveryFindings(logView?.issues ?? []);
   probes.push({
     id: "logs",
     label: "最近错误日志",
-    status: issueCount === 0 ? "pass" : "warn",
-    detail: issueCount === 0 ? "最近日志未发现已知错误" : `发现 ${issueCount} 类可归因问题`,
+    status: findings.length === 0 ? "pass" : "warn",
+    detail:
+      findings.length === 0
+        ? historicalCount > 0
+          ? `最近一天没有新问题；更早的日志里有 ${historicalCount} 类历史提醒`
+          : "最近日志未发现已知错误"
+        : `最近一天发现 ${findings.length} 类仍在发生的问题`,
   });
   const scheduler = deps.scheduler.status();
   probes.push({
@@ -630,19 +685,119 @@ async function diagnoseRecovery(deps: WatchHttpDeps, instanceId?: string): Promi
     status: scheduler.inFlight ? "warn" : scheduler.criticalProbe?.lastStatus === "fail" ? "fail" : "pass",
     detail: scheduler.inFlight ? "巡检正在执行" : scheduler.criticalProbe?.lastStatus === "fail" ? "关键探针最近一次失败" : "巡检调度正常",
   });
+
   const failed = probes.filter((probe) => probe.status === "fail");
-  const severity: RecoveryDiagnosisView["severity"] = failed.length > 0 ? "error" : probes.some((probe) => probe.status === "warn") ? "warn" : "ok";
-  const rootCause = failed[0]?.detail ?? (issueCount > 0 ? logView?.issues?.[0]?.title ?? "日志中存在待分析问题" : "未发现需要处理的根因");
+  const severity: RecoveryDiagnosisView["severity"] =
+    failed.length > 0 ? "error" : probes.some((probe) => probe.status === "warn") ? "warn" : "ok";
+
+  // 只有探针真的失败，我们才敢说"根因是 X"。
+  // 探针全绿时把日志里的问题叫"根因"，会让用户在一切正常时白紧张，甚至真去点那个
+  // 会中断服务 30-90 秒的重启按钮。这时候它只是"发现"，不是"根因"。
+  const rootCause = failed[0]?.detail ?? null;
+  const primaryFinding = findings[0] ?? null;
+
   const actions = recoveryActionCatalog(deps, instanceId);
   return {
     incidentId: `incident-${randomUUID()}`,
     severity,
     rootCause,
+    primaryFinding,
+    findings,
+    historicalFindingCount: historicalCount,
     probes,
     // 保留所有动作卡片：不可执行动作也必须展示原因和解决方案，避免用户点击后才发现 409。
     recommendedActions: actions,
     checkedAt: new Date().toISOString(),
   };
+}
+
+/**
+ * "正在发生"的时间窗：超过这个时长的日志问题归入历史，不参与当前结论。
+ * 默认 24 小时，可用 BUTLER_RECENT_FINDING_HOURS 调整（1–720）。
+ */
+function recentFindingWindowMs(): number {
+  const raw = Number(process.env["BUTLER_RECENT_FINDING_HOURS"]);
+  if (!Number.isFinite(raw)) return 24 * 60 * 60 * 1000;
+  return Math.min(Math.max(raw, 1), 720) * 60 * 60 * 1000;
+}
+
+/** 把时间差说成人话；给不出准确时间就如实说"时间不明确"。 */
+function relativeLabel(from: Date, to: Date): string {
+  const diffMs = to.getTime() - from.getTime();
+  if (!Number.isFinite(diffMs) || diffMs < 0) return "刚刚";
+  const minutes = Math.floor(diffMs / 60_000);
+  if (minutes < 1) return "刚刚";
+  if (minutes < 60) return `${minutes} 分钟前`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} 小时前`;
+  const days = Math.floor(hours / 24);
+  return `${days} 天前`;
+}
+
+function parseTimestamp(value: string | null | undefined): number | null {
+  if (typeof value !== "string" || value.trim() === "") return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * 把日志问题分成"最近仍在发生"与"历史遗留"两类，并为每条附上证据。
+ *
+ * 关键规则：解析不出最近出现时间的问题，不算作"当前仍在发生"。
+ * 宁可少报，也不要拿三周前的一次 OOM 吓唬今天的用户的。
+ */
+function buildRecoveryFindings(
+  issues: ReadonlyArray<{
+    id: string;
+    kind: string;
+    severity: "error" | "warn";
+    title: string;
+    detail: string;
+    count: number;
+    sources: string[];
+    lastSeenAt?: string | null;
+    suggestedAction: "rb-restart" | "rb-reconnect" | null;
+    actionLabel: string | null;
+  }>,
+): { findings: RecoveryFinding[]; historicalCount: number } {
+  const now = new Date();
+  const cutoff = now.getTime() - recentFindingWindowMs();
+  const findings: RecoveryFinding[] = [];
+  let historicalCount = 0;
+
+  for (const issue of issues) {
+    const lastSeenMs = parseTimestamp(issue.lastSeenAt);
+    const recent = lastSeenMs !== null && lastSeenMs >= cutoff;
+    const evidence: RecoveryEvidence = {
+      lastSeenAt: issue.lastSeenAt ?? null,
+      occurrences: issue.count,
+      source: issue.sources[0] ?? null,
+      kind: issue.kind,
+      lastSeenLabel: lastSeenMs === null ? null : relativeLabel(new Date(lastSeenMs), now),
+      recent,
+    };
+    if (!recent) {
+      historicalCount += 1;
+      continue;
+    }
+    findings.push({
+      id: issue.id,
+      title: issue.title,
+      detail: issue.detail,
+      severity: issue.severity,
+      evidence,
+      suggestedAction: issue.suggestedAction,
+      actionLabel: issue.actionLabel,
+    });
+  }
+
+  // 严重度优先，其次看出现次数；错误排在提醒前面。
+  findings.sort((a, b) => {
+    const rank = (item: RecoveryFinding) => (item.severity === "error" ? 0 : 1);
+    return rank(a) - rank(b) || b.evidence.occurrences - a.evidence.occurrences;
+  });
+
+  return { findings, historicalCount };
 }
 
 /** 读取请求体（≤16KB；空体 → {}；非法 JSON → 400；超限 → 413）。 */
@@ -720,6 +875,71 @@ export function startWatchHttp(deps: WatchHttpDeps, options: WatchHttpOptions = 
   return http;
 }
 
+/* ------------------------- 请求安全基线 ------------------------- */
+
+/** 会改变状态的请求方法；只有它们需要校验来源，读请求不受影响。 */
+const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+function isLoopbackOrigin(origin: string): boolean {
+  try {
+    const host = new URL(origin).hostname.toLowerCase();
+    return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
+  } catch {
+    return false;
+  }
+}
+
+function isSameRequestOrigin(origin: string, hostHeader: string | undefined): boolean {
+  if (hostHeader === undefined || hostHeader.trim() === "") return false;
+  try {
+    return new URL(origin).host.toLowerCase() === new URL(`http://${hostHeader}`).host.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 来源校验（CSRF 防线）。
+ *
+ * Watch 只监听回环，但回环挡不住浏览器：任意网页都能让用户的浏览器向
+ * http://127.0.0.1:7533 发 POST。由于 Web 是服务端代理调用（不带 Origin），
+ * 这里只拦截"带了非本机 Origin 的写请求"——那一定是别人页面里来的。
+ */
+function originAllowed(req: import("node:http").IncomingMessage): boolean {
+  if (!STATE_CHANGING_METHODS.has(req.method ?? "")) return true;
+  const origin = req.headers["origin"];
+  if (typeof origin !== "string" || origin.trim() === "") return true; // 服务端代理 / curl
+  if (isLoopbackOrigin(origin) || isSameRequestOrigin(origin, req.headers.host)) return true;
+  const extra = (process.env["BUTLER_ALLOWED_ORIGINS"] ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value !== "");
+  return extra.includes(origin);
+}
+
+/** 去掉响应里的绝对路径、宿主名、WSL 发行版名等内部信息。 */
+function scrubInternalDetail(raw: string): string {
+  return raw
+    .replace(/\b[a-zA-Z]:\\[^\s"']+/g, "[路径]")
+    .replace(/\/(?:home|Users|mnt\/[a-z])\/[^\s"':]+/g, "[路径]")
+    .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, "[地址]");
+}
+
+/**
+ * 内部错误响应：给一个可追溯的编号，不回传堆栈与路径。
+ * 真实错误写进本地日志，用户排查时按编号对得上，攻击者拿不到目录结构。
+ */
+function internalErrorResponse(error: unknown): Record<string, string> {
+  const raw = error instanceof Error ? error.message : String(error);
+  const errorId = `err-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  console.error(`[watch] 内部错误 ${errorId}: ${raw}`);
+  return {
+    error: "internal-error",
+    detail: "管家处理这个请求时出错了。详情已写入管家日志，可按上面的错误编号查找。",
+    errorId,
+  };
+}
+
 /** 路由分发。 */
 async function handle(
   deps: WatchHttpDeps,
@@ -730,6 +950,14 @@ async function handle(
   const url = new URL(req.url ?? "/", "http://butler-watch.local");
   const path = url.pathname.replace(/\/+$/, "") || "/";
   const method = req.method ?? "GET";
+
+  if (!originAllowed(req)) {
+    sendJson(res, 403, {
+      error: "origin-not-allowed",
+      detail: "这个请求来自不受信任的页面，管家已拒绝执行。",
+    });
+    return;
+  }
 
   try {
     if (path === "/healthz") {
@@ -771,7 +999,10 @@ async function handle(
         } catch (error) {
           return sendJson(res, 500, {
             error: "backup-failed",
-            userHint: error instanceof Error ? error.message : "备份失败，请稍后再试。",
+            // 原始错误可能含绝对路径与宿主名，脱敏后再给用户看。
+            userHint: `备份失败：${scrubInternalDetail(
+              error instanceof Error ? error.message : String(error),
+            )}`,
           });
         }
       }
@@ -820,6 +1051,14 @@ async function handle(
       const body = await readJsonBody(req, res);
       if (body === null) return; // 已回 400/413
       const id = decodeURIComponent(executeMatch[1]!);
+      // 后端强制确认：UI 的弹窗只是礼貌，真正的安全边界在这里。
+      // 否则任何网页都能直接 POST 这个端点重启实例、kill 进程。
+      if (body["confirmed"] !== true) {
+        return sendJson(res, 400, {
+          error: "confirmation-required",
+          detail: "执行修复动作前需要用户确认，请带上 confirmed: true 重试。",
+        });
+      }
       const instanceId =
         typeof body["instanceId"] === "string" && body["instanceId"] !== ""
           ? body["instanceId"]
@@ -2170,6 +2409,9 @@ async function handle(
         return sendJson(res, 503, { error: "diagnostics-unavailable" });
       const markdown = await deps.renderDiagnostics();
       const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "");
+      if (url.searchParams.get("format") === "zip") {
+        return sendZip(res, `agent-butler-diagnostic-${stamp}.zip`, createDiagnosticZip(markdown));
+      }
       return sendMarkdown(res, `agent-butler-diagnostic-${stamp}.md`, markdown);
     }
 
@@ -2185,9 +2427,6 @@ async function handle(
 
     return sendJson(res, 404, { error: "not-found" });
   } catch (error) {
-    sendJson(res, 500, {
-      error: "internal-error",
-      detail: error instanceof Error ? error.message : String(error),
-    });
+    sendJson(res, 500, internalErrorResponse(error));
   }
 }

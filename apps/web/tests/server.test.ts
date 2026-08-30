@@ -265,18 +265,25 @@ describe("butler-web 服务（fastify inject）", () => {
     });
   });
 
-  it("/api/security-baseline：V1 固定结构（未鉴权 + warnings 明示）", async () => {
+  it("/api/security-baseline：如实汇报监听地址与口令状态，并给出对应警示", async () => {
     const app = build(tmp);
     const res = await app.inject({ method: "GET", url: "/api/security-baseline" });
 
     expect(res.statusCode).toBe(200);
-    const body = res.json() as { listenHost: string; auth: boolean; warnings: string[] };
+    const body = res.json() as {
+      listenHost: string;
+      loopback: boolean;
+      auth: boolean;
+      warnings: string[];
+    };
     expect(typeof body.listenHost).toBe("string");
     expect(body.listenHost.length).toBeGreaterThan(0);
+    // 默认监听 127.0.0.1 且未配置口令
+    expect(body.loopback).toBe(true);
     expect(body.auth).toBe(false);
     expect(Array.isArray(body.warnings)).toBe(true);
     expect(body.warnings.length).toBeGreaterThan(0);
-    expect(body.warnings.join("\n")).toContain("登录验证");
+    expect(body.warnings.join("\n")).toContain("本机");
   });
 
   it("SPA 回退：非 /api 未匹配路由返回 index.html，/api 未知路由 404 JSON", async () => {

@@ -37,7 +37,7 @@ import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import { recentEventsAscending, selectNewEvents } from "./events-pump.js";
 
-export const WEB_VERSION = `web@1.0.0-beta.12+${CONTRACT_VERSION}`;
+export const WEB_VERSION = `web@1.0.0-beta.14+${CONTRACT_VERSION}`;
 
 /** 告警网关默认基址（butler-gateway 的固定回环端口）。 */
 export const DEFAULT_GATEWAY_URL = "http://127.0.0.1:7532";
@@ -121,6 +121,79 @@ export interface WebServerOptions {
   fetchImpl?: typeof fetch;
   /** SPA 静态资源目录；缺省相对 apps/web 解析 ../../ui/dist。 */
   uiDist?: string;
+  /**
+   * 访问口令；缺省读 env BUTLER_ACCESS_TOKEN。
+   * 为空串表示显式关闭口令校验（仅回环监听时允许，测试与本地免密场景使用）。
+   */
+  accessToken?: string;
+  /**
+   * 宿主机实际发布给浏览器的地址。Docker 容器内通常监听 0.0.0.0，
+   * 但宿主机可能只发布到 127.0.0.1；安全基线必须使用这个地址。
+   */
+  publishHost?: string;
+}
+
+/** 受保护前缀：口令校验覆盖所有数据面接口与事件流，健康检查与静态外壳放行。 */
+const AUTH_EXEMPT_PATHS = new Set(["/api/health"]);
+
+/** 会改变状态的请求方法；只有它们需要校验来源。 */
+const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+/** 来源是否指向本机；解析失败按不受信任处理。 */
+function isLoopbackOrigin(origin: string): boolean {
+  try {
+    const host = new URL(origin).hostname.toLowerCase();
+    return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
+  } catch {
+    return false;
+  }
+}
+
+/** Origin 与当前请求 Host 相同即为同源请求，允许受口令保护的局域网面板正常写入。 */
+function isSameRequestOrigin(origin: string, hostHeader: string | undefined): boolean {
+  if (hostHeader === undefined || hostHeader.trim() === "") return false;
+  try {
+    return new URL(origin).host.toLowerCase() === new URL(`http://${hostHeader}`).host.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
+/** 额外可信 Origin 仅用于反向代理等 Host 不可直接比较的部署。 */
+function hasAllowedOrigin(origin: string): boolean {
+  return (process.env["BUTLER_ALLOWED_ORIGINS"] ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value !== "")
+    .includes(origin);
+}
+
+function isTrustedOrigin(origin: string, hostHeader: string | undefined): boolean {
+  return isLoopbackOrigin(origin) || isSameRequestOrigin(origin, hostHeader) || hasAllowedOrigin(origin);
+}
+
+function pathOf(rawUrl: string | undefined): string {
+  const url = rawUrl ?? "/";
+  const q = url.indexOf("?");
+  return q === -1 ? url : url.slice(0, q);
+}
+
+/** 从请求中提取访问口令：Authorization 头 > x-butler-token 头 > query（WS 握手只能用 query）。 */
+function extractRequestToken(request: { headers: Record<string, unknown>; url: string }): string {
+  const auth = request.headers["authorization"];
+  if (typeof auth === "string" && auth.length > 0) {
+    const match = /^Bearer\s+(.+)$/i.exec(auth.trim());
+    if (match?.[1]) return match[1].trim();
+  }
+  const headerToken = request.headers["x-butler-token"];
+  if (typeof headerToken === "string" && headerToken.length > 0) return headerToken.trim();
+  const raw = request.url;
+  const q = raw.indexOf("?");
+  if (q !== -1) {
+    const token = new URLSearchParams(raw.slice(q + 1)).get("token");
+    if (token) return token.trim();
+  }
+  return "";
 }
 
 /** /api/instances 返回的实例视图（capability 为解析后的摘要，null 表示尚无扫描报告）。 */
@@ -1549,8 +1622,14 @@ async function probeServiceHealth(
   }
 }
 
-function isLoopback(host: string): boolean {
-  return host === "localhost" || host === "::1" || host.startsWith("127.");
+/**
+ * 监听地址是否为本机回环（IPv4/IPv6 与 localhost 别名）。
+ * 导出的原因：main.ts 启动自检需要同样的判定，两处口径必须一致。
+ */
+export function isLoopback(host: string): boolean {
+  const value = host.trim().toLowerCase().replace(/^\[|\]$/g, "");
+  if (value === "localhost" || value === "::1" || value === "0:0:0:0:0:0:0:1") return true;
+  return value.startsWith("127.");
 }
 
 function readPositiveDuration(raw: string | undefined, fallback: number): number {
@@ -1570,12 +1649,52 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   const uiDist = path.resolve(options.uiDist ?? defaultUiDist());
   const bundleVersion = readBundleVersion(uiDist);
   const listenHost = process.env["BUTLER_WEB_HOST"]?.trim() || "127.0.0.1";
+  const publishHost =
+    options.publishHost?.trim() || process.env["BUTLER_WEB_PUBLISH_HOST"]?.trim() || listenHost;
+  const accessToken = (options.accessToken ?? process.env["BUTLER_ACCESS_TOKEN"] ?? "").trim();
 
   const app = Fastify({ logger: false });
   let store = openStore(home);
 
   // /ws 轮询定时器登记：连接断开或服务关闭时统一清理。
   const wsTimers = new Set<ReturnType<typeof setInterval>>();
+
+  /**
+   * 访问口令校验：面板可执行重启实例、改配置、读写记忆等破坏性操作，
+   * 一旦监听非回环地址就必须凭口令进入。健康检查放行，供容器 healthcheck 使用；
+   * 静态外壳放行，否则未登录时连输入口令的页面都出不来。
+   */
+  app.addHook("onRequest", async (request, reply) => {
+    if (accessToken === "") return;
+    const url = request.raw.url ?? "/";
+    const route = pathOf(url);
+    if (AUTH_EXEMPT_PATHS.has(route)) return;
+    if (!route.startsWith("/api/") && route !== "/ws") return;
+
+    const presented = extractRequestToken(
+      request as unknown as { headers: Record<string, unknown>; url: string },
+    );
+    if (presented === accessToken) return;
+
+    reply.code(401);
+    return reply.send({ error: "unauthorized", reason: "需要访问口令" });
+  });
+
+  /**
+   * 来源校验（CSRF 防线）。
+   * 即使监听回环、无需口令，浏览器仍可能被任意网页驱动向 127.0.0.1:7531 发写请求。
+   * 发布到局域网时，浏览器 Origin 会是局域网地址，因此允许与当前请求 Host
+   * 相同的同源请求；非同源页面仍被拒绝。/ws 虽是 GET，也必须校验 Origin。
+   */
+  app.addHook("onRequest", async (request, reply) => {
+    const route = pathOf(request.raw.url);
+    if (!STATE_CHANGING_METHODS.has(request.method) && route !== "/ws") return;
+    const origin = request.headers["origin"];
+    if (typeof origin !== "string" || origin.trim() === "") return;
+    if (isTrustedOrigin(origin, request.headers.host)) return;
+    reply.code(403);
+    return reply.send({ error: "origin-not-allowed" });
+  });
 
   app.addHook("onClose", async () => {
     for (const timer of wsTimers) clearInterval(timer);
@@ -1841,6 +1960,25 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
       return { reachable: true, runbooks: (body["runbooks"] as unknown[] | undefined) ?? [] };
     } catch {
       return { reachable: false, runbooks: [] as unknown[] };
+    }
+  });
+
+  /** 首次使用向导状态：只返回可操作的连接摘要，不把宿主路径当成主界面文案。 */
+  app.get("/api/setup/status", async () => {
+    const res = await fetchWatch("/api/connections");
+    if (res === null || !res.ok) {
+      return { reachable: false, configured: false, connections: [] as unknown[] };
+    }
+    try {
+      const body = (await res.json()) as Record<string, unknown>;
+      const connections = Array.isArray(body["connections"]) ? body["connections"] : [];
+      return {
+        reachable: true,
+        configured: connections.some((item) => isRecord(item) && item["connected"] === true),
+        connections,
+      };
+    } catch {
+      return { reachable: false, configured: false, connections: [] as unknown[] };
     }
   });
 
@@ -2519,24 +2657,25 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     proxyWatchPost("/api/memory/self-check", request.body, reply),
   );
 
-  // 诊断报告（M7）：watch 返回 text/markdown，原样透传并保留附件头；不可达 → 502。
-  app.get("/api/diagnostics/report", async (_request, reply) => {
-    const res = await fetchWatch("/api/diagnostics/report");
+  // 诊断报告（M7）：默认 Markdown，format=zip 时透传脱敏 ZIP；不可达 → 502。
+  app.get("/api/diagnostics/report", async (request, reply) => {
+    const format = (request.query as { format?: string } | undefined)?.format;
+    const res = await fetchWatch(format === "zip" ? "/api/diagnostics/report?format=zip" : "/api/diagnostics/report");
     if (res === null) return reply.status(502).send({ error: "watch-unreachable" });
-    const raw = await res.text();
+    const raw = format === "zip" ? Buffer.from(await res.arrayBuffer()) : await res.text();
     if (!res.ok) {
       let parsed: unknown = {};
       try {
-        parsed = JSON.parse(raw);
+        parsed = JSON.parse(typeof raw === "string" ? raw : raw.toString("utf8"));
       } catch {
-        parsed = { raw };
+        parsed = { raw: typeof raw === "string" ? raw : raw.toString("utf8") };
       }
       return reply.status(res.status).send(parsed);
     }
     const disposition =
-      res.headers.get("content-disposition") ?? 'attachment; filename="agent-butler-diagnostic.md"';
+      res.headers.get("content-disposition") ?? (format === "zip" ? 'attachment; filename="agent-butler-diagnostic.zip"' : 'attachment; filename="agent-butler-diagnostic.md"');
     return reply
-      .type("text/markdown; charset=utf-8")
+      .type(format === "zip" ? "application/zip" : "text/markdown; charset=utf-8")
       .header("content-disposition", disposition)
       .send(raw);
   });
@@ -2903,15 +3042,26 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     };
   });
 
-  // 安全基线（V1 固定形态）：明示"未鉴权、仅回环"等风险项，Task 18 会扩展。
+  /**
+   * 安全基线：如实汇报容器监听地址与宿主机发布地址，UI 侧据此渲染「仅本机访问」
+   * 或「局域网可访问」。不再写死 auth:false，也不拿容器内的 0.0.0.0
+   * 冒充宿主机实际暴露范围。
+   */
   app.get("/api/security-baseline", async () => {
-    const warnings = ["管家面板只在你的电脑上运行，请不要把它转发到外网"];
-    if (isLoopback(listenHost)) {
-      warnings.push("当前没有登录验证；请只在本机使用，不要在陌生网络上打开");
+    const loopback = isLoopback(publishHost);
+    const auth = accessToken !== "";
+    const warnings: string[] = [];
+    if (loopback && !auth) {
+      warnings.push("当前只有本机可以访问，没有设置访问口令。");
+    } else if (loopback && auth) {
+      warnings.push("当前只有本机可以访问，并且已设置访问口令。");
+    } else if (!loopback && auth) {
+      warnings.push(`面板发布在 ${publishHost}，同一网络内的其他设备可以访问，已用访问口令保护。`);
+      warnings.push("请确认你信任当前网络；口令泄露等同于把本机 AI 的控制权交出去。");
     } else {
-      warnings.push(`当前监听地址 ${listenHost} 不是本机地址，任何人都可能访问，请立即停止公开`);
+      warnings.push(`面板发布在 ${publishHost} 且没有访问口令，同一网络内的任何人都能操作你的 AI，请立即处理。`);
     }
-    return { listenHost, auth: false, warnings };
+    return { listenHost, publishHost, loopback, auth, warnings };
   });
 
   /* ------------------------------ WebSocket /ws ------------------------------ */

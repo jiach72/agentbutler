@@ -92,12 +92,40 @@
   padding: 4px 10px;
 }
 
+.nav-advanced {
+  margin-top: 8px;
+}
+.nav-advanced summary {
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 10px;
+  color: var(--butler-muted);
+  font-size: var(--butler-text-xs);
+  font-weight: 650;
+  line-height: 1.3;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  list-style: none;
+}
+.nav-advanced summary::-webkit-details-marker { display: none; }
+.nav-advanced summary::before {
+  content: "+";
+  width: 18px;
+  font-size: var(--butler-text-md);
+  font-weight: 400;
+}
+.nav-advanced[open] summary::before { content: "-"; }
+.nav-advanced summary:hover { color: var(--butler-ink); }
+.nav-advanced .nav-link { margin-left: 6px; }
+
 .nav-link {
   position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 7px 10px;
+  min-height: 44px;
   border-radius: 8px;
   color: var(--butler-ink-soft);
   text-decoration: none;
@@ -189,6 +217,24 @@
   opacity: 0.85;
 }
 
+/* 访问范围不是本机时，这块不许再显示成"安全"的绿色。 */
+.sidebar-meta.is-warn {
+  border-color: var(--butler-warn);
+  background: var(--butler-warn-soft);
+  color: var(--butler-ink);
+}
+.sidebar-meta.is-warn .anticon {
+  color: var(--butler-warn);
+}
+.sidebar-meta.is-error {
+  border-color: var(--butler-error);
+  background: var(--butler-error-soft);
+  color: var(--butler-ink);
+}
+.sidebar-meta.is-error .anticon {
+  color: var(--butler-error);
+}
+
 /* ---- 顶栏 ---- */
 
 .app-topbar {
@@ -260,7 +306,7 @@
 
 /* ---- 响应式 ---- */
 
-@media (max-width: 1180px) {
+@media (max-width: 1200px) {
   .topbar-brand {
     display: none;
   }
@@ -272,13 +318,13 @@
   }
 }
 
-@media (max-width: 900px) {
+@media (max-width: 860px) {
   .topbar-note {
     display: none;
   }
 }
 
-@media (max-width: 860px) {
+@media (max-width: 600px) {
   .sidebar-desktop {
     display: none;
   }
@@ -291,4 +337,5 @@
   .content {
     padding: 14px 12px 24px;
   }
+  .nav-advanced { margin-top: 6px; }
 }

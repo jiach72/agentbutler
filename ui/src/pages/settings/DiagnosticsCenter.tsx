@@ -3,8 +3,8 @@
  * 保留文本响应处理；超时与失败文案走 pickErrorText / 固定文案，成败均有 message 提示。
  */
 import { useState } from "react";
-import { App, Button } from "antd";
-import { pickErrorText } from "../../lib/format.js";
+import { App, Button, Space } from "antd";
+import { fetchBlob, fetchText } from "../../lib/api.js";
 
 interface DiagnosticsCenterProps {
   /** 页面级危险操作进行中时禁用入口。 */
@@ -17,7 +17,6 @@ interface DiagnosticState {
   error: string | null;
 }
 
-const GENERATE_FAILED_TEXT = "报告生成失败，请稍后再试。";
 const OFFLINE_TEXT = "管家服务暂时连不上，请稍后再试。";
 
 export function DiagnosticsCenter({ actionBusy }: DiagnosticsCenterProps) {
@@ -32,22 +31,13 @@ export function DiagnosticsCenter({ actionBusy }: DiagnosticsCenterProps) {
     if (diagnostic.busy) return;
     setDiagnostic({ busy: true, text: null, error: null });
     try {
-      const res = await fetch("/api/diagnostics/report", {
-        signal: AbortSignal.timeout(20_000),
-      });
-      if (!res.ok) {
-        let reasonText = GENERATE_FAILED_TEXT;
-        try {
-          reasonText = pickErrorText(await res.json(), GENERATE_FAILED_TEXT);
-        } catch {
-          // 非 JSON 响应保持固定文案
-        }
-        setDiagnostic({ busy: false, text: null, error: reasonText });
-        message.error(reasonText);
+      const result = await fetchText("/api/diagnostics/report", 20_000);
+      if (!result.ok) {
+        setDiagnostic({ busy: false, text: null, error: result.reason });
+        message.error(result.reason);
         return;
       }
-      const text = await res.text();
-      setDiagnostic({ busy: false, text, error: null });
+      setDiagnostic({ busy: false, text: result.text, error: null });
       message.success("诊断报告已生成，可在下方查看并下载。");
     } catch {
       setDiagnostic({ busy: false, text: null, error: OFFLINE_TEXT });
@@ -63,6 +53,22 @@ export function DiagnosticsCenter({ actionBusy }: DiagnosticsCenterProps) {
     anchor.download = `agent-butler-diagnostic-${new Date().toISOString().slice(0, 10)}.md`;
     anchor.click();
     URL.revokeObjectURL(url);
+  };
+
+  const downloadDiagnosticZip = async () => {
+    const result = await fetchBlob("/api/diagnostics/report?format=zip");
+    if (!result.ok) {
+      message.error(`诊断包没有生成：${result.reason}`);
+      return;
+    }
+    const blob = result.blob;
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `agent-butler-diagnostic-${new Date().toISOString().slice(0, 10)}.zip`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    message.success("脱敏诊断包已下载，可以直接附到 Issue。 ");
   };
 
   return (
@@ -96,9 +102,10 @@ export function DiagnosticsCenter({ actionBusy }: DiagnosticsCenterProps) {
           <summary>查看报告（可下载）</summary>
           <div className="advanced-details-body">
             <pre className="diagnostic-preview">{diagnostic.text}</pre>
-            <Button size="small" onClick={() => downloadDiagnostic(diagnostic.text!)}>
-              下载 Markdown
-            </Button>
+            <Space wrap>
+              <Button size="small" onClick={() => downloadDiagnostic(diagnostic.text!)}>下载 Markdown</Button>
+              <Button size="small" type="primary" onClick={() => void downloadDiagnosticZip()}>下载诊断 ZIP</Button>
+            </Space>
           </div>
         </details>
       )}

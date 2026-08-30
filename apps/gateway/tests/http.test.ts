@@ -58,6 +58,25 @@ describe("gateway HTTP API", () => {
     expect(missingField.statusCode).toBe(400);
   });
 
+  it("同源局域网写请求放行，跨站 Origin 被拒绝", async () => {
+    const sameOrigin = await app.inject({
+      method: "POST",
+      url: "/api/alerts",
+      headers: { host: "192.168.1.88:7532", origin: "http://192.168.1.88:7532" },
+      payload: { kind: "k", severity: "warn", title: "t", body: "b", source: "s" },
+    });
+    expect(sameOrigin.statusCode).toBe(202);
+
+    const crossSite = await app.inject({
+      method: "POST",
+      url: "/api/alerts",
+      headers: { host: "192.168.1.88:7532", origin: "https://evil.example.com" },
+      payload: { kind: "k", severity: "warn", title: "t", body: "b", source: "s" },
+    });
+    expect(crossSite.statusCode).toBe(403);
+    expect(crossSite.json()).toMatchObject({ error: "origin-not-allowed" });
+  });
+
   it("POST /api/alerts：dedupeKey 命中未终结行返回同 id（消息合并缓释）", async () => {
     const first = await app.inject({
       method: "POST",

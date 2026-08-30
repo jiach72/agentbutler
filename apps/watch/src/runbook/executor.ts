@@ -44,6 +44,13 @@ export const DEFAULT_RUNBOOK_DEBOUNCE_MS = 15 * 60 * 1000;
 export interface RunbookControl {
   restart(instance: InstanceRef): Promise<Result<ControlAck>>;
   snapshot(instance: InstanceRef, scope: SnapshotScope): Promise<Result<Job>>;
+  /**
+   * 把数据还原到刚做的 pre-runbook 快照。
+   *
+   * 可选是有意的：控制面没有还原能力时，宁可只告警也不要假装补救。
+   * 做了快照却还原不了，等于对用户说"我保护了你"但其实保护不了。
+   */
+  restore?(instance: InstanceRef, snapshot: Job): Promise<Result<Job>>;
 }
 
 export interface RunbookStepContext {
@@ -289,6 +296,37 @@ export class RunbookExecutor {
     const durationMs = Math.max(0, this.now() - startedAt);
     const success = failedAt === null;
 
+    /**
+     * ⑤ 失败补救：快照成功但动作没成 → 自动还原到操作前的状态。
+     *
+     * 两条边界：
+     * - 快照本身失败时不还原（压根没动过手，没什么可还原的）；
+     * - 控制面没有还原能力时跳过，只在告警里说明，绝不假装补救过。
+     */
+    let rollbackNote = "";
+    if (!success && failedAt !== "snapshot" && snapshot.ok && this.control.restore !== undefined) {
+      try {
+        const restored = await this.control.restore(opts.instance, snapshot.data!);
+        const restoreFailed = (restored.data?.steps ?? []).some((s) => s.status === "failed");
+        const ok = restored.ok && !restoreFailed;
+        appendStep({
+          id: "rollback",
+          status: ok ? "passed" : "failed",
+          detail: ok
+            ? "已自动还原到操作前的状态，你的数据没有被改动"
+            : `自动还原没成功：${restored.error?.message ?? "未知原因"}。快照仍然保留着，可以手动恢复。`,
+        });
+        rollbackNote = ok ? "，已自动还原到操作前状态" : "，自动还原未成功（快照仍在）";
+      } catch (error) {
+        appendStep({
+          id: "rollback",
+          status: "failed",
+          detail: `自动还原出错：${error instanceof Error ? error.message : String(error)}`,
+        });
+        rollbackNote = "，自动还原出错（快照仍在）";
+      }
+    }
+
     // ③/④ 失败 → 升级告警 + 熔断记录失败；成功 → 复位失败累计。
     let alertDedupeKey: string | undefined;
     const breakerKey = `${id}:${instanceId}`;
@@ -298,7 +336,7 @@ export class RunbookExecutor {
         kind: RUNBOOK_FAILED_KIND,
         severity: "critical",
         title: `runbook ${id} 执行失败（实例 ${instanceId}${verifyNote}）`,
-        body: `runbook ${id} 于实例 ${instanceId} 失败（触发: ${opts.trigger}，原因: ${opts.reason ?? ""}）：失败环节 ${failedAt}。步骤: ${steps
+        body: `runbook ${id} 于实例 ${instanceId} 失败（触发: ${opts.trigger}，原因: ${opts.reason ?? ""}）：失败环节 ${failedAt}${rollbackNote}。步骤: ${steps
           .map((s) => `${s.id}=${s.status}`)
           .join(", ")}`,
         source: "butler-watch",

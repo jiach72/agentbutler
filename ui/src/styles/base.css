@@ -31,6 +31,20 @@ textarea {
   font: inherit;
 }
 
+/* 触控与键盘共用的最小命中区域；图标按钮也保持可点尺寸。 */
+:where(.ant-btn) {
+  min-height: 44px;
+}
+:where(.ant-btn.ant-btn-icon-only) {
+  min-width: 44px;
+}
+:where(.ant-select-single .ant-select-selector),
+:where(.ant-input),
+:where(.ant-input-affix-wrapper),
+:where(.ant-input-number) {
+  min-height: 44px;
+}
+
 ::selection {
   background: var(--butler-accent-soft);
   color: var(--butler-accent);

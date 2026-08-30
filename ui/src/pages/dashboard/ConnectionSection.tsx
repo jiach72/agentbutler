@@ -3,8 +3,9 @@
  */
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Alert, Badge, Button, Card, Drawer, Progress, Space, Steps, Tag } from "antd";
+import { Alert, Badge, Button, Card, Drawer, Progress, Space, Steps } from "antd";
 import { DisconnectOutlined, LinkOutlined, ReloadOutlined } from "@ant-design/icons";
+import { AdvancedDetails } from "../../components/AdvancedDetails.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { formatRelative } from "../../lib/format.js";
 import {
@@ -77,7 +78,7 @@ export function ConnectionSection({
         <>
           <div className="connection-grid">
             {!connectionItems.some((item) => item.frameworkId === "hermes") && (
-              <Card className="connection-card connection-capability-card is-warn is-hermes" bordered>
+              <Card className="connection-card connection-capability-card is-warn is-hermes" variant="outlined">
                 <div className="connection-card-head">
                   <div>
                     <span className="connection-framework is-hermes">Hermes</span>
@@ -97,7 +98,7 @@ export function ConnectionSection({
               </Card>
             )}
             {!connectionItems.some((item) => item.frameworkId === "openclaw") && (
-              <Card className="connection-card connection-capability-card is-warn is-openclaw" bordered>
+              <Card className="connection-card connection-capability-card is-warn is-openclaw" variant="outlined">
                 <div className="connection-card-head">
                   <div>
                     <span className="connection-framework is-openclaw">OpenClaw</span>
@@ -113,15 +114,21 @@ export function ConnectionSection({
                   <span>{openClawStatus?.detail ?? "正在读取 OpenClaw 安装状态"}</span>
                 </div>
                 {openClawStatus?.runtime !== undefined && (
-                  <div className="openclaw-runtime-facts">
-                    <span>{openClawStatus.runtime.detail ?? "WSL 运行环境"}</span>
-                    <span title={openClawStatus.target?.dataRoot ?? openClawStatus.rootPath ?? undefined}>
-                      数据：{openClawStatus.target?.dataRoot ?? openClawStatus.rootPath ?? "~/.openclaw"}
-                    </span>
-                    <span title={openClawStatus.target?.npmGlobalRoot ?? undefined}>
-                      npm：{openClawStatus.target?.npmGlobalRoot ?? "解析中"}
-                    </span>
-                  </div>
+                  <AdvancedDetails
+                    summary="运行环境详情"
+                    extra={openClawStatus.runtime.detail ?? "WSL 运行环境"}
+                  >
+                    <div className="openclaw-runtime-facts">
+                      <span
+                        title={openClawStatus.target?.dataRoot ?? openClawStatus.rootPath ?? undefined}
+                      >
+                        数据目录：{openClawStatus.target?.dataRoot ?? openClawStatus.rootPath ?? "~/.openclaw"}
+                      </span>
+                      <span title={openClawStatus.target?.npmGlobalRoot ?? undefined}>
+                        全局包目录：{openClawStatus.target?.npmGlobalRoot ?? "解析中"}
+                      </span>
+                    </div>
+                  </AdvancedDetails>
                 )}
                 {openClawInstallJob !== null && (
                   <div className="openclaw-install-panel">
@@ -133,9 +140,16 @@ export function ConnectionSection({
                               : openClawInstallJob.status === "queued" ? "提交中"
                                 : "安装中"}
                       </strong>
-                      <Tag color={openClawInstallJob.status === "failed" ? "error" : openClawInstallJob.status === "done" ? "success" : "processing"}>
-                        {openClawInstallJob.progress}%
-                      </Tag>
+                      <StatusBadge
+                        tone={
+                          openClawInstallJob.status === "failed"
+                            ? "error"
+                            : openClawInstallJob.status === "done"
+                              ? "ok"
+                              : "info"
+                        }
+                        label={`${openClawInstallJob.progress}%`}
+                      />
                     </div>
                     <Progress percent={openClawInstallJob.progress} size="small" status={openClawInstallJob.status === "failed" ? "exception" : openClawInstallJob.status === "done" ? "success" : "active"} />
                     {openClawInstallJob.steps.length > 0 && (
@@ -188,7 +202,7 @@ export function ConnectionSection({
                     ? "warn"
                     : "idle";
               return (
-                <Card className={`connection-card is-${stateClass} is-${connection.frameworkId}`} key={connection.instanceId} bordered>
+                <Card className={`connection-card is-${stateClass} is-${connection.frameworkId}`} key={connection.instanceId} variant="outlined">
                   <div className="connection-card-head">
                     <div>
                       <span className={`connection-framework is-${connection.frameworkId}`}>{frameworkLabel(connection.frameworkId)}</span>

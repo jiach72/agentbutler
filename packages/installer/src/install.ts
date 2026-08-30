@@ -161,6 +161,103 @@ interface StepCommand {
 
 export type PortProbe = (port: number, host?: string) => Promise<boolean>;
 
+export type MaintenanceCommand = "reset" | "uninstall";
+
+export interface MaintenanceOptions {
+  command: MaintenanceCommand;
+  confirmed?: boolean;
+  dryRun?: boolean;
+  env?: Record<string, string | undefined>;
+  exec?: Exec;
+  repoDir?: string;
+  homeDir?: string;
+}
+
+export interface MaintenanceResult {
+  command: MaintenanceCommand;
+  success: boolean;
+  steps: InstallStep[];
+}
+
+/**
+ * 停止并清理 Butler 自身状态，不触碰受管 Hermes/OpenClaw 数据目录。
+ * 真实删除前要求 confirmed=true；默认只返回计划，方便 CLI 先展示影响范围。
+ */
+export async function runMaintenance(options: MaintenanceOptions): Promise<MaintenanceResult> {
+  const exec = options.exec ?? defaultExec;
+  const dryRun = options.dryRun ?? false;
+  const env = options.env ?? process.env;
+  const homeDir = options.homeDir ?? env["BUTLER_HOME"]?.trim() ?? path.join(os.homedir(), ".agent-butler");
+  const repoDir = options.repoDir ?? process.cwd();
+  const serviceDir = path.join(env["XDG_CONFIG_HOME"]?.trim() || path.join(os.homedir(), ".config"), "systemd", "user");
+  const steps: InstallStep[] = [];
+  const destructive = options.confirmed === true && !dryRun;
+
+  steps.push({
+    id: "confirmation",
+    status: destructive ? "ok" : "skipped",
+    detail: destructive
+      ? "已收到明确确认，将执行维护操作"
+      : `仅展示 ${options.command} 计划；真正执行请再次提供 --yes（目标：${homeDir}）`,
+  });
+
+  const units = BUTLER_SERVICES.map((service) => path.join(serviceDir, `${service}.service`));
+  if (!destructive) {
+    steps.push({
+      id: "services-stop",
+      status: dryRun ? "dry-run" : "skipped",
+      detail: `将停止 ${BUTLER_SERVICES.join(", ")}，并删除 ${units.join(", ")}`,
+    });
+    steps.push({
+      id: "state-remove",
+      status: dryRun ? "dry-run" : "skipped",
+      detail: options.command === "reset" ? `将清空 ${homeDir}（保留目录）` : `将删除 ${homeDir}`,
+    });
+    return { command: options.command, success: true, steps };
+  }
+
+  if (process.platform === "win32") {
+    steps.push({
+      id: "services-stop",
+      status: "skipped",
+      detail: "原生 Windows 没有已注册的 Butler systemd 服务；如通过任务计划运行，请在任务计划程序中停止 Agent Butler 任务",
+    });
+  } else {
+    steps.push(await runExecStep(exec, "services-stop", "停止 Butler 用户服务", {
+      command: "systemctl",
+      args: ["--user", "disable", "--now", ...BUTLER_SERVICES.map((service) => `${service}.service`)],
+      timeoutMs: 30_000,
+    }, false));
+  }
+  // systemd 不存在时继续清理文件；删除动作本身仍被限制在明确的 Butler home。
+  try {
+    for (const unit of units) {
+      if (fs.existsSync(unit)) fs.rmSync(unit, { force: true });
+    }
+    steps.push({ id: "services-remove", status: "ok", detail: "已移除 Butler 用户服务文件" });
+  } catch (error) {
+    steps.push({ id: "services-remove", status: "failed", detail: `移除用户服务文件失败：${String(error)}` });
+  }
+
+  try {
+    const resolvedHome = path.resolve(homeDir);
+    const protectedRoots = new Set([path.parse(resolvedHome).root, path.resolve(os.homedir()), path.resolve(repoDir)]);
+    if (protectedRoots.has(resolvedHome)) {
+      steps.push({ id: "state-remove", status: "failed", detail: "拒绝删除过于宽泛的 Butler home 路径，请设置独立目录" });
+    } else if (options.command === "reset") {
+      fs.mkdirSync(resolvedHome, { recursive: true });
+      for (const entry of fs.readdirSync(resolvedHome)) fs.rmSync(path.join(resolvedHome, entry), { recursive: true, force: true });
+      steps.push({ id: "state-remove", status: "ok", detail: `已清空 ${resolvedHome}，目录本身保留` });
+    } else {
+      fs.rmSync(resolvedHome, { recursive: true, force: true });
+      steps.push({ id: "state-remove", status: "ok", detail: `已删除 ${resolvedHome}` });
+    }
+  } catch (error) {
+    steps.push({ id: "state-remove", status: "failed", detail: `清理 Butler 状态失败：${String(error)}` });
+  }
+  return { command: options.command, success: !steps.some((step) => step.status === "failed"), steps };
+}
+
 /** 通过短暂绑定检测宿主端口是否可用，不发送网络请求。 */
 export function defaultPortProbe(port: number, host = "127.0.0.1"): Promise<boolean> {
   return new Promise((resolve) => {
@@ -422,8 +519,8 @@ export function buildHostServiceUnits(
     "butler-gateway": unit("butler-gateway", "Agent Butler Gateway", [], [
       "BUTLER_GATEWAY_HOST=127.0.0.1",
       "BUTLER_GATEWAY_PORT=" + DEFAULT_GATEWAY_HOST_PORT,
-      // Gateway 持久消息运行时：配置齐全时自动接入本机 Bridge；Bridge
-      // 暂时离线仍由 Gateway 内部重试，不影响普通控制面启动。
+      // Gateway 持久消息运行时：auto 在 Bridge 配置完整时接入；Bridge 暂时
+      // 离线仍由 Gateway 内部重试，不影响普通控制面启动。
       "BUTLER_ENABLE_HERMES_MESSAGE_RUNTIME=auto",
       "BUTLER_HERMES_BRIDGE_URL=http://127.0.0.1:8754",
       "BUTLER_HERMES_INSTANCE_ID=hermes-main",
@@ -697,6 +794,23 @@ export async function installHostForm(plan: InstallPlan, opts: InstallOptions = 
   const openclawPackage = opts.openclawPackage ?? DEFAULT_OPENCLAW_PACKAGE;
   const steps: InstallStep[] = [];
 
+  // Hermes 官方安装脚本和宿主服务托管依赖 Bash/Linux；原生 Windows 不能安全地
+  // 走同一条路径，明确引导 Docker Desktop 或 WSL，避免“命令跑完但服务不可用”。
+  if (
+    framework === "hermes" &&
+    plan.platform.os === "win32" &&
+    !plan.platform.isWsl &&
+    !dryRun &&
+    opts.hostServices?.manager === undefined
+  ) {
+    steps.push({
+      id: "windows-host-guidance",
+      status: "failed",
+      detail: "原生 Windows 暂不支持 Hermes 宿主进程安装。请安装 Docker Desktop 后使用 --form docker，或在 WSL 中重新运行 --form host。",
+    });
+    return finish("host", framework, steps);
+  }
+
   // 1. 前置 Node>=22 校验（失败即停）
   if (!plan.platform.nodeSatisfied || (framework === "openclaw" && !isOpenClawNodeSatisfied(plan.platform.nodeVersion))) {
     steps.push({
@@ -773,6 +887,21 @@ export async function installHostForm(plan: InstallPlan, opts: InstallOptions = 
 
   // Hermes 官方安装脚本封装
   if (framework === "hermes") {
+  if (plan.platform.pythonSatisfied === false) {
+    steps.push({
+      id: "python-check",
+      status: "failed",
+      detail: `未找到满足要求的 Python（需要 >=3.11，当前：${plan.platform.pythonVersion ?? "未安装"}）。请先安装 Python 3.11+ 后重试。`,
+    });
+    return finish("host", framework, steps);
+  }
+  if (plan.platform.pythonSatisfied !== undefined) {
+    steps.push({
+      id: "python-check",
+      status: "ok",
+      detail: `Python ${plan.platform.pythonVersion} 满足 Hermes 要求`,
+    });
+  }
   const pipeline = `curl -fsSL ${hermesUrl} | bash`;
   steps.push(
     await runExecStep(exec, "hermes-install", "安装 Hermes 宿主进程（官方 install.sh）", {
@@ -1050,7 +1179,9 @@ export async function runInstaller(options: InstallerOptions = {}): Promise<Inst
     nextActions.push(
       servicesStarted
         ? "systemctl --user status butler-watch.service butler-web.service butler-gateway.service 查看宿主服务状态"
-        : "按 services-guide 指引依次启动 butler-watch / butler-web / butler-gateway",
+        : install.steps.some((step) => step.id === "windows-host-guidance")
+          ? "请改用 Docker Desktop，或在 WSL 中重新运行宿主进程安装"
+          : "按 services-guide 指引依次启动 butler-watch / butler-web / butler-gateway",
     );
   }
   if (!install.success) {

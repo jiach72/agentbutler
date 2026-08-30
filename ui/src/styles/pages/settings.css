@@ -106,7 +106,7 @@
 .settings-llm-discovered .hint {
   margin: 0;
 }
-@media (max-width: 840px) {
+@media (max-width: 860px) {
   .settings-llm-grid {
     grid-template-columns: 1fr;
   }
@@ -154,7 +154,7 @@
 .route-row {
   grid-template-columns: minmax(72px, auto) minmax(0, 1fr) auto;
 }
-@media (max-width: 640px) {
+@media (max-width: 600px) {
   .baseline-row,
   .invariant-row,
   .route-row {
@@ -309,7 +309,7 @@
   font-style: normal;
   white-space: nowrap;
 }
-@media (max-width: 640px) {
+@media (max-width: 600px) {
   .backup-row {
     grid-template-columns: minmax(0, 1fr) auto;
     padding-left: 20px;

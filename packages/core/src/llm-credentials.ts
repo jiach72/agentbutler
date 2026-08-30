@@ -280,10 +280,18 @@ export class LlmCredentialService {
 
   status() {
     const profiles = this.listProfiles();
+    const bindings = this.listBindings();
+    const activeProfileIds = new Set(
+      profiles.filter((item) => item.status === "active" && item.probe?.status === "pass").map((item) => item.profileId),
+    );
+    const activeBindings = bindings.filter((binding) => activeProfileIds.has(binding.profileId));
     return {
       vault: { available: this.vault.available },
       profiles: profiles.length,
       activeProfiles: profiles.filter((item) => item.status === "active").length,
+      bindings: bindings.length,
+      activeBindings: activeBindings.length,
+      ready: this.vault.available && activeBindings.length > 0,
       blocked: profiles.filter((item) => item.status !== "active").map((item) => ({ profileId: item.profileId, status: item.status, detail: item.probe?.detail ?? "尚未探针" })),
     };
   }

@@ -1993,8 +1993,8 @@ export function createEvolutionService(deps: EvolutionServiceDeps): EvolutionSer
       `PATH="$PATH"`,
       `HOME="$HOME"`,
       `HERMES_AGENT_REPO="$HERMES_AGENT_REPO"`,
-      ...environmentKeys.map((key) => `${key}="\$${key}"`),
-      `PYTHONPATH=${shellQuote(engineRoot)}:"\$PYTHONPATH"`,
+      ...environmentKeys.map((key) => `${key}="$${key}"`),
+      `PYTHONPATH=${shellQuote(engineRoot)}:"$PYTHONPATH"`,
     ].join(" ");
     const runner = [
       "set +e",
@@ -2017,7 +2017,7 @@ export function createEvolutionService(deps: EvolutionServiceDeps): EvolutionSer
       `mkdir -p ${shellQuote(entry.remoteRunDir)}`,
       `rm -f ${shellQuote(exitPath)} ${shellQuote(pidPath)}`,
       ...(resolvedProfile === null ? [] : [
-        `umask 077; : > ${shellQuote(overlayPath)}; ${environmentKeys.map((key) => `printf '%s=%s\\n' ${shellQuote(key)} "\$${key}" >> ${shellQuote(overlayPath)}`).join("; ")}; chmod 600 ${shellQuote(overlayPath)}`,
+        `umask 077; : > ${shellQuote(overlayPath)}; ${environmentKeys.map((key) => `printf '%s=%s\\n' ${shellQuote(key)} "$${key}" >> ${shellQuote(overlayPath)}`).join("; ")}; chmod 600 ${shellQuote(overlayPath)}`,
       ]),
       `: > ${shellQuote(entry.stdoutPath)}`,
       `: > ${shellQuote(entry.stderrPath)}`,

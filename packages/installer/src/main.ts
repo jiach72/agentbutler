@@ -5,9 +5,10 @@
  * 运行 runInstaller 并打印人类可读报告；退出码：全部通过 0、有失败步骤 1。
  */
 import { pathToFileURL } from "node:url";
-import { runInstaller, type InstallerReport, type InstallerOptions } from "./install.js";
+import { runInstaller, runMaintenance, type InstallerReport, type InstallerOptions } from "./install.js";
 
 export interface CliArgs {
+  command?: "reset" | "uninstall";
   framework?: "hermes" | "openclaw";
   form: "host" | "docker";
   dryRun: boolean;
@@ -15,13 +16,14 @@ export interface CliArgs {
   skipNetwork: boolean;
   secretsOnly: boolean;
   help: boolean;
+  yes?: boolean;
   /** 解析失败原因（有值时调用方应打印用法并以 1 退出）。 */
   error?: string;
 }
 
 export const USAGE = `Agent Butler 安装器（双形态 + 国内镜像切换）
 
-用法: node packages/installer/dist/main.js [选项]
+用法: npx agent-butler [reset|uninstall] [选项]
 
 选项:
   --framework hermes|openclaw  被安装/管理的智能体框架（缺省 hermes）
@@ -30,12 +32,13 @@ export const USAGE = `Agent Butler 安装器（双形态 + 国内镜像切换）
   --dry-run            只打印将执行的步骤，不执行命令、不写文件
   --skip-network       跳过网络逐源探测（按官方源处理，不切镜像）
   --secrets-only       仅做密钥逐项校验引导，不执行安装
+  --yes                确认执行 reset/uninstall 的破坏性清理
   --help               显示本帮助
 
 示例:
-  node packages/installer/dist/main.js --form docker --dry-run
-  node packages/installer/dist/main.js --framework openclaw --form docker --web-port 17531
-  node packages/installer/dist/main.js --form host --secrets-only`;
+  npx agent-butler --form docker --dry-run
+  npx agent-butler --framework openclaw --form docker --web-port 17531
+  npx agent-butler --form host --secrets-only`;
 
 /** 手写 argv 解析：支持 --form host 与 --form=host 两种写法。 */
 export function parseArgs(argv: string[]): CliArgs {
@@ -50,7 +53,10 @@ export function parseArgs(argv: string[]): CliArgs {
   let i = 0;
   while (i < argv.length) {
     const token = argv[i]!;
-    if (token === "--help" || token === "-h") {
+    if (token === "reset" || token === "uninstall") {
+      if (args.command !== undefined) return fail("reset 和 uninstall 只能选择一个");
+      args.command = token;
+    } else if (token === "--help" || token === "-h") {
       args.help = true;
     } else if (token === "--framework" || token.startsWith("--framework=")) {
       const value = token === "--framework" ? argv[++i] : token.slice("--framework=".length);
@@ -71,6 +77,8 @@ export function parseArgs(argv: string[]): CliArgs {
       args.skipNetwork = true;
     } else if (token === "--secrets-only") {
       args.secretsOnly = true;
+    } else if (token === "--yes") {
+      args.yes = true;
     } else if (token === "--form" || token.startsWith("--form=")) {
       const value = token === "--form" ? argv[++i] : token.slice("--form=".length);
       if (value !== "host" && value !== "docker") {
@@ -123,6 +131,8 @@ export function renderReport(report: InstallerReport): string {
     "[平台]",
     `  系统: ${platform.os} ${platform.arch}${platform.isWsl ? "（WSL: " + platform.wslEvidence.join("; ") + "）" : ""}`,
     `  Node: ${platform.nodeVersion}（${platform.nodeSatisfied ? "满足" : "不满足"} ${platform.nodeRequirement}）`,
+    `  Python: ${platform.pythonVersion ?? "未探测"}${platform.pythonSatisfied === undefined ? "" : platform.pythonSatisfied ? "（满足 >=3.11）" : "（不满足 >=3.11）"}`,
+    `  Hermes: ${platform.hermesRoot ?? "未发现已安装目录"}`,
     `  docker: ${platform.dockerAvailable ? "可用" : "不可用"} · docker compose: ${platform.dockerComposeAvailable ? "可用" : "不可用"}`,
     "",
   );
@@ -160,6 +170,18 @@ export async function main(
   if (args.help) {
     console.log(USAGE);
     return 0;
+  }
+  if (args.command !== undefined) {
+    const result = await runMaintenance({
+      command: args.command,
+      confirmed: args.yes === true,
+      env: options.env ?? process.env,
+      exec: options.exec,
+      repoDir: options.repoDir,
+    });
+    console.log(`[${args.command}] ${result.success ? "完成" : "存在失败步骤"}`);
+    result.steps.forEach((step) => console.log(`  ${STATUS_MARK[step.status] ?? "[?]"} ${step.id}: ${step.detail}`));
+    return result.success ? 0 : 1;
   }
   const report = await runInstaller({
     framework: args.framework ?? "hermes",

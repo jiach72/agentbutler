@@ -11,6 +11,8 @@
  */
 import { execFile } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 /** 单次命令执行结果（永不 throw，失败以非零 code 表达）。 */
 export interface ExecResult {
@@ -55,6 +57,11 @@ export interface PlatformReport {
   nodeRequirement: string;
   dockerAvailable: boolean;
   dockerComposeAvailable: boolean;
+  /** 可选运行时体检：只在真实默认执行器下探测，注入式测试不会触碰宿主命令。 */
+  pythonVersion?: string | null;
+  pythonSatisfied?: boolean;
+  hermesRoot?: string | null;
+  hermesCandidates?: string[];
 }
 
 /** docker 探测使用的短超时（毫秒）。 */
@@ -103,6 +110,25 @@ export async function detectPlatform(
   const dockerRes = await exec("docker", ["version"], { timeoutMs: DOCKER_PROBE_TIMEOUT_MS });
   const composeRes = await exec("docker", ["compose", "version"], { timeoutMs: DOCKER_PROBE_TIMEOUT_MS });
 
+  let pythonVersion: string | null = null;
+  if (exec === defaultExec) {
+    for (const command of process.platform === "win32" ? ["py", "python"] : ["python3", "python"]) {
+      const result = await exec(command, ["--version"], { timeoutMs: DOCKER_PROBE_TIMEOUT_MS });
+      if (result.code === 0) {
+        pythonVersion = (result.stdout || result.stderr).trim().split(/\r?\n/)[0] ?? null;
+        if (pythonVersion !== null && pythonVersion !== "") break;
+      }
+    }
+  }
+  const configuredHermes = env["BUTLER_HERMES_ROOT"]?.trim() || env["HERMES_ROOT"]?.trim();
+  const hermesCandidates = [...new Set([
+    configuredHermes,
+    path.join(env["USERPROFILE"]?.trim() || os.homedir(), ".hermes"),
+    path.join(os.homedir(), ".hermes"),
+    path.join(env["LOCALAPPDATA"]?.trim() || path.join(os.homedir(), "AppData", "Local"), "hermes"),
+  ].filter((value): value is string => value !== undefined && value !== ""))];
+  const hermesRoot = hermesCandidates.find((candidate) => fs.existsSync(path.join(candidate, "hermes-agent"))) ?? null;
+
   return {
     os: process.platform,
     arch: process.arch,
@@ -113,5 +139,12 @@ export async function detectPlatform(
     nodeRequirement: ">=22",
     dockerAvailable: dockerRes.code === 0,
     dockerComposeAvailable: composeRes.code === 0,
+    pythonVersion,
+    pythonSatisfied: pythonVersion === null ? (exec === defaultExec ? false : undefined) : (() => {
+      const match = /Python\s+(\d+)\.(\d+)\.(\d+)/i.exec(pythonVersion);
+      return match !== null && (Number(match[1]) > 3 || (Number(match[1]) === 3 && Number(match[2]) >= 11));
+    })(),
+    hermesRoot,
+    hermesCandidates,
   };
 }

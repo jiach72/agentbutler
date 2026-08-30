@@ -53,7 +53,9 @@ export function useRecoveryFlow() {
       return;
     }
     if (Date.now() - verifying.startedAt >= VERIFY_WINDOW_MS) {
-      message.error(`「${verifying.label}」复验未通过：${next.rootCause}，请查看诊断详情`);
+      message.error(
+        `「${verifying.label}」复验未通过：${next.rootCause ?? next.primaryFinding?.title ?? "仍有未解决的问题"}，请查看诊断详情`,
+      );
       setVerifying(null);
     }
   }, [message, verifying]);
@@ -83,7 +85,9 @@ export function useRecoveryFlow() {
         }
         else message.error(`诊断完成，但「${lowRisk.label}」执行失败`);
       } else {
-        message.error(`诊断完成：${next.rootCause}。没有可自动执行的低风险动作，需要人工确认`);
+        message.error(
+          `诊断完成：${next.rootCause ?? next.primaryFinding?.title ?? "需要处理的事项"}。没有可自动执行的低风险动作，需要人工确认`,
+        );
       }
     }
     setBusy(false);

@@ -39,6 +39,11 @@ describe("delivery contract", () => {
     expect(compose.match(/butler-data:\/home\/butler/g)).toHaveLength(4);
     expect(compose).toContain("condition: service_healthy");
     expect(compose).toContain("BUTLER_UPDATER_URL: http://butler-updater:7540");
-    expect(compose).toContain("/var/run/docker.sock:/var/run/docker.sock");
+    // updater 默认不接触 Docker Socket；只有显式启用后才能重建并重启面板服务。
+    expect(compose).toContain(
+      "${BUTLER_UPDATER_DOCKER_SOCKET:-/dev/null}:/var/run/docker.sock",
+    );
+    // 口令透传给 web / watch / updater 三个服务；没有口令时 updater 拒绝一切请求。
+    expect(compose.match(/BUTLER_ACCESS_TOKEN: \$\{BUTLER_ACCESS_TOKEN:-\}/g)).toHaveLength(3);
   });
 });

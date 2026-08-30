@@ -88,7 +88,8 @@ export const lightPalette: ButlerPalette = {
   raised: "#ffffff",
   ink: "#16191e",
   inkSoft: "#40474f",
-  inkFaint: "#939ba6",
+  // Used for secondary text on white surfaces; keep above WCAG AA for normal text.
+  inkFaint: "#66717d",
   muted: "#5d6672",
   rule: "#e3e7eb",
   accent: "#0e7683",

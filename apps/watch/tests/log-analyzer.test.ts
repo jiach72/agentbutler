@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createLogAnalyzer, type LogAnalyzerDeps } from "../src/log-analyzer.js";
 
 function makeDeps(linesBySource: Record<string, string[]>): LogAnalyzerDeps {
@@ -24,7 +24,10 @@ function makeDeps(linesBySource: Record<string, string[]>): LogAnalyzerDeps {
 }
 
 describe("createLogAnalyzer 日志错误指纹聚合", () => {
+  afterEach(() => vi.useRealTimers());
   it("识别限流并建议重连通道", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-24T10:01:00.000Z"));
     const analyzer = createLogAnalyzer(
       makeDeps({
         "hermes.log": [
@@ -93,6 +96,8 @@ describe("createLogAnalyzer 日志错误指纹聚合", () => {
   });
 
   it("未归类 ERROR 归为系统错误并建议重启", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-24T10:01:00.000Z"));
     const analyzer = createLogAnalyzer(
       makeDeps({ "hermes.log": ["2026-08-23 10:00:01 ERROR something exploded"] }),
     );
@@ -111,11 +116,13 @@ describe("createLogAnalyzer 日志错误指纹聚合", () => {
   });
 
   it("支持时间窗口、轮转日志和脱敏样例", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-29T09:00:00.000Z"));
     const analyzer = createLogAnalyzer({
       listSources: () => [{ id: "hermes.1.log.gz", path: "/tmp/hermes.1.log.gz", format: "text", modifiedAt: null, sizeBytes: 10 }],
       readTail: () => ({ sourceId: "hermes.1.log.gz", path: "/tmp/hermes.1.log.gz", format: "text", lines: [
-        "2026-08-28 10:00:00 ERROR tool call skill=productivity/demo failed token=secret-value",
-        "2026-08-01 10:00:00 ERROR tool call skill=productivity/demo failed token=old",
+        "2026-08-28T10:00:00.000Z ERROR tool call skill=productivity/demo failed token=secret-value",
+        "2026-08-01T10:00:00.000Z ERROR tool call skill=productivity/demo failed token=old",
       ], truncated: false, limit: 300, totalLines: 2 }),
     });
     const view = analyzer.analyze(undefined, "24h");

@@ -208,14 +208,18 @@ describe("startWatchHttp（注入依赖，回环真实端口）", () => {
     const res = await fetch(`${base}/api/runbooks/rb-restart/execute`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ instanceId: "hermes-main" }),
+      body: JSON.stringify({ confirmed: true, instanceId: "hermes-main" }),
     });
     expect(res.status).toBe(202);
     await expect(res.json()).resolves.toEqual({ started: true });
     expect(fake.state.executeCalls).toEqual([{ id: "rb-restart", instanceId: "hermes-main" }]);
 
-    // 空 body → instanceId 缺省（undefined 透传）
-    const res2 = await fetch(`${base}/api/runbooks/rb-restart/execute`, { method: "POST" });
+    // 只带确认标记、不带 instanceId → 缺省（undefined 透传）
+    const res2 = await fetch(`${base}/api/runbooks/rb-restart/execute`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirmed: true }),
+    });
     expect(res2.status).toBe(202);
     expect(fake.state.executeCalls[1]).toEqual({ id: "rb-restart", instanceId: undefined });
   });
@@ -241,17 +245,29 @@ describe("startWatchHttp（注入依赖，回环真实端口）", () => {
 
   it("execute 分支：未知 id → 404；熔断跳闸 → 409 circuit-breaker-tripped；无可用实例 → 503", async () => {
     fake.state.executeOutcome = { status: "unknown-runbook" };
-    const notFound = await fetch(`${base}/api/runbooks/rb-nope/execute`, { method: "POST" });
+    const notFound = await fetch(`${base}/api/runbooks/rb-nope/execute`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirmed: true }),
+    });
     expect(notFound.status).toBe(404);
     expect(await notFound.json()).toMatchObject({ error: expect.stringContaining("unknown-runbook") });
 
     fake.state.executeOutcome = { status: "circuit-breaker-tripped" };
-    const tripped = await fetch(`${base}/api/runbooks/rb-restart/execute`, { method: "POST" });
+    const tripped = await fetch(`${base}/api/runbooks/rb-restart/execute`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirmed: true }),
+    });
     expect(tripped.status).toBe(409);
     await expect(tripped.json()).resolves.toEqual({ error: "circuit-breaker-tripped" });
 
     fake.state.executeOutcome = { status: "no-servicing-instance" };
-    const noInstance = await fetch(`${base}/api/runbooks/rb-restart/execute`, { method: "POST" });
+    const noInstance = await fetch(`${base}/api/runbooks/rb-restart/execute`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirmed: true }),
+    });
     expect(noInstance.status).toBe(503);
     expect(await noInstance.json()).toMatchObject({ error: expect.any(String) });
   });
@@ -520,7 +536,7 @@ describe("createWatchApp HTTP 接线（watchHttpPort=0 随机端口）", () => {
     const res = await fetch(`${appBase}/api/runbooks/rb-cleanup-gateway/execute`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: "{}",
+      body: JSON.stringify({ confirmed: true }),
     });
     expect(res.status).toBe(202);
     await expect(res.json()).resolves.toEqual({ started: true });
@@ -546,20 +562,28 @@ describe("createWatchApp HTTP 接线（watchHttpPort=0 随机端口）", () => {
     const addr = app.watchHttp.address()!;
     appBase = `http://127.0.0.1:${addr.port}`;
 
-    const notFound = await fetch(`${appBase}/api/runbooks/rb-nope/execute`, { method: "POST" });
+    const notFound = await fetch(`${appBase}/api/runbooks/rb-nope/execute`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirmed: true }),
+    });
     expect(notFound.status).toBe(404);
 
     // 熔断跳闸：对首个实例的 rb-restart 键灌满阈值（5 次失败）
     const instanceId = app.instances[0]!.instanceId;
     for (let i = 0; i < 5; i += 1) app.breaker.recordFailure(`rb-restart:${instanceId}`, "test");
-    const tripped = await fetch(`${appBase}/api/runbooks/rb-restart/execute`, { method: "POST" });
+    const tripped = await fetch(`${appBase}/api/runbooks/rb-restart/execute`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirmed: true }),
+    });
     expect(tripped.status).toBe(409);
     await expect(tripped.json()).resolves.toEqual({ error: "circuit-breaker-tripped" });
 
     const noInstance = await fetch(`${appBase}/api/runbooks/rb-restart/execute`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ instanceId: "no-such-instance" }),
+      body: JSON.stringify({ confirmed: true, instanceId: "no-such-instance" }),
     });
     expect(noInstance.status).toBe(503);
 

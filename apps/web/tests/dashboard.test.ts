@@ -158,6 +158,13 @@ describe("butler-web 大盘聚合与 watch 代理（Task 10，fastify inject）"
     expect(exec.json()).toEqual({ error: "watch-unreachable" });
   });
 
+  it("/api/setup/status：watch 不可达时诚实降级，不把实例伪装成已配置", async () => {
+    const app = build(tmp, { fetchImpl: unreachableFetch });
+    const res = await app.inject({ method: "GET", url: "/api/setup/status" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ reachable: false, configured: false, connections: [] });
+  });
+
   it("POST /api/runbooks/:id/execute：透传 body 到 watch，watch 的 409 原样透传（状态码+body）", async () => {
     const calls: Array<{ url: string; method: string; body: string }> = [];
     const fetch409: typeof fetch = async (input, init) => {

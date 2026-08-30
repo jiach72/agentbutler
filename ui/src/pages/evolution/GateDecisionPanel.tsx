@@ -1,7 +1,7 @@
 /**
  * 进化页右栏门禁区：真实评估入口提示、评估结果、兼容手填表单与门禁结论。
  */
-import { Alert, Button, Checkbox, Form, Input, InputNumber, Tag } from "antd";
+import { Alert, Button, Checkbox, Form, Input, InputNumber } from "antd";
 import type { FormInstance } from "antd";
 import { AdvancedDetails } from "../../components/AdvancedDetails.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
@@ -39,7 +39,7 @@ export function GateDecisionPanel({
           type="info"
           showIcon
           message="可以开始真实评估"
-          description="管家会调用已配置的外部评估器，自动返回样本数、baseline/candidate 指标、置信度和是否允许提升。"
+          description="管家会调用已配置的外部评估器，自动返回样本数、当前版本与改进方案的指标、把握程度和是否允许采用。"
           action={
             <Button type="primary" loading={busy === "evaluate"} onClick={onStartEvaluate}>
               开始真实评估
@@ -59,11 +59,12 @@ export function GateDecisionPanel({
           }
           showIcon
           message={statusLabel(evaluation.status)}
-          description={`样本 ${evaluation.sampleCount} 条 · ${evaluation.baselineMetric.toFixed(3)} → ${evaluation.candidateMetric.toFixed(3)} · 变化 ${(evaluation.candidateMetric - evaluation.baselineMetric).toFixed(3)}${evaluation.confidence === null ? "" : ` · 置信度 ${(evaluation.confidence * 100).toFixed(1)}%`}`}
+          description={`样本 ${evaluation.sampleCount} 条 · ${evaluation.baselineMetric.toFixed(3)} → ${evaluation.candidateMetric.toFixed(3)} · 变化 ${(evaluation.candidateMetric - evaluation.baselineMetric).toFixed(3)}${evaluation.confidence === null ? "" : ` · 把握程度 ${(evaluation.confidence * 100).toFixed(1)}%`}`}
           action={
-            <Tag color={evaluation.canPromote ? "green" : "default"}>
-              {evaluation.canPromote ? "可申请提升" : "保留当前版本"}
-            </Tag>
+            <StatusBadge
+              tone={evaluation.canPromote ? "ok" : "muted"}
+              label={evaluation.canPromote ? "可申请采用" : "保留当前版本"}
+            />
           }
         />
       )}

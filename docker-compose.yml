@@ -19,7 +19,7 @@ services:
       BUTLER_GATEWAY_HOST: 0.0.0.0
       BUTLER_GATEWAY_PORT: 7532
       BUTLER_GATEWAY_PACE_SEC: ${BUTLER_GATEWAY_PACE_SEC:-30}
-      BUTLER_ENABLE_HERMES_MESSAGE_RUNTIME: ${BUTLER_ENABLE_HERMES_MESSAGE_RUNTIME:-false}
+      BUTLER_ENABLE_HERMES_MESSAGE_RUNTIME: ${BUTLER_ENABLE_HERMES_MESSAGE_RUNTIME:-auto}
       # 配置齐全时 Gateway 会自动接入 Hermes Bridge；Bridge 暂时离线不会拖垮 Gateway。
       # Bridge 仅监听宿主 loopback 时（如 WSL 原生 Docker），使用 bridge-forward
       # profile，并把此值设为 http://host.docker.internal:8755。
@@ -81,6 +81,8 @@ services:
       BUTLER_HERMES_API_HOST: ${BUTLER_HERMES_API_HOST:-host.docker.internal}
       BUTLER_HERMES_API_PORT: ${BUTLER_HERMES_API_PORT:-8642}
       BUTLER_UPDATER_URL: http://butler-updater:7540
+      # 与 updater 共享同一份访问口令；Watch 转发自更新请求时需要带上。
+      BUTLER_ACCESS_TOKEN: ${BUTLER_ACCESS_TOKEN:-}
     depends_on:
       butler-gateway:
         condition: service_healthy
@@ -110,10 +112,16 @@ services:
     image: agent-butler-butler-web:${BUTLER_VERSION:-latest}
     environment:
       BUTLER_HOME: /home/butler
+      # 容器内监听全部网卡是必需的（Compose 网络的端口转发），安全边界由
+      # BUTLER_ACCESS_TOKEN 与发布地址 BUTLER_WEB_PUBLISH_HOST 共同承担。
       BUTLER_WEB_HOST: 0.0.0.0
+      # 宿主机实际发布地址。安全自检与侧栏状态使用它，而不是容器内部监听地址。
+      BUTLER_WEB_PUBLISH_HOST: ${BUTLER_WEB_PUBLISH_HOST:-127.0.0.1}
       BUTLER_WEB_PORT: 7531
       BUTLER_GATEWAY_URL: http://butler-gateway:7532
       BUTLER_WATCH_URL: http://butler-watch:7533
+      # 面板发布到非回环地址时必填；留空则只允许本机访问。
+      BUTLER_ACCESS_TOKEN: ${BUTLER_ACCESS_TOKEN:-}
     depends_on:
       butler-gateway:
         condition: service_healthy
@@ -143,6 +151,8 @@ services:
       BUTLER_COMPOSE_BIN: docker-compose
       BUTLER_REPOSITORY_URL: ${BUTLER_REPOSITORY_URL:-https://github.com/jiach72/agentbutler}
       BUTLER_UPDATER_SERVICES: butler-gateway butler-watch butler-web
+      # 必填。updater 会执行 git checkout、重建镜像、重启服务，没有口令时它拒绝一切请求。
+      BUTLER_ACCESS_TOKEN: ${BUTLER_ACCESS_TOKEN:-}
       # apt docker.io(20.10, API 1.41) 太旧，daemon 要求 >=1.44；用 env 强制协商
       DOCKER_API_VERSION: ${DOCKER_API_VERSION:-1.44}
     expose:
@@ -150,7 +160,9 @@ services:
     volumes:
       - butler-data:/home/butler
       - ${BUTLER_REPOSITORY_PATH:-.}:/workspace:rw
-      - /var/run/docker.sock:/var/run/docker.sock
+      # Docker Socket 默认关闭。显式设置 BUTLER_UPDATER_DOCKER_SOCKET=/var/run/docker.sock
+      # 后 updater 才能重建并重启服务；访问口令不是 Docker Socket 的替代安全边界。
+      - ${BUTLER_UPDATER_DOCKER_SOCKET:-/dev/null}:/var/run/docker.sock
     group_add:
       - "${DOCKER_GID:-999}"
     logging: *default-logging

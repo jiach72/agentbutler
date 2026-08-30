@@ -4,6 +4,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { disposeWebSocket } from "../lib/websocket.js";
+import { getAccessToken } from "../lib/accessToken.js";
 
 export interface EventFrame {
   type?: unknown;
@@ -31,7 +32,10 @@ function connect(): void {
     reconnectTimer = undefined;
   }
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  socket = new WebSocket(`${protocol}://${window.location.host}/ws`);
+  // WebSocket 握手无法携带自定义请求头，访问口令只能通过 query 传递。
+  const token = getAccessToken();
+  const suffix = token === "" ? "" : `?token=${encodeURIComponent(token)}`;
+  socket = new WebSocket(`${protocol}://${window.location.host}/ws${suffix}`);
   socket.onopen = () => notifyStatus(true);
   socket.onmessage = (msg) => {
     try {

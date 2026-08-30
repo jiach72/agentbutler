@@ -194,3 +194,109 @@ export async function renderDiagnosticReport(deps: DiagnosticReportDeps): Promis
   lines.push("本报告仅包含脱敏信息（不含密钥、聊天正文与原始日志样本）；完整日志请在「首页 → 系统日志」查看。");
   return lines.join("\n");
 }
+
+const CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let index = 0; index < table.length; index += 1) {
+    let value = index;
+    for (let bit = 0; bit < 8; bit += 1) value = (value & 1) === 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+    table[index] = value >>> 0;
+  }
+  return table;
+})();
+
+function crc32(bytes: Uint8Array): number {
+  let value = 0xffffffff;
+  for (const byte of bytes) value = CRC_TABLE[(value ^ byte) & 0xff]! ^ (value >>> 8);
+  return (value ^ 0xffffffff) >>> 0;
+}
+
+function writeU16(target: Uint8Array, offset: number, value: number): void {
+  target[offset] = value & 0xff;
+  target[offset + 1] = (value >>> 8) & 0xff;
+}
+
+function writeU32(target: Uint8Array, offset: number, value: number): void {
+  target[offset] = value & 0xff;
+  target[offset + 1] = (value >>> 8) & 0xff;
+  target[offset + 2] = (value >>> 16) & 0xff;
+  target[offset + 3] = (value >>> 24) & 0xff;
+}
+
+/**
+ * 生成无依赖 ZIP（store 方法）供 Issue/工单上传。只打包已脱敏的 Markdown
+ * 和机器可读清单，避免引入压缩库或把原始日志、聊天正文、密钥带出本机。
+ */
+export function createDiagnosticZip(markdown: string, generatedAt = new Date().toISOString()): Uint8Array {
+  const encoder = new TextEncoder();
+  const files = [
+    { name: "diagnostic-report.md", content: markdown },
+    {
+      name: "manifest.json",
+      content: JSON.stringify({
+        format: "agent-butler-diagnostic",
+        version: 1,
+        generatedAt,
+        redaction: "paths-usernames-secrets-chat-content-removed",
+        files: ["diagnostic-report.md", "manifest.json"],
+      }, null, 2) + "\n",
+    },
+  ].map((file) => ({ name: file.name, nameBytes: encoder.encode(file.name), data: encoder.encode(file.content) }));
+
+  const localParts: Uint8Array[] = [];
+  const centralParts: Uint8Array[] = [];
+  let offset = 0;
+  for (const file of files) {
+    const local = new Uint8Array(30 + file.nameBytes.length + file.data.length);
+    writeU32(local, 0, 0x04034b50);
+    writeU16(local, 4, 20);
+    writeU16(local, 6, 0x800);
+    writeU16(local, 8, 0);
+    writeU16(local, 10, 0);
+    writeU16(local, 12, 0);
+    writeU32(local, 14, crc32(file.data));
+    writeU32(local, 18, file.data.length);
+    writeU32(local, 22, file.data.length);
+    writeU16(local, 26, file.nameBytes.length);
+    writeU16(local, 28, 0);
+    local.set(file.nameBytes, 30);
+    local.set(file.data, 30 + file.nameBytes.length);
+    localParts.push(local);
+
+    const central = new Uint8Array(46 + file.nameBytes.length);
+    writeU32(central, 0, 0x02014b50);
+    writeU16(central, 4, 20);
+    writeU16(central, 6, 20);
+    writeU16(central, 8, 0x800);
+    writeU16(central, 10, 0);
+    writeU16(central, 12, 0);
+    writeU16(central, 14, 0);
+    writeU32(central, 16, crc32(file.data));
+    writeU32(central, 20, file.data.length);
+    writeU32(central, 24, file.data.length);
+    writeU16(central, 28, file.nameBytes.length);
+    writeU16(central, 30, 0);
+    writeU16(central, 32, 0);
+    writeU16(central, 34, 0);
+    writeU16(central, 36, 0);
+    writeU32(central, 38, 0);
+    writeU32(central, 42, offset);
+    central.set(file.nameBytes, 46);
+    centralParts.push(central);
+    offset += local.length;
+  }
+
+  const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
+  const end = new Uint8Array(22);
+  writeU32(end, 0, 0x06054b50);
+  writeU16(end, 8, files.length);
+  writeU16(end, 10, files.length);
+  writeU32(end, 12, centralSize);
+  writeU32(end, 16, offset);
+  const output = new Uint8Array(offset + centralSize + end.length);
+  let cursor = 0;
+  for (const part of localParts) { output.set(part, cursor); cursor += part.length; }
+  for (const part of centralParts) { output.set(part, cursor); cursor += part.length; }
+  output.set(end, cursor);
+  return output;
+}

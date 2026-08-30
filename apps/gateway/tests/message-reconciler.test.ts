@@ -128,14 +128,15 @@ describe("MessageReconciler", () => {
     expect(adapter.prewarms).toEqual(["weixin"]);
   });
 
-  it("applies the companion holder before absorbing a duplicate and finds held holders outside due candidates", async () => {
+  it("keeps a future held background progress untouched while absorbing the newly captured one", async () => {
     const holder = message({ messageId: "holder", messageKind: "task-progress", state: "held_pacing", availableAt: "2026-08-22T10:02:00.000Z", sequence: 1 });
     const later = message({ messageId: "later", messageKind: "task-progress", sequence: 2, capturedAt: "2026-08-22T10:00:30.000Z" });
     adapter.changes = batch([holder, later]);
     adapter.changes.nextSequence = 2;
     adapter.changes.taskEvents = [{ runId: "run-1", sequence: 1, sessionId: "session-1", kind: "progress", summary: "still working", occurredAt: NOW }];
     await reconciler("2026-08-22T10:00:30.000Z").reconcileOnce();
-    expect(adapter.decisions.map((decision) => [decision.messageId, decision.state])).toEqual([["holder", "held_pacing"], ["later", "absorbed"]]);
+    expect(adapter.decisions.map((decision) => [decision.messageId, decision.state])).toEqual([["later", "absorbed"]]);
+    expect(store.messageView("holder")).toMatchObject({ state: "held_pacing", availableAt: "2026-08-22T10:02:00.000Z" });
   });
 
   it("never treats a later progress record as a holder for an earlier final", async () => {
@@ -202,7 +203,7 @@ describe("MessageReconciler", () => {
     expect(adapter.deliveries.at(-1)?.messageId).toBe("urgent");
   });
 
-  it("updates both lanes on delivered and schedules retry congestion with exponential backoff", async () => {
+  it("updates both lanes on delivered and schedules retry congestion after the native pacing interval", async () => {
     await reconciler().reconcileOnce();
     expect(store.getPacingLane("channel:weixin")?.lastSentAt).toBe(NOW);
     expect(store.getPacingLane("chat:weixin:chat-1")?.lastSentAt).toBe(NOW);
@@ -211,7 +212,9 @@ describe("MessageReconciler", () => {
     adapter.changes = { afterSequence: 1, nextSequence: 2, items: [retry], taskEvents: [], inbound: [] };
     adapter.deliveryResult = ok({ messageId: "retry", attemptId: "attempt-1", accepted: true, deduped: false, state: "retry_wait", providerMessageId: null, finishedAt: NOW, error: "429 Retry-After: 60" });
     await reconciler("2026-08-22T10:00:30.000Z").reconcileOnce();
-    expect(store.messageView("retry")).toMatchObject({ state: "retry_wait", availableAt: "2026-08-22T10:00:45.000Z", attemptCount: 1 });
+    expect(store.messageView("retry")).toMatchObject({ state: "held_pacing", availableAt: "2026-08-22T10:00:45.000Z", attemptCount: 0 });
+    await reconciler("2026-08-22T10:00:45.000Z").reconcileOnce();
+    expect(store.messageView("retry")).toMatchObject({ state: "retry_wait", availableAt: "2026-08-22T10:01:00.000Z", attemptCount: 1 });
     expect(store.getPacingLane("channel:weixin")?.ratePerMin).toBe(1);
   });
 

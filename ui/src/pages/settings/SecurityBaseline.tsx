@@ -89,18 +89,24 @@ export function SecurityBaseline({
 
   const baselineItems = useMemo<BaselineItem[]>(() => [
     {
-      title: "只允许本机访问",
+      title: "访问范围",
       status:
         baseline.status === "ready"
-          ? baseline.data.listenHost === "127.0.0.1"
+          ? baseline.data.loopback
             ? "pass"
-            : "warn"
+            : baseline.data.auth
+              ? "pass"
+              : "warn"
           : baseline.status === "loading"
             ? "warn"
             : "partial",
       detail:
         baseline.status === "ready"
-          ? "只允许本机访问，局域网默认拒绝"
+          ? baseline.data.loopback
+            ? `只允许本机访问（${baseline.data.listenHost}）${baseline.data.auth ? "，已设置访问口令" : ""}`
+            : baseline.data.auth
+              ? `监听在 ${baseline.data.listenHost}，同一网络的设备可以访问，已用访问口令保护`
+              : `监听在 ${baseline.data.listenHost} 且没有访问口令，同一网络的任何人都能操作你的 AI`
           : baseline.status === "loading"
             ? "正在读取访问方式"
             : DEGRADED_TEXT,

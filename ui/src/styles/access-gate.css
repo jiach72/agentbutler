@@ -1,0 +1,80 @@
+/* Antd Modal 负责焦点圈禁与 ESC/滚动行为；内容仍保持本地产品的视觉层级。 */
+.access-gate-modal .ant-modal-content { padding: 0; background: transparent; box-shadow: none; }
+.access-gate-modal .ant-modal-body { padding: 0; }
+
+.access-gate-card {
+  width: 100%;
+  max-width: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--butler-space-3);
+  padding: var(--butler-space-6);
+  border: 1px solid var(--butler-rule);
+  border-radius: var(--butler-radius-card);
+  background: var(--butler-surface);
+  box-shadow: var(--butler-shadow);
+}
+
+.access-gate-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--butler-radius-control);
+  background: var(--butler-accent-soft);
+  color: var(--butler-accent);
+  font-size: 20px;
+}
+
+.access-gate h2 {
+  margin: 0;
+  font-size: var(--butler-text-xl);
+  font-weight: 500;
+  color: var(--butler-ink);
+}
+
+.access-gate-lead {
+  margin: 0;
+  font-size: var(--butler-text-sm);
+  line-height: 1.7;
+  color: var(--butler-ink-soft);
+}
+
+.access-gate-label {
+  margin-top: var(--butler-space-2);
+  font-size: var(--butler-text-sm);
+  color: var(--butler-ink);
+}
+
+.access-gate-error {
+  margin: 0;
+  font-size: var(--butler-text-sm);
+  color: var(--butler-error);
+}
+
+.access-gate-hint {
+  display: flex;
+  flex-direction: column;
+  gap: var(--butler-space-2);
+  margin-top: var(--butler-space-3);
+  padding-top: var(--butler-space-3);
+  border-top: 1px solid var(--butler-rule);
+  font-size: var(--butler-text-xs);
+  line-height: 1.7;
+  color: var(--butler-ink-soft);
+}
+
+.access-gate-hint strong {
+  font-weight: 500;
+  color: var(--butler-ink);
+}
+
+.access-gate-hint code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--butler-sunken);
+  font-family: var(--butler-mono-font);
+  font-size: var(--butler-text-xs);
+  color: var(--butler-ink);
+}

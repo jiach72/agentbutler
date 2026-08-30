@@ -1,10 +1,11 @@
 import { BellOutlined, CheckOutlined, ReloadOutlined } from "@ant-design/icons";
-import { Badge, Button, Empty, Popover, Spin, Tag } from "antd";
+import { Badge, Button, Empty, Popover, Spin } from "antd";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { formatRelative } from "../lib/format.js";
 import { usePreferences } from "../lib/preferences.js";
 import { useNotifications, type NotificationItem } from "../hooks/useNotifications.js";
+import { StatusBadge } from "./StatusBadge.js";
 
 function visibleForPreference(item: NotificationItem, minSeverity: "warn" | "critical"): boolean {
   return minSeverity === "critical" ? item.severity === "critical" : true;
@@ -57,7 +58,9 @@ function NotificationContent({ onClose }: { onClose: () => void }) {
       )}
       <footer className="notification-panel-foot">
         <Link to="/gateway" onClick={onClose}>查看完整通知队列</Link>
-        {preferences.notificationMinSeverity === "critical" && <Tag color="red">仅显示紧急</Tag>}
+        {preferences.notificationMinSeverity === "critical" && (
+          <StatusBadge tone="error" label="仅显示紧急" />
+        )}
       </footer>
     </section>
   );

@@ -3,37 +3,42 @@
  * + 右侧内容路由出口。移动端侧栏收进 Drawer。
  */
 import {
-  ApiOutlined,
+  DashboardOutlined,
   CloudUploadOutlined,
   DatabaseOutlined,
-  DashboardOutlined,
-  FileTextOutlined,
   MenuOutlined,
   MoonOutlined,
   NotificationOutlined,
   SafetyCertificateOutlined,
   SettingOutlined,
   SunOutlined,
+  ApiOutlined,
+  QuestionCircleOutlined,
   ThunderboltOutlined,
-  ToolOutlined,
 } from "@ant-design/icons";
 import { Button, Drawer } from "antd";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { NotificationCenter } from "./NotificationCenter.js";
 import { NotificationsProvider } from "../hooks/useNotifications.js";
 import { useTheme } from "../theme/ThemeProvider.js";
+import { loadJson } from "../lib/api.js";
+import type { SecurityBaselinePayload } from "../pages/settings/helpers.js";
 
 const NAV_ITEMS = [
   { to: "/dashboard", icon: <DashboardOutlined />, label: "首页", note: "运行总览与一键检查" },
-  { to: "/versions", icon: <CloudUploadOutlined />, label: "版本管理", note: "升级前自动备份" },
+  { to: "/skills", icon: <ApiOutlined />, label: "智能体与知识", note: "技能、插件与记忆" },
   { to: "/gateway", icon: <NotificationOutlined />, label: "消息通知", note: "频率控制与送达记录" },
-  { to: "/evolution", icon: <ThunderboltOutlined />, label: "改进与优化", note: "日志分析与变更评估" },
-  { to: "/skills", icon: <ApiOutlined />, label: "技能与记忆", note: "技能、插件与记忆" },
-  { to: "/recovery", icon: <ToolOutlined />, label: "诊断与修复", note: "诊断结果与处理" },
-  { to: "/logs", icon: <FileTextOutlined />, label: "系统日志", note: "错误证据与修复建议" },
-  { to: "/assets", icon: <DatabaseOutlined />, label: "技能资产", note: "使用情况与来源" },
+  { to: "/troubleshoot", icon: <QuestionCircleOutlined />, label: "排查问题", note: "查原因并安全修复" },
 ];
+
+const MANAGEMENT_ITEMS = [
+  { to: "/versions", icon: <CloudUploadOutlined />, label: "版本升级", note: "更新、备份与回滚" },
+  { to: "/evolution", icon: <ThunderboltOutlined />, label: "自进化", note: "分析日志与优化方案" },
+  { to: "/assets", icon: <DatabaseOutlined />, label: "GitHub 技能管理", note: "发现、安装与使用统计" },
+];
+
+const ALL_NAV_ITEMS = [...NAV_ITEMS, ...MANAGEMENT_ITEMS];
 
 const SETTINGS_ITEM = {
   to: "/settings",
@@ -42,7 +47,41 @@ const SETTINGS_ITEM = {
   note: "本机安全、备份与偏好",
 };
 
-function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
+/**
+ * 侧栏底部那句「仅本机访问」必须来自真实监听地址。
+ * 读不到数据时显示"读取中"而不是默认宣称安全 —— 不确定的时候不能装作确定。
+ */
+function baselineTone(baseline: SecurityBaselinePayload | null): "ok" | "warn" | "error" {
+  if (baseline === null) return "warn";
+  if (baseline.loopback) return "ok";
+  return baseline.auth ? "warn" : "error";
+}
+
+function baselineTitle(baseline: SecurityBaselinePayload | null): string {
+  if (baseline === null) return "正在读取访问方式";
+  if (baseline.loopback) return "仅本机访问";
+  return baseline.auth ? "同一网络可访问" : "任何人都可以访问";
+}
+
+function baselineNote(baseline: SecurityBaselinePayload | null): string {
+  if (baseline === null) return "稍等一下";
+  if (baseline.loopback) {
+    return baseline.auth ? "数据只保存在你的电脑上，已设置访问口令" : "数据只保存在你的电脑上";
+  }
+  return baseline.auth
+    ? "已用访问口令保护，请确认你信任当前网络"
+    : "没有访问口令，同一网络的人都能操作你的 AI，请尽快处理";
+}
+
+function SidebarContent({
+  onNavigate,
+  baseline,
+}: {
+  onNavigate?: () => void;
+  baseline: SecurityBaselinePayload | null;
+}) {
+  const location = useLocation();
+  const advancedActive = MANAGEMENT_ITEMS.some((item) => location.pathname.startsWith(item.to));
   return (
     <>
       <div className="brand">
@@ -71,6 +110,25 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             </span>
           </NavLink>
         ))}
+        <details className="nav-advanced" open={advancedActive}>
+          <summary>高级工具</summary>
+          {MANAGEMENT_ITEMS.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              onClick={onNavigate}
+              className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}
+            >
+              <span className="nav-icon" aria-hidden="true">
+                {item.icon}
+              </span>
+              <span className="nav-copy">
+                <strong>{item.label}</strong>
+                <small>{item.note}</small>
+              </span>
+            </NavLink>
+          ))}
+        </details>
       </nav>
       <div className="sidebar-bottom">
         <NavLink
@@ -86,11 +144,11 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             <small>{SETTINGS_ITEM.note}</small>
           </span>
         </NavLink>
-        <div className="sidebar-meta">
+        <div className={`sidebar-meta${baselineTone(baseline) !== "ok" ? ` is-${baselineTone(baseline)}` : ""}`}>
           <SafetyCertificateOutlined aria-hidden="true" />
           <span>
-            仅本机访问
-            <small>数据只保存在你的电脑上</small>
+            {baselineTitle(baseline)}
+            <small>{baselineNote(baseline)}</small>
           </span>
         </div>
       </div>
@@ -100,12 +158,23 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
 export function Layout() {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [baseline, setBaseline] = useState<SecurityBaselinePayload | null>(null);
   const { mode, toggleMode } = useTheme();
   const location = useLocation();
+
+  useEffect(() => {
+    let alive = true;
+    void loadJson<SecurityBaselinePayload>("/api/security-baseline", 6_000).then((result) => {
+      if (alive && result.ok) setBaseline(result.data);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
   const currentPage = location.pathname.startsWith(SETTINGS_ITEM.to) ||
       location.pathname.startsWith("/preferences")
     ? SETTINGS_ITEM
-    : NAV_ITEMS.find((item) => location.pathname.startsWith(item.to)) ?? NAV_ITEMS[0];
+    : ALL_NAV_ITEMS.find((item) => location.pathname.startsWith(item.to)) ?? NAV_ITEMS[0];
   const themeLabel = mode === "dark" ? "切换到亮色主题" : "切换到暗色主题";
 
   return (
@@ -115,7 +184,7 @@ export function Layout() {
       </a>
       <div className="app">
         <aside className="sidebar sidebar-desktop">
-          <SidebarContent />
+          <SidebarContent baseline={baseline} />
         </aside>
         <Drawer
           open={drawerOpen}
@@ -126,7 +195,7 @@ export function Layout() {
           className="mobile-nav-drawer"
         >
           <div className="sidebar sidebar-mobile">
-            <SidebarContent onNavigate={() => setDrawerOpen(false)} />
+            <SidebarContent onNavigate={() => setDrawerOpen(false)} baseline={baseline} />
           </div>
         </Drawer>
         <div className="main">
