@@ -702,6 +702,27 @@ class OutboxTest(unittest.TestCase):
                 "must not convert uncertainty",
             )
 
+    def test_task_results_can_be_finalized_and_duplicate_results_absorbed(self) -> None:
+        started = self.outbox.begin_run(session_id="session-summary", run_id="run-summary")
+        first = make_envelope("018bcfe5-6800-7000-8000-000000000601")
+        first.update({"runId": "run-summary", "messageKind": "final", "chatId": "chat-1"})
+        first["contentSha256"] = hashlib.sha256(first["content"].encode()).hexdigest()
+        second = dict(first)
+        second["messageId"] = "018bcfe5-6800-7000-8000-000000000602"
+        second["content"] = "重复结果"
+        second["contentSha256"] = hashlib.sha256(second["content"].encode()).hexdigest()
+        self.outbox.capture(first)
+        self.outbox.capture(second)
+
+        finalized = self.outbox.finalize_pending_message(
+            first["messageId"],
+            content="结论：任务已完成\n已完成：已执行\n异常：无\n下一步：无",
+            metadata_updates={"summaryStatus": "success", "taskCanonical": True},
+        )
+        self.assertEqual(finalized["metadata"]["summaryStatus"], "success")
+        absorbed = self.outbox.absorb_message(second["messageId"])
+        self.assertEqual(absorbed["state"], "absorbed")
+
     def test_capture_commits_attachment_metadata_without_exposing_spool_path(self) -> None:
         message = make_envelope("018bcfe5-6800-7000-8000-000000000503")
         spool_path = Path(self.tmp.name) / "spool" / "message" / "file.txt"

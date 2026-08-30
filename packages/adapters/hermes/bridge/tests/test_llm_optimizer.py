@@ -1,11 +1,14 @@
+import asyncio
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from agent_butler_bridge.llm_optimizer import (
     LlmConfig,
     _clean_output,
     _is_structured_prompt,
+    summarize_task_with_llm,
     should_attempt_llm,
 )
 
@@ -94,6 +97,42 @@ custom_providers:
         self.assertTrue(_is_structured_prompt(valid))
         self.assertFalse(_is_structured_prompt("请把这句话说得更清楚"))
         self.assertFalse(_is_structured_prompt(valid + "\n补充说明：无"))
+
+    def test_task_summary_uses_four_sections_and_falls_back_when_unavailable(self) -> None:
+        config = LlmConfig(
+            enabled=True,
+            base_url="https://api.example/v1",
+            api_key="secret",
+            model="flash",
+        )
+        with mock.patch(
+            "agent_butler_bridge.llm_optimizer._request_chat",
+            new=mock.AsyncMock(
+                return_value="\n".join(
+                    [
+                        "结论：任务已完成",
+                        "已完成：更新配置并完成验证",
+                        "异常：无",
+                        "下一步：无",
+                    ]
+                )
+            ),
+        ):
+            result = asyncio.run(
+                summarize_task_with_llm(
+                    "已完成配置更新",
+                    ["完成检查"],
+                    failed=False,
+                    config=config,
+                )
+            )
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["summary"].count("\n"), 3)
+
+        fallback = asyncio.run(
+            summarize_task_with_llm("原始最终结果", [], failed=True, config=None)
+        )
+        self.assertEqual(fallback, {"status": "fallback", "reason": "llm-unavailable"})
 
 
 if __name__ == "__main__":

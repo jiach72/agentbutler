@@ -26,6 +26,7 @@ DEFAULT_TIMEOUT_MS = 15000
 MAX_INPUT_CHARS = 1200
 MAX_OUTPUT_CHARS = 3000
 MIN_INPUT_CHARS = 8
+SUMMARY_MAX_CHARS = 1500
 
 _FALSE_VALUES = {"0", "false", "off", "no"}
 
@@ -40,6 +41,16 @@ _SYSTEM_PROMPT = (
     "约束：明确的限制、偏好、风险和不可做的事；没有则写‘未提供’\n"
     "验收标准：用户如何判断任务完成；原消息没有提供时写‘待确认：验收标准’\n"
     "下一步：现在应执行的第一步；如果需要用户补充信息，写‘待确认：…’。"
+)
+
+_SUMMARY_SYSTEM_PROMPT = (
+    "你是本地 AI 管家的任务结果汇报助手。根据任务最终结果和执行事件生成简洁、可核验的中文报告。"
+    "只能使用输入中出现的事实，不得臆造文件、链接、数字、权限或成功结果。"
+    "输出严格四行，每行一个字段，不要 Markdown、引号或额外解释：\n"
+    "结论：任务最终状态和最重要的结果\n"
+    "已完成：实际完成的工作和产出；没有则写‘无’\n"
+    "异常：失败、未完成或风险；没有则写‘无’\n"
+    "下一步：用户需要知道的后续动作；没有则写‘无’。"
 )
 
 
@@ -183,6 +194,43 @@ async def optimize_with_llm(text: str, config: LlmConfig | None) -> dict[str, An
     return result
 
 
+async def summarize_task_with_llm(
+    final_content: str,
+    event_summaries: list[str],
+    *,
+    failed: bool,
+    config: LlmConfig | None,
+) -> dict[str, str]:
+    """Generate a bounded task report and return an explicit fallback reason on failure."""
+
+    if config is None or not config.enabled or not config.base_url or not config.api_key or not config.model:
+        return {"status": "fallback", "reason": "llm-unavailable"}
+    source_lines = [f"任务状态：{'失败' if failed else '完成'}", f"最终结果：{final_content.strip() or '未提供'}"]
+    if event_summaries:
+        source_lines.append("执行记录：" + "；".join(item.strip() for item in event_summaries if item.strip()))
+    prompt = "\n".join(source_lines)
+    try:
+        output = await asyncio.wait_for(
+            _request_chat(prompt, config, system_prompt=_SUMMARY_SYSTEM_PROMPT, max_tokens=700),
+            timeout=max(1.0, config.timeout_ms / 1000),
+        )
+    except asyncio.TimeoutError:
+        return {"status": "fallback", "reason": "llm-timeout"}
+    except aiohttp.ClientError:
+        return {"status": "fallback", "reason": "llm-network-error"}
+    except Exception:
+        return {"status": "fallback", "reason": "llm-request-failed"}
+
+    cleaned = _clean_output(output)
+    if not cleaned:
+        return {"status": "fallback", "reason": "llm-empty-output"}
+    if not _is_structured_summary(cleaned):
+        return {"status": "fallback", "reason": "llm-invalid-output"}
+    if len(cleaned) > SUMMARY_MAX_CHARS:
+        return {"status": "fallback", "reason": "llm-output-too-long"}
+    return {"status": "success", "summary": cleaned}
+
+
 async def _optimize_with_llm_once(
     text: str,
     config: LlmConfig | None,
@@ -219,7 +267,13 @@ async def _optimize_with_llm_once(
     }
 
 
-async def _request_chat(text: str, config: LlmConfig) -> str:
+async def _request_chat(
+    text: str,
+    config: LlmConfig,
+    *,
+    system_prompt: str = _SYSTEM_PROMPT,
+    max_tokens: int = 800,
+) -> str:
     base = config.base_url.rstrip("/")
     url = f"{base}/chat/completions"
     headers = {
@@ -229,11 +283,11 @@ async def _request_chat(text: str, config: LlmConfig) -> str:
     payload = {
         "model": config.model,
         "messages": [
-            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": text},
         ],
         "temperature": 0.1,
-        "max_tokens": 800,
+        "max_tokens": max_tokens,
     }
     if "xiaomimimo.com" in base or config.model.startswith("mimo-"):
         # Xiaomi MiMo 默认会做较长的思考，简单指令整理不需要；关闭后速度明显更快。
@@ -268,6 +322,14 @@ def _clean_output(output: str) -> str:
 def _is_structured_prompt(output: str) -> bool:
     """只接受五段结构化结果，避免模型用泛泛润色冒充任务澄清。"""
     labels = ("目标：", "上下文：", "约束：", "验收标准：", "下一步：")
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    if len(lines) != len(labels):
+        return False
+    return all(line.startswith(label) and line[len(label) :].strip() for line, label in zip(lines, labels))
+
+
+def _is_structured_summary(output: str) -> bool:
+    labels = ("结论：", "已完成：", "异常：", "下一步：")
     lines = [line.strip() for line in output.splitlines() if line.strip()]
     if len(lines) != len(labels):
         return False

@@ -313,6 +313,64 @@ export class MessagePolicyStore {
       );
   }
 
+  earliestActiveRunResult(message: OutboxMessageView): ProjectedMessageView | undefined {
+    if (typeof message.runId !== "string" || message.runId === "") return undefined;
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM message_projection
+         WHERE (
+           state IN ('captured', 'policy_pending', 'held_dnd', 'held_pacing', 'ready', 'retry_wait')
+           OR (state IN ('delivered', 'absorbed', 'dead_letter', 'delivery_unknown')
+               AND json_extract(payload_json, '$.metadata.taskCanonical') = 1)
+         )
+         ORDER BY bridge_sequence ASC, instance_id ASC, message_id ASC`,
+      )
+      .all() as Record<string, unknown>[];
+    return rows
+      .map((row) => this.mapMessage(row))
+      .find(
+        (candidate) =>
+          candidate.messageId !== message.messageId &&
+          (candidate.messageKind === "final" || candidate.messageKind === "failure") &&
+          candidate.instanceId === message.instanceId &&
+          candidate.channel === message.channel &&
+          candidate.chatId === message.chatId &&
+          candidate.runId === message.runId &&
+          ((candidate.inboundMessageId !== undefined && candidate.inboundMessageId !== null &&
+            message.inboundMessageId !== undefined && message.inboundMessageId !== null &&
+            candidate.inboundMessageId === message.inboundMessageId) ||
+            candidate.metadata.taskCanonical === true) &&
+          (candidate.sequence < message.sequence ||
+            (candidate.sequence === message.sequence && candidate.messageId < message.messageId)),
+      );
+  }
+
+  /** Returns the earliest pending no-run Weixin notification in a chat batch. */
+  earliestActiveChatBatchHolder(message: OutboxMessageView, windowSec = 120): ProjectedMessageView | undefined {
+    if (message.channel !== "weixin" || (message.runId !== undefined && message.runId !== null)) return undefined;
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM message_projection
+         WHERE state IN ('captured', 'policy_pending', 'held_dnd', 'held_pacing', 'ready', 'retry_wait')
+         ORDER BY bridge_sequence ASC, instance_id ASC, message_id ASC`,
+      )
+      .all() as Record<string, unknown>[];
+    return rows
+      .map((row) => this.mapMessage(row))
+      .find(
+        (candidate) =>
+          candidate.messageId !== message.messageId &&
+          candidate.instanceId === message.instanceId &&
+          candidate.channel === message.channel &&
+          candidate.chatId === message.chatId &&
+          (candidate.runId === undefined || candidate.runId === null) &&
+          (candidate.messageKind === "system" || candidate.messageKind === "alert" || candidate.metadata.proactive === true) &&
+          Math.abs(Date.parse(message.capturedAt) - Date.parse(candidate.capturedAt)) <= Math.max(0, windowSec) * 1_000 &&
+          (candidate.sequence < message.sequence ||
+            (candidate.sequence === message.sequence && candidate.messageId < message.messageId)),
+      );
+  }
+
   /** Records one Bridge response and its replay identifier atomically. */
   updateRemoteView(row: OutboxMessageView, decisionId?: string): void {
     validateOutboxMessage(row);

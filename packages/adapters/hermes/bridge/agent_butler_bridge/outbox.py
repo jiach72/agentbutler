@@ -1189,6 +1189,115 @@ class Outbox:
             )
             return self._message_from_row(self._require_message_locked(message_id))
 
+    def pending_run_results(self, run_id: str) -> list[dict[str, Any]]:
+        """Return non-terminal final/failure messages for a task in capture order."""
+
+        if not isinstance(run_id, str) or not run_id:
+            raise ValueError("run_id must be a non-empty string")
+        with self._lock:
+            self._ensure_open()
+            rows = self._conn.execute(
+                """SELECT * FROM outbound_messages
+                   WHERE run_id = ?
+                     AND message_kind IN ('final', 'failure')
+                     AND state NOT IN ('delivered', 'absorbed', 'dead_letter', 'cancelled')
+                   ORDER BY sequence ASC""",
+                (run_id,),
+            ).fetchall()
+            return [self._message_from_row(row) for row in rows]
+
+    def has_task_receipt(self, run_id: str) -> bool:
+        """Return whether the one-shot acknowledgement for a task was captured."""
+
+        if not isinstance(run_id, str) or not run_id:
+            raise ValueError("run_id must be a non-empty string")
+        with self._lock:
+            self._ensure_open()
+            rows = self._conn.execute(
+                """SELECT metadata_json FROM outbound_messages
+                   WHERE run_id = ? AND message_kind = 'system'""",
+                (run_id,),
+            ).fetchall()
+            for row in rows:
+                try:
+                    metadata = json.loads(row["metadata_json"])
+                except (TypeError, ValueError):
+                    continue
+                if isinstance(metadata, Mapping) and metadata.get("taskReceipt") is True:
+                    return True
+            return False
+
+    def finalize_pending_message(
+        self,
+        message_id: str,
+        *,
+        content: str | None = None,
+        metadata_updates: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Update a captured result before the terminal task event is published."""
+
+        if content is not None and (not isinstance(content, str) or not content):
+            raise ValueError("content must be a non-empty string or None")
+        if metadata_updates is not None and not isinstance(metadata_updates, Mapping):
+            raise ValueError("metadata_updates must be an object or None")
+        with self._transaction():
+            row = self._require_message_locked(message_id)
+            if row["state"] in TERMINAL_STATES | {"delivering", "delivery_unknown"}:
+                raise ValueError(f"message cannot be finalized from state {row['state']}")
+            current_metadata = json.loads(row["metadata_json"])
+            if not isinstance(current_metadata, dict):
+                current_metadata = {}
+            if metadata_updates:
+                current_metadata.update(dict(metadata_updates))
+            next_content = row["content"] if content is None else content
+            content_hash = hashlib.sha256(next_content.encode("utf-8")).hexdigest()
+            sequence = self._next_sequence_locked()
+            now = _utc_now()
+            self._conn.execute(
+                """UPDATE outbound_messages
+                   SET sequence = ?, content = ?, content_sha256 = ?, metadata_json = ?,
+                       state = 'captured', available_at = NULL, policy_version = NULL,
+                       decision_id = NULL, transform_trace_json = '[]', last_error = NULL,
+                       updated_at = ?
+                   WHERE message_id = ?""",
+                (
+                    sequence,
+                    next_content,
+                    content_hash,
+                    _canonical_json(current_metadata),
+                    now,
+                    message_id,
+                ),
+            )
+            return self._message_from_row(self._require_message_locked(message_id))
+
+    def absorb_message(self, message_id: str, reason: str = "duplicate terminal result absorbed") -> dict[str, Any]:
+        """Mark a pending duplicate as absorbed without making it deliverable."""
+
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("absorb reason must be a non-empty string")
+        with self._transaction():
+            row = self._require_message_locked(message_id)
+            if row["state"] in TERMINAL_STATES:
+                return self._message_from_row(row)
+            if row["state"] in {"delivering", "delivery_unknown"}:
+                raise ValueError(f"message cannot be absorbed from state {row['state']}")
+            now = _utc_now()
+            self._conn.execute(
+                """UPDATE outbound_messages
+                   SET state = 'absorbed', active_attempt_id = NULL,
+                       available_at = NULL, last_error = ?, updated_at = ?
+                   WHERE message_id = ?""",
+                (reason.strip(), now, message_id),
+            )
+            self._conn.execute(
+                """INSERT INTO message_state_events(
+                     event_id, message_id, from_state, to_state, reason, occurred_at
+                   ) VALUES (?, ?, ?, 'absorbed', ?, ?)""",
+                (uuid7(), message_id, row["state"], reason.strip(), now),
+            )
+            return self._message_from_row(self._require_message_locked(message_id))
+
     def _finish_failed_attempt(
         self, message_id: str, attempt_id: str, state: str, outcome: str, error: str
     ) -> dict[str, Any]:

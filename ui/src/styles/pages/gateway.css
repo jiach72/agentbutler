@@ -364,6 +364,23 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
+.message-summary-status {
+  display: grid;
+  gap: 3px;
+  padding: 10px 14px;
+  border-left: 3px solid var(--butler-accent);
+  border-radius: var(--butler-radius-control);
+  background: var(--butler-accent-soft);
+}
+.message-summary-status strong {
+  color: var(--butler-accent);
+  font-size: var(--butler-text-xs);
+}
+.message-summary-status span {
+  color: var(--butler-ink-soft);
+  font-size: var(--butler-text-xs);
+  line-height: 1.55;
+}
 .message-facts {
   display: grid;
   gap: 7px;

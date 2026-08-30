@@ -39,7 +39,7 @@ export function decideOutboundPolicy(input: OutboundPolicyInput): OutboundPolicy
   // it in the projection/task timeline for observability, but never enqueue it
   // for pacing or delivery. The final/failure message remains the user-facing
   // result of the run.
-  if (input.message.messageKind === "task-progress" && input.message.metadata.solicitedReply !== true) {
+  if (input.message.messageKind === "task-progress") {
     return {
       decision: buildMessageDecision(
         input.message,
@@ -57,11 +57,24 @@ export function decideOutboundPolicy(input: OutboundPolicyInput): OutboundPolicy
   if (digest.accepted && digest.absorbHolder && input.holder !== undefined && isPolicyActiveHolder(input.holder)) {
     companionDecisions.push(buildMessageDecision(input.holder, input.config.version, "absorbed", digest.transformTrace, "progress holder absorbed"));
   }
-  if (digest.accepted && digest.absorbIncoming && input.holder !== undefined && isPolicyActiveHolder(input.holder)) {
-    companionDecisions.push(
-      scheduleDecision(input.holder, digest.content, ["policy:queued-push", ...digest.transformTrace], input),
-    );
-    return { decision: buildMessageDecision(input.message, input.config.version, "absorbed", digest.transformTrace, "duplicate progress absorbed"), companionDecisions };
+  if (digest.accepted && digest.absorbIncoming) {
+    if (input.holder !== undefined && isPolicyActiveHolder(input.holder) && digest.content !== undefined) {
+      companionDecisions.push(
+        scheduleDecision(input.holder, digest.content, ["policy:queued-push", ...digest.transformTrace], input),
+      );
+    }
+    return {
+      decision: buildMessageDecision(
+        input.message,
+        input.config.version,
+        "absorbed",
+        digest.transformTrace,
+        input.message.messageKind === "final" || input.message.messageKind === "failure"
+          ? "duplicate terminal result absorbed"
+          : "duplicate progress absorbed",
+      ),
+      companionDecisions,
+    };
   }
 
   const trace = ["policy:queued-push", ...(digest.accepted ? digest.transformTrace : [])];
@@ -108,11 +121,11 @@ function scheduleDecision(
   const pacing = evaluatePacing({ message, channelLane: input.channelLane, chatLane: input.chatLane, policy: channelPolicy, now: input.now });
   trace.push(...pacing.transformTrace);
   let availableAtMs = pacing.availableAt === undefined ? nowMs : parseTimestamp(pacing.availableAt, "pacing.availableAt");
-  if (message.messageKind === "task-progress") {
+  if (message.messageKind === "task-progress" || isNoRunBatchable(message)) {
     const windowEnd = parseTimestamp(message.capturedAt, "capturedAt") + input.config.digest.windowSec * 1000;
     if (windowEnd > nowMs) {
       availableAtMs = Math.max(availableAtMs, windowEnd);
-      trace.push("digest:window-held");
+      trace.push(message.messageKind === "task-progress" ? "digest:window-held" : "digest:batch-window-held");
     }
   }
   if (availableAtMs > nowMs) {
@@ -127,6 +140,14 @@ function scheduleDecision(
     );
   }
   return buildMessageDecision(message, input.config.version, "ready", trace, "ready for delivery", optimizedContent);
+}
+
+function isNoRunBatchable(message: OutboxMessageView): boolean {
+  return (
+    message.channel === "weixin" &&
+    (message.runId === undefined || message.runId === null) &&
+    (message.messageKind === "system" || message.messageKind === "alert" || message.metadata.proactive === true)
+  );
 }
 
 function isPolicyActiveHolder(message: OutboxMessageView): boolean {

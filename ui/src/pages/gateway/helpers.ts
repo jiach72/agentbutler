@@ -118,6 +118,7 @@ export interface MessageItemView {
   transport: string;
   priority: string;
   content: string;
+  metadata: Record<string, unknown>;
   capturedAt: string;
   sequence: number;
   state: string;
@@ -281,6 +282,10 @@ const TRACE_LABELS: Record<string, string> = {
   "delivery:ok": "发送成功",
   "delivery:failed": "发送失败",
   "delivery:unknown": "发送结果未知",
+  "task:awaiting-terminal": "等待任务完成",
+  "digest:batch-aggregated": "按聊天批次汇总",
+  "digest:batch-duplicate-absorbed": "重复通知已合并",
+  "digest:terminal-duplicate-absorbed": "重复终态结果已合并",
 };
 const TASK_EVENT_LABELS: Record<string, string> = {
   started: "已开始",

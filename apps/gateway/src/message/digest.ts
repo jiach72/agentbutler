@@ -29,23 +29,55 @@ const POLICY_ACTIVE_HOLDER_STATES = new Set([
 
 export function buildProgressDigest(input: ProgressDigestInput): ProgressDigestResult {
   const { incoming, config } = input;
-  const holder = input.holder !== undefined && POLICY_ACTIVE_HOLDER_STATES.has(input.holder.state) ? input.holder : undefined;
-  if (!isProgressOrFinal(incoming) || typeof incoming.runId !== "string" || incoming.runId === "") {
-    return declined("digest:declined-no-run");
-  }
-  if (holder !== undefined && !sameGroup(holder, incoming)) {
+  const isNoRunBatch = incoming.channel === "weixin" && isNoRunBatchable(incoming);
+  const terminalHolder = input.holder !== undefined &&
+    (input.holder.messageKind === "final" || input.holder.messageKind === "failure") &&
+    ["delivered", "delivering", "delivery_unknown", "absorbed", "dead_letter"].includes(input.holder.state)
+    ? input.holder
+    : undefined;
+  const holder = input.holder !== undefined &&
+    (POLICY_ACTIVE_HOLDER_STATES.has(input.holder.state) || terminalHolder !== undefined)
+    ? input.holder
+    : undefined;
+  if (!isProgressOrFinal(incoming) && !isNoRunBatch) return declined("digest:declined-no-run");
+  if (!isNoRunBatch && (typeof incoming.runId !== "string" || incoming.runId === "")) return declined("digest:declined-no-run");
+  if (holder !== undefined && (!sameGroup(holder, incoming) || (isNoRunBatch && !withinWindow(holder, incoming, config.windowSec)))) {
     return declined("digest:declined-unrelated");
   }
 
+  if (isNoRunBatch) {
+    const trace = ["digest:batch-aggregated"];
+    if (holder !== undefined && isEarlier(holder, incoming)) {
+      trace.push("digest:batch-duplicate-absorbed");
+      return {
+        accepted: true,
+        content: `${holder.content}\n${incoming.content}`.trim(),
+        transformTrace: trace,
+        absorbHolder: false,
+        absorbIncoming: true,
+        holderMessageId: holder.messageId,
+      };
+    }
+    return { accepted: true, content: incoming.content, transformTrace: trace, absorbHolder: false, absorbIncoming: false };
+  }
+
   const trace = ["digest:aggregated"];
-  const events = orderedEvents(input.events, incoming.runId, config.maxItems);
+  const events = orderedEvents(input.events, incoming.runId!, config.maxItems);
   if (events.deduped) trace.push("digest:events-deduped");
   if (events.itemTruncated) trace.push("digest:truncated");
 
   let absorbHolder = false;
   let absorbIncoming = false;
   let holderMessageId = holder?.messageId;
-  if (holder?.messageKind === "task-progress" && incoming.messageKind === "final" && config.finalAbsorbsPendingProgress) {
+  if (
+    holder !== undefined &&
+    (holder.messageKind === "final" || holder.messageKind === "failure") &&
+    (incoming.messageKind === "final" || incoming.messageKind === "failure") &&
+    isEarlier(holder, incoming)
+  ) {
+    absorbIncoming = true;
+    trace.push("digest:terminal-duplicate-absorbed");
+  } else if (holder?.messageKind === "task-progress" && incoming.messageKind === "final" && config.finalAbsorbsPendingProgress) {
     absorbHolder = true;
     trace.push("digest:final-absorbed");
   } else if (holder?.messageKind === "task-progress" && incoming.messageKind === "task-progress") {
@@ -63,7 +95,7 @@ export function buildProgressDigest(input: ProgressDigestInput): ProgressDigestR
     return { accepted: true, transformTrace: trace, absorbHolder, absorbIncoming, holderMessageId };
   }
 
-  const rendered = renderDigest(incoming.runId, events.events);
+  const rendered = renderDigest(incoming.runId!, events.events);
   const content = clampUtf16(rendered, config.maxChars);
   if (content !== rendered && !trace.includes("digest:truncated")) trace.push("digest:truncated");
   return { accepted: true, content, transformTrace: trace, absorbHolder, absorbIncoming, holderMessageId };
@@ -74,15 +106,32 @@ function declined(trace: string): ProgressDigestResult {
 }
 
 function isProgressOrFinal(message: OutboxMessageView): boolean {
-  return message.messageKind === "task-progress" || message.messageKind === "final";
+  return message.messageKind === "task-progress" || message.messageKind === "final" || message.messageKind === "failure";
+}
+
+function isNoRunBatchable(message: OutboxMessageView): boolean {
+  return (
+    (message.runId === undefined || message.runId === null) &&
+    (message.messageKind === "system" || message.messageKind === "alert" || message.metadata.proactive === true)
+  );
 }
 
 function sameGroup(a: OutboxMessageView, b: OutboxMessageView): boolean {
-  return a.instanceId === b.instanceId && a.channel === b.channel && a.chatId === b.chatId && a.runId === b.runId;
+  const sameRun =
+    (a.runId === undefined || a.runId === null) && (b.runId === undefined || b.runId === null)
+      ? true
+      : a.runId === b.runId;
+  return a.instanceId === b.instanceId && a.channel === b.channel && a.chatId === b.chatId && sameRun;
 }
 
 function isEarlier(a: OutboxMessageView, b: OutboxMessageView): boolean {
   return a.sequence < b.sequence || (a.sequence === b.sequence && a.messageId <= b.messageId);
+}
+
+function withinWindow(a: OutboxMessageView, b: OutboxMessageView, windowSec: number): boolean {
+  const aTime = Date.parse(a.capturedAt);
+  const bTime = Date.parse(b.capturedAt);
+  return Number.isFinite(aTime) && Number.isFinite(bTime) && Math.abs(aTime - bTime) <= Math.max(0, windowSec) * 1_000;
 }
 
 function orderedEvents(events: TaskEvent[], runId: string, maxItems: number): { events: TaskEvent[]; deduped: boolean; itemTruncated: boolean } {

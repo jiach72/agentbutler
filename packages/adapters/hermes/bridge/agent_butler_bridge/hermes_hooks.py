@@ -7,7 +7,7 @@ import copy
 import functools
 import inspect
 from .message_optimizer import optimize_inbound
-from .llm_optimizer import optimize_with_llm
+from .llm_optimizer import optimize_with_llm, summarize_task_with_llm
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Mapping
@@ -97,13 +97,21 @@ def install_base_platform_hooks(
             try:
                 with message_context(**context_updates):
                     optimized_event = _apply_inbound_optimization(runtime, inbound_id, event)
+                    await _capture_task_receipt(adapter, binding, runtime, source, run_id)
                     await original_process(adapter, optimized_event, session_key, *args, **kwargs)
             except BaseException:
                 with lifecycle.lock:
                     lifecycle.failed = True
                 raise
             finally:
-                runtime.outbox.finish_run(run_id, failed=lifecycle.failed)
+                try:
+                    await _finalize_task_result(runtime, binding, run_id, failed=lifecycle.failed)
+                except Exception:
+                    # Reporting must never prevent the terminal lifecycle event from being
+                    # committed; the raw result remains available for Bridge delivery.
+                    runtime.record_coverage("taskSummary", "degraded")
+                finally:
+                    runtime.outbox.finish_run(run_id, failed=lifecycle.failed)
                 if active_runs is not None and active_runs.get(str(session_key)) is lifecycle:
                     active_runs.pop(str(session_key), None)
                 runtime.record_coverage("runLifecycle", "ok")
@@ -495,6 +503,100 @@ def _binding_context(
         "inbound_message_id": _optional_string(inbound_message_id),
         "transport": _optional_string(transport),
     }
+
+
+async def _capture_task_receipt(
+    adapter: Any,
+    binding: AdapterBinding,
+    runtime: BridgeRuntime,
+    source: Any,
+    run_id: str,
+) -> None:
+    """Capture one durable acknowledgement without allowing a native send."""
+
+    if binding.channel != "weixin" or runtime.outbox.has_task_receipt(run_id):
+        return
+    chat_id = getattr(source, "chat_id", None)
+    if chat_id is None:
+        return
+    try:
+        result = await adapter.send(
+            chat_id,
+            "已收到，任务完成后汇报。",
+            metadata={
+                "notify": True,
+                "solicitedReply": True,
+                "butler_message_kind": "system",
+                "butler_priority": "normal",
+                "butler_task_receipt": True,
+            },
+        )
+        if not bool(getattr(result, "success", False)):
+            runtime.record_coverage("taskReceipt", "degraded")
+        else:
+            runtime.record_coverage("taskReceipt", "ok")
+    except Exception:
+        # A receipt is best-effort; task execution and final reporting continue.
+        runtime.record_coverage("taskReceipt", "degraded")
+
+
+async def _finalize_task_result(
+    runtime: BridgeRuntime,
+    binding: AdapterBinding,
+    run_id: str,
+    *,
+    failed: bool,
+) -> None:
+    """Generate and persist the Weixin summary before publishing the terminal event."""
+
+    outbox = runtime.outbox
+    try:
+        outbox.append_task_event(run_id, "completing", event_key="lifecycle:completing")
+    except (KeyError, ValueError):
+        # Idempotent replay or a terminal run; continue to inspect pending results.
+        pass
+    if binding.channel != "weixin":
+        return
+    pending = outbox.pending_run_results(run_id)
+    if not pending:
+        return
+    canonical = pending[0]
+    task = outbox.task_view(run_id) or {}
+    events = task.get("events", []) if isinstance(task, Mapping) else []
+    event_summaries = [
+        str(event.get("summary"))
+        for event in events
+        if isinstance(event, Mapping) and isinstance(event.get("summary"), str) and event.get("summary")
+    ]
+    result = await summarize_task_with_llm(
+        str(canonical.get("content") or ""),
+        event_summaries,
+        failed=failed,
+        config=runtime.config.llm,
+    )
+    updates: dict[str, Any] = {
+        "summaryStatus": result.get("status", "fallback"),
+        "summaryGeneratedAt": _utc_now(),
+        "taskCanonical": True,
+    }
+    if result.get("status") == "success":
+        updates["summaryModel"] = runtime.config.llm.model if runtime.config.llm is not None else ""
+        outbox.finalize_pending_message(
+            str(canonical["messageId"]),
+            content=result["summary"],
+            metadata_updates=updates,
+        )
+        runtime.record_coverage("taskSummary", "ok")
+    else:
+        updates["summaryError"] = result.get("reason", "llm-request-failed")
+        outbox.finalize_pending_message(str(canonical["messageId"]), metadata_updates=updates)
+        runtime.record_coverage("taskSummary", "degraded")
+    for duplicate in pending[1:]:
+        try:
+            outbox.absorb_message(str(duplicate["messageId"]))
+        except (KeyError, ValueError):
+            # A concurrent/replayed finalization may already have absorbed it.
+            continue
 
 
 async def _record_inbound(

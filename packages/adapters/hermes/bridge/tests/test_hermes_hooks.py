@@ -586,8 +586,12 @@ class HermesHooksTest(unittest.IsolatedAsyncioTestCase):
 
         assert runtime.outbox is not None
         batch = runtime.outbox.list_changes(0, 100)
-        self.assertEqual(len(batch["items"]), 1)
-        outbound = batch["items"][0]
+        self.assertEqual(len(batch["items"]), 2)
+        receipts = [item for item in batch["items"] if item["metadata"].get("taskReceipt") is True]
+        results = [item for item in batch["items"] if item["messageKind"] == "failure"]
+        self.assertEqual(len(receipts), 1)
+        self.assertEqual(receipts[0]["content"], "已收到，任务完成后汇报。")
+        outbound = results[0]
         self.assertEqual(outbound["messageKind"], "failure")
         self.assertEqual(outbound["priority"], "urgent")
         self.assertEqual(outbound["inboundMessageId"], "weixin:default:account-1:platform-1")
@@ -610,7 +614,7 @@ class HermesHooksTest(unittest.IsolatedAsyncioTestCase):
         )
         await adapter.handle_message(duplicate)
         repeated = runtime.outbox.list_changes(0, 100)
-        self.assertEqual(len(repeated["items"]), 1)
+        self.assertEqual(len(repeated["items"]), 2)
         self.assertEqual(len(repeated["inbound"]), 1)
 
     async def test_gateway_runtime_hooks_own_lifecycle_and_attach_connected_profile(self) -> None:

@@ -31,6 +31,7 @@ CONTROL_KEYS = {
     "butler_proactive",
     "butler_run_id",
     "butler_session_id",
+    "butler_task_receipt",
     "butler_thread_id",
     "butler_transport",
 }
@@ -135,6 +136,8 @@ def _build_envelope(
     safe_metadata = json_safe_metadata(metadata)
     if metadata.get("butler_proactive") is True:
         safe_metadata["proactive"] = True
+    if metadata.get("butler_task_receipt") is True:
+        safe_metadata["taskReceipt"] = True
     return {
         "messageId": message_id,
         "instanceId": registry.instance_id,
@@ -169,22 +172,6 @@ def _build_envelope(
     }
 
 
-def _ensure_completing_before_final_capture(
-    registry: NativeRegistry,
-    metadata: Mapping[str, Any],
-) -> None:
-    if not bool(metadata.get("notify")):
-        return
-    run_id = current_message_context().run_id
-    if run_id is None:
-        return
-    registry.outbox.append_task_event(
-        run_id,
-        "completing",
-        event_key="lifecycle:completing",
-    )
-
-
 def capture_inline_response(
     binding: AdapterBinding,
     registry: NativeRegistry,
@@ -205,7 +192,6 @@ def capture_inline_response(
     """
 
     raw_metadata = metadata if isinstance(metadata, Mapping) else {}
-    _ensure_completing_before_final_capture(registry, raw_metadata)
     envelope = _build_envelope(
         binding,
         registry,
@@ -292,7 +278,6 @@ def attach_adapter(
                 reply_to=reply_to,
                 metadata=metadata,
             )
-        _ensure_completing_before_final_capture(registry, raw_metadata)
         envelope = _build_envelope(
             binding,
             registry,
@@ -461,7 +446,6 @@ def _wrap_media_methods(
                 reply_to = bound.arguments.get("reply_to")
                 metadata = bound.arguments.get("metadata")
                 raw_metadata = metadata if isinstance(metadata, Mapping) else {}
-                _ensure_completing_before_final_capture(registry, raw_metadata)
                 envelope = _build_envelope(
                     binding,
                     registry,
@@ -519,7 +503,6 @@ def _wrap_media_methods(
                 human_delay = bound.arguments.get("human_delay", 0.0)
                 if isinstance(human_delay, bool) or not isinstance(human_delay, (int, float)):
                     raise ValueError("send_multiple_images human_delay must be numeric")
-                _ensure_completing_before_final_capture(registry, raw_metadata)
                 envelope = _build_envelope(
                     binding,
                     registry,
@@ -571,7 +554,6 @@ def _wrap_media_methods(
             file_name = bound.arguments.get("file_name")
             if file_name is not None and not isinstance(file_name, str):
                 file_name = str(file_name)
-            _ensure_completing_before_final_capture(registry, raw_metadata)
             display_content = caption or f"[attachment: {Path(source_path).name}]"
             envelope = _build_envelope(
                 binding,

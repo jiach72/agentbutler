@@ -60,6 +60,11 @@ export class MessageReconciler {
   }
 
   private async processCandidate(candidate: OutboxMessageView, now: string): Promise<void> {
+    const taskHold = this.taskCompletionHold(candidate, now);
+    if (taskHold !== undefined) {
+      await this.applyDecision(taskHold);
+      return;
+    }
     if (candidate.attemptCount >= this.options.config.delivery.maxAttempts) {
       await this.applyDecision(
         buildMessageDecision(
@@ -118,7 +123,12 @@ export class MessageReconciler {
     const chatLane = this.lane(`chat:${message.channel}:${message.chatId}`, message.channel, message.chatId, channelPolicy?.initialRatePerMin ?? 1);
     const result = decideOutboundPolicy({
       message,
-      holder: this.options.store.earliestActiveProgressHolder(message),
+      holder:
+        message.messageKind === "final" || message.messageKind === "failure"
+          ? this.options.store.earliestActiveRunResult(message)
+          : message.channel === "weixin" && (message.runId === undefined || message.runId === null)
+            ? this.options.store.earliestActiveChatBatchHolder(message, this.options.config.digest.windowSec)
+          : this.options.store.earliestActiveProgressHolder(message),
       taskEvents: typeof message.runId === "string" && message.runId !== "" ? (this.options.store.taskView(message.runId)?.events ?? []) : [],
       dndRules: this.options.store.resolveDndRules(),
       channelLane,
@@ -127,6 +137,30 @@ export class MessageReconciler {
       config: this.options.config,
     });
     return result;
+  }
+
+  private taskCompletionHold(message: OutboxMessageView, now: string): MessageDecision | undefined {
+    if (
+      message.channel !== "weixin" ||
+      message.metadata.taskReceipt === true ||
+      (message.messageKind !== "final" && message.messageKind !== "failure") ||
+      typeof message.runId !== "string" ||
+      message.runId === ""
+    ) {
+      return undefined;
+    }
+    const task = this.options.store.taskView(message.runId);
+    if (task === undefined || task.state === "done" || task.state === "failed") return undefined;
+    const availableAt = new Date(Date.parse(now) + 1_000).toISOString();
+    return buildMessageDecision(
+      message,
+      this.options.config.version,
+      "held_pacing",
+      [...message.transformTrace, "task:awaiting-terminal"],
+      "waiting for task terminal state",
+      undefined,
+      availableAt,
+    );
   }
 
   private async prewarm(message: OutboxMessageView, now: string): Promise<{ trace: string[]; hold?: MessageDecision }> {

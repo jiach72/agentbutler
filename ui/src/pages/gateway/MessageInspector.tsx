@@ -177,6 +177,25 @@ export function MessageInspector({
                 {selectedMessage.content || "（空消息内容）"}
               </div>
 
+              {(selectedMessage.transformTrace.includes("task:awaiting-terminal") ||
+                selectedMessage.metadata.summaryStatus !== undefined ||
+                selectedMessage.metadata.summaryError !== undefined) && (
+                <div className="message-summary-status" role="status" aria-live="polite">
+                  <strong>
+                    {selectedMessage.transformTrace.includes("task:awaiting-terminal")
+                      ? "等待任务完成"
+                      : selectedMessage.metadata.summaryStatus === "success"
+                        ? "已生成任务总结"
+                        : selectedMessage.metadata.summaryStatus === "fallback"
+                          ? "已发送原始结果"
+                          : "正在生成总结"}
+                  </strong>
+                  {typeof selectedMessage.metadata.summaryError === "string" && (
+                    <span>总结未使用：{selectedMessage.metadata.summaryError}</span>
+                  )}
+                </div>
+              )}
+
               <dl className="message-facts">
                 <div>
                   <dt>会话 / 通道</dt>

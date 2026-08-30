@@ -93,7 +93,7 @@ describe("message policy", () => {
     expect(result.decision.transformTrace).toContain("dnd:bypass-failure");
   });
 
-  it("makes solicited replies ready without DND or asynchronous pacing delay", () => {
+  it("keeps task progress internal even when marked solicited", () => {
     const result = decideOutboundPolicy({
       message: message({ metadata: { solicitedReply: true } }),
       taskEvents: [],
@@ -104,10 +104,8 @@ describe("message policy", () => {
       config: DEFAULT_MESSAGE_POLICY,
     });
 
-    expect(result.decision.state).toBe("ready");
-    expect(result.decision.transformTrace).toEqual(
-      expect.arrayContaining(["dnd:bypass-solicited-reply", "pacing:bypass-solicited-reply"]),
-    );
+    expect(result.decision.state).toBe("absorbed");
+    expect(result.decision.transformTrace).toContain("progress:background-only");
   });
 
   it("lets a session scope decide even when its inactive rule overrides active lower scopes", () => {
@@ -274,6 +272,48 @@ describe("message policy", () => {
 
     expect(result.decision).toMatchObject({ messageId: "later", state: "absorbed" });
     expect(result.companionDecisions).toEqual([]);
+  });
+
+  it("absorbs duplicate terminal results while preserving the first canonical result", () => {
+    const result = decideOutboundPolicy({
+      message: message({ messageId: "final-2", messageKind: "final", sequence: 2, inboundMessageId: "inbound-1" }),
+      holder: message({ messageId: "final-1", messageKind: "final", sequence: 1, inboundMessageId: "inbound-1", state: "held_pacing" }),
+      taskEvents: [],
+      dndRules: [],
+      channelLane: lane("weixin", null),
+      chatLane: lane("weixin", "chat-1"),
+      now: NOW,
+      config: DEFAULT_MESSAGE_POLICY,
+    });
+
+    expect(result.decision.state).toBe("absorbed");
+    expect(result.decision.reason).toContain("duplicate terminal");
+  });
+
+  it("merges no-run Weixin notifications inside the 120 second batch window", () => {
+    const result = buildProgressDigest({
+      holder: message({
+        messageId: "alert-1",
+        runId: null as never,
+        messageKind: "alert",
+        content: "磁盘空间不足",
+        capturedAt: "2026-08-22T10:00:00.000Z",
+      }),
+      incoming: message({
+        messageId: "alert-2",
+        runId: null as never,
+        messageKind: "system",
+        content: "已进入清理队列",
+        sequence: 2,
+        capturedAt: "2026-08-22T10:01:00.000Z",
+      }),
+      events: [],
+      config: DEFAULT_MESSAGE_POLICY.digest,
+    });
+
+    expect(result.absorbIncoming).toBe(true);
+    expect(result.content).toContain("磁盘空间不足");
+    expect(result.content).toContain("已进入清理队列");
   });
 
   it("does not absorb or update a terminal progress holder", () => {

@@ -300,6 +300,14 @@
 - **回归测试：** 新增 `ui/tests/onboarding-continuation.test.ts`，覆盖消息提醒的持续入口、重新设置和无选择场景；原有就绪度、排查与导航静态渲染测试同时运行。
 - **验证命令：** `corepack pnpm --filter @butler/ui exec vitest run --config vitest.config.ts tests/onboarding-continuation.test.ts tests/readiness.test.ts tests/troubleshoot-symptoms.test.ts tests/component-render.test.ts --reporter=dot`（23 passed）；`corepack pnpm exec tsc -b ui/tsconfig.json --pretty false`；Vite 生产构建；`git diff --check` 均通过。
 
+## 2026-08-30 - 微信任务终态统一汇报与重复投递收口
+
+- **问题：** 任务执行期间的进度/最终消息可能沿用即时发送路径，导致微信出现发送中断流；重复的 final/failure 结果也可能各自进入投递队列；无 `runId` 的告警和系统通知缺少按聊天批次的稳定汇总。
+- **风险/影响：** 用户收到过程噪声或半截消息，无法确认哪个结果是最终结论；重复投递会放大微信限流和失败重试，增加任务完成后的不确定性。
+- **修复范围：** 所有微信出站消息先进入 Hermes Bridge Outbox；每个任务最多捕获一条“已收到，任务完成后汇报。”回执；task-progress 仅保留站内时间线；final/failure 在任务进入 done/failed 前保持 `held_pacing` 并记录 `task:awaiting-terminal`；任务终态前调用现有 OpenAI-compatible LLM 生成四段式中文总结（不超过 1500 字），失败时记录脱敏原因并回退原始最终结果；同一 run 只保留首条 canonical 终态，其余吸收；无 runId 的微信系统/告警/主动通知按聊天 120 秒窗口汇总。UI 明示等待终态、生成总结和原始结果回退状态。
+- **回归测试：** Gateway 消息策略、协调器和存储测试覆盖非终态等待、终态去重和无 runId 批次；Bridge Outbox 覆盖终态内容更新与重复吸收；LLM 测试覆盖四段式总结与未配置回退；Hermes 生命周期测试覆盖一次性回执和重复入站幂等。
+- **验证命令：** `corepack pnpm exec tsc -b --pretty false`；`corepack pnpm exec vitest run --config vitest.focused.config.ts apps/gateway/tests/message-policy.test.ts apps/gateway/tests/message-reconciler.test.ts apps/gateway/tests/message-store.test.ts apps/web/tests/gateway.test.ts --reporter=dot`（57 passed）；`corepack pnpm --filter @butler/ui exec vite build`；`$env:PYTHONPATH='packages/adapters/hermes/bridge'; python -m unittest discover -s packages/adapters/hermes/bridge/tests -p 'test_llm_optimizer.py' -q`（7 passed）；`python -m unittest discover -s packages/adapters/hermes/bridge/tests -p 'test_outbox.py' -q`（31 passed）；Windows 原生 Hermes runtime 测试因无法满足 POSIX `0600` token 权限未运行，需在 WSL 执行。
+
 ## 2026-08-30 - 首页恢复路由与就绪状态回归覆盖
 
 - **问题：** 首页新增的恢复入口与持续就绪状态涉及多个用户分支，但先前回归只覆盖实例异常、未发现实例和无检查结果，未覆盖实例降级、控制通道离线与“已发现但尚未连接”的状态。
