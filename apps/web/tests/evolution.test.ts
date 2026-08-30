@@ -303,4 +303,24 @@ describe("butler-web 进化守门代理", () => {
       "POST /api/evolution/runs/run%2F16/cancel",
     ]);
   });
+
+  it("代理结构化自进化总览、分析和行动复核接口", async () => {
+    const transport = makeFetch({
+      [`GET ${WATCH_URL}/api/evolution/overview`]: { status: 200, body: { schemaVersion: "evolution-analytics.v1", status: "insufficient" } },
+      [`GET ${WATCH_URL}/api/evolution/metrics`]: { status: 200, body: { totals: { toolCalls: 4 } } },
+      [`GET ${WATCH_URL}/api/evolution/failures`]: { status: 200, body: { items: [] } },
+      [`GET ${WATCH_URL}/api/evolution/datasets`]: { status: 200, body: { items: [] } },
+      [`GET ${WATCH_URL}/api/evolution/action-items`]: { status: 200, body: { items: [] } },
+      [`POST ${WATCH_URL}/api/evolution/analyze`]: { status: 200, body: { analyzedAt: "2026-08-30T00:00:00.000Z" } },
+      [`POST ${WATCH_URL}/api/evolution/action-items/action-1/recheck`]: { status: 200, body: { actionId: "action-1", status: "resolved" } },
+    });
+    const app = build(transport.fetch);
+    expect((await app.inject({ method: "GET", url: "/api/evolution/overview" })).json()).toMatchObject({ schemaVersion: "evolution-analytics.v1" });
+    expect((await app.inject({ method: "GET", url: "/api/evolution/metrics" })).json()).toMatchObject({ totals: { toolCalls: 4 } });
+    expect((await app.inject({ method: "GET", url: "/api/evolution/failures" })).statusCode).toBe(200);
+    expect((await app.inject({ method: "GET", url: "/api/evolution/datasets" })).statusCode).toBe(200);
+    expect((await app.inject({ method: "GET", url: "/api/evolution/action-items" })).statusCode).toBe(200);
+    expect((await app.inject({ method: "POST", url: "/api/evolution/analyze", payload: { range: "7d" } })).statusCode).toBe(200);
+    expect((await app.inject({ method: "POST", url: "/api/evolution/action-items/action-1/recheck", payload: {} })).json()).toMatchObject({ actionId: "action-1", status: "resolved" });
+  });
 });

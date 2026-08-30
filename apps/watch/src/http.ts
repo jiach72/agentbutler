@@ -118,6 +118,7 @@ import type { ButlerSelfService } from "./self-upgrade.js";
 import type { PromptOptimizationService } from "./prompt-optimization.js";
 import type { LogAnalyzeView } from "./log-analyzer.js";
 import type { EvolutionInsightsService, InsightRange } from "./evolution-insights.js";
+import type { EvolutionAnalyticsService } from "./evolution-analytics.js";
 import type { BackupService } from "./backup.js";
 import type { SecurityService } from "./invariants.js";
 import type { ButlerRuntimeInfo } from "./runtime.js";
@@ -390,6 +391,7 @@ export interface WatchHttpDeps {
   /** 外部协助 Hermes 改进工作台；与旧 self-evolution CLI 隔离。 */
   externalEvolution?: ExternalEvolutionService;
   evolutionInsights?: EvolutionInsightsService;
+  evolutionAnalytics?: EvolutionAnalyticsService;
   llm?: LlmCredentialService;
   /** Task 17：技能与记忆只读列表服务；可选以兼容尚未接线的嵌入式测试。 */
   skills?: SkillsMemoryService;
@@ -1983,6 +1985,38 @@ async function handle(
         schemaVersion: CONTROL_API_SCHEMA_VERSION,
         ...deps.evolution.status(),
       });
+    }
+
+    if (["/api/evolution/overview", "/api/evolution/metrics", "/api/evolution/failures", "/api/evolution/datasets", "/api/evolution/action-items"].includes(path)) {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.evolutionAnalytics === undefined) return sendJson(res, 503, { error: "evolution-analytics-unavailable" });
+      const instanceId = url.searchParams.get("instanceId")?.trim() || undefined;
+      const rawRange = url.searchParams.get("range") ?? "7d";
+      if (rawRange !== "24h" && rawRange !== "7d" && rawRange !== "30d") return sendJson(res, 400, { error: "invalid-range" });
+      if (path === "/api/evolution/overview") return sendJson(res, 200, await deps.evolutionAnalytics.overview(instanceId, rawRange));
+      if (path === "/api/evolution/metrics") return sendJson(res, 200, await deps.evolutionAnalytics.metrics(instanceId, rawRange));
+      if (path === "/api/evolution/failures") return sendJson(res, 200, await deps.evolutionAnalytics.failures(instanceId, rawRange));
+      if (path === "/api/evolution/datasets") return sendJson(res, 200, await deps.evolutionAnalytics.datasets(instanceId));
+      return sendJson(res, 200, await deps.evolutionAnalytics.actionItems(instanceId));
+    }
+
+    const evolutionActionRecheck = /^\/api\/evolution\/action-items\/([^/]+)\/recheck$/.exec(path);
+    if (evolutionActionRecheck !== null) {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.evolutionAnalytics === undefined) return sendJson(res, 503, { error: "evolution-analytics-unavailable" });
+      const result = await deps.evolutionAnalytics.recheck(decodeURIComponent(evolutionActionRecheck[1]!));
+      return sendJson(res, "error" in result ? 404 : 200, result);
+    }
+
+    if (path === "/api/evolution/analyze") {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.evolutionAnalytics === undefined) return sendJson(res, 503, { error: "evolution-analytics-unavailable" });
+      const body = await readJsonBody(req, res);
+      if (body === null) return;
+      if (body["instanceId"] !== undefined && typeof body["instanceId"] !== "string") return sendJson(res, 400, { error: "invalid-instanceId" });
+      const rawRange = body["range"] ?? "7d";
+      if (rawRange !== "24h" && rawRange !== "7d" && rawRange !== "30d") return sendJson(res, 400, { error: "invalid-range" });
+      return sendJson(res, 200, await deps.evolutionAnalytics.analyze(typeof body["instanceId"] === "string" ? body["instanceId"] : undefined, rawRange));
     }
 
     if (path === "/api/evolution/insights") {

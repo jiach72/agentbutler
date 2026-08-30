@@ -2724,6 +2724,21 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   // 对外保留与 Watch 一致的显式 status 路径，便于探针和运维脚本直接验收。
   app.get("/api/evolution/status", evolutionStatusHandler);
 
+  for (const path of ["overview", "metrics", "failures", "datasets", "action-items"] as const) {
+    app.get(`/api/evolution/${path}`, async (request, reply) => {
+      const query = request.query as Record<string, unknown>;
+      const params = new URLSearchParams();
+      if (typeof query["instanceId"] === "string") params.set("instanceId", query["instanceId"] as string);
+      if (typeof query["range"] === "string") params.set("range", query["range"] as string);
+      return proxyWatchGet(`/api/evolution/${path}` + (params.size > 0 ? `?${params.toString()}` : ""), reply, 30_000);
+    });
+  }
+  app.post("/api/evolution/analyze", async (request, reply) => proxyWatchPost("/api/evolution/analyze", request.body, reply, 30_000));
+  app.post("/api/evolution/action-items/:id/recheck", async (request, reply) => {
+    const id = encodeURIComponent((request.params as { id?: string }).id ?? "");
+    return proxyWatchPost(`/api/evolution/action-items/${id}/recheck`, request.body, reply, 30_000);
+  });
+
   app.get("/api/evolution/insights", async (request, reply) => {
     const query = request.query as Record<string, unknown>;
     const params = new URLSearchParams();

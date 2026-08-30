@@ -80,8 +80,6 @@ function SidebarContent({
   onNavigate?: () => void;
   baseline: SecurityBaselinePayload | null;
 }) {
-  const location = useLocation();
-  const advancedActive = MANAGEMENT_ITEMS.some((item) => location.pathname.startsWith(item.to));
   return (
     <>
       <div className="brand">
@@ -110,25 +108,22 @@ function SidebarContent({
             </span>
           </NavLink>
         ))}
-        <details className="nav-advanced" open={advancedActive}>
-          <summary>高级工具</summary>
-          {MANAGEMENT_ITEMS.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              onClick={onNavigate}
-              className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}
-            >
-              <span className="nav-icon" aria-hidden="true">
-                {item.icon}
-              </span>
-              <span className="nav-copy">
-                <strong>{item.label}</strong>
-                <small>{item.note}</small>
-              </span>
-            </NavLink>
-          ))}
-        </details>
+        {MANAGEMENT_ITEMS.map((item) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            onClick={onNavigate}
+            className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}
+          >
+            <span className="nav-icon" aria-hidden="true">
+              {item.icon}
+            </span>
+            <span className="nav-copy">
+              <strong>{item.label}</strong>
+              <small>{item.note}</small>
+            </span>
+          </NavLink>
+        ))}
       </nav>
       <div className="sidebar-bottom">
         <NavLink

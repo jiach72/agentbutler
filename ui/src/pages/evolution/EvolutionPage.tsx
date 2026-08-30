@@ -20,6 +20,8 @@ import { formatTime, isRecord } from "../../lib/format.js";
 import { ConnectionChip } from "../../components/ConnectionChip.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { Link } from "react-router-dom";
+import { EvolutionOverview } from "./EvolutionOverview.js";
+import type { EvolutionOverviewPayload } from "./types.js";
 
 type Direction = {
   id: string;
@@ -100,6 +102,7 @@ export function EvolutionPage() {
   >([]);
   const [range, setRange] = useState<"24h" | "7d" | "30d">("7d");
   const [data, setData] = useState<Insights | null>(null);
+  const [overview, setOverview] = useState<EvolutionOverviewPayload | null>(null);
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [run, setRun] = useState<Run | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -110,27 +113,26 @@ export function EvolutionPage() {
   const refresh = useCallback(async () => {
     const query = new URLSearchParams({ range });
     if (instanceId) query.set("instanceId", instanceId);
-    const [insightResult, instanceResult, proposalResult] = await Promise.all([
+    const [insightResult, overviewResult, instanceResult, proposalResult] = await Promise.all([
       loadJson<Insights>(`/api/evolution/insights?${query.toString()}`, 30_000),
+      loadJson<EvolutionOverviewPayload>(`/api/evolution/overview?${query.toString()}`, 30_000),
       loadJson<{ instances: Array<{ instanceId: string; version?: string; state?: string }> }>(
         "/api/instances",
         10_000,
       ),
       loadJson<{ proposals: Proposal[] }>("/api/evolution/proposals", 10_000),
     ]);
-    if (!insightResult.ok) {
-      setError(insightResult.reason);
-      return;
-    }
-    setError(null);
-    setData(insightResult.data);
+    if (!insightResult.ok && !overviewResult.ok) setError(insightResult.reason);
+    else setError(null);
+    if (insightResult.ok) setData(insightResult.data);
+    if (overviewResult.ok) setOverview(overviewResult.data);
     setProposals(proposalResult.ok ? (proposalResult.data.proposals ?? []) : []);
     if (instanceResult.ok) {
       const next = instanceResult.data.instances ?? [];
       setInstances(next);
       if (!instanceId && next[0]) setInstanceId(next[0].instanceId);
     }
-    if (selectedId === null && insightResult.data.directions[0])
+    if (selectedId === null && insightResult.ok && insightResult.data.directions[0])
       setSelectedId(insightResult.data.directions[0].id);
   }, [instanceId, range, selectedId]);
   useEffect(() => {
@@ -141,6 +143,27 @@ export function EvolutionPage() {
     selected?.execution?.kind === "proposal"
       ? (proposals.find((item) => item.id === selected.execution?.id) ?? null)
       : null;
+  const analyze = async () => {
+    setBusy("analyze");
+    const result = await postJson("/api/evolution/analyze", { instanceId: instanceId || undefined, range }, 30_000);
+    setBusy(null);
+    if (!result.ok) {
+      message.error(detailOf(result.data, "重新分析失败"));
+      return;
+    }
+    setOverview(result.data as EvolutionOverviewPayload);
+    message.success("分析完成，指标和行动事项已更新");
+  };
+  const recheckAction = async (actionId: string) => {
+    setBusy(actionId);
+    const result = await postJson(`/api/evolution/action-items/${encodeURIComponent(actionId)}/recheck`, {}, 30_000);
+    setBusy(null);
+    if (!result.ok) {
+      message.error(detailOf(result.data, "复核失败"));
+      return;
+    }
+    await refresh();
+  };
   const loadRun = useCallback(async (runId: string) => {
     const result = await loadJson<Run>(`/api/evolution/runs/${encodeURIComponent(runId)}`, 15_000);
     if (result.ok) setRun(result.data);
@@ -356,6 +379,15 @@ export function EvolutionPage() {
           }
         />
       )}
+      <EvolutionOverview
+        overview={overview}
+        range={range}
+        onRangeChange={setRange}
+        onRefresh={() => void refresh()}
+        onAnalyze={() => void analyze()}
+        busy={busy}
+        onRecheck={(id) => void recheckAction(id)}
+      />
       <section className="evolution-health">
         <div className="evolution-section-head">
           <div>

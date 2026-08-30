@@ -352,3 +352,12 @@
 - **修复范围：** `apps/gateway/src/message/reconciler.ts` 识别 Bridge 已终态冲突，将 `delivered/absorbed/dead_letter/cancelled` 同步回本地投影并清除 pending 决策；将已过期 hold 在成功重放后重新计算，避免历史 hold 阻塞后续终态。新增 stale terminal 冲突回归测试。
 - **回归测试：** `apps/gateway/tests/message-reconciler.test.ts` 覆盖 Bridge 返回“已吸收”时的本地自愈及后续终态继续投递。
 - **验证命令：** `corepack pnpm exec vitest run --config vitest.focused.config.ts apps/gateway/tests/message-reconciler.test.ts --reporter=dot`（16 passed）；`corepack pnpm exec tsc -b --pretty false`；`git diff --check`。
+
+## 2026-08-30 - 自进化页无法直接进入且运行指标缺少可验证口径
+
+- **问题：** “高级工具”使用可折叠菜单承载版本升级、自进化和 GitHub 技能管理，入口容易被隐藏；自进化页主要展示日志和错误，无法回答实例稳定性、进化收益、失败归因和下一步行动，日志耗时的 `ms` 单位还可能被误解析为秒。
+- **风险/影响：** 用户可能找不到关键运维入口，也无法区分环境阻断与引擎回归；错误耗时会进一步污染 P50/P95 和稳定性判断。
+- **修复范围：** 三个入口改为左侧一级菜单并同步移动端 Drawer；Core SQLite 新增进化观测、每日指标、真实样本和行动事项表；Watch 新增统一 analytics 服务与 `/api/evolution/overview`、`/metrics`、`/failures`、`/datasets`、`/action-items`、`/analyze` 及行动复核接口；前端新增健康分、收益分、趋势、失败归因、内存水位、行动清单、数据资产和运行历史组件；耗时解析按 `ms`/`s` 明确换算，环境失败不进入正式样本集。
+- **回归测试：** `apps/watch/tests/evolution-analytics.test.ts` 覆盖样本不足、健康分公式、P50/P95、收益分映射和行动事项重开；`apps/watch/tests/http-evolution.test.ts` 覆盖新接口；`ui/tests/component-render.test.ts` 覆盖三个平铺入口和无 `<details>`。
+- **验证命令：** `corepack pnpm exec tsc -b --pretty false`；`corepack pnpm exec vitest run apps/watch/tests/evolution-analytics.test.ts apps/watch/tests/http-evolution.test.ts ui/tests/component-render.test.ts --reporter=dot`；`corepack pnpm build`；`git diff --check`。
+- **运行验证：** focused 进化与 UI 测试通过；全量测试 114 个测试文件通过，另有 1 个既有 `@butler/updater` 测试因 15 秒超时失败，未发现与本次改动相关的失败。

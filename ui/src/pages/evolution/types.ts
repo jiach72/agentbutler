@@ -1,0 +1,37 @@
+export type EvolutionOverviewPayload = {
+  schemaVersion: string;
+  instanceId: string | null;
+  range: "24h" | "7d" | "30d";
+  analyzedAt: string;
+  source: "structured" | "logs" | "mixed" | "incomplete";
+  completeness: { structuredObservations: number; logObservations: number; note: string };
+  status: "healthy" | "watch" | "blocked" | "offline" | "insufficient";
+  statusDetail: string;
+  totals: {
+    sessions: number;
+    completedSessions: number;
+    failedSessions: number;
+    terminalSessions: number;
+    toolCalls: number;
+    successfulToolCalls: number;
+    failedToolCalls: number;
+    unknownToolCalls: number;
+    classifiedToolCalls: number;
+    successRate: number | null;
+    failureRate: number | null;
+    p50DurationMs: number | null;
+    p95DurationMs: number | null;
+    reliability: number | null;
+    completion: number | null;
+    coverage: number | null;
+    healthScore: number | null;
+    sampleStatus: "ready" | "insufficient";
+  };
+  trend: Array<{ date: string; sessions: number; toolCalls: number; successRate: number | null }>;
+  failures: Array<{ category: string; title: string; count: number; impact: string; evidence: string; source: string; lastSeenAt: string | null }>;
+  memory: { used: number | null; capacity: number | null; percent: number | null; unit: string; trend: Array<{ date: string; used: number; capacity: number }>; source: string };
+  evolution: { runCount: number; completedRuns: number; successfulRuns: number; successRate: number | null; averageDurationSeconds: number | null; latest: { status: string; improvement: number | null; gainScore: number | null; detail: string } | null; timeline: Array<{ runId: string; at: string; stage: string; status: string; detail: string }> };
+  datasets: { dataset: string; version: string; realSamples: number; positiveSamples: number; negativeSamples: number; holdoutCount: number; requiredHoldout: number; gap: number; completeness: string; duplicateRate: number | null; lastCollectedAt: string | null; formalReady: boolean };
+  actionItems: Array<{ actionId: string; instanceId: string; category: string; title: string; impact: string; firstSeenAt: string; lastSeenAt: string; occurrences: number; relatedRuns: string[]; evidence: string; nextAction: string; status: string; resolvedAt: string | null; updatedAt: string }>;
+  runs: Array<{ runId: string; updatedAt: string; status: string; holdout: number; baseline: number | null; candidate: number | null; improvement: number | null; confidence: number | null; gainScore: number | null; gate: string; detail: string }>;
+};

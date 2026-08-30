@@ -84,6 +84,7 @@ import { createExternalEvolutionService, type ExternalEvolutionService } from ".
 import { createSkillAssetService, type SkillAssetService } from "./skill-assets.js";
 import { createLogAnalyzer } from "./log-analyzer.js";
 import { createEvolutionInsightsService } from "./evolution-insights.js";
+import { createEvolutionAnalyticsService, type EvolutionAnalyticsService } from "./evolution-analytics.js";
 import {
   createPromptOptimizationService,
   type PromptOptimizationService,
@@ -172,6 +173,7 @@ export interface WatchApp {
   skills: SkillsMemoryService;
   externalEvolution: ExternalEvolutionService;
   evolutionInsights: import("./evolution-insights.js").EvolutionInsightsService;
+  evolutionAnalytics: EvolutionAnalyticsService;
   skillAssets: SkillAssetService;
   /** M5 切片 1/2：提示词 Registry + 候选持久化 + 成对评估服务。 */
   promptOptimization: PromptOptimizationService;
@@ -1766,6 +1768,14 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     skills,
     now: options.now,
   });
+  const evolutionAnalytics = createEvolutionAnalyticsService({
+    core,
+    evolution: evolutionWithBackup,
+    analyzeLogs: (instanceId, range) => logAnalyzer.analyze(instanceId, range),
+    logs: logsService,
+    skills,
+    now: options.now,
+  });
 
   // 记忆按需自检：只跑 memory-probe 单阶段（写入并召回一条测试记忆，随后清理），
   // 用于「记忆服务看似正常但实际写不进/召不回」的即时排查（PRD S5）。
@@ -1814,6 +1824,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       evolution: evolutionWithBackup,
       externalEvolution,
       evolutionInsights,
+      evolutionAnalytics,
       skillAssets,
       llm,
       skills,
@@ -1883,6 +1894,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     skills,
     externalEvolution,
     evolutionInsights,
+    evolutionAnalytics,
     skillAssets,
     promptOptimization,
     backup,

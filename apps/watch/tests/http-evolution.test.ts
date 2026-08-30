@@ -15,6 +15,7 @@ import type {
 } from "../src/evolution.js";
 import { startWatchHttp, type WatchHttp, type WatchHttpDeps } from "../src/http.js";
 import type { EvolutionInsightsService } from "../src/evolution-insights.js";
+import type { EvolutionAnalyticsService } from "../src/evolution-analytics.js";
 
 const READY: EvolutionPreflightOutcome = {
   runId: "run-16",
@@ -203,6 +204,15 @@ function makeDeps(): { deps: WatchHttpDeps; state: EvolutionFakeState } {
         confirm: () => ({ error: "direction-not-found", detail: "不存在", fix: "重新分析" }),
         start: async () => ({ error: "direction-not-found", detail: "不存在", fix: "重新分析" }),
       } as EvolutionInsightsService,
+      evolutionAnalytics: {
+        overview: async () => ({ schemaVersion: "evolution-analytics.v1", status: "insufficient", totals: { toolCalls: 0 }, datasets: { realSamples: 0 }, actionItems: [], runs: [] }),
+        metrics: async () => ({ schemaVersion: "evolution-analytics.v1", status: "insufficient" }),
+        failures: async () => ({ instanceId: "hermes-main", source: "incomplete", items: [] }),
+        datasets: async () => ({ instanceId: "hermes-main", items: [] }),
+        actionItems: async () => ({ instanceId: "hermes-main", items: [] }),
+        recheck: async (id: string) => ({ actionId: id, status: "resolved" }),
+        analyze: async () => ({ schemaVersion: "evolution-analytics.v1", status: "insufficient" }),
+      } as unknown as EvolutionAnalyticsService,
     },
   };
 }
@@ -299,6 +309,25 @@ describe("startWatchHttp 进化守门端点", () => {
     await expect(ok.json()).resolves.toMatchObject({ range: "24h" });
     const bad = await fetch(`${base}/api/evolution/insights?range=2d`);
     expect(bad.status).toBe(400);
+  });
+
+  it("提供结构化观测、行动事项复核与手动分析接口", async () => {
+    const overview = await fetch(`${base}/api/evolution/overview?range=7d`);
+    expect(overview.status).toBe(200);
+    await expect(overview.json()).resolves.toMatchObject({ schemaVersion: "evolution-analytics.v1", status: "insufficient" });
+    const metrics = await fetch(`${base}/api/evolution/metrics?range=7d`);
+    expect(metrics.status).toBe(200);
+    const failures = await fetch(`${base}/api/evolution/failures?range=7d`);
+    expect(failures.status).toBe(200);
+    const datasets = await fetch(`${base}/api/evolution/datasets`);
+    expect(datasets.status).toBe(200);
+    const actions = await fetch(`${base}/api/evolution/action-items`);
+    expect(actions.status).toBe(200);
+    const recheck = await fetch(`${base}/api/evolution/action-items/action-1/recheck`, { method: "POST" });
+    expect(recheck.status).toBe(200);
+    await expect(recheck.json()).resolves.toMatchObject({ actionId: "action-1", status: "resolved" });
+    const analyze = await fetch(`${base}/api/evolution/analyze`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ range: "7d" }) });
+    expect(analyze.status).toBe(200);
   });
 
   it("接线新诊断与任务生命周期接口", async () => {

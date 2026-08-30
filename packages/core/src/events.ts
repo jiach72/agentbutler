@@ -2,7 +2,7 @@
  * 内核类型化事件总线：模块间解耦的唯一事件通道。
  *
  * 事件统一形如 { type, payload, at }；at 为 ISO-8601 时间戳。
- * CoreEventMap 固定九类内核事件：
+ * CoreEventMap 固定十类内核事件：
  * - instance-state-changed 生命周期状态迁移（图 2）
  * - capability-degraded / capability-recovered 运行时能力降级与恢复
  * - job-event 长操作 Job 登记
@@ -13,6 +13,7 @@
  * - inspection-completed 巡检完成综合结论（Task 5 butler-watch）
  * - runbook-started / runbook-completed runbook 执行起止（Task 7 butler-watch）
  * - circuit-breaker-tripped 崩溃循环熔断跳闸（Task 7 butler-watch）
+ * - adapter-call-completed 适配器调用结构化结果（供稳定性/进化观测消费）
  */
 import type { Job } from "@butler/contract";
 import type { Capability } from "@butler/contract";
@@ -128,6 +129,15 @@ export interface CoreEventPayloads {
   "runbook-completed": RunbookCompletedPayload;
   "circuit-breaker-tripped": CircuitBreakerTrippedPayload;
   "backup-completed": { id: number; kind: "full" | "memory" | "event"; path: string; sizeBytes: number };
+  "adapter-call-completed": {
+    instanceId?: string;
+    method: string;
+    success: boolean;
+    durationMs: number;
+    errorCode?: string;
+    sessionId?: string;
+    runId?: string;
+  };
 }
 
 export type CoreEventName = keyof CoreEventPayloads;

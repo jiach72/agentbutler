@@ -40,6 +40,9 @@ export interface InvokeOptions {
   timeoutMs?: number;
   /** 可选能力路由：提供后调用前必须通过 capabilityScan，调用后自动记录结果。 */
   capability?: Capability;
+  /** 可选的上游任务关联标识，供结构化运行观测使用。 */
+  sessionId?: string;
+  runId?: string;
 }
 
 /** 方法类别 → 超时错误码。 */
@@ -126,6 +129,16 @@ export class AdapterExecutor {
       const retryable = result.error?.retryable === true;
       if (!retryable || attempt + 1 >= maxAttempts) break;
     }
+
+    this.bus.emit("adapter-call-completed", {
+      ...(opts.instance === undefined ? {} : { instanceId: opts.instance }),
+      method: opts.method,
+      success: result.ok,
+      durationMs: typeof result.durationMs === "number" ? result.durationMs : Math.max(0, Date.now() - startedAt),
+      ...(result.ok ? {} : { errorCode: result.error?.code }),
+      ...(opts.sessionId === undefined ? {} : { sessionId: opts.sessionId }),
+      ...(opts.runId === undefined ? {} : { runId: opts.runId }),
+    });
 
     if (result.ok && opts.idempotencyKey !== undefined && isJobLike(result.data)) {
       const job = result.data;

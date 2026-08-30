@@ -14,7 +14,7 @@ import { ActionStep } from "../src/pages/troubleshoot/steps/ActionStep.js";
 import { SymptomStep } from "../src/pages/troubleshoot/steps/SymptomStep.js";
 
 describe("关键页面组件渲染", () => {
-  it("侧栏把高级功能收在可发现但不抢占注意力的区域", () => {
+  it("侧栏直接显示三个运营入口", () => {
     const html = renderToStaticMarkup(
       React.createElement(
         ThemeProvider,
@@ -29,11 +29,15 @@ describe("关键页面组件渲染", () => {
 
     expect(html).toContain('href="/versions"');
     expect(html).toContain('href="/evolution"');
+    expect(html).toContain('href="/versions"');
+    expect(html).toContain('href="/assets"');
+    expect(html).not.toContain("nav-advanced");
+    expect(html).not.toContain("<details");
     expect(html).toContain('href="/assets"');
     expect(html).toContain("版本升级");
     expect(html).toContain("自进化");
     expect(html).toContain("GitHub 技能管理");
-    expect(html).toContain("高级工具");
+    expect(html).not.toContain("高级工具");
     expect(html).toContain("智能体与知识");
     expect(html).toContain("排查问题");
     expect(html).toContain('class="topbar-title">版本升级</strong>');

@@ -22,6 +22,7 @@ export * from "./runbook/index.js";
 export * from "./upgrade.js";
 export * from "./evolution.js";
 export * from "./evolution-insights.js";
+export * from "./evolution-analytics.js";
 export * from "./prompt-optimization.js";
 export * from "./watch.js";
 export { run } from "./main.js";
