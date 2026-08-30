@@ -4,7 +4,7 @@ export const openClawManifest: Manifest = {
   frameworkId: "openclaw",
   displayName: "OpenClaw",
   contractVersion: "1.x",
-  adapterVersion: "1.0.0-beta.14",
+  adapterVersion: "1.0.0-beta.15",
   declaredLevel: 2,
   capabilities: ["probe", "control", "skill-driver", "memory-driver", "config-driver"],
   drivers: [
