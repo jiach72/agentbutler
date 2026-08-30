@@ -85,16 +85,61 @@ export class MessageReconciler {
       );
       return;
     }
+    let working = candidate;
     const pending = this.options.store.pendingDecision(candidate.messageId);
     let readyDecision: MessageDecision;
     let readyRow: OutboxMessageView;
     if (pending !== undefined) {
-      const replay = await this.applyDecision(pending);
-      if (replay.mismatch || replay.row.state !== "ready") return;
-      readyDecision = pending;
-      readyRow = replay.row;
+      let replay: { row: OutboxMessageView; mismatch: boolean };
+      try {
+        replay = await this.applyDecision(pending);
+      } catch (error) {
+        const terminalState = terminalStateFromConflict(error);
+        if (terminalState === undefined) throw error;
+
+        // Another Bridge-side writer may have finalized this message (for example,
+        // Hermes absorbing an older terminal result when a newer canonical result arrives).
+        // Treat the 409 as an idempotent observation and heal the local projection so the
+        // stale queue head cannot block newer messages forever.
+        const recoveredAt = terminalState === "delivered" ? candidate.deliveredAt ?? now : candidate.deliveredAt;
+        this.options.store.updateRemoteView(
+          {
+            ...candidate,
+            state: terminalState,
+            availableAt: null,
+            deliveredAt: recoveredAt,
+            lastError: `Bridge already terminal: ${terminalState}`,
+            transformTrace: [
+              ...candidate.transformTrace,
+              `replay:bridge-terminal-${terminalState}`,
+            ],
+          },
+          pending.decisionId,
+        );
+        return;
+      }
+      if (replay.mismatch) return;
+      if (pending.state === "ready") {
+        readyDecision = pending;
+        readyRow = replay.row;
+      } else {
+        // A held decision is only valid until its release time. Once the
+        // replay succeeds, discard that old hold and recompute policy so a
+        // stale queue head cannot block later terminal results forever.
+        this.options.store.clearPendingDecision(candidate.messageId);
+        working = replay.row;
+        const policy = this.decide(working, now);
+        for (const companion of policy.companionDecisions) {
+          const applied = await this.applyDecision(companion);
+          if (applied.mismatch) return;
+        }
+        const applied = await this.applyDecision(policy.decision);
+        if (applied.mismatch || applied.row.state !== "ready") return;
+        readyDecision = policy.decision;
+        readyRow = applied.row;
+      }
     } else {
-      const policy = this.decide(candidate, now);
+      const policy = this.decide(working, now);
       for (const companion of policy.companionDecisions) {
         const applied = await this.applyDecision(companion);
         if (applied.mismatch) return;
@@ -406,6 +451,12 @@ function workerError(operation: string, error: unknown): MessageWorkerError {
   return error instanceof MessageWorkerError
     ? error
     : new MessageWorkerError(operation, error instanceof Error ? error.message : String(error));
+}
+
+function terminalStateFromConflict(error: unknown): OutboxMessageView["state"] | undefined {
+  const detail = error instanceof Error ? error.message : String(error);
+  const match = /already terminal:\s*(delivered|absorbed|dead_letter|cancelled)\b/i.exec(detail);
+  return match?.[1] as OutboxMessageView["state"] | undefined;
 }
 
 function retryAt(now: string, attemptCount: number, config: MessagePolicyConfig): string {

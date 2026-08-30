@@ -18,6 +18,15 @@
 - **Verification:** `corepack pnpm version:check`；`corepack pnpm exec tsc -b --pretty false`；Gateway 57 项聚焦测试；`git diff --check`。
 - **Runtime validation:** WSL Bridge `/v1/health` 返回 `bridgeVersion=1.0.0-beta.15`、`attached=true`、`outboxWritable=true`；Compose 四个服务均为 `running + healthy`。
 
+## 2026-08-30 - 过期 held 决策阻塞后续终态消息
+
+- **Problem:** Gateway 对已到期的 `held_pacing`/`held_dnd` 待决策沿用 `ready` 的精确重放路径；Bridge 返回同一 hold 后，队列头一直不是 `ready`，后续 `captured` final 无法被处理。
+- **Impact:** 任务已经完成且 Bridge 在线时，最终报告仍停在 `captured`，微信不会收到；界面却可能显示“已发送原始结果”，造成状态误导。
+- **Changed scope:** 仅对非 `ready` 的到期待决策执行一次确认后清除旧 pending，并重新计算当前策略；`ready` 仍保持崩溃恢复所需的严格重放语义。
+- **Regression coverage:** 新增“过期 hold 不得阻塞后续 final”回归；Gateway 消息策略/重协调/存储/HTTP 聚焦测试通过。
+- **Verification:** `corepack pnpm exec vitest run apps/gateway/tests/message-policy.test.ts apps/gateway/tests/message-reconciler.test.ts apps/gateway/tests/message-store.test.ts apps/gateway/tests/message-http.test.ts --reporter=dot`；`corepack pnpm exec tsc -b --pretty false`；`git diff --check`。
+- **Runtime validation:** 修复后需唤醒或重启 Gateway，确认 `captured=0`、`pendingFinalResults=0`，再用新 `runId` 验证微信收到单条终态报告。
+
 ## 2026-08-30 - Docker Desktop/WSL 真实部署验收
 
 - **Problem:** 使用 Windows NTFS 下的 `.runtime\\hermes` 作为 Hermes Bridge 运行时目录时，容器内 token 文件无法满足 Linux `0600` 私有权限检查，Gateway 按设计拒绝启动；WSL 原生 Docker 还不能重复启用已存在的 `8755` 转发器。
@@ -335,3 +344,11 @@
 - **修复范围：** 补齐首页问题卡在降级、控制通道离线时的目标路由断言；补齐就绪度中“已发现实例但未连接”的下一步断言。测试保持在纯推导层，不依赖真实服务或凭据。
 - **回归测试：** `ui/tests/dashboard-issue-actions.test.ts` 与 `ui/tests/readiness.test.ts` 共同覆盖首次设置、原地检查、安全设置、报错排查、模糊排查和连接未完成的入口。
 - **验证命令：** `corepack pnpm --filter @butler/ui exec vitest run --config vitest.config.ts tests/dashboard-issue-actions.test.ts tests/readiness.test.ts tests/onboarding-continuation.test.ts tests/troubleshoot-symptoms.test.ts tests/component-render.test.ts --reporter=dot`（29 passed）；`corepack pnpm exec tsc -b ui/tsconfig.json --pretty false`；`corepack pnpm build`；`git diff --check` 均通过。
+
+## 2026-08-30 - Bridge 终态冲突导致 Gateway 队列头阻塞
+
+- **问题：** Hermes Bridge 已将旧终态消息吸收后，Gateway 重启仍重放该消息的旧 `held_pacing` 决策；Bridge 返回 `409 message is already terminal: absorbed`，Gateway 将幂等冲突误判为 Bridge 不可用，导致队列头持续阻塞，后续微信终态报告停留在 `captured`。
+- **风险/影响：** 任务完成后总结无法继续投递，状态页显示连接健康但微信收不到最终结果；旧消息还会反复触发失败重试并掩盖真实故障。
+- **修复范围：** `apps/gateway/src/message/reconciler.ts` 识别 Bridge 已终态冲突，将 `delivered/absorbed/dead_letter/cancelled` 同步回本地投影并清除 pending 决策；将已过期 hold 在成功重放后重新计算，避免历史 hold 阻塞后续终态。新增 stale terminal 冲突回归测试。
+- **回归测试：** `apps/gateway/tests/message-reconciler.test.ts` 覆盖 Bridge 返回“已吸收”时的本地自愈及后续终态继续投递。
+- **验证命令：** `corepack pnpm exec vitest run --config vitest.focused.config.ts apps/gateway/tests/message-reconciler.test.ts --reporter=dot`（16 passed）；`corepack pnpm exec tsc -b --pretty false`；`git diff --check`。

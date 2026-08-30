@@ -14,6 +14,7 @@ import type {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_MESSAGE_POLICY } from "../src/message/config";
+import { buildMessageDecision } from "../src/message/policy";
 import { MessageReconciler } from "../src/message/reconciler";
 import { MessageGatewayService } from "../src/message/service";
 import { MessagePolicyStore } from "../src/message/store";
@@ -149,6 +150,10 @@ class FakeMessagingAdapter implements MessagingAdapter {
 
   returnDifferentDecisionState(row: OutboxMessageView): void {
     this.nextDecisionResult = ok(row);
+  }
+
+  returnDecisionResult(result: Result<OutboxMessageView>): void {
+    this.nextDecisionResult = result;
   }
 }
 
@@ -321,6 +326,127 @@ describe("MessageReconciler", () => {
     await reconciler("2026-08-22T10:00:01.700Z").reconcileOnce();
     expect(adapter.deliveries.map((delivery) => delivery.messageId)).toEqual(["final-complete"]);
     expect(store.messageView("final-short")?.state).toBe("absorbed");
+  });
+
+  it("recomputes an expired held decision so it cannot block a later final result", async () => {
+    const held = message({
+      messageId: "held-old",
+      sequence: 1,
+      content: "中间结果",
+      contentSha256: "held-sha",
+      state: "held_pacing",
+      availableAt: "2026-08-22T09:59:00.000Z",
+      inboundMessageId: "inbound-1",
+    });
+    const later = message({
+      messageId: "final-latest",
+      sequence: 2,
+      content: "完整结果",
+      contentSha256: "latest-sha",
+      capturedAt: "2026-08-22T10:00:01.000Z",
+      inboundMessageId: "inbound-1",
+    });
+    adapter.changes = {
+      afterSequence: 0,
+      nextSequence: 2,
+      items: [held, later],
+      taskEvents: [],
+      inbound: [],
+    };
+    store.ingestBatch(adapter.changes, INSTANCE.instanceId);
+    store.stageDecision(
+      "held-old",
+      buildMessageDecision(
+        held,
+        DEFAULT_MESSAGE_POLICY.version,
+        "held_pacing",
+        ["task:awaiting-terminal"],
+        "waiting for task terminal state",
+        undefined,
+        "2026-08-22T09:59:00.000Z",
+      ),
+    );
+    adapter.decisionRows.set("held-old", held);
+    adapter.decisionRows.set("final-latest", later);
+    adapter.changes = { afterSequence: 2, nextSequence: 2, items: [], taskEvents: [], inbound: [] };
+
+    await reconciler().reconcileOnce();
+    expect(store.messageView("held-old")?.state).toBe("absorbed");
+    expect(adapter.deliveries).toHaveLength(0);
+
+    adapter.deliveryResult = ok({
+      messageId: "final-latest",
+      attemptId: "attempt-1",
+      accepted: true,
+      deduped: false,
+      state: "delivered",
+      providerMessageId: "latest-provider",
+      finishedAt: NOW,
+    });
+    await reconciler().reconcileOnce();
+    expect(adapter.deliveries.map((delivery) => delivery.messageId)).toEqual(["final-latest"]);
+  });
+
+  it("heals a stale pending decision when Bridge reports the message already absorbed", async () => {
+    const held = message({
+      messageId: "held-stale",
+      sequence: 1,
+      state: "held_pacing",
+      availableAt: "2026-08-22T09:59:00.000Z",
+    });
+    const later = message({
+      messageId: "final-after-stale",
+      sequence: 2,
+      content: "最终结果",
+      contentSha256: "final-after-stale-sha",
+    });
+    adapter.changes = {
+      afterSequence: 0,
+      nextSequence: 2,
+      items: [held, later],
+      taskEvents: [],
+      inbound: [],
+    };
+    store.ingestBatch(adapter.changes, INSTANCE.instanceId);
+    store.stageDecision(
+      "held-stale",
+      buildMessageDecision(
+        held,
+        DEFAULT_MESSAGE_POLICY.version,
+        "held_pacing",
+        ["task:awaiting-terminal"],
+        "waiting for task terminal state",
+        undefined,
+        "2026-08-22T09:59:00.000Z",
+      ),
+    );
+    adapter.returnDecisionResult(
+      fail("E002", "Hermes Bridge 409 conflict: message is already terminal: absorbed"),
+    );
+    adapter.changes = { afterSequence: 2, nextSequence: 2, items: [], taskEvents: [], inbound: [] };
+
+    await reconciler().reconcileOnce();
+
+    expect(store.messageView("held-stale")).toMatchObject({
+      state: "absorbed",
+      availableAt: null,
+      lastError: "Bridge already terminal: absorbed",
+    });
+    expect(store.pendingDecision("held-stale")).toBeUndefined();
+    expect(adapter.deliveries).toHaveLength(0);
+
+    adapter.returnDecisionResult(ok({ ...later, state: "ready" }));
+    adapter.deliveryResult = ok({
+      messageId: "final-after-stale",
+      attemptId: "attempt-1",
+      accepted: true,
+      deduped: false,
+      state: "delivered",
+      providerMessageId: "final-after-stale-provider",
+      finishedAt: NOW,
+    });
+    await reconciler().reconcileOnce();
+    expect(adapter.deliveries.map((delivery) => delivery.messageId)).toEqual(["final-after-stale"]);
   });
 
   it("only processes candidates owned by its configured Hermes instance", async () => {
