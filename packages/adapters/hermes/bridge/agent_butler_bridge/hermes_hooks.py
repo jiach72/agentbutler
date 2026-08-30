@@ -35,6 +35,13 @@ CHANNEL_ALIASES = {
     "weixin": "weixin",
     "a2a": "a2a",
 }
+
+# Hermes may schedule its assembled answer on the event loop just after the
+# background turn returns. Keep the run in ``completing`` long enough for that
+# late capture to land before we choose the terminal report.
+TASK_RESULT_SETTLE_DELAY_SECONDS = 0.05
+TASK_RESULT_SETTLE_TIMEOUT_SECONDS = 0.75
+
 @dataclass
 class HookSendResult:
     success: bool
@@ -557,10 +564,13 @@ async def _finalize_task_result(
         pass
     if binding.channel != "weixin":
         return
-    pending = outbox.pending_run_results(run_id)
+    pending = await _wait_for_stable_run_results(outbox, run_id)
     if not pending:
         return
-    canonical = pending[0]
+    # The last assembled terminal result is the most complete one in Hermes'
+    # normal streaming path. Older terminal records stay in the audit trail but
+    # must never win canonical selection over a later capture.
+    canonical = max(pending, key=lambda item: (int(item.get("sequence", 0)), str(item.get("messageId", ""))))
     task = outbox.task_view(run_id) or {}
     events = task.get("events", []) if isinstance(task, Mapping) else []
     event_summaries = [
@@ -591,12 +601,46 @@ async def _finalize_task_result(
         updates["summaryError"] = result.get("reason", "llm-request-failed")
         outbox.finalize_pending_message(str(canonical["messageId"]), metadata_updates=updates)
         runtime.record_coverage("taskSummary", "degraded")
-    for duplicate in pending[1:]:
+    for duplicate in pending:
+        if duplicate.get("messageId") == canonical.get("messageId"):
+            continue
         try:
             outbox.absorb_message(str(duplicate["messageId"]))
         except (KeyError, ValueError):
             # A concurrent/replayed finalization may already have absorbed it.
             continue
+
+
+async def _wait_for_stable_run_results(outbox: Any, run_id: str) -> list[dict[str, Any]]:
+    """Wait briefly for late terminal captures, then return a stable snapshot."""
+
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + TASK_RESULT_SETTLE_TIMEOUT_SECONDS
+    previous_signature: tuple[tuple[str, int, str], ...] | None = None
+    stable_since: float | None = None
+    latest: list[dict[str, Any]] = []
+    while True:
+        latest = outbox.pending_run_results(run_id)
+        signature = tuple(
+            (
+                str(item.get("messageId", "")),
+                int(item.get("sequence", 0)),
+                str(item.get("contentSha256", "")),
+            )
+            for item in latest
+        )
+        now = loop.time()
+        if latest and signature == previous_signature:
+            if stable_since is None:
+                stable_since = now
+            if now - stable_since >= TASK_RESULT_SETTLE_DELAY_SECONDS:
+                return latest
+        else:
+            previous_signature = signature
+            stable_since = now if latest else None
+        if now >= deadline:
+            return latest
+        await asyncio.sleep(0.01)
 
 
 async def _record_inbound(

@@ -1,5 +1,23 @@
 # Bug Fixes
 
+## 2026-08-30 - RWA 任务终态报告未到达微信
+
+- **Problem:** 同一 `runId` 在 Hermes 结束边界产生了多条 `final` 消息。Bridge 在 `completing` 后立即快照，只看到了较早的短结果；Gateway 又按最早结果选择 canonical，较晚的完整 RWA 报告因此被标记为 `absorbed`，没有发生微信投递。
+- **Impact:** Web 的合并列表能看到完整报告，但微信只收到任务回执和中间短消息，用户误以为最终结果丢失。现场记录显示完整报告 `seq=471` 的 `attemptCount=0`、`providerMessageId=null`，不是微信拒收或网络断流。
+- **Changed scope:** Bridge 增加短暂终态稳定窗口，等待晚到的 final/failure 捕获后按最新序列选择 canonical，并吸收旧重复结果；Gateway 在 `done/failed` 后再等待 500ms 终态稳定窗口，并按最新活动终态结果竞争 canonical，避免短结果抢先投递。保留 Outbox 幂等、审计和原始结果回退，不修改协议 v1 或历史积压。
+- **Regression coverage:** Gateway 消息策略、重协调和存储聚焦测试共 48 项通过；新增“短结果先到、完整结果晚到、终态后只投递完整结果一次”回归；WSL Bridge 新增晚到捕获与 canonical 提升测试通过。Windows Bridge 全量测试仍受 NTFS token `0600` 环境门禁影响，未将该环境失败归因于本次改动。
+- **Verification:** `corepack pnpm --filter @butler/gateway exec tsc --noEmit`；`corepack pnpm exec vitest run apps/gateway/tests/message-policy.test.ts apps/gateway/tests/message-reconciler.test.ts apps/gateway/tests/message-store.test.ts`；WSL `uv run ... unittest ...HermesHooksTest.test_finalizer_waits_for_late_result_and_promotes_latest_capture`；`git diff --check`。
+- **Runtime validation:** 修复部署后需在 WSL 重建 Gateway/Bridge，复核 `attached=true`、`outboxWritable=true`，并用新 `runId` 确认微信只收到一条终态报告；不得迁移或重发本次历史 `seq=471`。
+
+## 2026-08-30 - Bridge 健康检查在 WSL 宿主误报
+
+- **Problem:** `scripts/bridge-healthcheck.sh` 将完整 JSON 响应放入环境变量后交给 Node 解析，在 Windows/WSL 混合 shell 下会出现探针解析失败，即使 Bridge 已返回 `attached=true` 与 `outboxWritable=true`。
+- **Impact:** 发布验收会错误显示 Bridge FAIL，掩盖真实的 Gateway/转发器健康状态，增加重复重启或回滚风险。
+- **Changed scope:** 健康检查改为通过标准输入交给 Python JSON 解析；同时更新 Hermes API hook 的历史生命周期断言，明确 `completing` 不再在任务仍运行时产生。
+- **Regression coverage:** `bash scripts/bridge-healthcheck.sh` 返回 0 个 FAIL；WSL `tests/test_hermes_hooks.py` 16 项通过。
+- **Verification:** `corepack pnpm version:check`；`corepack pnpm exec tsc -b --pretty false`；Gateway 57 项聚焦测试；`git diff --check`。
+- **Runtime validation:** WSL Bridge `/v1/health` 返回 `bridgeVersion=1.0.0-beta.15`、`attached=true`、`outboxWritable=true`；Compose 四个服务均为 `running + healthy`。
+
 ## 2026-08-30 - Docker Desktop/WSL 真实部署验收
 
 - **Problem:** 使用 Windows NTFS 下的 `.runtime\\hermes` 作为 Hermes Bridge 运行时目录时，容器内 token 文件无法满足 Linux `0600` 私有权限检查，Gateway 按设计拒绝启动；WSL 原生 Docker 还不能重复启用已存在的 `8755` 转发器。
@@ -151,6 +169,7 @@
 - **Changed scope:** `packages/installer/tests/install.test.ts` now creates and removes its own writable temporary directory. `.github/workflows/ci.yml` upgrades `actions/checkout` from v4 to v5 to remove the Node 20 action-runtime deprecation warning.
 - **Regression coverage:** The existing invalid merged-Compose test continues to assert that Compose validation fails and `docker compose up` is not invoked.
 - **Verification:** `pnpm test --maxWorkers=4`, `pnpm lint`, `pnpm build`, and `git diff --check`.
+
 ## 2026-08-28 - 版本页刷新超时导致最新版本不可见
 
 - **Problem:** Web 的 `/api/butler/self` 使用 5 秒统一超时；Watch 刷新版本时还要访问 Updater 与 GitHub，慢响应会被 Web 误判为不可达并返回空的 `availableUpdates`。
@@ -158,6 +177,7 @@
 - **Changed scope:** `apps/web/src/server.ts` 为 Watch GET 代理增加可配置超时，并将自身版本刷新超时提高到 30 秒；`ui/src/pages/versions/VersionsPage.tsx` 对应延长前端请求等待时间；不改变其他高频控制接口的 5 秒降级语义。
 - **Regression coverage:** 新增慢响应回归测试；`pnpm exec vitest run apps/web/tests/butler-self.test.ts --run`（5 passed）；`pnpm exec tsc -b --pretty false`；`pnpm --filter @butler/ui exec vitest run tests/api.test.ts --run`；`git diff --check`。
 - **Runtime validation:** 重建 WSL Compose Web/Watch/Updater；`GET http://127.0.0.1:7531/api/butler/self` 在约 6.7 秒内返回 `reachable: true`，当前版本 `1.0.0-beta.12`，并包含 GitHub `v1.0.0-beta.12` 更新记录。
+
 ## 2026-08-28 - 进化页改为基于 Hermes 错误日志的确认式工作台
 
 - **问题：** 进化页原先要求客户手工选择技能并直接创建提案，无法解释 Hermes 日志中的重复错误；配置、网络和依赖故障被用户感知为全局阻断，历史目标 `teams-meeting-pipeline` 还可能进入可操作流程。

@@ -113,7 +113,14 @@ const ALL_OUTBOX_STATES: readonly OutboxState[] = [
   "dead_letter",
   "cancelled",
 ];
-const DECISION_STATES = new Set(["held_dnd", "held_pacing", "ready", "absorbed", "policy_error", "cancelled"]);
+const DECISION_STATES = new Set([
+  "held_dnd",
+  "held_pacing",
+  "ready",
+  "absorbed",
+  "policy_error",
+  "cancelled",
+]);
 const TRANSPORT_CLASSES = new Set(["queued-push", "inline-response"]);
 const MESSAGE_PRIORITIES = new Set(["urgent", "normal", "low"]);
 const DND_SCOPES = new Set(["global", "channel", "session"]);
@@ -270,7 +277,10 @@ export class MessagePolicyStore {
     });
   }
 
-  listPolicyCandidates(now: string = new Date().toISOString(), instanceId?: string): ProjectedMessageView[] {
+  listPolicyCandidates(
+    now: string = new Date().toISOString(),
+    instanceId?: string,
+  ): ProjectedMessageView[] {
     if (instanceId !== undefined) requireNonEmptyString(instanceId, "instanceId");
     const statement = this.db.prepare(
       `SELECT * FROM message_projection
@@ -281,7 +291,9 @@ export class MessagePolicyStore {
        ${instanceId === undefined ? "" : "AND instance_id = ?"}
        ORDER BY bridge_sequence ASC, instance_id ASC, message_id ASC`,
     );
-    const rows = (instanceId === undefined ? statement.all(now) : statement.all(now, instanceId)) as Record<string, unknown>[];
+    const rows = (
+      instanceId === undefined ? statement.all(now) : statement.all(now, instanceId)
+    ) as Record<string, unknown>[];
     return rows.map((row) => this.mapMessage(row));
   }
 
@@ -313,7 +325,12 @@ export class MessagePolicyStore {
       );
   }
 
-  earliestActiveRunResult(message: OutboxMessageView): ProjectedMessageView | undefined {
+  /**
+   * Returns the newest active terminal result for a run. A later capture is
+   * preferred because Hermes can emit a short answer before the assembled
+   * final report is persisted.
+   */
+  latestActiveRunResult(message: OutboxMessageView): ProjectedMessageView | undefined {
     if (typeof message.runId !== "string" || message.runId === "") return undefined;
     const rows = this.db
       .prepare(
@@ -323,7 +340,7 @@ export class MessagePolicyStore {
            OR (state IN ('delivered', 'absorbed', 'dead_letter', 'delivery_unknown')
                AND json_extract(payload_json, '$.metadata.taskCanonical') = 1)
          )
-         ORDER BY bridge_sequence ASC, instance_id ASC, message_id ASC`,
+         ORDER BY bridge_sequence DESC, instance_id DESC, message_id DESC`,
       )
       .all() as Record<string, unknown>[];
     return rows
@@ -336,18 +353,27 @@ export class MessagePolicyStore {
           candidate.channel === message.channel &&
           candidate.chatId === message.chatId &&
           candidate.runId === message.runId &&
-          ((candidate.inboundMessageId !== undefined && candidate.inboundMessageId !== null &&
-            message.inboundMessageId !== undefined && message.inboundMessageId !== null &&
+          ((candidate.inboundMessageId !== undefined &&
+            candidate.inboundMessageId !== null &&
+            message.inboundMessageId !== undefined &&
+            message.inboundMessageId !== null &&
             candidate.inboundMessageId === message.inboundMessageId) ||
-            candidate.metadata.taskCanonical === true) &&
-          (candidate.sequence < message.sequence ||
-            (candidate.sequence === message.sequence && candidate.messageId < message.messageId)),
+            candidate.metadata.taskCanonical === true),
       );
   }
 
+  /** @deprecated Use latestActiveRunResult; retained for Bridge v1 callers. */
+  earliestActiveRunResult(message: OutboxMessageView): ProjectedMessageView | undefined {
+    return this.latestActiveRunResult(message);
+  }
+
   /** Returns the earliest pending no-run Weixin notification in a chat batch. */
-  earliestActiveChatBatchHolder(message: OutboxMessageView, windowSec = 120): ProjectedMessageView | undefined {
-    if (message.channel !== "weixin" || (message.runId !== undefined && message.runId !== null)) return undefined;
+  earliestActiveChatBatchHolder(
+    message: OutboxMessageView,
+    windowSec = 120,
+  ): ProjectedMessageView | undefined {
+    if (message.channel !== "weixin" || (message.runId !== undefined && message.runId !== null))
+      return undefined;
     const rows = this.db
       .prepare(
         `SELECT * FROM message_projection
@@ -364,8 +390,11 @@ export class MessagePolicyStore {
           candidate.channel === message.channel &&
           candidate.chatId === message.chatId &&
           (candidate.runId === undefined || candidate.runId === null) &&
-          (candidate.messageKind === "system" || candidate.messageKind === "alert" || candidate.metadata.proactive === true) &&
-          Math.abs(Date.parse(message.capturedAt) - Date.parse(candidate.capturedAt)) <= Math.max(0, windowSec) * 1_000 &&
+          (candidate.messageKind === "system" ||
+            candidate.messageKind === "alert" ||
+            candidate.metadata.proactive === true) &&
+          Math.abs(Date.parse(message.capturedAt) - Date.parse(candidate.capturedAt)) <=
+            Math.max(0, windowSec) * 1_000 &&
           (candidate.sequence < message.sequence ||
             (candidate.sequence === message.sequence && candidate.messageId < message.messageId)),
       );
@@ -419,13 +448,17 @@ export class MessagePolicyStore {
       .prepare("SELECT pending_decision_json FROM message_projection WHERE message_id = ?")
       .get(messageId) as Record<string, unknown> | undefined;
     const payload = row?.["pending_decision_json"] as string | null | undefined;
-    return payload === null || payload === undefined ? undefined : (JSON.parse(payload) as MessageDecision);
+    return payload === null || payload === undefined
+      ? undefined
+      : (JSON.parse(payload) as MessageDecision);
   }
 
   clearPendingDecision(messageId: string): void {
     this.withImmediateTransaction(() => {
       this.db
-        .prepare("UPDATE message_projection SET pending_decision_json = NULL, updated_at = ? WHERE message_id = ?")
+        .prepare(
+          "UPDATE message_projection SET pending_decision_json = NULL, updated_at = ? WHERE message_id = ?",
+        )
         .run(new Date().toISOString(), messageId);
     });
   }
@@ -453,7 +486,9 @@ export class MessagePolicyStore {
       .get() as Record<string, unknown> | undefined;
     if (row === undefined) return undefined;
 
-    const snapshot = this.canonicalPolicySnapshot(JSON.parse(String(row["payload_json"])) as MessagePolicyConfig);
+    const snapshot = this.canonicalPolicySnapshot(
+      JSON.parse(String(row["payload_json"])) as MessagePolicyConfig,
+    );
     if (snapshot.version !== String(row["version"]) || snapshot.sha256 !== String(row["sha256"])) {
       throw new Error("stored message policy failed canonical hash validation");
     }
@@ -517,13 +552,14 @@ export class MessagePolicyStore {
 
   deleteDndRule(ruleId: string): boolean {
     requireNonEmptyString(ruleId, "ruleId");
-    return Number(this.db.prepare("DELETE FROM dnd_rules WHERE rule_id = ?").run(ruleId).changes) === 1;
+    return (
+      Number(this.db.prepare("DELETE FROM dnd_rules WHERE rule_id = ?").run(ruleId).changes) === 1
+    );
   }
 
   getPacingLane(laneKey: string): PacingLane | undefined {
     const row = this.db.prepare("SELECT * FROM pacing_lanes WHERE lane_key = ?").get(laneKey) as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
     return row === undefined ? undefined : this.mapPacingLane(row);
   }
 
@@ -562,8 +598,7 @@ export class MessagePolicyStore {
 
   getPrewarm(channel: string): PrewarmCacheEntry | undefined {
     const row = this.db.prepare("SELECT * FROM prewarm_cache WHERE channel = ?").get(channel) as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
     return row === undefined ? undefined : this.mapPrewarm(row);
   }
 
@@ -585,8 +620,7 @@ export class MessagePolicyStore {
 
   taskView(runId: string): TaskProjectionView | undefined {
     const row = this.db.prepare("SELECT * FROM task_projection WHERE run_id = ?").get(runId) as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
     if (row === undefined) return undefined;
     const eventRows = this.db
       .prepare(
@@ -605,9 +639,9 @@ export class MessagePolicyStore {
   }
 
   messageView(messageId: string): ProjectedMessageView | undefined {
-    const row = this.db.prepare("SELECT * FROM message_projection WHERE message_id = ?").get(messageId) as
-      | Record<string, unknown>
-      | undefined;
+    const row = this.db
+      .prepare("SELECT * FROM message_projection WHERE message_id = ?")
+      .get(messageId) as Record<string, unknown> | undefined;
     return row === undefined ? undefined : this.mapMessage(row);
   }
 
@@ -621,12 +655,17 @@ export class MessagePolicyStore {
        ORDER BY bridge_sequence DESC, instance_id ASC, message_id ASC
        LIMIT ?`,
     );
-    const rows = (state === undefined ? statement.all(limit) : statement.all(state, limit)) as Record<string, unknown>[];
+    const rows = (
+      state === undefined ? statement.all(limit) : statement.all(state, limit)
+    ) as Record<string, unknown>[];
     return rows.map((row) => this.mapMessage(row));
   }
 
   counts(): Record<OutboxState, number> {
-    const counts = Object.fromEntries(ALL_OUTBOX_STATES.map((state) => [state, 0])) as Record<OutboxState, number>;
+    const counts = Object.fromEntries(ALL_OUTBOX_STATES.map((state) => [state, 0])) as Record<
+      OutboxState,
+      number
+    >;
     const rows = this.db
       .prepare("SELECT state, COUNT(*) AS count FROM message_projection GROUP BY state")
       .all() as Record<string, unknown>[];
@@ -643,7 +682,15 @@ export class MessagePolicyStore {
     const rows = this.db
       .prepare("SELECT payload_json, state, updated_at FROM message_projection")
       .all() as Record<string, unknown>[];
-    const pendingStates = new Set(["captured", "policy_pending", "held_dnd", "held_pacing", "ready", "delivering", "retry_wait"]);
+    const pendingStates = new Set([
+      "captured",
+      "policy_pending",
+      "held_dnd",
+      "held_pacing",
+      "ready",
+      "delivering",
+      "retry_wait",
+    ]);
     let absorbedProgress = 0;
     let pendingFinalResults = 0;
     let rateLimited = 0;
@@ -664,14 +711,24 @@ export class MessagePolicyStore {
       if (!isRecent) continue;
       if (/\b429\b|rate[- ]?limit/i.test(error)) {
         rateLimited += 1;
-        if (lastRateLimitedAt === null || updatedAt > lastRateLimitedAt) lastRateLimitedAt = updatedAt;
+        if (lastRateLimitedAt === null || updatedAt > lastRateLimitedAt)
+          lastRateLimitedAt = updatedAt;
       }
       if (/disconnect|network|timeout|econn|unreachable|connection/i.test(error)) {
         connectionFailures += 1;
-        if (lastConnectionFailureAt === null || updatedAt > lastConnectionFailureAt) lastConnectionFailureAt = updatedAt;
+        if (lastConnectionFailureAt === null || updatedAt > lastConnectionFailureAt)
+          lastConnectionFailureAt = updatedAt;
       }
     }
-    return { absorbedProgress, pendingFinalResults, rateLimited, connectionFailures, deliveryUnknown, lastRateLimitedAt, lastConnectionFailureAt };
+    return {
+      absorbedProgress,
+      pendingFinalResults,
+      rateLimited,
+      connectionFailures,
+      deliveryUnknown,
+      lastRateLimitedAt,
+      lastConnectionFailureAt,
+    };
   }
 
   /**
@@ -698,7 +755,8 @@ export class MessagePolicyStore {
       );
       for (const row of rows) {
         const payload = JSON.parse(String(row["payload_json"])) as OutboxMessageView;
-        if (payload.messageKind !== "task-progress" || payload.metadata.solicitedReply === true) continue;
+        if (payload.messageKind !== "task-progress" || payload.metadata.solicitedReply === true)
+          continue;
         const updated: OutboxMessageView = {
           ...payload,
           state: "absorbed",
@@ -748,7 +806,9 @@ export class MessagePolicyStore {
     for (const row of rows) {
       const bucket = buckets.get(String(row["day"]));
       if (bucket === undefined) continue;
-      bucket[String(row["outcome"]) as "delivered" | "failed" | "uncertain"] += Number(row["count"]);
+      bucket[String(row["outcome"]) as "delivered" | "failed" | "uncertain"] += Number(
+        row["count"],
+      );
     }
     return [...buckets.entries()].map(([date, value]) => ({ date, ...value }));
   }
@@ -757,7 +817,9 @@ export class MessagePolicyStore {
    * Removes only terminal local projections older than the retention cutoff. The Bridge
    * outbox remains authoritative and is never mutated by this local housekeeping pass.
    */
-  pruneMessageHistory(cutoff = new Date(Date.now() - MESSAGE_HISTORY_RETENTION_MS).toISOString()): number {
+  pruneMessageHistory(
+    cutoff = new Date(Date.now() - MESSAGE_HISTORY_RETENTION_MS).toISOString(),
+  ): number {
     requireIsoTimestamp(cutoff, "cutoff");
     return this.withImmediateTransaction(() => {
       const result = this.db
@@ -772,7 +834,10 @@ export class MessagePolicyStore {
     });
   }
 
-  private resolveBatchInstanceId(batch: OutboxChangeBatch, explicitInstanceId?: string): string | undefined {
+  private resolveBatchInstanceId(
+    batch: OutboxChangeBatch,
+    explicitInstanceId?: string,
+  ): string | undefined {
     const ids = new Set<string>();
     for (const item of batch.items) ids.add(item.instanceId);
     for (const inbound of batch.inbound) ids.add(inbound.instanceId);
@@ -780,13 +845,20 @@ export class MessagePolicyStore {
     if (explicitInstanceId !== undefined) {
       requireNonEmptyString(explicitInstanceId, "instanceId");
       if (ids.size === 1 && ids.values().next().value !== explicitInstanceId) {
-        throw new Error(`explicit instanceId ${explicitInstanceId} does not match the batch envelope`);
+        throw new Error(
+          `explicit instanceId ${explicitInstanceId} does not match the batch envelope`,
+        );
       }
       return explicitInstanceId;
     }
     if (ids.size === 1) return ids.values().next().value as string;
 
-    if (batch.nextSequence === batch.afterSequence && batch.items.length === 0 && batch.taskEvents.length === 0 && batch.inbound.length === 0) {
+    if (
+      batch.nextSequence === batch.afterSequence &&
+      batch.items.length === 0 &&
+      batch.taskEvents.length === 0 &&
+      batch.inbound.length === 0
+    ) {
       return undefined;
     }
 
@@ -794,7 +866,9 @@ export class MessagePolicyStore {
       .prepare("SELECT instance_id FROM bridge_cursors WHERE sequence = ?")
       .all(batch.afterSequence) as Record<string, unknown>[];
     if (candidates.length === 1) return String(candidates[0]["instance_id"]);
-    throw new Error("cannot determine Bridge instance for a non-empty batch without a message or inbound envelope");
+    throw new Error(
+      "cannot determine Bridge instance for a non-empty batch without a message or inbound envelope",
+    );
   }
 
   private upsertMessage(
@@ -892,7 +966,10 @@ export class MessagePolicyStore {
     for (const row of rows) {
       let deliveredAt: string | undefined;
       try {
-        const payload = JSON.parse(String(row["payload_json"] ?? "null")) as Record<string, unknown>;
+        const payload = JSON.parse(String(row["payload_json"] ?? "null")) as Record<
+          string,
+          unknown
+        >;
         if (typeof payload.deliveredAt === "string") deliveredAt = payload.deliveredAt;
       } catch {
         // Ignore malformed legacy payloads; updated_at remains a usable observation time.
@@ -935,7 +1012,14 @@ export class MessagePolicyStore {
            payload_json = excluded.payload_json,
            updated_at = excluded.updated_at`,
       )
-      .run(runId, latest.sessionId, latest.kind, latest.sequence, JSON.stringify(latest), updatedAt);
+      .run(
+        runId,
+        latest.sessionId,
+        latest.kind,
+        latest.sequence,
+        JSON.stringify(latest),
+        updatedAt,
+      );
   }
 
   private mapMessage(row: Record<string, unknown>): ProjectedMessageView {
@@ -993,9 +1077,14 @@ export class MessagePolicyStore {
 
   private canonicalPolicySnapshot(policy: MessagePolicyConfig | PolicySnapshot): PolicySnapshot {
     const payload = "payload" in policy ? policy.payload : policy;
-    const canonicalPayload = JSON.parse(JSON.stringify(canonicalize(payload))) as MessagePolicyConfig;
+    const canonicalPayload = JSON.parse(
+      JSON.stringify(canonicalize(payload)),
+    ) as MessagePolicyConfig;
     const snapshot = createPolicySnapshot(canonicalPayload);
-    if ("sha256" in policy && (policy.sha256 !== snapshot.sha256 || policy.version !== snapshot.version)) {
+    if (
+      "sha256" in policy &&
+      (policy.sha256 !== snapshot.sha256 || policy.version !== snapshot.version)
+    ) {
       throw new Error("message policy snapshot does not match its canonical payload");
     }
     return snapshot;
@@ -1018,7 +1107,11 @@ function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalize);
   if (value !== null && typeof value === "object") {
     const object = value as Record<string, unknown>;
-    return Object.fromEntries(Object.keys(object).sort().map((key) => [key, canonicalize(object[key])]));
+    return Object.fromEntries(
+      Object.keys(object)
+        .sort()
+        .map((key) => [key, canonicalize(object[key])]),
+    );
   }
   return value;
 }
@@ -1029,7 +1122,11 @@ function validateBatch(batch: OutboxChangeBatch): void {
   if (batch.nextSequence < batch.afterSequence) {
     throw new Error("batch.nextSequence must be no smaller than batch.afterSequence");
   }
-  if (!Array.isArray(batch.items) || !Array.isArray(batch.taskEvents) || !Array.isArray(batch.inbound)) {
+  if (
+    !Array.isArray(batch.items) ||
+    !Array.isArray(batch.taskEvents) ||
+    !Array.isArray(batch.inbound)
+  ) {
     throw new Error("batch items, taskEvents, and inbound must be arrays");
   }
   for (const item of batch.items) validateOutboxMessage(item);
@@ -1048,8 +1145,10 @@ function validateOutboxMessage(row: OutboxMessageView): void {
   if (!(MESSAGE_KINDS as readonly string[]).includes(row.messageKind)) {
     throw new Error(`messageKind is not supported: ${row.messageKind}`);
   }
-  if (!TRANSPORT_CLASSES.has(row.transport)) throw new Error(`transport is not supported: ${row.transport}`);
-  if (!MESSAGE_PRIORITIES.has(row.priority)) throw new Error(`priority is not supported: ${row.priority}`);
+  if (!TRANSPORT_CLASSES.has(row.transport))
+    throw new Error(`transport is not supported: ${row.transport}`);
+  if (!MESSAGE_PRIORITIES.has(row.priority))
+    throw new Error(`priority is not supported: ${row.priority}`);
   requireNonEmptyString(row.content, "content");
   requireNonEmptyString(row.contentSha256, "contentSha256");
   requireIsoTimestamp(row.capturedAt, "capturedAt");
@@ -1104,8 +1203,10 @@ function validateMessageDecision(decision: MessageDecision): void {
   requireNonEmptyString(decision.decisionId, "decisionId");
   requireNonEmptyString(decision.messageId, "decision.messageId");
   requireNonEmptyString(decision.expectedContentSha256, "decision.expectedContentSha256");
-  if (!DECISION_STATES.has(decision.state)) throw new Error(`decision.state is not supported: ${decision.state}`);
-  if (decision.availableAt !== undefined) requireIsoTimestamp(decision.availableAt, "decision.availableAt");
+  if (!DECISION_STATES.has(decision.state))
+    throw new Error(`decision.state is not supported: ${decision.state}`);
+  if (decision.availableAt !== undefined)
+    requireIsoTimestamp(decision.availableAt, "decision.availableAt");
   if (decision.optimizedContent !== undefined && typeof decision.optimizedContent !== "string") {
     throw new Error("decision.optimizedContent must be a string when provided");
   }
@@ -1154,7 +1255,8 @@ function validatePrewarmCacheEntry(entry: PrewarmCacheEntry): void {
 }
 
 function requireNonEmptyString(value: unknown, field: string): asserts value is string {
-  if (typeof value !== "string" || value.trim() === "") throw new Error(`${field} must be a non-empty string`);
+  if (typeof value !== "string" || value.trim() === "")
+    throw new Error(`${field} must be a non-empty string`);
 }
 
 function requireString(value: unknown, field: string): asserts value is string {
@@ -1170,7 +1272,8 @@ function validateNullableString(value: unknown, field: string): void {
 }
 
 function requireNonNegativeInteger(value: unknown, field: string): void {
-  if (!Number.isInteger(value) || Number(value) < 0) throw new Error(`${field} must be a non-negative integer`);
+  if (!Number.isInteger(value) || Number(value) < 0)
+    throw new Error(`${field} must be a non-negative integer`);
 }
 
 function requireFiniteNonNegative(value: unknown, field: string): void {
@@ -1240,7 +1343,10 @@ function validateMinutePair(startMinute: unknown, endMinute: unknown): void {
   if (startMinute === null || endMinute === null) {
     throw new Error("startMinute and endMinute must both be null or both be set");
   }
-  for (const [field, value] of [["startMinute", startMinute], ["endMinute", endMinute]] as const) {
+  for (const [field, value] of [
+    ["startMinute", startMinute],
+    ["endMinute", endMinute],
+  ] as const) {
     if (!Number.isInteger(value) || Number(value) < 0 || Number(value) >= 24 * 60) {
       throw new Error(`${field} must be an integer from 0 through 1439`);
     }

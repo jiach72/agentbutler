@@ -16,6 +16,8 @@ import type { PacingLane } from "./store.js";
 import { MessagePolicyStore } from "./store.js";
 import type { MessagePolicyConfig } from "./types.js";
 
+const TASK_RESULT_STABILIZATION_MS = 500;
+
 export class MessageWorkerError extends Error {
   constructor(operation: string, detail: string) {
     super(`${operation} failed: ${detail}`);
@@ -47,14 +49,20 @@ export class MessageReconciler {
     const cursor = this.options.store.cursor(this.options.instance.instanceId);
     let batch;
     try {
-      batch = unwrap(await this.options.adapter.listChanges(this.options.instance, cursor, 200), "list changes");
+      batch = unwrap(
+        await this.options.adapter.listChanges(this.options.instance, cursor, 200),
+        "list changes",
+      );
     } catch (error) {
       throw workerError("list changes", error);
     }
     // Projection and cursor are durable before any side-effecting policy call.
     this.options.store.ingestBatch(batch, this.options.instance.instanceId);
 
-    const candidate = this.options.store.listPolicyCandidates(now, this.options.instance.instanceId)[0];
+    const candidate = this.options.store.listPolicyCandidates(
+      now,
+      this.options.instance.instanceId,
+    )[0];
     if (candidate === undefined || candidate.state === "delivery_unknown") return;
     await this.processCandidate(candidate, now);
   }
@@ -119,17 +127,33 @@ export class MessageReconciler {
 
   private decide(message: OutboxMessageView, now: string) {
     const channelPolicy = this.options.config.channels[message.channel];
-    const channelLane = this.lane(`channel:${message.channel}`, message.channel, null, channelPolicy?.initialRatePerMin ?? 1);
-    const chatLane = this.lane(`chat:${message.channel}:${message.chatId}`, message.channel, message.chatId, channelPolicy?.initialRatePerMin ?? 1);
+    const channelLane = this.lane(
+      `channel:${message.channel}`,
+      message.channel,
+      null,
+      channelPolicy?.initialRatePerMin ?? 1,
+    );
+    const chatLane = this.lane(
+      `chat:${message.channel}:${message.chatId}`,
+      message.channel,
+      message.chatId,
+      channelPolicy?.initialRatePerMin ?? 1,
+    );
     const result = decideOutboundPolicy({
       message,
       holder:
         message.messageKind === "final" || message.messageKind === "failure"
-          ? this.options.store.earliestActiveRunResult(message)
+          ? this.options.store.latestActiveRunResult(message)
           : message.channel === "weixin" && (message.runId === undefined || message.runId === null)
-            ? this.options.store.earliestActiveChatBatchHolder(message, this.options.config.digest.windowSec)
-          : this.options.store.earliestActiveProgressHolder(message),
-      taskEvents: typeof message.runId === "string" && message.runId !== "" ? (this.options.store.taskView(message.runId)?.events ?? []) : [],
+            ? this.options.store.earliestActiveChatBatchHolder(
+                message,
+                this.options.config.digest.windowSec,
+              )
+            : this.options.store.earliestActiveProgressHolder(message),
+      taskEvents:
+        typeof message.runId === "string" && message.runId !== ""
+          ? (this.options.store.taskView(message.runId)?.events ?? [])
+          : [],
       dndRules: this.options.store.resolveDndRules(),
       channelLane,
       chatLane,
@@ -150,7 +174,30 @@ export class MessageReconciler {
       return undefined;
     }
     const task = this.options.store.taskView(message.runId);
-    if (task === undefined || task.state === "done" || task.state === "failed") return undefined;
+    if (task === undefined) return undefined;
+    if (task.state === "done" || task.state === "failed") {
+      const terminalEvent = [...task.events]
+        .reverse()
+        .find((event) => event.kind === "done" || event.kind === "failed");
+      const terminalAt = terminalEvent?.occurredAt ?? task.updatedAt;
+      const terminalAtMs = Date.parse(terminalAt);
+      const nowMs = Date.parse(now);
+      if (Number.isFinite(terminalAtMs) && Number.isFinite(nowMs)) {
+        const availableAtMs = terminalAtMs + TASK_RESULT_STABILIZATION_MS;
+        if (availableAtMs > nowMs) {
+          return buildMessageDecision(
+            message,
+            this.options.config.version,
+            "held_pacing",
+            [...message.transformTrace, "task:awaiting-result-stability"],
+            "waiting for late terminal results",
+            undefined,
+            new Date(availableAtMs).toISOString(),
+          );
+        }
+      }
+      return undefined;
+    }
     const availableAt = new Date(Date.parse(now) + 1_000).toISOString();
     return buildMessageDecision(
       message,
@@ -163,12 +210,18 @@ export class MessageReconciler {
     );
   }
 
-  private async prewarm(message: OutboxMessageView, now: string): Promise<{ trace: string[]; hold?: MessageDecision }> {
+  private async prewarm(
+    message: OutboxMessageView,
+    now: string,
+  ): Promise<{ trace: string[]; hold?: MessageDecision }> {
     const cached = this.options.store.getPrewarm(message.channel);
     if (cached?.warmed && cached.expiresAt !== null && cached.expiresAt > now) return { trace: [] };
     let ack: PrewarmAck;
     try {
-      ack = unwrap(await this.options.adapter.prewarmChannel(this.options.instance, message.channel), "prewarm");
+      ack = unwrap(
+        await this.options.adapter.prewarmChannel(this.options.instance, message.channel),
+        "prewarm",
+      );
     } catch {
       return this.prewarmFailure(message, now, "prewarm:failed");
     }
@@ -183,20 +236,40 @@ export class MessageReconciler {
     return this.prewarmFailure(message, now, "prewarm:unwarmed");
   }
 
-  private prewarmFailure(message: OutboxMessageView, now: string, trace: string): { trace: string[]; hold?: MessageDecision } {
-    if (message.priority === "urgent" || message.messageKind === "failure") return { trace: [trace] };
-    const retryAt = new Date(Date.parse(now) + this.options.config.delivery.retryBaseSec * 1_000).toISOString();
+  private prewarmFailure(
+    message: OutboxMessageView,
+    now: string,
+    trace: string,
+  ): { trace: string[]; hold?: MessageDecision } {
+    if (message.priority === "urgent" || message.messageKind === "failure")
+      return { trace: [trace] };
+    const retryAt = new Date(
+      Date.parse(now) + this.options.config.delivery.retryBaseSec * 1_000,
+    ).toISOString();
     return {
       trace: [trace],
-      hold: buildMessageDecision(message, this.options.config.version, "held_pacing", ["policy:queued-push", trace], "channel prewarm unavailable", undefined, retryAt),
+      hold: buildMessageDecision(
+        message,
+        this.options.config.version,
+        "held_pacing",
+        ["policy:queued-push", trace],
+        "channel prewarm unavailable",
+        undefined,
+        retryAt,
+      ),
     };
   }
 
-  private async applyDecision(decision: MessageDecision): Promise<{ row: OutboxMessageView; mismatch: boolean }> {
+  private async applyDecision(
+    decision: MessageDecision,
+  ): Promise<{ row: OutboxMessageView; mismatch: boolean }> {
     this.options.store.stageDecision(decision.messageId, decision);
     let row: OutboxMessageView;
     try {
-      row = unwrap(await this.options.adapter.decideOutbound(this.options.instance, decision), "decision");
+      row = unwrap(
+        await this.options.adapter.decideOutbound(this.options.instance, decision),
+        "decision",
+      );
     } catch (error) {
       throw workerError("decision", error);
     }
@@ -204,8 +277,16 @@ export class MessageReconciler {
     return { row, mismatch: row.state !== decision.state };
   }
 
-  private async deliverReady(row: OutboxMessageView, now: string, readyDecisionId: string): Promise<void> {
-    const request = { messageId: row.messageId, attemptId: this.randomUUID(), expectedContentSha256: row.contentSha256 };
+  private async deliverReady(
+    row: OutboxMessageView,
+    now: string,
+    readyDecisionId: string,
+  ): Promise<void> {
+    const request = {
+      messageId: row.messageId,
+      attemptId: this.randomUUID(),
+      expectedContentSha256: row.contentSha256,
+    };
     let ack: DeliveryAck;
     try {
       ack = unwrap(await this.options.adapter.deliver(this.options.instance, request), "delivery");
@@ -217,7 +298,8 @@ export class MessageReconciler {
       throw new MessageWorkerError("delivery", "Bridge acknowledgement does not match request");
     }
     const attemptCount = row.attemptCount + 1;
-    const availableAt = ack.state === "retry_wait" ? retryAt(now, attemptCount, this.options.config) : null;
+    const availableAt =
+      ack.state === "retry_wait" ? retryAt(now, attemptCount, this.options.config) : null;
     const local: OutboxMessageView = {
       ...row,
       state: ack.state,
@@ -236,17 +318,41 @@ export class MessageReconciler {
     }
   }
 
-  private lane(laneKey: string, channel: string, chatId: string | null, initialRatePerMin: number): PacingLane {
+  private lane(
+    laneKey: string,
+    channel: string,
+    chatId: string | null,
+    initialRatePerMin: number,
+  ): PacingLane {
     const existing = this.options.store.getPacingLane(laneKey);
     if (existing !== undefined) return existing;
-    return this.options.store.savePacingLane({ laneKey, channel, chatId, ratePerMin: initialRatePerMin, successCount: 0, cooldownUntil: null, lastSentAt: null, lastCongestionReason: null });
+    return this.options.store.savePacingLane({
+      laneKey,
+      channel,
+      chatId,
+      ratePerMin: initialRatePerMin,
+      successCount: 0,
+      cooldownUntil: null,
+      lastSentAt: null,
+      lastCongestionReason: null,
+    });
   }
 
   private recordSuccess(message: OutboxMessageView, now: string): void {
     const policy = this.options.config.channels[message.channel];
     if (policy === undefined) return;
-    const channel = this.lane(`channel:${message.channel}`, message.channel, null, policy.initialRatePerMin);
-    const chat = this.lane(`chat:${message.channel}:${message.chatId}`, message.channel, message.chatId, policy.initialRatePerMin);
+    const channel = this.lane(
+      `channel:${message.channel}`,
+      message.channel,
+      null,
+      policy.initialRatePerMin,
+    );
+    const chat = this.lane(
+      `chat:${message.channel}:${message.chatId}`,
+      message.channel,
+      message.chatId,
+      policy.initialRatePerMin,
+    );
     this.options.store.savePacingLane(recordPacingSuccess(channel, policy, now));
     this.options.store.savePacingLane(recordPacingSuccess(chat, policy, now));
   }
@@ -257,9 +363,16 @@ export class MessageReconciler {
     const retryAfterSec = retryAfter(error);
     for (const lane of [
       this.lane(`channel:${message.channel}`, message.channel, null, policy.initialRatePerMin),
-      this.lane(`chat:${message.channel}:${message.chatId}`, message.channel, message.chatId, policy.initialRatePerMin),
+      this.lane(
+        `chat:${message.channel}:${message.chatId}`,
+        message.channel,
+        message.chatId,
+        policy.initialRatePerMin,
+      ),
     ]) {
-      this.options.store.savePacingLane(recordPacingCongestion({ lane, policy, now, retryAfterSec, reason: error }));
+      this.options.store.savePacingLane(
+        recordPacingCongestion({ lane, policy, now, retryAfterSec, reason: error }),
+      );
     }
   }
 
@@ -268,7 +381,11 @@ export class MessageReconciler {
   }
 }
 
-function appendTrace(message: OutboxMessageView, decision: MessageDecision, trace: string[]): MessageDecision {
+function appendTrace(
+  message: OutboxMessageView,
+  decision: MessageDecision,
+  trace: string[],
+): MessageDecision {
   return buildMessageDecision(
     message,
     decision.policyVersion,
@@ -286,11 +403,16 @@ function unwrap<T>(result: Result<T>, operation: string): T {
 }
 
 function workerError(operation: string, error: unknown): MessageWorkerError {
-  return error instanceof MessageWorkerError ? error : new MessageWorkerError(operation, error instanceof Error ? error.message : String(error));
+  return error instanceof MessageWorkerError
+    ? error
+    : new MessageWorkerError(operation, error instanceof Error ? error.message : String(error));
 }
 
 function retryAt(now: string, attemptCount: number, config: MessagePolicyConfig): string {
-  const seconds = Math.min(config.delivery.retryBaseSec * 2 ** Math.max(0, attemptCount - 1), config.delivery.retryMaxSec);
+  const seconds = Math.min(
+    config.delivery.retryBaseSec * 2 ** Math.max(0, attemptCount - 1),
+    config.delivery.retryMaxSec,
+  );
   return new Date(Date.parse(now) + seconds * 1_000).toISOString();
 }
 

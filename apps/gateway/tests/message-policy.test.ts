@@ -70,10 +70,38 @@ function lane(channel: string, chatId: string | null, ratePerMin = 60): PacingLa
 
 function events(): TaskEvent[] {
   return [
-    { runId: "run-1", sequence: 3, sessionId: "session-1", kind: "progress", summary: "正在验证长文本", occurredAt: NOW },
-    { runId: "run-1", sequence: 1, sessionId: "session-1", kind: "started", summary: "开始执行", occurredAt: NOW },
-    { runId: "run-1", sequence: 2, sessionId: "session-1", kind: "progress", summary: "已完成抓取", occurredAt: NOW },
-    { runId: "run-1", sequence: 2, sessionId: "session-1", kind: "progress", summary: "重复事件", occurredAt: NOW },
+    {
+      runId: "run-1",
+      sequence: 3,
+      sessionId: "session-1",
+      kind: "progress",
+      summary: "正在验证长文本",
+      occurredAt: NOW,
+    },
+    {
+      runId: "run-1",
+      sequence: 1,
+      sessionId: "session-1",
+      kind: "started",
+      summary: "开始执行",
+      occurredAt: NOW,
+    },
+    {
+      runId: "run-1",
+      sequence: 2,
+      sessionId: "session-1",
+      kind: "progress",
+      summary: "已完成抓取",
+      occurredAt: NOW,
+    },
+    {
+      runId: "run-1",
+      sequence: 2,
+      sessionId: "session-1",
+      kind: "progress",
+      summary: "重复事件",
+      occurredAt: NOW,
+    },
   ];
 }
 
@@ -113,7 +141,12 @@ describe("message policy", () => {
       message: message(),
       rules: [
         rule({ ruleId: "global", pausedUntil: null }),
-        rule({ ruleId: "session", scope: "session", scopeKey: "weixin:chat-1", pausedUntil: "2026-08-22T12:00:00.000Z" }),
+        rule({
+          ruleId: "session",
+          scope: "session",
+          scopeKey: "weixin:chat-1",
+          pausedUntil: "2026-08-22T12:00:00.000Z",
+        }),
       ],
       now: NOW,
     });
@@ -121,7 +154,13 @@ describe("message policy", () => {
       message: message(),
       rules: [
         rule({ ruleId: "global", pausedUntil: "2026-08-22T12:00:00.000Z" }),
-        rule({ ruleId: "session", scope: "session", scopeKey: "weixin:chat-1", startMinute: 1, endMinute: 2 }),
+        rule({
+          ruleId: "session",
+          scope: "session",
+          scopeKey: "weixin:chat-1",
+          startMinute: 1,
+          endMinute: 2,
+        }),
       ],
       now: NOW,
     });
@@ -175,7 +214,11 @@ describe("message policy", () => {
   });
 
   it("performs additive increase and congestion decrease with the later cooldown", () => {
-    const success = recordPacingSuccess({ ...lane("weixin", null, 2), successCount: 3 }, DEFAULT_MESSAGE_POLICY.channels.weixin, NOW);
+    const success = recordPacingSuccess(
+      { ...lane("weixin", null, 2), successCount: 3 },
+      DEFAULT_MESSAGE_POLICY.channels.weixin,
+      NOW,
+    );
     const congestion = recordPacingCongestion({
       lane: lane("weixin", null, 2),
       policy: DEFAULT_MESSAGE_POLICY.channels.weixin,
@@ -185,7 +228,11 @@ describe("message policy", () => {
     });
 
     expect(success).toMatchObject({ ratePerMin: 2, successCount: 0, lastSentAt: NOW });
-    expect(congestion).toMatchObject({ ratePerMin: 1, successCount: 0, cooldownUntil: "2026-08-22T10:01:00.000Z" });
+    expect(congestion).toMatchObject({
+      ratePerMin: 1,
+      successCount: 0,
+      cooldownUntil: "2026-08-22T10:01:00.000Z",
+    });
   });
 
   it("never shortens an existing later congestion cooldown", () => {
@@ -220,7 +267,13 @@ describe("message policy", () => {
     expect(complete.content).toEqual(expect.stringContaining("进行中：正在验证长文本"));
     expect(result.content?.length).toBeLessThanOrEqual(22);
     expect(result.content).toContain("…");
-    expect(result.transformTrace).toEqual(expect.arrayContaining(["digest:events-deduped", "digest:truncated", "digest:duplicate-absorbed"]));
+    expect(result.transformTrace).toEqual(
+      expect.arrayContaining([
+        "digest:events-deduped",
+        "digest:truncated",
+        "digest:duplicate-absorbed",
+      ]),
+    );
   });
 
   it("absorbs pending progress for a final response but declines unrelated runs", () => {
@@ -261,7 +314,12 @@ describe("message policy", () => {
   it("absorbs later progress without updating or pacing an earlier holder", () => {
     const result = decideOutboundPolicy({
       message: message({ messageId: "later", sequence: 2, capturedAt: "2026-08-22T10:00:30.000Z" }),
-      holder: message({ messageId: "holder", sequence: 1, state: "held_pacing", availableAt: "2026-08-22T10:02:00.000Z" }),
+      holder: message({
+        messageId: "holder",
+        sequence: 1,
+        state: "held_pacing",
+        availableAt: "2026-08-22T10:02:00.000Z",
+      }),
       taskEvents: events(),
       dndRules: [],
       channelLane: lane("weixin", null),
@@ -274,10 +332,21 @@ describe("message policy", () => {
     expect(result.companionDecisions).toEqual([]);
   });
 
-  it("absorbs duplicate terminal results while preserving the first canonical result", () => {
+  it("promotes a later active terminal result over an earlier pending result", () => {
     const result = decideOutboundPolicy({
-      message: message({ messageId: "final-2", messageKind: "final", sequence: 2, inboundMessageId: "inbound-1" }),
-      holder: message({ messageId: "final-1", messageKind: "final", sequence: 1, inboundMessageId: "inbound-1", state: "held_pacing" }),
+      message: message({
+        messageId: "final-2",
+        messageKind: "final",
+        sequence: 2,
+        inboundMessageId: "inbound-1",
+      }),
+      holder: message({
+        messageId: "final-1",
+        messageKind: "final",
+        sequence: 1,
+        inboundMessageId: "inbound-1",
+        state: "held_pacing",
+      }),
       taskEvents: [],
       dndRules: [],
       channelLane: lane("weixin", null),
@@ -286,8 +355,34 @@ describe("message policy", () => {
       config: DEFAULT_MESSAGE_POLICY,
     });
 
-    expect(result.decision.state).toBe("absorbed");
-    expect(result.decision.reason).toContain("duplicate terminal");
+    expect(result.decision.state).not.toBe("absorbed");
+    expect(result.companionDecisions).toEqual([
+      expect.objectContaining({ messageId: "final-1", state: "absorbed" }),
+    ]);
+    expect(result.decision.transformTrace).toContain("digest:terminal-latest-promoted");
+  });
+
+  it("absorbs an older terminal result when the newer result is the active holder", () => {
+    const result = buildProgressDigest({
+      incoming: message({
+        messageId: "final-1",
+        messageKind: "final",
+        sequence: 1,
+        inboundMessageId: "inbound-1",
+      }),
+      holder: message({
+        messageId: "final-2",
+        messageKind: "final",
+        sequence: 2,
+        inboundMessageId: "inbound-1",
+        state: "held_pacing",
+      }),
+      events: [],
+      config: DEFAULT_MESSAGE_POLICY.digest,
+    });
+
+    expect(result.absorbIncoming).toBe(true);
+    expect(result.transformTrace).toContain("digest:terminal-older-absorbed");
   });
 
   it("merges no-run Weixin notifications inside the 120 second batch window", () => {
@@ -354,7 +449,10 @@ describe("message policy", () => {
 
     expect(paused.availableAt).toBe("2026-08-22T12:00:30.000Z");
     expect(crossMidnight.availableAt).toBe("2026-08-22T22:00:00.000Z");
-    expect(decision.decision).toMatchObject({ state: "held_dnd", availableAt: "2026-08-22T12:00:30.000Z" });
+    expect(decision.decision).toMatchObject({
+      state: "held_dnd",
+      availableAt: "2026-08-22T12:00:30.000Z",
+    });
   });
 
   it("rejects inline responses and keeps helper-only aggregation out of Bridge decisions", () => {
@@ -392,9 +490,18 @@ describe("message policy", () => {
       now: NOW,
       config: DEFAULT_MESSAGE_POLICY,
     };
-    const first = decideOutboundPolicy({ ...common, message: message({ metadata: { a: 1, b: { x: true } } }) });
-    const reordered = decideOutboundPolicy({ ...common, message: message({ metadata: { b: { x: true }, a: 1 } }) });
-    const changed = decideOutboundPolicy({ ...common, message: message({ contentSha256: "hash-2" }) });
+    const first = decideOutboundPolicy({
+      ...common,
+      message: message({ metadata: { a: 1, b: { x: true } } }),
+    });
+    const reordered = decideOutboundPolicy({
+      ...common,
+      message: message({ metadata: { b: { x: true }, a: 1 } }),
+    });
+    const changed = decideOutboundPolicy({
+      ...common,
+      message: message({ contentSha256: "hash-2" }),
+    });
 
     expect(first.decision.decisionId).toBe(reordered.decision.decisionId);
     expect(first.decision.decisionId).not.toBe(changed.decision.decisionId);

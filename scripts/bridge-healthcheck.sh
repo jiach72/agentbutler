@@ -45,7 +45,9 @@ elif command -v curl >/dev/null 2>&1 && [[ -r "$TOKEN_FILE" ]]; then
     bridge_health_url="http://127.0.0.1:8754"
   fi
   body=$(curl -sS --max-time 5 -H "Authorization: Bearer $TOKEN" "${bridge_health_url%/}/v1/health" 2>/dev/null) || body=""
-  if [[ -n "$body" ]] && BODY="$body" node -e 'const b = JSON.parse(process.env.BODY); process.exit(b.attached === true && b.outboxWritable === true ? 0 : 1)' 2>/dev/null; then
+  # Parse the response through stdin so WSL/Windows Node environment handling
+  # cannot truncate or reinterpret a JSON body assigned to an environment var.
+  if [[ -n "$body" ]] && printf '%s' "$body" | python3 -c 'import json, sys; body = json.load(sys.stdin); raise SystemExit(0 if body.get("attached") is True and body.get("outboxWritable") is True else 1)' 2>/dev/null; then
     pass "bridge /v1/health attached + outboxWritable: $(echo "$body" | head -c 160)"
   else
     fail "bridge /v1/health 未通过（${bridge_health_url} 无监听、token 不匹配、未 attached 或 outbox 不可写）"

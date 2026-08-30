@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from agent_butler_bridge.hermes_hooks import (
+    _finalize_task_result,
     attach_runtime_adapter,
     install_a2a_hooks,
     install_api_server_hooks,
@@ -617,6 +618,54 @@ class HermesHooksTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(repeated["items"]), 2)
         self.assertEqual(len(repeated["inbound"]), 1)
 
+    async def test_finalizer_waits_for_late_result_and_promotes_latest_capture(self) -> None:
+        runtime = self.runtime
+        adapter = ChatAdapter()
+        binding = attach_runtime_adapter(adapter, "weixin", runtime=runtime)
+        assert runtime.outbox is not None
+        run_id = "run-late-final"
+        runtime.outbox.begin_run(session_id="session-late", run_id=run_id)
+
+        def capture(message_id: str, content: str) -> None:
+            runtime.outbox.capture(
+                {
+                    "messageId": message_id,
+                    "instanceId": "hermes-main",
+                    "adapterId": binding.adapter_id,
+                    "channel": "weixin",
+                    "accountId": "account-1",
+                    "chatId": "chat-1",
+                    "threadId": None,
+                    "sessionId": "session-late",
+                    "runId": run_id,
+                    "inboundMessageId": "inbound-late",
+                    "messageKind": "final",
+                    "transport": "queued-push",
+                    "priority": "normal",
+                    "content": content,
+                    "contentSha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+                    "replyTo": None,
+                    "metadata": {},
+                    "capturedAt": "2026-08-30T11:04:48.000Z",
+                }
+            )
+
+        capture("final-short", "先给结论")
+
+        finalizer = asyncio.create_task(
+            _finalize_task_result(runtime, binding, run_id, failed=False)
+        )
+        await asyncio.sleep(0.01)
+        capture("final-complete", "完整 RWA 监管报告")
+        await finalizer
+
+        short = runtime.outbox.get("final-short")
+        complete = runtime.outbox.get("final-complete")
+        self.assertEqual(short["state"], "absorbed")
+        self.assertEqual(complete["state"], "captured")
+        self.assertTrue(complete["metadata"]["taskCanonical"])
+        self.assertEqual(complete["content"], "完整 RWA 监管报告")
+
     async def test_gateway_runtime_hooks_own_lifecycle_and_attach_connected_profile(self) -> None:
         runtime = self.runtime
         lifecycle_calls = []
@@ -725,7 +774,7 @@ class HermesHooksTest(unittest.IsolatedAsyncioTestCase):
             view = runtime.outbox.task_view(outbound["runId"])
             self.assertEqual(
                 [item["kind"] for item in view["events"]],
-                ["started", "progress", "completing", "done"],
+                ["started", "progress", "done"],
             )
         coverage = runtime.coverage_snapshot()
         self.assertEqual(coverage["apiJson"], "ok")

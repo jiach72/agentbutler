@@ -57,28 +57,70 @@ function batch(items: OutboxMessageView[] = [message()]): OutboxChangeBatch {
 class FakeMessagingAdapter implements MessagingAdapter {
   readonly calls: string[] = [];
   readonly decisions: MessageDecision[] = [];
-  readonly deliveries: Array<{ messageId: string; attemptId: string; expectedContentSha256: string }> = [];
+  readonly deliveries: Array<{
+    messageId: string;
+    attemptId: string;
+    expectedContentSha256: string;
+  }> = [];
   readonly prewarms: string[] = [];
   readonly policies: PolicySnapshot[] = [];
   changes: OutboxChangeBatch = batch();
   decisionRows = new Map<string, OutboxMessageView>();
   decisionFailure: Error | undefined;
   deliveryResult: Result<DeliveryAck> = ok({
-    messageId: "m1", attemptId: "attempt-1", accepted: true, deduped: false, state: "delivered", providerMessageId: "provider-1", finishedAt: NOW,
+    messageId: "m1",
+    attemptId: "attempt-1",
+    accepted: true,
+    deduped: false,
+    state: "delivered",
+    providerMessageId: "provider-1",
+    finishedAt: NOW,
   });
-  prewarmResult: Result<PrewarmAck> = ok({ channel: "weixin", warmed: true, checkedAt: NOW, expiresAt: "2026-08-22T10:05:00.000Z" });
+  prewarmResult: Result<PrewarmAck> = ok({
+    channel: "weixin",
+    warmed: true,
+    checkedAt: NOW,
+    expiresAt: "2026-08-22T10:05:00.000Z",
+  });
   private nextDecisionResult: Result<OutboxMessageView> | undefined;
 
-  attachOutbound = async () => ok({ instanceId: INSTANCE.instanceId, attachedAt: NOW, channels: ["weixin"], bridgeVersion: "test" });
-  health = async (): Promise<Result<BridgeHealth>> => ok({ protocolVersion: 1, bridgeVersion: "test", instanceId: INSTANCE.instanceId, attached: true, outboxWritable: true, policyVersion: DEFAULT_MESSAGE_POLICY.version, channels: { weixin: "ok" } });
-  updatePolicy = async (_instance: InstanceRef, snapshot: PolicySnapshot) => { this.policies.push(snapshot); return ok({ version: snapshot.version, sha256: snapshot.sha256, appliedAt: NOW }); };
-  listChanges = async () => { this.calls.push("listChanges"); return ok(this.changes); };
-  decideOutbound = async (_instance: InstanceRef, decision: MessageDecision): Promise<Result<OutboxMessageView>> => {
+  attachOutbound = async () =>
+    ok({
+      instanceId: INSTANCE.instanceId,
+      attachedAt: NOW,
+      channels: ["weixin"],
+      bridgeVersion: "test",
+    });
+  health = async (): Promise<Result<BridgeHealth>> =>
+    ok({
+      protocolVersion: 1,
+      bridgeVersion: "test",
+      instanceId: INSTANCE.instanceId,
+      attached: true,
+      outboxWritable: true,
+      policyVersion: DEFAULT_MESSAGE_POLICY.version,
+      channels: { weixin: "ok" },
+    });
+  updatePolicy = async (_instance: InstanceRef, snapshot: PolicySnapshot) => {
+    this.policies.push(snapshot);
+    return ok({ version: snapshot.version, sha256: snapshot.sha256, appliedAt: NOW });
+  };
+  listChanges = async () => {
+    this.calls.push("listChanges");
+    return ok(this.changes);
+  };
+  decideOutbound = async (
+    _instance: InstanceRef,
+    decision: MessageDecision,
+  ): Promise<Result<OutboxMessageView>> => {
     this.calls.push(`decide:${decision.messageId}:${decision.state}`);
     this.decisions.push(structuredClone(decision));
     if (this.decisionFailure !== undefined) throw this.decisionFailure;
     if (this.nextDecisionResult !== undefined) return this.nextDecisionResult;
-    const source = this.decisionRows.get(decision.messageId) ?? this.changes.items.find((item) => item.messageId === decision.messageId) ?? message({ messageId: decision.messageId });
+    const source =
+      this.decisionRows.get(decision.messageId) ??
+      this.changes.items.find((item) => item.messageId === decision.messageId) ??
+      message({ messageId: decision.messageId });
     const row: OutboxMessageView = {
       ...source,
       state: decision.state,
@@ -89,12 +131,25 @@ class FakeMessagingAdapter implements MessagingAdapter {
     this.decisionRows.set(row.messageId, row);
     return ok(row);
   };
-  deliver = async (_instance: InstanceRef, request: { messageId: string; attemptId: string; expectedContentSha256: string }) => { this.calls.push(`deliver:${request.messageId}`); this.deliveries.push(request); return this.deliveryResult; };
+  deliver = async (
+    _instance: InstanceRef,
+    request: { messageId: string; attemptId: string; expectedContentSha256: string },
+  ) => {
+    this.calls.push(`deliver:${request.messageId}`);
+    this.deliveries.push(request);
+    return this.deliveryResult;
+  };
   forwardInbound = async () => fail("E002", "not used");
   subscribeTaskEvents = () => () => undefined;
-  prewarmChannel = async (_instance: InstanceRef, channel: string) => { this.calls.push(`prewarm:${channel}`); this.prewarms.push(channel); return this.prewarmResult; };
+  prewarmChannel = async (_instance: InstanceRef, channel: string) => {
+    this.calls.push(`prewarm:${channel}`);
+    this.prewarms.push(channel);
+    return this.prewarmResult;
+  };
 
-  returnDifferentDecisionState(row: OutboxMessageView): void { this.nextDecisionResult = ok(row); }
+  returnDifferentDecisionState(row: OutboxMessageView): void {
+    this.nextDecisionResult = ok(row);
+  }
 }
 
 describe("MessageReconciler", () => {
@@ -107,10 +162,20 @@ describe("MessageReconciler", () => {
     store = new MessagePolicyStore(gatewayDbFile(tmp));
     adapter = new FakeMessagingAdapter();
   });
-  afterEach(() => { store.close(); rmTempDir(tmp); });
+  afterEach(() => {
+    store.close();
+    rmTempDir(tmp);
+  });
 
   function reconciler(now = NOW): MessageReconciler {
-    return new MessageReconciler({ adapter, instance: INSTANCE, store, config: DEFAULT_MESSAGE_POLICY, clock: () => new Date(now), randomUUID: () => "attempt-1" });
+    return new MessageReconciler({
+      adapter,
+      instance: INSTANCE,
+      store,
+      config: DEFAULT_MESSAGE_POLICY,
+      clock: () => new Date(now),
+      randomUUID: () => "attempt-1",
+    });
   }
 
   it("commits the Bridge batch before a decision error and replays the exact staged payload", async () => {
@@ -129,14 +194,39 @@ describe("MessageReconciler", () => {
   });
 
   it("keeps a future held background progress untouched while absorbing the newly captured one", async () => {
-    const holder = message({ messageId: "holder", messageKind: "task-progress", state: "held_pacing", availableAt: "2026-08-22T10:02:00.000Z", sequence: 1 });
-    const later = message({ messageId: "later", messageKind: "task-progress", sequence: 2, capturedAt: "2026-08-22T10:00:30.000Z" });
+    const holder = message({
+      messageId: "holder",
+      messageKind: "task-progress",
+      state: "held_pacing",
+      availableAt: "2026-08-22T10:02:00.000Z",
+      sequence: 1,
+    });
+    const later = message({
+      messageId: "later",
+      messageKind: "task-progress",
+      sequence: 2,
+      capturedAt: "2026-08-22T10:00:30.000Z",
+    });
     adapter.changes = batch([holder, later]);
     adapter.changes.nextSequence = 2;
-    adapter.changes.taskEvents = [{ runId: "run-1", sequence: 1, sessionId: "session-1", kind: "progress", summary: "still working", occurredAt: NOW }];
+    adapter.changes.taskEvents = [
+      {
+        runId: "run-1",
+        sequence: 1,
+        sessionId: "session-1",
+        kind: "progress",
+        summary: "still working",
+        occurredAt: NOW,
+      },
+    ];
     await reconciler("2026-08-22T10:00:30.000Z").reconcileOnce();
-    expect(adapter.decisions.map((decision) => [decision.messageId, decision.state])).toEqual([["later", "absorbed"]]);
-    expect(store.messageView("holder")).toMatchObject({ state: "held_pacing", availableAt: "2026-08-22T10:02:00.000Z" });
+    expect(adapter.decisions.map((decision) => [decision.messageId, decision.state])).toEqual([
+      ["later", "absorbed"],
+    ]);
+    expect(store.messageView("holder")).toMatchObject({
+      state: "held_pacing",
+      availableAt: "2026-08-22T10:02:00.000Z",
+    });
   });
 
   it("never treats a later progress record as a holder for an earlier final", async () => {
@@ -145,16 +235,110 @@ describe("MessageReconciler", () => {
       message({ messageId: "later-progress", sequence: 2, messageKind: "task-progress" }),
     ]);
     adapter.changes.nextSequence = 2;
-    adapter.deliveryResult = ok({ messageId: "final-first", attemptId: "attempt-1", accepted: true, deduped: false, state: "delivered", providerMessageId: "final-provider", finishedAt: NOW });
+    adapter.deliveryResult = ok({
+      messageId: "final-first",
+      attemptId: "attempt-1",
+      accepted: true,
+      deduped: false,
+      state: "delivered",
+      providerMessageId: "final-provider",
+      finishedAt: NOW,
+    });
     await reconciler().reconcileOnce();
     expect(adapter.decisions.map((decision) => decision.messageId)).toEqual(["final-first"]);
   });
 
+  it("waits for late terminal captures and delivers the newest complete result once", async () => {
+    const short = message({
+      messageId: "final-short",
+      sequence: 1,
+      content: "先给结论",
+      inboundMessageId: "inbound-1",
+    });
+    const terminalEvents = [
+      {
+        runId: "run-1",
+        sequence: 1,
+        sessionId: "session-1",
+        kind: "started" as const,
+        occurredAt: NOW,
+      },
+      {
+        runId: "run-1",
+        sequence: 2,
+        sessionId: "session-1",
+        kind: "completing" as const,
+        occurredAt: "2026-08-22T10:00:01.000Z",
+      },
+      {
+        runId: "run-1",
+        sequence: 3,
+        sessionId: "session-1",
+        kind: "done" as const,
+        occurredAt: "2026-08-22T10:00:01.100Z",
+      },
+    ];
+    adapter.changes = {
+      afterSequence: 0,
+      nextSequence: 3,
+      items: [short],
+      taskEvents: terminalEvents,
+      inbound: [],
+    };
+    await reconciler("2026-08-22T10:00:01.200Z").reconcileOnce();
+    expect(adapter.deliveries).toHaveLength(0);
+    expect(store.messageView("final-short")?.state).toBe("held_pacing");
+
+    const complete = message({
+      messageId: "final-complete",
+      sequence: 2,
+      content: "结论：完整 RWA 监管报告",
+      contentSha256: "complete-sha",
+      capturedAt: "2026-08-22T10:00:01.250Z",
+      inboundMessageId: "inbound-1",
+    });
+    adapter.changes = {
+      afterSequence: 3,
+      nextSequence: 4,
+      items: [complete],
+      taskEvents: [],
+      inbound: [],
+    };
+    await reconciler("2026-08-22T10:00:01.300Z").reconcileOnce();
+    expect(store.messageView("final-complete")?.state).toBe("held_pacing");
+
+    adapter.changes = { afterSequence: 4, nextSequence: 4, items: [], taskEvents: [], inbound: [] };
+    adapter.deliveryResult = ok({
+      messageId: "final-complete",
+      attemptId: "attempt-1",
+      accepted: true,
+      deduped: false,
+      state: "delivered",
+      providerMessageId: "complete-provider",
+      finishedAt: NOW,
+    });
+    await reconciler("2026-08-22T10:00:01.700Z").reconcileOnce();
+    await reconciler("2026-08-22T10:00:01.700Z").reconcileOnce();
+    expect(adapter.deliveries.map((delivery) => delivery.messageId)).toEqual(["final-complete"]);
+    expect(store.messageView("final-short")?.state).toBe("absorbed");
+  });
+
   it("only processes candidates owned by its configured Hermes instance", async () => {
     const other = message({ messageId: "other", instanceId: "a-hermes", sequence: 1 });
-    store.ingestBatch({ afterSequence: 0, nextSequence: 1, items: [other], taskEvents: [], inbound: [] }, "a-hermes");
+    store.ingestBatch(
+      { afterSequence: 0, nextSequence: 1, items: [other], taskEvents: [], inbound: [] },
+      "a-hermes",
+    );
     adapter.changes = batch([message({ messageId: "owned", sequence: 1 })]);
-    adapter.deliveryResult = ok({ messageId: "owned", attemptId: "attempt-1", accepted: true, deduped: false, state: "delivered", providerMessageId: "owned-provider", finishedAt: NOW });
+    adapter.deliveryResult = ok({
+      messageId: "owned",
+      attemptId: "attempt-1",
+      accepted: true,
+      deduped: false,
+      state: "delivered",
+      providerMessageId: "owned-provider",
+      finishedAt: NOW,
+    });
 
     await reconciler().reconcileOnce();
 
@@ -163,8 +347,20 @@ describe("MessageReconciler", () => {
   });
 
   it("does not aggregate Bridge-null run ids or crash while scheduling them", async () => {
-    const holder = message({ messageId: "null-holder", messageKind: "task-progress", runId: null as never, state: "held_pacing", availableAt: "2026-08-22T10:02:00.000Z", sequence: 1 });
-    const incoming = message({ messageId: "null-incoming", messageKind: "task-progress", runId: null as never, sequence: 2 });
+    const holder = message({
+      messageId: "null-holder",
+      messageKind: "task-progress",
+      runId: null as never,
+      state: "held_pacing",
+      availableAt: "2026-08-22T10:02:00.000Z",
+      sequence: 1,
+    });
+    const incoming = message({
+      messageId: "null-incoming",
+      messageKind: "task-progress",
+      runId: null as never,
+      sequence: 2,
+    });
     adapter.changes = batch([holder, incoming]);
     adapter.changes.nextSequence = 2;
 
@@ -177,28 +373,84 @@ describe("MessageReconciler", () => {
   it("caches prewarm successes, holds normal prewarm failures, and lets urgent failures continue", async () => {
     await reconciler().reconcileOnce();
     expect(adapter.prewarms).toEqual(["weixin"]);
-    expect(adapter.calls).toEqual(expect.arrayContaining(["decide:m1:ready", "prewarm:weixin", "deliver:m1"]));
-    expect(adapter.calls.indexOf("decide:m1:ready")).toBeLessThan(adapter.calls.indexOf("prewarm:weixin"));
+    expect(adapter.calls).toEqual(
+      expect.arrayContaining(["decide:m1:ready", "prewarm:weixin", "deliver:m1"]),
+    );
+    expect(adapter.calls.indexOf("decide:m1:ready")).toBeLessThan(
+      adapter.calls.indexOf("prewarm:weixin"),
+    );
     adapter.changes = { afterSequence: 1, nextSequence: 1, items: [], taskEvents: [], inbound: [] };
     await reconciler().reconcileOnce();
     expect(adapter.prewarms).toEqual(["weixin"]);
 
-    store.savePrewarm({ channel: "weixin", warmed: true, checkedAt: "2026-08-22T09:00:00.000Z", expiresAt: "2026-08-22T09:01:00.000Z", detail: null });
+    store.savePrewarm({
+      channel: "weixin",
+      warmed: true,
+      checkedAt: "2026-08-22T09:00:00.000Z",
+      expiresAt: "2026-08-22T09:01:00.000Z",
+      detail: null,
+    });
     const normal = message({ messageId: "normal-unwarmed", sequence: 2, channel: "a2a" });
-    adapter.changes = { afterSequence: 1, nextSequence: 2, items: [normal], taskEvents: [], inbound: [] };
-    adapter.prewarmResult = ok({ channel: "a2a", warmed: false, checkedAt: NOW, expiresAt: "2026-08-22T10:05:00.000Z" });
+    adapter.changes = {
+      afterSequence: 1,
+      nextSequence: 2,
+      items: [normal],
+      taskEvents: [],
+      inbound: [],
+    };
+    adapter.prewarmResult = ok({
+      channel: "a2a",
+      warmed: false,
+      checkedAt: NOW,
+      expiresAt: "2026-08-22T10:05:00.000Z",
+    });
     await reconciler().reconcileOnce();
-    expect(adapter.decisions.at(-1)).toMatchObject({ messageId: "normal-unwarmed", state: "held_pacing", availableAt: "2026-08-22T10:00:15.000Z", transformTrace: expect.arrayContaining(["prewarm:unwarmed"]) });
+    expect(adapter.decisions.at(-1)).toMatchObject({
+      messageId: "normal-unwarmed",
+      state: "held_pacing",
+      availableAt: "2026-08-22T10:00:15.000Z",
+      transformTrace: expect.arrayContaining(["prewarm:unwarmed"]),
+    });
 
     const failed = message({ messageId: "normal-failed", sequence: 3, channel: "api-server" });
-    adapter.changes = { afterSequence: 2, nextSequence: 3, items: [failed], taskEvents: [], inbound: [] };
+    adapter.changes = {
+      afterSequence: 2,
+      nextSequence: 3,
+      items: [failed],
+      taskEvents: [],
+      inbound: [],
+    };
     adapter.prewarmResult = fail("E302", "down");
     await reconciler().reconcileOnce();
-    expect(adapter.decisions.at(-1)).toMatchObject({ messageId: "normal-failed", state: "held_pacing", availableAt: "2026-08-22T10:00:15.000Z", transformTrace: expect.arrayContaining(["prewarm:failed"]) });
+    expect(adapter.decisions.at(-1)).toMatchObject({
+      messageId: "normal-failed",
+      state: "held_pacing",
+      availableAt: "2026-08-22T10:00:15.000Z",
+      transformTrace: expect.arrayContaining(["prewarm:failed"]),
+    });
 
-    const urgent = message({ messageId: "urgent", sequence: 4, priority: "urgent", channel: "a2a" });
-    adapter.changes = { afterSequence: 3, nextSequence: 4, items: [urgent], taskEvents: [], inbound: [] };
-    adapter.deliveryResult = ok({ messageId: "urgent", attemptId: "attempt-1", accepted: true, deduped: false, state: "delivered", providerMessageId: "urgent-provider", finishedAt: NOW });
+    const urgent = message({
+      messageId: "urgent",
+      sequence: 4,
+      priority: "urgent",
+      channel: "a2a",
+    });
+    adapter.changes = {
+      afterSequence: 3,
+      nextSequence: 4,
+      items: [urgent],
+      taskEvents: [],
+      inbound: [],
+    };
+    adapter.deliveryResult = ok({
+      messageId: "urgent",
+      attemptId: "attempt-1",
+      accepted: true,
+      deduped: false,
+      state: "delivered",
+      providerMessageId: "urgent-provider",
+      finishedAt: NOW,
+    });
     await reconciler().reconcileOnce();
     expect(adapter.deliveries.at(-1)?.messageId).toBe("urgent");
   });
@@ -209,12 +461,35 @@ describe("MessageReconciler", () => {
     expect(store.getPacingLane("chat:weixin:chat-1")?.lastSentAt).toBe(NOW);
 
     const retry = message({ messageId: "retry", sequence: 2 });
-    adapter.changes = { afterSequence: 1, nextSequence: 2, items: [retry], taskEvents: [], inbound: [] };
-    adapter.deliveryResult = ok({ messageId: "retry", attemptId: "attempt-1", accepted: true, deduped: false, state: "retry_wait", providerMessageId: null, finishedAt: NOW, error: "429 Retry-After: 60" });
+    adapter.changes = {
+      afterSequence: 1,
+      nextSequence: 2,
+      items: [retry],
+      taskEvents: [],
+      inbound: [],
+    };
+    adapter.deliveryResult = ok({
+      messageId: "retry",
+      attemptId: "attempt-1",
+      accepted: true,
+      deduped: false,
+      state: "retry_wait",
+      providerMessageId: null,
+      finishedAt: NOW,
+      error: "429 Retry-After: 60",
+    });
     await reconciler("2026-08-22T10:00:30.000Z").reconcileOnce();
-    expect(store.messageView("retry")).toMatchObject({ state: "held_pacing", availableAt: "2026-08-22T10:00:45.000Z", attemptCount: 0 });
+    expect(store.messageView("retry")).toMatchObject({
+      state: "held_pacing",
+      availableAt: "2026-08-22T10:00:45.000Z",
+      attemptCount: 0,
+    });
     await reconciler("2026-08-22T10:00:45.000Z").reconcileOnce();
-    expect(store.messageView("retry")).toMatchObject({ state: "retry_wait", availableAt: "2026-08-22T10:01:00.000Z", attemptCount: 1 });
+    expect(store.messageView("retry")).toMatchObject({
+      state: "retry_wait",
+      availableAt: "2026-08-22T10:01:00.000Z",
+      attemptCount: 1,
+    });
     expect(store.getPacingLane("channel:weixin")?.ratePerMin).toBe(1);
   });
 
@@ -240,24 +515,53 @@ describe("MessageReconciler", () => {
   });
 
   it("does not retry delivery_unknown and replays ready after transport loss before a later delivery", async () => {
-    adapter.deliveryResult = ok({ messageId: "m1", attemptId: "attempt-1", accepted: true, deduped: false, state: "delivery_unknown", providerMessageId: null, finishedAt: NOW });
+    adapter.deliveryResult = ok({
+      messageId: "m1",
+      attemptId: "attempt-1",
+      accepted: true,
+      deduped: false,
+      state: "delivery_unknown",
+      providerMessageId: null,
+      finishedAt: NOW,
+    });
     await reconciler().reconcileOnce();
     await reconciler().reconcileOnce();
     expect(adapter.deliveries).toHaveLength(1);
 
     const fresh = message({ messageId: "fresh", sequence: 2 });
-    adapter.changes = { afterSequence: 1, nextSequence: 2, items: [fresh], taskEvents: [], inbound: [] };
+    adapter.changes = {
+      afterSequence: 1,
+      nextSequence: 2,
+      items: [fresh],
+      taskEvents: [],
+      inbound: [],
+    };
     adapter.deliveryResult = fail("E302", "transport lost");
     await expect(reconciler().reconcileOnce()).rejects.toThrow(/delivery failed: transport lost/);
     expect(store.pendingDecision("fresh")?.state).toBe("ready");
-    adapter.deliveryResult = ok({ messageId: "fresh", attemptId: "attempt-1", accepted: true, deduped: false, state: "delivered", providerMessageId: "p2", finishedAt: NOW });
+    adapter.deliveryResult = ok({
+      messageId: "fresh",
+      attemptId: "attempt-1",
+      accepted: true,
+      deduped: false,
+      state: "delivered",
+      providerMessageId: "p2",
+      finishedAt: NOW,
+    });
     await reconciler().reconcileOnce();
-    expect(adapter.decisions.filter((decision) => decision.messageId === "fresh" && decision.state === "ready")).toHaveLength(2);
+    expect(
+      adapter.decisions.filter(
+        (decision) => decision.messageId === "fresh" && decision.state === "ready",
+      ),
+    ).toHaveLength(2);
     expect(adapter.deliveries.filter((delivery) => delivery.messageId === "fresh")).toHaveLength(2);
   });
 
   it("handles only one main candidate per cycle", async () => {
-    adapter.changes = batch([message({ messageId: "m1", sequence: 1 }), message({ messageId: "m2", sequence: 2 })]);
+    adapter.changes = batch([
+      message({ messageId: "m1", sequence: 1 }),
+      message({ messageId: "m2", sequence: 2 }),
+    ]);
     adapter.changes.nextSequence = 2;
     await reconciler().reconcileOnce();
     expect(adapter.decisions.filter((decision) => decision.state !== "absorbed")).toHaveLength(1);
@@ -268,26 +572,52 @@ describe("MessageGatewayService", () => {
   let tmp: string;
   let store: MessagePolicyStore;
   let adapter: FakeMessagingAdapter;
-  beforeEach(() => { tmp = makeTempDir(); store = new MessagePolicyStore(gatewayDbFile(tmp)); adapter = new FakeMessagingAdapter(); });
-  afterEach(() => { store.close(); rmTempDir(tmp); });
+  beforeEach(() => {
+    tmp = makeTempDir();
+    store = new MessagePolicyStore(gatewayDbFile(tmp));
+    adapter = new FakeMessagingAdapter();
+  });
+  afterEach(() => {
+    store.close();
+    rmTempDir(tmp);
+  });
 
   it("installs policy, runs immediately without overlap, exposes status, and stops idempotently", async () => {
     let scheduled: (() => void) | undefined;
     const clear = vi.fn();
     const service = new MessageGatewayService({
-      adapter, instance: INSTANCE, store, config: DEFAULT_MESSAGE_POLICY, clock: () => new Date(NOW),
-      scheduler: { setInterval: (fn) => { scheduled = fn; return 1; }, clearInterval: clear }, randomUUID: () => "attempt-1",
+      adapter,
+      instance: INSTANCE,
+      store,
+      config: DEFAULT_MESSAGE_POLICY,
+      clock: () => new Date(NOW),
+      scheduler: {
+        setInterval: (fn) => {
+          scheduled = fn;
+          return 1;
+        },
+        clearInterval: clear,
+      },
+      randomUUID: () => "attempt-1",
     });
     const prune = vi.spyOn(store, "pruneMessageHistory");
     await service.start();
     expect(adapter.policies).toHaveLength(1);
     expect(adapter.decisions).toHaveLength(1);
-    scheduled?.(); scheduled?.();
+    scheduled?.();
+    scheduled?.();
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
     const status = await service.status();
-    expect(status).toMatchObject({ running: true, inFlight: false, bridgeConnected: true, policyVersion: DEFAULT_MESSAGE_POLICY.version, counts: { delivered: 1 } });
+    expect(status).toMatchObject({
+      running: true,
+      inFlight: false,
+      bridgeConnected: true,
+      policyVersion: DEFAULT_MESSAGE_POLICY.version,
+      counts: { delivered: 1 },
+    });
     expect(prune).toHaveBeenCalledWith("2026-08-15T10:00:00.000Z");
-    await service.stop(); await service.stop();
+    await service.stop();
+    await service.stop();
     expect(clear).toHaveBeenCalledTimes(1);
   });
 
@@ -300,7 +630,13 @@ describe("MessageGatewayService", () => {
       store,
       config: mutable,
       clock: () => new Date(NOW),
-      scheduler: { setInterval: (fn) => { scheduled = fn; return 1; }, clearInterval: () => undefined },
+      scheduler: {
+        setInterval: (fn) => {
+          scheduled = fn;
+          return 1;
+        },
+        clearInterval: () => undefined,
+      },
       randomUUID: () => "attempt-1",
     });
 
@@ -322,7 +658,9 @@ describe("MessageGatewayService", () => {
     const callsBeforeWake = adapter.calls.filter((call) => call === "listChanges").length;
     service.wake();
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
-    expect(adapter.calls.filter((call) => call === "listChanges")).toHaveLength(callsBeforeWake + 1);
+    expect(adapter.calls.filter((call) => call === "listChanges")).toHaveLength(
+      callsBeforeWake + 1,
+    );
 
     scheduled?.();
     await service.stop();
@@ -330,7 +668,9 @@ describe("MessageGatewayService", () => {
 
   it("bounds shutdown without closing resources under an in-flight cycle", async () => {
     let releaseChanges: (() => void) | undefined;
-    const changesGate = new Promise<void>((resolve) => { releaseChanges = resolve; });
+    const changesGate = new Promise<void>((resolve) => {
+      releaseChanges = resolve;
+    });
     adapter.listChanges = async () => {
       adapter.calls.push("listChanges");
       await changesGate;
