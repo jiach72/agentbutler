@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+## [1.0.0-beta.16] - 2026-08-30
+
+### Fixed
+
+- 修复 Hermes Bridge 已将旧终态消息吸收后，Gateway 重放旧决策返回 `409 already terminal`，导致队列头阻塞、微信最终报告停留在 `captured` 的问题。
+- Gateway 现在会自动同步 Bridge 已确认的 `delivered/absorbed/dead_letter/cancelled` 终态，并清理过期 pending 决策，后续消息可继续投递。
+
 ## [1.0.0-beta.15] - 2026-08-30
 
 ### Added
