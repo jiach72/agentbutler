@@ -3,6 +3,7 @@
  */
 import { CheckCircleOutlined, WarningOutlined } from "@ant-design/icons";
 import { Card, Statistic } from "antd";
+import { formatNumber } from "../../lib/format.js";
 import { COVERAGE_LABELS } from "./helpers.js";
 import type { MessageBridgeView } from "./helpers.js";
 
@@ -48,7 +49,7 @@ export function ConnectionHealth({ messageBridge, bridgeReady, messageCounts }: 
         <span>管家会自动发现并接管本机 AI 的消息</span>
       </Card>
       <Card size="small">
-        <Statistic title="等待发送" value={activeMessages} suffix="条" />
+        <Statistic title="等待发送" value={activeMessages} formatter={(value) => formatNumber(Number(value))} suffix="条" />
         <span>{messageBridge?.outboxWritable === true ? "队列可写入" : "等待连接恢复"}</span>
       </Card>
       <Card size="small">
@@ -61,7 +62,7 @@ export function ConnectionHealth({ messageBridge, bridgeReady, messageCounts }: 
         </span>
       </Card>
       <Card size="small">
-        <Statistic title="送达结果" value={messageCounts["delivered"] ?? 0} suffix="条" />
+        <Statistic title="送达结果" value={messageCounts["delivered"] ?? 0} formatter={(value) => formatNumber(Number(value))} suffix="条" />
         <span>已送达 · {exceptionMessages} 条需关注</span>
       </Card>
     </div>

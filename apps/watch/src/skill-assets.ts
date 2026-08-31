@@ -113,6 +113,22 @@ function usageBucket(timestamp: string, granularity: UsageGranularity): string {
   return timestamp.slice(0, 10);
 }
 
+function logTimestamp(line: string): string | null {
+  const iso = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)/.exec(line)?.[1];
+  const spaced = /^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2}(?:\.\d+)?)/.exec(line);
+  const candidate = iso ?? (spaced ? `${spaced[1]}T${spaced[2]}Z` : null);
+  if (candidate === null || !Number.isFinite(Date.parse(candidate))) return null;
+  return new Date(candidate).toISOString();
+}
+
+function usedSkillName(line: string): string | null {
+  const activity = /\b(?:invoked|started|completed|succeeded|success|failed|failure|executing|executed|running)\b|调用|执行|开始|完成|失败/i;
+  if (!activity.test(line)) return null;
+  const assignment = /\b(?:skill_name|skill\s+name|skill)\s*[:=]\s*["']?([A-Za-z0-9][A-Za-z0-9._/-]{1,159})/i.exec(line)?.[1];
+  const quoted = /\bskill\s+["']([A-Za-z0-9][A-Za-z0-9._/-]{1,159})["']\s+(?:was\s+)?(?:invoked|started|completed|succeeded|failed)\b/i.exec(line)?.[1];
+  return (assignment ?? quoted)?.split("@")[0] ?? null;
+}
+
 const repositoryDescriptions: Record<string, string> = {
   "obra/superpowers": "软件开发任务的规划、实现与复查工作流。",
   "affaan-m/ECC": "面向编码代理的工程规范与开发检查清单。",
@@ -148,12 +164,10 @@ export function createSkillAssetService(deps: { core: Core; skills: SkillsMemory
         if (!tail) continue;
         sources += 1;
         for (const line of tail.lines) {
-          const match = /(?:skill|技能)(?:\s*(?:name|名称))?["'=:\s]+([A-Za-z0-9][A-Za-z0-9._/-]{1,159})/i.exec(line);
-          if (!match) continue;
-          const parsedTimestamp = /^(\d{4}-\d{2}-\d{2}T[^ ]+)/.exec(line)?.[1];
-          const timestamp: string = parsedTimestamp ?? new Date(now()).toISOString();
+          const name = usedSkillName(line);
+          const timestamp = logTimestamp(line);
+          if (name === null || timestamp === null) continue;
           if (Date.parse(timestamp) < cutoff) continue;
-          const name = match[1]!.split("@")[0]!;
           const item = counts.get(name) ?? { calls: 0, last: null as string | null, successes: 0, failures: 0, durations: [] as number[] };
           item.calls += 1;
           if (/\b(success|succeeded|ok|成功)\b/i.test(line)) item.successes += 1;

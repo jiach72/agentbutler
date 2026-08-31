@@ -26,7 +26,7 @@ interface Status {
   ready: boolean;
   blocked: Array<{ profileId: string; status: string; detail: string }>;
 }
-interface DiscoveredConfig { id: string; source: string; provider: string; protocol: Profile["protocol"]; endpoint: string; model: string; maskedKey: string; }
+interface DiscoveredConfig { id: string; source: string; provider: string; protocol: Profile["protocol"]; endpoint: string; model: string; maskedKey: string; importable: boolean; runtimeObserved: boolean; }
 
 function credentialWriteError(result: { status: number; data: unknown }): string {
   if (result.status === 403 && result.data !== null && typeof result.data === "object") {
@@ -167,7 +167,7 @@ export function LlmProfileManager() {
         { title: "提供商 / 模型", render: (_, row) => <div><strong>{row.provider}</strong><br />{row.model}</div> },
         { title: "端点", dataIndex: "endpoint", ellipsis: true },
         { title: "Key", dataIndex: "maskedKey" },
-        { title: "操作", render: (_, row) => <Space><Button size="small" onClick={() => void importDiscovered(row.id)} disabled={status?.vault.available === false}>导入</Button><Button size="small" icon={<CopyOutlined />} onClick={() => void copyDraft(row)}>复制配置草案</Button></Space> },
+        { title: "操作", render: (_, row) => <Space><Button size="small" onClick={() => void importDiscovered(row.id)} disabled={status?.vault.available === false || !row.importable}>导入</Button><Button size="small" icon={<CopyOutlined />} onClick={() => void copyDraft(row)} disabled={row.runtimeObserved || row.endpoint.trim() === ""}>复制配置草案</Button></Space> },
       ]} locale={{ emptyText: "没有发现可迁移的 Hermes 模型配置。" }} />
     </div>
     <Modal open={rotateId !== null} title="轮换 API Key" okText="探针并切换" cancelText="取消" confirmLoading={rotating} onCancel={() => setRotateId(null)} onOk={() => void rotate()}>

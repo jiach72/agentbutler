@@ -76,6 +76,10 @@ export interface DiscoveredLlmConfig {
   endpoint: string;
   model: string;
   apiKey: string;
+  /** 仅允许从完整的本机配置中导入受管凭据。 */
+  importable?: boolean;
+  /** 运行日志中的只读模型观测，绝不视为凭据配置。 */
+  runtimeObserved?: boolean;
 }
 
 export interface DiscoveredLlmConfigView extends Omit<DiscoveredLlmConfig, "apiKey"> {
@@ -329,7 +333,12 @@ export class LlmCredentialService {
     const rows = this.discoveryReader ? await this.discoveryReader() : [];
     return rows.map((row) => {
       const { apiKey, ...safe } = row;
-      return { ...safe, maskedKey: this.vault.mask(apiKey) };
+      return {
+        ...safe,
+        importable: row.importable !== false,
+        runtimeObserved: row.runtimeObserved === true,
+        maskedKey: apiKey === "" ? "—" : this.vault.mask(apiKey),
+      };
     });
   }
 
@@ -338,6 +347,7 @@ export class LlmCredentialService {
     const rows = this.discoveryReader ? await this.discoveryReader() : [];
     const discovered = rows.find((row) => row.id === id);
     if (!discovered) throw new Error("discovered-config-not-found");
+    if (discovered.runtimeObserved === true) throw new Error("discovered-runtime-observation");
     if (!discovered.endpoint.trim() || !discovered.model.trim() || !discovered.apiKey) throw new Error("discovered-config-incomplete");
     const profile = this.store.insertLlmProfile({ profileId: randomUUID(), provider: discovered.provider, protocol: discovered.protocol, endpoint: normalizeEndpoint(discovered.endpoint), model: discovered.model, status: "disabled", currentVersion: 1 });
     const encrypted = this.vault.encrypt(discovered.apiKey);

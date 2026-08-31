@@ -3,7 +3,9 @@
  * 不把当前队列快照冒充成长周期历史。
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChartEmpty, TrendCard, TrendColumn } from "../../components/charts/index.js";
+import { Button } from "antd";
+import { ReloadOutlined } from "@ant-design/icons";
+import { ChartEmpty, ChartSkeleton, TrendCard, TrendColumn } from "../../components/charts/index.js";
 import {
   chartThemeFor,
   quietAxes,
@@ -12,6 +14,7 @@ import {
 } from "../../components/charts/chartTheme.js";
 import { useTheme } from "../../theme/ThemeProvider.js";
 import { loadJson, type FetchState } from "../../lib/api.js";
+import { formatNumber } from "../../lib/format.js";
 import type { DeliveryHistoryView } from "../../lib/metrics.js";
 
 interface TrendRow {
@@ -60,17 +63,32 @@ export function DeliveryTrendCard() {
   const uncertain = historyData?.items.reduce((sum, row) => sum + row.uncertain, 0) ?? 0;
   const summary =
     history.status === "ready"
-      ? `近 ${history.data.days} 天记录 ${total} 条 · 送达率 ${
+      ? `近 ${history.data.days} 天记录 ${formatNumber(total)} 条 · 送达率 ${
           total === 0 ? "—" : `${Math.round((delivered / total) * 100)}%`
-        } · ${failed + uncertain} 条需关注`
+        } · ${formatNumber(failed + uncertain)} 条需关注`
       : history.status === "failed"
         ? "送达历史读取失败"
         : "正在读取网关送达历史";
 
   return (
-    <TrendCard title="送达趋势" summary={summary}>
+    <TrendCard
+      title="送达趋势"
+      summary={summary}
+      extra={
+        <Button
+          type="text"
+          size="small"
+          icon={<ReloadOutlined />}
+          loading={history.status === "loading"}
+          aria-label="刷新送达历史"
+          onClick={() => void load()}
+        >
+          刷新
+        </Button>
+      }
+    >
       {history.status === "loading" ? (
-        <ChartEmpty hint="正在读取近 7 天的送达结果…" />
+        <ChartSkeleton height={210} />
       ) : history.status === "failed" ? (
         <ChartEmpty hint={`送达历史接口不可用：${history.reason}`} />
       ) : !history.data.reachable || total === 0 ? (
@@ -95,9 +113,13 @@ export function DeliveryTrendCard() {
           axis={quietAxes(chartTheme)}
           legend={topLegend(chartTheme)}
           style={{ maxWidth: 24, radiusTopLeft: 3, radiusTopRight: 3 }}
-          tooltip={{
+            tooltip={{
             items: [
-              { channel: "y", name: "条数" },
+              {
+                channel: "y",
+                name: "条数",
+                valueFormatter: (value: number) => formatNumber(value),
+              },
             ],
           }}
         />

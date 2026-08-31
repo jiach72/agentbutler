@@ -1,5 +1,14 @@
 # Bug Fixes
 
+## 2026-08-31 - 数据展示与交互基础层统一
+
+- **Problem:** 共享图表、表格和按钮虽然已有主题桥接，但动画、加载反馈、数值精度、列宽/滚动和禁用/焦点状态仍由页面零散决定；核心文件页还保留大量内联布局值。
+- **Impact:** 跨页面视觉层级不稳定，图表异步加载时反馈弱，指标可能出现不同小数/单位，窄屏表格容易溢出，键盘用户难以识别可操作状态。
+- **Changed scope:** 主题 token 新增强调文字、强边框和强阴影变量；图表出口统一 160–240ms 动画与骨架占位；图表轴支持按指标保留小数刻度；新增统一数字/百分比/耗时格式化；告警、限流、技能、进化和核心文件表补齐列宽、对齐、千分位与横向滚动；按钮补齐 hover、focus、disabled、loading 状态；核心文件页内联布局改为响应式样式并补键盘选择。
+- **Regression coverage:** `ui/tests/format.test.ts` 新增小数、百分比和毫秒/秒格式化断言；UI TypeScript 检查通过。
+- **Verification:** `corepack pnpm exec tsc -p ui/tsconfig.json --noEmit --pretty false`；随后运行 UI 测试、构建与 `git diff --check`。
+- **Data/function impact:** 不改变接口、数据结构、请求参数或写入逻辑；仅改变展示格式、可访问性反馈和响应式布局。
+
 ## 2026-08-31 - macOS 宿主安装后消息运行时未接入
 
 - **Problem:** macOS 没有 user-systemd，安装器改为手动启动三项宿主服务时只加载 `~/.agent-butler/env`；该文件没有 Hermes Bridge 的连接参数，Gateway 在 `auto` 模式下退回 native 消息路径。即使 Bridge 和 Gateway 都已重启，消息页仍不会进入 Bridge Outbox。
@@ -436,3 +445,12 @@
 - **修复范围：** Web 鉴权新增本机浏览器便利通道：访问 `127.0.0.1`/`localhost` 时免输入口令，跨设备地址仍要求口令；跨站来源不会因为本机 Host 而绕过鉴权。AccessGate 在远程地址打开时直接提供“在本机打开”按钮，口令改为面向管理员/跨设备用户的备用路径，不再引导普通用户编辑 `.env`。
 - **回归测试：** `apps/web/tests/access-token.test.ts` 覆盖本机免查口令、跨站来源阻断、带端口和 IPv4-mapped IPv6 回环判定；既有 token、CSRF、健康检查和安全基线测试继续覆盖。
 - **验证命令：** `corepack pnpm exec vitest run apps/web/tests/access-token.test.ts --reporter=dot`；`corepack pnpm exec tsc -b --pretty false`；`corepack pnpm --filter @butler/ui exec vite build`；`git diff --check`。
+
+## 2026-08-31 - macOS 运行状态误报、模型发现与消息页窄屏修复
+
+- **问题：** macOS 用户的健康日志显示 Hermes 控制面和消息 Bridge 均健康，但页面将不提供兼容 HTTP probe 的 Hermes TUI 判为“服务不可达”；技能统计把普通文本与注册 warning 误计为未知技能；Hermes 已实际运行的 `deepseek-v4-flash-vision-exp` 未被发现；消息通知页的四张概览卡在窄屏发生横向裁切。
+- **风险/影响：** 用户会把可用实例误判为断开，技能使用统计被污染，并可能重复配置原生模型；在 macOS 窄窗口或移动端，消息状态和操作入口难以读取或点击。
+- **修复范围：** Watch 以控制能力和受管运行状态作为 Hermes TUI 的可用性证据，HTTP probe 与未实现的消息能力降为说明性 warning；技能日志仅接受带时间戳、结构化技能名和生命周期语义的事件；模型发现覆盖 `OPENAI_MODEL`、`HERMES_BUTLER_LLM_MODEL`、`custom_providers`，并将运行日志识别到的模型作为不可导入、只读观测展示；消息通知页在 1180px 以下改为两列、620px 以下改为单列，窄屏刷新操作区使用可收缩的两列按钮布局。
+- **回归测试：** 新增 Hermes TUI 控制面可用但 HTTP probe 不可用、技能 warning/普通文本过滤、环境变量/自定义提供商/运行时模型发现，以及首页就绪度展示运行时模型的测试。
+- **验证命令：** `corepack pnpm exec vitest run apps/watch/tests/watch.test.ts apps/watch/tests/skill-assets.test.ts packages/core/tests/llm-credentials.test.ts ui/tests/readiness.test.ts --reporter=dot`（32 passed）；`corepack pnpm exec tsc -b --pretty false`；`corepack pnpm --filter @butler/ui exec vite build`；浏览器 CDP 以 `390x844` 视口验证 `documentElement.scrollWidth === 390`，操作按钮和概览卡均未裁切；`git diff --check`。
+- **部署/runtime：** macOS 用户仍需升级到包含本次修复的版本并重启 Butler/Watch 后复验。日志中的某个受管模型 HTTP `401` 是该模型端点或 API Key 的配置问题，不会因本次应用修复而自动恢复；需由部署管理员核对端点与 Key。

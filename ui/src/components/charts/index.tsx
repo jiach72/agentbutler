@@ -9,6 +9,20 @@ import { Spin } from "antd";
 /** G2 v5 的配置对象是开放式结构，这里以宽松 props 透传，具体字段见 chartTheme.ts。 */
 type PlotProps = Record<string, unknown>;
 
+const CHART_ANIMATION = {
+  enter: { type: "fadeIn", duration: 240 },
+  update: { duration: 180 },
+  leave: { duration: 160 },
+};
+
+function withChartDefaults(props: PlotProps): PlotProps {
+  return {
+    ...props,
+    autoFit: props.autoFit ?? true,
+    animate: props.animate ?? CHART_ANIMATION,
+  };
+}
+
 const ColumnPlot = lazy(() =>
   import("@ant-design/charts").then((m) => ({ default: m.Column as React.FC<PlotProps> })),
 );
@@ -25,18 +39,28 @@ const ScatterPlot = lazy(() =>
   import("@ant-design/charts").then((m) => ({ default: m.Scatter as React.FC<PlotProps> })),
 );
 
-function PlotFallback({ height }: { height: number }) {
+export function ChartSkeleton({ height = 200 }: { height?: number }) {
   return (
-    <div className="chart-loading" style={{ height }} aria-hidden="true">
+    <div className="chart-loading" style={{ height }} role="status" aria-label="图表加载中">
+      <div className="chart-skeleton" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+        <span />
+      </div>
       <Spin size="small" />
     </div>
   );
 }
 
+function PlotFallback({ height }: { height: number }) {
+  return <ChartSkeleton height={height} />;
+}
+
 export function TrendColumn(props: PlotProps) {
   return (
     <Suspense fallback={<PlotFallback height={Number(props.height ?? 200)} />}>
-      <ColumnPlot {...props} />
+      <ColumnPlot {...withChartDefaults(props)} />
     </Suspense>
   );
 }
@@ -44,7 +68,7 @@ export function TrendColumn(props: PlotProps) {
 export function TrendLine(props: PlotProps) {
   return (
     <Suspense fallback={<PlotFallback height={Number(props.height ?? 200)} />}>
-      <LinePlot {...props} />
+      <LinePlot {...withChartDefaults(props)} />
     </Suspense>
   );
 }
@@ -52,7 +76,7 @@ export function TrendLine(props: PlotProps) {
 export function TrendArea(props: PlotProps) {
   return (
     <Suspense fallback={<PlotFallback height={Number(props.height ?? 200)} />}>
-      <AreaPlot {...props} />
+      <AreaPlot {...withChartDefaults(props)} />
     </Suspense>
   );
 }
@@ -60,7 +84,7 @@ export function TrendArea(props: PlotProps) {
 export function TrendBar(props: PlotProps) {
   return (
     <Suspense fallback={<PlotFallback height={Number(props.height ?? 200)} />}>
-      <BarPlot {...props} />
+      <BarPlot {...withChartDefaults(props)} />
     </Suspense>
   );
 }
@@ -68,7 +92,7 @@ export function TrendBar(props: PlotProps) {
 export function TrendScatter(props: PlotProps) {
   return (
     <Suspense fallback={<PlotFallback height={Number(props.height ?? 200)} />}>
-      <ScatterPlot {...props} />
+      <ScatterPlot {...withChartDefaults(props)} />
     </Suspense>
   );
 }
@@ -101,5 +125,5 @@ export function TrendCard({
 
 /** 空数据占位：新装用户没有历史时给出期望，而不是空白坐标系。 */
 export function ChartEmpty({ hint }: { hint: string }) {
-  return <div className="empty-state">{hint}</div>;
+  return <div className="empty-state chart-state" role="status">{hint}</div>;
 }

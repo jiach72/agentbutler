@@ -10,6 +10,7 @@
   align-items: flex-end;
   justify-content: space-between;
   gap: var(--butler-space-4);
+  min-width: 0;
 }
 @media (max-width: 860px) {
   .gateway-heading {
@@ -23,6 +24,7 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
+  min-width: 0;
 }
 .gateway-refresh > span:not(.gateway-live-state) {
   color: var(--butler-muted);
@@ -67,7 +69,36 @@
 .gateway-overview {
   display: grid;
   gap: var(--butler-space-3);
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  min-width: 0;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.gateway-overview > * { min-width: 0; }
+@media (max-width: 1180px) {
+  .gateway-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 620px) {
+  .gateway-page {
+    min-width: 0;
+  }
+  .gateway-overview { grid-template-columns: minmax(0, 1fr); }
+  .gateway-refresh {
+    display: grid;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: center;
+  }
+  .gateway-refresh > span {
+    grid-column: 1 / -1;
+  }
+  .gateway-refresh > .ant-btn {
+    width: 100%;
+    min-width: 0;
+  }
+  .gateway-prompt-link {
+    white-space: normal;
+  }
 }
 .gateway-overview .ant-card > span {
   display: block;

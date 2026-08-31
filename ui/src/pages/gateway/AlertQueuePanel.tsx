@@ -4,7 +4,7 @@
 import { Table } from "antd";
 import type { TableColumnsType } from "antd";
 import { StatusBadge } from "../../components/StatusBadge.js";
-import { formatRelative } from "../../lib/format.js";
+import { formatNumber, formatRelative } from "../../lib/format.js";
 import { channelLabel, sourceLabel, statusTone } from "./helpers.js";
 import type { AlertItem, AlertsView } from "./helpers.js";
 
@@ -15,11 +15,13 @@ interface AlertQueuePanelProps {
 const QUEUE_COLUMNS: TableColumnsType<AlertItem> = [
   {
     title: "级别",
+    width: 88,
     dataIndex: "severity",
     render: (_, item) => <StatusBadge {...statusTone(item.severity)} />,
   },
   {
     title: "提醒",
+    width: 260,
     dataIndex: "title",
     render: (_, item) => (
       <div className="alert-title-cell" title={item.body}>
@@ -30,17 +32,20 @@ const QUEUE_COLUMNS: TableColumnsType<AlertItem> = [
   },
   {
     title: "状态",
+    width: 96,
     dataIndex: "status",
     render: (_, item) => <StatusBadge {...statusTone(item.status)} />,
   },
-  { title: "尝试", dataIndex: "attempts" },
+  { title: "尝试", dataIndex: "attempts", width: 72, align: "right", render: (value: number) => formatNumber(value) },
   {
     title: "通道",
+    width: 96,
     dataIndex: "channel",
     render: (_, item) => channelLabel(item.channel),
   },
   {
     title: "入队时间",
+    width: 120,
     dataIndex: "createdAt",
     render: (_, item) => formatRelative(item.createdAt),
   },
@@ -71,6 +76,7 @@ export function AlertQueuePanel({ alerts }: AlertQueuePanelProps) {
                 rowKey="id"
                 columns={QUEUE_COLUMNS}
                 dataSource={alerts.items}
+                scroll={{ x: 760 }}
                 pagination={{ pageSize: 8, hideOnSinglePage: true }}
               />
             </div>

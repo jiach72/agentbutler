@@ -48,6 +48,8 @@ const nativeModel: DiscoveredLlmConfigView = {
   endpoint: "https://api.example.com/v1",
   model: "gpt-test",
   maskedKey: "sk-***",
+  importable: true,
+  runtimeObserved: false,
 };
 
 describe("首页本机运行就绪度", () => {
@@ -66,6 +68,26 @@ describe("首页本机运行就绪度", () => {
     expect(result.ready).toBe(false);
     expect(native).toMatchObject({ tone: "warn", action: { label: "查看说明", to: "/setup" } });
     expect(native?.detail).toContain("不影响连接检查");
+  });
+
+  it("运行时已观测到 Hermes 模型时，不错误引导用户重新配置", () => {
+    const observed: DiscoveredLlmConfigView = {
+      ...nativeModel,
+      id: "runtime-log",
+      source: "/opt/hermes/logs/agent.log",
+      provider: "Hermes runtime",
+      endpoint: "",
+      model: "deepseek-v4-flash-vision-exp",
+      maskedKey: "—",
+      importable: false,
+      runtimeObserved: true,
+    };
+    const result = buildLocalReadiness(connected, readyManaged, [observed]);
+    const native = result.items.find((item) => item.id === "native-model");
+
+    expect(result.ready).toBe(true);
+    expect(native).toMatchObject({ tone: "ok", status: "已观察到 1 个运行模型" });
+    expect(native?.detail).toContain("运行日志");
   });
 
   it("凭据库不可用时不误报 Hermes 原生模型故障", () => {

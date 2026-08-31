@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   formatBytes,
+  formatDecimal,
+  formatDurationMs,
   formatNumber,
+  formatPercent,
   formatRelative,
   formatTime,
   isRecord,
@@ -66,6 +69,16 @@ describe("formatNumber", () => {
     expect(formatNumber(1234567)).toBe("1,234,567");
     expect(formatNumber(null)).toBe("—");
     expect(formatNumber(Number.NaN)).toBe("—");
+  });
+});
+
+describe("data metric formatting", () => {
+  it("统一小数、百分比和耗时单位", () => {
+    expect(formatDecimal(1234.567, 2)).toBe("1,234.57");
+    expect(formatPercent(0.8766, 1)).toBe("87.7%");
+    expect(formatPercent(null, 1, "未知")).toBe("未知");
+    expect(formatDurationMs(240)).toBe("240 ms");
+    expect(formatDurationMs(1250)).toBe("1.3 s");
   });
 });
 

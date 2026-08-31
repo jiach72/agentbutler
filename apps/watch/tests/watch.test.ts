@@ -266,6 +266,46 @@ describe("createWatchApp 组装冒烟", () => {
   }, 15_000);
 });
 
+describe("Hermes 连接状态", () => {
+  it("TUI 控制面可用但未暴露兼容 HTTP 探针时，仍保持已连接", async () => {
+    app = await createWatchApp({
+      home,
+      config: { hermesRoot, watchHttpPort: 0, autoStart: false },
+      exec: fakeExec,
+      prober: async () => false,
+      fetchFn: fakeFetch,
+    });
+    const address = app.watchHttp.address();
+    const base = "http://127.0.0.1:" + (address?.port ?? 0);
+
+    const response = await fetch(`${base}/api/connections/check`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ instanceId: "hermes-main" }),
+    });
+    const payload = (await response.json()) as {
+      status: string;
+      connection: {
+        connected: boolean;
+        connectionState: string;
+        checks: Array<{ id: string; status: string; detail: string }>;
+      };
+    };
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      status: "checked",
+      connection: { connected: true, connectionState: "connected" },
+    });
+    expect(payload.connection.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "probe", status: "warn" }),
+        expect.objectContaining({ id: "messaging", status: "warn" }),
+      ]),
+    );
+  });
+});
+
 describe("进化前备份门禁", () => {
   it("备份失败时拒绝且不调用真实进化预检", async () => {
     const core = createCore({ home: join(tmpdir(), "watch-evolution-backup-gate") });

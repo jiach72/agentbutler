@@ -5,7 +5,7 @@ import { Table } from "antd";
 import type { TableColumnsType } from "antd";
 import { AdvancedDetails } from "../../components/AdvancedDetails.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
-import { formatTime } from "../../lib/format.js";
+import { formatNumber, formatTime } from "../../lib/format.js";
 import type { LedgerEntry } from "./helpers.js";
 import { dispositionLabel, formatMetric, outcomeTone, statusLabel } from "./helpers.js";
 
@@ -62,7 +62,7 @@ export function LedgerTable({ ledger }: { ledger: LedgerEntry[] }) {
           <small>每次检查、评估和结果的完整记录</small>
         </span>
       }
-      extra={ledger.length > 0 ? `${ledger.length} 条` : undefined}
+    extra={ledger.length > 0 ? `${formatNumber(ledger.length)} 条` : undefined}
     >
       <div className="evolution-ledger-table">
         <Table<LedgerEntry>
@@ -70,6 +70,7 @@ export function LedgerTable({ ledger }: { ledger: LedgerEntry[] }) {
           rowKey="runId"
           pagination={false}
           dataSource={ledger}
+          scroll={{ x: 620 }}
           locale={{ emptyText: "还没有改进记录；完成一次检查和评估后，这里会生成可导出的记录。" }}
           columns={LEDGER_COLUMNS}
         />

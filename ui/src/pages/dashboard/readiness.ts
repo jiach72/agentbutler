@@ -79,13 +79,24 @@ function nativeModelReadiness(models: DiscoveredLlmConfigView[] | null): Readine
       detail: "正在只读检查 Hermes 的 config.yaml 和 .env。",
     };
   }
-  if (models.length > 0) {
+  const configured = models.filter((model) => !model.runtimeObserved);
+  const observed = models.filter((model) => model.runtimeObserved);
+  if (configured.length > 0) {
     return {
       id: "native-model",
       title: "Hermes 原生模型",
       tone: "ok",
-      status: `已发现 ${models.length} 项配置`,
+      status: `已发现 ${configured.length} 项配置`,
       detail: "用于 Hermes 自己的对话或原生运行；管家不会覆盖它。",
+    };
+  }
+  if (observed.length > 0) {
+    return {
+      id: "native-model",
+      title: "Hermes 原生模型",
+      tone: "ok",
+      status: `已观察到 ${observed.length} 个运行模型`,
+      detail: "从 Hermes 运行日志观测到模型标识；不会读取、导入或覆盖凭据配置。",
     };
   }
   return {

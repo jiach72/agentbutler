@@ -79,4 +79,30 @@ describe("LlmCredentialService", () => {
     expect(imported.status).toBe("disabled");
     expect(imported.maskedKey).toBe("sk-****ered");
   });
+
+  it("运行时模型观测只读展示，不能被当作凭据导入", async () => {
+    const service = new LlmCredentialService(store, new SecretVault("f".repeat(64)));
+    service.setDiscoveryReader(async () => [{
+      id: "runtime-log",
+      source: "/home/jiach/.hermes/logs/agent.log",
+      provider: "Hermes runtime",
+      protocol: "openai-compatible",
+      endpoint: "",
+      model: "deepseek-v4-flash-vision-exp",
+      apiKey: "",
+      importable: false,
+      runtimeObserved: true,
+    }]);
+
+    await expect(service.discover()).resolves.toEqual([
+      expect.objectContaining({
+        id: "runtime-log",
+        maskedKey: "—",
+        importable: false,
+      }),
+    ]);
+    await expect(service.importDiscovered("runtime-log")).rejects.toThrow(
+      "discovered-runtime-observation",
+    );
+  });
 });

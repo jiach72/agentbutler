@@ -58,10 +58,14 @@ export function primaryFill(mode: ThemeMode): string {
  * 公共坐标轴覆盖：无标题、细刻度、发丝线网格，贴合控制台信息密度。
  * 返回结构对应 G2 v5 的 axis.{x,y} 配置，经 Trend* 封装透传。
  */
-export function quietAxes(theme: ChartTheme): {
+export function quietAxes(
+  theme: ChartTheme,
+  options: { integerY?: boolean } = {},
+): {
   x: Record<string, unknown>;
   y: Record<string, unknown>;
 } {
+  const integerY = options.integerY ?? true;
   return {
     x: {
       title: false,
@@ -82,8 +86,8 @@ export function quietAxes(theme: ChartTheme): {
       gridStroke: theme.rule,
       gridStrokeOpacity: 0.7,
       gridStrokeDash: [3, 4],
-      // 计数类指标不出现 0.5 这类小数刻度文字。
-      labelFormatter: (value: unknown) => (Number.isInteger(Number(value)) ? String(value) : ""),
+      labelFormatter: (value: unknown) =>
+        integerY && !Number.isInteger(Number(value)) ? "" : String(value),
     },
   };
 }

@@ -67,7 +67,7 @@ function MetricChart({
         autoFit
         height={190}
         scale={{ color: { range: colors } }}
-        axis={quietAxes(theme)}
+        axis={quietAxes(theme, { integerY: false })}
         legend={topLegend(theme)}
         style={{ lineWidth: 2 }}
         tooltip={{ items: [{ channel: "y", name: "值", valueFormatter: formatter }] }}

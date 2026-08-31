@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, App, Button, Empty, Modal, Progress, Select, Steps, Table, Tag } from "antd";
+import type { TableColumnsType } from "antd";
 import { ReloadOutlined, InboxOutlined, DownloadOutlined } from "@ant-design/icons";
 import { loadJson, postJson } from "../../lib/api.js";
-import { formatTime } from "../../lib/format.js";
+import { formatDurationMs, formatNumber, formatPercent, formatTime } from "../../lib/format.js";
 import type { SkillsPayload } from "./helpers.js";
 import { fillUsageSeries } from "./usageTrend.js";
 
@@ -110,11 +111,11 @@ export function AssetCenter({ skills, onSkillsChanged }: { skills: SkillsPayload
     await onSkillsChanged?.();
   };
 
-  const columns = [
+  const columns: TableColumnsType<UsageItem> = [
     { title: "技能", dataIndex: "name", render: (name: string, item: UsageItem) => <><strong>{name}</strong>{item.status === "unknown" && <Tag color="default">未知技能</Tag>}</> },
-    { title: "调用次数", dataIndex: "calls", sorter: (a: UsageItem, b: UsageItem) => b.calls - a.calls },
-    { title: "成功率", render: (_: unknown, item: UsageItem) => item.successRate === null ? "未知" : (item.successRate * 100).toFixed(1) + "%" },
-    { title: "平均耗时", render: (_: unknown, item: UsageItem) => item.avgDurationMs === null ? "未知" : Math.round(item.avgDurationMs) + " ms" },
+    { title: "调用次数", dataIndex: "calls", width: 110, align: "right", sorter: (a: UsageItem, b: UsageItem) => b.calls - a.calls, render: (value: number) => formatNumber(value) },
+    { title: "成功率", width: 100, align: "right", render: (_: unknown, item: UsageItem) => formatPercent(item.successRate) },
+    { title: "平均耗时", width: 120, align: "right", render: (_: unknown, item: UsageItem) => formatDurationMs(item.avgDurationMs) },
     { title: "最近使用", render: (_: unknown, item: UsageItem) => item.lastUsedAt ? formatTime(item.lastUsedAt) : "未知" },
     { title: "操作", render: (_: unknown, item: UsageItem) => known.has(item.name) ? <Button size="small" icon={<InboxOutlined />} disabled={skills.items.find((skill) => skill.name === item.name)?.source === "builtin"} onClick={() => archive(item.name)}>归档</Button> : null },
   ];
@@ -141,7 +142,7 @@ export function AssetCenter({ skills, onSkillsChanged }: { skills: SkillsPayload
           </div>
         )}
       </div>
-      <Table rowKey="name" size="small" pagination={{ pageSize: 8, hideOnSinglePage: true }} dataSource={usage.skills} columns={columns} />
+      <Table rowKey="name" size="small" pagination={{ pageSize: 8, hideOnSinglePage: true }} dataSource={usage.skills} columns={columns} scroll={{ x: 700 }} />
     </>}
     <div className="asset-center-section"><div className="skills-section-head"><div><span className="skills-kicker">公开来源</span><h2>GitHub 技能项目</h2></div><Button icon={<ReloadOutlined />} loading={busy === "sync" || busy === "refresh"} onClick={() => void syncTrends()}>同步公开数据</Button></div><p className="asset-note">数据来自公开仓库，仅供参考。{trends?.syncedAt ? "同步于 " + formatTime(trends.syncedAt) : "尚未同步"}{trends?.error ? "；上次同步失败，当前显示缓存。" : ""}</p><div className="asset-trends-list">{(trends?.items ?? []).length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚未同步公开项目" /> : (trends?.items ?? []).slice(0, 8).map((item) => <div className="asset-trend-row" key={item.name}><div className="asset-trend-main"><a href={item.url} target="_blank" rel="noreferrer">{item.name}</a><p>{item.description ?? "公开技能项目，具体用途以仓库说明为准。"}</p></div><span>{item.stars.toLocaleString()} stars · {item.forks.toLocaleString()} forks</span><small>更新于 {item.updatedAt ? formatTime(item.updatedAt) : "未知"}</small></div>)}</div></div>
     <div className="asset-center-section"><div className="skills-section-head"><div><span className="skills-kicker">推荐项目</span><h2>推荐技能</h2></div><Button icon={<ReloadOutlined />} loading={busy === "refresh"} onClick={() => void refresh()}>重新获取</Button></div>{recommendations.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={trends?.items?.length ? "当前没有匹配的未安装技能" : "同步公开项目后，可结合本机使用情况生成推荐"} /> : recommendations.slice(0, 6).map((item) => <div className="asset-recommendation" key={item.id}><div><strong>{item.name}</strong><p>{item.description ?? item.reason}</p></div><Button icon={<DownloadOutlined />} loading={busy === "install" && installTarget?.id === item.id} onClick={() => { setInstallTarget(item); setInstallJob({ phase: "confirm", detail: "" }); }}>直接安装</Button></div>)}</div>

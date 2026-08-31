@@ -48,6 +48,8 @@ interface DiscoveredModel {
   source: string;
   provider: string;
   model: string;
+  importable: boolean;
+  runtimeObserved: boolean;
 }
 
 function isActiveProfile(profile: LlmProfile): boolean {
@@ -114,7 +116,8 @@ export function SetupPage() {
       .map((binding) => binding.profileId),
   );
   const modelReady = selected !== null && activeProfiles.some((profile) => readyProfileIds.has(profile.profileId));
-  const nativeModelDetected = discoveredModels.length > 0;
+  const nativeModelDetected = discoveredModels.some((model) => !model.runtimeObserved);
+  const runtimeModelObserved = discoveredModels.filter((model) => model.runtimeObserved).length;
 
   const runCheck = async () => {
     if (selected === null) return;
@@ -225,7 +228,7 @@ export function SetupPage() {
         <Card className="setup-card">
           <h2>检查模型配置</h2>
           <p className="hint">Hermes 的日常运行使用它自己的 `config.yaml` 或 `.env`；Butler 受管任务使用下方加密保存并绑定的模型。两者职责不同，页面会分别如实显示。</p>
-          {nativeModelDetected ? <Alert type="success" showIcon message="已发现 Hermes 原生模型配置" description={`发现 ${discoveredModels.length} 项已有配置；不会被本向导覆盖。`} /> : <Alert type="warning" showIcon message="还没有发现 Hermes 原生模型配置" description="如果智能体本身还不能对话，请先在 Hermes 的 config.yaml 或 .env 中完成运行模型配置。" />}
+          {nativeModelDetected ? <Alert type="success" showIcon message="已发现 Hermes 原生模型配置" description={`发现 ${discoveredModels.filter((model) => !model.runtimeObserved).length} 项已有配置；不会被本向导覆盖。`} /> : runtimeModelObserved > 0 ? <Alert type="success" showIcon message="已观察到 Hermes 正在使用模型" description={`从运行日志识别到 ${runtimeModelObserved} 个模型标识；这不会读取或导入凭据。`} /> : <Alert type="warning" showIcon message="还没有发现 Hermes 原生模型配置" description="如果智能体本身还不能对话，请先在 Hermes 的 config.yaml 或 .env 中完成运行模型配置。" />}
           {modelReady ? <Alert type="success" showIcon message="当前智能体已有可用的受管任务模型" description="模型探针通过且已绑定。后续可在设置中轮换 Key 或修改绑定范围。" /> : <Alert type="info" showIcon message="还没有绑定受管任务模型" description="这是推荐步骤：它让进化和诊断类任务能使用经过真实探针验证的模型。" />}
           {llmStatus?.vault.available === false && <Alert type="warning" showIcon message="凭据库还不可用" description="缺少 BUTLER_SECRET_MASTER_KEY 时，管家不会保存 API Key。请在设置中完成本机安全配置后再继续。" />}
           {!modelReady && activeProfiles.length > 0 && (

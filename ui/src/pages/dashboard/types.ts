@@ -240,6 +240,8 @@ export interface DiscoveredLlmConfigView {
   endpoint: string;
   model: string;
   maskedKey: string;
+  importable: boolean;
+  runtimeObserved: boolean;
 }
 
 export interface DiscoveredLlmPayload {

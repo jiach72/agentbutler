@@ -4,7 +4,7 @@
 import { Button, Table } from "antd";
 import type { TableColumnsType } from "antd";
 import { StatusBadge } from "../../components/StatusBadge.js";
-import { formatRelative } from "../../lib/format.js";
+import { formatNumber, formatRelative } from "../../lib/format.js";
 import { PARAM_LABELS, statusTone } from "./helpers.js";
 import type { PatchSuggestion, RateLimitMatch, RateLimitView } from "./helpers.js";
 
@@ -16,6 +16,7 @@ interface RateLimitsTableProps {
 const MATCHED_COLUMNS: TableColumnsType<RateLimitMatch> = [
   {
     title: "错误模板",
+    width: 320,
     dataIndex: "template",
     render: (_, match) => (
       <div className="fp-sample" title={match.template}>
@@ -23,14 +24,16 @@ const MATCHED_COLUMNS: TableColumnsType<RateLimitMatch> = [
       </div>
     ),
   },
-  { title: "累计", dataIndex: "count" },
+  { title: "累计", dataIndex: "count", width: 84, align: "right", render: (value: number) => formatNumber(value) },
   {
     title: "状态",
+    width: 96,
     dataIndex: "status",
     render: (_, match) => <StatusBadge {...statusTone(match.status)} />,
   },
   {
     title: "最近出现",
+    width: 120,
     dataIndex: "lastSeen",
     render: (_, match) => formatRelative(match.lastSeen),
   },
@@ -85,6 +88,7 @@ export function RateLimitsTable({ rateLimit, onUseSuggestion }: RateLimitsTableP
                 rowKey="signature"
                 columns={MATCHED_COLUMNS}
                 dataSource={rateLimit.matched}
+                scroll={{ x: 640 }}
                 pagination={{ pageSize: 8, hideOnSinglePage: true }}
               />
             </div>

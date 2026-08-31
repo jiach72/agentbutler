@@ -316,7 +316,7 @@
   border: 1px solid var(--butler-accent);
   border-radius: 999px;
   background: var(--butler-accent);
-  color: #fff;
+  color: var(--butler-on-accent);
   font-size: var(--butler-text-sm);
   box-shadow: var(--butler-shadow);
   cursor: pointer;

@@ -63,6 +63,59 @@ describe("技能资产 GitHub 阶段化下载", () => {
       core.close();
     }
   });
+
+  it("只统计带时间戳的结构化技能调用，不把注册警告和普通文本当作技能", async () => {
+    const { core } = makeService(async () => new Response("{}", { status: 200 }));
+    try {
+      core.instances.createInstance({
+        instanceId: "hermes-main",
+        frameworkId: "hermes",
+        rootPath: "/tmp/hermes",
+        confidence: 1,
+      });
+      core.instances.beginDiscover("hermes-main");
+      core.instances.confirmInstance("hermes-main", "test");
+      core.instances.beginNegotiate("hermes-main");
+      core.instances.markServing("hermes-main", 2, {
+        effectiveLevel: 2,
+        capabilities: {},
+        anomalies: [],
+      });
+      const service = createSkillAssetService({
+        core,
+        skills: {
+          status: async () => ({ skills: { items: [{ name: "kanban" }] } }) as never,
+        } as never,
+        logs: {
+          listSources: () => [{ id: "hermes:agent" }] as never,
+          readTail: () => ({
+            lines: [
+              "2026-08-31 16:11:14 WARNING agent.skill_commands: Skill 'kanban' generates slash command '/kanban'; skipping auto-registration.",
+              "2026-08-31 16:11:15 INFO docs: install the skill pack and library index before continuing.",
+              "skill_name=untrusted status=completed",
+              "2026-08-31 16:12:00 INFO agent.tool: skill_name=kanban action=invoke status=completed duration=125ms",
+            ],
+          }),
+        },
+        now: () => Date.parse("2026-08-31T16:30:00.000Z"),
+      });
+
+      const usage = await service.usage(30);
+      expect(usage.skills).toEqual([
+        expect.objectContaining({
+          name: "kanban",
+          calls: 1,
+          status: "known",
+          avgDurationMs: 125,
+        }),
+      ]);
+      expect(usage.skills.map((item) => item.name)).not.toEqual(
+        expect.arrayContaining(["pack", "library", "index", "untrusted"]),
+      );
+    } finally {
+      core.close();
+    }
+  });
 });
 
 function homeOf(core: { paths: { home: string } }): string {

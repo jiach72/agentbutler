@@ -112,7 +112,7 @@ textarea {
   padding: 8px 14px;
   border-radius: 8px;
   background: var(--butler-accent);
-  color: #fff;
+  color: var(--butler-on-accent);
   font-size: var(--butler-text-sm);
   text-decoration: none;
   transition: top var(--butler-dur-fast) var(--butler-ease);

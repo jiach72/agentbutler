@@ -75,7 +75,10 @@ export interface ButlerPalette {
   warnSoft: string;
   error: string;
   errorSoft: string;
+  onAccent: string;
+  ruleStrong: string;
   shadow: string;
+  shadowStrong: string;
   focusRing: string;
 }
 
@@ -104,7 +107,10 @@ export const lightPalette: ButlerPalette = {
   warnSoft: "#fbf0dd",
   error: "#d02f35",
   errorSoft: "#fceaec",
+  onAccent: "#ffffff",
+  ruleStrong: "#cfd5db",
   shadow: "0 1px 2px rgb(16 24 40 / 5%), 0 1px 3px rgb(16 24 40 / 6%)",
+  shadowStrong: "0 6px 18px rgb(16 24 40 / 12%)",
   focusRing: "0 0 0 3px rgb(14 118 131 / 28%)",
 };
 
@@ -132,7 +138,10 @@ export const nightPalette: ButlerPalette = {
   warnSoft: "#3a2d12",
   error: "#ef7a70",
   errorSoft: "#3d211e",
+  onAccent: "#06282e",
+  ruleStrong: "#3a454f",
   shadow: "0 1px 2px rgb(0 0 0 / 45%), 0 8px 24px rgb(0 0 0 / 22%)",
+  shadowStrong: "0 10px 28px rgb(0 0 0 / 32%)",
   focusRing: "0 0 0 3px rgb(65 183 196 / 38%)",
 };
 
@@ -177,7 +186,6 @@ const typeScale = {
 const spaceScale = [4, 8, 12, 16, 24, 32] as const;
 
 function buildThemeConfig(p: ButlerPalette, mode: ThemeMode): ThemeConfig {
-  const darkPrimaryText = mode === "dark" ? "#06282e" : "#ffffff";
   return {
     algorithm: mode === "dark" ? theme.darkAlgorithm : theme.defaultAlgorithm,
     token: {
@@ -200,7 +208,7 @@ function buildThemeConfig(p: ButlerPalette, mode: ThemeMode): ThemeConfig {
       colorBgElevated: mode === "dark" ? p.raised : p.raised,
       colorText: p.ink,
       colorTextSecondary: p.muted,
-      colorBorder: mode === "dark" ? p.rule : "#cfd5db",
+      colorBorder: p.ruleStrong,
       colorBorderSecondary: p.rule,
       borderRadius: radius.control,
       borderRadiusLG: radius.card,
@@ -212,8 +220,8 @@ function buildThemeConfig(p: ButlerPalette, mode: ThemeMode): ThemeConfig {
     components: {
       Button: {
         fontWeight: 500,
-        primaryColor: darkPrimaryText,
-        defaultBorderColor: mode === "dark" ? p.rule : "#cbd2d9",
+        primaryColor: p.onAccent,
+        defaultBorderColor: p.ruleStrong,
       },
       Table: {
         headerBg: p.surfaceSubtle,
@@ -265,9 +273,12 @@ const paletteVars = (p: ButlerPalette): Record<string, string> => ({
   "--butler-warn-soft": p.warnSoft,
   "--butler-error": p.error,
   "--butler-error-soft": p.errorSoft,
+  "--butler-on-accent": p.onAccent,
+  "--butler-rule-strong": p.ruleStrong,
   // 兼容历史命别名（text-muted 与 muted 同源），样式迁移期保留。
   "--butler-text-muted": p.muted,
   "--butler-shadow": p.shadow,
+  "--butler-shadow-strong": p.shadowStrong,
   "--butler-surface-strong": p.raised,
 });
 

@@ -61,6 +61,39 @@ export function formatNumber(value: number | null | undefined): string {
   return value.toLocaleString("zh-CN");
 }
 
+/** 固定小数位的数值；用于指标卡、表格和 tooltip，避免各页精度漂移。 */
+export function formatDecimal(
+  value: number | null | undefined,
+  digits = 1,
+  emptyText = "—",
+): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return emptyText;
+  return value.toLocaleString("zh-CN", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+}
+
+/** 比例值（0~1）格式化为百分比；异常值明确显示占位。 */
+export function formatPercent(
+  value: number | null | undefined,
+  digits = 1,
+  emptyText = "—",
+): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return emptyText;
+  return `${formatDecimal(value * 100, digits)}%`;
+}
+
+/** 毫秒耗时统一单位与精度，避免把 ms 当成秒展示。 */
+export function formatDurationMs(
+  value: number | null | undefined,
+  emptyText = "—",
+): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return emptyText;
+  if (value < 1000) return `${Math.round(value)} ms`;
+  return `${formatDecimal(value / 1000, 1)} s`;
+}
+
 /** 结构化数据守卫：对象且非数组。 */
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
