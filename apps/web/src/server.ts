@@ -37,7 +37,7 @@ import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import { recentEventsAscending, selectNewEvents } from "./events-pump.js";
 
-export const WEB_VERSION = `web@1.0.0-beta.16+${CONTRACT_VERSION}`;
+export const WEB_VERSION = `web@1.0.0-beta.17+${CONTRACT_VERSION}`;
 
 /** 告警网关默认基址（butler-gateway 的固定回环端口）。 */
 export const DEFAULT_GATEWAY_URL = "http://127.0.0.1:7532";
@@ -147,6 +147,37 @@ function isLoopbackOrigin(origin: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** 从 Host / URL 中提取可比较的主机名。 */
+function hostNameOf(value: string | undefined): string {
+  if (value === undefined || value.trim() === "") return "";
+  const raw = value.trim();
+  try {
+    return new URL(raw.includes("://") ? raw : `http://${raw}`).hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  } catch {
+    const bracketed = /^\[([^\]]+)\](?::\d+)?$/.exec(raw);
+    if (bracketed?.[1] !== undefined) return bracketed[1].toLowerCase();
+    const hostWithPort = /^([^:]+):\d+$/.exec(raw);
+    if (hostWithPort?.[1] !== undefined) return hostWithPort[1].toLowerCase();
+    return raw.toLowerCase();
+  }
+}
+
+/**
+ * 首次使用便利通道：从本机浏览器打开 127.0.0.1/localhost 时无需查找口令。
+ * 局域网请求仍必须携带口令；Origin 存在时还要求它也是本机来源，
+ * 没有 Origin 时要求浏览器 Fetch Metadata 标记为同源，避免普通请求伪造本机 Host。
+ */
+function isLocalBrowserRequest(request: {
+  headers: Record<string, unknown>;
+}): boolean {
+  const host = typeof request.headers.host === "string" ? hostNameOf(request.headers.host) : "";
+  if (!isLoopback(host)) return false;
+  const origin = request.headers.origin;
+  if (typeof origin === "string" && origin.trim() !== "") return isLoopbackOrigin(origin);
+  const fetchSite = request.headers["sec-fetch-site"];
+  return fetchSite === "same-origin" || fetchSite === "none";
 }
 
 /** Origin 与当前请求 Host 相同即为同源请求，允许受口令保护的局域网面板正常写入。 */
@@ -335,6 +366,7 @@ export interface MessageBridgeView {
   policyHash: string | null;
   remotePolicyVersion: string | null;
   channels: Record<string, string>;
+  channelDetails?: Record<string, { status: string; unavailableReason: string | null; unavailableFix: string | null; retryable: boolean }>;
   coverage: Record<string, string>;
   startedAt: string | null;
   lastCycleAt: string | null;
@@ -1224,6 +1256,20 @@ function parseMessageStatus(value: unknown): MessageStatusView | null {
   const nullableString = (name: string): string | null => bridge[name] === undefined ? null : bridge[name] as string | null;
   const protocolVersion = bridge["protocolVersion"] === undefined ? null : bridge["protocolVersion"];
   const channels = bridge["channels"] === undefined ? {} : parseStringRecord(bridge["channels"]);
+  const channelDetails: MessageBridgeView["channelDetails"] = {};
+  const channelDetailsRaw = bridge["channelDetails"];
+  if (channelDetailsRaw !== undefined) {
+    if (!isRecord(channelDetailsRaw)) return null;
+    for (const [channel, value] of Object.entries(channelDetailsRaw)) {
+      if (!isRecord(value) || typeof value["status"] !== "string" || typeof value["retryable"] !== "boolean" || !isNullableString(value["unavailableReason"]) || !isNullableString(value["unavailableFix"])) return null;
+      channelDetails[channel] = {
+        status: value["status"],
+        retryable: value["retryable"],
+        unavailableReason: value["unavailableReason"] as string | null,
+        unavailableFix: value["unavailableFix"] as string | null,
+      };
+    }
+  }
   const coverage = bridge["coverage"] === undefined ? {} : parseStringRecord(bridge["coverage"]);
   if (
     !["connected", "running", "inFlight", "attached", "outboxWritable"].every((name) => bridge[name] === undefined || typeof bridge[name] === "boolean") ||
@@ -1246,6 +1292,7 @@ function parseMessageStatus(value: unknown): MessageStatusView | null {
       policyHash: nullableString("policyHash"),
       remotePolicyVersion: nullableString("remotePolicyVersion"),
       channels,
+      ...(Object.keys(channelDetails).length > 0 ? { channelDetails } : {}),
       coverage,
       startedAt: nullableString("startedAt"),
       lastCycleAt: nullableString("lastCycleAt"),
@@ -1627,8 +1674,9 @@ async function probeServiceHealth(
  * 导出的原因：main.ts 启动自检需要同样的判定，两处口径必须一致。
  */
 export function isLoopback(host: string): boolean {
-  const value = host.trim().toLowerCase().replace(/^\[|\]$/g, "");
+  const value = hostNameOf(host);
   if (value === "localhost" || value === "::1" || value === "0:0:0:0:0:0:0:1") return true;
+  if (value === "::ffff:127.0.0.1") return true;
   return value.startsWith("127.");
 }
 
@@ -1670,6 +1718,8 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     const route = pathOf(url);
     if (AUTH_EXEMPT_PATHS.has(route)) return;
     if (!route.startsWith("/api/") && route !== "/ws") return;
+
+    if (isLocalBrowserRequest(request as unknown as { headers: Record<string, unknown> })) return;
 
     const presented = extractRequestToken(
       request as unknown as { headers: Record<string, unknown>; url: string },
@@ -1864,6 +1914,9 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
       return { reachable: false, status: null };
     }
   });
+  app.post("/api/messages/reconnect", async (request, reply) =>
+    proxyGatewayPost("/api/messages/reconnect", request.body, reply),
+  );
 
   /* ---------------------- watch 控制通道代理（Task 10） ---------------------- */
 
@@ -2155,6 +2208,9 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   app.post("/api/upgrade/run", async (request, reply) =>
     proxyWatchPost("/api/upgrade/run", request.body, reply, 120_000),
   );
+  app.post("/api/upgrade/compatibility", async (request, reply) =>
+    proxyWatchPost("/api/upgrade/compatibility", request.body, reply),
+  );
 
   // 快照回滚：:id 为 snapshots 表行 id；watch 的 200/404/503 原样透传，不可达 → 502。
   app.post("/api/snapshots/:id/rollback", async (request, reply) => {
@@ -2341,6 +2397,10 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   app.post("/api/gateway/patches/:id/detect", async (request, reply) => {
     const id = encodeURIComponent((request.params as { id?: string })["id"] ?? "");
     return proxyWatchPost(`/api/gateway/patches/${id}/detect`, request.body, reply);
+  });
+  app.post("/api/gateway/patches/:id/preview", async (request, reply) => {
+    const id = encodeURIComponent((request.params as Record<string, string>)["id"] ?? "");
+    return proxyWatchPost(`/api/gateway/patches/${id}/preview`, request.body, reply);
   });
 
   /* ------------------------ 技能与记忆只读代理（Task 17） ------------------------ */
@@ -2606,6 +2666,53 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     return reply.status(res.status).send(parsed);
   });
 
+  /* ---------------------- 核心 Markdown 文件代理 ---------------------- */
+  app.get("/api/markdown/files", async (request, reply) => {
+    const query = request.query as Record<string, unknown>;
+    const params = new URLSearchParams();
+    if (typeof query["instanceId"] === "string" && query["instanceId"].trim() !== "") params.set("instanceId", query["instanceId"].trim());
+    const suffix = params.size === 0 ? "" : `?${params.toString()}`;
+    return proxyWatchGet(`/api/markdown/files${suffix}`, reply);
+  });
+  app.get("/api/markdown/files/:fileId", async (request, reply) => {
+    const id = encodeURIComponent((request.params as { fileId?: string })["fileId"] ?? "");
+    return proxyWatchGet(`/api/markdown/files/${id}`, reply);
+  });
+  app.post("/api/markdown/files/:fileId/preview", async (request, reply) => {
+    const id = encodeURIComponent((request.params as { fileId?: string })["fileId"] ?? "");
+    return proxyWatchPost(`/api/markdown/files/${id}/preview`, request.body, reply, 15_000);
+  });
+  app.post("/api/markdown/files/:fileId/apply", async (request, reply) => {
+    const id = encodeURIComponent((request.params as { fileId?: string })["fileId"] ?? "");
+    return proxyWatchPost(`/api/markdown/files/${id}/apply`, request.body, reply, 30_000);
+  });
+  app.get("/api/markdown/files/:fileId/revisions", async (request, reply) => {
+    const id = encodeURIComponent((request.params as { fileId?: string })["fileId"] ?? "");
+    return proxyWatchGet(`/api/markdown/files/${id}/revisions`, reply);
+  });
+  app.post("/api/markdown/files/:fileId/backup", async (request, reply) => {
+    const id = encodeURIComponent((request.params as { fileId?: string })["fileId"] ?? "");
+    return proxyWatchPost(`/api/markdown/files/${id}/backup`, request.body, reply, 15_000);
+  });
+  app.post("/api/markdown/files/:fileId/revisions/:revisionId/restore", async (request, reply) => {
+    const params = request.params as { fileId?: string; revisionId?: string };
+    return proxyWatchPost(`/api/markdown/files/${encodeURIComponent(params.fileId ?? "")}/revisions/${encodeURIComponent(params.revisionId ?? "")}/restore`, request.body, reply, 30_000);
+  });
+  app.get("/api/markdown/files/:fileId/download", async (request, reply) => {
+    const id = encodeURIComponent((request.params as { fileId?: string })["fileId"] ?? "");
+    const res = await fetchWatch(`/api/markdown/files/${id}/download`, 20_000);
+    if (res === null) return reply.status(502).send({ error: "watch-unreachable", nextStep: "确认管家服务正在运行后重试。" });
+    const raw = Buffer.from(await res.arrayBuffer());
+    if (!res.ok) {
+      try { return reply.status(res.status).send(JSON.parse(raw.toString("utf8")) as unknown); }
+      catch { return reply.status(res.status).send({ error: "markdown-download-failed", nextStep: "重新读取文件后重试。" }); }
+    }
+    const contentType = res.headers.get("content-type") ?? "text/markdown; charset=utf-8";
+    const disposition = res.headers.get("content-disposition");
+    if (disposition !== null) reply.header("content-disposition", disposition);
+    return reply.type(contentType).send(raw);
+  });
+
   /* ---------------------- 记忆观察与管理动作代理（V1.7） ---------------------- */
 
   app.post("/api/memory/archive", async (request, reply) =>
@@ -2678,6 +2785,11 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
       .type(format === "zip" ? "application/zip" : "text/markdown; charset=utf-8")
       .header("content-disposition", disposition)
       .send(raw);
+  });
+  app.get("/api/diagnostics/summary", async (_request, reply) => {
+    const res = await fetchWatch("/api/diagnostics/summary");
+    if (res === null) return reply.status(502).send({ error: "watch-unreachable" });
+    return reply.status(res.status).send(await res.json().catch(() => ({ error: "watch-invalid-response" })));
   });
 
   /* -------------------------- 进化守门代理（Task 16） -------------------------- */

@@ -47,6 +47,54 @@
   color: var(--butler-ink);
 }
 
+.access-gate-local {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--butler-space-3);
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--butler-accent) 42%, var(--butler-rule));
+  border-radius: var(--butler-radius-control);
+  background: var(--butler-accent-soft);
+}
+
+.access-gate-local > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.access-gate-local strong {
+  font-size: var(--butler-text-sm);
+  color: var(--butler-ink);
+}
+
+.access-gate-local span {
+  color: var(--butler-ink-soft);
+  font-size: var(--butler-text-xs);
+}
+
+.access-gate-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--butler-muted);
+  font-size: var(--butler-text-xs);
+}
+
+.access-gate-divider::before,
+.access-gate-divider::after {
+  height: 1px;
+  flex: 1;
+  background: var(--butler-rule);
+  content: "";
+}
+
+.access-gate-divider span {
+  flex-shrink: 0;
+}
+
 .access-gate-error {
   margin: 0;
   font-size: var(--butler-text-sm);
@@ -77,4 +125,15 @@
   font-family: var(--butler-mono-font);
   font-size: var(--butler-text-xs);
   color: var(--butler-ink);
+}
+
+@media (max-width: 520px) {
+  .access-gate-local {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .access-gate-local .ant-btn {
+    width: 100%;
+  }
 }

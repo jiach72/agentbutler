@@ -27,6 +27,7 @@ const LogsPage = lazy(() => import("./pages/Logs.js").then(({ LogsPage: Page }) 
 const AssetsPage = lazy(() => import("./pages/Assets.js").then(({ AssetsPage: Page }) => ({ default: Page })));
 const TroubleshootPage = lazy(() => import("./pages/troubleshoot/TroubleshootPage.js").then(({ TroubleshootPage: Page }) => ({ default: Page })));
 const SetupPage = lazy(() => import("./pages/setup/SetupPage.js").then(({ SetupPage: Page }) => ({ default: Page })));
+const CoreFilesPage = lazy(() => import("./pages/CoreFilesPage.js").then(({ CoreFilesPage: Page }) => ({ default: Page })));
 
 function FirstRunRedirect() {
   const location = useLocation();
@@ -101,6 +102,7 @@ function ThemedApp({ locale }: { locale: React.ComponentProps<typeof ConfigProvi
                 <Route path="/assets" element={<AssetsPage />} />
                 <Route path="/prompt" element={<Navigate to="/gateway" replace />} />
                 <Route path="/skills" element={<SkillsPage />} />
+                <Route path="/core-files" element={<CoreFilesPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/preferences" element={<Navigate to="/settings" replace />} />
                 <Route path="*" element={<Navigate to="/dashboard" replace />} />

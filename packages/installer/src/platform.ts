@@ -10,6 +10,7 @@
  * 所有命令执行均可注入（exec 参数），测试不触网、不执行真实命令。
  */
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -62,6 +63,7 @@ export interface PlatformReport {
   pythonSatisfied?: boolean;
   hermesRoot?: string | null;
   hermesCandidates?: string[];
+  installationCandidates?: InstallationCandidate[];
 }
 
 /** docker 探测使用的短超时（毫秒）。 */
@@ -73,6 +75,50 @@ export interface DetectPlatformOverrides {
   env?: Record<string, string | undefined>;
   /** 读文本文件的实现（默认安全读取，失败返回空串）。 */
   readFile?: (path: string) => string;
+}
+
+export interface InstallationCandidate {
+  framework: "hermes" | "openclaw";
+  rootPath: string;
+  source: "configured" | "home" | "local-app-data" | "workspace" | "unknown";
+  version: string | null;
+  ownership: "managed" | "unmanaged" | "unknown";
+  active: boolean;
+  fingerprint: string | null;
+}
+
+export interface PortOwner {
+  port: number;
+  pid: number | null;
+  processName: string | null;
+  command: string | null;
+}
+
+/** 跨平台读取监听端口归属；取不到进程名时仍返回 PID 线索。 */
+export async function findPortOwner(exec: Exec, port: number): Promise<PortOwner | null> {
+  if (process.platform === "win32") {
+    const netstat = await exec("netstat", ["-ano", "-p", "tcp"], { timeoutMs: 10_000 });
+    const match = netstat.stdout.split(/\r?\n/).map((line) => /^\s*TCP\s+\S+:([0-9]+)\s+\S+\s+LISTENING\s+(\d+)/i.exec(line)).find((item) => item !== null && Number(item[1]) === port);
+    if (match === undefined || match === null) return null;
+    const pid = Number(match[2]);
+    const task = await exec("tasklist", ["/FI", `PID eq ${pid}`, "/FO", "CSV", "/NH"], { timeoutMs: 10_000 });
+    const name = /^"([^"]+)"/.exec(task.stdout)?.[1] ?? null;
+    return { port, pid: Number.isInteger(pid) ? pid : null, processName: name, command: name };
+  }
+  const ss = await exec("ss", ["-H", "-ltnp"], { timeoutMs: 10_000 });
+  if (ss.code === 0) {
+    for (const line of ss.stdout.split(/\r?\n/)) {
+      if (!new RegExp(`:${port}\\b`).test(line)) continue;
+      const pid = /pid=(\d+)/.exec(line)?.[1];
+    const name = /users:\(\("([^"]+)"/.exec(line)?.[1] ?? null;
+      return { port, pid: pid === undefined ? null : Number(pid), processName: name, command: name };
+    }
+  }
+  const lsof = await exec("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-Fpct"], { timeoutMs: 10_000 });
+  if (lsof.code !== 0) return null;
+  const pid = /^p(\d+)/m.exec(lsof.stdout)?.[1];
+  const name = /^c(.+)/m.exec(lsof.stdout)?.[1] ?? null;
+  return { port, pid: pid === undefined ? null : Number(pid), processName: name, command: name };
 }
 
 function defaultReadFile(path: string): string {
@@ -128,6 +174,26 @@ export async function detectPlatform(
     path.join(env["LOCALAPPDATA"]?.trim() || path.join(os.homedir(), "AppData", "Local"), "hermes"),
   ].filter((value): value is string => value !== undefined && value !== ""))];
   const hermesRoot = hermesCandidates.find((candidate) => fs.existsSync(path.join(candidate, "hermes-agent"))) ?? null;
+  const selectedFramework = env["BUTLER_FRAMEWORK"] === "openclaw" ? "openclaw" : "hermes";
+  const candidateRoots = [
+    ...hermesCandidates.map((root) => ({ root, source: root === configuredHermes ? "configured" as const : root.includes("AppData") ? "local-app-data" as const : "home" as const })),
+    { root: env["BUTLER_OPENCLAW_ROOT"]?.trim() ?? path.join(os.homedir(), ".openclaw"), source: env["BUTLER_OPENCLAW_ROOT"]?.trim() ? "configured" as const : "home" as const },
+    { root: path.join(process.cwd(), ".runtime", "openclaw"), source: "workspace" as const },
+  ];
+  const installationCandidates: InstallationCandidate[] = [];
+  for (const item of candidateRoots) {
+    const framework = fs.existsSync(path.join(item.root, "openclaw.json")) ? "openclaw" : fs.existsSync(path.join(item.root, "hermes-agent")) ? "hermes" : null;
+    if (framework === null) continue;
+    const versionFile = framework === "openclaw" ? path.join(item.root, "VERSION") : path.join(item.root, "VERSION");
+    let version: string | null = null;
+    try { version = fs.readFileSync(versionFile, "utf8").trim() || null; } catch { /* optional */ }
+    let fingerprint: string | null = null;
+    try {
+      const config = framework === "openclaw" ? fs.readFileSync(path.join(item.root, "openclaw.json"), "utf8") : fs.readFileSync(path.join(item.root, "config.yaml"), "utf8");
+      fingerprint = createHash("sha256").update(`${framework}\u0000${version ?? ""}\u0000${config.slice(0, 16 * 1024)}`).digest("hex");
+    } catch { /* optional */ }
+    installationCandidates.push({ framework, rootPath: item.root, source: item.source, version, ownership: item.source === "configured" ? "managed" : "unknown", active: framework === selectedFramework && item.root === (framework === "hermes" ? hermesRoot : candidateRoots.find((candidate) => fs.existsSync(path.join(candidate.root, "openclaw.json")))?.root), fingerprint });
+  }
 
   return {
     os: process.platform,
@@ -146,5 +212,6 @@ export async function detectPlatform(
     })(),
     hermesRoot,
     hermesCandidates,
+    installationCandidates,
   };
 }

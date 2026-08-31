@@ -4,6 +4,22 @@
 
 ## [Unreleased]
 
+## [1.0.0-beta.17] - 2026-08-31
+
+### Added
+
+- 核心 Markdown 文件中心：支持固定文件发现、只读保护、修改前 Diff、版本历史、备份与冲突检测。
+- 自进化分析与运维诊断页面，补充技能资产安装、升级兼容性和消息通道重连能力。
+
+### Changed
+
+- 统一控制台视觉层级、响应式布局和图表表现，优化首次使用与跨页面操作体验。
+- 本机从 `localhost` / `127.0.0.1` 访问 Web 面板时免查口令；跨设备访问继续要求管理员口令。
+
+### Fixed
+
+- 改善 GitHub 技能下载限流错误分类、备份门禁、原子写入和操作锁，避免错误提示误导或并发覆盖。
+
 ## [1.0.0-beta.16] - 2026-08-30
 
 ### Fixed
@@ -137,7 +153,10 @@
 - Hermes Bridge 需要在目标 Hermes 环境中单独安装和接线。
 - 真实消息通道、升级与回滚应先在隔离环境验证。
 
-[Unreleased]: https://github.com/jiach72/agentbutler/compare/v1.0.0-beta.12...HEAD
+[Unreleased]: https://github.com/jiach72/agentbutler/compare/v1.0.0-beta.17...HEAD
+[1.0.0-beta.17]: https://github.com/jiach72/agentbutler/releases/tag/v1.0.0-beta.17
+[1.0.0-beta.16]: https://github.com/jiach72/agentbutler/releases/tag/v1.0.0-beta.16
+[1.0.0-beta.15]: https://github.com/jiach72/agentbutler/releases/tag/v1.0.0-beta.15
 [1.0.0-beta.12]: https://github.com/jiach72/agentbutler/releases/tag/v1.0.0-beta.12
 [1.0.0-beta.7]: https://github.com/jiach72/agentbutler/releases/tag/v1.0.0-beta.7
 [1.0.0-beta.6]: https://github.com/jiach72/agentbutler/releases/tag/v1.0.0-beta.6

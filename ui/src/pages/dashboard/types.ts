@@ -88,6 +88,9 @@ export interface RecoveryFindingView {
 export interface RecoveryDiagnosisView {
   incidentId: string;
   severity: "ok" | "warn" | "error";
+  stateCode?: string;
+  summary?: string;
+  safeToRetry?: boolean;
   /** 只有探针真的失败时才有值；否则为 null。 */
   rootCause: string | null;
   primaryFinding: RecoveryFindingView | null;

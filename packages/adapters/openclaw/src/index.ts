@@ -1,4 +1,6 @@
-import { fail, type AdapterBundle, type DiscoveryAdapter, type InstanceRef } from "@butler/contract";
+import { fail, type AdapterBundle, type DiscoveryAdapter, type InstanceRef, type ManagedMarkdownCandidate } from "@butler/contract";
+import { existsSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { capabilityScan, parseRootPath } from "./capability-scan.js";
 import { createOpenClawConfigDriver, createOpenClawMemoryDriver, createOpenClawPluginDriver, createOpenClawSkillDriver } from "./drivers.js";
 import { createOpenClawControl, type OpenClawControlOptions } from "./control.js";
@@ -9,6 +11,42 @@ import { openClawManifest } from "./manifest.js";
 
 function rootPathFromRef(ref: InstanceRef): string | null {
   return ref.rootPath ?? (ref.instanceId.includes("|") ? parseRootPath(ref.instanceId) : null);
+}
+
+function managedMarkdownFiles(ref: InstanceRef): ManagedMarkdownCandidate[] {
+  const root = rootPathFromRef(ref);
+  const nestedMemory = root === null ? undefined : findNestedMemory(root, "workspace");
+  const pick = (key: ManagedMarkdownCandidate["key"], label: string, paths: string[], editable = true, readOnlyReason?: string): ManagedMarkdownCandidate => ({
+    key,
+    label,
+    relativePath: root === null ? paths[0] : (paths.find((item) => existsSync(join(root, item))) ?? paths[0]),
+    editable,
+    ...(readOnlyReason ? { readOnlyReason } : {}),
+  });
+  return [
+    pick("user", "USER.md", ["workspace/USER.md", "workspace/user.md", "USER.md", "user.md"]),
+    pick("agent", "AGENT.md", ["workspace/AGENT.md", "workspace/agent.md", "AGENT.md", "agent.md"]),
+    pick("soul", "SOUL.md", ["workspace/SOUL.md", "workspace/soul.md", "SOUL.md", "soul.md"]),
+    pick("memory", "MEMORY.md", ["workspace/MEMORY.md", "workspace/memory.md", ...(nestedMemory ? [nestedMemory] : []), "memory/MEMORY.md", "memory/memory.md"], false, "运行时记忆与人工 Markdown 分开管理"),
+  ];
+}
+
+function findNestedMemory(root: string, relativeDir: string): string | undefined {
+  const absolute = join(root, relativeDir);
+  if (!existsSync(absolute)) return undefined;
+  try {
+    for (const entry of readdirSync(absolute, { withFileTypes: true })) {
+      const next = `${relativeDir}/${entry.name}`;
+      if (entry.isFile() && /^(MEMORY|memory)\.md$/.test(entry.name)) return next;
+      if (entry.isDirectory() && !entry.isSymbolicLink()) {
+        const found = findNestedMemory(root, next);
+        if (found) return found;
+      }
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
 }
 
 export type OpenClawAdapterOptions = OpenClawControlOptions & { prober?: PortProber };
@@ -26,6 +64,7 @@ export function createOpenClawAdapter(options: OpenClawAdapterOptions = {}): Ada
       const rootPath = rootPathFromRef(ref);
       return rootPath ? logSources(rootPath) : [];
     },
+    managedMarkdownFiles,
   };
   return {
     manifest: openClawManifest,

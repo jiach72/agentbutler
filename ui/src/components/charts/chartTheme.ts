@@ -88,6 +88,35 @@ export function quietAxes(theme: ChartTheme): {
   };
 }
 
+/** 横向条形图使用可读的分类标签，数值轴仍维持安静的网格与刻度。 */
+export function horizontalBarAxes(theme: ChartTheme): {
+  x: Record<string, unknown>;
+  y: Record<string, unknown>;
+} {
+  return {
+    x: {
+      title: false,
+      tick: false,
+      labelFill: theme.muted,
+      labelFontSize: 11,
+      line: false,
+      grid: true,
+      gridStroke: theme.rule,
+      gridStrokeOpacity: 0.7,
+      gridStrokeDash: [3, 4],
+      labelFormatter: (value: unknown) =>
+        Number.isInteger(Number(value)) ? String(value) : "",
+    },
+    y: {
+      title: false,
+      tick: false,
+      labelFill: theme.muted,
+      labelFontSize: 11,
+      line: false,
+    },
+  };
+}
+
 /** 堆叠图顶部横向图例，紧凑且颜色文案继承主题。 */
 export function topLegend(theme: ChartTheme): Record<string, unknown> {
   return {

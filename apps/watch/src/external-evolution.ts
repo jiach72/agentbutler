@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
+import { atomicWriteJson, atomicWriteText } from "@butler/core";
 import type { Core, InstanceRecord } from "@butler/core";
 import type { SkillsMemoryService } from "./skills.js";
 import type { BackupService } from "./backup.js";
@@ -102,7 +103,7 @@ export function createExternalEvolutionService(deps: {
   let state: PersistedState = { proposals: [] };
   try { state = JSON.parse(readFileSync(statePath, "utf8")) as PersistedState; } catch { /* first run */ }
   if (!Array.isArray(state.proposals)) state = { proposals: [] };
-  const save = () => writeFileSync(statePath, JSON.stringify(state, null, 2), { mode: 0o600 });
+  const save = () => atomicWriteJson(statePath, state, { mode: 0o600, description: "外部进化状态" });
 
   const targets = async (): Promise<ExternalEvolutionTarget[]> => {
     const instance = chooseInstance(deps.core);
@@ -144,7 +145,7 @@ export function createExternalEvolutionService(deps: {
       mkdirSync(dir, { recursive: true });
       const candidate = `${baseline.trimEnd()}\n\n## Butler 外部改进提案\n\n<!-- problem -->\n${problem}\n<!-- /problem -->\n`;
       const candidatePath = join(dir, "SKILL.md");
-      writeFileSync(candidatePath, candidate, { mode: 0o600 });
+      atomicWriteText(candidatePath, candidate, { mode: 0o600, description: "外部进化候选" });
       const proposal: ExternalEvolutionProposal = {
         id,
         targetRef: target.targetRef,
@@ -205,9 +206,7 @@ export function createExternalEvolutionService(deps: {
         backupId = (await deps.backup.run("event", "应用技能改进提案 " + proposal.id)).id;
         const candidate = readFileSync(proposal.candidatePath, "utf8");
         if (!inside(proposal.candidatePath, root) || !inside(proposal.target.path, dirname(proposal.target.path))) throw new Error("path-not-allowed");
-        const temp = `${proposal.target.path}.butler-${randomUUID()}.tmp`;
-        writeFileSync(temp, candidate, { mode: 0o600 });
-        renameSync(temp, proposal.target.path);
+        atomicWriteText(proposal.target.path, candidate, { mode: 0o600, description: "技能改进候选" });
         proposal.status = "applied";
         proposal.apply = { appliedAt: nowIso(now), ...(backupId === undefined ? {} : { backupId }) };
         proposal.updatedAt = nowIso(now);

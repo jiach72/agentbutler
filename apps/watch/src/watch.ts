@@ -26,7 +26,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { join, posix } from "node:path";
-import { closeSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import type { ControlAdapter, DiscoveryHint, InstanceRef, Job, Result } from "@butler/contract";
 import { fail } from "@butler/contract";
@@ -39,6 +39,7 @@ import {
 import { createOpenClawAdapter } from "@butler/adapter-openclaw";
 import {
   createCore,
+  atomicWriteJson,
   FingerprintEngine,
   LogTailer,
   LlmCredentialService,
@@ -76,7 +77,7 @@ import {
 } from "./http.js";
 import { createDefaultStages, type InspectionStage, type ResourceSampler } from "./pipeline.js";
 import { createMemoryProbeStage } from "./probes/memory-probe.js";
-import { renderDiagnosticReport } from "./diagnostics.js";
+import { buildDiagnosticSummary, renderDiagnosticReport } from "./diagnostics.js";
 import type { LogMtimeSampler } from "./probes/stall-write.js";
 import type { SqliteOpener } from "./probes/memory-probe.js";
 import { createSkillsMemoryService, type SkillsMemoryService } from "./skills.js";
@@ -113,8 +114,10 @@ import {
   type ButlerSelfService,
 } from "./self-upgrade.js";
 import { createBackupService, type BackupService } from "./backup.js";
+import { createBackupGate, type BackupGate } from "./backup-gate.js";
 import { createSecurityService, type SecurityService } from "./invariants.js";
 import { createRuntimeCommandExecutor, detectButlerRuntime, type ButlerRuntimeInfo } from "./runtime.js";
+import { createMarkdownFileService, type MarkdownFileService } from "./markdown-files.js";
 
 const DEFAULT_BUTLER_REPOSITORY = "https://github.com/jiach72/agentbutler";
 
@@ -194,6 +197,7 @@ export function withEvolutionBackup(
   evolution: EvolutionService,
   backup: BackupService,
   core: Core,
+  gate?: BackupGate,
 ): EvolutionService {
   const backupFailureRun = (
     targetType: "skill" | "prompt" | "config",
@@ -231,9 +235,13 @@ export function withEvolutionBackup(
 
   const takeBackup = async (): Promise<string | null> => {
     try {
-      const snapshot = await backup.run("event", "进化前自动备份");
-      if (!Number.isInteger(snapshot.id) || snapshot.id <= 0) {
-        throw new Error("进化前备份未返回有效登记 ID");
+      const record = core.instances.listInstances().find((item) => item.state === "Serving") ?? core.instances.listInstances()[0];
+      if (gate !== undefined && record !== undefined) {
+        const result = await gate.ensure({ instanceId: record.instanceId, framework: record.frameworkId, version: record.version, rootPath: record.rootPath, operation: "runbook" });
+        if (!result.allowed) throw new Error(result.detail);
+      } else {
+        const snapshot = await backup.run("event", "进化前自动备份");
+        if (!Number.isInteger(snapshot.id) || snapshot.id <= 0) throw new Error("进化前备份未返回有效登记 ID");
       }
       return null;
     } catch (error) {
@@ -853,6 +861,8 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     now: options.now,
     driver,
   });
+  const backupGate = createBackupGate({ core, backup });
+  const markdownFiles: MarkdownFileService = createMarkdownFileService({ core, backupGate });
   const externalEvolution = createExternalEvolutionService({ core, skills, backup, llm, now: options.now });
 
   // Task 18：安全基线（三条配置不变式 + 密钥文件 0600 扫描）。
@@ -886,9 +896,15 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     ...upgrade,
     async startUpgrade(input) {
       try {
-        const snapshot = await backup.run("event", "升级前自动备份");
-        if (!Number.isInteger(snapshot.id) || snapshot.id <= 0) {
-          return { status: "backup-failed", error: "升级前备份未返回有效登记 ID" };
+        const record = input.instanceId !== undefined
+          ? core.instances.getInstance(input.instanceId)
+          : core.instances.listInstances().find((item) => item.state === "Serving");
+        if (record !== undefined) {
+          const gateResult = await backupGate.ensure({ instanceId: record.instanceId, framework: record.frameworkId, version: record.version, rootPath: record.rootPath, operation: "upgrade" });
+          if (!gateResult.allowed) return { status: "backup-failed", error: gateResult.detail };
+        } else {
+          const snapshot = await backup.run("event", "升级前自动备份");
+          if (!Number.isInteger(snapshot.id) || snapshot.id <= 0) return { status: "backup-failed", error: "升级前备份未返回有效登记 ID" };
         }
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
@@ -903,7 +919,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       return await upgrade.startUpgrade(input);
     },
   };
-  const evolutionWithBackup = withEvolutionBackup(evolution, backup, core);
+  const evolutionWithBackup = withEvolutionBackup(evolution, backup, core, backupGate);
 
     // M5 切片 1/2：只登记服务端已知 Hermes 提示词路径，候选/评估写入 BUTLER_HOME 本地。
   const promptOptimization = createPromptOptimizationService({
@@ -1418,7 +1434,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     openclawInstallJob.error = "管家重启时安装任务被中断，请重新检查环境后重试";
     openclawInstallJob.finishedAt = new Date().toISOString();
     openclawInstallJob.currentStep = null;
-    writeFileSync(installStatePath, JSON.stringify(openclawInstallJob, null, 2), "utf8");
+    atomicWriteJson(installStatePath, openclawInstallJob, { mode: 0o600, description: "OpenClaw 安装状态" });
   }
   let openclawInstallBusy = openclawInstallJob?.status === "queued" || openclawInstallJob?.status === "running";
   let openclawInstallState: { installed: boolean; version: string | null; rootPath: string | null; detail: string; busy: boolean } = {
@@ -1463,7 +1479,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     ["verify", "重新探测连接"],
   ] as const;
   const persistInstallJob = () => {
-    if (openclawInstallJob !== null) writeFileSync(installStatePath, JSON.stringify(openclawInstallJob, null, 2), "utf8");
+    if (openclawInstallJob !== null) atomicWriteJson(installStatePath, openclawInstallJob, { mode: 0o600, description: "OpenClaw 安装状态" });
   };
   const appendInstallLog = (line: string) => {
     if (openclawInstallJob === null) return;
@@ -1758,7 +1774,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     },
   };
   // 使用统计依赖同一份只读日志服务；必须在日志服务完成组装后创建。
-  const skillAssets = createSkillAssetService({ core, skills, backup, logs: logsService, now: options.now });
+  const skillAssets = createSkillAssetService({ core, skills, backup, backupGate, logs: logsService, now: options.now });
   const logAnalyzer = createLogAnalyzer(logsService);
   const evolutionInsights = createEvolutionInsightsService({
     core,
@@ -1839,9 +1855,20 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
           evolution,
           now: options.now,
         }),
+      diagnosticSummary: () =>
+        buildDiagnosticSummary({
+          core,
+          butler,
+          analyzeLogs: (instanceId?: string, range?: "24h" | "7d" | "30d") => logAnalyzer.analyze(instanceId, range),
+          security,
+          gateway,
+          evolution,
+          now: options.now,
+        }),
       promptOptimization,
       backup,
       security,
+      markdownFiles,
     },
     {
       host: config.watchHttpHost,

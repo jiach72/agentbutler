@@ -51,7 +51,7 @@ export function EvidenceStep({ diagnosis, symptom, onBack, onNext }: EvidenceSte
           type="error"
           showIcon
           message={`找到明确的问题：${diagnosis.rootCause}`}
-          description="这项检查没有通过，下一步可以选择对应的处理方式。"
+          description={`${diagnosis.summary ?? "这项检查没有通过"}${diagnosis.safeToRetry === false ? "；不建议直接重试，请先按下一步处理。" : "；下一步可以选择对应的处理方式。"}`}
         />
       ) : primary !== null ? (
         <Alert

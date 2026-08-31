@@ -1,6 +1,6 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Core } from "@butler/core";
+import { atomicWriteJson, type Core } from "@butler/core";
 import type { EvolutionService, EvolutionRunView } from "./evolution.js";
 import type { ExternalEvolutionProposal, ExternalEvolutionService } from "./external-evolution.js";
 import type { LogAnalyzeView, LogIssueView } from "./log-analyzer.js";
@@ -202,7 +202,7 @@ export function createEvolutionInsightsService(deps: {
     /* first run */
   }
   if (!Array.isArray(state.directions)) state = { directions: [] };
-  const save = () => writeFileSync(statePath, JSON.stringify(state, null, 2), { mode: 0o600 });
+  const save = () => atomicWriteJson(statePath, state, { mode: 0o600, description: "进化洞察状态" });
 
   const analyze = async (
     instanceId?: string,

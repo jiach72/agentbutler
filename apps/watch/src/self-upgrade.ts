@@ -17,12 +17,10 @@ import { randomUUID } from "node:crypto";
 import { spawn, execFileSync } from "node:child_process";
 import {
   existsSync,
-  mkdirSync,
   readFileSync,
-  renameSync,
-  writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { atomicWriteJson } from "@butler/core";
 
 export const BUTLER_SELF_ACTOR = "butler-self";
 export const SELF_STATE_DIR = "self-upgrade";
@@ -231,10 +229,7 @@ function readJson<T>(file: string, fallback: T): T {
 }
 
 function writeJsonAtomic(file: string, value: unknown): void {
-  mkdirSync(dirname(file), { recursive: true });
-  const temp = file + "." + randomUUID() + ".tmp";
-  writeFileSync(temp, JSON.stringify(value, null, 2), "utf8");
-  renameSync(temp, file);
+  atomicWriteJson(file, value, { mode: 0o600, description: "自升级状态" });
 }
 
 interface ParsedVersion {

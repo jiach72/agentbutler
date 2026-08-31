@@ -3,7 +3,10 @@ import {
   type AdapterBundle,
   type DiscoveryAdapter,
   type InstanceRef,
+  type ManagedMarkdownCandidate,
 } from "@butler/contract";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { capabilityScan, parseRootPath } from "./capability-scan.js";
 import { createHermesControl, type HermesControlOptions } from "./control/index.js";
 import { detect } from "./detect.js";
@@ -18,6 +21,25 @@ import { hermesManifest } from "./manifest.js";
 /** 从 InstanceRef 解析 rootPath：优先 rootPath 字段，回退解析 "instanceId|rootPath" 复合形式。 */
 function rootPathFromRef(ref: InstanceRef): string | null {
   return ref.rootPath ?? parseRootPath(ref.instanceId);
+}
+
+function managedMarkdownFiles(ref: InstanceRef): ManagedMarkdownCandidate[] {
+  const root = rootPathFromRef(ref);
+  const pick = (key: ManagedMarkdownCandidate["key"], label: string, paths: string[], editable = true, readOnlyReason?: string): ManagedMarkdownCandidate => ({
+    key,
+    label,
+    relativePath: root === null ? paths[0] : (paths.find((item) => existsSync(join(root, item))) ?? paths[0]),
+    editable,
+    ...(readOnlyReason ? { readOnlyReason } : {}),
+  });
+  return [
+    // Hermes 的用户画像与长期记忆位于 memories/，不是实例根目录。
+    pick("user", "USER.md", ["memories/USER.md", "memories/user.md", "USER.md", "user.md"]),
+    // Hermes 没有独立 agent.md；实际使用仓库根部的 AGENTS.md 作为项目指令。
+    pick("agent", "AGENTS.md（项目指令）", ["hermes-agent/AGENTS.md", "hermes-agent/agents.md", "AGENTS.md", "agents.md"]),
+    pick("soul", "SOUL.md", ["SOUL.md", "soul.md", "workspace/SOUL.md", "workspace/soul.md"]),
+    pick("memory", "MEMORY.md", ["memories/MEMORY.md", "memories/memory.md", "MEMORY.md", "memory.md"], false, "运行时记忆与人工 Markdown 分开管理"),
+  ];
 }
 
 /** 组装 Hermes 适配器的可注入项（控制面执行器/store/快照目录，全部可选）。 */
@@ -49,6 +71,7 @@ export function createHermesAdapter(options: HermesAdapterOptions = {}): Adapter
       const rootPath = rootPathFromRef(ref);
       return rootPath ? logSources(rootPath) : [];
     },
+    managedMarkdownFiles,
   };
 
   return {

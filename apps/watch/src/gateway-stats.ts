@@ -28,8 +28,8 @@ import {
   type PatchDefinition,
   type PatchManager,
 } from "@butler/adapter-hermes";
-import type { ConfigValidation, InstanceRef, Result } from "@butler/contract";
-import type { Core, FingerprintRow, FingerprintWindowRow, InstanceRecord } from "@butler/core";
+import type { ConfigChangeSet, ConfigValidation, InstanceRef, Result } from "@butler/contract";
+import { withManagedOperationLock, type Core, type FingerprintRow, type FingerprintWindowRow, type InstanceRecord } from "@butler/core";
 
 /**
  * iLink 限流类模板识别正则：归一化模板中数值已变 <NUM>，故 ret=-<NUM> 只匹配
@@ -140,6 +140,11 @@ export type PatchApplyOutcome =
 export type PatchDetectOutcome =
   { status: "ok"; report: DriftReport } | { status: "unknown-patch" } | { status: "no-instance" };
 
+export type PatchPreviewOutcome =
+  | { status: "ok"; preview: ConfigChangeSet }
+  | { status: "unknown-patch" }
+  | { status: "no-instance" };
+
 /** 网关面板服务（HTTP /api/gateway/* 的依赖面）。 */
 export interface GatewayPanelService {
   /** 限流统计 + 画像建议（applied 来自 patchManager.state()）。 */
@@ -157,6 +162,7 @@ export interface GatewayPanelService {
     instanceId?: string;
   }): Promise<PatchApplyOutcome>;
   detectPatch(input: { patchId: string; instanceId?: string }): Promise<PatchDetectOutcome>;
+  previewPatch(input: { patchId: string; params?: Record<string, number>; instanceId?: string }): Promise<PatchPreviewOutcome>;
 }
 
 export interface GatewayServiceDeps {
@@ -366,7 +372,8 @@ export function createGatewayService(deps: GatewayServiceDeps): GatewayPanelServ
     call: PatchManager["apply"] | PatchManager["reapply"],
     input: { patchId: string; params?: Record<string, number>; instanceId?: string },
   ): Promise<PatchApplyOutcome> {
-    const record = resolveInstance(core, input.instanceId);
+    return withManagedOperationLock(`instance:${input.instanceId ?? "default"}:config`, async () => {
+      const record = resolveInstance(core, input.instanceId);
     let outcome: PatchApplyOutcome;
     if (record === undefined || record.rootPath === "") {
       outcome = { status: "no-instance" };
@@ -427,7 +434,8 @@ export function createGatewayService(deps: GatewayServiceDeps): GatewayPanelServ
       target: record?.instanceId ?? input.instanceId ?? "",
       detail: { patchId: input.patchId, params: input.params ?? {}, outcome },
     });
-    return outcome;
+      return outcome;
+    });
   }
 
   async function detectPatch(input: {
@@ -456,6 +464,22 @@ export function createGatewayService(deps: GatewayServiceDeps): GatewayPanelServ
     return outcome;
   }
 
+  async function previewPatch(input: { patchId: string; params?: Record<string, number>; instanceId?: string }): Promise<PatchPreviewOutcome> {
+    const record = resolveInstance(core, input.instanceId);
+    const definition = findPatch(input.patchId);
+    if (record === undefined || record.rootPath === "") return { status: "no-instance" };
+    if (definition === undefined) return { status: "unknown-patch" };
+    const applied = (await patchManager.state())[input.patchId]?.params ?? {};
+    const changes = Object.entries(definition.params)
+      .map(([name, schema]) => {
+        const before = applied[name] ?? schema.default;
+        const after = input.params?.[name] ?? before;
+        return before === after ? null : { path: `${definition.target}::${name}`, before, after, impact: "会修改已登记的消息网关参数" };
+      })
+      .filter((item): item is { path: string; before: number; after: number; impact: string } => item !== null);
+    return { status: "ok", preview: { targetPath: definition.target, changes, redacted: true } };
+  }
+
   return {
     stats,
     patches,
@@ -464,5 +488,6 @@ export function createGatewayService(deps: GatewayServiceDeps): GatewayPanelServ
     reapplyPatch: (input) =>
       runPatchAction(PATCH_REAPPLY_ACTION, patchManager.reapply.bind(patchManager), input),
     detectPatch,
+    previewPatch,
   };
 }

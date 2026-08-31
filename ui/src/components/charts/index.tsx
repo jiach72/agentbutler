@@ -15,6 +15,15 @@ const ColumnPlot = lazy(() =>
 const LinePlot = lazy(() =>
   import("@ant-design/charts").then((m) => ({ default: m.Line as React.FC<PlotProps> })),
 );
+const AreaPlot = lazy(() =>
+  import("@ant-design/charts").then((m) => ({ default: m.Area as React.FC<PlotProps> })),
+);
+const BarPlot = lazy(() =>
+  import("@ant-design/charts").then((m) => ({ default: m.Bar as React.FC<PlotProps> })),
+);
+const ScatterPlot = lazy(() =>
+  import("@ant-design/charts").then((m) => ({ default: m.Scatter as React.FC<PlotProps> })),
+);
 
 function PlotFallback({ height }: { height: number }) {
   return (
@@ -36,6 +45,30 @@ export function TrendLine(props: PlotProps) {
   return (
     <Suspense fallback={<PlotFallback height={Number(props.height ?? 200)} />}>
       <LinePlot {...props} />
+    </Suspense>
+  );
+}
+
+export function TrendArea(props: PlotProps) {
+  return (
+    <Suspense fallback={<PlotFallback height={Number(props.height ?? 200)} />}>
+      <AreaPlot {...props} />
+    </Suspense>
+  );
+}
+
+export function TrendBar(props: PlotProps) {
+  return (
+    <Suspense fallback={<PlotFallback height={Number(props.height ?? 200)} />}>
+      <BarPlot {...props} />
+    </Suspense>
+  );
+}
+
+export function TrendScatter(props: PlotProps) {
+  return (
+    <Suspense fallback={<PlotFallback height={Number(props.height ?? 200)} />}>
+      <ScatterPlot {...props} />
     </Suspense>
   );
 }

@@ -8,7 +8,7 @@
  */
 import { useEffect, useState } from "react";
 import { Button, Input, Modal } from "antd";
-import { LockOutlined } from "@ant-design/icons";
+import { ArrowRightOutlined, HomeOutlined, LockOutlined } from "@ant-design/icons";
 import { setAccessToken, subscribeUnauthorized } from "../lib/accessToken.js";
 
 export function AccessGate() {
@@ -35,19 +35,55 @@ export function AccessGate() {
     window.location.reload();
   };
 
+  const localUrl = (() => {
+    try {
+      const url = new URL(window.location.href);
+      url.hostname = "127.0.0.1";
+      url.search = "";
+      return url.toString();
+    } catch {
+      return null;
+    }
+  })();
+  const onLocalHost = (() => {
+    try {
+      const hostname = window.location.hostname.toLowerCase();
+      return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+    } catch {
+      return false;
+    }
+  })();
+
   return (
     <Modal open footer={null} closable={false} maskClosable={false} keyboard={false} width={480} className="access-gate-modal">
       <div className="access-gate-card">
         <span className="access-gate-mark" aria-hidden="true">
           <LockOutlined />
         </span>
-        <h2 id="access-gate-title">需要访问口令</h2>
+        <h2 id="access-gate-title">先确认访问方式</h2>
         <p className="access-gate-lead">
-          这台管家设置成了允许其他设备访问，所以进入面板需要口令。
-          口令是为了防止同一网络里的其他人操作你的 AI。
+          这台管家允许其他设备访问，所以跨设备打开时需要口令。
+          如果你就在运行管家的这台电脑上，可以直接用本机地址进入，不用查找任何配置文件。
         </p>
+        {!onLocalHost && localUrl !== null && (
+          <div className="access-gate-local">
+            <div>
+              <strong>你正在这台电脑上操作吗？</strong>
+              <span>改用本机地址，免输入口令。</span>
+            </div>
+            <Button
+              type="default"
+              icon={<HomeOutlined />}
+              href={localUrl}
+              target="_self"
+            >
+              在本机打开
+            </Button>
+          </div>
+        )}
+        <div className="access-gate-divider" aria-hidden="true"><span>或</span></div>
         <label className="access-gate-label" htmlFor="access-gate-token">
-          访问口令
+          跨设备访问口令
         </label>
         <Input.Password
           id="access-gate-token"
@@ -65,15 +101,14 @@ export function AccessGate() {
             {error}
           </p>
         )}
-        <Button type="primary" size="large" block onClick={submit} disabled={value.trim() === ""}>
-          进入管家
+        <Button type="primary" size="large" block icon={<ArrowRightOutlined />} onClick={submit} disabled={value.trim() === ""}>
+          输入口令进入
         </Button>
         <div className="access-gate-hint" id="access-gate-hint">
-          <strong>口令在哪里找？</strong>
+          <strong>只有从其他设备访问时才需要口令</strong>
           <span>
-            在管家安装目录的 <code>.env</code> 文件里，<code>BUTLER_ACCESS_TOKEN=</code> 后面那串字符就是。
+            口令由安装时设置；如果由管理员部署，请向管理员索取，不需要自己修改文件。
           </span>
-          <span>如果你就是这台电脑的主人，也可以把 <code>.env</code> 里的这行删掉并重启管家，之后只有本机可以访问，不再需要口令。</span>
         </div>
       </div>
     </Modal>

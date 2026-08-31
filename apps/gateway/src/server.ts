@@ -62,7 +62,7 @@ function hasAllowedOrigin(origin: string): boolean {
     .filter((value) => value !== "")
     .includes(origin);
 }
-export const GATEWAY_SERVICE_VERSION = `gateway@1.0.0-beta.16+${CONTRACT_VERSION}`;
+export const GATEWAY_SERVICE_VERSION = `gateway@1.0.0-beta.17+${CONTRACT_VERSION}`;
 
 export type MessageDeliveryMode = "native" | "observe" | "disabled";
 
@@ -296,7 +296,7 @@ function registerMessageRoutes(
         mode,
         nativeMinIntervalSec: resolveNativeMinInterval({ nativeMinIntervalSec }),
         hermesGateway: { authoritative: mode === "native", connected: mode === "native", running: false },
-        bridge: { connected: false, running: false, inFlight: false, attached: false, outboxWritable: false, lastError: null },
+        bridge: { connected: false, running: false, inFlight: false, attached: false, outboxWritable: false, channels: {}, channelDetails: {}, lastError: null },
         counts: emptyCounts,
         absorbedProgress: 0,
         pendingFinalResults: 0,
@@ -307,6 +307,14 @@ function registerMessageRoutes(
       const status = await messageService.status();
       const health = status.bridgeHealth;
       const summary = messageStore.messageStatusSummary();
+      const channelDetails = Object.fromEntries(
+        Object.entries(health?.channels ?? {}).map(([channel, channelStatus]) => [channel, {
+          status: channelStatus,
+          unavailableReason: channelStatus === "ok" ? null : channelStatus === "degraded" ? "通道已连接，但部分能力暂不可用" : "通道未连接，可能缺少凭据或桥接未启动",
+          unavailableFix: channelStatus === "ok" ? null : channelStatus === "degraded" ? "检查桥接状态并重新连接" : "补充通道凭据后重新连接",
+          retryable: channelStatus !== "unavailable" || status.bridgeConnected,
+        }]),
+      );
       return {
         mode,
         nativeMinIntervalSec: resolveNativeMinInterval({ nativeMinIntervalSec }),
@@ -324,6 +332,7 @@ function registerMessageRoutes(
           policyHash: status.policyHash,
           remotePolicyVersion: health?.policyVersion ?? null,
           channels: health?.channels ?? {},
+          channelDetails,
           coverage: health?.coverage ?? {},
           startedAt: health?.startedAt ?? null,
           lastCycleAt: status.lastCycleAt,
@@ -340,6 +349,16 @@ function registerMessageRoutes(
           lastConnectionFailureAt: summary.lastConnectionFailureAt,
         },
       };
+    } catch {
+      return bridgeUnavailable(reply, "E302");
+    }
+  });
+
+  app.post("/api/messages/reconnect", async (_request, reply) => {
+    if (messageService === undefined) return bridgeUnavailable(reply, "E302");
+    try {
+      messageService.wake();
+      return { accepted: true, nextStep: "已请求重新连接，稍后刷新查看通道状态。" };
     } catch {
       return bridgeUnavailable(reply, "E302");
     }

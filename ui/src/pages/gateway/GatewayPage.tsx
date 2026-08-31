@@ -43,6 +43,7 @@ import type {
   MessageTaskView,
   PatchDrafts,
   PendingPatchAction,
+  ConfigChangeSetView,
 } from "./helpers.js";
 
 const EVENT_PREFIXES = ["message-", "patch-", "gateway-", "delivery-", "alert-", "dnd-"];
@@ -238,11 +239,21 @@ export function GatewayPage() {
       message.error(crossError);
       return;
     }
+    const previewBody = selectedInstance.trim() === "" ? { params: resolved } : { params: resolved, instanceId: selectedInstance.trim() };
+    const previewResult = await postJson(`/api/gateway/patches/${encodeURIComponent(patch.id)}/preview`, previewBody, 10_000);
+    const preview = previewResult.status === 200 && previewResult.data !== null && typeof previewResult.data === "object"
+      ? (previewResult.data as { preview?: ConfigChangeSetView }).preview
+      : undefined;
+    if (preview === undefined) {
+      message.error("无法生成配置变更预览，已阻止写入");
+      return;
+    }
     setPendingPatchAction({
       patch,
       action,
       params: resolved,
       busyKey: key,
+      preview,
       ...(selectedInstance.trim() === "" ? {} : { instanceId: selectedInstance.trim() }),
     });
   };
@@ -297,6 +308,15 @@ export function GatewayPage() {
   );
   const bridgeReady =
     messageBridge?.connected === true && messageBridge.attached && messageBridge.outboxWritable;
+  const reconnectMessages = async () => {
+    try {
+      await postJson("/api/messages/reconnect", {}, 10_000);
+      message.success("已请求重新连接，稍后刷新查看结果");
+      await refresh();
+    } catch {
+      message.error("重新连接请求未送达，请稍后重试");
+    }
+  };
 
   return (
     <section className="page gateway-page">
@@ -391,6 +411,7 @@ export function GatewayPage() {
             onSelectMessage={setSelectedMessageId}
             taskData={taskData}
             taskLoading={taskLoading}
+            onReconnect={() => void reconnectMessages()}
           />
         </div>
       </AdvancedDetails>
@@ -473,6 +494,13 @@ export function GatewayPage() {
               ? "；实例：自动选择"
               : "；实例：" + pendingPatchAction.instanceId}
           </p>
+          {pendingPatchAction.preview !== undefined && (
+            <div className="hint">
+              <strong>将要修改：</strong>{pendingPatchAction.preview.changes.length === 0
+                ? "参数没有变化"
+                : pendingPatchAction.preview.changes.map((change) => `${change.path}：${String(change.before)} → ${String(change.after)}`).join("；")}
+            </div>
+          )}
         </DangerConfirmModal>
       )}
     </section>

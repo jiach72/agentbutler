@@ -36,6 +36,17 @@ export interface DiagnosticReportDeps {
   now?: () => number;
 }
 
+export interface DiagnosticSummary {
+  schemaVersion: "diagnostic-summary-v1";
+  generatedAt: string;
+  redacted: true;
+  instances: Array<{ instanceId: string; framework: string; state: string; version: string | null; root: string }>;
+  logIssues: Array<{ id: string; severity: string; title: string; count: number; lastSeenAt?: string | null }>;
+  security: { totalSecretFiles: number; insecureSecretFiles: number; failedInvariants: number };
+  gateway: { overall: string; last24h: number; totalEvents: number };
+  evolutionRuns: number;
+}
+
 const FINGERPRINT_WINDOW_DAYS = 7;
 const TOP_FINGERPRINTS = 20;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -61,6 +72,24 @@ function formatTime(value: string): string {
     minute: "2-digit",
     hour12: false,
   }).format(date);
+}
+
+export async function buildDiagnosticSummary(deps: DiagnosticReportDeps): Promise<DiagnosticSummary> {
+  const now = deps.now ?? Date.now;
+  const instances = deps.core.instances.listInstances();
+  const logs = deps.analyzeLogs();
+  const security = await deps.security.status();
+  const gateway = await deps.gateway.stats();
+  return {
+    schemaVersion: "diagnostic-summary-v1",
+    generatedAt: new Date(now()).toISOString(),
+    redacted: true,
+    instances: instances.map((instance) => ({ instanceId: instance.instanceId, framework: instance.frameworkId, state: instance.state, version: instance.version, root: redact(instance.rootPath, 160) })),
+    logIssues: logs.issues.map((issue) => ({ id: issue.id, severity: issue.severity, title: redact(issue.title, 120), count: issue.count, lastSeenAt: issue.lastSeenAt ?? null })),
+    security: { totalSecretFiles: security.totalSecretFiles, insecureSecretFiles: security.insecureSecretFiles, failedInvariants: security.invariants.filter((item) => item.status === "fail").length },
+    gateway: { overall: gateway.overall, last24h: gateway.last24h, totalEvents: gateway.totalEvents },
+    evolutionRuns: deps.evolution?.status().ledger.length ?? 0,
+  };
 }
 
 /** 组装诊断 Markdown（异步：配置摘要与网关参数需要读服务）。 */

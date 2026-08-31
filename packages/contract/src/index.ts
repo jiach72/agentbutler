@@ -6,6 +6,7 @@ export * from "./discovery.js";
 export * from "./control.js";
 export * from "./messaging.js";
 export * from "./drivers.js";
+export * from "./operations.js";
 
 import type { ControlAdapter } from "./control.js";
 import type { DiscoveryAdapter } from "./discovery.js";

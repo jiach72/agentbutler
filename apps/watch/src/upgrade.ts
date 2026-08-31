@@ -67,6 +67,28 @@ export type UpgradeStartOutcome =
   | { status: "no-servicing-instance" }
   | { status: "backup-failed"; error: string };
 
+export interface UpgradeCompatibilityView {
+  instanceId: string;
+  currentVersion: string | null;
+  targetVersion: string;
+  compatible: boolean;
+  checks: Array<{ id: string; status: "pass" | "warn" | "fail"; detail: string }>;
+}
+
+export function checkUpgradeCompatibility(input: { instanceId: string; currentVersion: string | null; targetVersion: string; rootPath: string }): UpgradeCompatibilityView {
+  const checks: UpgradeCompatibilityView["checks"] = [];
+  if (input.rootPath === "") checks.push({ id: "path", status: "fail", detail: "实例目录不可访问" });
+  else checks.push({ id: "path", status: "pass", detail: "实例目录可访问" });
+  if (input.currentVersion === null) checks.push({ id: "version", status: "warn", detail: "当前版本未知，将在升级流水线中再次核验" });
+  else if (input.currentVersion.trim() === input.targetVersion.trim()) checks.push({ id: "version", status: "fail", detail: "目标版本与当前版本相同" });
+  else checks.push({ id: "version", status: "pass", detail: `当前版本 ${input.currentVersion} → 目标版本 ${input.targetVersion.trim()}` });
+  const currentMajor = input.currentVersion?.match(/^(?:v)?(\d+)/)?.[1];
+  const targetMajor = input.targetVersion.trim().match(/^(?:v)?(\d+)/)?.[1];
+  if (currentMajor !== undefined && targetMajor !== undefined && currentMajor !== targetMajor) checks.push({ id: "major", status: "fail", detail: "目标版本跨主版本，可能包含不兼容变更" });
+  else checks.push({ id: "major", status: "pass", detail: "未发现主版本不兼容" });
+  return { instanceId: input.instanceId, currentVersion: input.currentVersion, targetVersion: input.targetVersion.trim(), compatible: checks.every((check) => check.status !== "fail"), checks };
+}
+
 /** rollbackSnapshot 结果（HTTP 层按 status 映射 200/404/503）。 */
 export type RollbackSnapshotOutcome =
   | { status: "ok"; job: { jobId: string; kind: "rollback"; steps: JobStep[] } }
@@ -87,6 +109,7 @@ export interface UpgradeService {
   listVersions(): Promise<{ reachable: boolean; source?: string; versions: VersionListEntry[]; checkedAt?: string; attempts?: VersionSourceAttempt[] }>;
   /** 回滚到快照登记行（同步收敛，返回 rollback Job）。 */
   rollbackSnapshot(snapshotRowId: number, instanceId?: string): Promise<RollbackSnapshotOutcome>;
+  compatibility(input: { instanceId?: string; targetVersion: string }): UpgradeCompatibilityView;
 }
 
 /** 熔断联动所需的最小面（CircuitBreaker 结构满足；测试可注入记录型 fake）。 */
@@ -298,6 +321,17 @@ export function createUpgradeService(deps: UpgradeServiceDeps): UpgradeService {
     return { instanceId: record.instanceId, rootPath: record.rootPath, runtime: record.runtime };
   }
 
+  function compatibility(input: { instanceId?: string; targetVersion: string }): UpgradeCompatibilityView {
+    const record = resolveTargetInstance(input.instanceId);
+    const instanceId = record?.instanceId ?? input.instanceId ?? "";
+    const currentVersion = record?.version ?? null;
+    const result = record === undefined
+      ? checkUpgradeCompatibility({ instanceId, currentVersion, targetVersion: input.targetVersion, rootPath: "" })
+      : checkUpgradeCompatibility({ instanceId: record.instanceId, currentVersion, targetVersion: input.targetVersion, rootPath: record.rootPath });
+    if (record === undefined) result.checks.unshift({ id: "instance", status: "fail", detail: "没有找到正在运行且可升级的实例" });
+    return { ...result, compatible: result.compatible && record !== undefined };
+  }
+
   /* -------------------------------- 出入口 -------------------------------- */
 
   function startUpgrade(input: {
@@ -418,6 +452,7 @@ export function createUpgradeService(deps: UpgradeServiceDeps): UpgradeService {
       return pipeline.status();
     },
     listVersions,
+    compatibility,
     rollbackSnapshot,
   };
 }

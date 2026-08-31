@@ -49,10 +49,22 @@ export interface LogSource {
   tsField?: string;
 }
 
+/** 适配器声明的固定核心 Markdown 文件候选。路径只允许相对实例根目录。 */
+export interface ManagedMarkdownCandidate {
+  key: "user" | "agent" | "soul" | "memory";
+  label: string;
+  /** 相对实例根目录的候选路径；适配器负责大小写与 workspace 差异。 */
+  relativePath: string;
+  editable?: boolean;
+  readOnlyReason?: string;
+}
+
 /** I-1 发现适配器：只读观察面，所有方法不得产生副作用。 */
 export interface DiscoveryAdapter {
   readonly frameworkId: FrameworkId;
   detect(hint?: DiscoveryHint): Promise<Result<DetectedInstance[]>>;
   capabilityScan(instance: InstanceRef): Promise<Result<CapabilityReport>>;
   logSources(instance: InstanceRef): LogSource[];
+  /** 固定核心 Markdown 文件候选；缺省表示该框架不提供此能力。 */
+  managedMarkdownFiles?(instance: InstanceRef): ManagedMarkdownCandidate[];
 }

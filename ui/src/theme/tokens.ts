@@ -137,8 +137,8 @@ export const nightPalette: ButlerPalette = {
 };
 
 export const radius = {
-  card: 10,
-  control: 6,
+  card: 12,
+  control: 8,
 } as const;
 
 const fontStack =

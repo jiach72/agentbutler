@@ -12,6 +12,7 @@ type UsageView = { rangeDays: number; granularity: UsageGranularity; coverage: {
 type TrendView = { items: Array<{ name: string; url: string; stars: number; forks: number; updatedAt: string; description?: string }>; syncedAt: string | null; notice: string; error?: string };
 type Recommendation = { id: string; name: string; reason: string; description?: string; sourceUrl: string };
 type InstallPhase = "confirm" | "download" | "install" | "done" | "failed";
+type InstallFailureStep = "download" | "install";
 
 function postError(result: { data: unknown }, fallback: string): string {
   if (result.data !== null && typeof result.data === "object") {
@@ -30,7 +31,7 @@ export function AssetCenter({ skills, onSkillsChanged }: { skills: SkillsPayload
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [installTarget, setInstallTarget] = useState<Recommendation | null>(null);
-  const [installJob, setInstallJob] = useState<{ phase: InstallPhase; detail: string }>({ phase: "confirm", detail: "" });
+  const [installJob, setInstallJob] = useState<{ phase: InstallPhase; detail: string; failedStep?: InstallFailureStep }>({ phase: "confirm", detail: "" });
 
   const refresh = useCallback(async () => {
     setBusy("refresh");
@@ -86,7 +87,7 @@ export function AssetCenter({ skills, onSkillsChanged }: { skills: SkillsPayload
     setInstallJob({ phase: "download", detail: "正在下载并检查技能文件" });
     const staged = await postJson("/api/skills/recommendations/" + encodeURIComponent(target.id) + "/stage", {}, 30_000);
     if (!staged.ok) {
-      setInstallJob({ phase: "failed", detail: postError(staged, "下载或检查未完成") });
+      setInstallJob({ phase: "failed", failedStep: "download", detail: postError(staged, "下载或检查未完成") });
       setBusy(null);
       return;
     }
@@ -100,7 +101,7 @@ export function AssetCenter({ skills, onSkillsChanged }: { skills: SkillsPayload
     const installed = await postJson("/api/skills/staged/" + encodeURIComponent(stageId) + "/install", { confirmed: true }, 30_000);
     setBusy(null);
     if (!installed.ok) {
-      setInstallJob({ phase: "failed", detail: postError(installed, "安装未完成") });
+      setInstallJob({ phase: "failed", failedStep: "install", detail: postError(installed, "备份或安装未完成") });
       return;
     }
     setInstallJob({ phase: "done", detail: "技能已安装，技能清单已更新" });
@@ -145,7 +146,7 @@ export function AssetCenter({ skills, onSkillsChanged }: { skills: SkillsPayload
     <div className="asset-center-section"><div className="skills-section-head"><div><span className="skills-kicker">公开来源</span><h2>GitHub 技能项目</h2></div><Button icon={<ReloadOutlined />} loading={busy === "sync" || busy === "refresh"} onClick={() => void syncTrends()}>同步公开数据</Button></div><p className="asset-note">数据来自公开仓库，仅供参考。{trends?.syncedAt ? "同步于 " + formatTime(trends.syncedAt) : "尚未同步"}{trends?.error ? "；上次同步失败，当前显示缓存。" : ""}</p><div className="asset-trends-list">{(trends?.items ?? []).length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚未同步公开项目" /> : (trends?.items ?? []).slice(0, 8).map((item) => <div className="asset-trend-row" key={item.name}><div className="asset-trend-main"><a href={item.url} target="_blank" rel="noreferrer">{item.name}</a><p>{item.description ?? "公开技能项目，具体用途以仓库说明为准。"}</p></div><span>{item.stars.toLocaleString()} stars · {item.forks.toLocaleString()} forks</span><small>更新于 {item.updatedAt ? formatTime(item.updatedAt) : "未知"}</small></div>)}</div></div>
     <div className="asset-center-section"><div className="skills-section-head"><div><span className="skills-kicker">推荐项目</span><h2>推荐技能</h2></div><Button icon={<ReloadOutlined />} loading={busy === "refresh"} onClick={() => void refresh()}>重新获取</Button></div>{recommendations.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={trends?.items?.length ? "当前没有匹配的未安装技能" : "同步公开项目后，可结合本机使用情况生成推荐"} /> : recommendations.slice(0, 6).map((item) => <div className="asset-recommendation" key={item.id}><div><strong>{item.name}</strong><p>{item.description ?? item.reason}</p></div><Button icon={<DownloadOutlined />} loading={busy === "install" && installTarget?.id === item.id} onClick={() => { setInstallTarget(item); setInstallJob({ phase: "confirm", detail: "" }); }}>直接安装</Button></div>)}</div>
     <Modal open={installTarget !== null} title={installJob.phase === "confirm" ? "确认安装" : installTarget ? "安装 " + installTarget.name : "安装技能"} onCancel={() => { if (installJob.phase === "confirm" || installJob.phase === "done" || installJob.phase === "failed") setInstallTarget(null); }} closable={installJob.phase === "confirm" || installJob.phase === "done" || installJob.phase === "failed"} maskClosable={false} footer={installJob.phase === "confirm" ? [<Button key="cancel" onClick={() => setInstallTarget(null)}>取消</Button>, <Button key="ok" type="primary" onClick={() => void startInstall()}>直接安装</Button>] : installJob.phase === "done" || installJob.phase === "failed" ? [<Button key="close" type="primary" onClick={() => setInstallTarget(null)}>关闭</Button>] : null}>
-      {installJob.phase === "confirm" ? <p>将下载项目并检查技能文件，备份后安装到当前 Hermes 实例。</p> : <><Progress percent={installJob.phase === "download" ? 35 : installJob.phase === "install" ? 75 : 100} status={installJob.phase === "failed" ? "exception" : installJob.phase === "done" ? "success" : "active"} /><Steps size="small" current={installJob.phase === "download" ? 0 : installJob.phase === "install" ? 2 : installJob.phase === "done" ? 4 : 2} status={installJob.phase === "failed" ? "error" : undefined} items={[{ title: "下载" }, { title: "检查" }, { title: "备份" }, { title: "安装" }]} /><p className="asset-install-detail">{installJob.detail}</p></>}
+      {installJob.phase === "confirm" ? <p>将下载项目并检查技能文件，备份后安装到当前 Hermes 实例。</p> : <><Progress percent={installJob.phase === "download" ? 35 : installJob.phase === "install" ? 75 : installJob.phase === "failed" && installJob.failedStep === "download" ? 20 : 100} status={installJob.phase === "failed" ? "exception" : installJob.phase === "done" ? "success" : "active"} /><Steps size="small" current={installJob.phase === "download" ? 0 : installJob.phase === "install" ? 2 : installJob.phase === "done" ? 3 : installJob.failedStep === "download" ? 0 : 2} status={installJob.phase === "failed" ? "error" : undefined} items={[{ title: "下载/检查" }, { title: "备份" }, { title: "安装" }]} /><p className="asset-install-detail">{installJob.detail}</p></>}
     </Modal>
   </div>;
 }

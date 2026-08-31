@@ -122,8 +122,11 @@ import type { EvolutionAnalyticsService } from "./evolution-analytics.js";
 import type { BackupService } from "./backup.js";
 import type { SecurityService } from "./invariants.js";
 import type { ButlerRuntimeInfo } from "./runtime.js";
-import type { LlmCredentialService, LlmProtocol } from "@butler/core";
+import { MarkdownFileError, type MarkdownFileService } from "./markdown-files.js";
+import { toUserFacingError, type LlmCredentialService, type LlmProtocol } from "@butler/core";
 import { createDiagnosticZip } from "./diagnostics.js";
+import type { DiagnosticSummary } from "./diagnostics.js";
+import { classifyRuntimeState } from "./runtime-diagnosis.js";
 
 /** 记忆按需自检（memory-probe 单阶段）的结论。 */
 export interface MemorySelfCheckResult {
@@ -139,7 +142,7 @@ export type MemorySelfCheckOutcome =
 
 /** 请求体解析上限（字节）。 */
 export const HTTP_BODY_LIMIT_BYTES = 16 * 1024;
-export const WATCH_SERVICE_VERSION = `watch@1.0.0-beta.16+${CONTRACT_VERSION}`;
+export const WATCH_SERVICE_VERSION = `watch@1.0.0-beta.17+${CONTRACT_VERSION}`;
 
 /** runbook 执行结果（由接线层判定，HTTP 层只做状态码映射）。 */
 export type RunbookExecuteOutcome =
@@ -191,6 +194,9 @@ export interface RecoveryFinding {
 export interface RecoveryDiagnosisView {
   incidentId: string;
   severity: "ok" | "warn" | "error";
+  stateCode: string;
+  summary: string;
+  safeToRetry: boolean;
   /**
    * 根因。只有探针真的失败时才命名——那时候我们确实知道哪里坏了。
    * 探针全绿时这里是 null，改看 primaryFinding。
@@ -403,6 +409,7 @@ export interface WatchHttpDeps {
   memorySelfCheck?: (instanceId?: string) => Promise<MemorySelfCheckOutcome>;
   /** M7：脱敏诊断报告生成器（一键生成 Markdown）。 */
   renderDiagnostics?: () => Promise<string>;
+  diagnosticSummary?: () => Promise<DiagnosticSummary>;
   /** 系统日志：列表 + 尾部读取（观察面；路径只读）。 */
   logs?: {
     listSources(instanceId?: string): Array<{
@@ -457,6 +464,8 @@ export interface WatchHttpDeps {
   backup?: BackupService;
   /** Task 18：安全基线（配置不变式 + 密钥权限）。 */
   security?: SecurityService;
+  /** 核心 Markdown 文件管理。 */
+  markdownFiles?: MarkdownFileService;
 }
 
 export interface WatchHttpOptions {
@@ -697,11 +706,23 @@ async function diagnoseRecovery(deps: WatchHttpDeps, instanceId?: string): Promi
   // 会中断服务 30-90 秒的重启按钮。这时候它只是"发现"，不是"根因"。
   const rootCause = failed[0]?.detail ?? null;
   const primaryFinding = findings[0] ?? null;
+  const runtime = classifyRuntimeState(
+    probes.map((probe) => ({ id: probe.id, status: probe.status, detail: probe.detail })),
+    findings.map((finding) => ({
+      source: finding.evidence.source ?? "logs",
+      message: finding.detail,
+      lastSeenAt: finding.evidence.lastSeenAt,
+      occurrences: finding.evidence.occurrences,
+    })),
+  );
 
   const actions = recoveryActionCatalog(deps, instanceId);
   return {
     incidentId: `incident-${randomUUID()}`,
     severity,
+    stateCode: runtime.stateCode,
+    summary: runtime.summary,
+    safeToRetry: runtime.safeToRetry,
     rootCause,
     primaryFinding,
     findings,
@@ -806,12 +827,13 @@ function buildRecoveryFindings(
 async function readJsonBody(
   req: import("node:http").IncomingMessage,
   res: import("node:http").ServerResponse,
+  limitBytes = HTTP_BODY_LIMIT_BYTES,
 ): Promise<Record<string, unknown> | null> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
     size += (chunk as Buffer).length;
-    if (size > HTTP_BODY_LIMIT_BYTES) {
+    if (size > limitBytes) {
       sendJson(res, 413, { error: "payload-too-large" });
       return null;
     }
@@ -830,6 +852,22 @@ async function readJsonBody(
     sendJson(res, 400, { error: "invalid-json-body" });
     return null;
   }
+}
+
+function markdownErrorResponse(error: unknown): { status: number; body: Record<string, unknown> } {
+  if (error instanceof MarkdownFileError) {
+    return { status: error.status, body: { error: error.code, detail: error.userHint, nextStep: error.nextStep } };
+  }
+  const classified = toUserFacingError(error, { detail: "核心文件操作失败。", nextStep: "确认实例目录和文件权限后重试。" });
+  return { status: 500, body: { error: "markdown-write-failed", detail: classified.detail, nextStep: classified.nextStep, errorId: classified.errorId } };
+}
+
+function publicMarkdownFile(file: import("@butler/contract").ManagedMarkdownFile): Record<string, unknown> {
+  const safe: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(file)) {
+    if (key !== "absolutePath") safe[key] = value;
+  }
+  return safe;
 }
 
 /** 组装并启动 HTTP 控制通道。 */
@@ -919,27 +957,14 @@ function originAllowed(req: import("node:http").IncomingMessage): boolean {
   return extra.includes(origin);
 }
 
-/** 去掉响应里的绝对路径、宿主名、WSL 发行版名等内部信息。 */
-function scrubInternalDetail(raw: string): string {
-  return raw
-    .replace(/\b[a-zA-Z]:\\[^\s"']+/g, "[路径]")
-    .replace(/\/(?:home|Users|mnt\/[a-z])\/[^\s"':]+/g, "[路径]")
-    .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, "[地址]");
-}
-
 /**
  * 内部错误响应：给一个可追溯的编号，不回传堆栈与路径。
  * 真实错误写进本地日志，用户排查时按编号对得上，攻击者拿不到目录结构。
  */
 function internalErrorResponse(error: unknown): Record<string, string> {
-  const raw = error instanceof Error ? error.message : String(error);
-  const errorId = `err-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-  console.error(`[watch] 内部错误 ${errorId}: ${raw}`);
-  return {
-    error: "internal-error",
-    detail: "管家处理这个请求时出错了。详情已写入管家日志，可按上面的错误编号查找。",
-    errorId,
-  };
+  const classified = toUserFacingError(error);
+  console.error(`[watch] 内部错误 ${classified.errorId}: ${error instanceof Error ? error.message : String(error)}`);
+  return { error: "internal-error", code: classified.code, detail: classified.detail, nextStep: classified.nextStep, errorId: classified.errorId };
 }
 
 /** 路由分发。 */
@@ -999,13 +1024,8 @@ async function handle(
           const backup = await deps.backup.run(kind, label || undefined);
           return sendJson(res, 201, { backup });
         } catch (error) {
-          return sendJson(res, 500, {
-            error: "backup-failed",
-            // 原始错误可能含绝对路径与宿主名，脱敏后再给用户看。
-            userHint: `备份失败：${scrubInternalDetail(
-              error instanceof Error ? error.message : String(error),
-            )}`,
-          });
+          const classified = toUserFacingError(error, { detail: "备份没有完成，当前操作未继续。", nextStep: "确认备份目录可写后重试，或导出诊断报告。" });
+          return sendJson(res, 500, { error: "backup-failed", code: classified.code, userHint: classified.detail, nextStep: classified.nextStep, errorId: classified.errorId });
         }
       }
       return sendJson(res, 405, { error: "method-not-allowed" });
@@ -1040,6 +1060,95 @@ async function handle(
       if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
       if (deps.security === undefined) return sendJson(res, 503, { error: "security-unavailable" });
       return sendJson(res, 200, await deps.security.status());
+    }
+
+    /* ---------------------- 核心 Markdown 文件管理 ---------------------- */
+    if (path === "/api/markdown/files") {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.markdownFiles === undefined) return sendJson(res, 503, { error: "markdown-unavailable", nextStep: "请同步部署 Watch 服务后重试。" });
+      try {
+        const instanceId = url.searchParams.get("instanceId")?.trim() || undefined;
+        return sendJson(res, 200, { instanceId: instanceId ?? null, files: deps.markdownFiles.list(instanceId).map(publicMarkdownFile) });
+      } catch (error) {
+        const mapped = markdownErrorResponse(error);
+        return sendJson(res, mapped.status, mapped.body);
+      }
+    }
+    const markdownFileMatch = /^\/api\/markdown\/files\/([^/]+)$/.exec(path);
+    if (markdownFileMatch !== null) {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.markdownFiles === undefined) return sendJson(res, 503, { error: "markdown-unavailable", nextStep: "请同步部署 Watch 服务后重试。" });
+      try {
+        const fileId = decodeURIComponent(markdownFileMatch[1]);
+        const result = deps.markdownFiles.read(fileId);
+        return sendJson(res, 200, { file: publicMarkdownFile(result.file), content: result.content });
+      } catch (error) {
+        const mapped = markdownErrorResponse(error);
+        return sendJson(res, mapped.status, mapped.body);
+      }
+    }
+    const markdownPreviewMatch = /^\/api\/markdown\/files\/([^/]+)\/preview$/.exec(path);
+    if (markdownPreviewMatch !== null) {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.markdownFiles === undefined) return sendJson(res, 503, { error: "markdown-unavailable", nextStep: "请同步部署 Watch 服务后重试。" });
+      const body = await readJsonBody(req, res, 2 * 1024 * 1024); if (body === null) return;
+      if (typeof body["content"] !== "string" || typeof body["baseSha256"] !== "string") return sendJson(res, 400, { error: "invalid-markdown-input", detail: "需要提供 content 和 baseSha256。", nextStep: "重新读取文件后再预览。" });
+      try {
+        const preview = deps.markdownFiles.preview(decodeURIComponent(markdownPreviewMatch[1]), body["content"], body["baseSha256"]);
+        return sendJson(res, 200, { ...preview, file: publicMarkdownFile(preview.file) });
+      } catch (error) {
+        const mapped = markdownErrorResponse(error);
+        return sendJson(res, mapped.status, mapped.body);
+      }
+    }
+    const markdownApplyMatch = /^\/api\/markdown\/files\/([^/]+)\/apply$/.exec(path);
+    if (markdownApplyMatch !== null) {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.markdownFiles === undefined) return sendJson(res, 503, { error: "markdown-unavailable", nextStep: "请同步部署 Watch 服务后重试。" });
+      const body = await readJsonBody(req, res, 2 * 1024 * 1024); if (body === null) return;
+      if (typeof body["content"] !== "string" || typeof body["baseSha256"] !== "string") return sendJson(res, 400, { error: "invalid-markdown-input", detail: "需要提供 content 和 baseSha256。", nextStep: "重新读取文件后再保存。" });
+      try {
+        const result = await deps.markdownFiles.apply(decodeURIComponent(markdownApplyMatch[1]), { content: body["content"], baseSha256: body["baseSha256"], confirmed: body["confirmed"] === true, note: typeof body["note"] === "string" ? body["note"] : undefined });
+        return sendJson(res, 200, { file: publicMarkdownFile(result.file), revision: result.revision });
+      } catch (error) {
+        const mapped = markdownErrorResponse(error);
+        return sendJson(res, mapped.status, mapped.body);
+      }
+    }
+    const markdownRevisionsMatch = /^\/api\/markdown\/files\/([^/]+)\/revisions$/.exec(path);
+    if (markdownRevisionsMatch !== null) {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.markdownFiles === undefined) return sendJson(res, 503, { error: "markdown-unavailable", nextStep: "请同步部署 Watch 服务后重试。" });
+      try { return sendJson(res, 200, { revisions: deps.markdownFiles.revisions(decodeURIComponent(markdownRevisionsMatch[1])) }); }
+      catch (error) { const mapped = markdownErrorResponse(error); return sendJson(res, mapped.status, mapped.body); }
+    }
+    const markdownBackupMatch = /^\/api\/markdown\/files\/([^/]+)\/backup$/.exec(path);
+    if (markdownBackupMatch !== null) {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.markdownFiles === undefined) return sendJson(res, 503, { error: "markdown-unavailable", nextStep: "请同步部署 Watch 服务后重试。" });
+      const body = await readJsonBody(req, res); if (body === null) return;
+      try { return sendJson(res, 201, { revision: deps.markdownFiles.backup(decodeURIComponent(markdownBackupMatch[1]), typeof body["note"] === "string" ? body["note"] : undefined) }); }
+      catch (error) { const mapped = markdownErrorResponse(error); return sendJson(res, mapped.status, mapped.body); }
+    }
+    const markdownRestoreMatch = /^\/api\/markdown\/files\/([^/]+)\/revisions\/([^/]+)\/restore$/.exec(path);
+    if (markdownRestoreMatch !== null) {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.markdownFiles === undefined) return sendJson(res, 503, { error: "markdown-unavailable", nextStep: "请同步部署 Watch 服务后重试。" });
+      const body = await readJsonBody(req, res); if (body === null) return;
+      if (typeof body["baseSha256"] !== "string") return sendJson(res, 400, { error: "invalid-markdown-input", detail: "需要提供 baseSha256。", nextStep: "重新读取文件后再恢复。" });
+      try {
+        const result = await deps.markdownFiles.restore(decodeURIComponent(markdownRestoreMatch[1]), decodeURIComponent(markdownRestoreMatch[2]), body["confirmed"] === true, body["baseSha256"]);
+        return sendJson(res, 200, { file: publicMarkdownFile(result.file), revision: result.revision });
+      } catch (error) { const mapped = markdownErrorResponse(error); return sendJson(res, mapped.status, mapped.body); }
+    }
+    const markdownDownloadMatch = /^\/api\/markdown\/files\/([^/]+)\/download$/.exec(path);
+    if (markdownDownloadMatch !== null) {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.markdownFiles === undefined) return sendJson(res, 503, { error: "markdown-unavailable", nextStep: "请同步部署 Watch 服务后重试。" });
+      try {
+        const result = deps.markdownFiles.download(decodeURIComponent(markdownDownloadMatch[1]));
+        return sendMarkdown(res, result.filename, result.content);
+      } catch (error) { const mapped = markdownErrorResponse(error); return sendJson(res, mapped.status, mapped.body); }
     }
 
         if (path === "/api/runbooks") {
@@ -1752,6 +1861,14 @@ async function handle(
       return sendJson(res, 200, result);
     }
 
+    if (path === "/api/upgrade/compatibility") {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      const body = await readJsonBody(req, res);
+      if (body === null) return;
+      if (typeof body["targetVersion"] !== "string" || body["targetVersion"].trim() === "") return sendJson(res, 400, { error: "missing-target-version" });
+      return sendJson(res, 200, deps.upgrade.compatibility({ targetVersion: body["targetVersion"], instanceId: typeof body["instanceId"] === "string" ? body["instanceId"] : undefined }));
+    }
+
     if (path === "/api/prompt-optimization/targets") {
       if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
       if (deps.promptOptimization === undefined) {
@@ -1907,6 +2024,25 @@ async function handle(
     if (path === "/api/gateway/patches") {
       if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
       return sendJson(res, 200, { patches: await deps.gateway.patches() });
+    }
+
+    const patchPreviewMatch = /^\/api\/gateway\/patches\/([^/]+)\/preview$/.exec(path);
+    if (patchPreviewMatch !== null) {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      const body = await readJsonBody(req, res);
+      if (body === null) return;
+      const rawParams = body["params"];
+      const params = rawParams !== null && typeof rawParams === "object" && !Array.isArray(rawParams)
+        ? Object.fromEntries(Object.entries(rawParams as Record<string, unknown>).filter(([, value]) => typeof value === "number")) as Record<string, number>
+        : undefined;
+      const outcome = await deps.gateway.previewPatch({
+        patchId: decodeURIComponent(patchPreviewMatch[1]!),
+        params,
+        instanceId: typeof body["instanceId"] === "string" ? body["instanceId"] : undefined,
+      });
+      if (outcome.status === "ok") return sendJson(res, 200, { preview: outcome.preview });
+      if (outcome.status === "unknown-patch") return sendJson(res, 404, { error: "unknown-patch" });
+      return sendJson(res, 503, { error: "no-instance" });
     }
 
     const patchActionMatch = /^\/api\/gateway\/patches\/([^/]+)\/(apply|reapply|detect)$/.exec(
@@ -2447,6 +2583,12 @@ async function handle(
         return sendZip(res, `agent-butler-diagnostic-${stamp}.zip`, createDiagnosticZip(markdown));
       }
       return sendMarkdown(res, `agent-butler-diagnostic-${stamp}.md`, markdown);
+    }
+
+    if (path === "/api/diagnostics/summary") {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.diagnosticSummary === undefined) return sendJson(res, 503, { error: "diagnostics-unavailable" });
+      return sendJson(res, 200, await deps.diagnosticSummary());
     }
 
         const evolutionExportMatch = /^\/api\/evolution\/ledger\/([^/]+)\/export$/.exec(path);

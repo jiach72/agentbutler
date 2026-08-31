@@ -14,7 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { createServer } from "node:net";
-import { defaultExec, detectPlatform, type Exec, type PlatformReport } from "./platform.js";
+import { defaultExec, detectPlatform, findPortOwner, type Exec, type PlatformReport } from "./platform.js";
 import {
   buildDefaultSources,
   defaultProbeFetch,
@@ -25,6 +25,16 @@ import {
   type SourcePlan,
 } from "./network.js";
 import { checkSecrets, DEFAULT_SECRET_GROUPS, type SecretGroup, type SecretsReport } from "./secrets.js";
+export interface DestructiveActionPreview {
+  operation: string;
+  deleteItems: string[];
+  keepItems: string[];
+  backupItems: string[];
+  warnings: string[];
+  blockedReasons: string[];
+  manualNextStep: string[];
+  canRun: boolean;
+}
 
 /** Hermes 官方安装脚本地址（可通过 opts.hermesInstallUrl 覆盖）。 */
 export const DEFAULT_HERMES_INSTALL_URL = "https://raw.githubusercontent.com/hermes-agent/hermes/main/install.sh";
@@ -177,6 +187,21 @@ export interface MaintenanceResult {
   command: MaintenanceCommand;
   success: boolean;
   steps: InstallStep[];
+  preview: DestructiveActionPreview;
+}
+
+export function buildMaintenancePreview(command: MaintenanceCommand, homeDir: string, units: string[], confirmed: boolean): DestructiveActionPreview {
+  const uninstall = command === "uninstall";
+  return {
+    operation: command,
+    deleteItems: uninstall ? [homeDir, ...units] : [`${homeDir}/*`, ...units],
+    keepItems: ["Hermes/OpenClaw 受管实例目录", "系统外部数据与凭据"],
+    backupItems: [path.join(homeDir, "backups")],
+    warnings: ["该操作只处理 Butler 自身状态，不会删除受管 Agent 数据。", "执行前请确认备份目录可读取。"],
+    blockedReasons: confirmed ? [] : ["尚未提供明确确认（--yes）"],
+    manualNextStep: confirmed ? ["重新启动 Butler 服务并检查首页状态。"] : ["先查看本预览，确认影响后重新执行并附带 --yes。"],
+    canRun: confirmed,
+  };
 }
 
 /**
@@ -202,6 +227,7 @@ export async function runMaintenance(options: MaintenanceOptions): Promise<Maint
   });
 
   const units = BUTLER_SERVICES.map((service) => path.join(serviceDir, `${service}.service`));
+  const preview = buildMaintenancePreview(options.command, homeDir, units, destructive);
   if (!destructive) {
     steps.push({
       id: "services-stop",
@@ -213,7 +239,7 @@ export async function runMaintenance(options: MaintenanceOptions): Promise<Maint
       status: dryRun ? "dry-run" : "skipped",
       detail: options.command === "reset" ? `将清空 ${homeDir}（保留目录）` : `将删除 ${homeDir}`,
     });
-    return { command: options.command, success: true, steps };
+    return { command: options.command, success: true, steps, preview };
   }
 
   if (process.platform === "win32") {
@@ -255,7 +281,7 @@ export async function runMaintenance(options: MaintenanceOptions): Promise<Maint
   } catch (error) {
     steps.push({ id: "state-remove", status: "failed", detail: `清理 Butler 状态失败：${String(error)}` });
   }
-  return { command: options.command, success: !steps.some((step) => step.status === "failed"), steps };
+  return { command: options.command, success: !steps.some((step) => step.status === "failed"), steps, preview };
 }
 
 /** 通过短暂绑定检测宿主端口是否可用，不发送网络请求。 */
@@ -380,7 +406,9 @@ async function checkHostServicePorts(exec: Exec, opts: InstallOptions, dryRun: b
     if (await probe(target.port, "127.0.0.1")) continue;
     const managed = await exec("systemctl", ["--user", "is-active", "--quiet", target.service + ".service"], { timeoutMs: 10_000 });
     if (managed.code !== 0 || !(await unitOwnsListeningPort(exec, target.service, target.port))) {
-      conflicts.push(target.service + "=127.0.0.1:" + target.port);
+      const owner = await findPortOwner(exec, target.port);
+      const ownerLabel = owner === null ? "占用者未知" : `${owner.processName ?? "进程"}${owner.pid === null ? "" : ` PID=${owner.pid}`}`;
+      conflicts.push(target.service + "=127.0.0.1:" + target.port + `（${ownerLabel}）`);
     }
   }
   if (conflicts.length > 0) {

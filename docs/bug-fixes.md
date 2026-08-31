@@ -1,5 +1,22 @@
 # Bug Fixes
 
+## 2026-08-30 - 核心 Markdown 文件管理安全闭环
+
+- **Problem:** 核心 Markdown 文件此前没有统一的固定路径发现、修改前 Diff、版本留存和外部修改冲突保护，直接编辑容易覆盖 Agent 最新内容。
+- **Impact:** 用户无法可靠查看/回滚 USER、AGENT、SOUL 等核心文件；任意路径、符号链接或敏感内容处理不当会扩大本机数据暴露面。
+- **Changed scope:** Hermes/OpenClaw 适配器声明固定候选；Watch 新增路径越界/符号链接/非法 UTF-8/1 MiB 门禁、实例级操作锁、SHA-256 冲突检测、BackupGate、原子写入、最近 50 个文件版本、审计元数据和单文件下载；Web 代理与 `/core-files` 页面支持安全查看、草稿、Diff、备份、历史恢复。`memory.md`/`MEMORY.md` 后端强制只读，下载敏感模式需二次确认。
+- **Regression coverage:** `apps/watch/tests/markdown-files.test.ts` 覆盖固定文件发现、memory 只读、预览无副作用、确认保存生成版本和外部修改冲突。
+- **Verification:** `corepack pnpm exec tsc -b --pretty false`；`corepack pnpm exec vitest run apps/watch/tests/markdown-files.test.ts --config vitest.focused.config.ts`（3 passed）；`corepack pnpm test -- --testTimeout=10000`（1029 passed，3 skipped）；`corepack pnpm build`；`corepack pnpm lint`；`git diff --check`。
+- **Runtime validation:** 2026-08-30 在 Ubuntu-24.04 WSL 中直接执行 `docker compose config -q && docker compose up -d --build --wait --wait-timeout 600`，未运行默认带备份步骤的 `scripts/deploy.sh`；Web/Gateway/Watch/Updater 全部 healthy，`/core-files` 返回 200，`/api/markdown/files` 返回 4 个固定文件。
+
+## 2026-08-30 - Hermes 核心 Markdown 路径修正
+
+- **Problem:** 核心文件页面按通用根目录查找 Hermes 文件，导致 `USER.md`、`MEMORY.md`、`AGENT.md` 显示不存在并在点击时返回 `markdown-file-not-found`。
+- **Impact:** 实际存在的 Hermes 用户记忆无法查看或编辑，页面状态与 WSL 文件系统不一致。
+- **Changed scope:** Hermes 适配器改为解析 `memories/USER.md`、`memories/MEMORY.md`、根目录 `SOUL.md`，并将不存在独立 `agent.md` 的情况明确映射到 `hermes-agent/AGENTS.md` 项目指令文件；保留旧根目录候选兼容。
+- **Regression coverage:** Markdown 文件管理聚焦测试通过；WSL `/api/markdown/files?instanceId=hermes-main` 返回 4 个存在文件，`MEMORY.md` 正确为只读。
+- **Verification:** `corepack pnpm exec tsc -b --pretty false`；`corepack pnpm exec vitest run apps/watch/tests/markdown-files.test.ts --config vitest.focused.config.ts`（3 passed）；无备份 WSL Compose 重建后四个容器 healthy。
+
 ## 2026-08-30 - RWA 任务终态报告未到达微信
 
 - **Problem:** 同一 `runId` 在 Hermes 结束边界产生了多条 `final` 消息。Bridge 在 `completing` 后立即快照，只看到了较早的短结果；Gateway 又按最早结果选择 canonical，较晚的完整 RWA 报告因此被标记为 `absorbed`，没有发生微信投递。
@@ -361,3 +378,43 @@
 - **回归测试：** `apps/watch/tests/evolution-analytics.test.ts` 覆盖样本不足、健康分公式、P50/P95、收益分映射和行动事项重开；`apps/watch/tests/http-evolution.test.ts` 覆盖新接口；`ui/tests/component-render.test.ts` 覆盖三个平铺入口和无 `<details>`。
 - **验证命令：** `corepack pnpm exec tsc -b --pretty false`；`corepack pnpm exec vitest run apps/watch/tests/evolution-analytics.test.ts apps/watch/tests/http-evolution.test.ts ui/tests/component-render.test.ts --reporter=dot`；`corepack pnpm build`；`git diff --check`。
 - **运行验证：** focused 进化与 UI 测试通过；全量测试 114 个测试文件通过，另有 1 个既有 `@butler/updater` 测试因 15 秒超时失败，未发现与本次改动相关的失败。
+
+## 2026-08-30 - Qclaw 借鉴功能的信任与一致性补强
+
+- **问题：** 高风险写操作存在局部非原子 JSON 写入；技能归档/恢复/安装/删除未统一经过备份门禁和实例级互斥；Watch 错误响应仍可能暴露原始错误语义；消息通道只显示状态，不提供不可用原因和修复动作。
+- **风险/影响：** 并发操作可能互相覆盖或留下半写文件，技能变更无法稳定回滚，错误信息不一致，普通用户难以判断下一步。
+- **修复范围：** 统一使用 Core 原子写入（含文本与 JSON）；自升级、OpenClaw 安装状态、进化状态、技能元数据/趋势缓存改为原子写；技能变更接入 `BackupGate` 与 `withManagedOperationLock`；Watch 错误统一经过脱敏、分类和下一步文案；Gateway 增加通道详情与 `/api/messages/reconnect`，Web/UI 展示不可用原因和修复按钮；README 同步访问口令事实。
+- **回归测试：** Core 原子写入/错误分类/操作锁，Watch 备份门禁/诊断，Installer 维护预览/候选发现，Gateway 消息 HTTP 与 Web 状态解析测试。
+- **验证命令：** `corepack pnpm exec tsc -b packages/core/tsconfig.json apps/watch/tsconfig.json apps/gateway/tsconfig.json apps/web/tsconfig.json ui/tsconfig.json --pretty false`；`corepack pnpm exec vitest run --config vitest.focused.config.ts apps/watch/tests/backup-gate.test.ts apps/watch/tests/runtime-diagnosis.test.ts apps/watch/tests/diagnostic-summary.test.ts packages/installer/tests/maintenance-preview.test.ts packages/installer/tests/installation-candidates.test.ts --reporter=dot`；`git diff --check`。
+## 2026-08-31 - GitHub 技能安装 403 被误报为备份失败
+
+- **问题：** 推荐技能阶段化下载调用 GitHub 公共 API 时，出口 IP 的匿名配额耗尽，返回 `403 API rate limit exceeded`。Watch 只返回 `GitHub tree HTTP 403`，前端又把阶段化失败固定显示在“备份”步骤，用户误以为所有技能或备份服务不可用。
+- **风险/影响：** 推荐技能无法完成下载；错误原因不具备可执行下一步，容易重复点击并误操作备份配置。
+- **修复范围：** `apps/watch/src/skill-assets.ts` 增加 `User-Agent`、可选 `GITHUB_TOKEN`、GitHub 403/404/网络错误分类和限流重试时间；阶段化失败返回脱敏中文文案。`ui/src/pages/skills/AssetCenter.tsx` 按下载/检查与备份/安装区分失败步骤。新增 GitHub 阶段化回归测试。
+- **回归测试：** `apps/watch/tests/skill-assets.test.ts` 覆盖限流 403、请求头和 Token 成功路径。
+- **验证命令：** `corepack pnpm exec tsc -b --pretty false`；`corepack pnpm exec vitest run apps/watch/tests/skill-assets.test.ts`。
+- **部署/runtime：** GitHub 当前匿名 API 响应为 `x-ratelimit-remaining: 0`；配置 `GITHUB_TOKEN` 后需重启 Watch/Compose 才会生效。
+
+## 2026-08-31 - 自进化图表可读性与侧栏入口收口
+
+- **问题：** 自进化概览把量级差异明显的会话和工具调用画在同一纵轴，小序列难以识别；失败归因使用竖排长标签，密集数据无法扫描；引擎时间线重复列出预检失败，首屏被同类事件占满；内存容量水位既不能表示真实字节使用量，也分散了运行判断。
+- **风险/影响：** 用户会把低会话量误解为无数据，难以从失败分布判断优先级，也无法快速确认进化运行是受阻、进行中还是已采用。
+- **修复范围：** 自进化概览四个图表统一改由 `@ant-design/charts` 渲染：使用趋势按会话与工具调用分量纲呈现，成功率使用百分比面积趋势，失败归因改为横向 Top 6 条形图并合并其余项，引擎状态改为按阶段压缩的散点时间线与状态汇总；移除内存容量水位卡片及其样式；侧栏移除“排查问题”入口，保留既有深链接路由以避免外部书签失效。
+- **回归测试：** 保持自进化总览接口、时间范围、空态和 Watch 数据契约不变；图表组件继续延迟加载，避免增加首屏渲染负担。
+- **验证命令：** `corepack pnpm exec tsc -b --pretty false`；`corepack pnpm --filter @butler/ui exec vite build`；`corepack pnpm lint`；`git diff --check`；WSL 无备份 `docker compose up -d --build --wait`。
+
+## 2026-08-31 - 全局控制台视觉层级与响应式统一
+
+- **问题：** 各页面虽然共享主题变量，但侧栏、顶栏、卡片、Ant Design 控件和页面局部面板的圆角、阴影、间距与交互反馈不完全一致；移动端内容密度和标题层级也缺少统一基线。
+- **风险/影响：** 用户跨页面操作时需要重新适应视觉层级，重要状态与操作按钮的优先级不够清晰；窄屏下部分工具条和面板容易显得拥挤。
+- **修复范围：** 新增 `ui/src/styles/taste.css` 作为统一视觉层，收紧冷灰/青绿色控制台的表面、导航 active rail、页面标题、卡片与 Ant Design 控件样式，统一 12px 卡片/8px 控件圆角、按钮按压反馈、表格/折叠/输入焦点态，并覆盖首页、消息、自进化、技能资产、版本、设置、安装、日志、核心文件与排查页面的共有布局和移动端断点；`ui/src/theme/tokens.ts` 同步更新圆角令牌。
+- **回归测试：** UI 主题、关键页面组件渲染与趋势图相关测试通过；未改动业务数据契约和交互逻辑。
+- **验证命令：** `corepack pnpm --dir ui exec vitest run --config vitest.config.ts tests/theme.test.ts tests/component-render.test.ts tests/usage-trend.test.ts --reporter=dot`（12 passed）；`corepack pnpm --filter @butler/ui exec tsc --noEmit`；`corepack pnpm --filter @butler/ui exec vite build`；`git diff --check`。
+
+## 2026-08-31 - 首次访问免查配置文件
+
+- **问题：** Web 监听在非回环地址并启用访问口令时，首次进入面板会要求普通用户在安装目录中查找 `.env` 和 `BUTLER_ACCESS_TOKEN`，用户不一定知道安装目录或配置项位置。
+- **风险/影响：** 首次使用容易卡在登录闸门，用户可能误删配置、重复修改环境文件，或误以为管家没有启动成功。
+- **修复范围：** Web 鉴权新增本机浏览器便利通道：访问 `127.0.0.1`/`localhost` 时免输入口令，跨设备地址仍要求口令；跨站来源不会因为本机 Host 而绕过鉴权。AccessGate 在远程地址打开时直接提供“在本机打开”按钮，口令改为面向管理员/跨设备用户的备用路径，不再引导普通用户编辑 `.env`。
+- **回归测试：** `apps/web/tests/access-token.test.ts` 覆盖本机免查口令、跨站来源阻断、带端口和 IPv4-mapped IPv6 回环判定；既有 token、CSRF、健康检查和安全基线测试继续覆盖。
+- **验证命令：** `corepack pnpm exec vitest run apps/web/tests/access-token.test.ts --reporter=dot`；`corepack pnpm exec tsc -b --pretty false`；`corepack pnpm --filter @butler/ui exec vite build`；`git diff --check`。

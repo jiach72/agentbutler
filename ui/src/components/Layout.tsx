@@ -13,8 +13,8 @@ import {
   SettingOutlined,
   SunOutlined,
   ApiOutlined,
-  QuestionCircleOutlined,
   ThunderboltOutlined,
+  FileMarkdownOutlined,
 } from "@ant-design/icons";
 import { Button, Drawer } from "antd";
 import { useEffect, useState } from "react";
@@ -28,8 +28,8 @@ import type { SecurityBaselinePayload } from "../pages/settings/helpers.js";
 const NAV_ITEMS = [
   { to: "/dashboard", icon: <DashboardOutlined />, label: "首页", note: "运行总览与一键检查" },
   { to: "/skills", icon: <ApiOutlined />, label: "智能体与知识", note: "技能、插件与记忆" },
+  { to: "/core-files", icon: <FileMarkdownOutlined />, label: "核心文件", note: "查看、编辑与回滚 Markdown" },
   { to: "/gateway", icon: <NotificationOutlined />, label: "消息通知", note: "频率控制与送达记录" },
-  { to: "/troubleshoot", icon: <QuestionCircleOutlined />, label: "排查问题", note: "查原因并安全修复" },
 ];
 
 const MANAGEMENT_ITEMS = [

@@ -56,9 +56,53 @@ describe("butler-web 访问口令", () => {
 
   it("配置口令后，没有口令的接口请求 → 401", async () => {
     const app = build(tmp, { accessToken: "secret-token" });
-    const res = await app.inject({ method: "GET", url: "/api/instances" });
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/instances",
+      headers: { host: "192.168.1.88:7531" },
+    });
     expect(res.statusCode).toBe(401);
     expect(res.json()).toMatchObject({ error: "unauthorized" });
+  });
+
+  it("配置口令后，从本机地址打开仍可免查口令进入", async () => {
+    const app = build(tmp, { accessToken: "secret-token", publishHost: "0.0.0.0" });
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/instances",
+      headers: { host: "127.0.0.1:7531", origin: "http://127.0.0.1:7531" },
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("没有本机来源标记时，不因伪造 localhost Host 而绕过口令", async () => {
+    const app = build(tmp, { accessToken: "secret-token", publishHost: "0.0.0.0" });
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/instances",
+      headers: { host: "127.0.0.1:7531" },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("浏览器同源 Fetch Metadata 足够时可免查口令", async () => {
+    const app = build(tmp, { accessToken: "secret-token", publishHost: "0.0.0.0" });
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/instances",
+      headers: { host: "localhost:7531", "sec-fetch-site": "same-origin" },
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("本机地址被跨站来源调用时仍不能绕过口令", async () => {
+    const app = build(tmp, { accessToken: "secret-token", publishHost: "0.0.0.0" });
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/instances",
+      headers: { host: "127.0.0.1:7531", origin: "https://evil.example.com" },
+    });
+    expect(res.statusCode).toBe(401);
   });
 
   it("用 x-butler-token 头带上正确口令 → 放行", async () => {
@@ -86,7 +130,7 @@ describe("butler-web 访问口令", () => {
     const res = await app.inject({
       method: "GET",
       url: "/api/instances",
-      headers: { "x-butler-token": "wrong-token" },
+      headers: { host: "192.168.1.88:7531", "x-butler-token": "wrong-token" },
     });
     expect(res.statusCode).toBe(401);
   });
@@ -166,5 +210,11 @@ describe("isLoopback 判定口径", () => {
     expect(isLoopback("0.0.0.0")).toBe(false);
     expect(isLoopback("192.168.1.10")).toBe(false);
     expect(isLoopback("172.29.27.63")).toBe(false);
+  });
+
+  it("支持带端口和 IPv4-mapped IPv6 的回环地址", () => {
+    expect(isLoopback("127.0.0.1:7531")).toBe(true);
+    expect(isLoopback("[::1]:7531")).toBe(true);
+    expect(isLoopback("::ffff:127.0.0.1")).toBe(true);
   });
 });

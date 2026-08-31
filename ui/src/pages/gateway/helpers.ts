@@ -99,6 +99,7 @@ export interface MessageBridgeView {
   policyVersion: string | null;
   remotePolicyVersion: string | null;
   channels: Record<string, string>;
+  channelDetails?: Record<string, { status: string; unavailableReason: string | null; unavailableFix: string | null; retryable: boolean }>;
   coverage: Record<string, string>;
   startedAt: string | null;
   lastCycleAt: string | null;
@@ -190,7 +191,14 @@ export type PendingPatchAction = {
   params: Record<string, number>;
   busyKey: string;
   instanceId?: string;
+  preview?: ConfigChangeSetView;
 };
+
+export interface ConfigChangeSetView {
+  targetPath: string;
+  changes: Array<{ path: string; before: number | string | boolean | null; after: number | string | boolean | null; impact?: string }>;
+  redacted: boolean;
+}
 
 export const REFRESH_INTERVAL_MS = 10_000;
 

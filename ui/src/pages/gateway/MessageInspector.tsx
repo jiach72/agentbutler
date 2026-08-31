@@ -3,6 +3,8 @@
  */
 import { AdvancedDetails } from "../../components/AdvancedDetails.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
+import { ReloadOutlined } from "@ant-design/icons";
+import { Button } from "antd";
 import { formatRelative } from "../../lib/format.js";
 import {
   COVERAGE_LABELS,
@@ -32,6 +34,7 @@ interface MessageInspectorProps {
   onSelectMessage: (messageId: string) => void;
   taskData: MessageTaskView | null;
   taskLoading: boolean;
+  onReconnect: () => void;
 }
 
 export function MessageInspector({
@@ -44,6 +47,7 @@ export function MessageInspector({
   onSelectMessage,
   taskData,
   taskLoading,
+  onReconnect,
 }: MessageInspectorProps) {
   return (
     <>
@@ -76,16 +80,26 @@ export function MessageInspector({
           ) : (
             Object.entries(messageBridge?.channels ?? {}).map(([channel, status]) => {
               const badge = statusTone(status);
+              const detail = messageBridge?.channelDetails?.[channel];
               return (
                 <span className="gateway-channel" key={channel}>
                   <i className={status === "ok" ? "is-ok" : "is-warn"} />
                   {channelLabel(channel)}
                   <StatusBadge tone={badge.tone} label={badge.label} />
+                  {detail?.unavailableReason && <small title={detail.unavailableFix ?? undefined}>{detail.unavailableReason}</small>}
                 </span>
               );
             })
           )}
         </div>
+        {messageBridge !== null && Object.values(messageBridge.channelDetails ?? {}).some((item) => item.status !== "ok") && (
+          <div className="gateway-channel-actions">
+            <Button size="small" icon={<ReloadOutlined />} onClick={onReconnect}>
+              重新连接通道
+            </Button>
+            <span className="gateway-muted-copy">不可用原因已标注在对应通道旁</span>
+          </div>
+        )}
 
         <div className="gateway-coverage-grid" aria-label="运行路径覆盖">
           {coverageEntries.length === 0 ? (

@@ -27,8 +27,11 @@ export * from "./executor.js";
 export * from "./tail.js";
 export * from "./fingerprint.js";
 export * from "./llm-credentials.js";
+export * from "./atomic-write.js";
+export * from "./operation-lock.js";
+export * from "./user-facing-error.js";
 
-export const CORE_VERSION = `core@1.0.0-beta.16+${CONTRACT_VERSION}`;
+export const CORE_VERSION = `core@1.0.0-beta.17+${CONTRACT_VERSION}`;
 
 export interface CoreOptions {
   /** 覆盖 Butler 主目录（测试注入）；缺省 resolveButlerHome()。 */

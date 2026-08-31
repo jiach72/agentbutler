@@ -83,6 +83,8 @@ services:
       BUTLER_UPDATER_URL: http://butler-updater:7540
       # 与 updater 共享同一份访问口令；Watch 转发自更新请求时需要带上。
       BUTLER_ACCESS_TOKEN: ${BUTLER_ACCESS_TOKEN:-}
+      # Optional GitHub token for higher API limits when staging recommended skills.
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
     depends_on:
       butler-gateway:
         condition: service_healthy
