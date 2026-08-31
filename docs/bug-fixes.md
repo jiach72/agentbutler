@@ -4,7 +4,7 @@
 
 - **Problem:** macOS 没有 user-systemd，安装器改为手动启动三项宿主服务时只加载 `~/.agent-butler/env`；该文件没有 Hermes Bridge 的连接参数，Gateway 在 `auto` 模式下退回 native 消息路径。即使 Bridge 和 Gateway 都已重启，消息页仍不会进入 Bridge Outbox。
 - **Impact:** 页面可能显示本机消息路径或空历史，但入站同步、出站接管和送达记录不会工作；用户难以判断是“没有历史”还是消息运行时未配置。
-- **Changed scope:** macOS 服务指引显式导出 Hermes 消息运行时参数；Gateway 在宿主 `BUTLER_FRAMEWORK=hermes` 且本机 `~/.hermes/agent-butler/bridge.token` 可用时自动补齐稳定的 Bridge、实例、Hermes 根目录和投影库默认值。显式配置优先，缺失 token/目录时继续 fail-closed，不放宽 Bridge 鉴权。
+- **Changed scope:** macOS 服务指引显式导出 Hermes 消息运行时参数；Gateway 在宿主声明为 Hermes（或检测到专用 `~/.hermes/agent-butler/bridge.token`）且 token/root 可用时自动补齐稳定的 Bridge、实例、Hermes 根目录和投影库默认值。显式配置优先，缺失 token/目录时继续 fail-closed，不放宽 Bridge 鉴权。
 - **Regression coverage:** `apps/gateway/tests/message-launcher.test.ts` 覆盖 macOS 宿主默认值、显式配置保留和非 Hermes 不推断；`packages/installer/tests/install.test.ts` 覆盖服务指引包含 Bridge 参数。
 - **Verification:** `corepack pnpm exec vitest run apps/gateway/tests/message-launcher.test.ts packages/installer/tests/install.test.ts --pool=threads --maxWorkers=1 --minWorkers=1`；随后运行类型检查、Lint、构建和 `git diff --check`。
 - **Runtime validation:** 重新运行 macOS 安装器或按新指引启动后，检查 `http://127.0.0.1:7532/api/messages/status` 的 `mode=observe`、`bridge.connected=true`、`bridge.attached=true`、`bridge.outboxWritable=true`；再发送一条新消息确认进入消息记录。

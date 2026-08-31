@@ -31,7 +31,6 @@ describe("Hermes message launcher boundary", () => {
       fs.mkdirSync(path.dirname(tokenFile), { recursive: true });
       fs.writeFileSync(tokenFile, "test-token", { mode: 0o600 });
       const resolved = withHostHermesDefaults({
-        BUTLER_FRAMEWORK: "hermes",
         HOME: root,
       });
       expect(resolved[MESSAGE_RUNTIME_ENV.bridgeUrl]).toBe("http://127.0.0.1:8754");

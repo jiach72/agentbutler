@@ -69,7 +69,7 @@ async function createConfiguredRuntime(env: NodeJS.ProcessEnv): Promise<HermesMe
  */
 export function withHostHermesDefaults(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const framework = env["BUTLER_FRAMEWORK"]?.trim().toLowerCase();
-  if (framework !== "hermes") return env;
+  if (framework !== undefined && framework !== "hermes") return env;
 
   const home = env["HOME"]?.trim() || os.homedir();
   const hermesRoot = env[MESSAGE_RUNTIME_ENV.hermesRoot]?.trim() || path.join(home, ".hermes");
