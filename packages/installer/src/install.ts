@@ -24,7 +24,14 @@ import {
   type ProbeFetch,
   type SourcePlan,
 } from "./network.js";
-import { checkSecrets, DEFAULT_SECRET_GROUPS, type SecretGroup, type SecretsReport } from "./secrets.js";
+import {
+  checkSecrets,
+  DEFAULT_SECRET_GROUPS,
+  defaultEnvPath,
+  ensureSecretMasterKey,
+  type SecretGroup,
+  type SecretsReport,
+} from "./secrets.js";
 export interface DestructiveActionPreview {
   operation: string;
   deleteItems: string[];
@@ -124,6 +131,8 @@ export interface InstallOptions {
   overridePath?: string;
   /** 宿主三服务管理方式；生产默认 auto，注入 exec 的测试默认退化为 guide。 */
   hostServices?: HostServiceOptions;
+  /** 主密钥 env 文件路径；未提供时 Docker 使用 <repoDir>/.env，宿主使用 ~/.agent-butler/env。 */
+  secretEnvPath?: string;
 }
 
 /** 单形态安装结果。 */
@@ -594,11 +603,24 @@ async function installHostServices(
   const steps: InstallStep[] = [];
   if (manager === "guide") {
     const corepackCommand = resolveCorepackCommand(opts.hostServices?.nodePath ?? process.execPath);
+    const runtimeEnv = framework === "hermes"
+      ? [
+          "BUTLER_FRAMEWORK=hermes",
+          "BUTLER_ENABLE_HERMES_MESSAGE_RUNTIME=auto",
+          "BUTLER_HERMES_BRIDGE_URL=http://127.0.0.1:8754",
+          "BUTLER_HERMES_INSTANCE_ID=hermes-main",
+          "BUTLER_HERMES_ROOT=\"$HOME/.hermes\"",
+          "BUTLER_HERMES_BRIDGE_TOKEN_FILE=\"$HOME/.hermes/agent-butler/bridge.token\"",
+          "BUTLER_MESSAGE_PROJECTION_DB=\"$HOME/.agent-butler/messages.sqlite\"",
+          "BUTLER_HERMES_BRIDGE_ALLOW_NON_LOOPBACK=false",
+        ].join(" ")
+      : `BUTLER_FRAMEWORK=${framework}`;
     steps.push({
       id: "services-guide",
       status: "ok",
       detail: [
         "宿主三服务未写入系统服务管理器，请按以下命令启动：",
+        `  - 先加载本机安全配置和消息运行时：set -a; . ${JSON.stringify(defaultEnvPath())}; export ${runtimeEnv}; set +a`,
         "  - butler-watch:   " + shellCommand(corepackCommand, ["pnpm", "--filter", "@butler/watch", "start"]),
         "  - butler-web:     " + shellCommand(corepackCommand, ["pnpm", "--filter", "@butler/web", "start"]) + "（http://127.0.0.1:" + (opts.webHostPort ?? DEFAULT_WEB_HOST_PORT) + "）",
         "  - butler-gateway: " + shellCommand(corepackCommand, ["pnpm", "--filter", "@butler/gateway", "start"]),
@@ -1168,6 +1190,9 @@ export async function runInstaller(options: InstallerOptions = {}): Promise<Inst
   const exec = options.exec ?? defaultExec;
   const dryRun = options.dryRun ?? false;
   const framework = options.framework ?? "hermes";
+  const form = options.form ?? "host";
+  const repoDir = options.repoDir ?? process.cwd();
+  const env = options.env ?? process.env;
 
   const platform = await detectPlatform(exec);
   const network = options.skipNetwork
@@ -1176,7 +1201,7 @@ export async function runInstaller(options: InstallerOptions = {}): Promise<Inst
         buildDefaultSources({ modelEndpoints: options.modelEndpoints }),
         options.fetch ?? defaultProbeFetch,
       );
-  const secrets = checkSecrets(options.env ?? process.env, options.secretGroups ?? DEFAULT_SECRET_GROUPS);
+  const secrets = checkSecrets(env, options.secretGroups ?? DEFAULT_SECRET_GROUPS);
 
   const nextActions: string[] = [];
   if (!secrets.allPresent) {
@@ -1194,10 +1219,36 @@ export async function runInstaller(options: InstallerOptions = {}): Promise<Inst
     return { form: "secrets-only", framework, dryRun, platform, network, secrets, success: true, nextActions };
   }
 
-  const form = options.form ?? "host";
+  const secretEnvPath = options.secretEnvPath ?? (form === "docker" ? path.join(repoDir, ".env") : defaultEnvPath());
+  let secretInit: ReturnType<typeof ensureSecretMasterKey>;
+  try {
+    secretInit = ensureSecretMasterKey(secretEnvPath, env, dryRun);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    secretInit = { status: "invalid", path: secretEnvPath };
+    nextActions.push(`无法初始化凭据库主密钥：${message}`);
+  }
+  const secretStep: InstallStep = {
+    id: "secret-master-key",
+    status: secretInit.status === "invalid" ? "failed" : secretInit.status === "dry-run" ? "dry-run" : "ok",
+    detail:
+      secretInit.status === "generated"
+        ? `已生成本机凭据库主密钥并写入 ${secretInit.path}（不会在报告中显示密钥值）`
+        : secretInit.status === "configured"
+          ? `已检测到现有凭据库主密钥（${secretInit.path}），保持不变`
+          : secretInit.status === "dry-run"
+            ? `将生成本机凭据库主密钥并写入 ${secretInit.path}（dry-run 未写入）`
+            : `凭据库主密钥格式无效（${secretInit.path}），为避免无法解密历史凭据已停止安装`,
+  };
+  if (secretInit.status === "invalid") {
+    const install: InstallResult = { form, framework, steps: [secretStep], success: false };
+    nextActions.push("修正 BUTLER_SECRET_MASTER_KEY 后重新运行安装器");
+    return { form, framework, dryRun, platform, network, secrets, install, success: false, nextActions };
+  }
   const plan: InstallPlan = { platform, network, secrets };
   const install =
     form === "docker" ? await installDockerForm(plan, options) : await installHostForm(plan, options);
+  install.steps.unshift(secretStep);
 
   if (form === "docker") {
     const webPort = options.webHostPort ?? DEFAULT_WEB_HOST_PORT;

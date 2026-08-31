@@ -3,11 +3,113 @@
  *
  * 声明式清单描述各功能所需的环境变量组（组内全部就绪才算 present），
  * checkSecrets 逐项判定并输出引导文案（缺失项 + 获取方式 + 写入位置 + export 示例）。
- * 除生成留空的 .env 模板外，不写入任何真实密钥文件。
+ * 除首次安装自动生成本机凭据库主密钥外，不写入用户提供的真实密钥。
  */
 import fs from "node:fs";
 import path from "node:path";
 import { homedir } from "node:os";
+import { randomBytes } from "node:crypto";
+
+/** Watch 凭据库使用的 AES-256-GCM 主密钥环境变量。 */
+export const SECRET_MASTER_KEY_ENV = "BUTLER_SECRET_MASTER_KEY";
+
+/** 检查主密钥是否为 SecretVault 接受的 32 字节 hex/base64 表示。 */
+export function isValidSecretMasterKey(value: string | undefined): boolean {
+  const raw = value?.trim() ?? "";
+  if (/^[a-f0-9]{64}$/i.test(raw)) return true;
+  if (!/^(?:[A-Za-z0-9+/]{43}=|[A-Za-z0-9+/]{44}|[A-Za-z0-9_-]{43,44})$/.test(raw)) return false;
+  const normalized = raw.replace(/-/g, "+").replace(/_/g, "/");
+  const key = Buffer.from(normalized, "base64");
+  const canonical = key.toString("base64").replace(/=+$/, "");
+  return key.length === 32 && canonical === normalized.replace(/=+$/, "");
+}
+
+export interface SecretMasterKeyInit {
+  status: "configured" | "generated" | "dry-run" | "invalid";
+  path: string;
+}
+
+function readEnvValue(filePath: string, key: string): string | undefined {
+  if (!fs.existsSync(filePath)) return undefined;
+  const content = fs.readFileSync(filePath, "utf8");
+  const pattern = new RegExp(`^[ \\t]*(?:export[ \\t]+)?${key}[ \\t]*=[ \\t]*(.*?)[ \\t]*$`, "m");
+  const match = pattern.exec(content);
+  return match?.[1]?.trim().replace(/^(['"])(.*)\1$/, "$2");
+}
+
+function writeSecretEnv(filePath: string, content: string): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const temporaryPath = `${filePath}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
+  try {
+    fs.writeFileSync(temporaryPath, content, "utf8");
+    try {
+      fs.chmodSync(temporaryPath, 0o600);
+    } catch {
+      // Windows does not expose Unix mode bits; the file remains user-local there.
+    }
+    try {
+      fs.renameSync(temporaryPath, filePath);
+    } catch (error) {
+      // Windows cannot replace an existing file with renameSync. Keep the
+      // same content and fall back to a direct write instead of deleting first.
+      if (process.platform !== "win32") throw error;
+      fs.writeFileSync(filePath, content, "utf8");
+    }
+  } finally {
+    try {
+      fs.rmSync(temporaryPath, { force: true });
+    } catch {
+      // Best-effort cleanup of a failed temporary write.
+    }
+  }
+  try {
+    fs.chmodSync(filePath, 0o600);
+  } catch {
+    // Windows does not expose Unix mode bits; the file remains user-local there.
+  }
+}
+
+/** 首次安装生成主密钥；已有 shell/env 文件值绝不覆盖。 */
+export function ensureSecretMasterKey(
+  filePath: string,
+  env: Record<string, string | undefined> = process.env,
+  dryRun = false,
+): SecretMasterKeyInit {
+  const fromFile = readEnvValue(filePath, SECRET_MASTER_KEY_ENV);
+  if (fromFile !== undefined && fromFile !== "") {
+    if (!isValidSecretMasterKey(fromFile)) return { status: "invalid", path: filePath };
+    const configured = env[SECRET_MASTER_KEY_ENV]?.trim();
+    if (configured !== undefined && configured !== "" && configured !== fromFile) {
+      return { status: "invalid", path: filePath };
+    }
+    return { status: "configured", path: filePath };
+  }
+
+  const configured = env[SECRET_MASTER_KEY_ENV]?.trim();
+  if (configured !== undefined && configured !== "") {
+    if (!isValidSecretMasterKey(configured)) return { status: "invalid", path: filePath };
+    if (!dryRun) {
+      const existing = fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf8") : "";
+      const assignment = new RegExp(`^([ \\t]*(?:export[ \\t]+)?${SECRET_MASTER_KEY_ENV}[ \\t]*=[ \\t]*)(.*?)(\\r?)$`, "m");
+      const content = assignment.test(existing)
+        ? existing.replace(assignment, `$1${configured}$3`)
+        : `${existing}${existing.length > 0 && !existing.endsWith("\n") ? "\n" : ""}${SECRET_MASTER_KEY_ENV}=${configured}\n`;
+      writeSecretEnv(filePath, content);
+    }
+    return { status: "configured", path: filePath };
+  }
+
+  if (dryRun) return { status: "dry-run", path: filePath };
+
+  const generated = randomBytes(32).toString("hex");
+  const existing = fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf8") : "";
+  const assignment = new RegExp(`^([ \\t]*(?:export[ \\t]+)?${SECRET_MASTER_KEY_ENV}[ \\t]*=[ \\t]*)(.*?)(\\r?)$`, "m");
+  const content = assignment.test(existing)
+    ? existing.replace(assignment, `$1${generated}$3`)
+    : `${existing}${existing.length > 0 && !existing.endsWith("\n") ? "\n" : ""}${SECRET_MASTER_KEY_ENV}=${generated}\n`;
+  writeSecretEnv(filePath, content);
+  return { status: "generated", path: filePath };
+}
 
 /** 单个密钥项的定义。 */
 export interface SecretItem {

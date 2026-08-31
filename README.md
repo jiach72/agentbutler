@@ -7,7 +7,7 @@
 
 Agent Butler 把 Agent 运行时的健康检查、消息接入、日志诊断、版本管理和数据恢复收进一个可审计的控制面。它适合在个人电脑、家庭服务器或团队内网中运行，让 Agent 保持可见、可维护、可回滚。
 
-> 当前开发版本：`1.0.0-beta.17`（`main`）。这是测试版，默认只监听本机回环地址；如需跨设备访问，请同时设置 `BUTLER_ACCESS_TOKEN` 并配置发布地址。未配置口令时不要把 Web 端口暴露到不可信网络。
+> 当前开发版本：`1.0.0-beta.18`（`main`）。这是测试版，默认只监听本机回环地址；如需跨设备访问，请同时设置 `BUTLER_ACCESS_TOKEN` 并配置发布地址。未配置口令时不要把 Web 端口暴露到不可信网络。
 
 ## 能做什么
 
@@ -113,7 +113,7 @@ cd agentbutler
 
 WSL Hermes 部署请在 WSL shell 使用 `bash scripts/deploy.sh`；该路径包含 Hermes token/loopback 预检、数据卷备份门禁和 Bridge 转发器选择。PowerShell 脚本适合 Docker Desktop 或不启用 Hermes 消息数据面的场景。
 
-首次部署前复制并检查 `.env.example` 生成的 `.env`：`BUTLER_FRAMEWORK` 选择 `hermes` 或 `openclaw`；`BUTLER_HERMES_HOST_PATH` / `BUTLER_OPENCLAW_HOST_PATH` 指向宿主机状态目录；UI 默认仅绑定 `127.0.0.1`。通知凭据可选，未配置时提醒仍写入持久化队列。
+首次部署前复制并检查 `.env.example` 生成的 `.env`：`BUTLER_FRAMEWORK` 选择 `hermes` 或 `openclaw`；`BUTLER_HERMES_HOST_PATH` / `BUTLER_OPENCLAW_HOST_PATH` 指向宿主机状态目录；UI 默认仅绑定 `127.0.0.1`。通知凭据可选，未配置时提醒仍写入持久化队列。安装器和部署脚本会在首次运行时自动生成 `BUTLER_SECRET_MASTER_KEY` 并保存到本机 env 文件，后续运行不会覆盖；不要删除或更换该值，否则已保存的模型 API Key 无法解密。
 
 在 WSL 中使用 `bash scripts/deploy.sh` 时，如果 `BUTLER_HERMES_HOST_PATH` 仍是示例默认值 `./.runtime/hermes`，脚本会自动探测并优先使用当前 Linux 用户的 `~/.hermes`（要求其中存在 `hermes-agent` 目录）。如果 Hermes 安装在其他位置，请在 `.env` 中明确填写该路径；明确配置不会被自动探测覆盖。
 

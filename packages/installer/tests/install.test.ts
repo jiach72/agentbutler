@@ -98,6 +98,9 @@ describe("installHostForm 宿主形态", () => {
     expect(calls.find((c) => c.args.join(" ") === "pnpm run build")?.opts?.cwd).toBe("/repo");
     const guide = result.steps.find((s) => s.id === "services-guide")!;
     expect(guide.status).toBe("ok");
+    expect(guide.detail).toContain("BUTLER_FRAMEWORK=hermes");
+    expect(guide.detail).toContain("BUTLER_HERMES_BRIDGE_URL=http://127.0.0.1:8754");
+    expect(guide.detail).toContain('BUTLER_HERMES_BRIDGE_TOKEN_FILE="$HOME/.hermes/agent-butler/bridge.token"');
     for (const service of ["butler-watch", "butler-web", "butler-gateway"]) {
       expect(guide.detail).toContain(service);
     }
@@ -593,6 +596,35 @@ describe("runInstaller 顶层编排", () => {
     rmTempDir(tmp);
   });
 
+  it("首次安装自动生成凭据库主密钥，重跑保持原值", async () => {
+    const { exec } = fakeExec();
+    const secretEnvPath = path.join(tmp, "env");
+    const first = await runInstaller({
+      form: "docker",
+      exec,
+      skipNetwork: true,
+      repoDir: tmp,
+      composeFile: path.join(tmp, "docker-compose.yml"),
+      secretEnvPath,
+      env: {},
+    });
+    expect(first.install?.steps[0]).toMatchObject({ id: "secret-master-key", status: "ok" });
+    const firstKey = /^BUTLER_SECRET_MASTER_KEY=([^\r\n]+)$/m.exec(fs.readFileSync(secretEnvPath, "utf8"))?.[1];
+    expect(firstKey).toMatch(/^[a-f0-9]{64}$/);
+
+    const second = await runInstaller({
+      form: "docker",
+      exec,
+      skipNetwork: true,
+      repoDir: tmp,
+      composeFile: path.join(tmp, "docker-compose.yml"),
+      secretEnvPath,
+      env: {},
+    });
+    expect(second.install?.steps[0]).toMatchObject({ id: "secret-master-key", status: "ok" });
+    expect(fs.readFileSync(secretEnvPath, "utf8")).toContain(`BUTLER_SECRET_MASTER_KEY=${firstKey}`);
+  });
+
   it("docker 形态汇总报告：平台/网络/密钥/步骤/后续指引", async () => {
     const { exec } = fakeExec();
     // docker registry 官方失败、daocloud 镜像可达；其余源全失败（docker 形态不依赖）
@@ -605,6 +637,7 @@ describe("runInstaller 顶层编排", () => {
       composeFile: path.join(tmp, "docker-compose.yml"),
       overridePath: path.join(tmp, "docker-compose.override.yml"),
       env: {},
+      secretEnvPath: path.join(tmp, "env"),
     });
     expect(report.form).toBe("docker");
     expect(report.dryRun).toBe(false);
@@ -632,6 +665,7 @@ describe("runInstaller 顶层编排", () => {
       composeFile: path.join(tmp, "docker-compose.yml"),
       overridePath: path.join(tmp, "docker-compose.override.yml"),
       env: {},
+      secretEnvPath: path.join(tmp, "env"),
     });
     const model = report.network.results.find((r) => r.id === "model-endpoints")!;
     expect(model.allFailed).toBe(true);
@@ -650,6 +684,7 @@ describe("runInstaller 顶层编排", () => {
       composeFile: path.join(tmp, "docker-compose.yml"),
       overridePath: path.join(tmp, "docker-compose.override.yml"),
       env: {},
+      secretEnvPath: path.join(tmp, "env"),
     });
     expect(report.network.results).toEqual([]);
     expect(report.install?.steps.find((s) => s.id === "registry-mirror")!.status).toBe("skipped");
@@ -672,7 +707,7 @@ describe("runInstaller 顶层编排", () => {
     const { exec } = fakeExec((command) =>
       command === "bash" ? { code: 1, stdout: "", stderr: "boom" } : { code: 0, stdout: "", stderr: "" },
     );
-    const report = await runInstaller({ form: "host", exec, fetch: fakeProbeFetch(() => true), env: {}, repoDir: tmp });
+    const report = await runInstaller({ form: "host", exec, fetch: fakeProbeFetch(() => true), env: {}, repoDir: tmp, secretEnvPath: path.join(tmp, "env") });
     expect(report.form).toBe("host");
     expect(report.install?.success).toBe(false);
     expect(report.success).toBe(false);
@@ -688,6 +723,7 @@ describe("runInstaller 顶层编排", () => {
       dryRun: true,
       env: {},
       repoDir: tmp,
+      secretEnvPath: path.join(tmp, "env"),
     });
     expect(report.dryRun).toBe(true);
     expect(report.success).toBe(true);

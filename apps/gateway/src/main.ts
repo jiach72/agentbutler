@@ -4,6 +4,9 @@
  * 优雅退出顺序：停投递循环 → 关队列库 → 关 HTTP 服务。
  */
 import { pathToFileURL } from "node:url";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { resolveButlerHome } from "@butler/core";
 import { createGatewayServer } from "./server.js";
 import {
@@ -47,15 +50,52 @@ function hasHermesRuntimeConfiguration(env: NodeJS.ProcessEnv): boolean {
 
 /** 配置齐全时自动接入；Bridge 短暂离线由运行时持续重试。 */
 async function createConfiguredRuntime(env: NodeJS.ProcessEnv): Promise<HermesMessageRuntime | null> {
-  const mode = resolveHermesMessageRuntimeMode(env[RUNTIME_FLAG]);
-  const configured = hasHermesRuntimeConfiguration(env);
+  const effectiveEnv = withHostHermesDefaults(env);
+  const mode = resolveHermesMessageRuntimeMode(effectiveEnv[RUNTIME_FLAG]);
+  const configured = hasHermesRuntimeConfiguration(effectiveEnv);
   if (mode === "disabled" || (mode === "auto" && !configured)) return null;
   if (mode === "enabled" && !configured) {
     throw new Error(`${RUNTIME_FLAG}=true requires complete Hermes Bridge configuration`);
   }
-  const runtime = createHermesMessageRuntime({ env });
+  const runtime = createHermesMessageRuntime({ env: effectiveEnv });
   await runtime.start();
   return runtime;
+}
+
+/**
+ * Host installs historically launched services from a shell that only loaded
+ * ~/.agent-butler/env. Fill in the stable local Hermes paths when the Bridge
+ * token and root are present, while preserving every explicit value.
+ */
+export function withHostHermesDefaults(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const framework = env["BUTLER_FRAMEWORK"]?.trim().toLowerCase();
+  if (framework !== "hermes") return env;
+
+  const home = env["HOME"]?.trim() || os.homedir();
+  const hermesRoot = env[MESSAGE_RUNTIME_ENV.hermesRoot]?.trim() || path.join(home, ".hermes");
+  const tokenFile =
+    env[MESSAGE_RUNTIME_ENV.tokenFile]?.trim() ||
+    path.join(hermesRoot, "agent-butler", "bridge.token");
+  try {
+    if (!fs.statSync(hermesRoot).isDirectory() || !fs.statSync(tokenFile).isFile()) return env;
+  } catch {
+    return env;
+  }
+
+  const butlerHome = env["BUTLER_HOME"]?.trim() || path.join(home, ".agent-butler");
+  return {
+    ...env,
+    [MESSAGE_RUNTIME_ENV.bridgeUrl]:
+      env[MESSAGE_RUNTIME_ENV.bridgeUrl]?.trim() || "http://127.0.0.1:8754",
+    [MESSAGE_RUNTIME_ENV.instanceId]:
+      env[MESSAGE_RUNTIME_ENV.instanceId]?.trim() || "hermes-main",
+    [MESSAGE_RUNTIME_ENV.hermesRoot]: hermesRoot,
+    [MESSAGE_RUNTIME_ENV.tokenFile]: tokenFile,
+    [MESSAGE_RUNTIME_ENV.projectionDbFile]:
+      env[MESSAGE_RUNTIME_ENV.projectionDbFile]?.trim() || path.join(butlerHome, "messages.sqlite"),
+    [MESSAGE_RUNTIME_ENV.allowNonLoopback]:
+      env[MESSAGE_RUNTIME_ENV.allowNonLoopback]?.trim() || "false",
+  };
 }
 
 async function main(): Promise<void> {

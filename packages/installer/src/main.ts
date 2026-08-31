@@ -159,7 +159,7 @@ export function renderReport(report: InstallerReport): string {
 /** 运行 CLI 并返回退出码（0 成功 / 1 失败或参数错误）。 */
 export async function main(
   argv: string[] = process.argv.slice(2),
-  options: Pick<InstallerOptions, "env" | "exec" | "fetch" | "repoDir"> = {},
+  options: Pick<InstallerOptions, "env" | "exec" | "fetch" | "repoDir" | "secretEnvPath"> = {},
 ): Promise<number> {
   const args = parseArgs(argv);
   if (args.error !== undefined) {
@@ -194,6 +194,7 @@ export async function main(
     exec: options.exec,
     fetch: options.fetch,
     repoDir: options.repoDir,
+    secretEnvPath: options.secretEnvPath,
   });
   console.log(renderReport(report));
   return report.success ? 0 : 1;

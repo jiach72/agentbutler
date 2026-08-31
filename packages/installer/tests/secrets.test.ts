@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { checkSecrets, defaultEnvPath, writeEnvTemplate, type SecretGroup } from "../src/secrets.js";
+import { checkSecrets, defaultEnvPath, ensureSecretMasterKey, isValidSecretMasterKey, writeEnvTemplate, type SecretGroup } from "../src/secrets.js";
 import { makeTempDir, rmTempDir } from "./helpers.js";
 
 const FULL_ENV: Record<string, string> = {
@@ -106,5 +106,67 @@ describe("writeEnvTemplate env 模板生成", () => {
     for (const secret of ["tg-token", "sk-test", "ops@example.com", "butler@example.com", "123456"]) {
       expect(content.includes(secret)).toBe(false);
     }
+  });
+});
+
+describe("ensureSecretMasterKey 首次安装初始化", () => {
+  let tmp: string;
+
+  beforeEach(() => {
+    tmp = makeTempDir();
+  });
+
+  afterEach(() => {
+    rmTempDir(tmp);
+  });
+
+  it("空 env 自动生成 32 字节 hex 主密钥并收紧权限", () => {
+    const file = path.join(tmp, "env");
+    const result = ensureSecretMasterKey(file, {});
+    expect(result.status).toBe("generated");
+    const content = fs.readFileSync(file, "utf8");
+    const key = /^BUTLER_SECRET_MASTER_KEY=([^\r\n]+)$/m.exec(content)?.[1];
+    expect(key).toMatch(/^[a-f0-9]{64}$/);
+    expect(isValidSecretMasterKey(key)).toBe(true);
+    if (process.platform !== "win32") expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+  });
+
+  it("已有文件主密钥不覆盖", () => {
+    const file = path.join(tmp, "env");
+    fs.writeFileSync(file, "BUTLER_SECRET_MASTER_KEY=" + "a".repeat(64) + "\n", "utf8");
+    const result = ensureSecretMasterKey(file, {});
+    expect(result.status).toBe("configured");
+    expect(fs.readFileSync(file, "utf8")).toContain("BUTLER_SECRET_MASTER_KEY=" + "a".repeat(64));
+  });
+
+  it("shell env 主密钥写入现有 env 文件", () => {
+    const file = path.join(tmp, "env");
+    fs.writeFileSync(file, "BUTLER_WEB_PORT=7531\n", "utf8");
+    const result = ensureSecretMasterKey(file, { BUTLER_SECRET_MASTER_KEY: "b".repeat(64) });
+    expect(result.status).toBe("configured");
+    expect(fs.readFileSync(file, "utf8")).toContain("BUTLER_SECRET_MASTER_KEY=" + "b".repeat(64));
+  });
+
+  it("dry-run 只返回计划，不写文件", () => {
+    const file = path.join(tmp, "env");
+    const result = ensureSecretMasterKey(file, {}, true);
+    expect(result.status).toBe("dry-run");
+    expect(fs.existsSync(file)).toBe(false);
+  });
+
+  it("无效已有主密钥 fail-closed 且不覆盖", () => {
+    const file = path.join(tmp, "env");
+    fs.writeFileSync(file, "BUTLER_SECRET_MASTER_KEY=not-valid\n", "utf8");
+    const result = ensureSecretMasterKey(file, {});
+    expect(result.status).toBe("invalid");
+    expect(fs.readFileSync(file, "utf8")).toContain("not-valid");
+  });
+
+  it("shell env 与文件主密钥不一致时 fail-closed", () => {
+    const file = path.join(tmp, "env");
+    fs.writeFileSync(file, "BUTLER_SECRET_MASTER_KEY=" + "a".repeat(64) + "\n", "utf8");
+    const result = ensureSecretMasterKey(file, { BUTLER_SECRET_MASTER_KEY: "b".repeat(64) });
+    expect(result.status).toBe("invalid");
+    expect(fs.readFileSync(file, "utf8")).toContain("BUTLER_SECRET_MASTER_KEY=" + "a".repeat(64));
   });
 });

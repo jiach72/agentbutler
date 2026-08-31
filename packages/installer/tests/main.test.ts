@@ -1,7 +1,8 @@
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { USAGE, main, parseArgs, renderReport } from "../src/main.js";
 import { runInstaller } from "../src/install.js";
-import { fakeExec, fakeProbeFetch } from "./helpers.js";
+import { fakeExec, fakeProbeFetch, makeTempDir, rmTempDir } from "./helpers.js";
 
 const FULL_ENV: Record<string, string> = {
   BUTLER_TELEGRAM_BOT_TOKEN: "t",
@@ -12,6 +13,7 @@ const FULL_ENV: Record<string, string> = {
   BUTLER_SMTP_TO: "d@e.f",
   BUTLER_LLM_API_KEY: "k",
   BUTLER_LLM_BASE_URL: "https://llm.example/",
+  BUTLER_SECRET_MASTER_KEY: "a".repeat(64),
 };
 
 describe("parseArgs 手写参数解析", () => {
@@ -77,33 +79,48 @@ describe("main CLI 入口", () => {
   });
 
   it("安装存在失败步骤 → 返回 1（hermes 安装失败示例）", async () => {
+    const tmp = makeTempDir();
     const { exec } = fakeExec((command) =>
       command === "bash" ? { code: 1, stdout: "", stderr: "boom" } : { code: 0, stdout: "", stderr: "" },
     );
-    const code = await main(["--form", "host"], { env: FULL_ENV, exec, fetch: fakeProbeFetch(() => true) });
-    expect(code).toBe(1);
+    try {
+      const code = await main(["--form", "host"], { env: FULL_ENV, exec, fetch: fakeProbeFetch(() => true), secretEnvPath: path.join(tmp, "env") });
+      expect(code).toBe(1);
+    } finally {
+      rmTempDir(tmp);
+    }
   });
 
   it("dry-run docker 形态 → 返回 0", async () => {
-    const { exec } = fakeExec();
-    const code = await main(["--form", "docker", "--dry-run", "--skip-network"], { env: FULL_ENV, exec, fetch: fakeProbeFetch(() => true) });
-    expect(code).toBe(0);
+    const tmp = makeTempDir();
+    try {
+      const { exec } = fakeExec();
+      const code = await main(["--form", "docker", "--dry-run", "--skip-network"], { env: FULL_ENV, exec, fetch: fakeProbeFetch(() => true), secretEnvPath: path.join(tmp, "env") });
+      expect(code).toBe(0);
+    } finally {
+      rmTempDir(tmp);
+    }
   });
 });
 
 describe("renderReport 人类可读报告", () => {
   it("渲染各阶段分区与失败步骤", async () => {
+    const tmp = makeTempDir();
     const { exec } = fakeExec((command) =>
       command === "bash" ? { code: 1, stdout: "", stderr: "boom" } : { code: 0, stdout: "", stderr: "" },
     );
-    const report = await runInstaller({ form: "host", exec, fetch: fakeProbeFetch(() => true), env: {}, repoDir: "/tmp/repo" });
-    const text = renderReport(report);
-    expect(text).toContain("[平台]");
-    expect(text).toContain("[网络]");
-    expect(text).toContain("[密钥]");
-    expect(text).toContain("[安装步骤]");
-    expect(text).toContain("[fail] windows-host-guidance");
-    expect(text).toContain("[结果] 存在失败步骤");
-    expect(text).toContain("[后续步骤]");
+    try {
+      const report = await runInstaller({ form: "host", exec, fetch: fakeProbeFetch(() => true), env: { BUTLER_SECRET_MASTER_KEY: "a".repeat(64) }, repoDir: "/tmp/repo", secretEnvPath: path.join(tmp, "env") });
+      const text = renderReport(report);
+      expect(text).toContain("[平台]");
+      expect(text).toContain("[网络]");
+      expect(text).toContain("[密钥]");
+      expect(text).toContain("[安装步骤]");
+      expect(text).toContain("[fail] windows-host-guidance");
+      expect(text).toContain("[结果] 存在失败步骤");
+      expect(text).toContain("[后续步骤]");
+    } finally {
+      rmTempDir(tmp);
+    }
   });
 });

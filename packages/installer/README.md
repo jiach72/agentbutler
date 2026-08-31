@@ -17,3 +17,5 @@ agent-butler uninstall --yes   # 停止服务、移除用户服务和 Butler 本
 ```
 
 不带 `--yes` 时只会显示将要执行的动作。
+
+首次安装会自动在 Docker 项目的 `.env`（容器形态）或 `~/.agent-butler/env`（宿主形态）生成凭据库主密钥。主密钥只写入本机并保持不变，用户无需手动查找或填写 `BUTLER_SECRET_MASTER_KEY`；请勿删除或更换它，否则已保存的模型 API Key 无法解密。

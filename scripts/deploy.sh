@@ -21,6 +21,40 @@ if [[ ! -f .env ]]; then
   echo "Created .env from .env.example; review it before exposing the UI."
 fi
 
+# 初始化凭据库主密钥。首次部署自动生成并持久化，后续部署绝不轮换，
+# 否则历史 API Key 将无法解密。密钥值不打印到终端或日志。
+file_master_key="$(env_value BUTLER_SECRET_MASTER_KEY)"
+shell_master_key="${BUTLER_SECRET_MASTER_KEY:-}"
+if [[ -n "$file_master_key" && -n "$shell_master_key" && "$file_master_key" != "$shell_master_key" ]]; then
+  echo "ERROR: shell 与 .env 中的 BUTLER_SECRET_MASTER_KEY 不一致；为避免历史凭据无法解密，请只保留同一个值。" >&2
+  exit 1
+fi
+master_key="${file_master_key:-$shell_master_key}"
+if [[ -n "$master_key" && ! "$master_key" =~ ^[a-fA-F0-9]{64}$ && ! "$master_key" =~ ^([A-Za-z0-9+/]{43}=|[A-Za-z0-9+/]{44}|[A-Za-z0-9_-]{43,44})$ ]]; then
+  echo "ERROR: BUTLER_SECRET_MASTER_KEY 格式无效；需要 32 字节 hex 或 base64/base64url。" >&2
+  exit 1
+fi
+if [[ -z "$master_key" ]]; then
+  if command -v openssl >/dev/null 2>&1; then
+    master_key=$(openssl rand -hex 32)
+  elif command -v node >/dev/null 2>&1; then
+    master_key=$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')
+  else
+    echo "ERROR: 无法生成凭据库主密钥，请安装 openssl 或 Node.js 22+ 后重试。" >&2
+    exit 1
+  fi
+  if grep -qE '^BUTLER_SECRET_MASTER_KEY=' .env; then
+    env_tmp="$(mktemp .env.XXXXXX)"
+    awk -v value="$master_key" 'BEGIN { done = 0 } /^BUTLER_SECRET_MASTER_KEY=/ { print "BUTLER_SECRET_MASTER_KEY=" value; done = 1; next } { print } END { if (!done) print "BUTLER_SECRET_MASTER_KEY=" value }' .env > "$env_tmp"
+    mv "$env_tmp" .env
+  else
+    printf '\nBUTLER_SECRET_MASTER_KEY=%s\n' "$master_key" >> .env
+  fi
+  chmod 600 .env 2>/dev/null || true
+  echo "Generated and stored the Butler credential vault key in .env."
+fi
+export BUTLER_SECRET_MASTER_KEY="$master_key"
+
 compose_args=()
 bridge_url="${BUTLER_HERMES_BRIDGE_URL:-$(env_value BUTLER_HERMES_BRIDGE_URL)}"
 if [[ "$bridge_url" == *":8755" ]]; then

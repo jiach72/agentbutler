@@ -1,5 +1,23 @@
 # Bug Fixes
 
+## 2026-08-31 - macOS 宿主安装后消息运行时未接入
+
+- **Problem:** macOS 没有 user-systemd，安装器改为手动启动三项宿主服务时只加载 `~/.agent-butler/env`；该文件没有 Hermes Bridge 的连接参数，Gateway 在 `auto` 模式下退回 native 消息路径。即使 Bridge 和 Gateway 都已重启，消息页仍不会进入 Bridge Outbox。
+- **Impact:** 页面可能显示本机消息路径或空历史，但入站同步、出站接管和送达记录不会工作；用户难以判断是“没有历史”还是消息运行时未配置。
+- **Changed scope:** macOS 服务指引显式导出 Hermes 消息运行时参数；Gateway 在宿主 `BUTLER_FRAMEWORK=hermes` 且本机 `~/.hermes/agent-butler/bridge.token` 可用时自动补齐稳定的 Bridge、实例、Hermes 根目录和投影库默认值。显式配置优先，缺失 token/目录时继续 fail-closed，不放宽 Bridge 鉴权。
+- **Regression coverage:** `apps/gateway/tests/message-launcher.test.ts` 覆盖 macOS 宿主默认值、显式配置保留和非 Hermes 不推断；`packages/installer/tests/install.test.ts` 覆盖服务指引包含 Bridge 参数。
+- **Verification:** `corepack pnpm exec vitest run apps/gateway/tests/message-launcher.test.ts packages/installer/tests/install.test.ts --pool=threads --maxWorkers=1 --minWorkers=1`；随后运行类型检查、Lint、构建和 `git diff --check`。
+- **Runtime validation:** 重新运行 macOS 安装器或按新指引启动后，检查 `http://127.0.0.1:7532/api/messages/status` 的 `mode=observe`、`bridge.connected=true`、`bridge.attached=true`、`bridge.outboxWritable=true`；再发送一条新消息确认进入消息记录。
+
+## 2026-08-31 - macOS 首次安装后模型配置无法保存
+
+- **Problem:** macOS 安装路径没有初始化 `BUTLER_SECRET_MASTER_KEY`。Watch 的 `SecretVault` 因主密钥缺失按设计不可用，设置页因此禁用“加密保存并探针”，用户需要自行找到 env 文件并填写内部配置。
+- **Impact:** 首次安装后无法保存或导入模型 API Key；界面显示“凭据库：未配置”，但没有足够简单的完成路径。
+- **Changed scope:** 安装器首次运行自动生成 32 字节 hex 主密钥并写入 Docker 项目的 `.env` 或宿主 `~/.agent-butler/env`，已有值保持不变，dry-run 不写盘，Unix 文件权限收紧为 `0600`；macOS 宿主服务指引显式加载该 env；`scripts/deploy.sh` 与 `scripts/deploy.ps1` 同步自动初始化；补充 `.env.example`、README 和安装器说明。
+- **Regression coverage:** `packages/installer/tests/secrets.test.ts` 覆盖生成、已有值不覆盖、dry-run、非法值 fail-closed；`packages/installer/tests/install.test.ts` 覆盖首次安装与重跑保持同一主密钥。
+- **Verification:** `corepack pnpm exec vitest run packages/installer/tests/secrets.test.ts packages/installer/tests/install.test.ts --reporter=dot`；`corepack pnpm exec tsc -b --pretty false`；`corepack pnpm lint`；`corepack pnpm build`；`bash -n scripts/deploy.sh`；`git diff --check`。
+- **Runtime validation:** 目标 Mac 安装环境需重新运行安装器或部署脚本后检查 `/api/llm/status` 的 `vault.available=true`，再从设置页执行一次模型探针；主密钥值不得出现在日志、诊断包或提交中。
+
 ## 2026-08-30 - 核心 Markdown 文件管理安全闭环
 
 - **Problem:** 核心 Markdown 文件此前没有统一的固定路径发现、修改前 Diff、版本留存和外部修改冲突保护，直接编辑容易覆盖 Agent 最新内容。
