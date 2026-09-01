@@ -2,6 +2,4 @@
 @import "./styles/base.css";
 @import "./styles/shell.css";
 @import "./styles/primitives.css";
-@import "./styles/pages/troubleshoot.css";
-@import "./styles/pages/setup.css";
 @import "./styles/taste.css";

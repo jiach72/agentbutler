@@ -1,134 +1,15 @@
 /**
- * 共享原语层：全站复用的容器、标题层级、卡片、提示、空态、键值对
- * 以及共享组件（PageProgress / NotificationCenter / AdvancedDetails / 危险确认弹窗）的皮肤。
+ * 共享原语层：仅保留仍被页面/组件引用的容器与共享组件皮肤。
+ * 已被 antd v6 原语替代的旧规则（旧卡片体系、页面标题层级、语义色调助手等）已退役。
+ * 控件观感交给 antd Design Token；变量真源见 theme/tokens.ts。
  */
 
-/* ---- 页面容器与标题层级 ---- */
+/* ---- 页面容器 ---- */
 
-.product-page,
 [class$="-page"] {
   display: flex;
   flex-direction: column;
   gap: var(--butler-space-4);
-}
-
-.product-kicker,
-.product-eyebrow,
-.skills-kicker {
-  color: var(--butler-accent);
-  font-size: var(--butler-text-xs);
-  font-weight: 650;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-}
-
-.page-heading,
-.product-heading {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.page-heading h1,
-.product-heading h1,
-[class$="-page"] > header h1 {
-  font-size: var(--butler-text-xxl);
-  letter-spacing: -0.015em;
-}
-
-.page-heading p,
-.product-heading p {
-  color: var(--butler-muted);
-  font-size: var(--butler-text-sm);
-}
-
-.section-title,
-.plugin-section-head strong {
-  font-size: var(--butler-text-lg);
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-
-/* ---- 卡片体系 ---- */
-
-.card {
-  background: var(--butler-surface);
-  border: 1px solid var(--butler-rule);
-  border-radius: var(--butler-radius-card);
-  padding: var(--butler-space-4) var(--butler-space-5);
-  box-shadow: var(--butler-shadow);
-}
-.card > .card-head + * {
-  margin-top: var(--butler-space-3);
-}
-
-.card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--butler-space-3);
-  margin-bottom: var(--butler-space-3);
-}
-.card-head:last-child {
-  margin-bottom: 0;
-}
-.card-head h2,
-.card-head h3,
-.card-head > strong {
-  font-size: var(--butler-text-md);
-  font-weight: 600;
-}
-.card-head small {
-  color: var(--butler-muted);
-  font-size: var(--butler-text-xs);
-}
-
-.cards-grid {
-  display: grid;
-  gap: var(--butler-space-3);
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-}
-
-.cards-stack {
-  display: grid;
-  gap: var(--butler-space-3);
-}
-
-.table-card {
-  padding: 0;
-  overflow: hidden;
-}
-
-/* ---- 文本辅助 ---- */
-
-.hint {
-  color: var(--butler-muted);
-  font-size: var(--butler-text-xs);
-  line-height: 1.6;
-}
-
-.field-label,
-.po-col-label,
-.backup-policy-meta {
-  font-size: var(--butler-text-xs);
-  color: var(--butler-muted);
-  font-weight: 550;
-}
-
-/* ---- 空态 ---- */
-
-.empty-state,
-.skills-empty {
-  display: grid;
-  justify-items: center;
-  gap: 6px;
-  padding: var(--butler-space-6) var(--butler-space-4);
-  border: 1px dashed var(--butler-rule);
-  border-radius: var(--butler-radius-card);
-  background: var(--butler-surface-subtle);
-  color: var(--butler-muted);
-  font-size: var(--butler-text-sm);
-  text-align: center;
 }
 
 /* ---- 趋势图表卡片 ---- */
@@ -160,9 +41,20 @@
   line-height: 1.5;
 }
 
-.chart-loading {
+/* ---- 空态 ---- */
+
+.empty-state {
+  min-height: 168px;
   display: grid;
   place-items: center;
+  gap: 10px;
+  padding: var(--butler-space-6) var(--butler-space-4);
+  text-align: center;
+  border: 1px dashed var(--butler-rule);
+  border-radius: var(--butler-radius-card);
+  background: var(--butler-surface-subtle);
+  color: var(--butler-muted);
+  line-height: 1.6;
 }
 
 /* ---- 键值对 / 数据行 ---- */
@@ -178,12 +70,6 @@
 .kv > .k {
   color: var(--butler-muted);
   font-size: var(--butler-text-xs);
-}
-
-.message-facts {
-  color: var(--butler-muted);
-  font-size: var(--butler-text-xs);
-  line-height: 1.6;
 }
 
 /* ---- 高级详情折叠区 ---- */
@@ -203,9 +89,6 @@
 .advanced-details-extra {
   color: var(--butler-muted);
   font-size: var(--butler-text-xs);
-}
-.advanced-details-body {
-  font-size: var(--butler-text-sm);
 }
 
 /* ---- 通知中心 ---- */
@@ -359,23 +242,4 @@
   display: grid;
   gap: 4px;
   color: var(--butler-ink-soft);
-}
-
-/* ---- 语义色调助手（页面级 is-* 复用） ---- */
-
-.is-ok,
-.state-ok,
-.step-done {
-  --tone-color: var(--butler-ok);
-}
-.is-warn,
-.state-warn,
-.step-active {
-  --tone-color: var(--butler-warn);
-}
-.is-error,
-.state-error,
-.step-failed,
-.is-fail {
-  --tone-color: var(--butler-error);
 }

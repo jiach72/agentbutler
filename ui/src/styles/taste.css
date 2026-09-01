@@ -1,262 +1,13 @@
-/*
- * Design-taste layer: a single visual language for the whole console.
- * The product is an operator workspace, so hierarchy comes from spacing,
- * rules and restrained elevation rather than decorative gradients.
- */
+/* 设计品味层：仅保留仍被引用的组件/结构规则（图表骨架动画、数据表格细节、core-files 宽度等）。
+ * 已被 antd v6 原语替代的旧页面规则已退役；变量真源见 theme/tokens.ts。 */
 
 :root {
   --butler-content-max: 1440px;
   --butler-focus-offset: 2px;
-  /* KPI 大数值专用：比纯 accent 更沉稳一档，与胶囊/kicker 的亮青拉开层次。 */
   --butler-stat-accent: color-mix(in srgb, var(--butler-accent) 86%, var(--butler-ink-faint));
 }
 
-/* ---- Shared surface and type rhythm ---- */
-
-body {
-  background: var(--butler-bg);
-}
-
-.product-page,
-[class$="-page"] {
-  gap: 24px;
-}
-
-.page-heading,
-.product-heading {
-  position: relative;
-  gap: 18px;
-  padding-bottom: 4px;
-}
-
-.page-heading h1,
-.product-heading h1,
-[class$="-page"] > header h1 {
-  font-size: clamp(26px, 2.2vw, 34px);
-  font-weight: 720;
-  letter-spacing: -0.025em;
-  line-height: 1.15;
-}
-
-.page-heading p,
-.product-heading p {
-  max-width: 68ch;
-  color: var(--butler-muted);
-  line-height: 1.65;
-}
-
-/* 页面级锚点：青色胶囊，与首页 hero 状态锚一致。 */
-.product-eyebrow {
-  justify-self: start;
-  align-self: flex-start;
-  width: fit-content;
-  padding: 5px 12px;
-  border: 1px solid color-mix(in srgb, var(--butler-accent) 22%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--butler-accent) 13%, var(--butler-surface));
-  color: var(--butler-accent);
-  font-size: var(--butler-text-xs);
-  font-weight: 700;
-  letter-spacing: 0.11em;
-}
-
-/* 区块级小标签：一致的大写青色。 */
-.product-kicker {
-  color: var(--butler-accent);
-  letter-spacing: 0.11em;
-  font-size: var(--butler-text-xs);
-  font-weight: 700;
-}
-
-/* 区块头排印节奏：胶囊/kicker 与标题、标题与引导语之间拉开呼吸感，
-   避免三行贴死（首页就绪度/场景区、各页 kicker 区块统一生效）。 */
-.product-kicker,
-.product-eyebrow {
-  display: inline-flex;
-  align-items: center;
-}
-
-.section-title,
-.plugin-section-head strong {
-  font-size: 17px;
-  font-weight: 660;
-  letter-spacing: -0.015em;
-  color: var(--butler-ink);
-}
-
-.hint {
-  line-height: 1.6;
-}
-
-.card,
-.chart-card,
-.setup-card {
-  border: 1px solid var(--butler-rule-strong);
-  border-radius: var(--butler-radius-card);
-  box-shadow: var(--butler-card-highlight), var(--butler-shadow);
-}
-
-.card,
-.chart-card {
-  padding: 20px 22px;
-}
-
-.card-head,
-.chart-card-head {
-  margin-bottom: 16px;
-}
-
-.cards-grid {
-  gap: 16px;
-  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
-}
-
-.cards-stack {
-  gap: 16px;
-}
-
-.empty-state {
-  min-height: 168px;
-  padding: 24px;
-  display: grid;
-  place-items: center;
-  gap: 10px;
-  text-align: center;
-  border-radius: var(--butler-radius-card);
-  border-style: solid;
-  border-color: color-mix(in srgb, var(--butler-rule) 80%, var(--butler-accent));
-  color: var(--butler-muted);
-  line-height: 1.6;
-}
-
-.plugin-section-head {
-  gap: 10px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--butler-rule);
-}
-
-.plugin-card {
-  border-radius: var(--butler-radius-control);
-  transition: border-color var(--butler-dur-fast) var(--butler-ease), background-color var(--butler-dur-fast) var(--butler-ease), transform var(--butler-dur-fast) var(--butler-ease), box-shadow var(--butler-dur-fast) var(--butler-ease);
-}
-
-.plugin-card:hover {
-  border-color: color-mix(in srgb, var(--butler-accent) 48%, var(--butler-rule));
-  background: var(--butler-surface-subtle);
-  transform: translateY(-1px);
-  box-shadow: var(--butler-shadow);
-}
-
-/* ---- Settings / setup ---- */
-
-.setup-card {
-  padding: 24px;
-}
-
-/* ---- Logs / core files / troubleshoot ---- */
-
-.table-card,
-.wizard-step,
-.evidence-findings,
-.action-choice,
-.action-unavailable {
-  border-radius: var(--butler-radius-card);
-}
-
-.table-card {
-  overflow: hidden;
-}
-
-.wizard-nav {
-  gap: 10px;
-}
-
-.wizard-steps li {
-  border-radius: var(--butler-radius-control);
-  font-weight: 600;
-}
-
-.wizard-question {
-  font-size: clamp(22px, 2.4vw, 30px);
-  font-weight: 680;
-  letter-spacing: -0.02em;
-}
-
-.symptom-card,
-.evidence-probe,
-.action-choice {
-  transition: border-color var(--butler-dur-fast) var(--butler-ease), transform var(--butler-dur-fast) var(--butler-ease), box-shadow var(--butler-dur-fast) var(--butler-ease);
-}
-
-.symptom-card:hover,
-.evidence-probe:hover,
-.action-choice:hover {
-  transform: translateY(-1px);
-  box-shadow: var(--butler-shadow);
-}
-
-/* ---- Responsive tightening ---- */
-
-@media (max-width: 960px) {
-  .content {
-    padding: 20px;
-  }
-
-  .sidebar-desktop {
-    width: 220px;
-  }
-}
-
-@media (max-width: 600px) {
-  .page-heading h1,
-  .product-heading h1,
-  [class$="-page"] > header h1 {
-    font-size: 26px;
-  }
-
-  .card,
-  .chart-card,
-  .setup-card {
-    padding: 16px;
-  }
-
-  .topbar-title {
-    font-size: 16px;
-  }
-
-  .topbar-actions {
-    gap: 2px;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .content > .product-page,
-  .content > [class$="-page"] {
-    animation: none;
-  }
-
-  .nav-link::before,
-  .ant-btn,
-  .plugin-card,
-  .symptom-card,
-  .evidence-probe,
-  .action-choice {
-    transition: none;
-  }
-}
-
-/* ---- Data surfaces and interaction states ---- */
-
-.card,
-.chart-card,
-.ant-card,
-.ant-table-wrapper {
-  min-width: 0;
-}
-
-.chart-card {
-  overflow: hidden;
-}
+/* ---- 趋势图表骨架 ---- */
 
 .chart-loading {
   display: grid;
@@ -305,15 +56,20 @@ body {
   margin: 0;
 }
 
-/* 次级统计卡：数值沿用主题色，与 KPI 卡的数字语言一致。 */
-.po-stat strong {
-  color: var(--butler-stat-accent);
+/* ---- 数据表面与表格细节 ---- */
+
+.chart-card,
+.ant-card,
+.ant-table-wrapper {
+  min-width: 0;
+}
+
+.chart-card {
+  overflow: hidden;
 }
 
 .ant-statistic-content,
-.ant-table-cell,
-.is-mono,
-.numeric-cell {
+.ant-table-cell {
   font-variant-numeric: tabular-nums;
 }
 
@@ -321,148 +77,12 @@ body {
   letter-spacing: -0.02em;
 }
 
-.table-card {
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-}
-
-.table-card .ant-table,
 .ant-table-wrapper.is-scrollable .ant-table {
   min-width: 640px;
 }
 
 .ant-table-wrapper .ant-table-container {
   min-width: 0;
-}
-
-/* ---- Core files page ---- */
-
-.core-files-page {
-  width: min(100%, 1280px);
-  margin-inline: auto;
-}
-
-.core-files-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--butler-space-4);
-  margin-bottom: var(--butler-space-2);
-}
-
-.core-files-title {
-  margin-block: 4px 0 !important;
-}
-
-.core-files-instance-select {
-  min-width: 280px;
-}
-
-.core-files-alert {
-  margin-bottom: var(--butler-space-3);
-}
-
-.core-files-layout {
-  display: grid;
-  grid-template-columns: minmax(260px, 0.8fr) minmax(0, 1.7fr);
-  gap: var(--butler-space-4);
-}
-
-.core-files-loading {
-  display: grid;
-  place-items: center;
-  min-height: 160px;
-}
-
-.core-files-loading-detail {
-  min-height: 280px;
-}
-
-.core-files-list-item {
-  cursor: pointer;
-  padding: 14px 16px !important;
-  transition: background-color var(--butler-dur-fast) var(--butler-ease), box-shadow var(--butler-dur-fast) var(--butler-ease);
-}
-
-.core-files-list-item:hover,
-.core-files-list-item:focus-visible {
-  background: var(--butler-surface-subtle);
-}
-
-.core-files-list-item.is-selected {
-  background: var(--butler-accent-soft);
-  box-shadow: inset 3px 0 0 var(--butler-accent);
-}
-
-/* ---- 自绘列表（替代已弃用的 antd List） ---- */
-.app-list,
-.core-files-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.app-list li {
-  padding-block: var(--butler-space-3);
-}
-
-.app-list li + li {
-  border-block-start: 1px solid var(--butler-rule);
-}
-
-.app-list-compact li {
-  padding-block: var(--butler-space-2);
-}
-
-.core-files-list li + li {
-  border-block-start: 1px solid var(--butler-rule);
-}
-
-.core-files-list-meta {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.core-files-list-desc {
-  display: grid;
-  gap: 2px;
-  color: var(--butler-muted);
-  font-size: var(--butler-text-xs);
-}
-
-.core-files-editor {
-  font-family: var(--butler-mono-font) !important;
-}
-
-.core-files-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--butler-space-2);
-  margin-top: var(--butler-space-3);
-}
-
-.core-files-preview {
-  margin-top: var(--butler-space-4);
-}
-
-.core-files-preview-space {
-  width: 100%;
-}
-
-.core-files-diff {
-  max-height: 320px;
-  margin: 0;
-  overflow: auto;
-  white-space: pre-wrap;
-  font-family: var(--butler-mono-font);
-  font-size: var(--butler-text-xs);
-  line-height: 1.6;
-}
-
-.core-files-history-table {
-  min-width: 0;
-  overflow-x: auto;
 }
 
 .ant-table-thead > tr > th {
@@ -472,6 +92,15 @@ body {
 .ant-table-tbody > tr > td {
   overflow-wrap: anywhere;
 }
+
+/* ---- Core files 页面容器宽度（壳层基础宽度之上再收紧一档） ---- */
+
+.core-files-page {
+  width: min(100%, 1280px);
+  margin-inline: auto;
+}
+
+/* ---- 响应式收紧 ---- */
 
 @media (max-width: 600px) {
   .chart-card {
@@ -487,7 +116,6 @@ body {
     max-width: 100%;
   }
 
-  .table-card .ant-table,
   .ant-table-wrapper.is-scrollable .ant-table {
     min-width: 620px;
   }
@@ -497,25 +125,12 @@ body {
     overflow-x: auto;
   }
 
-  .core-files-heading {
-    flex-direction: column;
+  .topbar-title {
+    font-size: 16px;
   }
 
-  .core-files-instance-select {
-    width: 100%;
-    min-width: 0;
-  }
-
-  .core-files-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .core-files-actions {
-    flex-direction: column-reverse;
-  }
-
-  .core-files-actions .ant-btn {
-    width: 100%;
+  .topbar-actions {
+    gap: 2px;
   }
 }
 
