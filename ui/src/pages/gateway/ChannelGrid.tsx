@@ -8,6 +8,7 @@ import { usePolling } from "../../hooks/usePolling.js";
 import { fetchJson } from "../../lib/api.js";
 import { REFRESH_INTERVAL_MS, channelKindLabel, loginStateCopy } from "./helpers.js";
 import type { ChannelDirectoryEntryView } from "./helpers.js";
+import { WeixinLoginModal } from "./WeixinLoginModal.js";
 
 const LOGIN_BADGE: Record<ChannelDirectoryEntryView["loginState"], "success" | "error" | "warning" | "default"> = {
   logged_in: "success",
@@ -25,12 +26,23 @@ interface ChannelGridProps {
 export function ChannelGrid({ refreshedAt, onReconnect }: ChannelGridProps) {
   const [channels, setChannels] = useState<ChannelDirectoryEntryView[] | null>(null);
   const [unreachable, setUnreachable] = useState(false);
+  const [loginOpen, setLoginOpen] = useState(false);
 
   const refresh = useCallback(async () => {
     const data = await fetchJson<{ channels: ChannelDirectoryEntryView[] }>("/api/messages/channels");
     setChannels(data?.channels ?? null);
     setUnreachable(data === null);
   }, []);
+
+  // 保持引用稳定：弹窗轮询 effect 依赖 onConfirmed/onClose，避免目录轮询重渲染重启扫码会话。
+  const closeLogin = useCallback(() => {
+    setLoginOpen(false);
+    void refresh();
+  }, [refresh]);
+  const confirmLogin = useCallback(() => {
+    setLoginOpen(false);
+    void refresh();
+  }, [refresh]);
 
   useEffect(() => {
     void refresh();
@@ -71,15 +83,22 @@ export function ChannelGrid({ refreshedAt, onReconnect }: ChannelGridProps) {
                   {channel.account !== undefined ? ` · ${channel.account}` : ""}
                   {channel.enabled ? "" : " · 已停用"}
                 </Typography.Text>
-                {/* 扫码登录（微信）与配置/启停入口在 M3/M4 接线 */}
-                <Button size="small" disabled>
-                  扫码登录 / 配置（即将上线）
-                </Button>
+                {channel.kind === "qr-login" ? (
+                  <Button size="small" type="primary" onClick={() => setLoginOpen(true)}>
+                    扫码登录
+                  </Button>
+                ) : channel.kind === "credential" ? (
+                  /* 配置/启停入口在 M4 接线 */
+                  <Button size="small" disabled>
+                    配置接入（即将上线）
+                  </Button>
+                ) : null}
               </Flex>
             </Card>
           ))}
         </Flex>
       )}
+      <WeixinLoginModal open={loginOpen} onClose={closeLogin} onConfirmed={confirmLogin} />
     </Card>
   );
 }
