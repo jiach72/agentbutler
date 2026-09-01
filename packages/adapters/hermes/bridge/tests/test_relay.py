@@ -118,5 +118,73 @@ class PassthroughSendTests(unittest.TestCase):
         self.assertEqual(len(adapter.send_calls), 0)
 
 
+class _HookOutbox(FakeOutbox):
+    def __init__(self, payload=None):
+        super().__init__(payload)
+        self.inbounds = {}
+
+    def get_inbound(self, inbound_id):
+        return self.inbounds.get(inbound_id)
+
+    def record_inbound(self, envelope):
+        self.inbounds[envelope["inboundMessageId"]] = dict(envelope)
+        return {"deduped": False}
+
+
+class _HookRuntime:
+    def __init__(self, outbox):
+        self.outbox = outbox
+        self.config = type("C", (), {"instance_id": "inst", "inbound_optimize": True})()
+        self.scheduled = []
+
+    def schedule_inbound_optimization(self, inbound_id, content):
+        self.scheduled.append(inbound_id)
+
+    async def wait_inbound_optimization(self, inbound_id):
+        self.waited = getattr(self, "waited", 0) + 1
+
+
+class InboundPassthroughTests(unittest.TestCase):
+    def _record(self, runtime, wait):
+        from agent_butler_bridge.hermes_hooks import _record_inbound
+        from agent_butler_bridge.registry import AdapterBinding
+
+        binding = AdapterBinding(
+            adapter=object(),
+            adapter_id="wx",
+            channel="weixin",
+            account_id=None,
+            default_transport="queued-push",
+            original_send=None,
+            original_edit=None,
+            original_media={},
+            transport_resolver=None,
+            capture_filter=None,
+            delivery_override=None,
+        )
+        event = type(
+            "E",
+            (),
+            {"source": None, "message_id": "m1", "text": "hi", "metadata": None, "user_id": "u1"},
+        )()
+        return asyncio.run(_record_inbound(runtime, binding, event, wait_for_decision=wait))
+
+    def test_passthrough_skips_decision_wait(self):
+        from agent_butler_bridge.relay import RELAY_PASSTHROUGH
+
+        outbox = _HookOutbox({"relayMode": RELAY_PASSTHROUGH})
+        runtime = _HookRuntime(outbox)
+        inbound_id, deduped = self._record(runtime, wait=True)
+        self.assertFalse(deduped)
+        self.assertEqual(getattr(runtime, "waited", 0), 0)
+        self.assertIn(inbound_id, outbox.inbounds)
+
+    def test_takeover_still_waits(self):
+        outbox = _HookOutbox({"relayMode": "takeover"})
+        runtime = _HookRuntime(outbox)
+        self._record(runtime, wait=True)
+        self.assertEqual(getattr(runtime, "waited", 0), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

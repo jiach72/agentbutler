@@ -19,6 +19,7 @@ from .context import (
     run_lifecycle_scope,
 )
 from .ids import uuid7
+from .relay import RELAY_PASSTHROUGH, relay_mode
 from .registry import AdapterBinding
 from .runtime import (
     BridgeRuntime,
@@ -103,7 +104,11 @@ def install_base_platform_hooks(
                 active_runs[str(session_key)] = lifecycle
             try:
                 with message_context(**context_updates):
-                    optimized_event = _apply_inbound_optimization(runtime, inbound_id, event)
+                    optimized_event = (
+                        event
+                        if relay_mode(runtime.outbox) == RELAY_PASSTHROUGH
+                        else _apply_inbound_optimization(runtime, inbound_id, event)
+                    )
                     await _capture_task_receipt(adapter, binding, runtime, source, run_id)
                     await original_process(adapter, optimized_event, session_key, *args, **kwargs)
             except BaseException:
@@ -713,13 +718,13 @@ async def _record_inbound(
         if all(existing.get(key) == envelope.get(key) for key in stable_keys):
             if runtime.outbox.get_inbound_decision(inbound_id) is None:
                 runtime.schedule_inbound_optimization(inbound_id, str(envelope["content"]))
-            if wait_for_decision:
+            if wait_for_decision and relay_mode(runtime.outbox) != RELAY_PASSTHROUGH:
                 await runtime.wait_inbound_optimization(inbound_id)
             return inbound_id, True
     recorded = runtime.outbox.record_inbound(envelope)
     if not bool(recorded["deduped"]):
         runtime.schedule_inbound_optimization(inbound_id, str(envelope["content"]))
-    if wait_for_decision:
+    if wait_for_decision and relay_mode(runtime.outbox) != RELAY_PASSTHROUGH:
         await runtime.wait_inbound_optimization(inbound_id)
     return inbound_id, bool(recorded["deduped"])
 
