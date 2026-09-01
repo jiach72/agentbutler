@@ -96,6 +96,12 @@ CREATE TABLE IF NOT EXISTS prewarm_cache (
   expires_at TEXT,
   detail TEXT
 );
+CREATE TABLE IF NOT EXISTS relay_control (
+  singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+  enabled INTEGER NOT NULL,
+  pending INTEGER NOT NULL,
+  updated_at TEXT
+);
 `;
 
 const ALL_OUTBOX_STATES: readonly OutboxState[] = [
@@ -183,6 +189,14 @@ export interface PrewarmCacheEntry {
   expiresAt: string | null;
   detail: string | null;
 }
+
+export interface RelayControlView {
+  enabled: boolean;
+  pending: boolean;
+  updatedAt: string | null;
+}
+
+const DEFAULT_RELAY_CONTROL: RelayControlView = { enabled: true, pending: false, updatedAt: null };
 
 export interface MessageStatusSummary {
   absorbedProgress: number;
@@ -493,6 +507,29 @@ export class MessagePolicyStore {
       throw new Error("stored message policy failed canonical hash validation");
     }
     return snapshot;
+  }
+
+  getRelayControl(): RelayControlView {
+    const row = this.db
+      .prepare("SELECT enabled, pending, updated_at FROM relay_control WHERE singleton = 1")
+      .get() as { enabled: number; pending: number; updated_at: string | null } | undefined;
+    if (row === undefined) return { ...DEFAULT_RELAY_CONTROL };
+    return {
+      enabled: row.enabled === 1,
+      pending: row.pending === 1,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  setRelayControl(enabled: boolean, pending: boolean, updatedAt: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO relay_control (singleton, enabled, pending, updated_at)
+         VALUES (1, ?, ?, ?)
+         ON CONFLICT(singleton) DO UPDATE SET enabled = excluded.enabled,
+           pending = excluded.pending, updated_at = excluded.updated_at`,
+      )
+      .run(enabled ? 1 : 0, pending ? 1 : 0, updatedAt);
   }
 
   upsertDndRule(rule: DndRuleInput): DndRule {
