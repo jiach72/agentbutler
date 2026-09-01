@@ -61,8 +61,7 @@ body {
 }
 
 /* 区块级小标签：一致的大写青色。 */
-.product-kicker,
-.version-instance-kicker {
+.product-kicker {
   color: var(--butler-accent);
   letter-spacing: 0.11em;
   font-size: var(--butler-text-xs);
@@ -72,7 +71,6 @@ body {
 /* 区块头排印节奏：胶囊/kicker 与标题、标题与引导语之间拉开呼吸感，
    避免三行贴死（首页就绪度/场景区、各页 kicker 区块统一生效）。 */
 .product-kicker,
-.version-instance-kicker,
 .product-eyebrow {
   display: inline-flex;
   align-items: center;
@@ -117,8 +115,7 @@ body {
   gap: 16px;
 }
 
-.empty-state,
-.version-empty-explained {
+.empty-state {
   min-height: 168px;
   padding: 24px;
   display: grid;
@@ -138,13 +135,6 @@ body {
   border-bottom: 1px solid var(--butler-rule);
 }
 
-.version-toolbar {
-  padding: 12px 14px;
-  border: 1px solid var(--butler-rule);
-  border-radius: var(--butler-radius-card);
-  background: var(--butler-surface-subtle);
-}
-
 .plugin-card {
   border-radius: var(--butler-radius-control);
   transition: border-color var(--butler-dur-fast) var(--butler-ease), background-color var(--butler-dur-fast) var(--butler-ease), transform var(--butler-dur-fast) var(--butler-ease), box-shadow var(--butler-dur-fast) var(--butler-ease);
@@ -157,24 +147,7 @@ body {
   box-shadow: var(--butler-shadow);
 }
 
-/* ---- Versions / settings / setup ---- */
-
-.butler-version-card,
-.version-instance-card,
-.version-item,
-.setup-card {
-  border-radius: var(--butler-radius-card);
-}
-
-.butler-version-number {
-  font-size: clamp(28px, 3vw, 38px);
-  font-weight: 720;
-}
-
-.pipeline-step {
-  min-height: 42px;
-  border-radius: var(--butler-radius-control);
-}
+/* ---- Settings / setup ---- */
 
 .setup-card {
   padding: 24px;

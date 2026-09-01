@@ -1,6 +1,8 @@
 /**
  * 版本页 · 升级进度：启动态进度条与真实 Job 五步流水线。
  */
+import { Descriptions, Empty, Flex, Steps, Typography } from "antd";
+import type { StepsProps } from "antd";
 import { PageProgress } from "../../components/PageProgress.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
@@ -9,10 +11,20 @@ import { channelBadge, instanceLabel, jobBadge, stepBadge } from "./helpers.js";
 import type { ManagedUpgradeProgressView } from "./helpers.js";
 import type { UpgradeJobView } from "./types.js";
 
+const { Text } = Typography;
+
 interface UpgradePipelineProps {
   job: UpgradeJobView | null;
   launchPending: boolean;
   progress: ManagedUpgradeProgressView | null;
+}
+
+/** 步骤状态 → antd Steps 状态（passed→finish / running→process / failed→error / 其余→wait）。 */
+function stepStatus(status: string): NonNullable<StepsProps["items"]>[number]["status"] {
+  if (status === "passed") return "finish";
+  if (status === "running") return "process";
+  if (status === "failed") return "error";
+  return "wait";
 }
 
 export function UpgradePipeline({ job, launchPending, progress }: UpgradePipelineProps) {
@@ -28,16 +40,19 @@ export function UpgradePipeline({ job, launchPending, progress }: UpgradePipelin
         />
       )}
       {job === null ? (
-        <div className="empty-state">
-          {launchPending
-            ? "正在创建升级任务，收到管家的第一步状态后会显示详细步骤。"
-            : "目前没有正在进行的升级。选择上方版本后，进度会显示在这里。"}
-        </div>
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description={
+            launchPending
+              ? "正在创建升级任务，收到管家的第一步状态后会显示详细步骤。"
+              : "目前没有正在进行的升级。选择上方版本后，进度会显示在这里。"
+          }
+        />
       ) : (
-        <div className="card">
-          <div className="pipeline-head">
-            <span className="instance-name">{instanceLabel(job.instanceId)}</span>
-            <span>→ {job.targetVersion}</span>
+        <Flex vertical gap={16}>
+          <Flex wrap="wrap" align="center" gap={12}>
+            <Text strong>{instanceLabel(job.instanceId)}</Text>
+            <Text>→ {job.targetVersion}</Text>
             {job.channel !== undefined && job.channel !== "" && (
               <StatusBadge
                 tone={channelBadge(job.channel).tone}
@@ -48,49 +63,42 @@ export function UpgradePipeline({ job, launchPending, progress }: UpgradePipelin
               tone={jobBadge(job.status).tone}
               label={jobBadge(job.status).label}
             />
-          </div>
+          </Flex>
           {job.rolledBack === true && (
             <DegradedBanner
               severity="warn"
               message={`升级后检查没有通过，管家已自动还原${job.snapshotId !== undefined ? `（备份 ${job.snapshotId}）` : ""}`}
             />
           )}
-          <ol className="pipeline-steps">
-            {job.steps.map((step, index) => {
-              const badge = stepBadge(step.status);
-              return (
-                <li className={`pipeline-step step-${step.status}`} key={step.id}>
-                  <span className="step-index">{index + 1}</span>
-                  <span className="step-label">{step.label}</span>
-                  <StatusBadge tone={badge.tone} label={badge.label} />
-                  {step.detail !== undefined && step.detail !== "" && (
-                    <span className="step-detail" title={step.detail}>
-                      {step.detail}
-                    </span>
-                  )}
-                </li>
-              );
-            })}
-          </ol>
-          <dl className="kv pipeline-kv">
-            <dt>开始于</dt>
-            <dd>{formatRelative(job.startedAt)}</dd>
-            <dt>结束于</dt>
-            <dd>{job.finishedAt !== undefined ? formatRelative(job.finishedAt) : "—"}</dd>
-            {job.trigger !== undefined && job.trigger !== "" && (
-              <>
-                <dt>触发方式</dt>
-                <dd>{job.trigger}</dd>
-              </>
-            )}
-            {job.error !== undefined && job.error !== "" && (
-              <>
-                <dt>错误</dt>
-                <dd>{job.error}</dd>
-              </>
-            )}
-          </dl>
-        </div>
+          <Steps
+            direction="vertical"
+            size="small"
+            items={job.steps.map((step) => ({
+              title: step.label,
+              description:
+                step.detail !== undefined && step.detail !== "" ? step.detail : undefined,
+              status: stepStatus(step.status),
+            }))}
+          />
+          <Descriptions
+            column={1}
+            size="small"
+            items={[
+              { key: "started", label: "开始于", children: formatRelative(job.startedAt) },
+              {
+                key: "finished",
+                label: "结束于",
+                children: job.finishedAt !== undefined ? formatRelative(job.finishedAt) : "—",
+              },
+              ...(job.trigger !== undefined && job.trigger !== ""
+                ? [{ key: "trigger", label: "触发方式", children: job.trigger }]
+                : []),
+              ...(job.error !== undefined && job.error !== ""
+                ? [{ key: "error", label: "错误", children: job.error }]
+                : []),
+            ]}
+          />
+        </Flex>
       )}
     </>
   );

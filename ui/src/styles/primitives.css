@@ -118,8 +118,7 @@
 /* ---- 空态 ---- */
 
 .empty-state,
-.skills-empty,
-.version-empty-explained {
+.skills-empty {
   display: grid;
   justify-items: center;
   gap: 6px;
@@ -181,8 +180,6 @@
   font-size: var(--butler-text-xs);
 }
 
-.butler-version-fact,
-.version-instance-facts,
 .message-facts {
   color: var(--butler-muted);
   font-size: var(--butler-text-xs);

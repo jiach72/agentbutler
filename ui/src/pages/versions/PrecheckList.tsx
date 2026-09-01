@@ -1,9 +1,12 @@
 /**
  * 版本页 · 升级前检查：结构化清单 / 纯文本明细 / 静态说明三种形态。
  */
+import { Flex, List, Typography } from "antd";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { precheckBadge, STATIC_PRECHECKS, stepBadge } from "./helpers.js";
 import type { PrecheckDetail, UpgradeStepView } from "./types.js";
+
+const { Text } = Typography;
 
 interface PrecheckListProps {
   step: UpgradeStepView | null;
@@ -13,58 +16,68 @@ interface PrecheckListProps {
 export function PrecheckList({ step, precheck }: PrecheckListProps) {
   if (step !== null && precheck.items.length > 0) {
     return (
-      <div className="card">
-        <ul className="check-list">
-          {precheck.items.map((item) => {
-            const badge = precheckBadge(item.status);
-            return (
-              <li className="check-row" key={item.id}>
-                <span className="check-name">{item.id}</span>
+      <List
+        size="small"
+        dataSource={precheck.items}
+        renderItem={(item) => {
+          const badge = precheckBadge(item.status);
+          return (
+            <List.Item>
+              <Flex align="center" gap={12} style={{ width: "100%" }}>
+                <Text strong style={{ flexShrink: 0 }}>
+                  {item.id}
+                </Text>
                 <StatusBadge tone={badge.tone} label={badge.label} />
-                <span className="check-detail" title={item.detail ?? undefined}>
+                <Text
+                  type="secondary"
+                  title={item.detail ?? undefined}
+                  style={{ marginLeft: "auto", textAlign: "right" }}
+                >
                   {item.detail ?? "—"}
-                </span>
-              </li>
-            );
-          })}
-        </ul>
-      </div>
+                </Text>
+              </Flex>
+            </List.Item>
+          );
+        }}
+      />
     );
   }
   if (step !== null && precheck.lines.length > 0) {
-    return (
-      <div className="card">
-        <div className="hint">{precheck.lines.join("；")}</div>
-      </div>
-    );
+    return <Text type="secondary">{precheck.lines.join("；")}</Text>;
   }
   if (step !== null) {
+    const badge = stepBadge(step.status);
     return (
-      <div className="card">
-        <ul className="check-list">
-          <li className="check-row">
-            <span className="check-name">升级前检查</span>
-            <StatusBadge
-              tone={stepBadge(step.status).tone}
-              label={stepBadge(step.status).label}
-            />
-            <span className="check-detail">暂未返回明细</span>
-          </li>
-        </ul>
-      </div>
+      <List size="small">
+        <List.Item>
+          <Flex align="center" gap={12} style={{ width: "100%" }}>
+            <Text strong style={{ flexShrink: 0 }}>
+              升级前检查
+            </Text>
+            <StatusBadge tone={badge.tone} label={badge.label} />
+            <Text type="secondary" style={{ marginLeft: "auto", textAlign: "right" }}>
+              暂未返回明细
+            </Text>
+          </Flex>
+        </List.Item>
+      </List>
     );
   }
   return (
-    <div className="card">
-      <ul className="check-list">
-        {STATIC_PRECHECKS.map((name) => (
-          <li className="check-row" key={name}>
-            <span className="check-name">{name}</span>
-            <StatusBadge tone="muted" label="待检" />
-          </li>
-        ))}
-      </ul>
-      <div className="hint">不需要你手动操作；管家会在升级前自动检查。</div>
-    </div>
+    <Flex vertical gap={8}>
+      <List
+        size="small"
+        dataSource={STATIC_PRECHECKS}
+        renderItem={(name) => (
+          <List.Item>
+            <Flex align="center" gap={12} style={{ width: "100%" }}>
+              <Text strong>{name}</Text>
+              <StatusBadge tone="muted" label="待检" />
+            </Flex>
+          </List.Item>
+        )}
+      />
+      <Text type="secondary">不需要你手动操作；管家会在升级前自动检查。</Text>
+    </Flex>
   );
 }
