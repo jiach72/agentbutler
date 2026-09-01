@@ -181,6 +181,11 @@ export interface MessageStatusPayload {
       outboxWritable: boolean;
     };
     counts?: Record<string, number>;
+    relay?: {
+      enabled: boolean;
+      pending: boolean;
+      updatedAt: string | null;
+    };
   } | null;
 }
 

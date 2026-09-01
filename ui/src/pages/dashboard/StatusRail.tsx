@@ -100,8 +100,10 @@ export function StatusRail({
             ? `有 ${messageStats.undeliveredCriticalCount} 条紧急提醒没送到`
             : messageStats.failedAlertCount > 0
               ? `${messageStats.failedAlertCount} 条提醒发送失败`
-              : messageStats.deliveredCriticalCount > 0
-                ? `有 ${messageStats.deliveredCriticalCount} 条紧急提醒已送到`
+            : messageStats.deliveredCriticalCount > 0
+              ? `有 ${messageStats.deliveredCriticalCount} 条紧急提醒已送到`
+              : !messageStats.relayEnabled
+                ? "原通道直发中：消息由本机 AI 直接发送"
                 : "消息接管通道正常",
       trend:
         deliveryValues.length > 1

@@ -14,6 +14,8 @@ export interface MessageStats {
   undeliveredCriticalCount: number;
   deliveredCriticalCount: number;
   pendingMessageAlerts: number;
+  /** 一键接管开关：false=原通道直发（仍审计）。 */
+  relayEnabled: boolean;
 }
 
 export interface Conclusions {
@@ -167,6 +169,7 @@ export function buildConclusions(
     undeliveredCriticalCount,
     deliveredCriticalCount,
     pendingMessageAlerts: undeliveredCriticalCount + failedAlertCount,
+    relayEnabled: dashboard?.messageStatus?.status?.relay?.enabled ?? true,
   };
 
   let hero: HeroView;

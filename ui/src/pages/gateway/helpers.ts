@@ -133,11 +133,19 @@ export interface MessageItemView {
   updatedAt: string;
 }
 
+/** 消息链路一键接管开关状态（镜像 web MessageStatusView.relay）。 */
+export interface RelayControlView {
+  enabled: boolean;
+  pending: boolean;
+  updatedAt: string | null;
+}
+
 export interface MessageOverviewPayload {
   reachable: boolean;
   status: null | {
     bridge: MessageBridgeView;
     counts: Record<string, number>;
+    relay?: RelayControlView;
   };
   messages: {
     counts: Record<string, number>;
@@ -379,6 +387,18 @@ export function statusTone(status: string): { tone: SemanticTone; label: string 
     return { tone: "warn", label: "手工已生效" };
   }
   return { tone: "muted", label: MESSAGE_STATE_LABELS[status] ?? "其他" };
+}
+
+/** 接管开关状态 → 卡片标题与说明文案。 */
+export function relayModeCopy(relay: RelayControlView): { title: string; detail: string } {
+  if (relay.enabled) {
+    return relay.pending
+      ? { title: "消息接管中（待生效）", detail: "正在切回消息接管，生效后面板会自动更新。" }
+      : { title: "消息接管中", detail: "出站消息经过合并、免打扰与频率控制后再发送。" };
+  }
+  return relay.pending
+    ? { title: "原通道直发中（待生效）", detail: "正在切到原通道，生效后面板会自动更新。" }
+    : { title: "原通道直发中", detail: "消息由本机 AI 直接发送，不再经过合并与限速；记录仍然保留。" };
 }
 
 export function formatTimestamp(ts: string | null | undefined): string {

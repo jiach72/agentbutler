@@ -4,6 +4,6 @@ export default defineConfig({
   test: {
     name: "ui",
     environment: "node",
-    include: ["tests/**/*.test.ts"],
+    include: ["tests/**/*.test.ts", "src/**/*.test.ts"],
   },
 });

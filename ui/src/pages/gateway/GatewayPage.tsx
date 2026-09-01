@@ -25,6 +25,7 @@ import { MessageInspector } from "./MessageInspector.js";
 import { PatchBoard } from "./PatchBoard.js";
 import { PromptOptimizationPanel } from "./PromptOptimizationPanel.js";
 import { RateLimitsTable } from "./RateLimitsTable.js";
+import { RelayControlCard } from "./RelayControlCard.js";
 import {
   COVERAGE_LABELS,
   PARAM_LABELS,
@@ -383,6 +384,13 @@ export function GatewayPage() {
           <DegradedBanner
             severity="warn"
             message="通知服务暂时离线：正在排队中的提醒暂不可见，稍后会自动恢复。"
+          />
+        )}
+
+        {messageData?.status?.relay !== undefined && messageData.status.relay !== null && (
+          <RelayControlCard
+            relay={messageData.status.relay}
+            onChanged={() => void refresh()}
           />
         )}
 
