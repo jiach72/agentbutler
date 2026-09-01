@@ -444,6 +444,58 @@ function registerMessageRoutes(
     }
   });
 
+  /** 通道启停与首次接入：schema 驱动 UI 配置表单；secret 字段响应体掩码回显。 */
+  app.get("/api/messages/channels/:channel/schema", async (request, reply) => {
+    if (channelControl === undefined) return channelUnavailable(reply);
+    const channel = readString((request.params as Record<string, unknown>)["channel"]);
+    if (channel === null) return reply.code(400).send({ error: "channel is required" });
+    try {
+      return await channelControl.channelSchema(channel);
+    } catch {
+      return channelUnavailable(reply);
+    }
+  });
+
+  app.put("/api/messages/channels/:channel/config", async (request, reply) => {
+    if (channelControl === undefined) return channelUnavailable(reply);
+    const channel = readString((request.params as Record<string, unknown>)["channel"]);
+    const body = asRecord(request.body);
+    if (channel === null || body === null) return reply.code(400).send({ error: "channel and body are required" });
+    const values: Record<string, string> = {};
+    for (const [key, value] of Object.entries(body)) {
+      if (typeof value !== "string") return reply.code(400).send({ error: `${key} must be a string` });
+      if (value.trim() !== "") values[key] = value;
+    }
+    try {
+      const result = await channelControl.updateChannelConfig(channel, values);
+      return reply.code(200).send({ ...result, ...maskConfigValues(channel, values) });
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post("/api/messages/channels/:channel/enable", async (request, reply) => {
+    if (channelControl === undefined) return channelUnavailable(reply);
+    const channel = readString((request.params as Record<string, unknown>)["channel"]);
+    if (channel === null) return reply.code(400).send({ error: "channel is required" });
+    try {
+      return await channelControl.enableChannel(channel);
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post("/api/messages/channels/:channel/disable", async (request, reply) => {
+    if (channelControl === undefined) return channelUnavailable(reply);
+    const channel = readString((request.params as Record<string, unknown>)["channel"]);
+    if (channel === null) return reply.code(400).send({ error: "channel is required" });
+    try {
+      return await channelControl.disableChannel(channel);
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
   app.get("/api/messages/tasks/:runId", async (request, reply) => {
     if (messageStore === undefined) return bridgeUnavailable(reply, "E302");
     const runId = readString((request.params as Record<string, unknown>)["runId"]);
@@ -741,6 +793,22 @@ function bridgeUnavailable(reply: FastifyReply, code: "E302" | "E303"): FastifyR
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** secret 字段名单与 contract ChannelFieldSchema / Bridge CHANNEL_SCHEMAS 一致（按通道硬编码镜像；掩码仅用于响应体回显）。 */
+const CHANNEL_SECRET_FIELDS: Record<string, readonly string[]> = {
+  qqbot: ["app_secret"],
+  yuanbao: ["app_key"],
+  feishu: ["app_secret", "verification_token"],
+  dingtalk: ["client_secret"],
+  wecom: ["secret"],
+};
+
+function maskConfigValues(channel: string, values: Record<string, string>): Record<string, string> {
+  const secrets = CHANNEL_SECRET_FIELDS[channel] ?? [];
+  return Object.fromEntries(
+    Object.entries(values).map(([name, value]) => [name, secrets.includes(name) ? "••••" : value]),
+  );
 }
 
 function paceSecFromEnv(): number {

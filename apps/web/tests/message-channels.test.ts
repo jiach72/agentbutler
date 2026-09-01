@@ -375,3 +375,118 @@ describe("butler-web 微信扫码登录代理（Task 15，fastify inject）", ()
     expect(notOkRes.json()).toEqual({ error: "gateway-unreachable" });
   });
 });
+
+describe("butler-web 通道启停与配置代理（Task 18，fastify inject）", () => {
+  let tmp: string;
+  let uiDist: string;
+  const apps: FastifyInstance[] = [];
+
+  beforeEach(() => {
+    tmp = makeTempDir();
+    uiDist = makeUiDist(tmp);
+  });
+
+  afterEach(async () => {
+    for (const app of apps) await app.close();
+    apps.length = 0;
+    rmTempDir(tmp);
+  });
+
+  function build(fetchImpl: typeof fetch): FastifyInstance {
+    const app = createWebServer({
+      home: tmp,
+      uiDist,
+      watchUrl: WATCH_URL,
+      gatewayUrl: GATEWAY_URL,
+      fetchImpl,
+    });
+    apps.push(app);
+    return app;
+  }
+
+  it("schema 透传通道配置要求", async () => {
+    const schema = {
+      channel: "feishu",
+      kind: "credential",
+      label: "飞书",
+      fields: [
+        { name: "app_id", label: "App ID", type: "string", required: true, secret: false },
+        { name: "app_secret", label: "App Secret", type: "string", required: true, secret: true },
+      ],
+    };
+    const transport = makeFetch({
+      [`GET ${GATEWAY_URL}/api/messages/channels/feishu/schema`]: { status: 200, body: schema },
+    });
+    const app = build(transport.fetch);
+
+    const res = await app.inject({ method: "GET", url: "/api/messages/channels/feishu/schema" });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual(schema);
+    expect(transport.calls).toEqual([
+      { url: `${GATEWAY_URL}/api/messages/channels/feishu/schema`, method: "GET", body: "" },
+    ]);
+  });
+
+  it("PUT config 透传保存结果（掩码回显原样透传）", async () => {
+    const transport = makeFetch({
+      [`PUT ${GATEWAY_URL}/api/messages/channels/feishu/config`]: {
+        status: 200,
+        body: { saved: true, app_id: "cli_a", app_secret: "••••" },
+      },
+    });
+    const app = build(transport.fetch);
+
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/messages/channels/feishu/config",
+      payload: { app_id: "cli_a", app_secret: "s3cret" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ saved: true, app_id: "cli_a", app_secret: "••••" });
+    expect(transport.calls).toEqual([
+      {
+        url: `${GATEWAY_URL}/api/messages/channels/feishu/config`,
+        method: "PUT",
+        body: JSON.stringify({ app_id: "cli_a", app_secret: "s3cret" }),
+      },
+    ]);
+  });
+
+  it("enable/disable 透传重启标记", async () => {
+    const transport = makeFetch({
+      [`POST ${GATEWAY_URL}/api/messages/channels/feishu/enable`]: { status: 200, body: { restarting: true } },
+      [`POST ${GATEWAY_URL}/api/messages/channels/feishu/disable`]: { status: 200, body: { restarting: false } },
+    });
+    const app = build(transport.fetch);
+
+    const enable = await app.inject({ method: "POST", url: "/api/messages/channels/feishu/enable", payload: {} });
+    const disable = await app.inject({ method: "POST", url: "/api/messages/channels/feishu/disable", payload: {} });
+
+    expect(enable.statusCode).toBe(200);
+    expect(enable.json()).toEqual({ restarting: true });
+    expect(disable.statusCode).toBe(200);
+    expect(disable.json()).toEqual({ restarting: false });
+    expect(transport.calls).toEqual([
+      { url: `${GATEWAY_URL}/api/messages/channels/feishu/enable`, method: "POST", body: "{}" },
+      { url: `${GATEWAY_URL}/api/messages/channels/feishu/disable`, method: "POST", body: "{}" },
+    ]);
+  });
+
+  it("gateway 不可达时 PUT config 返回 502", async () => {
+    const transport = makeFetch({
+      [`PUT ${GATEWAY_URL}/api/messages/channels/feishu/config`]: "throw",
+    });
+    const app = build(transport.fetch);
+
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/messages/channels/feishu/config",
+      payload: { app_id: "cli_a" },
+    });
+
+    expect(res.statusCode).toBe(502);
+    expect(res.json()).toEqual({ error: "gateway-unreachable" });
+  });
+});

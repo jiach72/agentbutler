@@ -13,6 +13,8 @@
  *   告警队列），补丁 apply/reapply/detect 三动作代理透传 watch 控制通道；
  * - M1 一键接管：/api/messages/relay 代理透传 gateway 切换接口，
  *   /api/messages/status 与 /api/messages/overview 透传 relay 控制块；
+ * - M4 通道启停与首次接入：/api/messages/channels/:channel 的 schema/config/
+ *   enable/disable 同名代理透传 gateway（配置响应含 secret 掩码回显）；
  * - M5 切片 1/2：/api/prompt-optimization 与 /targets 只读聚合 Prompt Registry，
  *   /active/:targetId 代理 baseline/version 快照查询，/candidates 代理候选与成对
  *   评估报告；批准/canary/提升/回滚写入口不暴露；
@@ -1911,6 +1913,34 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     return reply.status(res.status).send(parsed);
   };
 
+  const proxyGatewayPut = async (
+    gatewayPath: string,
+    body: unknown,
+    reply: FastifyReply,
+  ): Promise<FastifyReply> => {
+    let res: Response;
+    try {
+      res = await doFetch(`${gatewayUrl}${gatewayPath}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body ?? {}),
+        signal: AbortSignal.timeout(5_000),
+      });
+    } catch {
+      return reply.status(502).send({ error: "gateway-unreachable" });
+    }
+    const raw = await res.text();
+    let parsed: unknown = {};
+    if (raw !== "") {
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        parsed = { raw };
+      }
+    }
+    return reply.status(res.status).send(parsed);
+  };
+
   // 告警代理：网关不可达/响应异常一律 200 + 降级载荷（面板显示"告警通道不可达"黄条）。
   app.get("/api/alerts", async () => alertsFromGateway());
   app.post("/api/alerts/read-all", async (request, reply) =>
@@ -1968,6 +1998,50 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   app.post("/api/messages/channels/weixin/login/cancel", async (request, reply) =>
     proxyGatewayPost("/api/messages/channels/weixin/login/cancel", request.body, reply),
   );
+  // 通道启停与首次接入代理：schema/配置/启停四路由同名透传 gateway
+  // （响应体含掩码回显与 restarting 标记，原样转发；不可达/非 2xx 一律 502 降级）。
+  app.get("/api/messages/channels/:channel/schema", async (request, reply) => {
+    const channel = (request.params as Record<string, unknown>)["channel"];
+    if (typeof channel !== "string" || channel.trim() === "") {
+      return reply.status(400).send({ error: "channel is required" });
+    }
+    const res = await fetchGateway(`/api/messages/channels/${encodeURIComponent(channel)}/schema`);
+    if (res === null || !res.ok) return reply.status(502).send({ error: "gateway-unreachable" });
+    return reply.status(res.status).send(await res.json().catch(() => ({})));
+  });
+  app.put("/api/messages/channels/:channel/config", async (request, reply) => {
+    const channel = (request.params as Record<string, unknown>)["channel"];
+    if (typeof channel !== "string" || channel.trim() === "") {
+      return reply.status(400).send({ error: "channel is required" });
+    }
+    return proxyGatewayPut(
+      `/api/messages/channels/${encodeURIComponent(channel)}/config`,
+      request.body,
+      reply,
+    );
+  });
+  app.post("/api/messages/channels/:channel/enable", async (request, reply) => {
+    const channel = (request.params as Record<string, unknown>)["channel"];
+    if (typeof channel !== "string" || channel.trim() === "") {
+      return reply.status(400).send({ error: "channel is required" });
+    }
+    return proxyGatewayPost(
+      `/api/messages/channels/${encodeURIComponent(channel)}/enable`,
+      request.body,
+      reply,
+    );
+  });
+  app.post("/api/messages/channels/:channel/disable", async (request, reply) => {
+    const channel = (request.params as Record<string, unknown>)["channel"];
+    if (typeof channel !== "string" || channel.trim() === "") {
+      return reply.status(400).send({ error: "channel is required" });
+    }
+    return proxyGatewayPost(
+      `/api/messages/channels/${encodeURIComponent(channel)}/disable`,
+      request.body,
+      reply,
+    );
+  });
 
   /* ---------------------- watch 控制通道代理（Task 10） ---------------------- */
 

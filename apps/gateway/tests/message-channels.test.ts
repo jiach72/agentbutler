@@ -16,9 +16,18 @@ class FakeChannelControl implements ChannelControlPort {
   async channelSchema(channel: string) {
     return { channel, kind: "credential", label: channel, fields: [] };
   }
-  async updateChannelConfig() { return { saved: true as const }; }
-  async enableChannel() { return { restarting: true }; }
-  async disableChannel() { return { restarting: true }; }
+  savedConfigs: Record<string, Record<string, string>> = {};
+  async updateChannelConfig(channel: string, values: Record<string, string>) {
+    if (channel === "telegram") throw new Error("unsupported channel: telegram");
+    this.savedConfigs[channel] = values;
+    return { saved: true as const };
+  }
+  async enableChannel(channel: string) {
+    this.enabledChannels?.push(channel);
+    return { restarting: true };
+  }
+  async disableChannel() { return { restarting: false }; }
+  enabledChannels?: string[] = [];
   loginSessions = new Set<string>();
   async weixinLoginStart() {
     const sessionId = "s1";
@@ -94,6 +103,64 @@ describe("gateway weixin login routes", () => {
     const app = buildApp();
     try {
       const res = await app.inject({ method: "POST", url: "/api/messages/channels/weixin/login/cancel", payload: {} });
+      expect(res.statusCode).toBe(400);
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+describe("gateway channel lifecycle routes", () => {
+  it("PUT config → enable 链路", async () => {
+    const control = new FakeChannelControl();
+    const app = createGatewayServer({ startLoop: false, channelControl: control });
+    try {
+      const put = await app.inject({
+        method: "PUT",
+        url: "/api/messages/channels/feishu/config",
+        payload: { app_id: "cli_a", app_secret: "s3cret" },
+      });
+      expect(put.statusCode).toBe(200);
+      expect(put.json().app_secret).toBe("••••");
+      expect(control.savedConfigs["feishu"]).toEqual({ app_id: "cli_a", app_secret: "s3cret" });
+      const enable = await app.inject({ method: "POST", url: "/api/messages/channels/feishu/enable" });
+      expect(enable.json()).toEqual({ restarting: true });
+      expect(control.enabledChannels).toEqual(["feishu"]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("未知通道返回 400", async () => {
+    const app = createGatewayServer({ startLoop: false, channelControl: new FakeChannelControl() });
+    try {
+      const res = await app.inject({ method: "PUT", url: "/api/messages/channels/telegram/config", payload: { app_id: "x" } });
+      expect(res.statusCode).toBe(400);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("disable 透传 restarting 标记", async () => {
+    const control = new FakeChannelControl();
+    const app = createGatewayServer({ startLoop: false, channelControl: control });
+    try {
+      const res = await app.inject({ method: "POST", url: "/api/messages/channels/feishu/disable" });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ restarting: false });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("config 值必须为字符串", async () => {
+    const app = createGatewayServer({ startLoop: false, channelControl: new FakeChannelControl() });
+    try {
+      const res = await app.inject({
+        method: "PUT",
+        url: "/api/messages/channels/feishu/config",
+        payload: { app_id: 42 },
+      });
       expect(res.statusCode).toBe(400);
     } finally {
       await app.close();
