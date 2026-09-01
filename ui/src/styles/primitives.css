@@ -14,7 +14,6 @@
 
 .product-kicker,
 .product-eyebrow,
-.evolution-kicker,
 .skills-kicker {
   color: var(--butler-accent);
   font-size: var(--butler-text-xs);
@@ -44,7 +43,6 @@
 }
 
 .section-title,
-.gateway-section-heading,
 .settings-section-head > strong,
 .plugin-section-head strong {
   font-size: var(--butler-text-lg);
@@ -122,13 +120,8 @@
 /* ---- 空态 ---- */
 
 .empty-state,
-.gateway-quiet-state,
-.message-feed-empty,
-.message-inspector-empty,
 .skills-empty,
-.version-empty-explained,
-.prompt-empty,
-.evolution-empty {
+.version-empty-explained {
   display: grid;
   justify-items: center;
   gap: 6px;

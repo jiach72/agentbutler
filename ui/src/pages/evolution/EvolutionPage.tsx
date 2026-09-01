@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { CSSProperties } from "react";
 import {
   Alert,
   App,
   Button,
+  Card,
+  Col,
   Descriptions,
   Divider,
   Empty,
+  Flex,
   Progress,
+  Row,
   Select,
   Space,
   Steps,
@@ -18,9 +23,37 @@ import { loadJson, postJson } from "../../lib/api.js";
 import { formatTime, isRecord } from "../../lib/format.js";
 import { ConnectionChip } from "../../components/ConnectionChip.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
+import { PageHeader } from "../../components/PageHeader.js";
 import { Link } from "react-router-dom";
 import { EvolutionOverview } from "./EvolutionOverview.js";
 import type { EvolutionOverviewPayload } from "./types.js";
+
+const { Paragraph, Text, Title } = Typography;
+
+/** 日志示例 / 差异预览的共享代码块样式（走 antd Token 变量）。 */
+const CODE_STYLE: CSSProperties = {
+  margin: 0,
+  padding: 12,
+  background: "var(--ant-color-fill-tertiary)",
+  borderRadius: 8,
+  overflow: "auto",
+  fontSize: 12,
+  lineHeight: 1.6,
+};
+/** 说明类清单的共享列表样式。 */
+const LIST_STYLE: CSSProperties = {
+  margin: 0,
+  paddingLeft: 20,
+  display: "flex",
+  flexDirection: "column",
+  gap: 4,
+};
+/** 中性分区块的共享边框样式。 */
+const NEUTRAL_BLOCK: CSSProperties = {
+  border: "1px solid var(--ant-color-border-secondary)",
+  borderRadius: 8,
+  padding: 16,
+};
 
 type Direction = {
   id: string;
@@ -308,12 +341,12 @@ export function EvolutionPage() {
       {
         title: "改进方向",
         render: (_: unknown, item: Direction) => (
-          <div>
-            <strong>{item.title}</strong>
-            <div className="evolution-muted-action">
+          <Flex vertical gap={2}>
+            <Text strong>{item.title}</Text>
+            <Text type="secondary" style={{ fontSize: 12 }}>
               {item.targetRef ?? "未能定位技能"} · {item.occurrences} 次
-            </div>
-          </div>
+            </Text>
+          </Flex>
         ),
       },
       {
@@ -352,411 +385,462 @@ export function EvolutionPage() {
     [],
   );
   return (
-    <section className="page evolution-page">
-      <header className="evolution-header">
-        <div>
-          <span className="evolution-eyebrow">日志分析与变更评估</span>
-          <h1>改进与优化</h1>
-          <p>根据运行日志整理重复问题，确认后生成变更建议。</p>
-        </div>
-        <ConnectionChip
-          reachable={error === null}
-          connectingText="正在读取运行日志"
-          offlineText="分析服务暂时不可用"
-        />
-      </header>
-      {error && (
-        <Alert
-          type="error"
-          showIcon
-          title="无法读取 Hermes 日志洞察"
-          description={error}
-          action={
-            <Button icon={<ReloadOutlined />} onClick={() => void refresh()}>
-              重试
-            </Button>
+    <section className="evolution-page">
+      <Flex vertical gap={24}>
+        <PageHeader
+          eyebrow="日志分析与变更评估"
+          title="改进与优化"
+          description="根据运行日志整理重复问题，确认后生成变更建议。"
+          extra={
+            <ConnectionChip
+              reachable={error === null}
+              connectingText="正在读取运行日志"
+              offlineText="分析服务暂时不可用"
+            />
           }
         />
-      )}
-      <EvolutionOverview
-        overview={overview}
-        range={range}
-        onRangeChange={setRange}
-        onRefresh={() => void refresh()}
-        onAnalyze={() => void analyze()}
-        busy={busy}
-        onRecheck={(id) => void recheckAction(id)}
-      />
-      <section className="evolution-health">
-        <div className="evolution-section-head">
-          <div>
-            <span className="evolution-kicker">分析范围</span>
-            <h2>日志中的改进方向</h2>
-          </div>
-          <Space>
-            <Select
-              value={instanceId || undefined}
-              placeholder="选择实例"
-              style={{ minWidth: 190 }}
-              options={instances.map((item) => ({
-                value: item.instanceId,
-                label: `${item.instanceId}${item.version ? ` · ${item.version}` : ""}`,
-              }))}
-              onChange={setInstanceId}
-            />
-            <Select
-              value={range}
-              options={[
-                { value: "24h", label: "最近 24 小时" },
-                { value: "7d", label: "最近 7 天" },
-                { value: "30d", label: "最近 30 天" },
-              ]}
-              onChange={setRange}
-            />
-            <Button icon={<ReloadOutlined />} onClick={() => void refresh()}>
-              重新分析
-            </Button>
-          </Space>
-        </div>
-        <Descriptions size="small" column={{ xs: 1, sm: 4 }}>
-          <Descriptions.Item label="日志覆盖">
-            {data?.coverage?.from
-              ? `${formatTime(data.coverage.from)} 至 ${formatTime(data.coverage.to ?? "")}`
-              : "暂无数据"}
-          </Descriptions.Item>
-          <Descriptions.Item label="扫描文件 / 行数">
-            {data?.coverage ? `${data.coverage.sources} / ${data.coverage.lines}` : "-"}
-          </Descriptions.Item>
-          <Descriptions.Item label="包含轮转日志">
-            {data?.coverage?.rotatedLogs ? "是" : "否"}
-          </Descriptions.Item>
-          <Descriptions.Item label="最近分析">
-            {data?.analyzedAt ? formatTime(data.analyzedAt) : "-"}
-          </Descriptions.Item>
-        </Descriptions>
-      </section>
-      <div className="evolution-workspace">
-        <section className="evolution-tasks">
-          <div className="evolution-section-head">
-            <div>
-              <span className="evolution-kicker">改进方向</span>
-              <h2>{data?.directions.length ?? 0} 项</h2>
-            </div>
-          </div>
-          <Table
-            rowKey="id"
-            size="small"
-            pagination={{ pageSize: 8, hideOnSinglePage: true }}
-            dataSource={data?.directions ?? []}
-            columns={columns}
-            onRow={(item) => ({
-              onClick: () => {
-                setSelectedId(item.id);
-                setSelectedSkill(item.targetRef ?? "");
-              },
-              onKeyDown: (event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  setSelectedId(item.id);
-                  setSelectedSkill(item.targetRef ?? "");
-                }
-              },
-              tabIndex: 0,
-              role: "button",
-              "aria-label": `查看改进方向：${item.title}`,
-              "aria-pressed": item.id === selectedId,
-              className: item.id === selectedId ? "is-selected" : "",
-            })}
-            locale={{ emptyText: <Empty description="当前窗口没有可归纳的问题" /> }}
+        {error && (
+          <Alert
+            type="error"
+            showIcon
+            title="无法读取 Hermes 日志洞察"
+            description={error}
+            action={
+              <Button icon={<ReloadOutlined />} onClick={() => void refresh()}>
+                重试
+              </Button>
+            }
           />
-        </section>
-        <section className="evolution-diagnosis">
-          <div className="evolution-section-head">
-            <div>
-              <span className="evolution-kicker">方向详情</span>
-              <h2>{selected?.title ?? "选择一个方向"}</h2>
-            </div>
-            {selected && (
-              <StatusBadge tone={impactTone[selected.impact]} label={`${impactLabel[selected.impact]}影响`} />
-            )}
-          </div>
-          {!selected ? (
-            <div className="evolution-empty">选择左侧方向查看问题总结、日志依据和处理方式。</div>
-          ) : (
-            <>
-              <Typography.Title level={5}>问题总结</Typography.Title>
-              <Typography.Paragraph>{selected.summary}</Typography.Paragraph>
-              <section className="evolution-optimization">
-                <Typography.Title level={5}>优化说明</Typography.Title>
-                {selected.optimization ? (
-                  <>
-                    <Typography.Paragraph>{selected.optimization.goal}</Typography.Paragraph>
-                    <ul className="app-list app-list-compact">
-                      {selected.optimization.changes.map((item, index) => <li key={index}>{item}</li>)}
-                    </ul>
-                    <Typography.Paragraph type="secondary">
-                      预期结果：{selected.optimization.expectedResult}
-                    </Typography.Paragraph>
-                    <Typography.Text type="secondary">
-                      说明来源：
-                      {selected.optimization.generatedBy === "model" ? "已配置模型" : "本地规则"} ·{" "}
-                      {formatTime(selected.optimization.generatedAt)}
-                    </Typography.Text>
-                  </>
-                ) : (
-                  <Alert
-                    type="info"
-                    showIcon
-                    title="尚未生成优化说明"
-                    description="点击“生成优化说明”查看建议改动和预期结果。"
-                  />
-                )}
-              </section>
-              <Descriptions size="small" column={1} className="evolution-run-facts">
-                <Descriptions.Item label="关联技能">
-                  {selected.targetRef ?? "未能定位"}
-                </Descriptions.Item>
-                <Descriptions.Item label="证据">
-                  {selected.occurrences} 次 · {selected.sources.join("、") || "未知来源"}
-                </Descriptions.Item>
-                <Descriptions.Item label="把握程度">
-                  {Math.round(selected.confidence * 100)}%
-                </Descriptions.Item>
-                <Descriptions.Item label="推荐动作">
-                  {selected.recommendedAction}
-                  {(selected.targetType === "config" || selected.targetType === "diagnostic") && (
-                    <Link className="evolution-log-link" to="/logs">
-                      打开日志并执行处理
-                    </Link>
-                  )}
-                </Descriptions.Item>
-              </Descriptions>
-              {selected.examples.length > 0 && (
-                <>
-                  <Typography.Text strong>日志示例（已脱敏）</Typography.Text>
-                  <pre className="evolution-code">{selected.examples.join("\n")}</pre>
-                </>
-              )}
-              {selected.blockReason && (
-                <Alert
-                  type={selected.targetType === "config" ? "info" : "warning"}
-                  showIcon
-                  title={
-                    selected.targetType === "config" ? "需要先处理系统问题" : "需要选择关联技能"
-                  }
-                  description={selected.blockReason}
-                />
-              )}
-              {selected.targetRef === null && selected.candidateSkills.length > 0 && (
-                <Select
-                  showSearch
-                  style={{ width: "100%", marginTop: 12 }}
-                  placeholder="选择关联技能"
-                  value={selectedSkill || undefined}
-                  options={selected.candidateSkills.map((name) => ({ value: name, label: name }))}
-                  onChange={setSelectedSkill}
-                />
-              )}
-              <Space wrap className="evolution-run-actions">
-                <Button onClick={() => void summarize()} loading={busy === "summarize"}>
-                  {selected.optimization ? "重新生成优化说明" : "生成优化说明"}
-                </Button>
-                {(selected.targetType === "skill" || selected.targetType === "prompt") && (
-                  <Button
-                    type="primary"
-                    onClick={() => void confirm()}
-                    loading={busy === "confirm"}
-                    disabled={
-                      Boolean(selected.confirmedAt) ||
-                      (selected.targetRef === null && !selectedSkill)
+        )}
+        <EvolutionOverview
+          overview={overview}
+          range={range}
+          onRangeChange={setRange}
+          onRefresh={() => void refresh()}
+          onAnalyze={() => void analyze()}
+          busy={busy}
+          onRecheck={(id) => void recheckAction(id)}
+        />
+        <Card
+          title={
+            <Flex vertical gap={2}>
+              <Text type="secondary" style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.08em" }}>
+                分析范围
+              </Text>
+              <Title level={4} component="h2" style={{ marginBottom: 0 }}>
+                日志中的改进方向
+              </Title>
+            </Flex>
+          }
+          extra={
+            <Space>
+              <Select
+                value={instanceId || undefined}
+                placeholder="选择实例"
+                style={{ minWidth: 190 }}
+                options={instances.map((item) => ({
+                  value: item.instanceId,
+                  label: `${item.instanceId}${item.version ? ` · ${item.version}` : ""}`,
+                }))}
+                onChange={setInstanceId}
+              />
+              <Select
+                value={range}
+                options={[
+                  { value: "24h", label: "最近 24 小时" },
+                  { value: "7d", label: "最近 7 天" },
+                  { value: "30d", label: "最近 30 天" },
+                ]}
+                onChange={setRange}
+              />
+              <Button icon={<ReloadOutlined />} onClick={() => void refresh()}>
+                重新分析
+              </Button>
+            </Space>
+          }
+        >
+          <Descriptions size="small" column={{ xs: 1, sm: 4 }}>
+            <Descriptions.Item label="日志覆盖">
+              {data?.coverage?.from
+                ? `${formatTime(data.coverage.from)} 至 ${formatTime(data.coverage.to ?? "")}`
+                : "暂无数据"}
+            </Descriptions.Item>
+            <Descriptions.Item label="扫描文件 / 行数">
+              {data?.coverage ? `${data.coverage.sources} / ${data.coverage.lines}` : "-"}
+            </Descriptions.Item>
+            <Descriptions.Item label="包含轮转日志">
+              {data?.coverage?.rotatedLogs ? "是" : "否"}
+            </Descriptions.Item>
+            <Descriptions.Item label="最近分析">
+              {data?.analyzedAt ? formatTime(data.analyzedAt) : "-"}
+            </Descriptions.Item>
+          </Descriptions>
+        </Card>
+        <Row gutter={[16, 16]}>
+          <Col xs={24} lg={10}>
+            <Card
+              title={
+                <Flex vertical gap={2}>
+                  <Text type="secondary" style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.08em" }}>
+                    改进方向
+                  </Text>
+                  <Title level={4} component="h2" style={{ marginBottom: 0 }}>
+                    {data?.directions.length ?? 0} 项
+                  </Title>
+                </Flex>
+              }
+              styles={{ body: { padding: 0 } }}
+            >
+              <Table
+                rowKey="id"
+                size="small"
+                pagination={{ pageSize: 8, hideOnSinglePage: true }}
+                dataSource={data?.directions ?? []}
+                columns={columns}
+                rowClassName={(item) => (item.id === selectedId ? "ant-table-row-selected" : "")}
+                onRow={(item) => ({
+                  onClick: () => {
+                    setSelectedId(item.id);
+                    setSelectedSkill(item.targetRef ?? "");
+                  },
+                  onKeyDown: (event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      setSelectedId(item.id);
+                      setSelectedSkill(item.targetRef ?? "");
                     }
-                  >
-                    {selected.confirmedAt ? "方向已确认" : "确认这个方向"}
-                  </Button>
-                )}
-                {selected.confirmedAt && (
-                  <>
-                    <Button
-                      icon={<ThunderboltOutlined />}
-                      onClick={() => void start("hermes")}
-                      loading={busy === "start:hermes"}
-                    >
-                      按 Hermes 流程执行
-                    </Button>
-                    <Button onClick={() => void start("manual")} loading={busy === "start:manual"}>
-                      生成可编辑方案
-                    </Button>
-                  </>
-                )}
-              </Space>
-              {selectedProposal && (
-                <section className="evolution-inspector">
-                  <Typography.Title level={5}>候选差异与应用</Typography.Title>
+                  },
+                  tabIndex: 0,
+                  role: "button",
+                  "aria-label": `查看改进方向：${item.title}`,
+                  "aria-pressed": item.id === selectedId,
+                })}
+                locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前窗口没有可归纳的问题" /> }}
+              />
+            </Card>
+          </Col>
+          <Col xs={24} lg={14}>
+            <Card
+              title={
+                <Flex vertical gap={2}>
+                  <Text type="secondary" style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.08em" }}>
+                    方向详情
+                  </Text>
+                  <Title level={4} component="h2" style={{ marginBottom: 0 }}>
+                    {selected?.title ?? "选择一个方向"}
+                  </Title>
+                </Flex>
+              }
+              extra={
+                selected && (
+                  <StatusBadge tone={impactTone[selected.impact]} label={`${impactLabel[selected.impact]}影响`} />
+                )
+              }
+            >
+              {!selected ? (
+                <Empty
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  description="选择左侧方向查看问题总结、日志依据和处理方式。"
+                />
+              ) : (
+                <Flex vertical gap={16}>
+                  <div>
+                    <Title level={5} style={{ marginTop: 0 }}>问题总结</Title>
+                    <Paragraph style={{ marginBottom: 0 }}>{selected.summary}</Paragraph>
+                  </div>
+                  <div>
+                    <Title level={5} style={{ marginTop: 0 }}>优化说明</Title>
+                    {selected.optimization ? (
+                      <Flex vertical gap={8}>
+                        <Paragraph style={{ marginBottom: 0 }}>{selected.optimization.goal}</Paragraph>
+                        <ul style={LIST_STYLE}>
+                          {selected.optimization.changes.map((item, index) => (
+                            <li key={index}>
+                              <Typography.Text>{item}</Typography.Text>
+                            </li>
+                          ))}
+                        </ul>
+                        <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                          预期结果：{selected.optimization.expectedResult}
+                        </Paragraph>
+                        <Text type="secondary">
+                          说明来源：
+                          {selected.optimization.generatedBy === "model" ? "已配置模型" : "本地规则"} ·{" "}
+                          {formatTime(selected.optimization.generatedAt)}
+                        </Text>
+                      </Flex>
+                    ) : (
+                      <Alert
+                        type="info"
+                        showIcon
+                        title="尚未生成优化说明"
+                        description="点击“生成优化说明”查看建议改动和预期结果。"
+                      />
+                    )}
+                  </div>
                   <Descriptions size="small" column={1}>
-                    <Descriptions.Item label="当前版本标识">
-                      <code>{selectedProposal.baselineHash}</code>
+                    <Descriptions.Item label="关联技能">
+                      {selected.targetRef ?? "未能定位"}
                     </Descriptions.Item>
-                    <Descriptions.Item label="改进方案标识">
-                      <code>{selectedProposal.candidateHash}</code>
+                    <Descriptions.Item label="证据">
+                      {selected.occurrences} 次 · {selected.sources.join("、") || "未知来源"}
                     </Descriptions.Item>
-                    <Descriptions.Item label="验证">
-                      {selectedProposal.validation.reason}
+                    <Descriptions.Item label="把握程度">
+                      {Math.round(selected.confidence * 100)}%
+                    </Descriptions.Item>
+                    <Descriptions.Item label="推荐动作">
+                      {selected.recommendedAction}
+                      {(selected.targetType === "config" || selected.targetType === "diagnostic") && (
+                        <Link to="/logs" style={{ color: "var(--ant-color-primary)" }}>
+                          打开日志并执行处理
+                        </Link>
+                      )}
                     </Descriptions.Item>
                   </Descriptions>
-                  <pre className="evolution-code">{selectedProposal.diff}</pre>
-                  <Space>
-                    <Button
-                      icon={<SafetyCertificateOutlined />}
-                      loading={busy === "validate"}
-                      onClick={() => void validate(selectedProposal.id)}
-                      disabled={selectedProposal.status === "applied"}
-                    >
-                      隔离验证
-                    </Button>
-                    <Button
-                      type="primary"
-                      danger
-                      loading={busy === "apply"}
-                      onClick={() => void apply(selectedProposal.id)}
-                      disabled={
-                        selectedProposal.status !== "ready-to-apply" ||
-                        !selectedProposal.target.canApply
-                      }
-                    >
-                      应用到 Hermes
-                    </Button>
-                  </Space>
-                </section>
-              )}
-              {selected.execution?.kind === "run" && (
-                <section className="evolution-inspector">
-                  <Typography.Title level={5}>Hermes 执行状态</Typography.Title>
-                  {run ? (
-                    <>
-                      <Steps
-                        size="small"
-                        current={runStepIndex(run.status)}
-                        items={[
-                          { title: "准备" },
-                          { title: "执行中" },
-                          { title: "生成候选" },
-                          { title: "等待验证" },
-                          { title: "完成" },
-                        ]}
-                      />
-                      <Divider />
-                      <Descriptions size="small" column={1}>
-                        <Descriptions.Item label="运行编号">
-                          <code>{run.runId}</code>
-                        </Descriptions.Item>
-                        <Descriptions.Item label="当前状态">
-                          {runStatusLabel(run.status)}
-                        </Descriptions.Item>
-                        <Descriptions.Item label="更新时间">
-                          {formatTime(run.updatedAt)}
-                        </Descriptions.Item>
-                        <Descriptions.Item label="说明">{run.detail}</Descriptions.Item>
-                        {run.artifacts?.candidatePath && (
-                          <Descriptions.Item label="候选文件">
-                            {run.artifacts.candidatePath}
-                          </Descriptions.Item>
-                        )}
-                      </Descriptions>
-                      {run.status === "running" && (
-                        <Progress percent={60} status="active" showInfo={false} />
-                      )}
-                      {run.artifacts?.diff && (
-                        <>
-                          <Typography.Text strong>候选差异</Typography.Text>
-                          <pre className="evolution-code">{run.artifacts.diff}</pre>
-                        </>
-                      )}
-                      {run.status === "evaluating" && (
-                        <>
-                          <Alert
-                            type="info"
-                            showIcon
-                            title="候选已生成，下一步是隔离验证"
-                            description="完成评估后，验证通过才能应用到 Hermes。"
-                          />
-                          <Button
-                            icon={<SafetyCertificateOutlined />}
-                            loading={busy === "evaluate"}
-                            onClick={() => void evaluateRun(run.runId)}
-                          >
-                            隔离验证并评估
-                          </Button>
-                        </>
-                      )}
-                      {run.status === "accepted" && (
-                        <>
-                          <Alert
-                            type="success"
-                            showIcon
-                            title="候选通过评估，等待确认应用"
-                            description="请核对候选差异后，再确认应用。"
-                          />
-                          <Button
-                            type="primary"
-                            danger
-                            loading={busy === "promote"}
-                            onClick={() => void promoteRun(run)}
-                          >
-                            应用到 Hermes
-                          </Button>
-                        </>
-                      )}
-                      {run.status === "failed" && (
-                        <Alert
-                          type="error"
-                          showIcon
-                          title="Hermes 执行失败"
-                          description={run.detail}
-                        />
-                      )}
-                      <Button
-                        icon={<ReloadOutlined />}
-                        onClick={() => void loadRun(run.runId)}
-                      >
-                        刷新执行状态
-                      </Button>
-                    </>
-                  ) : (
+                  {selected.examples.length > 0 && (
+                    <Flex vertical gap={8}>
+                      <Text strong>日志示例（已脱敏）</Text>
+                      <pre style={CODE_STYLE}>{selected.examples.join("\n")}</pre>
+                    </Flex>
+                  )}
+                  {selected.blockReason && (
                     <Alert
-                      type="info"
+                      type={selected.targetType === "config" ? "info" : "warning"}
                       showIcon
-                      title="正在读取执行状态"
-                      description={`运行编号：${selected.execution.id}`}
+                      title={
+                        selected.targetType === "config" ? "需要先处理系统问题" : "需要选择关联技能"
+                      }
+                      description={selected.blockReason}
                     />
                   )}
-                </section>
+                  {selected.targetRef === null && selected.candidateSkills.length > 0 && (
+                    <Select
+                      showSearch
+                      style={{ width: "100%", marginTop: 12 }}
+                      placeholder="选择关联技能"
+                      value={selectedSkill || undefined}
+                      options={selected.candidateSkills.map((name) => ({ value: name, label: name }))}
+                      onChange={setSelectedSkill}
+                    />
+                  )}
+                  <Space wrap>
+                    <Button onClick={() => void summarize()} loading={busy === "summarize"}>
+                      {selected.optimization ? "重新生成优化说明" : "生成优化说明"}
+                    </Button>
+                    {(selected.targetType === "skill" || selected.targetType === "prompt") && (
+                      <Button
+                        type="primary"
+                        onClick={() => void confirm()}
+                        loading={busy === "confirm"}
+                        disabled={
+                          Boolean(selected.confirmedAt) ||
+                          (selected.targetRef === null && !selectedSkill)
+                        }
+                      >
+                        {selected.confirmedAt ? "方向已确认" : "确认这个方向"}
+                      </Button>
+                    )}
+                    {selected.confirmedAt && (
+                      <>
+                        <Button
+                          icon={<ThunderboltOutlined />}
+                          onClick={() => void start("hermes")}
+                          loading={busy === "start:hermes"}
+                        >
+                          按 Hermes 流程执行
+                        </Button>
+                        <Button onClick={() => void start("manual")} loading={busy === "start:manual"}>
+                          生成可编辑方案
+                        </Button>
+                      </>
+                    )}
+                  </Space>
+                  {selectedProposal && (
+                    <Flex vertical gap={12} style={NEUTRAL_BLOCK}>
+                      <Title level={5} component="h3" style={{ marginBottom: 0 }}>
+                        候选差异与应用
+                      </Title>
+                      <Descriptions size="small" column={1}>
+                        <Descriptions.Item label="当前版本标识">
+                          <Typography.Text code>{selectedProposal.baselineHash}</Typography.Text>
+                        </Descriptions.Item>
+                        <Descriptions.Item label="改进方案标识">
+                          <Typography.Text code>{selectedProposal.candidateHash}</Typography.Text>
+                        </Descriptions.Item>
+                        <Descriptions.Item label="验证">
+                          {selectedProposal.validation.reason}
+                        </Descriptions.Item>
+                      </Descriptions>
+                      <pre style={CODE_STYLE}>{selectedProposal.diff}</pre>
+                      <Space>
+                        <Button
+                          icon={<SafetyCertificateOutlined />}
+                          loading={busy === "validate"}
+                          onClick={() => void validate(selectedProposal.id)}
+                          disabled={selectedProposal.status === "applied"}
+                        >
+                          隔离验证
+                        </Button>
+                        <Button
+                          type="primary"
+                          danger
+                          loading={busy === "apply"}
+                          onClick={() => void apply(selectedProposal.id)}
+                          disabled={
+                            selectedProposal.status !== "ready-to-apply" ||
+                            !selectedProposal.target.canApply
+                          }
+                        >
+                          应用到 Hermes
+                        </Button>
+                      </Space>
+                    </Flex>
+                  )}
+                  {selected.execution?.kind === "run" && (
+                    <Flex vertical gap={12} style={NEUTRAL_BLOCK}>
+                      <Title level={5} component="h3" style={{ marginBottom: 0 }}>
+                        Hermes 执行状态
+                      </Title>
+                      {run ? (
+                        <>
+                          <Steps
+                            size="small"
+                            current={runStepIndex(run.status)}
+                            items={[
+                              { title: "准备" },
+                              { title: "执行中" },
+                              { title: "生成候选" },
+                              { title: "等待验证" },
+                              { title: "完成" },
+                            ]}
+                          />
+                          <Divider />
+                          <Descriptions size="small" column={1}>
+                            <Descriptions.Item label="运行编号">
+                              <Typography.Text code>{run.runId}</Typography.Text>
+                            </Descriptions.Item>
+                            <Descriptions.Item label="当前状态">
+                              {runStatusLabel(run.status)}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="更新时间">
+                              {formatTime(run.updatedAt)}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="说明">{run.detail}</Descriptions.Item>
+                            {run.artifacts?.candidatePath && (
+                              <Descriptions.Item label="候选文件">
+                                {run.artifacts.candidatePath}
+                              </Descriptions.Item>
+                            )}
+                          </Descriptions>
+                          {run.status === "running" && (
+                            <Progress percent={60} status="active" showInfo={false} />
+                          )}
+                          {run.artifacts?.diff && (
+                            <Flex vertical gap={8}>
+                              <Text strong>候选差异</Text>
+                              <pre style={CODE_STYLE}>{run.artifacts.diff}</pre>
+                            </Flex>
+                          )}
+                          {run.status === "evaluating" && (
+                            <>
+                              <Alert
+                                type="info"
+                                showIcon
+                                title="候选已生成，下一步是隔离验证"
+                                description="完成评估后，验证通过才能应用到 Hermes。"
+                              />
+                              <Button
+                                icon={<SafetyCertificateOutlined />}
+                                loading={busy === "evaluate"}
+                                onClick={() => void evaluateRun(run.runId)}
+                              >
+                                隔离验证并评估
+                              </Button>
+                            </>
+                          )}
+                          {run.status === "accepted" && (
+                            <>
+                              <Alert
+                                type="success"
+                                showIcon
+                                title="候选通过评估，等待确认应用"
+                                description="请核对候选差异后，再确认应用。"
+                              />
+                              <Button
+                                type="primary"
+                                danger
+                                loading={busy === "promote"}
+                                onClick={() => void promoteRun(run)}
+                              >
+                                应用到 Hermes
+                              </Button>
+                            </>
+                          )}
+                          {run.status === "failed" && (
+                            <Alert
+                              type="error"
+                              showIcon
+                              title="Hermes 执行失败"
+                              description={run.detail}
+                            />
+                          )}
+                          <div>
+                            <Button
+                              icon={<ReloadOutlined />}
+                              onClick={() => void loadRun(run.runId)}
+                            >
+                              刷新执行状态
+                            </Button>
+                          </div>
+                        </>
+                      ) : (
+                        <Alert
+                          type="info"
+                          showIcon
+                          title="正在读取执行状态"
+                          description={`运行编号：${selected.execution.id}`}
+                        />
+                      )}
+                    </Flex>
+                  )}
+                </Flex>
               )}
-            </>
+            </Card>
+          </Col>
+        </Row>
+        <Card
+          title={
+            <Flex vertical gap={2}>
+              <Text type="secondary" style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.08em" }}>
+                历史记录
+              </Text>
+              <Title level={4} component="h2" style={{ marginBottom: 0 }}>
+                已处理方向
+              </Title>
+            </Flex>
+          }
+        >
+          {(data?.directions.filter((item) => item.execution).length ?? 0) === 0 ? (
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description="暂无处理记录；历史运行仍保留在记录中"
+            />
+          ) : (
+            <ul style={LIST_STYLE}>
+              {data?.directions
+                .filter((item) => item.execution)
+                .map((item) => (
+                  <li key={item.id}>
+                    <Typography.Text>
+                      {item.title} · {item.execution?.kind === "proposal" ? "变更建议" : "Hermes 流程"}{" "}
+                      · {item.execution?.status ?? "已提交"}
+                    </Typography.Text>
+                  </li>
+                ))}
+            </ul>
           )}
-        </section>
-      </div>
-      <section className="evolution-health">
-        <div className="evolution-section-head">
-          <div>
-            <span className="evolution-kicker">历史记录</span>
-            <h2>已处理方向</h2>
-          </div>
-        </div>
-        {(data?.directions.filter((item) => item.execution).length ?? 0) === 0 ? (
-          <Empty description="暂无处理记录；历史运行仍保留在记录中" />
-        ) : (
-          <ul>
-            {data?.directions
-              .filter((item) => item.execution)
-              .map((item) => (
-                <li key={item.id}>
-                  {item.title} · {item.execution?.kind === "proposal" ? "变更建议" : "Hermes 流程"}{" "}
-                  · {item.execution?.status ?? "已提交"}
-                </li>
-              ))}
-          </ul>
-        )}
-      </section>
+        </Card>
+      </Flex>
     </section>
   );
 }

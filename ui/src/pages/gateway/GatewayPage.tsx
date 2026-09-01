@@ -1,5 +1,5 @@
 /**
- * 消息网关工作台（编排层）：数据刷新（轮询 + 事件流）、降级横幅与子面板组装。
+ * 消息通知工作台（编排层）：数据刷新（轮询 + 事件流）、降级横幅与子面板组装。
  *
  * - /api/messages/overview 提供 Bridge、SQLite Outbox、coverage 与真实消息投影；
  * - /api/messages/tasks/:runId 提供所选消息的任务生命周期；
@@ -8,10 +8,11 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ReloadOutlined } from "@ant-design/icons";
-import { App, Button } from "antd";
+import { App, Badge, Button, Card, Flex, Spin, Typography } from "antd";
 import { AdvancedDetails } from "../../components/AdvancedDetails.js";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
+import { PageHeader } from "../../components/PageHeader.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { useEventStream } from "../../hooks/useEventStream.js";
 import { usePolling } from "../../hooks/usePolling.js";
@@ -287,9 +288,16 @@ export function GatewayPage() {
 
   if (data === null && messageData === null && loading) {
     return (
-      <section className="page">
-        <h1>消息通知</h1>
-        <div className="empty-state">正在读取消息状态、发送记录和通知规则…</div>
+      <section className="gateway-page">
+        <Flex vertical gap={24}>
+          <PageHeader eyebrow="消息通知" title="消息通知" />
+          <Card>
+            <Flex vertical align="center" gap={12} style={{ padding: "40px 0" }}>
+              <Spin />
+              <Typography.Text type="secondary">正在读取消息状态、发送记录和通知规则…</Typography.Text>
+            </Flex>
+          </Card>
+        </Flex>
       </section>
     );
   }
@@ -319,190 +327,191 @@ export function GatewayPage() {
   };
 
   return (
-    <section className="page gateway-page">
-      <div className="page-heading gateway-heading">
-        <div>
-          <span className="product-eyebrow">消息通知</span>
-          <h1>消息通知与送达策略</h1>
-          <p className="hint gateway-mode-note">
-            记录消息发送结果，合并重复内容，并按免打扰规则调度；所有通知保留可追溯记录。
-          </p>
-        </div>
-        <div className="gateway-refresh">
-          <span className={`gateway-live-state${loading ? " is-refreshing" : ""}`}>
-            <i />
-            {loading ? "正在同步" : "10 秒实时刷新"}
-          </span>
-          <span>更新于 {lastUpdated?.toLocaleTimeString("zh-CN", { hour12: false }) ?? "—"}</span>
-          <Button
-            type="primary"
-            icon={<ReloadOutlined />}
-            disabled={loading}
-            onClick={() => void refresh()}
-          >
-            {loading ? "刷新中" : "刷新"}
-          </Button>
-          <Button
-            href="#prompt-optimization"
-            className="gateway-prompt-link"
-            onClick={flashPromptSection}
-          >
-            查看消息优化
-          </Button>
-        </div>
-      </div>
-
-      {loadError && (
-        <DegradedBanner severity="warn" message="部分服务暂时连不上，当前显示上一次成功数据" />
-      )}
-      {messageData !== null && !messageData.reachable && (
-        <DegradedBanner
-          severity="critical"
-          message="暂时读不到消息记录"
-          description="服务恢复后将自动重试，已排队消息会继续保留。"
+    <section className="gateway-page">
+      <Flex vertical gap={24}>
+        <PageHeader
+          eyebrow="消息通知"
+          title="消息通知"
+          description="记录消息发送结果，合并重复内容，并按免打扰规则调度；所有通知保留可追溯记录。"
+          extra={
+            <Flex wrap="wrap" justify="flex-end" align="center" gap={8}>
+              <Badge status={loading ? "processing" : "success"} text={loading ? "正在同步" : "10 秒实时刷新"} />
+              <Typography.Text type="secondary">
+                更新于 {lastUpdated?.toLocaleTimeString("zh-CN", { hour12: false }) ?? "—"}
+              </Typography.Text>
+              <Button
+                type="primary"
+                icon={<ReloadOutlined />}
+                disabled={loading}
+                onClick={() => void refresh()}
+              >
+                {loading ? "刷新中" : "刷新"}
+              </Button>
+              <Button href="#prompt-optimization" onClick={flashPromptSection}>
+                查看消息优化
+              </Button>
+            </Flex>
+          }
         />
-      )}
-      {(messageData?.degraded.length ?? 0) > 0 && messageData?.reachable === true && (
-        <DegradedBanner severity="warn" message="部分消息记录暂时不完整，服务恢复后将自动补齐" />
-      )}
-      {messageBridge !== null && !bridgeReady && (
-        <DegradedBanner
-          severity="critical"
-          message="消息接管还没准备好：请确认本机 AI 正在运行，稍后刷新重试。"
-        />
-      )}
-      {data?.watchReachable === false && (
-        <DegradedBanner
-          severity="warn"
-          message="管家服务暂时连不上：消息频率和通知设置需要等服务恢复后查看。"
-        />
-      )}
-      {alerts !== null && !alerts.reachable && (
-        <DegradedBanner
-          severity="warn"
-          message="通知服务暂时离线：正在排队中的提醒暂不可见，稍后会自动恢复。"
-        />
-      )}
 
-      <ConnectionHealth
-        messageBridge={messageBridge}
-        bridgeReady={bridgeReady}
-        messageCounts={messageCounts}
-      />
-
-      <DeliveryTrendCard />
-
-      <AdvancedDetails
-        summary={
-          <>
-            <strong>消息明细</strong>
-            <small>发送前处理、通道状态和每一条消息的详细记录</small>
-          </>
-        }
-      >
-        <div className="gateway-message-body">
-          <MessageInspector
-            messageBridge={messageBridge}
-            coverageEntries={coverageEntries}
-            messageCounts={messageCounts}
-            messageItems={messageItems}
-            messagesReachable={messagesReachable}
-            selectedMessage={selectedMessage}
-            onSelectMessage={setSelectedMessageId}
-            taskData={taskData}
-            taskLoading={taskLoading}
-            onReconnect={() => void reconnectMessages()}
+        {loadError && (
+          <DegradedBanner severity="warn" message="部分服务暂时连不上，当前显示上一次成功数据" />
+        )}
+        {messageData !== null && !messageData.reachable && (
+          <DegradedBanner
+            severity="critical"
+            message="暂时读不到消息记录"
+            description="服务恢复后将自动重试，已排队消息会继续保留。"
           />
-        </div>
-      </AdvancedDetails>
-
-      <AdvancedDetails
-        summary={
-          <>
-            <strong>高级设置</strong>
-            <small>频率规则、消息参数和通知队列；普通用户通常不需要动</small>
-          </>
-        }
-      >
-        <div className="gateway-advanced-body">
-          <div className="gateway-secondary-status" aria-label="观察面状态">
-            <span>
-              发送频率 <StatusBadge {...overallBadge} />
-            </span>
-            <span>近 24 小时 {rateLimit?.last24h ?? "—"} 次</span>
-            <span>
-              备用告警 <StatusBadge {...channelBadge} />
-            </span>
-            <span>
-              {pendingAlerts} 待投递 · {failedAlerts} 失败
-            </span>
-          </div>
-
-          <RateLimitsTable rateLimit={rateLimit} onUseSuggestion={useSuggestion} />
-
-          <PatchBoard
-            patches={patches}
-            drafts={drafts}
-            driftReports={driftReports}
-            watchUnreachable={data?.watchReachable === false}
-            instanceValue={selectedInstance}
-            patchErrors={patchErrors}
-            busyKeys={busyKeys}
-            onInstanceChange={setSelectedInstance}
-            onUpdateDraft={updateDraft}
-            onRunAction={(patch, action) => void runPatchAction(patch, action)}
+        )}
+        {(messageData?.degraded.length ?? 0) > 0 && messageData?.reachable === true && (
+          <DegradedBanner severity="warn" message="部分消息记录暂时不完整，服务恢复后将自动补齐" />
+        )}
+        {messageBridge !== null && !bridgeReady && (
+          <DegradedBanner
+            severity="critical"
+            message="消息接管还没准备好：请确认本机 AI 正在运行，稍后刷新重试。"
           />
+        )}
+        {data?.watchReachable === false && (
+          <DegradedBanner
+            severity="warn"
+            message="管家服务暂时连不上：消息频率和通知设置需要等服务恢复后查看。"
+          />
+        )}
+        {alerts !== null && !alerts.reachable && (
+          <DegradedBanner
+            severity="warn"
+            message="通知服务暂时离线：正在排队中的提醒暂不可见，稍后会自动恢复。"
+          />
+        )}
 
-          <AlertQueuePanel alerts={alerts} />
-        </div>
-      </AdvancedDetails>
+        <ConnectionHealth
+          messageBridge={messageBridge}
+          bridgeReady={bridgeReady}
+          messageCounts={messageCounts}
+        />
 
-      <div
-        id="prompt-optimization"
-        className={`gateway-prompt-section${promptFlash ? " is-flashing" : ""}`}
-      >
-        <PromptOptimizationPanel />
-      </div>
-      {pendingPatchAction !== null && (
-        <DangerConfirmModal
-          open
-          title={pendingPatchAction.action === "apply" ? "确认应用消息调整" : "确认恢复官方默认"}
-          busy={busyKeys.has(pendingPatchAction.busyKey)}
-          confirmLabel={pendingPatchAction.action === "apply" ? "确认应用" : "确认恢复"}
-          onCancel={() => setPendingPatchAction(null)}
-          onConfirm={() => executePendingPatchAction(pendingPatchAction)}
-          steps={[
-            "再次校验配置不变式和补丁锚点",
-            "首次应用前保留官方原文备份",
-            "写入已登记的 Hermes 源文件并记录审计",
-          ]}
+        <DeliveryTrendCard />
+
+        <AdvancedDetails
+          summary={
+            <>
+              <strong>消息明细</strong>
+              <small>发送前处理、通道状态和每一条消息的详细记录</small>
+            </>
+          }
         >
-          <p>
-            将对「{pendingPatchAction.patch.title}」执行
-            {pendingPatchAction.action === "apply" ? "应用" : "恢复官方默认"}，目标文件为
-            <code>{pendingPatchAction.patch.target}</code>。
-          </p>
-          <p className="danger-impact">
-            这是实际的源码写入操作。漂移、手工实现或配置不变式不满足时，服务端会拒绝执行；本次确认前不会修改任何文件。
-          </p>
-          <p className="hint">
-            参数：
-            {Object.entries(pendingPatchAction.params)
-              .map(([name, value]) => paramLabel(name) + "=" + String(value))
-              .join(" · ")}
-            {pendingPatchAction.instanceId === undefined
-              ? "；实例：自动选择"
-              : "；实例：" + pendingPatchAction.instanceId}
-          </p>
-          {pendingPatchAction.preview !== undefined && (
-            <div className="hint">
-              <strong>将要修改：</strong>{pendingPatchAction.preview.changes.length === 0
-                ? "参数没有变化"
-                : pendingPatchAction.preview.changes.map((change) => `${change.path}：${String(change.before)} → ${String(change.after)}`).join("；")}
-            </div>
-          )}
-        </DangerConfirmModal>
-      )}
+          <Flex vertical gap={16}>
+            <MessageInspector
+              messageBridge={messageBridge}
+              coverageEntries={coverageEntries}
+              messageCounts={messageCounts}
+              messageItems={messageItems}
+              messagesReachable={messagesReachable}
+              selectedMessage={selectedMessage}
+              onSelectMessage={setSelectedMessageId}
+              taskData={taskData}
+              taskLoading={taskLoading}
+              onReconnect={() => void reconnectMessages()}
+            />
+          </Flex>
+        </AdvancedDetails>
+
+        <AdvancedDetails
+          summary={
+            <>
+              <strong>高级设置</strong>
+              <small>频率规则、消息参数和通知队列；普通用户通常不需要动</small>
+            </>
+          }
+        >
+          <Flex vertical gap={16}>
+            <Flex wrap="wrap" gap={16} align="center" aria-label="观察面状态">
+              <Typography.Text type="secondary">
+                发送频率 <StatusBadge {...overallBadge} />
+              </Typography.Text>
+              <Typography.Text type="secondary">近 24 小时 {rateLimit?.last24h ?? "—"} 次</Typography.Text>
+              <Typography.Text type="secondary">
+                备用告警 <StatusBadge {...channelBadge} />
+              </Typography.Text>
+              <Typography.Text type="secondary">
+                {pendingAlerts} 待投递 · {failedAlerts} 失败
+              </Typography.Text>
+            </Flex>
+
+            <RateLimitsTable rateLimit={rateLimit} onUseSuggestion={useSuggestion} />
+
+            <PatchBoard
+              patches={patches}
+              drafts={drafts}
+              driftReports={driftReports}
+              watchUnreachable={data?.watchReachable === false}
+              instanceValue={selectedInstance}
+              patchErrors={patchErrors}
+              busyKeys={busyKeys}
+              onInstanceChange={setSelectedInstance}
+              onUpdateDraft={updateDraft}
+              onRunAction={(patch, action) => void runPatchAction(patch, action)}
+            />
+
+            <AlertQueuePanel alerts={alerts} />
+          </Flex>
+        </AdvancedDetails>
+
+        <div
+          id="prompt-optimization"
+          style={{
+            borderRadius: 12,
+            outline: promptFlash ? "2px solid var(--ant-color-primary)" : "2px solid transparent",
+            outlineOffset: 8,
+            transition: "outline-color 0.4s ease",
+          }}
+        >
+          <PromptOptimizationPanel />
+        </div>
+        {pendingPatchAction !== null && (
+          <DangerConfirmModal
+            open
+            title={pendingPatchAction.action === "apply" ? "确认应用消息调整" : "确认恢复官方默认"}
+            busy={busyKeys.has(pendingPatchAction.busyKey)}
+            confirmLabel={pendingPatchAction.action === "apply" ? "确认应用" : "确认恢复"}
+            onCancel={() => setPendingPatchAction(null)}
+            onConfirm={() => executePendingPatchAction(pendingPatchAction)}
+            steps={[
+              "再次校验配置不变式和补丁锚点",
+              "首次应用前保留官方原文备份",
+              "写入已登记的 Hermes 源文件并记录审计",
+            ]}
+          >
+            <Typography.Paragraph>
+              将对「{pendingPatchAction.patch.title}」执行
+              {pendingPatchAction.action === "apply" ? "应用" : "恢复官方默认"}，目标文件为
+              <Typography.Text code>{pendingPatchAction.patch.target}</Typography.Text>。
+            </Typography.Paragraph>
+            <Typography.Paragraph type="danger">
+              这是实际的源码写入操作。漂移、手工实现或配置不变式不满足时，服务端会拒绝执行；本次确认前不会修改任何文件。
+            </Typography.Paragraph>
+            <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+              参数：
+              {Object.entries(pendingPatchAction.params)
+                .map(([name, value]) => paramLabel(name) + "=" + String(value))
+                .join(" · ")}
+              {pendingPatchAction.instanceId === undefined
+                ? "；实例：自动选择"
+                : "；实例：" + pendingPatchAction.instanceId}
+            </Typography.Paragraph>
+            {pendingPatchAction.preview !== undefined && (
+              <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                <Typography.Text strong>将要修改：</Typography.Text>
+                {pendingPatchAction.preview.changes.length === 0
+                  ? "参数没有变化"
+                  : pendingPatchAction.preview.changes.map((change) => `${change.path}：${String(change.before)} → ${String(change.after)}`).join("；")}
+              </Typography.Paragraph>
+            )}
+          </DangerConfirmModal>
+        )}
+      </Flex>
     </section>
   );
 }

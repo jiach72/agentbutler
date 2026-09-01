@@ -1,7 +1,7 @@
 /**
  * 进化页历史记录：改进台账表格（含导出）与能力边界说明，收进 AdvancedDetails。
  */
-import { Table } from "antd";
+import { Flex, Table, Typography } from "antd";
 import type { TableColumnsType } from "antd";
 import { AdvancedDetails } from "../../components/AdvancedDetails.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
@@ -13,16 +13,18 @@ const LEDGER_COLUMNS: TableColumnsType<LedgerEntry> = [
   {
     title: "时间",
     render: (_, entry) => (
-      <div className="ledger-time-cell">
-        <strong>{entry.runId.slice(0, 8)}</strong>
-        <span>{formatTime(entry.updatedAt)}</span>
-      </div>
+      <Flex vertical gap={2}>
+        <Typography.Text strong>{entry.runId.slice(0, 8)}</Typography.Text>
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          {formatTime(entry.updatedAt)}
+        </Typography.Text>
+      </Flex>
     ),
   },
   {
     title: "评估",
     width: 160,
-    render: (_, entry) => <span className="is-mono">{formatMetric(entry)}</span>,
+    render: (_, entry) => <Typography.Text code>{formatMetric(entry)}</Typography.Text>,
   },
   {
     title: "结论",
@@ -42,13 +44,12 @@ const LEDGER_COLUMNS: TableColumnsType<LedgerEntry> = [
     title: "",
     width: 70,
     render: (_, entry) => (
-      <a
-        className="ledger-export-link"
+      <Typography.Link
         href={`/api/evolution/ledger/${encodeURIComponent(entry.runId)}/export`}
         download
       >
         导出
-      </a>
+      </Typography.Link>
     ),
   },
 ];
@@ -62,9 +63,9 @@ export function LedgerTable({ ledger }: { ledger: LedgerEntry[] }) {
           <small>每次检查、评估和结果的完整记录</small>
         </span>
       }
-    extra={ledger.length > 0 ? `${formatNumber(ledger.length)} 条` : undefined}
+      extra={ledger.length > 0 ? `${formatNumber(ledger.length)} 条` : undefined}
     >
-      <div className="evolution-ledger-table">
+      <Flex vertical gap={12}>
         <Table<LedgerEntry>
           size="small"
           rowKey="runId"
@@ -74,15 +75,19 @@ export function LedgerTable({ ledger }: { ledger: LedgerEntry[] }) {
           locale={{ emptyText: "还没有改进记录；完成一次检查和评估后，这里会生成可导出的记录。" }}
           columns={LEDGER_COLUMNS}
         />
-      </div>
 
-      <div className="evolution-scope-note">
-        <span>目前能做到</span>
-        <p>
-          当前会先检查运行依赖、模型连接和测试样本，再备份并确认改进结果。运行中挂死监测、
-          兼容性检查、模型档案和统计检验还没有完成，不会伪装成已支持。
-        </p>
-      </div>
+        <Flex
+          vertical
+          gap={4}
+          style={{ background: "var(--ant-color-fill-tertiary)", borderRadius: 8, padding: 12 }}
+        >
+          <Typography.Text strong>目前能做到</Typography.Text>
+          <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+            当前会先检查运行依赖、模型连接和测试样本，再备份并确认改进结果。运行中挂死监测、
+            兼容性检查、模型档案和统计检验还没有完成，不会伪装成已支持。
+          </Typography.Paragraph>
+        </Flex>
+      </Flex>
     </AdvancedDetails>
   );
 }

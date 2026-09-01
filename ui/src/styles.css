@@ -2,8 +2,6 @@
 @import "./styles/base.css";
 @import "./styles/shell.css";
 @import "./styles/primitives.css";
-@import "./styles/pages/gateway.css";
-@import "./styles/pages/evolution.css";
 @import "./styles/pages/skills.css";
 @import "./styles/pages/versions.css";
 @import "./styles/pages/settings.css";

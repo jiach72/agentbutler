@@ -1,7 +1,7 @@
 /**
  * 消息频率观察面：调参建议 + 限流命中表（antd Table）。
  */
-import { Button, Table } from "antd";
+import { Alert, Button, Card, Empty, Flex, Table, Typography } from "antd";
 import type { TableColumnsType } from "antd";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { formatNumber, formatRelative } from "../../lib/format.js";
@@ -19,9 +19,9 @@ const MATCHED_COLUMNS: TableColumnsType<RateLimitMatch> = [
     width: 320,
     dataIndex: "template",
     render: (_, match) => (
-      <div className="fp-sample" title={match.template}>
+      <Typography.Text code ellipsis={{ tooltip: match.template }} style={{ maxWidth: 280 }}>
         {match.template}
-      </div>
+      </Typography.Text>
     ),
   },
   { title: "累计", dataIndex: "count", width: 84, align: "right", render: (value: number) => formatNumber(value) },
@@ -41,48 +41,54 @@ const MATCHED_COLUMNS: TableColumnsType<RateLimitMatch> = [
 
 export function RateLimitsTable({ rateLimit, onUseSuggestion }: RateLimitsTableProps) {
   return (
-    <>
-      <h2 className="section-title">消息频率建议</h2>
+    <Flex vertical gap={12}>
+      <Typography.Title level={4} component="h2" style={{ marginBottom: 0 }}>
+        消息频率建议
+      </Typography.Title>
       {rateLimit === null ? (
-        <div className="empty-state">
-          管家服务连上后，这里会显示消息频率是否正常、是否需要调整。
-        </div>
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description="管家服务连上后，这里会显示消息频率是否正常、是否需要调整。"
+        />
       ) : (
         <>
           {rateLimit.suggestions.length === 0 ? (
-            <div className="gateway-quiet-state">
-              <StatusBadge tone="ok" label="无需调整" />
-              <span>近 24 小时没有形成需要调参的限流趋势。</span>
-            </div>
+            <Alert
+              type="success"
+              showIcon
+              title="无需调整"
+              description="近 24 小时没有形成需要调参的限流趋势。"
+            />
           ) : (
-            <div className="gateway-suggestions">
+            <Flex vertical gap={8}>
               {rateLimit.suggestions.map((suggestion) => (
-                <div
-                  className="gateway-suggestion"
-                  key={`${suggestion.patchId}:${suggestion.param}`}
-                >
-                  <div>
-                    <div className="gateway-suggestion-title">
-                      <StatusBadge {...statusTone(suggestion.level)} />
-                      <strong>{PARAM_LABELS[suggestion.param] ?? suggestion.param}</strong>
-                      <span className="gateway-value-change">
-                        {suggestion.current} → {suggestion.suggested}
-                      </span>
+                <Card size="small" key={`${suggestion.patchId}:${suggestion.param}`}>
+                  <Flex wrap="wrap" justify="space-between" align="flex-start" gap={12}>
+                    <div style={{ minWidth: 0 }}>
+                      <Flex wrap="wrap" align="center" gap={8}>
+                        <StatusBadge {...statusTone(suggestion.level)} />
+                        <Typography.Text strong>
+                          {PARAM_LABELS[suggestion.param] ?? suggestion.param}
+                        </Typography.Text>
+                        <Typography.Text type="secondary" code>
+                          {suggestion.current} → {suggestion.suggested}
+                        </Typography.Text>
+                      </Flex>
+                      <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                        {suggestion.reason}
+                      </Typography.Paragraph>
                     </div>
-                    <p>{suggestion.reason}</p>
-                  </div>
-                  <Button onClick={() => onUseSuggestion(suggestion)}>
-                    写入参数草稿
-                  </Button>
-                </div>
+                    <Button onClick={() => onUseSuggestion(suggestion)}>写入参数草稿</Button>
+                  </Flex>
+                </Card>
               ))}
-            </div>
+            </Flex>
           )}
 
           {rateLimit.matched.length === 0 ? (
-            <div className="empty-state gateway-spaced">暂时没有发现频率相关的异常。</div>
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂时没有发现频率相关的异常。" />
           ) : (
-            <div className="card table-card gateway-spaced">
+            <Card styles={{ body: { padding: 0 } }}>
               <Table<RateLimitMatch>
                 size="small"
                 rowKey="signature"
@@ -91,10 +97,10 @@ export function RateLimitsTable({ rateLimit, onUseSuggestion }: RateLimitsTableP
                 scroll={{ x: 640 }}
                 pagination={{ pageSize: 8, hideOnSinglePage: true }}
               />
-            </div>
+            </Card>
           )}
         </>
       )}
-    </>
+    </Flex>
   );
 }

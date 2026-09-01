@@ -3,6 +3,7 @@
  * history 由 Watch 按评估完成时间排序返回；没有相应指标时显示明确空态。
  */
 import { useMemo } from "react";
+import { Flex } from "antd";
 import type { ThemeMode } from "../../theme/tokens.js";
 import { ChartEmpty, TrendCard, TrendLine } from "../../components/charts/index.js";
 import {
@@ -111,7 +112,7 @@ export function MetricProgressChart({
   );
 
   return (
-    <div className="evolution-charts">
+    <Flex vertical gap={16}>
       <MetricChart
         title="质量对比"
         summary="每次评估的 baseline 与候选质量分"
@@ -136,6 +137,6 @@ export function MetricProgressChart({
         theme={chartTheme}
         formatter={(value) => `${value.toFixed(1)} 秒`}
       />
-    </div>
+    </Flex>
   );
 }

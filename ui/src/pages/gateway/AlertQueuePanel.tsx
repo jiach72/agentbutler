@@ -1,7 +1,7 @@
 /**
  * 待处理通知面板：告警队列计数 + 队列表（antd Table）。
  */
-import { Table } from "antd";
+import { Card, Empty, Flex, Table, Typography } from "antd";
 import type { TableColumnsType } from "antd";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { formatNumber, formatRelative } from "../../lib/format.js";
@@ -24,10 +24,12 @@ const QUEUE_COLUMNS: TableColumnsType<AlertItem> = [
     width: 260,
     dataIndex: "title",
     render: (_, item) => (
-      <div className="alert-title-cell" title={item.body}>
-        <strong>{item.title}</strong>
-        <span>{sourceLabel(item.source)}</span>
-      </div>
+      <Flex vertical gap={2} title={item.body}>
+        <Typography.Text strong>{item.title}</Typography.Text>
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          {sourceLabel(item.source)}
+        </Typography.Text>
+      </Flex>
     ),
   },
   {
@@ -53,24 +55,29 @@ const QUEUE_COLUMNS: TableColumnsType<AlertItem> = [
 
 export function AlertQueuePanel({ alerts }: AlertQueuePanelProps) {
   return (
-    <>
-      <h2 className="section-title">待处理通知</h2>
+    <Flex vertical gap={12}>
+      <Typography.Title level={4} component="h2" style={{ marginBottom: 0 }}>
+        待处理通知
+      </Typography.Title>
       {alerts === null || !alerts.reachable ? (
-        <div className="empty-state">管家连上后，这里会显示排队中的提醒和当前通知状态。</div>
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description="管家连上后，这里会显示排队中的提醒和当前通知状态。"
+        />
       ) : (
         <>
-          <div className="queue-counts" aria-label="告警队列计数">
+          <Flex wrap="wrap" gap={16} align="center" aria-label="告警队列计数">
             {(["pending", "delivering", "delivered", "failed"] as const).map((status) => (
-              <span key={status}>
+              <Flex key={status} align="center" gap={6}>
                 <StatusBadge {...statusTone(status)} />
-                <strong>{alerts.counts[status] ?? 0}</strong>
-              </span>
+                <Typography.Text strong>{alerts.counts[status] ?? 0}</Typography.Text>
+              </Flex>
             ))}
-          </div>
+          </Flex>
           {alerts.items.length === 0 ? (
-            <div className="empty-state gateway-spaced">没有等待处理的通知。</div>
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有等待处理的通知。" />
           ) : (
-            <div className="card table-card gateway-spaced">
+            <Card styles={{ body: { padding: 0 } }}>
               <Table<AlertItem>
                 size="small"
                 rowKey="id"
@@ -79,10 +86,10 @@ export function AlertQueuePanel({ alerts }: AlertQueuePanelProps) {
                 scroll={{ x: 760 }}
                 pagination={{ pageSize: 8, hideOnSinglePage: true }}
               />
-            </div>
+            </Card>
           )}
         </>
       )}
-    </>
+    </Flex>
   );
 }
