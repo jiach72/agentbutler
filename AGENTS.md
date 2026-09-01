@@ -81,6 +81,9 @@ BUTLER_HERMES_BRIDGE_ALLOW_NON_LOOPBACK=true
 
 因此正确的心智模型是：**「连接断开会自愈」**。你的验证职责是确认自愈机制在跑（见 4.2），而不是保证 Bridge 永远在线。
 
+- 消息链路支持运行时「一键接管」切换（面板或 `POST /api/messages/relay`）：关闭后 Hermes 原通道直发（Bridge 仍捕获审计，不聚合不限速），开启后恢复 Butler 策略管线；Bridge 离线时切换保持「待生效」，重连后自动装策略生效。
+- 通道控制端点（`/v1/channels*`）仅读写 `~/.hermes/config.yaml` 的 `platforms` 白名单子树并自动备份；启停通过 Hermes 优雅重启生效，不触碰 systemd。
+
 ## 4. 部署后验证（必做）
 
 ### 4.1 基础就绪
@@ -126,5 +129,7 @@ curl -s http://127.0.0.1:7531/api/health | grep -o '"connected":[a-z]*'  # 消�
 | Windows 浏览器打不开 7531 但容器 healthy | WSL IP 变化致 portproxy 失效：管理员 PowerShell 执行 `scripts/fix-portproxy.ps1`；或启用 mirrored networking |
 | `/api/messages/overview` 显示 bridge 不可达 | 先跑 `bash scripts/bridge-healthcheck.sh` 定位断点；Gateway 侧无需处理（自愈中） |
 | pnpm install EACCES（在 /mnt/c） | 迁移仓库到 WSL ext4 后重来，禁止在 NTFS 挂载上构建 |
+| 面板切换接管后一直显示「待生效」 | Bridge 离线（`bash scripts/bridge-healthcheck.sh` 定位）；恢复后下一轮 reconcile 自动生效，无需人工处理 |
+| 通道启停后 60 秒仍「应用中」 | Hermes 网关重启失败：查 hermes-gateway 服务日志；Bridge 不会自动反复重启 |
 
 更多细节见 `docs/docker-operations.md` 与 `docs/deployment-20260825.md`（含完整踩坑记录）。
