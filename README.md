@@ -33,9 +33,27 @@ Agent Butler 把 Agent 运行时的健康检查、消息接入、日志诊断、
 
 Web 是控制台入口，Gateway 负责消息运行时，Watch 负责巡检、版本和后台任务。Docker Compose 默认只发布 Web 的 `127.0.0.1:7531`；Gateway 和 Watch 保持在内部网络中。
 
-## 快速安装
+## 快速安装（Docker 部署）
 
-最省事的方式是直接运行安装器（无需先记住仓库里的内部脚本）：
+正式部署方式为 Docker Compose：三个面板服务（Web/Gateway/Watch）加一个内部 updater sidecar。**由智能体自动部署请直接阅读 [AGENTS.md](AGENTS.md)**，其中包含环境判定矩阵、分支步骤与部署后验证清单。
+
+推荐一键部署：
+
+```bash
+git clone https://github.com/jiach72/agentbutler.git
+cd agentbutler
+bash scripts/deploy.sh
+```
+
+Windows PowerShell（适合 Docker Desktop、不启用 Hermes 消息数据面的场景）：
+
+```powershell
+git clone https://github.com/jiach72/agentbutler.git
+cd agentbutler
+.\scripts\deploy.ps1
+```
+
+也可以直接运行安装器（封装了同样的 Docker 路径，无需先记住仓库内部脚本）：
 
 ```bash
 npx agent-butler --form docker
@@ -48,45 +66,18 @@ Windows 用户请优先选择 Docker Desktop；如果要安装 Hermes 宿主进�
 要求：
 
 - Git
-- Node.js 22 或更高版本
-- Corepack / pnpm 10.20.0
-- Hermes 集成需要 Python 3.11+；Bridge 运行时依赖见 `packages/adapters/hermes/bridge/requirements.txt`
+- Docker 20.10+（含 Compose v2）
+- 启用 Hermes 消息接入时，宿主侧需 Python 3.11+（Bridge 运行时依赖见 `packages/adapters/hermes/bridge/requirements.txt`）
 
-```bash
-git clone https://github.com/jiach72/agentbutler.git
-cd agentbutler
-corepack enable
-corepack prepare pnpm@10.20.0 --activate
-corepack pnpm install --frozen-lockfile
-corepack pnpm run build
-corepack pnpm start
-```
-
-启动后访问 `http://127.0.0.1:7531`。默认服务端口：Web `7531`、Gateway `7532`、Watch `7533`。
+部署脚本自动完成主密钥生成、Hermes loopback 预检、数据卷备份、镜像构建、滚动启动与健康等待。启动后访问 `http://127.0.0.1:7531`（默认服务端口：Web `7531`、Gateway `7532`、Watch `7533`）。
 
 第一次打开面板会进入三步设置向导：先做环境体检，再选择已发现的实例，最后用真实连接检查确认配置。之后可从 **设置** 修改运行时路径和安全边界。
 
-`pnpm start` 会以前台并行方式启动三个服务，适合首次体验和 Agent 自动化安装。生产或长期运行建议为三个应用分别配置进程守护：
-
-```bash
-corepack pnpm --filter @butler/gateway start
-corepack pnpm --filter @butler/watch start
-corepack pnpm --filter @butler/web start
-```
-
-## Docker
-
-Docker Compose 会构建并启动三个面板服务和一个内部 updater sidecar：
-
-```bash
-docker compose up -d --build
-docker compose ps
-docker compose logs -f
-```
+## Docker 运行细节
 
 Compose 默认从 `.env` 读取运行时目录与通知凭据，使用命名卷 `agent-butler-data` 持久化状态，并只将 Web 的 `7531` 端口发布到宿主机回环地址。内部 updater sidecar 挂载仓库工作树和 Docker Socket，用于从管家内完成 Git 更新、构建、Compose 重启与失败回滚；Watch 对被管实例的 Docker 控制仍默认关闭，需要时才设置 `DOCKER_SOCKET_PATH=/var/run/docker.sock` 和 `DOCKER_GID`。
 
-生产环境可直接在“版本管理”页触发管家自身更新；updater 会先备份，再拉取 Git 标签、重建镜像、重启三个面板服务并做 readiness 检查，失败自动回滚。宿主机脚本仍可用于首次部署或 updater 故障时的人工恢复：
+生产环境可直接在「设置 → 关于」触发管家自身更新；updater 会先备份，再拉取 Git 标签、重建镜像、重启三个面板服务并做 readiness 检查，失败自动回滚。宿主机脚本仍可用于首次部署或 updater 故障时的人工恢复：
 
 ```bash
 bash scripts/deploy.sh
@@ -94,22 +85,6 @@ bash scripts/bridge-healthcheck.sh  # 启用 Hermes 时
 ```
 
 容器镜像按设计不携带 `.git`；updater 通过 `BUTLER_REPOSITORY_PATH` 挂载宿主机工作树来执行自更新。默认从仓库根目录启动 Compose 时无需修改该值；如果从其他目录启动，请填写仓库绝对路径。
-
-推荐一键部署：
-
-```bash
-git clone https://github.com/jiach72/agentbutler.git
-cd agentbutler
-bash scripts/deploy.sh
-```
-
-Windows PowerShell：
-
-```powershell
-git clone https://github.com/jiach72/agentbutler.git
-cd agentbutler
-.\scripts\deploy.ps1
-```
 
 WSL Hermes 部署请在 WSL shell 使用 `bash scripts/deploy.sh`；该路径包含 Hermes token/loopback 预检、数据卷备份门禁和 Bridge 转发器选择。PowerShell 脚本适合 Docker Desktop 或不启用 Hermes 消息数据面的场景。
 
@@ -136,17 +111,25 @@ curl http://127.0.0.1:7531/api/connections
 
 ## 开发与验证
 
+开发环境要求 Node.js 22+ 与 Corepack / pnpm 10.20.0。本地开发运行（非部署方式，长期运行请用上面的 Docker 部署）：
+
 ```bash
+git clone https://github.com/jiach72/agentbutler.git
+cd agentbutler
+corepack enable
+corepack prepare pnpm@10.20.0 --activate
 corepack pnpm install --frozen-lockfile
-corepack pnpm version:check
-corepack pnpm lint
-corepack pnpm test
-corepack pnpm build
+corepack pnpm run build
+corepack pnpm start          # 前台并行启动 Web/Gateway/Watch，访问 http://127.0.0.1:7531
 ```
 
 提交前最小检查：
 
 ```bash
+corepack pnpm version:check
+corepack pnpm lint
+corepack pnpm test
+corepack pnpm build
 docker compose config --quiet
 git diff --check
 ```
