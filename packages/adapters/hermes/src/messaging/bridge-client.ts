@@ -1,7 +1,9 @@
 import {
   BRIDGE_PROTOCOL_VERSION,
   type BridgeHealth,
+  type ChannelDirectoryView,
   type ChannelId,
+  type ChannelSchemaView,
   type DeliveryAck,
   type DeliveryRequest,
   type InboundDecision,
@@ -12,6 +14,8 @@ import {
   type PolicyAck,
   type PolicySnapshot,
   type PrewarmAck,
+  type WeixinLoginStartAck,
+  type WeixinLoginStatusView,
 } from "@butler/contract";
 
 export interface HermesBridgeClientOptions {
@@ -98,7 +102,39 @@ export class HermesBridgeClient {
     return this.request("GET", `/v1/inbound/history?${query.toString()}`);
   }
 
-  private async request<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
+  listChannels(): Promise<ChannelDirectoryView> {
+    return this.request("GET", "/v1/channels");
+  }
+
+  channelSchema(channel: ChannelId): Promise<ChannelSchemaView> {
+    return this.request("GET", `/v1/channels/${encodeURIComponent(channel)}/schema`);
+  }
+
+  updateChannelConfig(channel: ChannelId, values: Record<string, string>): Promise<{ saved: true }> {
+    return this.request("PUT", `/v1/channels/${encodeURIComponent(channel)}/config`, values);
+  }
+
+  enableChannel(channel: ChannelId): Promise<{ restarting: boolean }> {
+    return this.request("POST", `/v1/channels/${encodeURIComponent(channel)}/enable`);
+  }
+
+  disableChannel(channel: ChannelId): Promise<{ restarting: boolean }> {
+    return this.request("POST", `/v1/channels/${encodeURIComponent(channel)}/disable`);
+  }
+
+  weixinLoginStart(): Promise<WeixinLoginStartAck> {
+    return this.request("POST", "/v1/channels/weixin/login/start");
+  }
+
+  weixinLoginStatus(sessionId: string): Promise<WeixinLoginStatusView> {
+    return this.request("GET", `/v1/channels/weixin/login/status?sessionId=${encodeURIComponent(sessionId)}`);
+  }
+
+  weixinLoginCancel(sessionId: string): Promise<{ cancelled: boolean }> {
+    return this.request("POST", "/v1/channels/weixin/login/cancel", { sessionId });
+  }
+
+  private async request<T>(method: "GET" | "POST" | "PUT", path: string, body?: unknown): Promise<T> {
     let response: Response;
     try {
       response = await this.fetchImpl(`${this.baseUrl}${path}`, {

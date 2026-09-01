@@ -110,6 +110,7 @@ export {
   type HermesMessagingCapabilityResult,
   type HermesMessagingOptions,
 } from "./messaging/index.js";
+export * from "./messaging/channel-control.js";
 export {
   createHermesMemoryDriver,
   createHermesPluginDriver,

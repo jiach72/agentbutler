@@ -1,8 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { createHermesMessaging, type HermesMessagingOptions } from "@butler/adapter-hermes";
+import {
+  createHermesChannelControl,
+  createHermesMessaging,
+  type HermesMessagingOptions,
+} from "@butler/adapter-hermes";
 import type {
+  ChannelControlPort,
   InboundHistoryView,
   MessagingAdapter,
   Result,
@@ -48,6 +53,8 @@ export interface HermesMessageRuntimeOptions {
 export interface HermesMessageRuntime {
   service: MessageGatewayService;
   store: MessagePolicyStore;
+  /** Bridge 通道控制面端口（目录/启停/微信扫码），随消息面同源装配。 */
+  channelControl: ChannelControlPort;
   start(): Promise<void>;
   stop(): Promise<void>;
   inboundHistory(limit?: number): Promise<Result<InboundHistoryView>>;
@@ -82,6 +89,12 @@ export function createHermesMessageRuntime(
     fetchImpl: options.fetchImpl,
     timeoutMs: config.requestTimeoutMs,
     pollIntervalMs: config.pollIntervalMs,
+  });
+  const channelControl = createHermesChannelControl({
+    baseUrl: config.bridgeUrl,
+    token,
+    fetchImpl: options.fetchImpl,
+    timeoutMs: config.requestTimeoutMs,
   });
   const store = storeFactory(config.projectionDbFile);
   let service: MessageGatewayService;
@@ -184,6 +197,7 @@ export function createHermesMessageRuntime(
   return {
     service,
     store,
+    channelControl,
     start,
     stop,
     inboundHistory: (limit?: number) => adapter.inboundHistory(instance, limit),

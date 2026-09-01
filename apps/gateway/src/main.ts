@@ -108,6 +108,7 @@ async function main(): Promise<void> {
   const app = createGatewayServer({
     messageService: runtime?.service,
     messageStore: runtime?.store,
+    channelControl: runtime?.channelControl,
     inboundHistory: runtime ? (limit) => runtime!.inboundHistory(limit) : undefined,
     messageMode: runtime === null ? "native" : "observe",
   }); // home 由 BUTLER_HOME / ~/.agent-butler 解析

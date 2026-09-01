@@ -14,7 +14,7 @@
 import path from "node:path";
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import { CONTROL_API_SCHEMA_VERSION, CONTRACT_VERSION, isOutboxState } from "@butler/contract";
-import type { InboundHistoryView, PolicySnapshot, Result } from "@butler/contract";
+import type { ChannelControlPort, InboundHistoryView, PolicySnapshot, Result } from "@butler/contract";
 import { ensureButlerHome } from "@butler/core";
 import { buildEnvChannels, degradedChannelLabels, type AlertChannel } from "./channels.js";
 import { DeliveryLoop, type Clock, type LoopScheduler } from "./loop.js";
@@ -94,6 +94,8 @@ export interface GatewayServerOptions {
   messageStore?: MessagePolicyStore;
   /** M5 入站消息优化对照历史（由 Hermes 消息运行时提供）。 */
   inboundHistory?: (limit?: number) => Promise<Result<InboundHistoryView>>;
+  /** Bridge 通道控制面端口（目录/启停/微信扫码；仅 Hermes 消息运行时注入）。 */
+  channelControl?: ChannelControlPort;
   /** Hermes native is authoritative by default; the Butler runtime is observe-only when enabled. */
   messageMode?: MessageDeliveryMode;
   nativeMinIntervalSec?: number;
@@ -259,6 +261,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
     options.inboundHistory,
     options.messageMode,
     options.nativeMinIntervalSec,
+    options.channelControl,
   );
 
   if (options.startLoop !== false) loop.start();
@@ -272,6 +275,7 @@ function registerMessageRoutes(
   inboundHistory?: (limit?: number) => Promise<Result<InboundHistoryView>>,
   messageMode?: MessageDeliveryMode,
   nativeMinIntervalSec?: number,
+  channelControl?: ChannelControlPort,
 ): void {
   const hints = new BoundedHintDeduper(10_000);
 
@@ -378,6 +382,19 @@ function registerMessageRoutes(
       return await messageService.setRelayEnabled(body["enabled"]);
     } catch {
       return bridgeUnavailable(reply, "E303");
+    }
+  });
+
+  /** Bridge 通道控制面代理：未注入端口或 Bridge 不可达时统一 503。 */
+  const channelUnavailable = (reply: FastifyReply) =>
+    reply.code(503).send({ error: "channel-control-unavailable" });
+
+  app.get("/api/messages/channels", async (_request, reply) => {
+    if (channelControl === undefined) return channelUnavailable(reply);
+    try {
+      return await channelControl.listChannels();
+    } catch {
+      return channelUnavailable(reply);
     }
   });
 
