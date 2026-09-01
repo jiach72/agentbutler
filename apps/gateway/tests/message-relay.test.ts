@@ -9,6 +9,7 @@ import { fail, ok, type InstanceRef, type MessagingAdapter, type PolicyAck, type
 import { createPolicySnapshot, DEFAULT_MESSAGE_POLICY, validateMessagePolicy } from "../src/message/config.js";
 import { MessageGatewayService } from "../src/message/service.js";
 import { MessagePolicyStore } from "../src/message/store.js";
+import { createGatewayServer } from "../src/server.js";
 
 describe("relayMode policy support", () => {
   it("默认策略为 takeover", () => {
@@ -147,6 +148,40 @@ describe("MessageGatewayService relay switch", () => {
       expect(adapter.sent.at(-1)?.payload["relayMode"]).toBe("passthrough");
     } finally {
       store.close();
+    }
+  });
+});
+
+class FakeServiceForHttp {
+  fail = false;
+  async status() {
+    throw new Error("unused");
+  }
+  async updatePolicy() {
+    throw new Error("unused");
+  }
+  wake(): void {}
+  async setRelayEnabled(enabled: boolean) {
+    if (this.fail) throw new Error("E303");
+    return { enabled, pending: !enabled, updatedAt: "2026-09-01T00:00:00.000Z" };
+  }
+}
+
+describe("POST /api/messages/relay", () => {
+  it("校验 enabled 布尔并转发服务", async () => {
+    const app = createGatewayServer({
+      startLoop: false,
+      messageService: new FakeServiceForHttp() as never,
+      messageStore: undefined,
+    });
+    try {
+      const bad = await app.inject({ method: "POST", url: "/api/messages/relay", payload: { enabled: "yes" } });
+      expect(bad.statusCode).toBe(400);
+      const ok = await app.inject({ method: "POST", url: "/api/messages/relay", payload: { enabled: false } });
+      expect(ok.statusCode).toBe(200);
+      expect(ok.json()).toEqual({ enabled: false, pending: true, updatedAt: "2026-09-01T00:00:00.000Z" });
+    } finally {
+      await app.close();
     }
   });
 });

@@ -20,7 +20,7 @@ import { buildEnvChannels, degradedChannelLabels, type AlertChannel } from "./ch
 import { DeliveryLoop, type Clock, type LoopScheduler } from "./loop.js";
 import { validateMessagePolicy } from "./message/config.js";
 import type { MessageGatewayStatus } from "./message/service.js";
-import type { DndRuleInput, MessagePolicyStore } from "./message/store.js";
+import type { DndRuleInput, MessagePolicyStore, RelayControlView } from "./message/store.js";
 import { MESSAGE_OUTCOME_HISTORY_RETENTION_DAYS } from "./message/store.js";
 import type { MessagePolicyConfig } from "./message/types.js";
 import { AlertQueue, type AlertRow, type AlertSeverity } from "./queue.js";
@@ -70,6 +70,7 @@ export interface MessageGatewayController {
   status(): Promise<MessageGatewayStatus>;
   updatePolicy(config: MessagePolicyConfig): Promise<PolicySnapshot>;
   wake(): void;
+  setRelayEnabled(enabled: boolean): Promise<RelayControlView>;
 }
 
 export interface GatewayServerOptions {
@@ -296,6 +297,7 @@ function registerMessageRoutes(
         mode,
         nativeMinIntervalSec: resolveNativeMinInterval({ nativeMinIntervalSec }),
         hermesGateway: { authoritative: mode === "native", connected: mode === "native", running: false },
+        relay: { enabled: true, pending: false, updatedAt: null },
         bridge: { connected: false, running: false, inFlight: false, attached: false, outboxWritable: false, channels: {}, channelDetails: {}, lastError: null },
         counts: emptyCounts,
         absorbedProgress: 0,
@@ -319,6 +321,7 @@ function registerMessageRoutes(
         mode,
         nativeMinIntervalSec: resolveNativeMinInterval({ nativeMinIntervalSec }),
         hermesGateway: { authoritative: mode === "native", connected: mode === "native" || status.bridgeConnected, running: status.running },
+        relay: messageStore.getRelayControl(),
         bridge: {
           connected: status.bridgeConnected,
           running: status.running,
@@ -361,6 +364,20 @@ function registerMessageRoutes(
       return { accepted: true, nextStep: "已请求重新连接，稍后刷新查看通道状态。" };
     } catch {
       return bridgeUnavailable(reply, "E302");
+    }
+  });
+
+  /** 一键接管切换：开=Butler 策略接管，关=原通道直发（持久意图由服务落盘）。 */
+  app.post("/api/messages/relay", async (request, reply) => {
+    if (messageService === undefined) return bridgeUnavailable(reply, "E302");
+    const body = asRecord(request.body);
+    if (body === null || typeof body["enabled"] !== "boolean") {
+      return reply.code(400).send({ error: "enabled must be a boolean" });
+    }
+    try {
+      return await messageService.setRelayEnabled(body["enabled"]);
+    } catch {
+      return bridgeUnavailable(reply, "E303");
     }
   });
 
