@@ -145,7 +145,7 @@ class OutboxTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "content hash"):
             self.outbox.capture(make_envelope(message_id, content="changed"))
 
-    def test_new_inbound_cancels_unsent_reply_for_previous_question(self) -> None:
+    def test_new_inbound_does_not_cancel_unsent_terminal_reply_for_previous_question(self) -> None:
         first_inbound = make_inbound(
             "inbound-1", received_at="2026-08-23T10:00:00.000Z"
         )
@@ -158,15 +158,12 @@ class OutboxTest(unittest.TestCase):
             make_inbound("inbound-2", received_at="2026-08-23T10:01:00.000Z")
         )
 
-        cancelled = self.outbox.get(envelope["messageId"])
-        self.assertEqual(cancelled["state"], "cancelled")
-        self.assertIn("superseded by newer inbound", cancelled["lastError"])
-        self.assertEqual(
-            self.outbox.state_history(envelope["messageId"])[0]["toState"],
-            "cancelled",
-        )
+        previous = self.outbox.get(envelope["messageId"])
+        self.assertEqual(previous["state"], "captured")
+        self.assertIsNone(previous["lastError"])
+        self.assertEqual(self.outbox.state_history(envelope["messageId"]), [])
 
-    def test_new_inbound_cancels_delivery_unknown_for_previous_question(self) -> None:
+    def test_new_inbound_does_not_cancel_delivery_unknown_terminal_reply(self) -> None:
         self.outbox.record_inbound(
             make_inbound("inbound-1", received_at="2026-08-23T10:00:00.000Z")
         )
@@ -184,10 +181,10 @@ class OutboxTest(unittest.TestCase):
         )
 
         row = self.outbox.get(envelope["messageId"])
-        self.assertEqual(row["state"], "cancelled")
-        self.assertIn("superseded by newer inbound", row["lastError"])
+        self.assertEqual(row["state"], "delivery_unknown")
+        self.assertEqual(row["lastError"], "uncertain delivery")
 
-    def test_late_reply_capture_for_superseded_question_is_cancelled(self) -> None:
+    def test_late_reply_capture_for_previous_question_remains_deliverable(self) -> None:
         self.outbox.record_inbound(
             make_inbound("inbound-1", received_at="2026-08-23T10:00:00.000Z")
         )
@@ -198,8 +195,37 @@ class OutboxTest(unittest.TestCase):
         envelope = make_envelope("018bcfe5-6800-7000-8000-000000000006")
         captured = self.outbox.capture(envelope)
 
-        self.assertEqual(captured["message"]["state"], "cancelled")
-        self.assertIn("superseded by newer inbound", captured["message"]["lastError"])
+        self.assertEqual(captured["message"]["state"], "captured")
+        self.assertIsNone(captured["message"]["lastError"])
+
+    def test_explicit_run_supersede_cancels_previous_run_replies(self) -> None:
+        self.outbox.record_inbound(
+            make_inbound("inbound-run-old", received_at="2026-08-23T10:00:00.000Z")
+        )
+        old_run = self.outbox.begin_run(
+            session_id="session-1",
+            inbound_message_id="inbound-run-old",
+            run_id="run-old",
+        )
+        self.assertFalse(old_run["deduped"])
+        old = make_envelope("018bcfe5-6800-7000-8000-00000000000i")
+        old.update({"runId": "run-old", "inboundMessageId": "inbound-run-old"})
+        old["contentSha256"] = hashlib.sha256(old["content"].encode()).hexdigest()
+        self.outbox.capture(old)
+
+        self.outbox.record_inbound(
+            make_inbound("inbound-run-new", received_at="2026-08-23T10:01:00.000Z")
+        )
+        self.outbox.begin_run(
+            session_id="session-1",
+            inbound_message_id="inbound-run-new",
+            run_id="run-new",
+            supersedes_run_id="run-old",
+        )
+
+        cancelled = self.outbox.get(old["messageId"])
+        self.assertEqual(cancelled["state"], "cancelled")
+        self.assertIn("superseded by explicit run run-new", cancelled["lastError"])
 
     def test_unlinked_queued_reply_is_cancelled_unless_explicitly_proactive(self) -> None:
         reply = make_envelope("018bcfe5-6800-7000-8000-00000000000a")
@@ -250,6 +276,7 @@ class OutboxTest(unittest.TestCase):
             make_inbound("inbound-1", received_at="2026-08-23T10:00:00.000Z")
         )
         envelope = make_envelope("018bcfe5-6800-7000-8000-000000000009")
+        envelope["messageKind"] = "task-progress"
         self.outbox.capture(envelope)
         self.outbox.record_inbound(
             make_inbound("inbound-2", received_at="2026-08-23T10:01:00.000Z")

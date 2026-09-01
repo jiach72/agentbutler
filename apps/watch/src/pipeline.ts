@@ -26,7 +26,11 @@ import {
 import type { FetchLike } from "./dashboard-signal.js";
 import { createChannelProbeStage, type ChannelDryRunConfig } from "./probes/channel-probe.js";
 import { createLlmProbeStage, type LlmProbeEnv } from "./probes/llm-probe.js";
-import { createMemoryProbeStage, type SqliteOpener } from "./probes/memory-probe.js";
+import {
+  createMemoryProbeStage,
+  type MemoryProbeProvider,
+  type SqliteOpener,
+} from "./probes/memory-probe.js";
 import { createStallWriteStage, type LogMtimeSampler } from "./probes/stall-write.js";
 
 /** 单阶段结论（与内核事件 InspectionCheck 同构）。 */
@@ -74,6 +78,8 @@ export interface StageDeps {
   /* ------------------------- Task 6 功能探针注入 ------------------------- */
   /** SQLite 打开器（memory-probe，默认 node:sqlite 读写打开）。 */
   sqlite?: SqliteOpener;
+  /** 外部记忆系统 provider（按 InspectionContext 选择用户/实例后端）。 */
+  memoryProvider?: MemoryProbeProvider;
   /** fetch（channel-probe dry-run 与 llm-probe）。 */
   fetchFn?: FetchLike;
   /** channel-probe dry-run 配置（缺省走静态检查降级）。 */
@@ -295,6 +301,7 @@ export function createDefaultStages(deps: StageDeps = {}): InspectionStage[] {
     createApiConnectivityStage(deps),
     createMemoryProbeStage({
       open: deps.sqlite,
+      provider: deps.memoryProvider,
       now: deps.now,
     }),
     createChannelProbeStage({

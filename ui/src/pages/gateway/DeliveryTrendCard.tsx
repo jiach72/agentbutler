@@ -77,7 +77,6 @@ export function DeliveryTrendCard() {
       extra={
         <Button
           type="text"
-          size="small"
           icon={<ReloadOutlined />}
           loading={history.status === "loading"}
           aria-label="刷新送达历史"

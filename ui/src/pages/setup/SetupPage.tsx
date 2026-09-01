@@ -198,10 +198,10 @@ export function SetupPage() {
         </div>
       </header>
       <Steps current={step} items={[{ title: "环境" }, { title: "智能体" }, { title: "模型" }, { title: "验证" }, { title: "用途" }]} />
-      {loading && <Card className="setup-card"><Spin tip="正在读取本机环境…" /></Card>}
+      {loading && <Card className="setup-card"><Spin description="正在读取本机环境…" /></Card>}
       {!loading && error !== null && (
         <Card className="setup-card">
-          <Alert type="warning" showIcon message="暂时读不到管家状态" description={error} />
+          <Alert type="warning" showIcon title="暂时读不到管家状态" description={error} />
           <Button icon={<ReloadOutlined />} onClick={() => void loadStatus()}>重新检查</Button>
         </Card>
       )}
@@ -213,7 +213,7 @@ export function SetupPage() {
             <div className={status.reachable ? "" : "is-warn"}>{status.reachable ? <CheckCircleOutlined /> : <ExclamationCircleOutlined />} 管家控制通道{status.reachable ? "可用" : "暂时不可用"}</div>
             <div className={status.connections.length > 0 ? "" : "is-warn"}>{status.connections.length > 0 ? <CheckCircleOutlined /> : <ExclamationCircleOutlined />} 已发现 {status.connections.length} 个可管理实例</div>
           </div>
-          {status.connections.length === 0 && <Alert type="info" showIcon message="还没有发现 Hermes 实例" description="请先在设置中补充 Hermes 路径，回到这里重新检查。" />}
+          {status.connections.length === 0 && <Alert type="info" showIcon title="还没有发现 Hermes 实例" description="请先在设置中补充 Hermes 路径，回到这里重新检查。" />}
           <Space wrap><Button type="primary" disabled={status.connections.length === 0} onClick={() => setStep(1)}>继续</Button><Button onClick={() => navigate("/settings")}>打开设置</Button></Space>
         </Card>
       )}
@@ -228,9 +228,9 @@ export function SetupPage() {
         <Card className="setup-card">
           <h2>检查模型配置</h2>
           <p className="hint">Hermes 的日常运行使用它自己的 `config.yaml` 或 `.env`；Butler 受管任务使用下方加密保存并绑定的模型。两者职责不同，页面会分别如实显示。</p>
-          {nativeModelDetected ? <Alert type="success" showIcon message="已发现 Hermes 原生模型配置" description={`发现 ${discoveredModels.filter((model) => !model.runtimeObserved).length} 项已有配置；不会被本向导覆盖。`} /> : runtimeModelObserved > 0 ? <Alert type="success" showIcon message="已观察到 Hermes 正在使用模型" description={`从运行日志识别到 ${runtimeModelObserved} 个模型标识；这不会读取或导入凭据。`} /> : <Alert type="warning" showIcon message="还没有发现 Hermes 原生模型配置" description="如果智能体本身还不能对话，请先在 Hermes 的 config.yaml 或 .env 中完成运行模型配置。" />}
-          {modelReady ? <Alert type="success" showIcon message="当前智能体已有可用的受管任务模型" description="模型探针通过且已绑定。后续可在设置中轮换 Key 或修改绑定范围。" /> : <Alert type="info" showIcon message="还没有绑定受管任务模型" description="这是推荐步骤：它让进化和诊断类任务能使用经过真实探针验证的模型。" />}
-          {llmStatus?.vault.available === false && <Alert type="warning" showIcon message="凭据库还不可用" description="缺少 BUTLER_SECRET_MASTER_KEY 时，管家不会保存 API Key。请在设置中完成本机安全配置后再继续。" />}
+          {nativeModelDetected ? <Alert type="success" showIcon title="已发现 Hermes 原生模型配置" description={`发现 ${discoveredModels.filter((model) => !model.runtimeObserved).length} 项已有配置；不会被本向导覆盖。`} /> : runtimeModelObserved > 0 ? <Alert type="success" showIcon title="已观察到 Hermes 正在使用模型" description={`从运行日志识别到 ${runtimeModelObserved} 个模型标识；这不会读取或导入凭据。`} /> : <Alert type="warning" showIcon title="还没有发现 Hermes 原生模型配置" description="如果智能体本身还不能对话，请先在 Hermes 的 config.yaml 或 .env 中完成运行模型配置。" />}
+          {modelReady ? <Alert type="success" showIcon title="当前智能体已有可用的受管任务模型" description="模型探针通过且已绑定。后续可在设置中轮换 Key 或修改绑定范围。" /> : <Alert type="info" showIcon title="还没有绑定受管任务模型" description="这是推荐步骤：它让进化和诊断类任务能使用经过真实探针验证的模型。" />}
+          {llmStatus?.vault.available === false && <Alert type="warning" showIcon title="凭据库还不可用" description="缺少 BUTLER_SECRET_MASTER_KEY 时，管家不会保存 API Key。请在设置中完成本机安全配置后再继续。" />}
           {!modelReady && activeProfiles.length > 0 && (
             <div className="setup-model-existing">
               <h3>使用已验证的模型</h3>
@@ -251,7 +251,7 @@ export function SetupPage() {
               <Button type="primary" loading={savingModel} onClick={() => void createAndBindModel()}>验证并绑定</Button>
             </Form>
           )}
-          {modelMessage !== null && <Alert type={modelReady ? "success" : "warning"} showIcon message={modelMessage} />}
+          {modelMessage !== null && <Alert type={modelReady ? "success" : "warning"} showIcon title={modelMessage} />}
           <Space wrap><Button onClick={() => setStep(1)}>上一步</Button><Button type="primary" onClick={() => setStep(3)}>继续</Button><Button type="link" onClick={() => navigate("/settings")}>在设置中详细配置</Button></Space>
         </Card>
       )}
@@ -260,7 +260,7 @@ export function SetupPage() {
           <h2>做一次真实连接检查</h2>
           <p className="hint">这一步只检测连接，不会修改你的智能体配置。</p>
           {selectedConnection !== null && <p>当前选择：<strong>{selectedConnection.displayName ?? selectedConnection.instanceId}</strong></p>}
-          {checkResult !== null && <Alert type={checkResult.startsWith("连接检查完成") ? "success" : "warning"} showIcon message={checkResult} />}
+          {checkResult !== null && <Alert type={checkResult.startsWith("连接检查完成") ? "success" : "warning"} showIcon title={checkResult} />}
           <Space wrap>
             <Button onClick={() => setStep(2)}>上一步</Button>
             <Button type="primary" loading={checking} onClick={() => void runCheck()}>开始检查</Button>

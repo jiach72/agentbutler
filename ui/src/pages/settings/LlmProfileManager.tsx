@@ -112,7 +112,7 @@ export function LlmProfileManager() {
   const removeBinding = async (id: string) => { const result = await deleteJson(`/api/llm/bindings/${encodeURIComponent(id)}`); if (!result.ok) message.error("移除绑定失败"); else { message.success("绑定已移除"); await refresh(); } };
 
   return <section className="settings-llm">
-    {status?.vault.available === false && <Alert type="error" showIcon message="凭据库未启用" description="部署环境缺少有效的 BUTLER_SECRET_MASTER_KEY。Butler 会拒绝保存、注入或明文回退 API Key。" />}
+    {status?.vault.available === false && <Alert type="error" showIcon title="凭据库未启用" description="部署环境缺少有效的 BUTLER_SECRET_MASTER_KEY。Butler 会拒绝保存、注入或明文回退 API Key。" />}
     <div className="settings-section-head"><div><span>模型与 API Key</span><h2>管家任务模型配置</h2></div><Button icon={<ReloadOutlined />} onClick={() => void refresh()}>刷新</Button></div>
     <p className="hint">这里保存的是 Butler 在进化和受管任务中注入的加密凭据，不会覆盖 Hermes 自己的 `config.yaml` 或 `.env`。密钥不会出现在日志、审计或页面详情中。</p>
     <Descriptions size="small" column={{ xs: 1, sm: 4 }} className="settings-llm-summary"><Descriptions.Item label="凭据库">{status?.vault.available ? "可用" : "未配置"}</Descriptions.Item><Descriptions.Item label="已保存">{status?.profiles ?? 0}</Descriptions.Item><Descriptions.Item label="探针通过">{status?.activeProfiles ?? 0}</Descriptions.Item><Descriptions.Item label="已绑定">{status?.activeBindings ?? 0}</Descriptions.Item></Descriptions>
@@ -120,7 +120,7 @@ export function LlmProfileManager() {
       <Alert
         type="info"
         showIcon
-        message="还差最后一步：把已通过探针的模型绑定到实例或框架"
+        title="还差最后一步：把已通过探针的模型绑定到实例或框架"
         description="保存 API Key 不会自动让任务使用它。建立绑定后，Butler 才会把对应模型安全地注入受管任务。"
       />
     )}
@@ -154,10 +154,10 @@ export function LlmProfileManager() {
       { title: "Key", dataIndex: "maskedKey" },
       { title: "探针", render: (_, row) => row.probe ? <span title={row.probe.detail}><StatusBadge tone={row.probe.status === "pass" ? "ok" : "error"} label={row.probe.category} /><small>{new Date(row.probe.checkedAt).toLocaleString()}</small></span> : <StatusBadge tone="muted" label="未检查" /> },
       { title: "绑定", dataIndex: "bindingCount" },
-      { title: "操作", render: (_, row) => <Space><Button size="small" onClick={() => void probe(row.profileId)}>探针</Button><Button size="small" onClick={() => { setRotateId(row.profileId); rotateForm.resetFields(); }}>轮换</Button><Popconfirm title="禁用此配置？" onConfirm={() => void disable(row.profileId)}><Button size="small" danger>禁用</Button></Popconfirm></Space> },
+      { title: "操作", render: (_, row) => <Space><Button onClick={() => void probe(row.profileId)}>探针</Button><Button onClick={() => { setRotateId(row.profileId); rotateForm.resetFields(); }}>轮换</Button><Popconfirm title="禁用此配置？" onConfirm={() => void disable(row.profileId)}><Button danger>禁用</Button></Popconfirm></Space> },
     ]} locale={{ emptyText: "还没有模型配置。添加后必须绑定到实例、技能或进化目标才会被使用。" }} />
     <Table<Binding> size="small" rowKey="bindingId" dataSource={bindings} pagination={false} className="settings-llm-bindings" columns={[
-      { title: "范围", dataIndex: "scope" }, { title: "实例", dataIndex: "instanceId", render: (value) => value ?? "—" }, { title: "目标", dataIndex: "targetRef", render: (value) => value ?? "—" }, { title: "配置", dataIndex: "profileId", ellipsis: true }, { title: "", render: (_, row) => <Popconfirm title="移除此绑定？" onConfirm={() => void removeBinding(row.bindingId)}><Button size="small" icon={<DeleteOutlined />} /></Popconfirm> },
+      { title: "范围", dataIndex: "scope" }, { title: "实例", dataIndex: "instanceId", render: (value) => value ?? "—" }, { title: "目标", dataIndex: "targetRef", render: (value) => value ?? "—" }, { title: "配置", dataIndex: "profileId", ellipsis: true }, { title: "", render: (_, row) => <Popconfirm title="移除此绑定？" onConfirm={() => void removeBinding(row.bindingId)}><Button icon={<DeleteOutlined />} /></Popconfirm> },
     ]} locale={{ emptyText: "没有绑定；未绑定的进化任务会被明确阻断。" }} />
     <div className="settings-llm-discovered">
       <div className="settings-section-head is-compact"><div><span>迁移助手</span><h3>Hermes 已发现配置</h3></div></div>
@@ -167,7 +167,7 @@ export function LlmProfileManager() {
         { title: "提供商 / 模型", render: (_, row) => <div><strong>{row.provider}</strong><br />{row.model}</div> },
         { title: "端点", dataIndex: "endpoint", ellipsis: true },
         { title: "Key", dataIndex: "maskedKey" },
-        { title: "操作", render: (_, row) => <Space><Button size="small" onClick={() => void importDiscovered(row.id)} disabled={status?.vault.available === false || !row.importable}>导入</Button><Button size="small" icon={<CopyOutlined />} onClick={() => void copyDraft(row)} disabled={row.runtimeObserved || row.endpoint.trim() === ""}>复制配置草案</Button></Space> },
+        { title: "操作", render: (_, row) => <Space><Button onClick={() => void importDiscovered(row.id)} disabled={status?.vault.available === false || !row.importable}>导入</Button><Button icon={<CopyOutlined />} onClick={() => void copyDraft(row)} disabled={row.runtimeObserved || row.endpoint.trim() === ""}>复制配置草案</Button></Space> },
       ]} locale={{ emptyText: "没有发现可迁移的 Hermes 模型配置。" }} />
     </div>
     <Modal open={rotateId !== null} title="轮换 API Key" okText="探针并切换" cancelText="取消" confirmLoading={rotating} onCancel={() => setRotateId(null)} onOk={() => void rotate()}>

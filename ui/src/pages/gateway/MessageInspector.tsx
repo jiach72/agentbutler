@@ -94,7 +94,7 @@ export function MessageInspector({
         </div>
         {messageBridge !== null && Object.values(messageBridge.channelDetails ?? {}).some((item) => item.status !== "ok") && (
           <div className="gateway-channel-actions">
-            <Button size="small" icon={<ReloadOutlined />} onClick={onReconnect}>
+            <Button icon={<ReloadOutlined />} onClick={onReconnect}>
               重新连接通道
             </Button>
             <span className="gateway-muted-copy">不可用原因已标注在对应通道旁</span>

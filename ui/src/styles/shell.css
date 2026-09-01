@@ -76,13 +76,15 @@
   flex-direction: column;
   height: 100%;
   overflow-y: auto;
-  background: var(--butler-surface);
+  /* 导航面与内容面拉出层次：亮色下是微冷的导航灰，暗色下略沉于内容表。 */
+  background: color-mix(in srgb, var(--butler-bg) 42%, var(--butler-surface));
 }
 
 .sidebar-desktop {
   width: 232px;
   flex-shrink: 0;
   border-right: 1px solid var(--butler-rule);
+  box-shadow: 10px 0 32px -24px color-mix(in srgb, var(--butler-ink) 22%, transparent);
 }
 
 .nav {
@@ -190,19 +192,20 @@
   opacity: 0.85;
 }
 
-/* 访问范围不是本机时，这块不许再显示成"安全"的绿色。 */
+/* 访问范围不是本机时，保留语义色提示，但用克制的中性底 +
+   细彩色边框 + 彩色图标点缀，弱化整块色块带来的视觉干扰。 */
 .sidebar-meta.is-warn {
-  border-color: var(--butler-warn);
-  background: var(--butler-warn-soft);
-  color: var(--butler-ink);
+  border-color: color-mix(in srgb, var(--butler-warn) 45%, var(--butler-rule));
+  background: var(--butler-sunken);
+  color: var(--butler-muted);
 }
 .sidebar-meta.is-warn .anticon {
   color: var(--butler-warn);
 }
 .sidebar-meta.is-error {
-  border-color: var(--butler-error);
-  background: var(--butler-error-soft);
-  color: var(--butler-ink);
+  border-color: color-mix(in srgb, var(--butler-error) 45%, var(--butler-rule));
+  background: var(--butler-sunken);
+  color: var(--butler-muted);
 }
 .sidebar-meta.is-error .anticon {
   color: var(--butler-error);

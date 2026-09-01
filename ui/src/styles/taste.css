@@ -7,6 +7,8 @@
 :root {
   --butler-content-max: 1440px;
   --butler-focus-offset: 2px;
+  /* KPI 大数值专用：比纯 accent 更沉稳一档，与胶囊/kicker 的亮青拉开层次。 */
+  --butler-stat-accent: color-mix(in srgb, var(--butler-accent) 86%, var(--butler-ink-faint));
 }
 
 /* ---- Shared surface and type rhythm ---- */
@@ -69,15 +71,70 @@ body {
   line-height: 1.65;
 }
 
+/* 页面级锚点：青色胶囊，与首页 hero 状态锚一致。 */
 .product-eyebrow,
+.skills-eyebrow,
+.evolution-eyebrow {
+  justify-self: start;
+  align-self: flex-start;
+  width: fit-content;
+  padding: 5px 12px;
+  border: 1px solid color-mix(in srgb, var(--butler-accent) 22%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--butler-accent) 13%, var(--butler-surface));
+  color: var(--butler-accent);
+  font-size: var(--butler-text-xs);
+  font-weight: 700;
+  letter-spacing: 0.11em;
+}
+
+/* 区块级小标签：一致的大写青色。 */
 .product-kicker,
 .evolution-kicker,
 .skills-kicker,
 .manager-section-kicker,
-.preferences-kicker {
+.preferences-kicker,
+.version-instance-kicker {
+  color: var(--butler-accent);
   letter-spacing: 0.11em;
-  font-size: 11px;
+  font-size: var(--butler-text-xs);
   font-weight: 700;
+}
+
+/* 区块头排印节奏：胶囊/kicker 与标题、标题与引导语之间拉开呼吸感，
+   避免三行贴死（首页就绪度/场景区、各页 kicker 区块统一生效）。 */
+.product-kicker,
+.evolution-kicker,
+.skills-kicker,
+.manager-section-kicker,
+.preferences-kicker,
+.version-instance-kicker,
+.product-eyebrow,
+.skills-eyebrow,
+.evolution-eyebrow {
+  display: inline-flex;
+  align-items: center;
+}
+
+.manager-section-head > div:first-child > h2,
+.manager-hero-copy h2,
+.readiness-section-head h2,
+.scenario-continuation h2,
+.skills-header h2,
+.evolution-panel-head h2,
+.prompt-panel-head h2,
+.prompt-subhead h3 {
+  margin-top: 8px;
+}
+
+.manager-section-head > div:first-child > p,
+.readiness-summary,
+.scenario-continuation p,
+.skills-header p,
+.manager-hero-copy p,
+.evolution-panel-head p,
+.prompt-panel-head p {
+  margin-top: 6px;
 }
 
 .section-title,
@@ -85,8 +142,9 @@ body {
 .settings-section-head > strong,
 .plugin-section-head strong {
   font-size: 17px;
-  font-weight: 680;
-  letter-spacing: -0.01em;
+  font-weight: 660;
+  letter-spacing: -0.015em;
+  color: var(--butler-ink);
 }
 
 .hint {
@@ -106,9 +164,9 @@ body {
 .preferences-section,
 .skills-pane,
 .memory-health-wrap {
-  border: 1px solid var(--butler-rule);
+  border: 1px solid var(--butler-rule-strong);
   border-radius: var(--butler-radius-card);
-  box-shadow: var(--butler-shadow);
+  box-shadow: var(--butler-card-highlight), var(--butler-shadow);
 }
 
 .card,
@@ -141,17 +199,42 @@ body {
 .log-diagnosis-empty,
 .prompt-empty,
 .evolution-empty {
-  min-height: 132px;
+  min-height: 168px;
+  padding: 24px;
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  text-align: center;
   border-radius: var(--butler-radius-card);
   border-style: solid;
   border-color: color-mix(in srgb, var(--butler-rule) 80%, var(--butler-accent));
+  color: var(--butler-muted);
+  line-height: 1.6;
 }
 
 /* ---- Shell ---- */
 
 .sidebar-desktop {
   width: 248px;
-  background: color-mix(in srgb, var(--butler-surface) 92%, var(--butler-bg));
+  background: color-mix(in srgb, var(--butler-surface) 96%, var(--butler-bg));
+  box-shadow: 1px 0 0 var(--butler-rule), 16px 0 40px -28px color-mix(in srgb, var(--butler-ink) 26%, transparent);
+}
+
+.nav-group-label {
+  padding: 14px 12px 6px;
+  margin-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--butler-rule) 62%, transparent);
+  font-size: var(--butler-text-xs);
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--butler-muted) 92%, transparent);
+}
+/* 第一组标签不再有上分隔线，紧贴品牌区即可。 */
+.nav-group-label:first-child {
+  margin-top: 0;
+  padding-top: 4px;
+  border-top: none;
 }
 
 .brand {
@@ -160,10 +243,13 @@ body {
 }
 
 .brand-mark {
+  position: relative;
+  overflow: hidden;
   width: 38px;
   height: 38px;
   border-radius: 12px;
-  box-shadow: 0 5px 14px color-mix(in srgb, var(--butler-accent) 24%, transparent);
+  background: linear-gradient(155deg, var(--butler-accent), color-mix(in srgb, var(--butler-accent) 56%, var(--butler-teal)));
+  box-shadow: var(--butler-card-highlight), 0 6px 18px color-mix(in srgb, var(--butler-accent) 28%, transparent);
   font-size: 19px;
 }
 
@@ -214,6 +300,7 @@ body {
   height: 28px;
   border-radius: 8px;
   background: color-mix(in srgb, var(--butler-sunken) 76%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--butler-surface) 72%, transparent);
   font-size: 16px;
 }
 
@@ -232,15 +319,20 @@ body {
 }
 
 .app-topbar {
-  height: 64px;
+  height: 62px;
   padding-inline: clamp(20px, 3vw, 36px);
-  background: color-mix(in srgb, var(--butler-surface) 94%, transparent);
-  backdrop-filter: blur(14px);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--butler-surface) 96%, transparent), color-mix(in srgb, var(--butler-surface) 84%, transparent));
+  -webkit-backdrop-filter: saturate(1.7) blur(20px);
+  backdrop-filter: saturate(1.7) blur(20px);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--butler-rule) 82%, transparent),
+    0 10px 28px -24px color-mix(in srgb, var(--butler-ink) 30%, transparent);
+  border-bottom: none;
 }
 
 .topbar-title {
-  font-size: 17px;
+  font-size: 18px;
   font-weight: 700;
+  letter-spacing: -0.015em;
 }
 
 .topbar-note {
@@ -299,8 +391,8 @@ body {
 
 .ant-card {
   border-radius: var(--butler-radius-card);
-  border-color: var(--butler-rule);
-  box-shadow: var(--butler-shadow);
+  border-color: var(--butler-rule-strong);
+  box-shadow: var(--butler-card-highlight), var(--butler-shadow);
 }
 
 .ant-card-head {
@@ -335,7 +427,13 @@ body {
 }
 
 .ant-table-tbody > tr > td {
-  vertical-align: top;
+  vertical-align: middle;
+  padding-block: 12px;
+}
+
+/* 紧凑表格：统一到 8px，避免 small 与默认表格密度断层。 */
+.ant-table-small .ant-table-tbody > tr > td {
+  padding-block: 8px;
 }
 
 .ant-table-tbody > tr:hover > td {
@@ -367,42 +465,68 @@ body {
   align-items: flex-start;
 }
 
-.manager-hero-band {
-  gap: 24px;
-  padding: 26px 28px;
+.manager-hero {
+  padding: 32px 36px;
+  gap: 26px;
   border: 1px solid color-mix(in srgb, var(--butler-accent) 30%, var(--butler-rule));
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--butler-surface) 94%, var(--butler-accent-soft));
-  box-shadow: 0 10px 28px color-mix(in srgb, var(--butler-accent) 10%, transparent);
+  border-radius: 20px;
+  background:
+    radial-gradient(820px 420px at -6% -42%, color-mix(in srgb, var(--butler-accent) 26%, transparent), transparent 60%),
+    radial-gradient(620px 360px at 106% 122%, color-mix(in srgb, var(--butler-teal) 18%, transparent), transparent 56%),
+    linear-gradient(135deg, color-mix(in srgb, var(--butler-accent-soft) 92%, var(--butler-surface)), var(--butler-surface) 60%);
+  box-shadow: var(--butler-card-highlight), 0 32px 72px -36px color-mix(in srgb, var(--butler-accent) 54%, transparent);
+}
+
+/* 左侧状态色条：与语义色调联动，加强“一切正常 / 需注意”的即时识别。 */
+.manager-hero-band {
+  inset: 16px auto 16px 0;
+  width: 5px;
+  border-radius: 0 5px 5px 0;
+  background: linear-gradient(180deg, var(--tone-color, var(--butler-accent)), color-mix(in srgb, var(--tone-color, var(--butler-accent)) 42%, transparent));
 }
 
 .manager-hero-icon {
-  width: 52px;
-  height: 52px;
-  border-radius: 14px;
-  background: var(--butler-accent-soft);
+  width: 68px;
+  height: 68px;
+  border-radius: 20px;
+  background: linear-gradient(
+    150deg,
+    color-mix(in srgb, var(--tone-bg, var(--butler-accent-soft)) 80%, var(--butler-surface)),
+    var(--butler-surface) 62%
+  );
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--butler-surface) 80%, transparent),
+    0 10px 24px -10px color-mix(in srgb, var(--tone-color, var(--butler-accent)) 48%, transparent);
+  font-size: 30px;
 }
 
 .manager-hero-kicker {
-  font-size: 11px;
+  justify-self: start;
+  align-self: start;
+  padding: 5px 12px;
+  border: 1px solid color-mix(in srgb, var(--tone-color, var(--butler-accent)) 22%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--tone-color, var(--butler-accent)) 13%, transparent);
+  color: var(--tone-color, var(--butler-accent));
+  font-size: var(--butler-text-xs);
   font-weight: 700;
   letter-spacing: 0.11em;
 }
 
-.manager-hero-copy h2,
+.manager-hero-copy h2 {
+  margin: 0;
+  font-size: clamp(26px, 2.8vw, 34px);
+  font-weight: 720;
+  letter-spacing: -0.022em;
+  line-height: 1.18;
+}
+
 .manager-hero-copy strong {
   letter-spacing: -0.02em;
 }
 
 .manager-status-rail {
-  gap: 12px;
+  gap: 14px;
   padding: 0;
-}
-
-.manager-status-action {
-  min-height: 112px;
-  border-radius: var(--butler-radius-card);
-  background: var(--butler-surface);
 }
 
 .manager-section-head,
@@ -427,6 +551,62 @@ body {
 .issue-list,
 .runbook-item {
   border-radius: var(--butler-radius-card);
+}
+
+/* 状态总览 KPI 卡：按语义色调着色 + 顶部色条 + 醒目数值，与普通卡片拉开层次。 */
+.manager-status-card {
+  position: relative;
+  overflow: hidden;
+  padding: 18px 18px 16px;
+  gap: 8px;
+  border: 1px solid var(--butler-rule);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--tone-bg, var(--butler-surface-subtle)) 74%, var(--butler-surface)),
+    var(--butler-surface) 58%
+  );
+  box-shadow: var(--butler-card-highlight), var(--butler-shadow);
+}
+.manager-status-card::before {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: linear-gradient(
+    90deg,
+    var(--tone-color, var(--butler-ink-faint)),
+    color-mix(in srgb, var(--tone-color, var(--butler-ink-faint)) 14%, transparent)
+  );
+  content: "";
+  opacity: 1;
+}
+.manager-status-card .manager-status-head {
+  gap: 8px;
+}
+.manager-status-card .manager-status-dot {
+  width: 9px;
+  height: 9px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tone-color, var(--butler-ink-faint)) 18%, transparent);
+}
+.manager-status-card .manager-status-label {
+  color: var(--butler-ink-soft);
+  font-size: var(--butler-text-xs);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.manager-status-card .manager-status-value {
+  font-size: clamp(22px, 2vw, 27px);
+  font-weight: 730;
+  letter-spacing: -0.02em;
+  color: var(--tone-color, var(--butler-ink));
+}
+.manager-status-card .manager-status-detail {
+  color: var(--butler-muted);
+}
+.manager-status-card .manager-status-action {
+  align-self: flex-start;
+  color: var(--butler-accent);
+  font-weight: 600;
 }
 
 /* ---- Gateway / messages ---- */
@@ -458,12 +638,55 @@ body {
   background: var(--butler-surface-subtle);
 }
 
+/* 概览 KPI 卡：主题色顶条 + 着色大数值，与首页状态卡一致。 */
+.gateway-overview .ant-card {
+  position: relative;
+  overflow: hidden;
+}
+.gateway-overview .ant-card::before {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--butler-accent), color-mix(in srgb, var(--butler-accent) 14%, transparent));
+  content: "";
+}
+.gateway-overview .ant-card-body {
+  display: grid;
+  gap: 4px;
+  padding: 16px 18px;
+}
+.gateway-overview .ant-statistic-title {
+  color: var(--butler-ink-soft);
+  font-size: var(--butler-text-xs);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.gateway-overview .ant-statistic-content {
+  color: var(--butler-stat-accent);
+  font-size: clamp(22px, 2vw, 27px);
+  font-weight: 730;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+}
+.gateway-overview .ant-statistic-content-prefix {
+  color: var(--butler-stat-accent);
+}
+.gateway-overview .ant-card > span {
+  margin-top: 2px;
+}
+
 .message-feed,
 .message-inspector,
 .patch-panel,
 .prompt-panel,
 .po-card {
   border-radius: var(--butler-radius-card);
+}
+
+/* 消息优化面板：补齐卡片内边距，避免标题紧贴边框（与 evolution-panel 一致）。 */
+.prompt-panel {
+  padding: 20px 22px;
 }
 
 .message-feed-row {
@@ -496,15 +719,41 @@ body {
   border-bottom: 1px solid var(--butler-rule);
 }
 
+/* 评分条内的 KPI 列：顶部主题色条 + 着色大数值。 */
 .evolution-kpi {
-  min-height: 112px;
-  padding: 18px;
-  border: 1px solid var(--butler-rule);
-  border-radius: var(--butler-radius-card);
-  background: var(--butler-surface-subtle);
+  --tone-color: var(--butler-stat-accent);
+  position: relative;
+  overflow: hidden;
+  align-content: center;
+  gap: 5px;
 }
-
+.evolution-kpi::before {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--tone-color), color-mix(in srgb, var(--tone-color) 14%, transparent));
+  content: "";
+  opacity: 0.9;
+}
+.evolution-kpi .ant-statistic-title {
+  color: var(--butler-ink-soft);
+  font-size: var(--butler-text-xs);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.evolution-kpi .ant-statistic-content {
+  color: var(--tone-color);
+  font-size: clamp(22px, 2vw, 27px);
+  font-weight: 730;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+}
+.evolution-kpi .ant-statistic-content-suffix small {
+  color: var(--butler-muted);
+}
 .evolution-kpi strong {
+  color: var(--tone-color);
   font-size: 24px;
   letter-spacing: -0.02em;
 }
@@ -539,7 +788,7 @@ body {
 .plugin-card,
 .asset-trend-row {
   border-radius: var(--butler-radius-control);
-  transition: border-color var(--butler-dur-fast) var(--butler-ease), background-color var(--butler-dur-fast) var(--butler-ease);
+  transition: border-color var(--butler-dur-fast) var(--butler-ease), background-color var(--butler-dur-fast) var(--butler-ease), transform var(--butler-dur-fast) var(--butler-ease), box-shadow var(--butler-dur-fast) var(--butler-ease);
 }
 
 .skills-row:hover,
@@ -547,6 +796,8 @@ body {
 .asset-trend-row:hover {
   border-color: color-mix(in srgb, var(--butler-accent) 48%, var(--butler-rule));
   background: var(--butler-surface-subtle);
+  transform: translateY(-1px);
+  box-shadow: var(--butler-shadow);
 }
 
 /* ---- Versions / settings / setup ---- */
@@ -689,7 +940,7 @@ body {
     padding: 16px;
   }
 
-  .manager-hero-band {
+  .manager-hero {
     padding: 20px;
   }
 
@@ -783,6 +1034,12 @@ body {
 .chart-state {
   min-height: 156px;
   margin: 0;
+}
+
+/* 次级统计卡：数值沿用主题色，与 KPI 卡的数字语言一致。 */
+.memory-stats strong,
+.po-stat strong {
+  color: var(--butler-stat-accent);
 }
 
 .ant-btn {
@@ -912,6 +1169,55 @@ body {
 .core-files-list-item.is-selected {
   background: var(--butler-accent-soft);
   box-shadow: inset 3px 0 0 var(--butler-accent);
+}
+
+/* ---- 自绘列表（替代已弃用的 antd List） ---- */
+.app-list,
+.core-files-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.app-list li {
+  padding-block: var(--butler-space-3);
+}
+
+.app-list li + li {
+  border-block-start: 1px solid var(--butler-rule);
+}
+
+.app-list-compact li {
+  padding-block: var(--butler-space-2);
+}
+
+.evolution-action-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--butler-space-3);
+}
+
+.evolution-action-list .evolution-list-row {
+  width: auto;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.core-files-list li + li {
+  border-block-start: 1px solid var(--butler-rule);
+}
+
+.core-files-list-meta {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.core-files-list-desc {
+  display: grid;
+  gap: 2px;
+  color: var(--butler-muted);
+  font-size: var(--butler-text-xs);
 }
 
 .core-files-editor {

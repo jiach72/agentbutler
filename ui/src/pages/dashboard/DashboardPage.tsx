@@ -202,7 +202,7 @@ export function DashboardPage() {
           message="关键状态暂时读不到"
           description="管家服务可能暂时不可用；页面显示的可能是旧数据，点击右侧按钮重新检查。"
           action={
-            <Button danger size="small" onClick={() => { void refresh(); void refreshConnections(); }}>
+            <Button danger onClick={() => { void refresh(); void refreshConnections(); }}>
               重新检查
             </Button>
           }

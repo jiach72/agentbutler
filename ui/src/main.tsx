@@ -2,7 +2,7 @@
  * 面板入口：挂载路由表（6 页面 + Layout 布局）并引入全局样式。
  * 主题真源见 theme/tokens.ts；AntdApp 提供主题内联的 message/modal 通道。
  */
-import React, { lazy, StrictMode, Suspense, useEffect } from "react";
+import React, { lazy, StrictMode, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { App as AntdApp, ConfigProvider } from "antd";
@@ -87,28 +87,29 @@ function ThemedApp({ locale }: { locale: React.ComponentProps<typeof ConfigProvi
         <AccessGate />
         <BrowserRouter>
           <FirstRunRedirect />
-          <Suspense fallback={<PageProgress title="正在打开页面" detail="本机资源正在加载。" compact indeterminate />}>
-            <Routes>
-              <Route element={<Layout />}>
-                <Route index element={<Navigate to="/dashboard" replace />} />
-                <Route path="/dashboard" element={<DashboardPage />} />
-                <Route path="/versions" element={<VersionsPage />} />
-                <Route path="/gateway" element={<GatewayPage />} />
-                <Route path="/evolution" element={<EvolutionPage />} />
-                <Route path="/recovery" element={<Navigate to="/troubleshoot" replace />} />
-                <Route path="/troubleshoot" element={<TroubleshootPage />} />
-                <Route path="/setup" element={<SetupPage />} />
-                <Route path="/logs" element={<LogsPage />} />
-                <Route path="/assets" element={<AssetsPage />} />
-                <Route path="/prompt" element={<Navigate to="/gateway" replace />} />
-                <Route path="/skills" element={<SkillsPage />} />
-                <Route path="/core-files" element={<CoreFilesPage />} />
-                <Route path="/settings" element={<SettingsPage />} />
-                <Route path="/preferences" element={<Navigate to="/settings" replace />} />
-                <Route path="*" element={<Navigate to="/dashboard" replace />} />
-              </Route>
-            </Routes>
-          </Suspense>
+          {/* Suspense 由 Layout 在 <Outlet /> 处接管：懒加载页首载只换内容区，
+              不再整树卸载 Layout（其 Drawer/Popover 等 Portal 容器保持稳定，
+              避免 React 19 提交删除阶段与 rc-motion 动画的 removeChild 竞态）。 */}
+          <Routes>
+            <Route element={<Layout />}>
+              <Route index element={<Navigate to="/dashboard" replace />} />
+              <Route path="/dashboard" element={<DashboardPage />} />
+              <Route path="/versions" element={<VersionsPage />} />
+              <Route path="/gateway" element={<GatewayPage />} />
+              <Route path="/evolution" element={<EvolutionPage />} />
+              <Route path="/recovery" element={<Navigate to="/troubleshoot" replace />} />
+              <Route path="/troubleshoot" element={<TroubleshootPage />} />
+              <Route path="/setup" element={<SetupPage />} />
+              <Route path="/logs" element={<LogsPage />} />
+              <Route path="/assets" element={<AssetsPage />} />
+              <Route path="/prompt" element={<Navigate to="/gateway" replace />} />
+              <Route path="/skills" element={<SkillsPage />} />
+              <Route path="/core-files" element={<CoreFilesPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/preferences" element={<Navigate to="/settings" replace />} />
+              <Route path="*" element={<Navigate to="/dashboard" replace />} />
+            </Route>
+          </Routes>
         </BrowserRouter>
       </AntdApp>
     </ConfigProvider>

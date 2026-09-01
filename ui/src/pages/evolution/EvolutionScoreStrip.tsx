@@ -14,7 +14,7 @@ export function EvolutionScoreStrip({ overview }: { overview: EvolutionOverviewP
     <div className={`evolution-score-main is-${statusTone}`}>
       <div className="evolution-score-label">整体健康分</div>
       <strong>{score === null ? "样本不足" : `${formatDecimal(score, 1)} / 100`}</strong>
-      <Progress percent={score ?? 0} showInfo={false} strokeColor="currentColor" trailColor="var(--butler-rule)" />
+      <Progress percent={score ?? 0} showInfo={false} strokeColor="currentColor" railColor="var(--butler-rule)" />
       <span>{overview.statusDetail}</span>
     </div>
     <div className="evolution-kpi"><Statistic title="工具成功率" value={percent(overview.totals.successRate)} /></div>

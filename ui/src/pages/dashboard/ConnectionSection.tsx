@@ -71,7 +71,7 @@ export function ConnectionSection({
         <Alert
           type="warning"
           showIcon
-          message="管家控制通道暂时连不上"
+          title="管家控制通道暂时连不上"
           description="无法读取 Hermes / OpenClaw 的实时连接状态，服务恢复后会自动重试。"
         />
       ) : (
@@ -165,16 +165,16 @@ export function ConnectionSection({
                         }))}
                       />
                     )}
-                    {openClawInstallJob.error !== null && <Alert type="error" showIcon message="安装未完成" description={openClawInstallJob.error} />}
+                    {openClawInstallJob.error !== null && <Alert type="error" showIcon title="安装未完成" description={openClawInstallJob.error} />}
                     <div className="openclaw-install-actions">
                       {(openClawInstallJob.status === "queued" || openClawInstallJob.status === "running") && (
-                        <Button size="small" onClick={onCancelInstall}>取消安装</Button>
+                        <Button onClick={onCancelInstall}>取消安装</Button>
                       )}
                       {openClawInstallJob.status === "failed" && (
-                        <Button size="small" type="link" onClick={onInstall}>重试安装</Button>
+                        <Button type="link" onClick={onInstall}>重试安装</Button>
                       )}
                       {openClawInstallJob.logTail.length > 0 && (
-                        <Button size="small" type="link" onClick={() => setInstallLogOpen(true)}>查看实时日志</Button>
+                        <Button type="link" onClick={() => setInstallLogOpen(true)}>查看实时日志</Button>
                       )}
                     </div>
                   </div>
@@ -270,7 +270,7 @@ export function ConnectionSection({
         title="OpenClaw 安装日志"
         open={installLogOpen}
         onClose={() => setInstallLogOpen(false)}
-        width={560}
+        size={560}
       >
         <pre className="openclaw-install-log">{openClawInstallJob?.logTail.join("\n") || "暂无日志"}</pre>
       </Drawer>

@@ -219,4 +219,43 @@ describe("memory-probe（记忆写入召回）", () => {
     });
     vi.unstubAllEnvs();
   });
+
+  it("自定义 provider 按实例上下文接管探针，不触碰默认 SQLite", async () => {
+    vi.stubEnv("BUTLER_HERMES_READ_ONLY", "true");
+    const calls: Array<{ instanceId: string; rootPath: string; removeOwn: boolean }> = [];
+    const result = await createMemoryProbeStage({
+      provider: async (ctx, options) => {
+        calls.push({ instanceId: ctx.instanceId, rootPath: ctx.rootPath, removeOwn: options.removeOwn });
+        return { status: "pass", detail: `hindsight provider for ${ctx.instanceId}` };
+      },
+      now: () => NOW,
+      removeOwn: true,
+      open: () => {
+        throw new Error("provider path must not open SQLite");
+      },
+    }).run({ ...ctxOf(), instanceId: "user-alice", rootPath: "/srv/alice" });
+
+    expect(result).toEqual({
+      id: "memory-probe",
+      status: "pass",
+      detail: "hindsight provider for user-alice",
+    });
+    expect(calls).toEqual([{ instanceId: "user-alice", rootPath: "/srv/alice", removeOwn: true }]);
+    vi.unstubAllEnvs();
+  });
+
+  it("provider 异常 → fail，且不回退到错误的 SQLite 假设", async () => {
+    const result = await createMemoryProbeStage({
+      provider: () => {
+        throw new Error("hindsight unavailable");
+      },
+      open: () => {
+        throw new Error("SQLite must not be used");
+      },
+    }).run(ctxOf());
+
+    expect(result.status).toBe("fail");
+    expect(result.detail).toContain("记忆 provider 异常");
+    expect(result.detail).toContain("hindsight unavailable");
+  });
 });

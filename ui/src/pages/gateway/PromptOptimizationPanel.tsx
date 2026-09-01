@@ -693,7 +693,6 @@ export function PromptOptimizationPanel() {
                         return (
                           <Button
                             type="primary"
-                            size="small"
                             disabled={promotingCandidateId !== null}
                             loading={promotingCandidateId === candidate.candidateId}
                             onClick={() => void promoteCandidate(candidate)}

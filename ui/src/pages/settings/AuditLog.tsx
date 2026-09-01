@@ -49,7 +49,7 @@ export function AuditLog({ audit, onRetry }: AuditLogProps) {
             message={DEGRADED_TEXT}
             description={audit.reason}
             action={
-              <Button size="small" onClick={onRetry}>
+              <Button onClick={onRetry}>
                 重试
               </Button>
             }

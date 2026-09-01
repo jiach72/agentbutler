@@ -468,7 +468,11 @@ class Outbox:
         inbound_id = envelope.get("inboundMessageId")
         if (
             envelope.get("transport") != "queued-push"
-            or envelope.get("messageKind") not in {"final", "failure", "task-progress"}
+            # A normal follow-up message does not supersede a prior question's
+            # terminal answer. Only progress is safe to discard by conversation
+            # head; terminal replies remain deliverable unless a run explicitly
+            # declares that it supersedes another run.
+            or envelope.get("messageKind") != "task-progress"
             or not isinstance(inbound_id, str)
             or not inbound_id
         ):
@@ -548,7 +552,7 @@ class Outbox:
                  AND COALESCE(thread_id, '') = ?
                  AND inbound_message_id IS NOT NULL AND inbound_message_id <> ?
                  AND transport = 'queued-push'
-                 AND message_kind IN ('final', 'failure', 'task-progress')
+                 AND message_kind = 'task-progress'
                  AND state IN (
                    'captured', 'policy_pending', 'held_dnd', 'held_pacing',
                    'ready', 'retry_wait', 'policy_error', 'delivery_unknown'
@@ -565,6 +569,41 @@ class Outbox:
             return
         now = _utc_now()
         reason = f"superseded by newer inbound {inbound_id}"
+        for row in rows:
+            sequence = self._next_sequence_locked()
+            self._conn.execute(
+                """UPDATE outbound_messages
+                   SET sequence = ?, state = 'cancelled', active_attempt_id = NULL,
+                       available_at = NULL, last_error = ?, updated_at = ?
+                   WHERE message_id = ?""",
+                (sequence, reason, now, row["message_id"]),
+            )
+            self._conn.execute(
+                """INSERT INTO message_state_events(
+                     event_id, message_id, from_state, to_state, reason, occurred_at
+                   ) VALUES (?, ?, ?, 'cancelled', ?, ?)""",
+                (uuid7(), row["message_id"], row["state"], reason, now),
+            )
+
+    def _cancel_superseded_run_messages_locked(
+        self, superseded_run_id: str, replacing_run_id: str
+    ) -> None:
+        """Cancel pending replies only when a run explicitly replaces another run."""
+
+        rows = self._conn.execute(
+            """SELECT message_id, state FROM outbound_messages
+               WHERE run_id = ?
+                 AND message_kind IN ('final', 'failure', 'task-progress')
+                 AND state IN (
+                   'captured', 'policy_pending', 'held_dnd', 'held_pacing',
+                   'ready', 'retry_wait', 'policy_error', 'delivery_unknown'
+                 )""",
+            (superseded_run_id,),
+        ).fetchall()
+        if not rows:
+            return
+        now = _utc_now()
+        reason = f"superseded by explicit run {replacing_run_id}"
         for row in rows:
             sequence = self._next_sequence_locked()
             self._conn.execute(
@@ -1410,6 +1449,10 @@ class Outbox:
                        SET payload_json = ?, change_sequence = ?
                        WHERE inbound_message_id = ?""",
                     (_canonical_json(inbound_payload), inbound_change, inbound_message_id),
+                )
+            if supersedes_run_id is not None:
+                self._cancel_superseded_run_messages_locked(
+                    supersedes_run_id, selected_run_id
                 )
             run = self._conn.execute(
                 "SELECT * FROM task_runs WHERE run_id = ?", (selected_run_id,)

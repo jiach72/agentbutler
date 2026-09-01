@@ -80,13 +80,15 @@ export interface ButlerPalette {
   shadow: string;
   shadowStrong: string;
   focusRing: string;
+  /** 卡片表面顶部的一丝高光，让面板更立体（深浅主题不同的内阴影）。 */
+  cardHighlight: string;
 }
 
 /** Console Light：冷灰白底 + 近黑文字 + 青蓝交互，发丝线边框优先于投影。 */
 export const lightPalette: ButlerPalette = {
-  bg: "#f4f6f8",
+  bg: "#eef1f4",
   surface: "#ffffff",
-  surfaceSubtle: "#f9fafb",
+  surfaceSubtle: "#f6f8fa",
   sunken: "#edf0f3",
   raised: "#ffffff",
   ink: "#16191e",
@@ -109,9 +111,11 @@ export const lightPalette: ButlerPalette = {
   errorSoft: "#fceaec",
   onAccent: "#ffffff",
   ruleStrong: "#cfd5db",
-  shadow: "0 1px 2px rgb(16 24 40 / 5%), 0 1px 3px rgb(16 24 40 / 6%)",
-  shadowStrong: "0 6px 18px rgb(16 24 40 / 12%)",
+  // 两级阴影都刻意压高一档 alpha，保证在浅冷灰背景上纵深肉眼可见。
+  shadow: "0 1px 2px rgb(16 24 40 / 7%), 0 3px 8px rgb(16 24 40 / 6%), 0 10px 24px -18px rgb(16 24 40 / 22%)",
+  shadowStrong: "0 22px 44px rgb(16 24 40 / 16%), 0 8px 18px rgb(16 24 40 / 9%), 0 2px 6px rgb(16 24 40 / 6%)",
   focusRing: "0 0 0 3px rgb(14 118 131 / 28%)",
+  cardHighlight: "inset 0 1px 0 rgb(255 255 255 / 0.9), inset 0 0 0 1px rgb(255 255 255 / 0.35)",
 };
 
 /** Graphite Night：石墨底 + 暖白文字 + 亮青交互；语义色整体提亮保证对比度。 */
@@ -140,9 +144,10 @@ export const nightPalette: ButlerPalette = {
   errorSoft: "#3d211e",
   onAccent: "#06282e",
   ruleStrong: "#3a454f",
-  shadow: "0 1px 2px rgb(0 0 0 / 45%), 0 8px 24px rgb(0 0 0 / 22%)",
-  shadowStrong: "0 10px 28px rgb(0 0 0 / 32%)",
+  shadow: "0 1px 2px rgb(0 0 0 / 35%), 0 4px 14px rgb(0 0 0 / 24%)",
+  shadowStrong: "0 16px 38px rgb(0 0 0 / 42%), 0 6px 12px rgb(0 0 0 / 30%)",
   focusRing: "0 0 0 3px rgb(65 183 196 / 38%)",
+  cardHighlight: "inset 0 1px 0 rgb(255 255 255 / 0.04)",
 };
 
 export const radius = {
@@ -216,6 +221,8 @@ function buildThemeConfig(p: ButlerPalette, mode: ThemeMode): ThemeConfig {
       boxShadowTertiary: p.shadow,
       fontFamily,
       fontSize: 14,
+      // 全站统一控件高度（输入框/按钮/下拉等），避免同排控件因默认尺寸差异出现错位。
+      controlHeight: 32,
     },
     components: {
       Button: {
@@ -279,6 +286,7 @@ const paletteVars = (p: ButlerPalette): Record<string, string> => ({
   "--butler-text-muted": p.muted,
   "--butler-shadow": p.shadow,
   "--butler-shadow-strong": p.shadowStrong,
+  "--butler-card-highlight": p.cardHighlight,
   "--butler-surface-strong": p.raised,
 });
 
@@ -295,6 +303,7 @@ export function applyThemeCssBridge(mode: ThemeMode): void {
     ...paletteVars(p),
     "--butler-radius-card": `${radius.card}px`,
     "--butler-radius-control": `${radius.control}px`,
+    "--butler-control-h": "32px",
     "--butler-focus-ring": p.focusRing,
     "--butler-dur-fast": motion.durFast,
     "--butler-dur-base": motion.durBase,

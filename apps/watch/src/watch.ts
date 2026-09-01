@@ -79,7 +79,7 @@ import { createDefaultStages, type InspectionStage, type ResourceSampler } from 
 import { createMemoryProbeStage } from "./probes/memory-probe.js";
 import { buildDiagnosticSummary, renderDiagnosticReport } from "./diagnostics.js";
 import type { LogMtimeSampler } from "./probes/stall-write.js";
-import type { SqliteOpener } from "./probes/memory-probe.js";
+import type { MemoryProbeProvider, SqliteOpener } from "./probes/memory-probe.js";
 import { createSkillsMemoryService, type SkillsMemoryService } from "./skills.js";
 import { createExternalEvolutionService, type ExternalEvolutionService } from "./external-evolution.js";
 import { createSkillAssetService, type SkillAssetService } from "./skill-assets.js";
@@ -135,6 +135,8 @@ export interface WatchAppOptions {
   fetchFn?: FetchLike;
   /** Task 6 探针注入：SQLite 打开器（memory-probe）。 */
   sqlite?: SqliteOpener;
+  /** 外部记忆系统 provider（按实例上下文选择用户后端）。 */
+  memoryProvider?: MemoryProbeProvider;
   /** Task 6 探针注入：日志 mtime 采集器（stall-write）。 */
   logMtimeSampler?: LogMtimeSampler;
   /** Task 6 探针注入：可注入时钟（memory-probe 清理 / stall-write 静默判定）。 */
@@ -700,6 +702,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
   // 按需记忆自检专用探针：召回通过后立即删除本次测试行，不污染记忆库统计。
   const memorySelfCheckStage = createMemoryProbeStage({
     open: options.sqlite,
+    provider: options.memoryProvider,
     now: options.now,
     removeOwn: true,
   });
@@ -714,6 +717,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       memoryWarnBytes: config.memoryWarnBytes,
       cpuWarnPercent: config.cpuWarnPercent,
       sqlite: options.sqlite,
+      memoryProvider: options.memoryProvider,
       fetchFn: options.fetchFn,
       channelDryRun: config.channelDryRun,
       llmEnv: config.llm,

@@ -45,7 +45,7 @@ export function ResultStep({ job, outcome, diagnosis, busy, onBack, onRestart }:
           className="wizard-verdict"
           type={outcome.state === "fixed" ? "success" : "warning"}
           showIcon
-          message={outcome.label}
+          title={outcome.label}
           description={outcome.detail}
         />
       )}
@@ -55,7 +55,7 @@ export function ResultStep({ job, outcome, diagnosis, busy, onBack, onRestart }:
           className="wizard-verdict"
           type="info"
           showIcon
-          message="正在复查处理结果"
+          title="正在复查处理结果"
           description="动作已经执行完，管家正在确认问题是否解决，稍等一下就会给出结论。"
         />
       )}

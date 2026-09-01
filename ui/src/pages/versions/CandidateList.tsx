@@ -68,7 +68,7 @@ export function CandidateList({
             ))}
           </>
         }
-        action={<Button size="small" onClick={onRefresh}>重新检查版本</Button>}
+        action={<Button onClick={onRefresh}>重新检查版本</Button>}
       />
     );
   }
@@ -112,7 +112,7 @@ export function CandidateList({
           {currentVersion === ""
             ? "尚未读取到目标实例当前版本；请先确认 Hermes 实例在线，再重新检查。"
             : `当前目标实例 ${instanceLabel(targetInstance)} 为 ${currentVersion}，版本源没有更高版本候选。`}
-          <Button size="small" onClick={onRefresh}>重新检查版本</Button>
+          <Button onClick={onRefresh}>重新检查版本</Button>
         </div>
       ) : (
         <div className="cards-stack">

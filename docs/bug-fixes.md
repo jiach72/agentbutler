@@ -454,3 +454,12 @@
 - **回归测试：** 新增 Hermes TUI 控制面可用但 HTTP probe 不可用、技能 warning/普通文本过滤、环境变量/自定义提供商/运行时模型发现，以及首页就绪度展示运行时模型的测试。
 - **验证命令：** `corepack pnpm exec vitest run apps/watch/tests/watch.test.ts apps/watch/tests/skill-assets.test.ts packages/core/tests/llm-credentials.test.ts ui/tests/readiness.test.ts --reporter=dot`（32 passed）；`corepack pnpm exec tsc -b --pretty false`；`corepack pnpm --filter @butler/ui exec vite build`；浏览器 CDP 以 `390x844` 视口验证 `documentElement.scrollWidth === 390`，操作按钮和概览卡均未裁切；`git diff --check`。
 - **部署/runtime：** macOS 用户仍需升级到包含本次修复的版本并重启 Butler/Watch 后复验。日志中的某个受管模型 HTTP `401` 是该模型端点或 API Key 的配置问题，不会因本次应用修复而自动恢复；需由部署管理员核对端点与 Key。
+
+## 2026-08-31 - macOS 卸载日志暴露微信终态误取消与记忆探针误报
+
+- **问题：** `agentbutler-uninstall-logs.zip` 中的微信出站记录显示 32 条消息里有 22 条被取消，其中 15 条原因为 `superseded by newer inbound`。Bridge 原先把同一聊天的新入站视为旧入站所有 `final/failure/task-progress` 回复的替代，导致跨问题的正常终态回复被误取消。日志另有 7 条 `missing inbound correlation`，属于缺少入站关联的系统通知，不是本次主要回归。记忆探针固定读写 `memory_store.db`，在 `BUTLER_HERMES_READ_ONLY=true` 下每轮 skipped，长期看板累计 16989 分钟并告警；Hermes 实际记忆已迁移到 hindsight，不能继续假设所有用户使用同一 SQLite 后端。
+- **风险/影响：** macOS 用户可能收不到上一问题已经生成的微信最终结果并误以为 Butler 不可用；旧记忆库只读或不存在时会产生持续的 SLA 误报。探针诊断期间未读写或删除任何用户记忆数据。
+- **修复范围：** `packages/adapters/hermes/bridge/agent_butler_bridge/outbox.py` 现在只因普通新入站淘汰旧 `task-progress`；`final/failure` 保持可投递，只有 `begin_run(..., supersedes_run_id=...)` 明确声明替代时才取消被替代 run 的待发消息。`apps/watch/src/probes/memory-probe.ts` 新增按 `InspectionContext` 注入的 `MemoryProbeProvider`，保留 Hermes SQLite 默认兼容路径；provider 可按用户/实例选择 hindsight 或其他后端，provider 异常明确 fail，未配置/只读仍 skipped。
+- **回归测试：** Bridge 覆盖普通新入站不取消旧终态、晚到终态可捕获、显式 run 替代仍取消，以及重启时旧进度清理；Watch memory-probe 覆盖自定义 provider、只读环境和 provider 异常。
+- **验证命令：** `$env:PYTHONPATH='packages/adapters/hermes/bridge'; python -m unittest discover -s packages/adapters/hermes/bridge/tests -p 'test_outbox.py' -q`（32 passed）；`corepack pnpm exec vitest run apps/watch/tests/memory-probe.test.ts apps/watch/tests/pipeline.test.ts`（37 passed）；`corepack pnpm exec tsc -b apps/watch/tsconfig.json --pretty false`；`git diff --check`。
+- **运行验证：** 附件诊断结论与代码现状一致：Hermes hindsight 在 2026-08-31 21:03 有 RETAIN/CONSOLIDATION 写入，验收记忆在 21:14 落库；本次改动未触碰记忆数据库，仅改变探针选择与 Bridge 出站状态判定。

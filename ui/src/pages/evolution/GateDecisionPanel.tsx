@@ -38,7 +38,7 @@ export function GateDecisionPanel({
         <Alert
           type="info"
           showIcon
-          message="可以开始真实评估"
+          title="可以开始真实评估"
           description="管家会调用已配置的外部评估器，自动返回样本数、当前版本与改进方案的指标、把握程度和是否允许采用。"
           action={
             <Button type="primary" loading={busy === "evaluate"} onClick={onStartEvaluate}>
@@ -58,7 +58,7 @@ export function GateDecisionPanel({
                 : "warning"
           }
           showIcon
-          message={statusLabel(evaluation.status)}
+          title={statusLabel(evaluation.status)}
           description={`样本 ${evaluation.sampleCount} 条 · ${evaluation.baselineMetric.toFixed(3)} → ${evaluation.candidateMetric.toFixed(3)} · 变化 ${(evaluation.candidateMetric - evaluation.baselineMetric).toFixed(3)}${evaluation.confidence === null ? "" : ` · 把握程度 ${(evaluation.confidence * 100).toFixed(1)}%`}`}
           action={
             <StatusBadge

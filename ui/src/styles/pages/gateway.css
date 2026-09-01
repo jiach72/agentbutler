@@ -509,7 +509,7 @@
 .task-timeline time {
   color: var(--butler-muted);
   font-family: var(--butler-mono-font);
-  font-size: 11px;
+  font-size: var(--butler-text-xs);
 }
 
 /* ---- 频率建议 ---- */
@@ -605,7 +605,7 @@
   background: var(--butler-sunken);
   color: var(--butler-muted);
   font-family: var(--butler-mono-font);
-  font-size: 11px;
+  font-size: var(--butler-text-xs);
 }
 .patch-dependency {
   flex-shrink: 0;
@@ -629,7 +629,7 @@
 }
 .patch-param small {
   color: var(--butler-muted);
-  font-size: 11px;
+  font-size: var(--butler-text-xs);
 }
 .patch-actions {
   display: flex;
@@ -879,7 +879,7 @@
 }
 .po-col-label {
   color: var(--butler-muted);
-  font-size: 11px;
+  font-size: var(--butler-text-xs);
   font-weight: 600;
   letter-spacing: 0.04em;
 }
@@ -891,7 +891,7 @@
 }
 .po-unchanged {
   color: var(--butler-muted);
-  font-size: 11px;
+  font-size: var(--butler-text-xs);
 }
 .po-changes {
   display: flex;

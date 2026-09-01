@@ -51,7 +51,7 @@ function retryBanner(
       message={DEGRADED_TEXT}
       description={reason}
       action={
-        <Button size="small" onClick={() => onRetry(key)}>
+        <Button onClick={() => onRetry(key)}>
           重试
         </Button>
       }
@@ -302,7 +302,6 @@ export function SecurityBaseline({
                 <span>{runbook.description || "连续失败后等待人工确认"}</span>
               </div>
               <Button
-                size="small"
                 disabled={busy !== null}
                 loading={busy === `reset-${runbook.id}`}
                 onClick={() => onRequestReset(runbook)}

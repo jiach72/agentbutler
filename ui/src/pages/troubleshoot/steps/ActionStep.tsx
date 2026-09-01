@@ -54,7 +54,7 @@ export function ActionStep({
         <Alert
           type="info"
           showIcon
-          message="现在没有可以自动执行的动作"
+          title="现在没有可以自动执行的动作"
           description="检查项都通过了，或者当前环境不支持自动处理。可以先导出诊断报告，把它发给能帮你的人。"
         />
       ) : (

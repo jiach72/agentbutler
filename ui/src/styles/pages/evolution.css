@@ -293,7 +293,7 @@
 }
 .ledger-time-cell span {
   color: var(--butler-muted);
-  font-size: 11px;
+  font-size: var(--butler-text-xs);
 }
 .ledger-export-link {
   font-size: var(--butler-text-xs);
@@ -436,7 +436,7 @@
   background: var(--butler-sunken);
   color: var(--butler-ink);
   font-family: var(--butler-mono-font);
-  font-size: 11px;
+  font-size: var(--butler-text-xs);
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -534,7 +534,7 @@
 .evolution-kpi .ant-statistic-title { color: var(--butler-muted); font-size: var(--butler-text-xs); }
 .evolution-kpi .ant-statistic-content { font-size: var(--butler-text-lg); line-height: 1.35; }
 .evolution-kpi .ant-statistic-content-suffix { display: block; margin-inline-start: 0; margin-top: 2px; }
-.evolution-kpi small { color: var(--butler-muted); font-size: 11px; font-weight: 400; }
+.evolution-kpi small { color: var(--butler-muted); font-size: var(--butler-text-xs); font-weight: 400; }
 .evolution-dashboard-charts {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

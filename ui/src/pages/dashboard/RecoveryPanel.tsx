@@ -79,7 +79,7 @@ export function RecoveryPanel({
           <span className="manager-section-kicker">诊断</span>
           <h2>检查项与处理</h2>
         </div>
-        <Button size="small" loading={busy} onClick={onDiagnose}>
+        <Button loading={busy} onClick={onDiagnose}>
           重新诊断
         </Button>
       </div>
@@ -87,7 +87,7 @@ export function RecoveryPanel({
         <Alert
           type="info"
           showIcon
-          message="正在读取诊断结果"
+          title="正在读取诊断结果"
           description="完成后会显示检查结果、问题依据和可执行处理。"
         />
       ) : (
@@ -105,7 +105,7 @@ export function RecoveryPanel({
               <Alert
                 type={verdict.type}
                 showIcon
-                message={verdict.title}
+                title={verdict.title}
                 description={
                   <>
                     <span>{verdict.description}</span>
@@ -157,7 +157,6 @@ export function RecoveryPanel({
                 <small>{action.impact} · 约 {action.estimatedSeconds} 秒</small>
                 {!action.available && action.unavailableFix && <small className="recovery-action-fix">解决：{action.unavailableFix}</small>}
                 <Button
-                  size="small"
                   type={action.risk === "high" ? "primary" : "default"}
                   danger={action.risk === "high"}
                   disabled={!action.available || busy}

@@ -38,7 +38,6 @@ export function IssuesSection({ issues, attentionCount, onInspect }: IssuesSecti
                 {action !== undefined && (
                   <Button
                     type="link"
-                    size="small"
                     icon={<ArrowRightOutlined />}
                     onClick={() => action.to === undefined ? onInspect() : navigate(action.to)}
                   >
@@ -54,7 +53,6 @@ export function IssuesSection({ issues, attentionCount, onInspect }: IssuesSecti
         <div className="issues-toggle-wrap">
           <Button
             type="text"
-            size="small"
             aria-expanded={expanded}
             onClick={() => setExpanded((value) => !value)}
           >

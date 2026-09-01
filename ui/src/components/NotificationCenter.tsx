@@ -33,8 +33,8 @@ function NotificationContent({ onClose }: { onClose: () => void }) {
           <span>{unreadCount > 0 ? `${unreadCount} 条未读` : "目前没有未读"}</span>
         </div>
         <div className="notification-panel-actions">
-          <Button type="text" size="small" icon={<ReloadOutlined />} aria-label="刷新通知" title="刷新通知" onClick={() => void refresh()} />
-          <Button type="text" size="small" icon={<CheckOutlined />} aria-label="全部标记已读" title="全部标记已读" disabled={unreadCount === 0} onClick={() => void markAllRead()} />
+          <Button type="text" icon={<ReloadOutlined />} aria-label="刷新通知" title="刷新通知" onClick={() => void refresh()} />
+          <Button type="text" icon={<CheckOutlined />} aria-label="全部标记已读" title="全部标记已读" disabled={unreadCount === 0} onClick={() => void markAllRead()} />
         </div>
       </header>
       {loading && visibleItems.length === 0 ? (

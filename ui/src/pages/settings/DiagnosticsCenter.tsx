@@ -103,8 +103,8 @@ export function DiagnosticsCenter({ actionBusy }: DiagnosticsCenterProps) {
           <div className="advanced-details-body">
             <pre className="diagnostic-preview">{diagnostic.text}</pre>
             <Space wrap>
-              <Button size="small" onClick={() => downloadDiagnostic(diagnostic.text!)}>下载 Markdown</Button>
-              <Button size="small" type="primary" onClick={() => void downloadDiagnosticZip()}>下载诊断 ZIP</Button>
+              <Button onClick={() => downloadDiagnostic(diagnostic.text!)}>下载 Markdown</Button>
+              <Button type="primary" onClick={() => void downloadDiagnosticZip()}>下载诊断 ZIP</Button>
             </Space>
           </div>
         </details>

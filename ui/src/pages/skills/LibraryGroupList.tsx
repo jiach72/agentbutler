@@ -23,7 +23,7 @@ export function LibraryGroupList<T>({
   groups,
   renderItem,
   contentClassName,
-  defaultOpenCount = 2,
+  defaultOpenCount = 0,
 }: LibraryGroupListProps<T>) {
   return (
     <Collapse

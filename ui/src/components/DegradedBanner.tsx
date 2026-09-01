@@ -25,7 +25,7 @@ export function DegradedBanner({ severity, message, description, action }: Degra
       banner
       showIcon
       type={ALERT_TYPE[severity]}
-      message={message}
+      title={message}
       description={description}
       action={action}
       role="status"

@@ -55,7 +55,7 @@ export function AccessGate() {
   })();
 
   return (
-    <Modal open footer={null} closable={false} maskClosable={false} keyboard={false} width={480} className="access-gate-modal">
+    <Modal open footer={null} closable={false} mask={{ closable: false }} keyboard={false} width={480} className="access-gate-modal">
       <div className="access-gate-card">
         <span className="access-gate-mark" aria-hidden="true">
           <LockOutlined />

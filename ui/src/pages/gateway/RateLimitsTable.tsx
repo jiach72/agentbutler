@@ -71,7 +71,7 @@ export function RateLimitsTable({ rateLimit, onUseSuggestion }: RateLimitsTableP
                     </div>
                     <p>{suggestion.reason}</p>
                   </div>
-                  <Button size="small" onClick={() => onUseSuggestion(suggestion)}>
+                  <Button onClick={() => onUseSuggestion(suggestion)}>
                     写入参数草稿
                   </Button>
                 </div>

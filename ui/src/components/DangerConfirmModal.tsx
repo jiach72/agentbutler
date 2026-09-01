@@ -41,7 +41,7 @@ export function DangerConfirmModal({
       onCancel={() => {
         if (!busy) onCancel();
       }}
-      maskClosable={false}
+      mask={{ closable: false }}
       keyboard={!busy}
       closable={!busy}
       width={560}
@@ -60,7 +60,7 @@ export function DangerConfirmModal({
           className="danger-impact-alert"
           type="warning"
           showIcon
-          message="影响说明"
+          title="影响说明"
           description={impact}
         />
       )}

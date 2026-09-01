@@ -94,7 +94,7 @@ export function BackupCenter({
               message={DEGRADED_TEXT}
               description={butlerSelf.reason}
               action={
-                <Button size="small" onClick={() => onRetry("butlerSelf")}>
+                <Button onClick={() => onRetry("butlerSelf")}>
                   重试
                 </Button>
               }
@@ -142,7 +142,6 @@ export function BackupCenter({
               <em>{snapshotStatusLabel(item.status)}</em>
               {restoreable(item) && (
                 <Button
-                  size="small"
                   disabled={busy !== null}
                   loading={busy === `restore-${item.id}`}
                   onClick={() => onRequestRestore(item)}
@@ -161,7 +160,7 @@ export function BackupCenter({
             message={DEGRADED_TEXT}
             description={backups.reason}
             action={
-              <Button size="small" onClick={() => onRetry("backups")}>
+              <Button onClick={() => onRetry("backups")}>
                 重试
               </Button>
             }

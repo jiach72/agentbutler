@@ -33,22 +33,55 @@ export function MemoryHealthCard({
   const tone = healthTone(health.score);
   return (
     <div className={`memory-health is-${tone}`}>
-      <div className="memory-health-head">
-        <div className="memory-health-score">
-          <strong>{Math.round(health.score)}</strong>
-          <span>/100</span>
+      <div className="memory-health-main">
+        <div className="memory-health-head">
+          <div className="memory-health-score">
+            <strong>{Math.round(health.score)}</strong>
+            <span>/100</span>
+          </div>
+          <div className="memory-health-status">
+            <strong>记忆健康</strong>
+            <span>
+              {tone === "good"
+                ? "状态很好，不需要动手"
+                : tone === "ok"
+                  ? "基本正常，可留意建议"
+                  : tone === "warn"
+                    ? "有需要注意的地方"
+                    : "建议尽快处理"}
+            </span>
+          </div>
         </div>
-        <div>
-          <strong>记忆健康</strong>
-          <span>
-            {tone === "good"
-              ? "状态很好，不需要动手"
-              : tone === "ok"
-                ? "基本正常，可留意建议"
-                : tone === "warn"
-                  ? "有需要注意的地方"
-                  : "建议尽快处理"}
-          </span>
+
+        {health.suggestions.length > 0 && (
+          <div className="memory-suggestions">
+            <strong>管家建议</strong>
+            {health.suggestions.map((suggestion) => (
+              <div className="memory-suggestion" key={suggestion.id}>
+                <div>
+                  <strong>{suggestion.title}</strong>
+                  <span>{suggestion.detail}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="memory-health-actions">
+          <Button
+            disabled={backupBusy}
+            onClick={onBackup}
+            title="把记忆库备份到本地，升级或恢复前更安心"
+          >
+            {backupBusy ? "备份中…" : "记忆备份"}
+          </Button>
+          <Button
+            disabled={selfCheck.busy}
+            onClick={onSelfCheck}
+            title="写入并召回一条管家测试记忆后自动清理，不会改动你的记忆"
+          >
+            {selfCheck.busy ? "自检中…" : "立即自检记忆"}
+          </Button>
         </div>
       </div>
 
@@ -63,37 +96,6 @@ export function MemoryHealthCard({
           </li>
         ))}
       </ul>
-
-      {health.suggestions.length > 0 && (
-        <div className="memory-suggestions">
-          <strong>管家建议</strong>
-          {health.suggestions.map((suggestion) => (
-            <div className="memory-suggestion" key={suggestion.id}>
-              <div>
-                <strong>{suggestion.title}</strong>
-                <span>{suggestion.detail}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div className="memory-health-actions">
-        <Button
-          disabled={backupBusy}
-          onClick={onBackup}
-          title="把记忆库备份到本地，升级或恢复前更安心"
-        >
-          {backupBusy ? "备份中…" : "记忆备份"}
-        </Button>
-        <Button
-          disabled={selfCheck.busy}
-          onClick={onSelfCheck}
-          title="写入并召回一条管家测试记忆后自动清理，不会改动你的记忆"
-        >
-          {selfCheck.busy ? "自检中…" : "立即自检记忆"}
-        </Button>
-      </div>
 
       {selfCheck.result !== null && (
         <div className={`memory-selfcheck is-${selfCheck.result.status}`} role="status">

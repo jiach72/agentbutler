@@ -12,5 +12,5 @@ export function AssetsPage() {
   const [error, setError] = useState<string | null>(null);
   const loadSkills = async () => { const result = await loadJson<SkillsPayload>("/api/skills", 10_000); if (result.ok) { setSkills(result.data.skills); setError(null); } else setError(result.reason); setLoading(false); };
   useEffect(() => { void loadSkills(); }, []);
-  return <section className="page product-page assets-page"><header className="page-heading product-heading"><div><span className="product-eyebrow">技能资产</span><h1>技能使用与来源</h1><p className="hint">查看本机技能的使用记录、公开来源和可安装项目。</p></div></header>{loading ? <Spin tip="正在读取技能清单" /> : error ? <Alert type="warning" showIcon message="技能清单暂时不可用" description={error} /> : null}<AssetCenter skills={skills} onSkillsChanged={loadSkills} /></section>;
+  return <section className="page product-page assets-page"><header className="page-heading product-heading"><div><span className="product-eyebrow">技能资产</span><h1>技能使用与来源</h1><p className="hint">查看本机技能的使用记录、公开来源和可安装项目。</p></div></header>{loading ? <Spin description="正在读取技能清单" /> : error ? <Alert type="warning" showIcon title="技能清单暂时不可用" description={error} /> : null}<AssetCenter skills={skills} onSkillsChanged={loadSkills} /></section>;
 }

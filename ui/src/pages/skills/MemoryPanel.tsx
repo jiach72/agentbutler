@@ -67,7 +67,6 @@ export function MemoryPanel({
         </div>
         <Button
           type="text"
-          size="small"
           className="skills-refresh"
           onClick={onRefresh}
           disabled={refreshing}
@@ -173,16 +172,23 @@ export function MemoryPanel({
       >
         <label>
           <span>全文检索记忆</span>
-          <Input.Search
-            allowClear
-            placeholder="输入至少 3 个字"
-            value={memoryInput}
-            onChange={(event) => setMemoryInput(event.target.value)}
-            onSearch={(value) => onSearch(value)}
-            enterButton="浏览"
-            disabled={refreshing || data?.memory.mode !== "driver"}
-            loading={searching}
-          />
+          <div className="memory-search-field">
+            <Input
+              allowClear
+              placeholder="输入至少 3 个字"
+              value={memoryInput}
+              onChange={(event) => setMemoryInput(event.target.value)}
+              disabled={refreshing || data?.memory.mode !== "driver"}
+            />
+            <Button
+              type="primary"
+              htmlType="submit"
+              disabled={refreshing || data?.memory.mode !== "driver"}
+              loading={searching}
+            >
+              浏览
+            </Button>
+          </div>
         </label>
       </form>
 
@@ -204,7 +210,7 @@ export function MemoryPanel({
           severity="warn"
           message="这一项暂时读不到"
           description={`记忆检索失败：${searchError}`}
-          action={<Button size="small" onClick={() => onSearch(activeKeyword)}>重试</Button>}
+          action={<Button onClick={() => onSearch(activeKeyword)}>重试</Button>}
         />
       )}
 

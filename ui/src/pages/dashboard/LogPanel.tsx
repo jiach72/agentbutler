@@ -146,7 +146,7 @@ export function LogPanel({ open = true, onClose = () => undefined, embedded = fa
                 <span className="log-drawer-eyebrow">只读查看</span>
                 <h3 id="log-drawer-title">系统日志</h3>
               </div>
-              {!embedded && <Button type="text" size="small" onClick={onClose}>关闭</Button>}
+              {!embedded && <Button type="text" onClick={onClose}>关闭</Button>}
             </div>
             <div className="log-drawer-body">
               {fixJob !== null && <section className="log-fix-progress"><strong>{fixJob.label}</strong><Progress percent={fixJob.progress} status={fixJob.status === "failed" ? "exception" : fixJob.status === "done" ? "success" : "active"} /><small>{fixJob.detail}</small></section>}
@@ -182,7 +182,6 @@ export function LogPanel({ open = true, onClose = () => undefined, embedded = fa
                         {issue.suggestedAction !== null && (
                           <Button
                             type="primary"
-                            size="small"
                             onClick={() => setConfirmFix(issue)}
                           >
                             一键修复
@@ -227,7 +226,6 @@ export function LogPanel({ open = true, onClose = () => undefined, embedded = fa
                       <div className="log-viewer-pager">
                         {activeLog.hasOlder && (
                           <Button
-                            size="small"
                             disabled={loading}
                             onClick={() => void loadLogTail(activeLog.sourceId, activeLog.pageStart)}
                           >
@@ -236,7 +234,6 @@ export function LogPanel({ open = true, onClose = () => undefined, embedded = fa
                         )}
                         {activeLog.hasNewer && (
                           <Button
-                            size="small"
                             disabled={loading}
                             onClick={() => void loadLogTail(activeLog.sourceId, null)}
                           >

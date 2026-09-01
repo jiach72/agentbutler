@@ -1080,7 +1080,7 @@
 }
 .log-source-item small {
   color: var(--butler-muted);
-  font-size: 11px;
+  font-size: var(--butler-text-xs);
 }
 .log-source-empty {
   color: var(--butler-muted);

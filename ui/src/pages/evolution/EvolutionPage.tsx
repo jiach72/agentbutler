@@ -6,7 +6,6 @@ import {
   Descriptions,
   Divider,
   Empty,
-  List,
   Progress,
   Select,
   Space,
@@ -370,7 +369,7 @@ export function EvolutionPage() {
         <Alert
           type="error"
           showIcon
-          message="无法读取 Hermes 日志洞察"
+          title="无法读取 Hermes 日志洞察"
           description={error}
           action={
             <Button icon={<ReloadOutlined />} onClick={() => void refresh()}>
@@ -414,7 +413,7 @@ export function EvolutionPage() {
               ]}
               onChange={setRange}
             />
-            <Button size="small" icon={<ReloadOutlined />} onClick={() => void refresh()}>
+            <Button icon={<ReloadOutlined />} onClick={() => void refresh()}>
               重新分析
             </Button>
           </Space>
@@ -492,11 +491,9 @@ export function EvolutionPage() {
                 {selected.optimization ? (
                   <>
                     <Typography.Paragraph>{selected.optimization.goal}</Typography.Paragraph>
-                    <List
-                      size="small"
-                      dataSource={selected.optimization.changes}
-                      renderItem={(item) => <List.Item>{item}</List.Item>}
-                    />
+                    <ul className="app-list app-list-compact">
+                      {selected.optimization.changes.map((item, index) => <li key={index}>{item}</li>)}
+                    </ul>
                     <Typography.Paragraph type="secondary">
                       预期结果：{selected.optimization.expectedResult}
                     </Typography.Paragraph>
@@ -510,7 +507,7 @@ export function EvolutionPage() {
                   <Alert
                     type="info"
                     showIcon
-                    message="尚未生成优化说明"
+                    title="尚未生成优化说明"
                     description="点击“生成优化说明”查看建议改动和预期结果。"
                   />
                 )}
@@ -544,7 +541,7 @@ export function EvolutionPage() {
                 <Alert
                   type={selected.targetType === "config" ? "info" : "warning"}
                   showIcon
-                  message={
+                  title={
                     selected.targetType === "config" ? "需要先处理系统问题" : "需要选择关联技能"
                   }
                   description={selected.blockReason}
@@ -679,7 +676,7 @@ export function EvolutionPage() {
                           <Alert
                             type="info"
                             showIcon
-                            message="候选已生成，下一步是隔离验证"
+                            title="候选已生成，下一步是隔离验证"
                             description="完成评估后，验证通过才能应用到 Hermes。"
                           />
                           <Button
@@ -696,7 +693,7 @@ export function EvolutionPage() {
                           <Alert
                             type="success"
                             showIcon
-                            message="候选通过评估，等待确认应用"
+                            title="候选通过评估，等待确认应用"
                             description="请核对候选差异后，再确认应用。"
                           />
                           <Button
@@ -713,12 +710,11 @@ export function EvolutionPage() {
                         <Alert
                           type="error"
                           showIcon
-                          message="Hermes 执行失败"
+                          title="Hermes 执行失败"
                           description={run.detail}
                         />
                       )}
                       <Button
-                        size="small"
                         icon={<ReloadOutlined />}
                         onClick={() => void loadRun(run.runId)}
                       >
@@ -729,7 +725,7 @@ export function EvolutionPage() {
                     <Alert
                       type="info"
                       showIcon
-                      message="正在读取执行状态"
+                      title="正在读取执行状态"
                       description={`运行编号：${selected.execution.id}`}
                     />
                   )}

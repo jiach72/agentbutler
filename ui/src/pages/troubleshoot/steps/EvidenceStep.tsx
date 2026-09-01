@@ -50,7 +50,7 @@ export function EvidenceStep({ diagnosis, symptom, onBack, onNext }: EvidenceSte
           className="wizard-verdict"
           type="error"
           showIcon
-          message={`找到明确的问题：${diagnosis.rootCause}`}
+          title={`找到明确的问题：${diagnosis.rootCause}`}
           description={`${diagnosis.summary ?? "这项检查没有通过"}${diagnosis.safeToRetry === false ? "；不建议直接重试，请先按下一步处理。" : "；下一步可以选择对应的处理方式。"}`}
         />
       ) : primary !== null ? (
@@ -58,7 +58,7 @@ export function EvidenceStep({ diagnosis, symptom, onBack, onNext }: EvidenceSte
           className="wizard-verdict"
           type="warning"
           showIcon
-          message={`运行正常，但日志里有提醒：${primary.title}`}
+          title={`运行正常，但日志里有提醒：${primary.title}`}
           description={`${primary.detail}（${evidenceText(primary.evidence)}）`}
         />
       ) : (
@@ -66,7 +66,7 @@ export function EvidenceStep({ diagnosis, symptom, onBack, onNext }: EvidenceSte
           className="wizard-verdict"
           type="success"
           showIcon
-          message="检查项全部通过"
+          title="检查项全部通过"
           description={
             historical > 0
               ? `最近没有新问题。更早的日志里有 ${historical} 条历史提醒，不影响当前运行。`
@@ -109,7 +109,7 @@ export function EvidenceStep({ diagnosis, symptom, onBack, onNext }: EvidenceSte
 
       <WizardNav onBack={onBack} onNext={onNext} nextLabel="看看能怎么处理" />
       <div className="wizard-nav">
-        <Button type="link" size="small" href="/logs">
+        <Button type="link" href="/logs">
           想看原始日志
         </Button>
       </div>

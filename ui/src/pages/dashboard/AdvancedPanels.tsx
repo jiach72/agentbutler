@@ -55,7 +55,7 @@ export function RunbooksPanel({
                     : "从未执行"}
                 </div>
               </div>
-              <Button size="small" onClick={() => onRepair(runbook)}>
+              <Button onClick={() => onRepair(runbook)}>
                 开始处理
               </Button>
             </div>
@@ -151,7 +151,7 @@ const FINGERPRINT_COLUMNS = (onOpenLogs: () => void): ColumnsType<FingerprintVie
     title: "日志",
     width: 88,
     render: () => (
-      <Button type="link" size="small" style={{ paddingInline: 0 }} onClick={onOpenLogs}>
+      <Button type="link" style={{ paddingInline: 0 }} onClick={onOpenLogs}>
         查看日志
       </Button>
     ),

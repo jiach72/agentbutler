@@ -1,6 +1,6 @@
 /**
- * 技能与记忆页主编排：主加载三态（loading/ready/failed，失败可重试），
- * 记忆检索独立于技能/插件列表——搜索只更新右侧预览区，失败不回滚列表。
+ * 技能与记忆页主编排（单页连续仪表盘）：顶部全局概览带 + 技能库 / 插件库 / 记忆库 三个纵向分区。
+ * 记忆检索独立于技能/插件列表——搜索只更新记忆分区，失败不回滚列表。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { App, Button, Spin, Tabs } from "antd";
@@ -26,7 +26,6 @@ export function SkillsPage() {
   const [mainState, setMainState] = useState<FetchState<SkillsPayload>>({ status: "loading" });
   // 最近一次完整数据：检索期间/失败时记忆面板仍显示它，不再伪装成空态。
   const [lastGood, setLastGood] = useState<SkillsPayload | null>(null);
-  const [activeTab, setActiveTab] = useState<"skills" | "plugins" | "memory">("skills");
   const [activeKeyword, setActiveKeyword] = useState("");
   const [memoryPreview, setMemoryPreview] = useState<MemoryPreview>({ status: "default" });
   const [backupBusy, setBackupBusy] = useState(false);
@@ -126,6 +125,41 @@ export function SkillsPage() {
 
   const libraryData = mainState.status === "ready" ? mainState.data : null;
   const refreshing = mainState.status === "loading" || searching;
+  const memoryStats = libraryData?.memory.stats ?? null;
+
+  // 全局概览带：把技能 / 插件 / 记忆三库的核心指标汇成一排。
+  const overview = [
+    {
+      key: "skills",
+      label: "技能",
+      value: libraryData === null ? "…" : formatNumber(libraryData.skills.total),
+      sub: libraryData === null ? "读取中" : `共 ${libraryData.skills.items.filter((item) => item.enabled).length} 启用`,
+    },
+    {
+      key: "plugins",
+      label: "插件",
+      value: libraryData === null ? "…" : formatNumber(libraryData.plugins.total),
+      sub: libraryData === null ? "读取中" : `共 ${libraryData.plugins.items.filter((item) => item.enabled).length} 启用`,
+    },
+    {
+      key: "memory-entries",
+      label: "记忆条目",
+      value: memoryStats === null ? "…" : formatNumber(memoryStats.totalEntries),
+      sub: "累计入库",
+    },
+    {
+      key: "memory-cold",
+      label: "长期未用",
+      value: memoryStats === null ? "…" : formatNumber(memoryStats.coldCandidates),
+      sub: "可考虑归档",
+    },
+    {
+      key: "memory-recalls",
+      label: "累计召回",
+      value: memoryStats === null ? "…" : formatNumber(memoryStats.cumulativeRecalls),
+      sub: "检索命中",
+    },
+  ];
 
   return (
     <section className="page skills-page">
@@ -149,98 +183,77 @@ export function SkillsPage() {
         </div>
       </header>
 
-      <section className="skills-pane skills-tab-surface">
-        <Tabs
-          className="skills-content-tabs"
-          activeKey={activeTab}
-          onChange={(key) => setActiveTab(key === "plugins" || key === "memory" ? key : "skills")}
-          items={[
-            {
-              key: "skills",
-              label: `技能库 ${formatNumber(libraryData?.skills.total ?? 0)}`,
-              children: (
-                <>
-                  {mainState.status === "loading" && (
-                    <>
-                      <div className="skills-driver-note">
-                        <strong>{modeLabel("unavailable")}</strong>
-                        <span>正在读取技能状态</span>
-                      </div>
-                      <div className="skills-list" aria-busy>
-                        <div className="skills-empty">
-                          <Spin />
-                          <p>正在读取技能清单…</p>
-                        </div>
-                      </div>
-                    </>
-                  )}
-                  {mainState.status === "failed" && (
-                    <DegradedBanner
-                      severity="warn"
-                      message="这一项暂时读不到"
-                      description={mainState.reason}
-                      action={<Button size="small" onClick={() => void loadLibrary()}>重试</Button>}
-                    />
-                  )}
-                  {mainState.status === "ready" && <SkillLibrary skills={mainState.data.skills} />}
-                </>
-              ),
-            },
-            {
-              key: "plugins",
-              label: `插件库 ${formatNumber(libraryData?.plugins.total ?? 0)}`,
-              children: (
-                <>
-                  {mainState.status === "loading" && (
-                    <>
-                      <div className="skills-driver-note">
-                        <strong>{modeLabel("unavailable")}</strong>
-                        <span>正在读取插件状态</span>
-                      </div>
-                      <div className="skills-list" aria-busy>
-                        <div className="skills-empty">
-                          <Spin />
-                          <p>正在读取插件清单…</p>
-                        </div>
-                      </div>
-                    </>
-                  )}
-                  {mainState.status === "failed" && (
-                    <DegradedBanner
-                      severity="warn"
-                      message="这一项暂时读不到"
-                      description={mainState.reason}
-                      action={<Button size="small" onClick={() => void loadLibrary()}>重试</Button>}
-                    />
-                  )}
-                  {mainState.status === "ready" && (
-                    <div className="plugin-section">
-                      <div className="skills-section-head plugin-section-head">
-                        <div>
-                          <span className="skills-kicker">插件库</span>
-                          <h2>{formatNumber(mainState.data.plugins.total)} 个插件</h2>
-                        </div>
-                        <span className={`skills-mode is-${mainState.data.plugins.mode}`}>
-                          {modeLabel(mainState.data.plugins.mode)}
-                        </span>
-                      </div>
-                      <div className="skills-driver-note">
-                        <strong>{modeLabel(mainState.data.plugins.mode)}</strong>
-                        <span>{mainState.data.plugins.notice}</span>
-                      </div>
-                      {mainState.data.plugins.mode === "directory-fallback" && (
-                        <DirectoryFallback directory={mainState.data.plugins.directory} />
-                      )}
-                      <PluginLibrary plugins={mainState.data.plugins} />
+      <section className="skills-overview" aria-label="全局概览">
+        {overview.map((item) => (
+          <div className="skills-overview-kpi" key={item.key}>
+            <span>{item.label}</span>
+            <strong>{item.value}</strong>
+            <small>{item.sub}</small>
+          </div>
+        ))}
+      </section>
+
+      {mainState.status === "failed" && (
+        <DegradedBanner
+          severity="warn"
+          message="这一部分暂时读不到"
+          description={mainState.reason}
+          action={<Button onClick={() => void loadLibrary()}>重试</Button>}
+        />
+      )}
+
+      <Tabs
+        className="skills-tabs"
+        defaultActiveKey="skills"
+        aria-busy={mainState.status === "loading"}
+        items={[
+          {
+            key: "skills",
+            label: "技能",
+            children: (
+              <div className="skills-tab" id="skills-panel">
+                {mainState.status === "loading" && (
+                  <>
+                    <div className="skills-driver-note">
+                      <strong>{modeLabel("unavailable")}</strong>
+                      <span>正在读取技能状态</span>
                     </div>
-                  )}
-                </>
-              ),
-            },
-            {
-              key: "memory",
-              label: "记忆库",
-              children: (
+                    <div className="skills-empty">
+                      <Spin />
+                      <p>正在读取技能清单…</p>
+                    </div>
+                  </>
+                )}
+                {mainState.status === "ready" && <SkillLibrary skills={mainState.data.skills} />}
+              </div>
+            ),
+          },
+          {
+            key: "plugins",
+            label: "插件",
+            children: (
+              <div className="skills-tab" id="plugins-panel">
+                {mainState.status === "loading" && (
+                  <>
+                    <div className="skills-driver-note">
+                      <strong>{modeLabel("unavailable")}</strong>
+                      <span>正在读取插件状态</span>
+                    </div>
+                    <div className="skills-empty">
+                      <Spin />
+                      <p>正在读取插件清单…</p>
+                    </div>
+                  </>
+                )}
+                {mainState.status === "ready" && <PluginLibrary plugins={mainState.data.plugins} />}
+              </div>
+            ),
+          },
+          {
+            key: "memory",
+            label: "记忆",
+            children: (
+              <div className="skills-tab" id="memory-panel">
                 <MemoryPanel
                   data={lastGood}
                   searching={searching}
@@ -254,11 +267,11 @@ export function SkillsPage() {
                   onSelfCheck={() => void runSelfCheck()}
                   onBackup={() => void runMemoryBackup()}
                 />
-              ),
-            },
-          ]}
-        />
-      </section>
+              </div>
+            ),
+          },
+        ]}
+      />
     </section>
   );
 }

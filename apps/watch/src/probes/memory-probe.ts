@@ -20,7 +20,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { InspectionStage } from "../pipeline.js";
+import type { InspectionContext, InspectionStage } from "../pipeline.js";
 
 /** 探针标记前缀：测试记忆 content 以此开头，绝不混入用户记忆。 */
 export const MEMORY_PROBE_PREFIX = "butler-probe:";
@@ -45,6 +45,27 @@ export interface SqliteDbLike {
 
 export type SqliteOpener = (path: string) => SqliteDbLike;
 
+export type MemoryProbeStatus = "pass" | "warn" | "fail" | "skipped";
+
+export interface MemoryProbeProviderOptions {
+  now: () => number;
+  removeOwn: boolean;
+}
+
+/**
+ * 外部记忆系统适配点：provider 按 InspectionContext 自行选择用户/实例后端。
+ * Butler 不假设外部后端的数据库 schema，也不直接写入用户记忆。
+ */
+export type MemoryProbeProvider = (
+  ctx: InspectionContext,
+  options: MemoryProbeProviderOptions,
+) => MemoryProbeProviderResult | Promise<MemoryProbeProviderResult>;
+
+export interface MemoryProbeProviderResult {
+  status: MemoryProbeStatus;
+  detail?: string;
+}
+
 /** 默认 opener：node:sqlite DatabaseSync 读写打开。 */
 export function defaultSqliteOpener(): SqliteOpener {
   return (path) => new DatabaseSync(path) as unknown as SqliteDbLike;
@@ -53,6 +74,8 @@ export function defaultSqliteOpener(): SqliteOpener {
 export interface MemoryProbeDeps {
   /** SQLite 打开器（默认 node:sqlite 读写打开）。 */
   open?: SqliteOpener;
+  /** 可选外部记忆系统 provider；收到 ctx 后可按实例/用户选择后端。 */
+  provider?: MemoryProbeProvider;
   /** 可注入时钟（默认 Date.now）。 */
   now?: () => number;
   /** 召回通过后立即删除本次测试行（按需自检用；缺省保留供 24h 观察）。 */
@@ -115,6 +138,22 @@ export function createMemoryProbeStage(deps: MemoryProbeDeps = {}): InspectionSt
     id: MEMORY_PROBE_CHECK_ID,
     label: "记忆写入召回",
     async run(ctx) {
+      if (deps.provider !== undefined) {
+        try {
+          const provided = await deps.provider(ctx, { now, removeOwn });
+          return {
+            id: MEMORY_PROBE_CHECK_ID,
+            status: provided.status,
+            detail: provided.detail ?? `provider=${ctx.instanceId}`,
+          };
+        } catch (error) {
+          return {
+            id: MEMORY_PROBE_CHECK_ID,
+            status: "fail",
+            detail: `记忆 provider 异常: ${describe(error)}`,
+          };
+        }
+      }
       if (process.env["BUTLER_HERMES_READ_ONLY"] === "true") {
         return {
           id: MEMORY_PROBE_CHECK_ID,

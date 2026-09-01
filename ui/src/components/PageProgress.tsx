@@ -28,7 +28,7 @@ export function PageProgress({
     steps.length === 0
       ? 0
       : Math.min(100, Math.round(((completed + (hasActive ? 0.5 : 0)) / steps.length) * 100));
-  const style = { "--page-progress-value": `${percent}%` } as CSSProperties;
+  const style = { "--page-progress-scale": percent / 100 } as CSSProperties;
 
   return (
     <section

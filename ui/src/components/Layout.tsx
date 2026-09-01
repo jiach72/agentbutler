@@ -17,9 +17,10 @@ import {
   FileMarkdownOutlined,
 } from "@ant-design/icons";
 import { Button, Drawer } from "antd";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { NotificationCenter } from "./NotificationCenter.js";
+import { PageProgress } from "./PageProgress.js";
 import { NotificationsProvider } from "../hooks/useNotifications.js";
 import { useTheme } from "../theme/ThemeProvider.js";
 import { loadJson } from "../lib/api.js";
@@ -69,8 +70,8 @@ function baselineNote(baseline: SecurityBaselinePayload | null): string {
     return baseline.auth ? "数据只保存在你的电脑上，已设置访问口令" : "数据只保存在你的电脑上";
   }
   return baseline.auth
-    ? "已用访问口令保护，请确认你信任当前网络"
-    : "没有访问口令，同一网络的人都能操作你的 AI，请尽快处理";
+    ? "已设访问口令"
+    : "未设访问口令，请尽快处理";
 }
 
 function SidebarContent({
@@ -92,6 +93,7 @@ function SidebarContent({
         </span>
       </div>
       <nav className="nav" aria-label="主导航">
+        <span className="nav-group-label">控制台</span>
         {NAV_ITEMS.map((item) => (
           <NavLink
             key={item.to}
@@ -108,6 +110,7 @@ function SidebarContent({
             </span>
           </NavLink>
         ))}
+        <span className="nav-group-label">维护与升级</span>
         {MANAGEMENT_ITEMS.map((item) => (
           <NavLink
             key={item.to}
@@ -220,7 +223,9 @@ export function Layout() {
             </div>
           </header>
           <main className="content" id="main-content">
-            <Outlet />
+            <Suspense fallback={<PageProgress title="正在打开页面" detail="本机资源正在加载。" compact indeterminate />}>
+              <Outlet />
+            </Suspense>
           </main>
         </div>
       </div>
