@@ -23,8 +23,7 @@ body {
 }
 
 .page-heading,
-.product-heading,
-.skills-header {
+.product-heading {
   position: relative;
   gap: 18px;
   padding-bottom: 4px;
@@ -47,8 +46,7 @@ body {
 }
 
 /* 页面级锚点：青色胶囊，与首页 hero 状态锚一致。 */
-.product-eyebrow,
-.skills-eyebrow {
+.product-eyebrow {
   justify-self: start;
   align-self: flex-start;
   width: fit-content;
@@ -64,7 +62,6 @@ body {
 
 /* 区块级小标签：一致的大写青色。 */
 .product-kicker,
-.skills-kicker,
 .preferences-kicker,
 .version-instance-kicker {
   color: var(--butler-accent);
@@ -76,21 +73,11 @@ body {
 /* 区块头排印节奏：胶囊/kicker 与标题、标题与引导语之间拉开呼吸感，
    避免三行贴死（首页就绪度/场景区、各页 kicker 区块统一生效）。 */
 .product-kicker,
-.skills-kicker,
 .preferences-kicker,
 .version-instance-kicker,
-.product-eyebrow,
-.skills-eyebrow {
+.product-eyebrow {
   display: inline-flex;
   align-items: center;
-}
-
-.skills-header h2 {
-  margin-top: 8px;
-}
-
-.skills-header p {
-  margin-top: 6px;
 }
 
 .section-title,
@@ -108,12 +95,9 @@ body {
 
 .card,
 .chart-card,
-.asset-center-section,
 .setup-card,
 .settings-tab-panel,
-.preferences-section,
-.skills-pane,
-.memory-health-wrap {
+.preferences-section {
   border: 1px solid var(--butler-rule-strong);
   border-radius: var(--butler-radius-card);
   box-shadow: var(--butler-card-highlight), var(--butler-shadow);
@@ -139,7 +123,6 @@ body {
 }
 
 .empty-state,
-.skills-empty,
 .version-empty-explained {
   min-height: 168px;
   padding: 24px;
@@ -162,14 +145,6 @@ body {
   border-bottom: 1px solid var(--butler-rule);
 }
 
-/* ---- Skills / assets ---- */
-
-.skills-header {
-  align-items: flex-start;
-}
-
-.skills-filter-row,
-.asset-bar,
 .version-toolbar {
   padding: 12px 14px;
   border: 1px solid var(--butler-rule);
@@ -177,21 +152,12 @@ body {
   background: var(--butler-surface-subtle);
 }
 
-.skills-pane,
-.asset-center-section {
-  padding: 20px;
-}
-
-.skills-row,
-.plugin-card,
-.asset-trend-row {
+.plugin-card {
   border-radius: var(--butler-radius-control);
   transition: border-color var(--butler-dur-fast) var(--butler-ease), background-color var(--butler-dur-fast) var(--butler-ease), transform var(--butler-dur-fast) var(--butler-ease), box-shadow var(--butler-dur-fast) var(--butler-ease);
 }
 
-.skills-row:hover,
-.plugin-card:hover,
-.asset-trend-row:hover {
+.plugin-card:hover {
   border-color: color-mix(in srgb, var(--butler-accent) 48%, var(--butler-rule));
   background: var(--butler-surface-subtle);
   transform: translateY(-1px);
@@ -301,8 +267,6 @@ body {
 
   .card,
   .chart-card,
-  .skills-pane,
-  .asset-center-section,
   .settings-tab-panel,
   .preferences-section,
   .setup-card {
@@ -326,9 +290,7 @@ body {
 
   .nav-link::before,
   .ant-btn,
-  .skills-row,
   .plugin-card,
-  .asset-trend-row,
   .symptom-card,
   .evidence-probe,
   .action-choice {
@@ -341,8 +303,7 @@ body {
 .card,
 .chart-card,
 .ant-card,
-.ant-table-wrapper,
-.asset-center {
+.ant-table-wrapper {
   min-width: 0;
 }
 
@@ -398,7 +359,6 @@ body {
 }
 
 /* 次级统计卡：数值沿用主题色，与 KPI 卡的数字语言一致。 */
-.memory-stats strong,
 .po-stat strong {
   color: var(--butler-stat-accent);
 }

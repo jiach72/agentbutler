@@ -2,7 +2,7 @@
  * 通用分组折叠列表：技能库与插件库共用的 Collapse 分组渲染。
  * 此前两处各写一份几乎相同的 items 构造，现合并为一个泛型组件。
  */
-import { Collapse, Tag } from "antd";
+import { Collapse, Flex, Tag } from "antd";
 import type { ReactNode } from "react";
 
 export interface LibraryGroup<T> {
@@ -14,15 +14,13 @@ interface LibraryGroupListProps<T> {
   groups: Array<LibraryGroup<T>>;
   /** 渲染单条内容；返回的元素需自带 key。 */
   renderItem: (item: T, index: number) => ReactNode;
-  /** 分组内容容器的类名（技能行列表 / 插件卡片网格）。 */
-  contentClassName: string;
+  /** 默认展开前 N 组（0 表示全部折叠）。 */
   defaultOpenCount?: number;
 }
 
 export function LibraryGroupList<T>({
   groups,
   renderItem,
-  contentClassName,
   defaultOpenCount = 0,
 }: LibraryGroupListProps<T>) {
   return (
@@ -32,14 +30,12 @@ export function LibraryGroupList<T>({
       items={groups.map((group) => ({
         key: group.category,
         label: (
-          <span className="skill-collapse-label">
-            <strong>{group.category}</strong>
+          <Flex align="center" gap={8}>
+            <span style={{ fontWeight: 600 }}>{group.category}</span>
             <Tag>{group.items.length} 个</Tag>
-          </span>
+          </Flex>
         ),
-        children: (
-          <div className={contentClassName}>{group.items.map((item, index) => renderItem(item, index))}</div>
-        ),
+        children: <div>{group.items.map((item, index) => renderItem(item, index))}</div>,
       }))}
     />
   );

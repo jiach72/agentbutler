@@ -3,9 +3,10 @@
  * 记忆检索独立于技能/插件列表——搜索只更新记忆分区，失败不回滚列表。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { App, Button, Spin, Tabs } from "antd";
+import { Alert, App, Button, Card, Col, Flex, Row, Spin, Statistic, Tabs, Typography } from "antd";
 import { ConnectionChip } from "../../components/ConnectionChip.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
+import { PageHeader } from "../../components/PageHeader.js";
 import { loadJson, postJson } from "../../lib/api.js";
 import type { FetchState } from "../../lib/api.js";
 import {
@@ -16,10 +17,11 @@ import {
   modeLabel,
   type SkillsPayload,
 } from "./helpers.js";
-import { DirectoryFallback } from "./DirectoryFallback.js";
 import { MemoryPanel } from "./MemoryPanel.js";
 import { PluginLibrary } from "./PluginLibrary.js";
 import { SkillLibrary } from "./SkillLibrary.js";
+
+const { Text } = Typography;
 
 export function SkillsPage() {
   const { message } = App.useApp();
@@ -162,36 +164,37 @@ export function SkillsPage() {
   ];
 
   return (
-    <section className="page skills-page">
-      <header className="skills-header">
-        <div>
-          <span className="skills-eyebrow">只读查看</span>
-          <h1>技能与记忆</h1>
-          <p>查看已安装技能、插件及本机记忆。当前页面仅支持只读查看。</p>
-        </div>
-        <div className="skills-header-status">
-          <ConnectionChip
-            reachable={libraryData?.watchReachable}
-            connectingText="正在连接管家"
-            offlineText="管家服务暂时连不上"
-          />
-          <span className="skills-instance">
-            {libraryData === null || libraryData.instance === null
-              ? "尚未发现实例"
-              : `实例版本：${libraryData.instance.version ?? "版本未知"}`}
-          </span>
-        </div>
-      </header>
+    <section className="skills-page">
+      <PageHeader
+        eyebrow="只读查看"
+        title="技能与记忆"
+        description="查看已安装技能、插件及本机记忆。当前页面仅支持只读查看。"
+        extra={
+          <Flex vertical align="flex-end" gap={4}>
+            <ConnectionChip
+              reachable={libraryData?.watchReachable}
+              connectingText="正在连接管家"
+              offlineText="管家服务暂时连不上"
+            />
+            <Text type="secondary">
+              {libraryData === null || libraryData.instance === null
+                ? "尚未发现实例"
+                : `实例版本：${libraryData.instance.version ?? "版本未知"}`}
+            </Text>
+          </Flex>
+        }
+      />
 
-      <section className="skills-overview" aria-label="全局概览">
+      <Row gutter={[16, 16]} aria-label="全局概览">
         {overview.map((item) => (
-          <div className="skills-overview-kpi" key={item.key}>
-            <span>{item.label}</span>
-            <strong>{item.value}</strong>
-            <small>{item.sub}</small>
-          </div>
+          <Col flex="1 1 160px" key={item.key}>
+            <Card size="small">
+              <Statistic title={item.label} value={item.value} />
+              <Text type="secondary">{item.sub}</Text>
+            </Card>
+          </Col>
         ))}
-      </section>
+      </Row>
 
       {mainState.status === "failed" && (
         <DegradedBanner
@@ -203,7 +206,6 @@ export function SkillsPage() {
       )}
 
       <Tabs
-        className="skills-tabs"
         defaultActiveKey="skills"
         aria-busy={mainState.status === "loading"}
         items={[
@@ -211,18 +213,20 @@ export function SkillsPage() {
             key: "skills",
             label: "技能",
             children: (
-              <div className="skills-tab" id="skills-panel">
+              <div id="skills-panel">
                 {mainState.status === "loading" && (
-                  <>
-                    <div className="skills-driver-note">
-                      <strong>{modeLabel("unavailable")}</strong>
-                      <span>正在读取技能状态</span>
-                    </div>
-                    <div className="skills-empty">
+                  <Flex vertical gap={16}>
+                    <Alert
+                      type="info"
+                      showIcon
+                      message={modeLabel("unavailable")}
+                      description="正在读取技能状态"
+                    />
+                    <Flex justify="center" align="center" gap={8}>
                       <Spin />
-                      <p>正在读取技能清单…</p>
-                    </div>
-                  </>
+                      <Text type="secondary">正在读取技能清单…</Text>
+                    </Flex>
+                  </Flex>
                 )}
                 {mainState.status === "ready" && <SkillLibrary skills={mainState.data.skills} />}
               </div>
@@ -232,18 +236,20 @@ export function SkillsPage() {
             key: "plugins",
             label: "插件",
             children: (
-              <div className="skills-tab" id="plugins-panel">
+              <div id="plugins-panel">
                 {mainState.status === "loading" && (
-                  <>
-                    <div className="skills-driver-note">
-                      <strong>{modeLabel("unavailable")}</strong>
-                      <span>正在读取插件状态</span>
-                    </div>
-                    <div className="skills-empty">
+                  <Flex vertical gap={16}>
+                    <Alert
+                      type="info"
+                      showIcon
+                      message={modeLabel("unavailable")}
+                      description="正在读取插件状态"
+                    />
+                    <Flex justify="center" align="center" gap={8}>
                       <Spin />
-                      <p>正在读取插件清单…</p>
-                    </div>
-                  </>
+                      <Text type="secondary">正在读取插件清单…</Text>
+                    </Flex>
+                  </Flex>
                 )}
                 {mainState.status === "ready" && <PluginLibrary plugins={mainState.data.plugins} />}
               </div>
@@ -253,7 +259,7 @@ export function SkillsPage() {
             key: "memory",
             label: "记忆",
             children: (
-              <div className="skills-tab" id="memory-panel">
+              <div id="memory-panel">
                 <MemoryPanel
                   data={lastGood}
                   searching={searching}

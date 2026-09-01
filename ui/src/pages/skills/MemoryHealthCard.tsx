@@ -1,7 +1,8 @@
 /**
  * 记忆健康卡片：健康分、信号明细、管家建议与自检/备份操作。
  */
-import { Button } from "antd";
+import { Alert, Button, Card, Flex, List, Progress, Typography } from "antd";
+import { theme } from "antd";
 import type { MemoryHealthView, MemorySelfCheckView } from "./helpers.js";
 import { healthTone, signalLabel } from "./helpers.js";
 
@@ -13,6 +14,17 @@ interface MemoryHealthCardProps {
   backupBusy: boolean;
 }
 
+/** 信号状态 → 语义 token 色（避免散落硬编码颜色）。 */
+function signalColor(
+  status: string,
+  token: { colorSuccess: string; colorWarning: string; colorError: string; colorTextQuaternary: string },
+): string {
+  if (status === "ok") return token.colorSuccess;
+  if (status === "warn") return token.colorWarning;
+  if (status === "error") return token.colorError;
+  return token.colorTextQuaternary;
+}
+
 export function MemoryHealthCard({
   health,
   selfCheck,
@@ -20,54 +32,62 @@ export function MemoryHealthCard({
   onBackup,
   backupBusy,
 }: MemoryHealthCardProps) {
+  const { token } = theme.useToken();
   if (health === null) {
     return (
-      <div className="memory-health is-unknown">
-        <div className="memory-health-head">
-          <strong>记忆健康</strong>
-          <span>管家还没返回健康分析</span>
-        </div>
-      </div>
+      <Card size="small" title="记忆健康">
+        <Typography.Text type="secondary">管家还没返回健康分析</Typography.Text>
+      </Card>
     );
   }
   const tone = healthTone(health.score);
+  const score = Math.round(health.score);
+  const toneColor =
+    tone === "good"
+      ? token.colorSuccess
+      : tone === "ok"
+        ? token.colorPrimary
+        : tone === "warn"
+          ? token.colorWarning
+          : token.colorError;
   return (
-    <div className={`memory-health is-${tone}`}>
-      <div className="memory-health-main">
-        <div className="memory-health-head">
-          <div className="memory-health-score">
-            <strong>{Math.round(health.score)}</strong>
-            <span>/100</span>
-          </div>
-          <div className="memory-health-status">
-            <strong>记忆健康</strong>
-            <span>
-              {tone === "good"
-                ? "状态很好，不需要动手"
-                : tone === "ok"
-                  ? "基本正常，可留意建议"
-                  : tone === "warn"
-                    ? "有需要注意的地方"
-                    : "建议尽快处理"}
-            </span>
-          </div>
-        </div>
+    <Card size="small" title="记忆健康">
+      <Flex vertical gap={16}>
+        <Flex gap={16} align="center" wrap="wrap">
+          <Progress
+            type="circle"
+            size={72}
+            percent={score}
+            strokeColor={toneColor}
+            format={() => String(score)}
+          />
+          <Typography.Text type="secondary">
+            {tone === "good"
+              ? "状态很好，不需要动手"
+              : tone === "ok"
+                ? "基本正常，可留意建议"
+                : tone === "warn"
+                  ? "有需要注意的地方"
+                  : "建议尽快处理"}
+          </Typography.Text>
+        </Flex>
 
         {health.suggestions.length > 0 && (
-          <div className="memory-suggestions">
-            <strong>管家建议</strong>
-            {health.suggestions.map((suggestion) => (
-              <div className="memory-suggestion" key={suggestion.id}>
-                <div>
-                  <strong>{suggestion.title}</strong>
-                  <span>{suggestion.detail}</span>
-                </div>
-              </div>
-            ))}
-          </div>
+          <Flex vertical gap={4}>
+            <Typography.Text strong>管家建议</Typography.Text>
+            <List
+              size="small"
+              dataSource={health.suggestions}
+              renderItem={(suggestion) => (
+                <List.Item style={{ padding: "6px 0" }}>
+                  <List.Item.Meta title={suggestion.title} description={suggestion.detail} />
+                </List.Item>
+              )}
+            />
+          </Flex>
         )}
 
-        <div className="memory-health-actions">
+        <Flex gap={8} wrap="wrap">
           <Button
             disabled={backupBusy}
             onClick={onBackup}
@@ -82,35 +102,61 @@ export function MemoryHealthCard({
           >
             {selfCheck.busy ? "自检中…" : "立即自检记忆"}
           </Button>
-        </div>
-      </div>
+        </Flex>
 
-      <ul className="memory-signals">
-        {health.signals.map((signal) => (
-          <li key={signal.id} className={`is-${signal.status}`}>
-            <i />
-            <div>
-              <strong>{signalLabel(signal.id, signal.label)}</strong>
-              <span>{signal.detail}</span>
-            </div>
-          </li>
-        ))}
-      </ul>
+        <List
+          size="small"
+          dataSource={health.signals}
+          renderItem={(signal) => (
+            <List.Item style={{ padding: "6px 0" }}>
+              <List.Item.Meta
+                avatar={undefined}
+                title={
+                  <Flex align="center" gap={8}>
+                    <span
+                      style={{
+                        width: 7,
+                        height: 7,
+                        borderRadius: "50%",
+                        flexShrink: 0,
+                        background: signalColor(signal.status, token),
+                      }}
+                    />
+                    {signalLabel(signal.id, signal.label)}
+                  </Flex>
+                }
+                description={signal.detail}
+              />
+            </List.Item>
+          )}
+        />
 
-      {selfCheck.result !== null && (
-        <div className={`memory-selfcheck is-${selfCheck.result.status}`} role="status">
-          <strong>
-            {selfCheck.result.status === "pass"
-              ? "记忆读写正常"
-              : selfCheck.result.status === "warn"
-                ? "记忆读写基本正常，需要留意"
-                : selfCheck.result.status === "skipped"
-                  ? "本次自检跳过"
-                  : "记忆读写有问题"}
-          </strong>
-          <span>{selfCheck.result.detail}</span>
-        </div>
-      )}
-    </div>
+        {selfCheck.result !== null && (
+          <Alert
+            role="status"
+            type={
+              selfCheck.result.status === "pass"
+                ? "success"
+                : selfCheck.result.status === "warn"
+                  ? "warning"
+                  : selfCheck.result.status === "skipped"
+                    ? "info"
+                    : "error"
+            }
+            showIcon
+            message={
+              selfCheck.result.status === "pass"
+                ? "记忆读写正常"
+                : selfCheck.result.status === "warn"
+                  ? "记忆读写基本正常，需要留意"
+                  : selfCheck.result.status === "skipped"
+                    ? "本次自检跳过"
+                    : "记忆读写有问题"
+            }
+            description={selfCheck.result.detail}
+          />
+        )}
+      </Flex>
+    </Card>
   );
 }
