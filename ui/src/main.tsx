@@ -10,7 +10,6 @@ import * as zhCNNamespace from "antd/es/locale/zh_CN.js";
 import "antd/dist/reset.css";
 import { AccessGate } from "./components/AccessGate.js";
 import { Layout } from "./components/Layout.js";
-import { PageProgress } from "./components/PageProgress.js";
 import { isSetupCompleted } from "./pages/setup/state.js";
 import { loadJson } from "./lib/api.js";
 import { ThemeProvider, antdThemeFor, useTheme } from "./theme/ThemeProvider.js";

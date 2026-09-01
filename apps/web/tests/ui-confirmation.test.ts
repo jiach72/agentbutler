@@ -23,7 +23,7 @@ describe("UI 危险操作确认层", () => {
     const modal = readUiSource("components/DangerConfirmModal.tsx");
 
     expect(modal).toContain("<Modal");
-    expect(modal).toContain("maskClosable={false}");
+    expect(modal).toContain("mask={{ closable: false }}");
     expect(modal).toContain("keyboard={!busy}");
     expect(modal).toContain("closable={!busy}");
     expect(modal).toContain('okButtonProps={{ danger: true, disabled: busy, loading: busy }}');

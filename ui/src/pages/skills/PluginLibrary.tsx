@@ -18,14 +18,12 @@ import {
   collectCategories,
   collectSources,
   formatNumber,
-  groupByCategory,
   modeLabel,
   riskDetail,
   riskLabel,
   SOURCE_LABELS,
   toSelectOptions,
 } from "./helpers.js";
-import { LibraryGroupList } from "./LibraryGroupList.js";
 
 function compactLabel(value: string, max = 12): string {
   return value.length > max ? `${value.slice(0, max - 1)}…` : value;
@@ -57,7 +55,6 @@ export function PluginLibrary({ plugins }: PluginLibraryProps) {
       ),
     [plugins.items, category, source],
   );
-  const groups = useMemo(() => groupByCategory(filtered), [filtered]);
   const { mode } = useTheme();
   const chartTheme = useMemo(() => chartThemeFor(mode), [mode]);
 

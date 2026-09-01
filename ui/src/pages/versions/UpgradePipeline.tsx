@@ -7,7 +7,7 @@ import { PageProgress } from "../../components/PageProgress.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { formatRelative } from "../../lib/format.js";
-import { channelBadge, instanceLabel, jobBadge, stepBadge } from "./helpers.js";
+import { channelBadge, instanceLabel, jobBadge } from "./helpers.js";
 import type { ManagedUpgradeProgressView } from "./helpers.js";
 import type { UpgradeJobView } from "./types.js";
 
