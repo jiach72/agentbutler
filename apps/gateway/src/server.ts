@@ -313,13 +313,23 @@ function registerMessageRoutes(
       const status = await messageService.status();
       const health = status.bridgeHealth;
       const summary = messageStore.messageStatusSummary();
+      const runtimeStatus = health?.channelStatus ?? {};
       const channelDetails = Object.fromEntries(
-        Object.entries(health?.channels ?? {}).map(([channel, channelStatus]) => [channel, {
-          status: channelStatus,
-          unavailableReason: channelStatus === "ok" ? null : channelStatus === "degraded" ? "通道已连接，但部分能力暂不可用" : "通道未连接，可能缺少凭据或桥接未启动",
-          unavailableFix: channelStatus === "ok" ? null : channelStatus === "degraded" ? "检查桥接状态并重新连接" : "补充通道凭据后重新连接",
-          retryable: channelStatus !== "unavailable" || status.bridgeConnected,
-        }]),
+        Object.entries(health?.channels ?? {}).map(([channel, channelStatusFlag]) => {
+          const runtime = runtimeStatus[channel];
+          return [channel, {
+            status: channelStatusFlag,
+            unavailableReason: channelStatusFlag === "ok" ? null : channelStatusFlag === "degraded" ? "通道已连接，但部分能力暂不可用" : "通道未连接，可能缺少凭据或桥接未启动",
+            unavailableFix: channelStatusFlag === "ok" ? null : channelStatusFlag === "degraded" ? "检查桥接状态并重新连接" : "补充通道凭据后重新连接",
+            retryable: channelStatusFlag !== "unavailable" || status.bridgeConnected,
+            ...(runtime === undefined ? {} : {
+              enabled: runtime.enabled,
+              credentialsConfigured: runtime.credentialsConfigured,
+              loginState: runtime.loginState,
+              ...(runtime.account === undefined ? {} : { account: runtime.account }),
+            }),
+          }];
+        }),
       );
       return {
         mode,

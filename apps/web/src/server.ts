@@ -368,7 +368,7 @@ export interface MessageBridgeView {
   policyHash: string | null;
   remotePolicyVersion: string | null;
   channels: Record<string, string>;
-  channelDetails?: Record<string, { status: string; unavailableReason: string | null; unavailableFix: string | null; retryable: boolean }>;
+  channelDetails?: Record<string, { status: string; unavailableReason: string | null; unavailableFix: string | null; retryable: boolean; loginState?: string; account?: string | null }>;
   coverage: Record<string, string>;
   startedAt: string | null;
   lastCycleAt: string | null;
@@ -1278,11 +1278,15 @@ function parseMessageStatus(value: unknown): MessageStatusView | null {
     if (!isRecord(channelDetailsRaw)) return null;
     for (const [channel, value] of Object.entries(channelDetailsRaw)) {
       if (!isRecord(value) || typeof value["status"] !== "string" || typeof value["retryable"] !== "boolean" || !isNullableString(value["unavailableReason"]) || !isNullableString(value["unavailableFix"])) return null;
+      const loginState = typeof value["loginState"] === "string" ? (value["loginState"] as string) : undefined;
+      const account = isNullableString(value["account"]) ? (value["account"] as string | null) : undefined;
       channelDetails[channel] = {
         status: value["status"],
         retryable: value["retryable"],
         unavailableReason: value["unavailableReason"] as string | null,
         unavailableFix: value["unavailableFix"] as string | null,
+        ...(loginState === undefined ? {} : { loginState }),
+        ...(account === undefined ? {} : { account }),
       };
     }
   }
@@ -1930,6 +1934,12 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     } catch {
       return { reachable: false, status: null };
     }
+  });
+  // 通道目录代理：国内 IM 通道的登录态与健康一览（gateway 不可达/非 2xx 一律 502 降级）。
+  app.get("/api/messages/channels", async (_request, reply) => {
+    const res = await fetchGateway("/api/messages/channels");
+    if (res === null || !res.ok) return reply.status(502).send({ error: "gateway-unreachable" });
+    return reply.status(res.status).send(await res.json().catch(() => ({ channels: [] })));
   });
   app.post("/api/messages/reconnect", async (request, reply) =>
     proxyGatewayPost("/api/messages/reconnect", request.body, reply),
