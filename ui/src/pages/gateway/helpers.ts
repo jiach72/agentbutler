@@ -99,7 +99,14 @@ export interface MessageBridgeView {
   policyVersion: string | null;
   remotePolicyVersion: string | null;
   channels: Record<string, string>;
-  channelDetails?: Record<string, { status: string; unavailableReason: string | null; unavailableFix: string | null; retryable: boolean }>;
+  channelDetails?: Record<string, {
+    status: string;
+    unavailableReason: string | null;
+    unavailableFix: string | null;
+    retryable: boolean;
+    loginState?: ChannelDirectoryEntryView["loginState"];
+    account?: string;
+  }>;
   coverage: Record<string, string>;
   startedAt: string | null;
   lastCycleAt: string | null;
@@ -138,6 +145,17 @@ export interface RelayControlView {
   enabled: boolean;
   pending: boolean;
   updatedAt: string | null;
+}
+
+/** 通道目录条目（镜像 contract ChannelDirectoryEntry，来自 GET /api/messages/channels）。 */
+export interface ChannelDirectoryEntryView {
+  id: string;
+  label: string;
+  kind: "qr-login" | "credential" | "builtin";
+  enabled: boolean;
+  credentialsConfigured: boolean;
+  loginState: "logged_in" | "logged_out" | "configuring" | "unknown";
+  account?: string;
 }
 
 export interface MessageOverviewPayload {
@@ -399,6 +417,25 @@ export function relayModeCopy(relay: RelayControlView): { title: string; detail:
   return relay.pending
     ? { title: "原通道直发中（待生效）", detail: "正在切到原通道，生效后面板会自动更新。" }
     : { title: "原通道直发中", detail: "消息由本机 AI 直接发送，不再经过合并与限速；记录仍然保留。" };
+}
+
+/** 通道登录态 → 面板文案。 */
+export function loginStateCopy(state: ChannelDirectoryEntryView["loginState"]): string {
+  switch (state) {
+    case "logged_in": return "已登录";
+    case "logged_out": return "未登录";
+    case "configuring": return "待配置";
+    default: return "未知";
+  }
+}
+
+/** 通道接入类型 → 面板文案。 */
+export function channelKindLabel(kind: ChannelDirectoryEntryView["kind"]): string {
+  switch (kind) {
+    case "qr-login": return "扫码登录";
+    case "credential": return "凭据接入";
+    default: return "内置";
+  }
 }
 
 export function formatTimestamp(ts: string | null | undefined): string {

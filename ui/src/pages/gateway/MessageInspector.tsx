@@ -1,9 +1,9 @@
 /**
- * 消息明细面板：数据面通道/覆盖状态 + 消息列表 + 所选消息详情（含技术编号二级折叠）。
+ * 消息明细面板：数据面覆盖状态 + 消息列表 + 所选消息详情（含技术编号二级折叠）。
+ * 通道卡片与「重新连接通道」入口已迁移至 ChannelGrid。
  */
 import { AdvancedDetails } from "../../components/AdvancedDetails.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
-import { ReloadOutlined } from "@ant-design/icons";
 import { Alert, Button, Card, Col, Descriptions, Empty, Flex, Row, Timeline, Typography } from "antd";
 import { formatRelative } from "../../lib/format.js";
 import {
@@ -34,7 +34,6 @@ interface MessageInspectorProps {
   onSelectMessage: (messageId: string) => void;
   taskData: MessageTaskView | null;
   taskLoading: boolean;
-  onReconnect: () => void;
 }
 
 /** tone → 圆点颜色（全部走 antd CSS 变量，不硬编码色值）。 */
@@ -44,12 +43,6 @@ const TONE_DOT_COLOR: Record<string, string> = {
   error: "var(--ant-color-error)",
   muted: "var(--ant-color-text-quaternary)",
 };
-
-const pillStyle = {
-  border: "1px solid var(--ant-color-border-secondary)",
-  borderRadius: 999,
-  padding: "2px 10px",
-} as const;
 
 const chipStyle = {
   border: "1px solid var(--ant-color-border-secondary)",
@@ -67,7 +60,6 @@ export function MessageInspector({
   onSelectMessage,
   taskData,
   taskLoading,
-  onReconnect,
 }: MessageInspectorProps) {
   return (
     <>
@@ -106,53 +98,6 @@ export function MessageInspector({
         }
       >
         <Flex vertical gap={16}>
-          <Flex wrap="wrap" gap={8} aria-label="消息通道状态">
-            {Object.entries(messageBridge?.channels ?? {}).length === 0 ? (
-              <Typography.Text type="secondary">尚未收到通道状态</Typography.Text>
-            ) : (
-              Object.entries(messageBridge?.channels ?? {}).map(([channel, status]) => {
-                const badge = statusTone(status);
-                const detail = messageBridge?.channelDetails?.[channel];
-                return (
-                  <Flex key={channel} align="center" gap={6} style={pillStyle}>
-                    <span
-                      aria-hidden
-                      style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: "50%",
-                        display: "inline-block",
-                        background:
-                          status === "ok"
-                            ? "var(--ant-color-success)"
-                            : "var(--ant-color-warning)",
-                      }}
-                    />
-                    <Typography.Text style={{ fontSize: 13 }}>{channelLabel(channel)}</Typography.Text>
-                    <StatusBadge tone={badge.tone} label={badge.label} />
-                    {detail?.unavailableReason && (
-                      <Typography.Text
-                        type="secondary"
-                        title={detail.unavailableFix ?? undefined}
-                        style={{ fontSize: 12 }}
-                      >
-                        {detail.unavailableReason}
-                      </Typography.Text>
-                    )}
-                  </Flex>
-                );
-              })
-            )}
-          </Flex>
-          {messageBridge !== null && Object.values(messageBridge.channelDetails ?? {}).some((item) => item.status !== "ok") && (
-            <Flex wrap="wrap" align="center" gap={12}>
-              <Button icon={<ReloadOutlined />} onClick={onReconnect}>
-                重新连接通道
-              </Button>
-              <Typography.Text type="secondary">不可用原因已标注在对应通道旁</Typography.Text>
-            </Flex>
-          )}
-
           <Flex wrap="wrap" gap={8} aria-label="运行路径覆盖">
             {coverageEntries.length === 0 ? (
               <Empty

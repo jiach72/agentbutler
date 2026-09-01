@@ -19,6 +19,7 @@ import { usePolling } from "../../hooks/usePolling.js";
 import { fetchJson, postJson } from "../../lib/api.js";
 import { validateGatewayPatches, validatePatchParamAgainstSchema } from "../../lib/patchRules.js";
 import { AlertQueuePanel } from "./AlertQueuePanel.js";
+import { ChannelGrid } from "./ChannelGrid.js";
 import { ConnectionHealth } from "./ConnectionHealth.js";
 import { DeliveryTrendCard } from "./DeliveryTrendCard.js";
 import { MessageInspector } from "./MessageInspector.js";
@@ -394,6 +395,8 @@ export function GatewayPage() {
           />
         )}
 
+        <ChannelGrid refreshedAt={lastUpdated} onReconnect={() => void reconnectMessages()} />
+
         <ConnectionHealth
           messageBridge={messageBridge}
           bridgeReady={bridgeReady}
@@ -421,7 +424,6 @@ export function GatewayPage() {
               onSelectMessage={setSelectedMessageId}
               taskData={taskData}
               taskLoading={taskLoading}
-              onReconnect={() => void reconnectMessages()}
             />
           </Flex>
         </AdvancedDetails>
