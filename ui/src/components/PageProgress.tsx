@@ -1,4 +1,8 @@
-import type { CSSProperties } from "react";
+/**
+ * 页面级进度反馈：进度条用 antd Progress（含 active 状态的不确定动画），
+ * 步骤列表保持轻量圆点行（语义色随主题变量）。
+ */
+import { Progress } from "antd";
 
 export type PageProgressStepState = "done" | "active" | "pending" | "failed";
 
@@ -28,11 +32,10 @@ export function PageProgress({
     steps.length === 0
       ? 0
       : Math.min(100, Math.round(((completed + (hasActive ? 0.5 : 0)) / steps.length) * 100));
-  const style = { "--page-progress-scale": percent / 100 } as CSSProperties;
 
   return (
     <section
-      className={`page-progress${compact ? " is-compact" : ""}${indeterminate ? " is-indeterminate" : ""}`}
+      className={`page-progress${compact ? " is-compact" : ""}`}
       role="status"
       aria-live="polite"
       aria-busy="true"
@@ -41,17 +44,12 @@ export function PageProgress({
         <strong>{title}</strong>
         <span>{detail}</span>
       </div>
-      <div
-        className="page-progress-track"
-        role="progressbar"
-        aria-label={title}
-        {...(indeterminate
-          ? {}
-          : { "aria-valuemin": 0, "aria-valuemax": 100, "aria-valuenow": percent })}
-        style={style}
-      >
-        <i />
-      </div>
+      <Progress
+        percent={indeterminate ? 50 : percent}
+        showInfo={false}
+        size={["100%", 6]}
+        status={indeterminate ? "active" : "normal"}
+      />
       {steps.length > 0 && (
         <ol className="page-progress-steps">
           {steps.map((step) => (

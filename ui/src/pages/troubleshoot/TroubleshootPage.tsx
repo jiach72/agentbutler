@@ -7,6 +7,8 @@
  */
 import { useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
+import { Flex } from "antd";
+import { PageHeader } from "../../components/PageHeader.js";
 import { PageProgress } from "../../components/PageProgress.js";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
 import { SymptomStep, WizardSteps } from "./steps/SymptomStep.js";
@@ -36,74 +38,72 @@ export function TroubleshootPage() {
   }, [requestedSymptom, wizard.chooseSymptom, wizard.stage]);
 
   return (
-    <section className="page product-page troubleshoot-page">
-      <header className="page-heading product-heading">
-        <div>
-          <span className="product-eyebrow">排查</span>
-          <h1>有问题？我来帮你查</h1>
-          <p className="hint">
-            不用懂技术，按你看到的现象选一个，管家会查清楚原因并给出可以点的处理办法。
-          </p>
-        </div>
-      </header>
-
-      <WizardSteps current={STAGE_INDEX[wizard.stage] ?? 0} />
-
-      {wizard.stage === "symptom" && (
-        <SymptomStep busy={wizard.busy} onChoose={wizard.chooseSymptom} />
-      )}
-
-      {wizard.stage === "evidence" && wizard.diagnosis !== null && (
-        <EvidenceStep
-          diagnosis={wizard.diagnosis}
-          symptom={wizard.symptom}
-          onBack={() => wizard.setStage("symptom")}
-          onNext={() => wizard.setStage("action")}
+    <section className="troubleshoot-page">
+      <Flex vertical gap={24}>
+        <PageHeader
+          eyebrow="排查"
+          title="有问题？我来帮你查"
+          description="不用懂技术，按你看到的现象选一个，管家会查清楚原因并给出可以点的处理办法。"
         />
-      )}
 
-      {wizard.stage === "action" && wizard.diagnosis !== null && (
-        <ActionStep
-          ranked={wizard.ranked}
-          recommended={wizard.recommended}
-          selected={wizard.selected}
-          symptom={wizard.symptom}
+        <WizardSteps current={STAGE_INDEX[wizard.stage] ?? 0} />
+
+        {wizard.stage === "symptom" && (
+          <SymptomStep busy={wizard.busy} onChoose={wizard.chooseSymptom} />
+        )}
+
+        {wizard.stage === "evidence" && wizard.diagnosis !== null && (
+          <EvidenceStep
+            diagnosis={wizard.diagnosis}
+            symptom={wizard.symptom}
+            onBack={() => wizard.setStage("symptom")}
+            onNext={() => wizard.setStage("action")}
+          />
+        )}
+
+        {wizard.stage === "action" && wizard.diagnosis !== null && (
+          <ActionStep
+            ranked={wizard.ranked}
+            recommended={wizard.recommended}
+            selected={wizard.selected}
+            symptom={wizard.symptom}
+            busy={wizard.busy}
+            onSelect={wizard.setSelected}
+            onBack={() => wizard.setStage("evidence")}
+            onRun={wizard.requestAction}
+          />
+        )}
+
+        {wizard.stage === "result" && (
+          <ResultStep
+            job={wizard.job}
+            outcome={wizard.outcome}
+            diagnosis={wizard.diagnosis}
+            busy={wizard.busy}
+            onBack={() => wizard.setStage("action")}
+            onRestart={wizard.restart}
+          />
+        )}
+
+        {wizard.stage !== "symptom" && wizard.diagnosis === null && (
+          <PageProgress title="正在读取诊断结果" detail="查完后会自动进入下一步。" />
+        )}
+
+        <DangerConfirmModal
+          open={wizard.pendingAction !== null}
+          title={wizard.pendingAction === null ? "确认执行" : `确认执行「${wizard.pendingAction.label}」？`}
+          impact={wizard.pendingAction?.impact}
+          steps={wizard.pendingAction === null ? undefined : ["创建当前状态快照", wizard.pendingAction.description, "完成后自动复查结果"]}
+          confirmLabel="确认执行"
           busy={wizard.busy}
-          onSelect={wizard.setSelected}
-          onBack={() => wizard.setStage("evidence")}
-          onRun={wizard.requestAction}
-        />
-      )}
-
-      {wizard.stage === "result" && (
-        <ResultStep
-          job={wizard.job}
-          outcome={wizard.outcome}
-          diagnosis={wizard.diagnosis}
-          busy={wizard.busy}
-          onBack={() => wizard.setStage("action")}
-          onRestart={wizard.restart}
-        />
-      )}
-
-      {wizard.stage !== "symptom" && wizard.diagnosis === null && (
-        <PageProgress title="正在读取诊断结果" detail="查完后会自动进入下一步。" />
-      )}
-
-      <DangerConfirmModal
-        open={wizard.pendingAction !== null}
-        title={wizard.pendingAction === null ? "确认执行" : `确认执行「${wizard.pendingAction.label}」？`}
-        impact={wizard.pendingAction?.impact}
-        steps={wizard.pendingAction === null ? undefined : ["创建当前状态快照", wizard.pendingAction.description, "完成后自动复查结果"]}
-        confirmLabel="确认执行"
-        busy={wizard.busy}
-        onCancel={wizard.cancelPendingAction}
-        onConfirm={wizard.confirmAction}
-      >
-        {wizard.pendingAction === null
-          ? ""
-          : "这项操作会修改本机运行状态。请确认你了解上面的影响后再继续。"}
-      </DangerConfirmModal>
+          onCancel={wizard.cancelPendingAction}
+          onConfirm={wizard.confirmAction}
+        >
+          {wizard.pendingAction === null
+            ? ""
+            : "这项操作会修改本机运行状态。请确认你了解上面的影响后再继续。"}
+        </DangerConfirmModal>
+      </Flex>
     </section>
   );
 }

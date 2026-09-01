@@ -1,8 +1,10 @@
 import { CheckCircleOutlined, ExclamationCircleOutlined, ReloadOutlined, SyncOutlined } from "@ant-design/icons";
-import { Button } from "antd";
+import { Badge, Button, Card, Col, Flex, Row, Typography } from "antd";
 import { useMemo } from "react";
 import type { ConnectionsPayload, DiscoveredLlmConfigView, LlmStatusView } from "./types.js";
 import { buildLocalReadiness, type ReadinessTone } from "./readiness.js";
+
+const { Text, Title } = Typography;
 
 interface ReadinessSectionProps {
   connections: ConnectionsPayload | null;
@@ -12,10 +14,25 @@ interface ReadinessSectionProps {
   onRefresh: () => void;
 }
 
+const toneBadgeStatus = {
+  ok: "success",
+  warn: "warning",
+  error: "error",
+  idle: "default",
+} as const;
+
 function ReadinessIcon({ tone }: { tone: ReadinessTone }) {
-  if (tone === "ok") return <CheckCircleOutlined aria-hidden="true" />;
-  if (tone === "idle") return <SyncOutlined spin aria-hidden="true" />;
-  return <ExclamationCircleOutlined aria-hidden="true" />;
+  const color =
+    tone === "ok"
+      ? "var(--ant-color-success)"
+      : tone === "warn"
+        ? "var(--ant-color-warning)"
+        : tone === "error"
+          ? "var(--ant-color-error)"
+          : "var(--ant-color-text-quaternary)";
+  if (tone === "ok") return <CheckCircleOutlined aria-hidden="true" style={{ color }} />;
+  if (tone === "idle") return <SyncOutlined spin aria-hidden="true" style={{ color }} />;
+  return <ExclamationCircleOutlined aria-hidden="true" style={{ color }} />;
 }
 
 export function ReadinessSection({
@@ -31,43 +48,59 @@ export function ReadinessSection({
   );
 
   return (
-    <section className={`readiness-section ${readiness.ready ? "is-ok" : ""}`} aria-labelledby="readiness-heading">
-      <div className="manager-section-head readiness-section-head">
-        <div>
-          <span className="product-eyebrow">持续就绪</span>
-          <h2 id="readiness-heading">本机运行就绪度</h2>
-          <p className="readiness-summary" aria-live="polite"><strong>{readiness.summary}</strong>{readiness.detail}</p>
-        </div>
-        <div className="readiness-actions">
-          {readiness.nextAction !== undefined && (
-            <Button type="primary" href={readiness.nextAction.to}>
-              {readiness.nextAction.label}
-            </Button>
-          )}
-          <Button icon={<ReloadOutlined />} loading={refreshing} onClick={onRefresh}>
-            复查状态
-          </Button>
-        </div>
-      </div>
-      <div className="readiness-grid">
-        {readiness.items.map((item) => (
-          <article key={item.id} className={`readiness-card is-${item.tone}`}>
-            <div className="readiness-card-head">
-              <span className="readiness-card-icon"><ReadinessIcon tone={item.tone} /></span>
-              <div>
-                <h3>{item.title}</h3>
-                <strong>{item.status}</strong>
-              </div>
-            </div>
-            <p>{item.detail}</p>
-            {item.action !== undefined && (
-              <Button type="link" href={item.action.to} className="readiness-card-action">
-                {item.action.label}
+    <section aria-labelledby="readiness-heading">
+      <Flex vertical gap={16}>
+        <Flex wrap="wrap" justify="space-between" align="flex-start" gap={16}>
+          <div style={{ minWidth: 0 }}>
+            <Text
+              type="secondary"
+              style={{ display: "block", fontSize: 12, fontWeight: 600, letterSpacing: "0.08em" }}
+            >
+              持续就绪
+            </Text>
+            <Title level={4} id="readiness-heading" style={{ marginBottom: 4 }}>
+              本机运行就绪度
+            </Title>
+            <Text type="secondary" aria-live="polite">
+              <Text strong>{readiness.summary}</Text>
+              {readiness.detail}
+            </Text>
+          </div>
+          <Flex wrap="wrap" gap={8}>
+            {readiness.nextAction !== undefined && (
+              <Button type="primary" href={readiness.nextAction.to}>
+                {readiness.nextAction.label}
               </Button>
             )}
-          </article>
-        ))}
-      </div>
+            <Button icon={<ReloadOutlined />} loading={refreshing} onClick={onRefresh}>
+              复查状态
+            </Button>
+          </Flex>
+        </Flex>
+        <Row gutter={[16, 16]}>
+          {readiness.items.map((item) => (
+            <Col xs={24} md={12} xl={8} key={item.id}>
+              <Card size="small" style={{ height: "100%" }}>
+                <Flex vertical gap={8}>
+                  <Flex align="center" gap={8}>
+                    <ReadinessIcon tone={item.tone} />
+                    <Text strong style={{ flex: 1, minWidth: 0 }}>
+                      {item.title}
+                    </Text>
+                    <Badge status={toneBadgeStatus[item.tone]} text={item.status} />
+                  </Flex>
+                  <Text type="secondary">{item.detail}</Text>
+                  {item.action !== undefined && (
+                    <Button type="link" href={item.action.to} style={{ paddingInline: 0 }}>
+                      {item.action.label}
+                    </Button>
+                  )}
+                </Flex>
+              </Card>
+            </Col>
+          ))}
+        </Row>
+      </Flex>
     </section>
   );
 }

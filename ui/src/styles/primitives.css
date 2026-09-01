@@ -1,149 +1,15 @@
 /**
- * 共享原语层：全站复用的容器、标题层级、卡片、提示、空态、键值对
- * 以及共享组件（PageProgress / NotificationCenter / AdvancedDetails / 危险确认弹窗）的皮肤。
+ * 共享原语层：仅保留仍被页面/组件引用的容器与共享组件皮肤。
+ * 已被 antd v6 原语替代的旧规则（旧卡片体系、页面标题层级、语义色调助手等）已退役。
+ * 控件观感交给 antd Design Token；变量真源见 theme/tokens.ts。
  */
 
-/* ---- 页面容器与标题层级 ---- */
+/* ---- 页面容器 ---- */
 
-.product-page,
 [class$="-page"] {
   display: flex;
   flex-direction: column;
   gap: var(--butler-space-4);
-}
-
-.product-kicker,
-.product-eyebrow,
-.evolution-kicker,
-.skills-kicker,
-.manager-section-kicker {
-  color: var(--butler-accent);
-  font-size: var(--butler-text-xs);
-  font-weight: 650;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-}
-
-.page-heading,
-.product-heading {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.page-heading h1,
-.product-heading h1,
-[class$="-page"] > header h1 {
-  font-size: var(--butler-text-xxl);
-  letter-spacing: -0.015em;
-}
-
-.page-heading p,
-.product-heading p,
-.manager-subhead {
-  color: var(--butler-muted);
-  font-size: var(--butler-text-sm);
-}
-
-.section-title,
-.gateway-section-heading,
-.settings-section-head > strong,
-.plugin-section-head strong {
-  font-size: var(--butler-text-lg);
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-
-/* ---- 卡片体系 ---- */
-
-.card {
-  background: var(--butler-surface);
-  border: 1px solid var(--butler-rule);
-  border-radius: var(--butler-radius-card);
-  padding: var(--butler-space-4) var(--butler-space-5);
-  box-shadow: var(--butler-shadow);
-}
-.card > .card-head + * {
-  margin-top: var(--butler-space-3);
-}
-
-.card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--butler-space-3);
-  margin-bottom: var(--butler-space-3);
-}
-.card-head:last-child {
-  margin-bottom: 0;
-}
-.card-head h2,
-.card-head h3,
-.card-head > strong {
-  font-size: var(--butler-text-md);
-  font-weight: 600;
-}
-.card-head small {
-  color: var(--butler-muted);
-  font-size: var(--butler-text-xs);
-}
-
-.cards-grid {
-  display: grid;
-  gap: var(--butler-space-3);
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-}
-
-.cards-stack {
-  display: grid;
-  gap: var(--butler-space-3);
-}
-
-.table-card {
-  padding: 0;
-  overflow: hidden;
-}
-
-/* ---- 文本辅助 ---- */
-
-.hint {
-  color: var(--butler-muted);
-  font-size: var(--butler-text-xs);
-  line-height: 1.6;
-}
-
-.field-label,
-.po-col-label,
-.backup-policy-meta,
-.route-row strong {
-  font-size: var(--butler-text-xs);
-  color: var(--butler-muted);
-  font-weight: 550;
-}
-
-/* ---- 空态 ---- */
-
-.empty-state,
-.check-empty,
-.gateway-quiet-state,
-.message-feed-empty,
-.message-inspector-empty,
-.skills-empty,
-.version-empty-explained,
-.log-source-empty,
-.log-diagnosis-empty,
-.prompt-empty,
-.evolution-empty {
-  display: grid;
-  justify-items: center;
-  gap: 6px;
-  padding: var(--butler-space-6) var(--butler-space-4);
-  border: 1px dashed var(--butler-rule);
-  border-radius: var(--butler-radius-card);
-  background: var(--butler-surface-subtle);
-  color: var(--butler-muted);
-  font-size: var(--butler-text-sm);
-  text-align: center;
 }
 
 /* ---- 趋势图表卡片 ---- */
@@ -175,9 +41,20 @@
   line-height: 1.5;
 }
 
-.chart-loading {
+/* ---- 空态 ---- */
+
+.empty-state {
+  min-height: 168px;
   display: grid;
   place-items: center;
+  gap: 10px;
+  padding: var(--butler-space-6) var(--butler-space-4);
+  text-align: center;
+  border: 1px dashed var(--butler-rule);
+  border-radius: var(--butler-radius-card);
+  background: var(--butler-surface-subtle);
+  color: var(--butler-muted);
+  line-height: 1.6;
 }
 
 /* ---- 键值对 / 数据行 ---- */
@@ -193,16 +70,6 @@
 .kv > .k {
   color: var(--butler-muted);
   font-size: var(--butler-text-xs);
-}
-
-.butler-version-fact,
-.version-instance-facts,
-.connection-meta,
-.instance-meta,
-.message-facts {
-  color: var(--butler-muted);
-  font-size: var(--butler-text-xs);
-  line-height: 1.6;
 }
 
 /* ---- 高级详情折叠区 ---- */
@@ -222,104 +89,6 @@
 .advanced-details-extra {
   color: var(--butler-muted);
   font-size: var(--butler-text-xs);
-}
-.advanced-details-body {
-  font-size: var(--butler-text-sm);
-}
-
-/* ---- PageProgress ---- */
-
-.page-progress {
-  display: flex;
-  flex-direction: column;
-  gap: var(--butler-space-2);
-  padding: var(--butler-space-3) var(--butler-space-4);
-  background: var(--butler-surface);
-  border: 1px solid var(--butler-rule);
-  border-radius: var(--butler-radius-card);
-}
-.page-progress-copy {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 8px;
-  font-size: var(--butler-text-sm);
-}
-.page-progress-copy span {
-  color: var(--butler-muted);
-  font-size: var(--butler-text-xs);
-}
-.page-progress-track {
-  position: relative;
-  height: 6px;
-  border-radius: 999px;
-  background: var(--butler-sunken);
-  overflow: hidden;
-}
-.page-progress-track i {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  border-radius: inherit;
-  background: var(--butler-accent);
-  transform: scaleX(var(--page-progress-scale, 0));
-  transform-origin: left center;
-  transition: transform var(--butler-dur-base) var(--butler-ease);
-}
-.page-progress.is-indeterminate .page-progress-track i {
-  width: 40%;
-  transform: none;
-  animation: butler-indeterminate 1.2s ease-in-out infinite;
-}
-@keyframes butler-indeterminate {
-  from { transform: translateX(-100%); }
-  to { transform: translateX(350%); }
-}
-.page-progress.is-compact {
-  padding: 10px var(--butler-space-3);
-}
-.page-progress-steps {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 16px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  font-size: var(--butler-text-xs);
-}
-.page-progress-steps li {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--butler-muted);
-}
-.page-progress-steps li i {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--butler-ink-faint);
-  opacity: 0.45;
-}
-.page-progress-steps li.is-active {
-  color: var(--butler-accent);
-}
-.page-progress-steps li.is-active i {
-  background: var(--butler-accent);
-  opacity: 1;
-}
-.page-progress-steps li.is-done {
-  color: var(--butler-ok);
-}
-.page-progress-steps li.is-done i {
-  background: var(--butler-ok);
-  opacity: 1;
-}
-.page-progress-steps li.is-failed {
-  color: var(--butler-error);
-}
-.page-progress-steps li.is-failed i {
-  background: var(--butler-error);
-  opacity: 1;
 }
 
 /* ---- 通知中心 ---- */
@@ -473,23 +242,4 @@
   display: grid;
   gap: 4px;
   color: var(--butler-ink-soft);
-}
-
-/* ---- 语义色调助手（页面级 is-* 复用） ---- */
-
-.is-ok,
-.state-ok,
-.step-done {
-  --tone-color: var(--butler-ok);
-}
-.is-warn,
-.state-warn,
-.step-active {
-  --tone-color: var(--butler-warn);
-}
-.is-error,
-.state-error,
-.step-failed,
-.is-fail {
-  --tone-color: var(--butler-error);
 }

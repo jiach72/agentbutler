@@ -2,16 +2,24 @@
  * 进化页左栏：高级运行设置（antd Form）、预检清单、运行/补齐动作与结论框。
  */
 import { useMemo } from "react";
-import { Form, Input, InputNumber, Button } from "antd";
+import { Alert, Badge, Button, Col, Flex, Form, Input, InputNumber, Row, Typography } from "antd";
 import type { FormInstance } from "antd";
 import { AdvancedDetails } from "../../components/AdvancedDetails.js";
 import {
   type BusyKind,
-  checkTone,
+  type CheckStatus,
   HOLDOUT_RULES,
   PENDING_CHECKS,
   type PreflightOutcome,
 } from "./helpers.js";
+
+type BadgeState = "success" | "error" | "processing";
+
+function checkStatus(status: CheckStatus): BadgeState {
+  if (status === "pass") return "success";
+  if (status === "fail") return "error";
+  return "processing";
+}
 
 interface PreflightPanelProps {
   form: FormInstance;
@@ -46,18 +54,26 @@ export function PreflightPanel({
   }, [busy, preflight]);
 
   return (
-    <section className="evolution-column evolution-preflight">
-      <div className="evolution-section-head">
-        <div>
-          <span className="evolution-kicker">开始之前</span>
-          <h2>先检查，再运行</h2>
-        </div>
-        <span
-          className={`evolution-state ${preflight?.allowRun ? "is-pass" : failedChecks.length > 0 ? "is-fail" : "is-pending"}`}
-        >
-          {preflightState}
-        </span>
-      </div>
+    <Flex vertical gap={16}>
+      <Flex wrap="wrap" justify="space-between" align="center" gap={12}>
+        <Flex vertical gap={2}>
+          <Typography.Text
+            type="secondary"
+            style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.08em" }}
+          >
+            开始之前
+          </Typography.Text>
+          <Typography.Title level={5} component="h3" style={{ marginBottom: 0 }}>
+            先检查，再运行
+          </Typography.Title>
+        </Flex>
+        <Badge
+          status={
+            preflight?.allowRun ? "success" : failedChecks.length > 0 ? "error" : "processing"
+          }
+          text={preflightState}
+        />
+      </Flex>
 
       <AdvancedDetails
         summary={
@@ -67,46 +83,72 @@ export function PreflightPanel({
           </span>
         }
       >
-        <div className="evolution-form-grid">
-          <Form.Item name="dependencies" label="运行依赖（高级）">
-            <Input />
-          </Form.Item>
-          <Form.Item name="endpoint" label="模型连接地址">
-            <Input placeholder="例如：https://你的模型地址/v1" />
-          </Form.Item>
-          <Form.Item name="holdoutCount" label="测试样本数量" rules={HOLDOUT_RULES}>
-            <InputNumber min={0} step={1} precision={0} style={{ width: "100%" }} />
-          </Form.Item>
-          <Form.Item name="instanceId" label="管家实例（可选）">
-            <Input placeholder="留空自动选择正在运行的实例" />
-          </Form.Item>
-          <Form.Item name="datasetPath" label="测试样本位置（可选）">
-            <Input placeholder="例如：/home/你的账户/hermes/eval/test.jsonl" />
-          </Form.Item>
-        </div>
+        <Row gutter={[16, 16]}>
+          <Col xs={24} md={12}>
+            <Form.Item name="dependencies" label="运行依赖（高级）">
+              <Input />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item name="endpoint" label="模型连接地址">
+              <Input placeholder="例如：https://你的模型地址/v1" />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item name="holdoutCount" label="测试样本数量" rules={HOLDOUT_RULES}>
+              <InputNumber min={0} step={1} precision={0} style={{ width: "100%" }} />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item name="instanceId" label="管家实例（可选）">
+              <Input placeholder="留空自动选择正在运行的实例" />
+            </Form.Item>
+          </Col>
+          <Col xs={24}>
+            <Form.Item name="datasetPath" label="测试样本位置（可选）">
+              <Input placeholder="例如：/home/你的账户/hermes/eval/test.jsonl" />
+            </Form.Item>
+          </Col>
+        </Row>
       </AdvancedDetails>
 
-      <ol className="evolution-checks">
+      <Flex vertical gap={8}>
         {checks.map((check, index) => (
-          <li
-            className={checkTone(check.status)}
+          <Flex
             key={check.id}
-            style={{ animationDelay: `${index * 55}ms` }}
+            align="flex-start"
+            justify="space-between"
+            gap={12}
+            style={{
+              animationDelay: `${index * 55}ms`,
+              padding: "10px 12px",
+              border: "1px solid var(--ant-color-border-secondary)",
+              borderRadius: 8,
+            }}
           >
-            <span className="evolution-check-dot" aria-hidden="true" />
-            <div>
-              <strong>{check.label}</strong>
-              <p>{check.detail}</p>
-              {check.action !== undefined && <em>{check.action}</em>}
-            </div>
-            <span className="evolution-check-status">
-              {check.status === "pass" ? "通过" : check.status === "fail" ? "失败" : "待检"}
-            </span>
-          </li>
+            <Flex vertical gap={2} style={{ minWidth: 0 }}>
+              <Flex align="center" gap={8}>
+                <Badge status={checkStatus(check.status)} />
+                <Typography.Text strong>{check.label}</Typography.Text>
+              </Flex>
+              <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                {check.detail}
+              </Typography.Paragraph>
+              {check.action !== undefined && (
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  {check.action}
+                </Typography.Text>
+              )}
+            </Flex>
+            <Badge
+              status={checkStatus(check.status)}
+              text={check.status === "pass" ? "通过" : check.status === "fail" ? "失败" : "待检"}
+            />
+          </Flex>
         ))}
-      </ol>
+      </Flex>
 
-      <div className="evolution-primary-action">
+      <Flex align="center" gap={12}>
         <Button
           type="primary"
           loading={busy === "preflight"}
@@ -115,44 +157,63 @@ export function PreflightPanel({
         >
           开始检查
         </Button>
-        <span>全部通过后管家会先备份，再允许外部改进。</span>
-      </div>
+        <Typography.Text type="secondary">
+          全部通过后管家会先备份，再允许外部改进。
+        </Typography.Text>
+      </Flex>
 
       {preflight !== null && !preflight.allowRun && (
-        <div className="evolution-decision is-rejected">
-          <div className="evolution-decision-label">拒绝运行</div>
-          <h3>{failedChecks[0]?.detail ?? "检查未通过"}</h3>
-          <p>{failedChecks[0]?.action ?? "按提示处理好后重新检查。"}</p>
-          {preflight.nextAction?.kind === "expand-dataset" && (
-            <div className="evolution-expander">
-              <Form.Item
-                name="seedExamples"
-                label="没有数据集路径时，粘贴 JSON 数组或 JSONL 种子样本"
-              >
-                <Input.TextArea
-                  rows={4}
-                  placeholder={'{"prompt":"示例问题","expected":"期望答案"}'}
-                />
-              </Form.Item>
-              <Button
-                loading={busy === "expand"}
-                disabled={busy !== null || !canExpand}
-                onClick={onExpandDataset}
-              >
-                {`补齐到 ${preflight.nextAction.targetCount} 条并重检`}
-              </Button>
-            </div>
-          )}
-        </div>
+        <Alert
+          type="error"
+          showIcon
+          title="拒绝运行"
+          description={
+            <Flex vertical gap={12}>
+              <Typography.Text strong>{failedChecks[0]?.detail ?? "检查未通过"}</Typography.Text>
+              <Typography.Text type="secondary">
+                {failedChecks[0]?.action ?? "按提示处理好后重新检查。"}
+              </Typography.Text>
+              {preflight.nextAction?.kind === "expand-dataset" && (
+                <Flex vertical gap={8}>
+                  <Form.Item
+                    name="seedExamples"
+                    label="没有数据集路径时，粘贴 JSON 数组或 JSONL 种子样本"
+                    style={{ marginBottom: 0 }}
+                  >
+                    <Input.TextArea
+                      rows={4}
+                      placeholder={'{"prompt":"示例问题","expected":"期望答案"}'}
+                    />
+                  </Form.Item>
+                  <Button
+                    loading={busy === "expand"}
+                    disabled={busy !== null || !canExpand}
+                    onClick={onExpandDataset}
+                  >
+                    {`补齐到 ${preflight.nextAction.targetCount} 条并重检`}
+                  </Button>
+                </Flex>
+              )}
+            </Flex>
+          }
+        />
       )}
 
       {preflight?.allowRun === true && (
-        <div className="evolution-decision is-ready">
-          <div className="evolution-decision-label">检查通过，可以开始改进</div>
-          <h3>已做好备份；改进结果确认后才会采用</h3>
-          <p>管家已准备好运行环境。改进完成后，在右侧提交结果确认；确认更好才会写入。</p>
-        </div>
+        <Alert
+          type="success"
+          showIcon
+          title="检查通过，可以开始改进"
+          description={
+            <Flex vertical gap={4}>
+              <Typography.Text strong>已做好备份；改进结果确认后才会采用</Typography.Text>
+              <Typography.Text type="secondary">
+                管家已准备好运行环境。改进完成后，在右侧提交结果确认；确认更好才会写入。
+              </Typography.Text>
+            </Flex>
+          }
+        />
       )}
-    </section>
+    </Flex>
   );
 }

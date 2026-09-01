@@ -4,7 +4,8 @@
  * 这一步的意义是把用户从"我不知道该点哪个按钮"里解出来。
  * 选项不带任何技术分类，用户凭直觉选即可；选什么都不会漏掉后面的证据。
  */
-import { Button, Card } from "antd";
+import { LoadingOutlined } from "@ant-design/icons";
+import { Button, Card, Flex, Space, Steps, Typography } from "antd";
 import { SYMPTOMS, type SymptomId } from "../symptoms.js";
 
 interface SymptomStepProps {
@@ -14,16 +15,15 @@ interface SymptomStepProps {
 
 export function SymptomStep({ busy, onChoose }: SymptomStepProps) {
   return (
-    <div className="wizard-step">
-      <h2 className="wizard-question">哪里不对劲？</h2>
-      <p className="wizard-lead">
+    <Flex vertical gap={16}>
+      <Typography.Title level={4} style={{ marginBottom: 0 }}>哪里不对劲？</Typography.Title>
+      <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
         选一个最接近的描述，管家会照着这个方向重点排查。选错了也没关系，所有检查结果都会完整显示。
-      </p>
-      <div className="symptom-grid">
+      </Typography.Paragraph>
+      <Flex wrap gap={12}>
         {SYMPTOMS.map((symptom) => (
           <Card
             key={symptom.id}
-            className="symptom-card"
             variant="outlined"
             hoverable={!busy}
             role="button"
@@ -37,18 +37,22 @@ export function SymptomStep({ busy, onChoose }: SymptomStepProps) {
                 onChoose(symptom.id);
               }
             }}
+            style={{ cursor: busy ? "default" : "pointer", flex: "1 1 240px" }}
           >
-            <strong>{symptom.label}</strong>
-            <small>{symptom.hint}</small>
+            <Flex vertical gap={4}>
+              <Typography.Text strong>{symptom.label}</Typography.Text>
+              <Typography.Text type="secondary">{symptom.hint}</Typography.Text>
+            </Flex>
           </Card>
         ))}
-      </div>
+      </Flex>
       {busy && (
-        <p className="wizard-busy" role="status">
-          正在检查，请稍等…
-        </p>
+        <Space>
+          <LoadingOutlined />
+          <Typography.Text type="secondary" role="status">正在检查，请稍等…</Typography.Text>
+        </Space>
       )}
-    </div>
+    </Flex>
   );
 }
 
@@ -56,22 +60,7 @@ export function SymptomStep({ busy, onChoose }: SymptomStepProps) {
 export function WizardSteps({ current }: { current: number }) {
   const labels = ["描述问题", "查看证据", "选择处理", "确认结果"];
   return (
-    <ol className="wizard-steps" aria-label="排查进度">
-      {labels.map((label, index) => (
-        <li
-          key={label}
-          className={
-            index === current ? "is-current" : index < current ? "is-done" : "is-todo"
-          }
-          aria-current={index === current ? "step" : undefined}
-        >
-          <span className="wizard-step-index" aria-hidden="true">
-            {index < current ? "✓" : index + 1}
-          </span>
-          <span>{label}</span>
-        </li>
-      ))}
-    </ol>
+    <Steps size="small" current={current} items={labels.map((label) => ({ title: label }))} />
   );
 }
 
@@ -90,7 +79,7 @@ export function WizardNav({
   busy?: boolean;
 }) {
   return (
-    <div className="wizard-nav">
+    <Space wrap>
       {onBack !== undefined && (
         <Button onClick={onBack} disabled={busy}>
           上一步
@@ -101,6 +90,6 @@ export function WizardNav({
           {nextLabel}
         </Button>
       )}
-    </div>
+    </Space>
   );
 }

@@ -4,7 +4,7 @@
  * 最忌讳的是"执行完了"这种没有结论的话。用户需要知道：
  * 到底修好了没有？没修好现在是什么状态（有没有被我搞坏）？接下来还能做什么？
  */
-import { Alert, Button, Progress, Space } from "antd";
+import { Alert, Button, Flex, Progress, Space, Typography } from "antd";
 import type { RecoveryDiagnosisView, RecoveryJobView } from "../../dashboard/types.js";
 import type { WizardOutcome } from "../useTroubleshoot.js";
 import { useExportReport } from "../exportReport.js";
@@ -25,43 +25,41 @@ export function ResultStep({ job, outcome, diagnosis, busy, onBack, onRestart }:
   const guidance = guidanceForDiagnosis(diagnosis);
 
   return (
-    <div className="wizard-step">
-      <h2 className="wizard-question">
+    <Flex vertical gap={16}>
+      <Typography.Title level={4} style={{ marginBottom: 0 }}>
         {running ? "正在处理…" : outcome === null ? "处理完成" : outcome.label}
-      </h2>
+      </Typography.Title>
 
       {running && job !== null && (
-        <>
-          <p className="wizard-lead">{job.detail}</p>
+        <Flex vertical gap={16}>
+          <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>{job.detail}</Typography.Paragraph>
           <Progress percent={job.progress} status="active" />
-          <p className="wizard-busy" role="status">
+          <Typography.Text type="secondary" role="status">
             这一步大概需要一点时间，页面会自动更新结果，不用手动刷新。
-          </p>
-        </>
+          </Typography.Text>
+        </Flex>
       )}
 
       {!running && outcome !== null && (
         <Alert
-          className="wizard-verdict"
           type={outcome.state === "fixed" ? "success" : "warning"}
           showIcon
-          title={outcome.label}
+          message={outcome.label}
           description={outcome.detail}
         />
       )}
 
       {!running && outcome === null && (
         <Alert
-          className="wizard-verdict"
           type="info"
           showIcon
-          title="正在复查处理结果"
+          message="正在复查处理结果"
           description="动作已经执行完，管家正在确认问题是否解决，稍等一下就会给出结论。"
         />
       )}
 
       {!running && (
-        <div className="wizard-next-actions">
+        <Flex vertical gap={8}>
           <Space wrap>
             {outcome?.state === "unresolved" && (
               <>
@@ -76,12 +74,12 @@ export function ResultStep({ job, outcome, diagnosis, busy, onBack, onRestart }:
               重新排查
             </Button>
           </Space>
-          <p className="wizard-hint">
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             没修好也不用担心：管家在每个动作执行前都做了快照，不会把状态搞得更糟。
             {outcome?.state === "unresolved" ? ` ${guidance.detail}` : " 下载报告后贴到项目的 Issue 里，能帮你的人一眼就能看到全貌。"}
-          </p>
-        </div>
+          </Typography.Text>
+        </Flex>
       )}
-    </div>
+    </Flex>
   );
 }

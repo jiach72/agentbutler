@@ -3,20 +3,42 @@
  * 检索只影响本面板：searching 仅预览区提示，失败单独报错，不牵动技能/插件列表。
  */
 import { useMemo, useState } from "react";
-import { Input, Button } from "antd";
+import {
+  Alert,
+  Button,
+  Col,
+  Empty,
+  Flex,
+  Input,
+  List,
+  Row,
+  Statistic,
+  Tag,
+  Typography,
+} from "antd";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { ChartEmpty, TrendColumn } from "../../components/charts/index.js";
 import { chartThemeFor, primaryFill, quietAxes } from "../../components/charts/chartTheme.js";
 import { useTheme } from "../../theme/ThemeProvider.js";
 import type { MemorySelfCheckView, SkillsPayload } from "./helpers.js";
-import {
-  channelLabel,
-  formatNumber,
-  formatTime,
-  PREVIEW_LIMIT,
-} from "./helpers.js";
+import { channelLabel, formatNumber, formatTime, PREVIEW_LIMIT } from "./helpers.js";
 import { DirectoryFallback } from "./DirectoryFallback.js";
 import { MemoryHealthCard } from "./MemoryHealthCard.js";
+
+const { Text, Title } = Typography;
+
+/** 写入活跃度 → Alert 语义色。 */
+function activityAlertType(status: string): "success" | "warning" | "info" {
+  if (status === "active") return "success";
+  if (status === "stalled") return "warning";
+  return "info";
+}
+
+const ACTIVITY_LABEL: Record<string, string> = {
+  active: "写入活跃",
+  stalled: "可能停写",
+  empty: "尚无记忆",
+};
 
 interface MemoryPanelProps {
   /** 生效数据：检索成功用检索结果，其余回退到最近一次完整数据。 */
@@ -57,90 +79,86 @@ export function MemoryPanel({
 
   const previewEntries = data?.memory.preview ?? [];
   const previewLimit = data?.memory.previewLimit ?? PREVIEW_LIMIT;
+  const activityStatus = data?.memory.writeActivity.status ?? "unknown";
+
+  const probeAttempts = data?.memory.stats?.probeRecallAttempts;
+  const probeRate =
+    probeAttempts !== undefined && probeAttempts > 0
+      ? `${Math.round(((data?.memory.stats?.probeRecallHits ?? 0) / probeAttempts) * 100)}%`
+      : "—";
 
   return (
-    <>
-      <div className="skills-section-head">
-        <div>
-          <span className="skills-kicker">记忆库</span>
-          <h2>统计与检索预览</h2>
-        </div>
-        <Button
-          type="text"
-          className="skills-refresh"
-          onClick={onRefresh}
-          disabled={refreshing}
-        >
+    <Flex vertical gap={16}>
+      <Flex justify="space-between" align="center">
+        <Flex vertical>
+          <Title level={4} component="h2" style={{ marginBottom: 0 }}>
+            记忆库
+          </Title>
+          <Text type="secondary">统计与检索预览</Text>
+        </Flex>
+        <Button type="text" onClick={onRefresh} disabled={refreshing}>
           {refreshing ? "刷新中" : "刷新"}
         </Button>
-      </div>
+      </Flex>
 
-      <div className="memory-stats">
-        <div>
-          <strong>{formatNumber(data?.memory.stats?.totalEntries ?? 0)}</strong>
-          <span>记忆条目</span>
-        </div>
-        <div>
-          <strong>{formatNumber(data?.memory.stats?.coldCandidates ?? 0)}</strong>
-          <span>长期未使用</span>
-        </div>
-        <div>
-          <strong>{formatTime(data?.memory.stats?.lastWriteAt ?? null, "尚无写入")}</strong>
-          <span>最近写入</span>
-        </div>
-        <div>
-          <strong>{formatNumber(data?.memory.stats?.cumulativeRecalls ?? 0)}</strong>
-          <span>累计召回</span>
-        </div>
-        <div>
-          <strong>
-            {data?.memory.stats?.probeRecallAttempts !== undefined &&
-            data?.memory.stats?.probeRecallAttempts > 0
-              ? `${Math.round(
-                  ((data.memory.stats.probeRecallHits ?? 0) / data.memory.stats.probeRecallAttempts) *
-                    100,
-                )}%`
-              : "—"}
-          </strong>
-          <span>探针召回命中</span>
-        </div>
-      </div>
+      <Row gutter={[16, 16]}>
+        <Col flex="1 1 150px">
+          <Statistic
+            title="记忆条目"
+            value={formatNumber(data?.memory.stats?.totalEntries ?? 0)}
+          />
+        </Col>
+        <Col flex="1 1 150px">
+          <Statistic
+            title="长期未使用"
+            value={formatNumber(data?.memory.stats?.coldCandidates ?? 0)}
+          />
+        </Col>
+        <Col flex="1 1 150px">
+          <Statistic
+            title="最近写入"
+            value={formatTime(data?.memory.stats?.lastWriteAt ?? null, "尚无写入")}
+          />
+        </Col>
+        <Col flex="1 1 150px">
+          <Statistic
+            title="累计召回"
+            value={formatNumber(data?.memory.stats?.cumulativeRecalls ?? 0)}
+          />
+        </Col>
+        <Col flex="1 1 150px">
+          <Statistic title="探针召回命中" value={probeRate} />
+        </Col>
+      </Row>
 
-      <div className="memory-health-wrap">
-        <MemoryHealthCard
-          health={data?.memory.health ?? null}
-          selfCheck={selfCheck}
-          onSelfCheck={onSelfCheck}
-          onBackup={onBackup}
-          backupBusy={backupBusy}
-        />
-      </div>
+      <MemoryHealthCard
+        health={data?.memory.health ?? null}
+        selfCheck={selfCheck}
+        onSelfCheck={onSelfCheck}
+        onBackup={onBackup}
+        backupBusy={backupBusy}
+      />
 
-      <div className={`memory-activity is-${data?.memory.writeActivity.status ?? "unknown"}`}>
-        <i />
-        <div>
-          <strong>
-            {data?.memory.writeActivity.status === "active"
-              ? "写入活跃"
-              : data?.memory.writeActivity.status === "stalled"
-                ? "可能停写"
-                : data?.memory.writeActivity.status === "empty"
-                  ? "尚无记忆"
-                  : "状态未知"}
-          </strong>
-          <span>{data?.memory.writeActivity.detail ?? "等待管家返回最近写入时间"}</span>
-        </div>
-      </div>
+      <Alert
+        type={activityAlertType(activityStatus)}
+        showIcon
+        message={ACTIVITY_LABEL[activityStatus] ?? "状态未知"}
+        description={data?.memory.writeActivity.detail ?? "等待管家返回最近写入时间"}
+      />
 
       {data?.memory.mode === "directory-fallback" && (
         <DirectoryFallback directory={data.memory.directory} />
       )}
 
-      <div className="memory-months">
-        <div className="memory-subhead">
-          <strong>按月写入</strong>
-          <span>{months.length > 0 ? `最近 ${months.length} 个月` : "历史数据"}</span>
-        </div>
+      <Flex vertical gap={8}>
+        <Flex justify="space-between" align="baseline">
+          <Title level={5} component="h3" style={{ marginBottom: 0 }}>
+            按月写入
+          </Title>
+          <Text type="secondary">
+            {months.length > 0 ? `最近 ${months.length} 个月` : "历史数据"}
+          </Text>
+        </Flex>
         {months.length === 0 || months.every((item) => item.count === 0) ? (
           <ChartEmpty hint="还没有按月写入历史；使用服务后，这里会出现记忆趋势。" />
         ) : (
@@ -161,49 +179,33 @@ export function MemoryPanel({
             tooltip={{ items: [{ channel: "y", name: "写入条数" }] }}
           />
         )}
-      </div>
+      </Flex>
 
-      <form
-        className="memory-search"
-        onSubmit={(event) => {
-          event.preventDefault();
-          onSearch(memoryInput);
-        }}
-      >
-        <label>
-          <span>全文检索记忆</span>
-          <div className="memory-search-field">
-            <Input
-              allowClear
-              placeholder="输入至少 3 个字"
-              value={memoryInput}
-              onChange={(event) => setMemoryInput(event.target.value)}
-              disabled={refreshing || data?.memory.mode !== "driver"}
-            />
-            <Button
-              type="primary"
-              htmlType="submit"
-              disabled={refreshing || data?.memory.mode !== "driver"}
-              loading={searching}
-            >
-              浏览
-            </Button>
-          </div>
-        </label>
-      </form>
+      <Flex vertical gap={4}>
+        <Text type="secondary">全文检索记忆</Text>
+        <Input.Search
+          allowClear
+          enterButton="浏览"
+          placeholder="输入至少 3 个字"
+          value={memoryInput}
+          onChange={(event) => setMemoryInput(event.target.value)}
+          onSearch={(keyword) => onSearch(keyword)}
+          disabled={refreshing || data?.memory.mode !== "driver"}
+          loading={searching}
+        />
+      </Flex>
 
-      <div className="memory-preview-head">
-        <div>
-          <strong>{activeKeyword === "" ? "最近记忆" : `“${activeKeyword}” 的结果`}</strong>
-          <span>
-            当前显示 {(data?.memory.preview.length ?? 0)} 条 · 最多显示{" "}
-            {previewLimit} 条
-          </span>
-        </div>
-        <strong>
+      <Flex justify="space-between" align="baseline" gap={16}>
+        <Flex vertical>
+          <Text strong>{activeKeyword === "" ? "最近记忆" : `“${activeKeyword}” 的结果`}</Text>
+          <Text type="secondary">
+            当前显示 {(data?.memory.preview.length ?? 0)} 条 · 最多显示 {previewLimit} 条
+          </Text>
+        </Flex>
+        <Text type={searchError !== null ? "danger" : searching ? "warning" : "secondary"}>
           {searching ? "检索中…" : searchError !== null ? "检索失败" : "读取状态已就绪"}
-        </strong>
-      </div>
+        </Text>
+      </Flex>
 
       {searchError !== null && (
         <DegradedBanner
@@ -214,38 +216,43 @@ export function MemoryPanel({
         />
       )}
 
-      <div className="memory-preview" aria-live="polite" aria-busy={searching}>
-        {previewEntries.map((entry, index) => (
-          <article
-            className="memory-entry"
-            key={entry.entryId}
-            style={{ animationDelay: `${Math.min(index, 10) * 30}ms` }}
-          >
-            <div>
-              <span>{formatTime(entry.writtenAt)}</span>
-              {entry.channel !== undefined && (
-                <span className="memory-channel">{channelLabel(entry.channel)}</span>
-              )}
-              {entry.cold === true && <em>较久未用</em>}
-            </div>
-            <p>{entry.content}</p>
-          </article>
-        ))}
-        {!refreshing && !searching && previewEntries.length === 0 && (
-          <div className="skills-empty">
-            {data?.memory.mode === "driver"
-              ? "没有可预览的记忆。"
-              : "没有可预览的记忆；管家服务恢复后可重试。"}
-          </div>
+      <div aria-live="polite" aria-busy={searching}>
+        {previewEntries.length === 0 ? (
+          !refreshing && !searching ? (
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description={
+                data?.memory.mode === "driver"
+                  ? "没有可预览的记忆。"
+                  : "没有可预览的记忆；管家服务恢复后可重试。"
+              }
+            />
+          ) : null
+        ) : (
+          <List
+            dataSource={previewEntries}
+            renderItem={(entry) => (
+              <List.Item>
+                <Flex vertical gap={4} style={{ width: "100%" }}>
+                  <Flex gap={8} align="center" wrap="wrap">
+                    <Text type="secondary">{formatTime(entry.writtenAt)}</Text>
+                    {entry.channel !== undefined && <Tag>{channelLabel(entry.channel)}</Tag>}
+                    {entry.cold === true && <Tag color="warning">较久未用</Tag>}
+                  </Flex>
+                  <div>{entry.content}</div>
+                </Flex>
+              </List.Item>
+            )}
+          />
         )}
       </div>
 
-      <div className="skills-scope-note">
-        <span>当前能做到</span>
-        <p>
-          这里仅查看技能、插件、记忆与健康状态；可以运行临时记忆自检，并创建本地记忆备份。
-        </p>
-      </div>
-    </>
+      <Alert
+        type="info"
+        showIcon={false}
+        message="当前能做到"
+        description="这里仅查看技能、插件、记忆与健康状态；可以运行临时记忆自检，并创建本地记忆备份。"
+      />
+    </Flex>
   );
 }

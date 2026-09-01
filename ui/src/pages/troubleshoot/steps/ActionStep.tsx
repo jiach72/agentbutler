@@ -7,7 +7,7 @@
  *    否则用户会以为是产品坏了。
  * 3）风险用后果说（会中断服务），不用等级说（high risk）。
  */
-import { Alert, Card, Radio } from "antd";
+import { Alert, Card, Collapse, Flex, Radio, Typography } from "antd";
 import { StatusBadge } from "../../../components/StatusBadge.js";
 import type { RecoveryActionView } from "../../dashboard/types.js";
 import type { SymptomId } from "../symptoms.js";
@@ -44,70 +44,77 @@ export function ActionStep({
   const chosen = ranked.find((action) => action.id === selected) ?? null;
 
   return (
-    <div className="wizard-step">
-      <h2 className="wizard-question">你想怎么处理？</h2>
-      <p className="wizard-lead">
+    <Flex vertical gap={16}>
+      <Typography.Title level={4} style={{ marginBottom: 0 }}>你想怎么处理？</Typography.Title>
+      <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
         已经按「先试影响最小的」排好序。没有把握就用推荐的那一个。
-      </p>
+      </Typography.Paragraph>
 
       {available.length === 0 ? (
         <Alert
           type="info"
           showIcon
-          title="现在没有可以自动执行的动作"
+          message="现在没有可以自动执行的动作"
           description="检查项都通过了，或者当前环境不支持自动处理。可以先导出诊断报告，把它发给能帮你的人。"
         />
       ) : (
         <Radio.Group
-          className="action-choices"
           value={selected ?? undefined}
           onChange={(event) => onSelect(String(event.target.value))}
+          style={{ display: "grid", gap: 12 }}
         >
           {available.map((action) => {
             const risk = RISK_LABEL[action.risk];
             return (
-              <div className="action-choice" key={action.id}>
+              <Card key={action.id} size="small" variant="outlined">
                 <Radio value={action.id}>
-                  <span className="action-choice-title">
-                    {action.label}
-                    {recommended?.id === action.id && (
-                      <StatusBadge tone="info" label="推荐" />
-                    )}
-                  </span>
+                  <Flex vertical gap={6}>
+                    <Flex align="center" gap={8} wrap>
+                      <Typography.Text strong>{action.label}</Typography.Text>
+                      {recommended?.id === action.id && (
+                        <StatusBadge tone="info" label="推荐" />
+                      )}
+                    </Flex>
+                    <Typography.Text type="secondary">{action.description}</Typography.Text>
+                    <Flex wrap gap={10} align="center">
+                      <StatusBadge tone={risk.tone} label={risk.text} />
+                      <Typography.Text type="secondary">{action.impact}</Typography.Text>
+                      <Typography.Text type="secondary">约 {action.estimatedSeconds} 秒</Typography.Text>
+                    </Flex>
+                  </Flex>
                 </Radio>
-                <div className="action-choice-body">
-                  <p>{action.description}</p>
-                  <p className="action-choice-meta">
-                    <StatusBadge tone={risk.tone} label={risk.text} />
-                    <span>{action.impact}</span>
-                    <span>约 {action.estimatedSeconds} 秒</span>
-                  </p>
-                </div>
-              </div>
+              </Card>
             );
           })}
         </Radio.Group>
       )}
 
       {unavailable.length > 0 && (
-        <details className="action-unavailable">
-          <summary>
-            还有 {unavailable.length} 个动作现在用不了（点开看原因）
-          </summary>
-          <div className="action-unavailable-body">
-            {unavailable.map((action) => (
-              <Card size="small" key={action.id} className="action-unavailable-card">
-                <strong>{action.label}</strong>
-                <p>{action.unavailableReason ?? "当前环境不支持"}</p>
-                {action.unavailableFix !== undefined && (
-                  <small className="action-unavailable-fix">
-                    想用上的话：{action.unavailableFix}
-                  </small>
-                )}
-              </Card>
-            ))}
-          </div>
-        </details>
+        <Collapse
+          items={[
+            {
+              key: "unavailable",
+              label: `还有 ${unavailable.length} 个动作现在用不了（点开看原因）`,
+              children: (
+                <Flex vertical gap={12}>
+                  {unavailable.map((action) => (
+                    <Card size="small" key={action.id} variant="outlined">
+                      <Flex vertical gap={4}>
+                        <Typography.Text strong>{action.label}</Typography.Text>
+                        <Typography.Text type="secondary">{action.unavailableReason ?? "当前环境不支持"}</Typography.Text>
+                        {action.unavailableFix !== undefined && (
+                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                            想用上的话：{action.unavailableFix}
+                          </Typography.Text>
+                        )}
+                      </Flex>
+                    </Card>
+                  ))}
+                </Flex>
+              ),
+            },
+          ]}
+        />
       )}
 
       <WizardNav
@@ -117,6 +124,6 @@ export function ActionStep({
         nextDisabled={chosen === null}
         busy={busy}
       />
-    </div>
+    </Flex>
   );
 }

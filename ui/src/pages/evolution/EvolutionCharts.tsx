@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { Badge, Col, Flex, Row, Typography } from "antd";
 import { useTheme } from "../../theme/ThemeProvider.js";
 import {
   ChartEmpty,
@@ -87,7 +88,7 @@ export function EvolutionCharts({ overview }: { overview: EvolutionOverviewPaylo
   const rateAxes = quietAxes(theme);
 
   return (
-    <div className="evolution-dashboard-charts">
+    <Flex vertical gap={16}>
       <TrendCard
         title="近 7 天使用趋势"
         summary={overview.source === "logs" ? "日志估算，字段不完整" : "会话与工具调用分别计量"}
@@ -95,55 +96,63 @@ export function EvolutionCharts({ overview }: { overview: EvolutionOverviewPaylo
         {sessions.length === 0 ? (
           <ChartEmpty hint="尚未采集到可绘制的会话或工具调用" />
         ) : (
-          <div className="evolution-usage-charts">
-            <div className="evolution-usage-chart">
-              <div className="evolution-chart-metric">
-                <span>工具调用</span>
-                <strong>{toolCalls.reduce((total, item) => total + item.value, 0).toLocaleString()}</strong>
-              </div>
-              <TrendArea
-                data={toolCalls}
-                xField="date"
-                yField="value"
-                theme={theme.g2Theme}
-                autoFit
-                height={168}
-                shapeField="smooth"
-                scale={{ color: { range: [usageColors[1].color] } }}
-                axis={quietAxes(theme)}
-                tooltip={{ items: [{ channel: "y", name: "工具调用" }] }}
-              />
-            </div>
-            <div className="evolution-usage-chart">
-              <div className="evolution-chart-metric">
-                <span>会话</span>
-                <strong>{sessions.reduce((total, item) => total + item.value, 0).toLocaleString()}</strong>
-              </div>
-              <TrendLine
-                data={sessions}
-                xField="date"
-                yField="value"
-                theme={theme.g2Theme}
-                autoFit
-                height={168}
-                shapeField="smooth"
-                scale={{ color: { range: [usageColors[0].color] } }}
-                axis={quietAxes(theme)}
-                tooltip={{ items: [{ channel: "y", name: "会话" }] }}
-              />
-            </div>
-          </div>
+          <Row gutter={[16, 16]}>
+            <Col xs={24} md={12}>
+              <Flex vertical gap={8}>
+                <Flex align="baseline" gap={8}>
+                  <Typography.Text type="secondary">工具调用</Typography.Text>
+                  <Typography.Text strong>
+                    {toolCalls.reduce((total, item) => total + item.value, 0).toLocaleString()}
+                  </Typography.Text>
+                </Flex>
+                <TrendArea
+                  data={toolCalls}
+                  xField="date"
+                  yField="value"
+                  theme={theme.g2Theme}
+                  autoFit
+                  height={168}
+                  shapeField="smooth"
+                  scale={{ color: { range: [usageColors[1].color] } }}
+                  axis={quietAxes(theme)}
+                  tooltip={{ items: [{ channel: "y", name: "工具调用" }] }}
+                />
+              </Flex>
+            </Col>
+            <Col xs={24} md={12}>
+              <Flex vertical gap={8}>
+                <Flex align="baseline" gap={8}>
+                  <Typography.Text type="secondary">会话</Typography.Text>
+                  <Typography.Text strong>
+                    {sessions.reduce((total, item) => total + item.value, 0).toLocaleString()}
+                  </Typography.Text>
+                </Flex>
+                <TrendLine
+                  data={sessions}
+                  xField="date"
+                  yField="value"
+                  theme={theme.g2Theme}
+                  autoFit
+                  height={168}
+                  shapeField="smooth"
+                  scale={{ color: { range: [usageColors[0].color] } }}
+                  axis={quietAxes(theme)}
+                  tooltip={{ items: [{ channel: "y", name: "会话" }] }}
+                />
+              </Flex>
+            </Col>
+          </Row>
         )}
       </TrendCard>
       <TrendCard title="成功率趋势" summary="仅基于明确结果，未知结果不计入成功">
         {rates.length === 0 ? (
           <ChartEmpty hint="暂无明确成功或失败结果" />
         ) : (
-          <div className="evolution-rate-chart">
-            <div className="evolution-chart-metric">
-              <span>当前成功率</span>
-              <strong>{Math.round(rates.at(-1)?.value ?? 0)}%</strong>
-            </div>
+          <Flex vertical gap={8}>
+            <Flex align="baseline" gap={8}>
+              <Typography.Text type="secondary">当前成功率</Typography.Text>
+              <Typography.Text strong>{Math.round(rates.at(-1)?.value ?? 0)}%</Typography.Text>
+            </Flex>
             <TrendArea
               data={rates}
               xField="date"
@@ -167,7 +176,7 @@ export function EvolutionCharts({ overview }: { overview: EvolutionOverviewPaylo
                 ],
               }}
             />
-          </div>
+          </Flex>
         )}
       </TrendCard>
       <TrendCard title="失败归因分布" summary="优先展示出现最多的六类失败，剩余合并">
@@ -202,7 +211,7 @@ export function EvolutionCharts({ overview }: { overview: EvolutionOverviewPaylo
         {timeline.length === 0 ? (
           <ChartEmpty hint="暂无进化运行记录" />
         ) : (
-          <div className="evolution-timeline-chart">
+          <Flex vertical gap={12}>
             <TrendScatter
               data={timeline}
               xField="time"
@@ -232,19 +241,25 @@ export function EvolutionCharts({ overview }: { overview: EvolutionOverviewPaylo
                 ],
               }}
             />
-            <div className="evolution-timeline-summary" aria-label="运行状态汇总">
+            <Flex wrap="wrap" align="center" gap={12} aria-label="运行状态汇总">
               {timelineTones
                 .filter((item) => item.count > 0)
                 .map((item) => (
-                  <span key={item.tone} className={`is-${item.tone === "受阻" ? "blocked" : item.tone === "已采用" ? "accepted" : "active"}`}>
-                    {toneLabel[item.tone === "受阻" ? "blocked" : item.tone === "已采用" ? "accepted" : "active"]} {item.count}
-                  </span>
+                  <Badge
+                    key={item.tone}
+                    status={
+                      item.tone === "受阻" ? "error" : item.tone === "已采用" ? "success" : "processing"
+                    }
+                    text={`${toneLabel[item.tone === "受阻" ? "blocked" : item.tone === "已采用" ? "accepted" : "active"]} ${item.count}`}
+                  />
                 ))}
-              <small>最近：{timeline.at(-1)?.status} · {timeline.at(-1)?.detail}</small>
-            </div>
-          </div>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                最近：{timeline.at(-1)?.status} · {timeline.at(-1)?.detail}
+              </Typography.Text>
+            </Flex>
+          </Flex>
         )}
       </TrendCard>
-    </div>
+    </Flex>
   );
 }

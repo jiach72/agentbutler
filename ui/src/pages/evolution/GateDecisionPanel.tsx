@@ -1,7 +1,18 @@
 /**
  * 进化页右栏门禁区：真实评估入口提示、评估结果、兼容手填表单与门禁结论。
  */
-import { Alert, Button, Checkbox, Form, Input, InputNumber } from "antd";
+import {
+  Alert,
+  Button,
+  Checkbox,
+  Col,
+  Flex,
+  Form,
+  Input,
+  InputNumber,
+  Row,
+  Typography,
+} from "antd";
 import type { FormInstance } from "antd";
 import { AdvancedDetails } from "../../components/AdvancedDetails.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
@@ -78,19 +89,25 @@ export function GateDecisionPanel({
             </span>
           }
         >
-          <div className="evolution-gate-form">
-            <div className="evolution-gate-title">
-              <strong>填写评估结果</strong>
-              <span>管家会保存你提交的结论，不会擅自判断好坏。</span>
-            </div>
-            <div className="evolution-metric-grid">
-              <Form.Item name="baselineMetric" label="当前版本表现" rules={METRIC_RULES}>
-                <InputNumber step="any" style={{ width: "100%" }} />
-              </Form.Item>
-              <Form.Item name="candidateMetric" label="改进后表现" rules={METRIC_RULES}>
-                <InputNumber step="any" style={{ width: "100%" }} />
-              </Form.Item>
-            </div>
+          <Flex vertical gap={16}>
+            <Flex vertical gap={2}>
+              <Typography.Text strong>填写评估结果</Typography.Text>
+              <Typography.Text type="secondary">
+                管家会保存你提交的结论，不会擅自判断好坏。
+              </Typography.Text>
+            </Flex>
+            <Row gutter={[16, 16]}>
+              <Col xs={24} sm={12}>
+                <Form.Item name="baselineMetric" label="当前版本表现" rules={METRIC_RULES}>
+                  <InputNumber step="any" style={{ width: "100%" }} />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={12}>
+                <Form.Item name="candidateMetric" label="改进后表现" rules={METRIC_RULES}>
+                  <InputNumber step="any" style={{ width: "100%" }} />
+                </Form.Item>
+              </Col>
+            </Row>
             <Form.Item name="significant" valuePropName="checked">
               <Checkbox>我确认改进后确实更好</Checkbox>
             </Form.Item>
@@ -108,24 +125,36 @@ export function GateDecisionPanel({
             >
               确认结果
             </Button>
-          </div>
+          </Flex>
         </AdvancedDetails>
       )}
 
       {gate !== null && (
-        <div className="evolution-gate-result is-blocked">
-          <StatusBadge
-            tone={outcomeTone(gate.status)}
-            label={gate.status === "accepted" ? "仅记录通过" : "暂不采用"}
-          />
-          <strong>
-            {statusLabel(gate.status)}
-            {gate.delta !== null
-              ? ` · 变化 ${gate.delta >= 0 ? "+" : ""}${gate.delta.toFixed(6)}`
-              : ""}
-          </strong>
-          <p>当前版本已保留。手填指标不会授权写入，正式采用需通过服务端受信提升入口。</p>
-        </div>
+        <Flex
+          vertical
+          gap={8}
+          style={{
+            border: "1px solid var(--ant-color-border-secondary)",
+            borderRadius: 8,
+            padding: 16,
+          }}
+        >
+          <Flex align="center" gap={8}>
+            <StatusBadge
+              tone={outcomeTone(gate.status)}
+              label={gate.status === "accepted" ? "仅记录通过" : "暂不采用"}
+            />
+            <Typography.Text strong>
+              {statusLabel(gate.status)}
+              {gate.delta !== null
+                ? ` · 变化 ${gate.delta >= 0 ? "+" : ""}${gate.delta.toFixed(6)}`
+                : ""}
+            </Typography.Text>
+          </Flex>
+          <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+            当前版本已保留。手填指标不会授权写入，正式采用需通过服务端受信提升入口。
+          </Typography.Paragraph>
+        </Flex>
       )}
     </>
   );

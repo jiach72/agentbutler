@@ -3,7 +3,7 @@
  * 仅在主数据就绪后渲染；空结果才显示 Empty，不再把加载失败伪装成空态。
  */
 import { useMemo, useState } from "react";
-import { Empty, Input, Select } from "antd";
+import { Alert, Card, Empty, Flex, Input, Select, Tag, Typography, theme } from "antd";
 import { SearchOutlined } from "@ant-design/icons";
 import { ChartEmpty, TrendBar, TrendCard } from "../../components/charts/index.js";
 import {
@@ -33,6 +33,13 @@ function compactLabel(value: string, max = 12): string {
   return value.length > max ? `${value.slice(0, max - 1)}…` : value;
 }
 
+/** 风险状态 → antd Tag 语义色（unscanned 走默认中性样式）。 */
+const RISK_TAG_COLOR: Record<string, "success" | "error" | undefined> = {
+  clear: "success",
+  blocked: "error",
+  unscanned: undefined,
+};
+
 interface SkillLibraryProps {
   skills: SkillsPayload["skills"];
 }
@@ -41,6 +48,7 @@ export function SkillLibrary({ skills }: SkillLibraryProps) {
   const [skillFilter, setSkillFilter] = useState("");
   const [skillCategory, setSkillCategory] = useState("");
   const [skillSource, setSkillSource] = useState("");
+  const { token } = theme.useToken();
 
   const visibleSkills = useMemo(() => {
     const needle = skillFilter.trim().toLocaleLowerCase();
@@ -79,113 +87,128 @@ export function SkillLibrary({ skills }: SkillLibraryProps) {
   }, [skills.items]);
 
   return (
-    <>
-      <div className="skills-section-head">
-        <div>
-          <span className="skills-kicker">技能库</span>
-          <h2>{formatNumber(skills.total)} 个技能</h2>
-        </div>
-        <span className={`skills-mode is-${skills.mode}`}>{modeLabel(skills.mode)}</span>
-      </div>
+    <Flex vertical gap={16}>
+      <Flex justify="space-between" align="center" gap={12} wrap="wrap">
+        <Flex align="baseline" gap={8}>
+          <Typography.Title level={4} component="h2" style={{ margin: 0 }}>
+            技能库
+          </Typography.Title>
+          <Typography.Text type="secondary">{formatNumber(skills.total)} 个</Typography.Text>
+        </Flex>
+        <Tag>{modeLabel(skills.mode)}</Tag>
+      </Flex>
 
-      <div className="skills-charts">
-        <TrendCard title="按分类调用热度" summary="汇总各分类下技能的累计调用">
-          {usageByCategory.length === 0 ? (
-            <ChartEmpty hint="还没有可统计的调用数据；使用技能后，这里会出现分类热度。" />
-          ) : (
-            <TrendBar
-              data={usageByCategory}
-              xField="count"
-              yField="category"
-              theme={chartTheme.g2Theme}
-              autoFit
-              height={Math.max(160, usageByCategory.length * 38)}
-              axis={horizontalBarAxes(chartTheme)}
-              legend={false}
-              tooltip={{ items: [{ channel: "x", name: "累计调用" }] }}
+      <TrendCard title="按分类调用热度" summary="汇总各分类下技能的累计调用">
+        {usageByCategory.length === 0 ? (
+          <ChartEmpty hint="还没有可统计的调用数据；使用技能后，这里会出现分类热度。" />
+        ) : (
+          <TrendBar
+            data={usageByCategory}
+            xField="count"
+            yField="category"
+            theme={chartTheme.g2Theme}
+            autoFit
+            height={Math.max(160, usageByCategory.length * 38)}
+            axis={horizontalBarAxes(chartTheme)}
+            legend={false}
+            tooltip={{ items: [{ channel: "x", name: "累计调用" }] }}
+          />
+        )}
+      </TrendCard>
+
+      <Card size="small">
+        <Flex gap={12} wrap="wrap">
+          <Flex vertical gap={4} style={{ flex: "1 1 200px", minWidth: 200 }}>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              筛选技能
+            </Typography.Text>
+            <Input
+              allowClear
+              prefix={<SearchOutlined />}
+              placeholder="名称或版本"
+              value={skillFilter}
+              onChange={(event) => setSkillFilter(event.target.value)}
             />
-          )}
-        </TrendCard>
-      </div>
+          </Flex>
+          <Flex vertical gap={4} style={{ flex: "1 1 180px", minWidth: 180 }}>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              按分类筛选
+            </Typography.Text>
+            <Select
+              value={skillCategory || undefined}
+              placeholder="全部分类"
+              allowClear
+              options={toSelectOptions(categories)}
+              onChange={(value) => setSkillCategory(value ?? "")}
+            />
+          </Flex>
+          <Flex vertical gap={4} style={{ flex: "1 1 180px", minWidth: 180 }}>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              按来源筛选
+            </Typography.Text>
+            <Select
+              value={skillSource || undefined}
+              placeholder="全部来源"
+              allowClear
+              options={toSelectOptions(sources, (value) => SOURCE_LABELS[value] ?? value)}
+              onChange={(value) => setSkillSource(value ?? "")}
+            />
+          </Flex>
+        </Flex>
+      </Card>
 
-      <div className="skills-filter-row">
-        <label className="skills-filter">
-          <span>筛选技能</span>
-          <Input
-            allowClear
-            prefix={<SearchOutlined />}
-            placeholder="名称或版本"
-            value={skillFilter}
-            onChange={(event) => setSkillFilter(event.target.value)}
-          />
-        </label>
-        <label className="skills-filter">
-          <span>按分类筛选</span>
-          <Select
-            value={skillCategory || undefined}
-            placeholder="全部分类"
-            allowClear
-            options={toSelectOptions(categories)}
-            onChange={(value) => setSkillCategory(value ?? "")}
-          />
-        </label>
-        <label className="skills-filter">
-          <span>按来源筛选</span>
-          <Select
-            value={skillSource || undefined}
-            placeholder="全部来源"
-            allowClear
-            options={toSelectOptions(sources, (value) => SOURCE_LABELS[value] ?? value)}
-            onChange={(value) => setSkillSource(value ?? "")}
-          />
-        </label>
-      </div>
-
-      <div className="skills-driver-note">
-        <strong>{modeLabel(skills.mode)}</strong>
-        <span>{skillsNotice(skills.mode)}</span>
-      </div>
+      <Alert
+        type={skills.mode === "driver" ? "info" : "warning"}
+        showIcon
+        message={modeLabel(skills.mode)}
+        description={skillsNotice(skills.mode)}
+      />
 
       {skills.mode === "directory-fallback" && <DirectoryFallback directory={skills.directory} />}
 
-      <div className="skills-list">
-        {visibleSkills.length === 0 ? (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有匹配当前筛选条件的技能" />
-        ) : (
-          <LibraryGroupList
-            groups={groups}
-            contentClassName="skill-group-items"
-            defaultOpenCount={0}
-            renderItem={(skill, index) => (
-              <article className="skills-row" key={`${skill.name}:${skill.version}:${index}`}>
-                <div className="skills-row-main">
-                  <span className="skills-row-name">
-                    <strong>{skill.name}</strong>
-                    <em>{SOURCE_LABELS[skill.source] ?? skill.source}</em>
-                  </span>
-                  <small className="skill-description">{skill.description ?? "暂无简介"}</small>
-                </div>
-                <div className="skills-row-meta">
-                  <span className="skills-usage" title="累计调用（热度）">
-                    {skill.usage === undefined ? "调用未知" : `${formatNumber(skill.usage)} 次`}
-                  </span>
-                  <span>{skill.lastUsedAt ? "最近 " + formatTime(skill.lastUsedAt) : "最近使用未知"}</span>
-                  <code>{skill.version}</code>
-                  <span className={skill.enabled ? "is-enabled" : "is-disabled"}>
-                    {skill.enabled ? "已启用" : "已停用"}
-                  </span>
-                  <span
-                    className={"asset-risk-dot is-" + (skill.riskStatus ?? "unscanned")}
-                    title={riskDetail(skill)}
-                  >
-                    {riskLabel(skill.riskStatus)}
-                  </span>
-                </div>
-              </article>
-            )}
-          />
-        )}
-      </div>
-    </>
+      {visibleSkills.length === 0 ? (
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有匹配当前筛选条件的技能" />
+      ) : (
+        <LibraryGroupList
+          groups={groups}
+          defaultOpenCount={0}
+          renderItem={(skill, index) => (
+            <Flex
+              key={`${skill.name}:${skill.version}:${index}`}
+              justify="space-between"
+              align="flex-start"
+              gap={16}
+              wrap="wrap"
+              style={{ padding: "10px 2px", borderBottom: `1px solid ${token.colorBorderSecondary}` }}
+            >
+              <div style={{ minWidth: 0, flex: "1 1 260px" }}>
+                <Flex align="center" gap={8} wrap="wrap">
+                  <Typography.Text strong>{skill.name}</Typography.Text>
+                  <Tag>{SOURCE_LABELS[skill.source] ?? skill.source}</Tag>
+                </Flex>
+                <Typography.Paragraph type="secondary" style={{ marginBottom: 0, fontSize: 12 }}>
+                  {skill.description ?? "暂无简介"}
+                </Typography.Paragraph>
+              </div>
+              <Flex align="center" gap={12} wrap="wrap">
+                <Typography.Text type="secondary" title="累计调用（热度）">
+                  {skill.usage === undefined ? "调用未知" : `${formatNumber(skill.usage)} 次`}
+                </Typography.Text>
+                <Typography.Text type="secondary">
+                  {skill.lastUsedAt ? "最近 " + formatTime(skill.lastUsedAt) : "最近使用未知"}
+                </Typography.Text>
+                <Typography.Text code>{skill.version}</Typography.Text>
+                <Tag color={skill.enabled ? "success" : "default"}>
+                  {skill.enabled ? "已启用" : "已停用"}
+                </Tag>
+                <Tag color={RISK_TAG_COLOR[skill.riskStatus ?? "unscanned"]} title={riskDetail(skill)}>
+                  {riskLabel(skill.riskStatus)}
+                </Tag>
+              </Flex>
+            </Flex>
+          )}
+        />
+      )}
+    </Flex>
   );
 }

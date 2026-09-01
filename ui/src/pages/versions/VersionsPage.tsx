@@ -2,11 +2,12 @@
  * 版本页编排层：三组数据拉取、事件流/轮询驱动刷新、升级与回滚动作分发。
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { App } from "antd";
+import { App, Card, Flex } from "antd";
 import { PageProgress, type PageProgressStep } from "../../components/PageProgress.js";
 import { ConnectionChip } from "../../components/ConnectionChip.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
+import { PageHeader } from "../../components/PageHeader.js";
 import { useTheme } from "../../theme/ThemeProvider.js";
 import { useEventStream } from "../../hooks/useEventStream.js";
 import { usePolling } from "../../hooks/usePolling.js";
@@ -365,162 +366,169 @@ export function VersionsPage() {
 
   if (!initialLoad.finished) {
     return (
-      <section className="page product-page versions-page">
-        <header className="page-heading product-heading">
-          <div>
-            <span className="product-eyebrow">版本管理</span>
-            <h1>正在确认可用版本</h1>
-            <p className="hint">正在读取当前版本、最新更新和上一版本恢复点。</p>
-          </div>
-        </header>
-        <PageProgress
-          title="正在加载版本信息"
-          detail="三组真实数据会分别完成；全部读取后自动进入版本管理。"
-          steps={[
-            { label: "受管 AI 版本", state: initialLoad.managed ? "done" : "active" },
-            {
-              label: "管家当前版本",
-              state: initialLoad.butler ? "done" : initialLoad.managed ? "active" : "pending",
-            },
-            {
-              label: "更新与恢复点",
-              state: initialLoad.self ? "done" : initialLoad.butler ? "active" : "pending",
-            },
-          ]}
-        />
+      <section className="versions-page">
+        <Flex vertical gap={24}>
+          <PageHeader
+            eyebrow="版本管理"
+            title="正在确认可用版本"
+            description="正在读取当前版本、最新更新和上一版本恢复点。"
+          />
+          <PageProgress
+            title="正在加载版本信息"
+            detail="三组真实数据会分别完成；全部读取后自动进入版本管理。"
+            steps={[
+              { label: "受管 AI 版本", state: initialLoad.managed ? "done" : "active" },
+              {
+                label: "管家当前版本",
+                state: initialLoad.butler ? "done" : initialLoad.managed ? "active" : "pending",
+              },
+              {
+                label: "更新与恢复点",
+                state: initialLoad.self ? "done" : initialLoad.butler ? "active" : "pending",
+              },
+            ]}
+          />
+        </Flex>
       </section>
     );
   }
 
   return (
-    <section className="page product-page versions-page">
-      <header className="page-heading product-heading">
-        <div>
-          <span className="product-eyebrow">更新与恢复</span>
-          <h1>版本管理</h1>
-          <p className="hint">这里只显示当前版本、最新更新和退回上一版本，不展示冗长历史。</p>
-        </div>
-        <ConnectionChip
-          reachable={data?.watchReachable ?? false}
-          onlineText="管家服务已连接"
-          offlineText="管家服务暂时连不上"
-        />
-      </header>
-      {butlerSelf?.lastJob?.status === "running" && (
-        <PageProgress
-          compact
-          title={butlerSelf.lastJob.kind === "upgrade" ? "正在更新管家自身" : "正在退回上一版本"}
-          detail="页面会持续读取真实任务状态，服务重启期间无需重复点击。"
-          steps={selfProgressSteps}
-        />
-      )}
-      {(data?.degraded ?? []).includes("db:unreachable") && (
-        <DegradedBanner
-          severity="warn"
-          message="本地数据暂时读不到：管家与备份信息需要等管家重新连接后查看。"
-        />
-      )}
-
-      <h2 className="section-title">管家自身</h2>
-      <SelfUpgradeCard
-        butler={butler}
-        butlerSelf={butlerSelf}
-        candidate={selfUpgradeCandidate}
-        previousSelfSnapshot={previousSelfSnapshot}
-        selfBusy={selfBusy}
-        onSavePrefs={(channel, locked) => void saveSelfPrefs(channel, locked)}
-        onRequestUpgrade={requestSelfUpgrade}
-        onRequestRollback={requestSelfRollback}
-      />
-
-      <h2 className="section-title">当前使用的版本</h2>
-      <ManagedInstances instances={instances} />
-
-      <h2 className="section-title">最新可升级版本</h2>
-      <CandidateList
-        available={available}
-        watchReachable={data?.watchReachable}
-        instances={instances}
-        targetInstance={targetInstance}
-        currentVersion={currentVersion}
-        candidates={upgradeCandidates}
-        launchPending={managedUpgradePending !== null}
-        jobRunning={job?.status === "running"}
-        onSelectInstance={setSelectedInstance}
-        onUpgrade={requestUpgrade}
-        onRefresh={() => void refresh()}
-      />
-
-      <h2 className="section-title">升级进度</h2>
-      <UpgradePipeline
-        job={job}
-        launchPending={managedUpgradePending !== null}
-        progress={upgradeProgress}
-      />
-
-      <h2 className="section-title">升级前检查</h2>
-      <PrecheckList step={precheckStep} precheck={precheck} />
-
-      <h2 className="section-title">备份节奏</h2>
-      <BackupCadenceChart
-        snapshots={snapshots}
-        selfSnapshots={butlerSelf?.snapshots ?? []}
-        mode={mode}
-      />
-
-      <h2 className="section-title">退回上一版本</h2>
-      <SnapshotRollback snapshot={previousSnapshot} onRollback={requestRollback} />
-
-      {confirmAction !== null && (
-        <DangerConfirmModal
-          open
-          title={
-            confirmAction.kind === "self-upgrade"
-              ? "确认升级管家自身"
-              : confirmAction.kind === "self-rollback"
-                ? "确认回滚管家自身"
-                : confirmAction.kind === "upgrade"
-                  ? "确认升级"
-                  : "确认还原备份"
+    <section className="versions-page">
+      <Flex vertical gap={24}>
+        <PageHeader
+          eyebrow="更新与恢复"
+          title="版本管理"
+          description="这里只显示当前版本、最新更新和退回上一版本，不展示冗长历史。"
+          extra={
+            <ConnectionChip
+              reachable={data?.watchReachable ?? false}
+              onlineText="管家服务已连接"
+              offlineText="管家服务暂时连不上"
+            />
           }
-          busy={confirmBusy}
-          confirmLabel={
-            confirmAction.kind === "self-upgrade" || confirmAction.kind === "upgrade"
-              ? "确认升级"
-              : confirmAction.kind === "self-rollback"
-                ? "确认回滚"
-                : "确认还原"
-          }
-          impact="请确认你理解这次操作的影响；管家只会在你确认后执行。"
-          onCancel={() => setConfirmAction(null)}
-          onConfirm={() => void confirmActionExecute()}
-        >
-          {confirmAction.kind === "self-upgrade" ? (
-            <p>
-              管家自身会升级到 <strong>{confirmAction.target.version}</strong>
-              {confirmAction.target.commit !== null ? `（commit ${confirmAction.target.commit}）` : ""}。
-              升级前自动备份，失败自动回滚；期间管家服务会短暂重启。
-            </p>
-          ) : confirmAction.kind === "self-rollback" ? (
-            <p>
-              管家自身会回滚到 <strong>{confirmAction.snapshot.version}</strong>（commit{" "}
-              <code>{confirmAction.snapshot.commit}</code>），并重新构建、重启管家服务。
-            </p>
-          ) : confirmAction.kind === "upgrade" ? (
-            <p>
-              管家会把当前 AI 升级到{" "}
-              <strong>{confirmAction.target.displayVersion ?? confirmAction.target.version}</strong>。
-              升级前会自动备份，失败会自动还原；期间本机 AI 会短暂不可用。
-            </p>
-          ) : (
-            <p>
-              管家会用备份 <strong>#{confirmAction.snapshot.id}</strong> 还原{" "}
-              <strong>{instanceLabel(confirmAction.snapshot.instance)}</strong>。 还原期间，本机
-              AI 会短暂不可用。
-            </p>
-          )}
-        </DangerConfirmModal>
-      )}
+        />
+        {butlerSelf?.lastJob?.status === "running" && (
+          <PageProgress
+            compact
+            title={butlerSelf.lastJob.kind === "upgrade" ? "正在更新管家自身" : "正在退回上一版本"}
+            detail="页面会持续读取真实任务状态，服务重启期间无需重复点击。"
+            steps={selfProgressSteps}
+          />
+        )}
+        {(data?.degraded ?? []).includes("db:unreachable") && (
+          <DegradedBanner
+            severity="warn"
+            message="本地数据暂时读不到：管家与备份信息需要等管家重新连接后查看。"
+          />
+        )}
+
+        <Card title="管家自身">
+          <SelfUpgradeCard
+            butler={butler}
+            butlerSelf={butlerSelf}
+            candidate={selfUpgradeCandidate}
+            previousSelfSnapshot={previousSelfSnapshot}
+            selfBusy={selfBusy}
+            onSavePrefs={(channel, locked) => void saveSelfPrefs(channel, locked)}
+            onRequestUpgrade={requestSelfUpgrade}
+            onRequestRollback={requestSelfRollback}
+          />
+        </Card>
+
+        <Card title="当前使用的版本">
+          <ManagedInstances instances={instances} />
+        </Card>
+
+        <Card title="最新可升级版本">
+          <CandidateList
+            available={available}
+            watchReachable={data?.watchReachable}
+            instances={instances}
+            targetInstance={targetInstance}
+            currentVersion={currentVersion}
+            candidates={upgradeCandidates}
+            launchPending={managedUpgradePending !== null}
+            jobRunning={job?.status === "running"}
+            onSelectInstance={setSelectedInstance}
+            onUpgrade={requestUpgrade}
+            onRefresh={() => void refresh()}
+          />
+        </Card>
+
+        <Card title="升级进度">
+          <UpgradePipeline
+            job={job}
+            launchPending={managedUpgradePending !== null}
+            progress={upgradeProgress}
+          />
+        </Card>
+
+        <Card title="升级前检查">
+          <PrecheckList step={precheckStep} precheck={precheck} />
+        </Card>
+
+        <BackupCadenceChart
+          snapshots={snapshots}
+          selfSnapshots={butlerSelf?.snapshots ?? []}
+          mode={mode}
+        />
+
+        <Card title="退回上一版本">
+          <SnapshotRollback snapshot={previousSnapshot} onRollback={requestRollback} />
+        </Card>
+
+        {confirmAction !== null && (
+          <DangerConfirmModal
+            open
+            title={
+              confirmAction.kind === "self-upgrade"
+                ? "确认升级管家自身"
+                : confirmAction.kind === "self-rollback"
+                  ? "确认回滚管家自身"
+                  : confirmAction.kind === "upgrade"
+                    ? "确认升级"
+                    : "确认还原备份"
+            }
+            busy={confirmBusy}
+            confirmLabel={
+              confirmAction.kind === "self-upgrade" || confirmAction.kind === "upgrade"
+                ? "确认升级"
+                : confirmAction.kind === "self-rollback"
+                  ? "确认回滚"
+                  : "确认还原"
+            }
+            impact="请确认你理解这次操作的影响；管家只会在你确认后执行。"
+            onCancel={() => setConfirmAction(null)}
+            onConfirm={() => void confirmActionExecute()}
+          >
+            {confirmAction.kind === "self-upgrade" ? (
+              <p>
+                管家自身会升级到 <strong>{confirmAction.target.version}</strong>
+                {confirmAction.target.commit !== null ? `（commit ${confirmAction.target.commit}）` : ""}。
+                升级前自动备份，失败自动回滚；期间管家服务会短暂重启。
+              </p>
+            ) : confirmAction.kind === "self-rollback" ? (
+              <p>
+                管家自身会回滚到 <strong>{confirmAction.snapshot.version}</strong>（commit{" "}
+                <code>{confirmAction.snapshot.commit}</code>），并重新构建、重启管家服务。
+              </p>
+            ) : confirmAction.kind === "upgrade" ? (
+              <p>
+                管家会把当前 AI 升级到{" "}
+                <strong>{confirmAction.target.displayVersion ?? confirmAction.target.version}</strong>。
+                升级前会自动备份，失败会自动还原；期间本机 AI 会短暂不可用。
+              </p>
+            ) : (
+              <p>
+                管家会用备份 <strong>#{confirmAction.snapshot.id}</strong> 还原{" "}
+                <strong>{instanceLabel(confirmAction.snapshot.instance)}</strong>。 还原期间，本机
+                AI 会短暂不可用。
+              </p>
+            )}
+          </DangerConfirmModal>
+        )}
+      </Flex>
     </section>
   );
 }

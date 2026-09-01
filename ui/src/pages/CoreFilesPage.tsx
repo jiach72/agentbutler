@@ -3,9 +3,13 @@ import {
   App,
   Button,
   Card,
+  Col,
   Empty,
+  Flex,
   Input,
+  List,
   Modal,
+  Row,
   Select,
   Space,
   Spin,
@@ -15,6 +19,7 @@ import {
 } from "antd";
 import { DownloadOutlined, HistoryOutlined, SaveOutlined, SafetyCertificateOutlined } from "@ant-design/icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { PageHeader } from "../components/PageHeader.js";
 import { fetchBlob, loadJson, postJson } from "../lib/api.js";
 import { formatBytes, formatTime } from "../lib/format.js";
 
@@ -135,38 +140,144 @@ export function CoreFilesPage() {
     } });
   };
 
-  return <section className="page core-files-page">
-    <header className="core-files-heading">
-      <div><Typography.Text type="secondary">智能体与知识</Typography.Text><Typography.Title level={1} className="core-files-title">核心文件</Typography.Title><Typography.Paragraph type="secondary">管理实例声明的 USER、AGENT、SOUL 与 MEMORY Markdown 文件。</Typography.Paragraph></div>
-      <Select aria-label="选择实例" className="core-files-instance-select" value={instanceId} placeholder="选择实例" onChange={setInstanceId} options={instances.map((item) => ({ value: item.instanceId, label: `${item.instanceId} · ${item.frameworkId}` }))} />
-    </header>
-    {selectedInstance && <Alert className="core-files-alert" type="info" showIcon title={`当前实例：${selectedInstance.instanceId}`} description="保存前会先生成版本并校验文件哈希；外部修改会被阻止，避免覆盖 Agent 的最新内容。" />}
-    <div className="core-files-layout">
-      <Card title="文件清单" styles={{ body: { padding: 0 } }}>
-        {loading ? <div className="core-files-loading"><Spin /></div> : files.length === 0 ? <Empty description="没有可管理的核心文件" /> : <ul className="core-files-list">{files.map((file) => <li key={file.fileId} className={`core-files-list-item${file.fileId === selectedId ? " is-selected" : ""}`} onClick={() => setSelectedId(file.fileId)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedId(file.fileId); } }} tabIndex={0} role="button">
-          <div className="core-files-list-meta">
-            <Space>{file.label}{file.key === "memory" && <Tag>只读</Tag>}{!file.exists && <Tag color="default">不存在</Tag>}</Space>
-            <div className="core-files-list-desc"><span>{file.pathDisplay}</span><span>{file.modifiedAt ? formatTime(file.modifiedAt) : "尚未发现"} · {formatBytes(file.sizeBytes)}</span></div>
-          </div>
-        </li>)}</ul>}
-      </Card>
-      <Card title={selectedFile?.label ?? "文件详情"} extra={selectedFile && <Space wrap><Button icon={<DownloadOutlined />} onClick={() => void download()} disabled={!selectedFile.exists}>下载</Button><Button icon={<SafetyCertificateOutlined />} onClick={() => void backup()} disabled={!selectedFile.exists}>立即备份</Button><Button icon={<HistoryOutlined />} onClick={() => void openHistory()} disabled={!selectedFile.exists}>历史</Button></Space>}>
-        {detailLoading ? <div className="core-files-loading core-files-loading-detail"><Spin /></div> : !selectedFile || !detail ? <Empty description="选择一个文件开始" /> : <>
-          {selectedFile.sensitivity === "contains-secret-pattern" && <Alert className="core-files-alert" type="warning" showIcon title="检测到疑似密钥或令牌模式" description="页面不会改写内容；下载前需要再次确认。" />}
-          {!selectedFile.editable && <Alert className="core-files-alert" type="info" showIcon title={selectedFile.readOnlyReason ?? "该文件只读"} />}
-          <Input.TextArea className="core-files-editor" value={draft} onChange={(event) => setDraft(event.target.value)} autoSize={{ minRows: 18, maxRows: 30 }} readOnly={!selectedFile.editable || !selectedFile.exists} />
-          {selectedFile.editable && selectedFile.exists && <div className="core-files-actions"><Button onClick={() => setDraft(detail.content)} disabled={draft === detail.content}>放弃草稿</Button><Button type="primary" icon={<SaveOutlined />} onClick={() => void runPreview()} disabled={draft === detail.content}>预览修改</Button></div>}
-          {preview && <Card size="small" title="修改预览" className="core-files-preview"><Space orientation="vertical" className="core-files-preview-space">
-            {preview.warnings.map((warning) => <Alert key={warning} type="warning" showIcon title={warning} />)}
-            {preview.blockedReasons.map((reason) => <Alert key={reason} type="error" showIcon title={reason} />)}
-            <pre className="core-files-diff">{preview.diff}</pre>
-            <Button type="primary" onClick={() => Modal.confirm({ title: "确认保存修改？", content: "保存会先备份当前版本，再原子替换源文件。", okText: "确认保存", onOk: apply })} disabled={!preview.canApply}>确认保存</Button>
-          </Space></Card>}
-        </>}
-      </Card>
-    </div>
-    <Modal title="版本历史" open={historyOpen} onCancel={() => setHistoryOpen(false)} footer={null} width={760}>
-      <div className="core-files-history-table"><Table rowKey="revisionId" dataSource={history} pagination={false} scroll={{ x: 620 }} columns={[{ title: "时间", dataIndex: "createdAt", width: 140, render: (value: string) => formatTime(value) }, { title: "来源", dataIndex: "createdBy", width: 120 }, { title: "大小", dataIndex: "sizeBytes", width: 100, align: "right", render: (value: number) => formatBytes(value) }, { title: "备注", dataIndex: "note" }, { title: "操作", width: 88, render: (_: unknown, record: Revision) => <Button danger onClick={() => restore(record)}>恢复</Button> }]} /></div>
-    </Modal>
-  </section>;
+  return (
+    <section className="core-files-page">
+      <Flex vertical gap={16}>
+        <PageHeader
+          eyebrow="智能体与知识"
+          title="核心文件"
+          description="管理实例声明的 USER、AGENT、SOUL 与 MEMORY Markdown 文件。"
+          extra={
+            <Select
+              aria-label="选择实例"
+              style={{ minWidth: 280 }}
+              value={instanceId}
+              placeholder="选择实例"
+              onChange={setInstanceId}
+              options={instances.map((item) => ({ value: item.instanceId, label: `${item.instanceId} · ${item.frameworkId}` }))}
+            />
+          }
+        />
+        {selectedInstance && (
+          <Alert
+            type="info"
+            showIcon
+            message={`当前实例：${selectedInstance.instanceId}`}
+            description="保存前会先生成版本并校验文件哈希；外部修改会被阻止，避免覆盖 Agent 的最新内容。"
+          />
+        )}
+        <Row gutter={[16, 16]}>
+          <Col xs={24} lg={9}>
+            <Card title="文件清单" styles={{ body: { padding: 0 } }}>
+              {loading ? (
+                <Flex justify="center" style={{ padding: 24 }}>
+                  <Spin />
+                </Flex>
+              ) : files.length === 0 ? (
+                <Empty description="没有可管理的核心文件" />
+              ) : (
+                <List
+                  dataSource={files}
+                  renderItem={(file) => {
+                    const selected = file.fileId === selectedId;
+                    return (
+                      <List.Item
+                        style={{
+                          cursor: "pointer",
+                          padding: "14px 16px",
+                          background: selected ? "var(--ant-color-primary-bg)" : undefined,
+                          boxShadow: selected ? "inset 3px 0 0 var(--ant-color-primary)" : undefined,
+                        }}
+                        onClick={() => setSelectedId(file.fileId)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            setSelectedId(file.fileId);
+                          }
+                        }}
+                        tabIndex={0}
+                      >
+                        <List.Item.Meta
+                          title={
+                            <Space wrap>
+                              {file.label}
+                              {file.key === "memory" && <Tag>只读</Tag>}
+                              {!file.exists && <Tag color="default">不存在</Tag>}
+                            </Space>
+                          }
+                          description={
+                            <Flex vertical>
+                              <Typography.Text type="secondary" style={{ fontSize: 12 }}>{file.pathDisplay}</Typography.Text>
+                              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                                {file.modifiedAt ? formatTime(file.modifiedAt) : "尚未发现"} · {formatBytes(file.sizeBytes)}
+                              </Typography.Text>
+                            </Flex>
+                          }
+                        />
+                      </List.Item>
+                    );
+                  }}
+                />
+              )}
+            </Card>
+          </Col>
+          <Col xs={24} lg={15}>
+            <Card
+              title={selectedFile?.label ?? "文件详情"}
+              extra={selectedFile && (
+                <Space wrap>
+                  <Button icon={<DownloadOutlined />} onClick={() => void download()} disabled={!selectedFile.exists}>下载</Button>
+                  <Button icon={<SafetyCertificateOutlined />} onClick={() => void backup()} disabled={!selectedFile.exists}>立即备份</Button>
+                  <Button icon={<HistoryOutlined />} onClick={() => void openHistory()} disabled={!selectedFile.exists}>历史</Button>
+                </Space>
+              )}
+            >
+              {detailLoading ? (
+                <Flex justify="center" style={{ padding: 40 }}>
+                  <Spin />
+                </Flex>
+              ) : !selectedFile || !detail ? (
+                <Empty description="选择一个文件开始" />
+              ) : (
+                <Flex vertical gap={16}>
+                  {selectedFile.sensitivity === "contains-secret-pattern" && (
+                    <Alert type="warning" showIcon message="检测到疑似密钥或令牌模式" description="页面不会改写内容；下载前需要再次确认。" />
+                  )}
+                  {!selectedFile.editable && (
+                    <Alert type="info" showIcon message={selectedFile.readOnlyReason ?? "该文件只读"} />
+                  )}
+                  <Input.TextArea
+                    style={{ fontFamily: "var(--ant-font-family-code)" }}
+                    value={draft}
+                    onChange={(event) => setDraft(event.target.value)}
+                    autoSize={{ minRows: 18, maxRows: 30 }}
+                    readOnly={!selectedFile.editable || !selectedFile.exists}
+                  />
+                  {selectedFile.editable && selectedFile.exists && (
+                    <Flex justify="flex-end" gap={8}>
+                      <Button onClick={() => setDraft(detail.content)} disabled={draft === detail.content}>放弃草稿</Button>
+                      <Button type="primary" icon={<SaveOutlined />} onClick={() => void runPreview()} disabled={draft === detail.content}>预览修改</Button>
+                    </Flex>
+                  )}
+                  {preview && (
+                    <Card size="small" title="修改预览">
+                      <Flex vertical gap={12}>
+                        {preview.warnings.map((warning) => <Alert key={warning} type="warning" showIcon message={warning} />)}
+                        {preview.blockedReasons.map((reason) => <Alert key={reason} type="error" showIcon message={reason} />)}
+                        <pre style={{ maxHeight: 320, margin: 0, overflow: "auto", whiteSpace: "pre-wrap", fontFamily: "var(--ant-font-family-code)", fontSize: 12, lineHeight: 1.6 }}>{preview.diff}</pre>
+                        <Button type="primary" onClick={() => Modal.confirm({ title: "确认保存修改？", content: "保存会先备份当前版本，再原子替换源文件。", okText: "确认保存", onOk: apply })} disabled={!preview.canApply}>确认保存</Button>
+                      </Flex>
+                    </Card>
+                  )}
+                </Flex>
+              )}
+            </Card>
+          </Col>
+        </Row>
+        <Modal title="版本历史" open={historyOpen} onCancel={() => setHistoryOpen(false)} footer={null} width={760}>
+          <Table rowKey="revisionId" dataSource={history} pagination={false} scroll={{ x: 620 }} columns={[{ title: "时间", dataIndex: "createdAt", width: 140, render: (value: string) => formatTime(value) }, { title: "来源", dataIndex: "createdBy", width: 120 }, { title: "大小", dataIndex: "sizeBytes", width: 100, align: "right", render: (value: number) => formatBytes(value) }, { title: "备注", dataIndex: "note" }, { title: "操作", width: 88, render: (_: unknown, record: Revision) => <Button danger onClick={() => restore(record)}>恢复</Button> }]} />
+        </Modal>
+      </Flex>
+    </section>
+  );
 }

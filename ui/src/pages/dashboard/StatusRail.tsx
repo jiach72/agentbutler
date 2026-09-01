@@ -1,11 +1,14 @@
 /**
  * 状态总览条：管家服务 / 消息通知 / 待处理 / 受管实例 四张卡片。
  */
+import { Badge, Button, Card, Col, Flex, Row, Typography } from "antd";
 import { Link } from "react-router-dom";
 import { Sparkline } from "../../components/charts/Sparkline.js";
 import { formatRelative } from "../../lib/format.js";
 import type { MessageStats } from "./conclusions.js";
 import type { InspectStatusView, StatusCardView } from "./types.js";
+
+const { Text } = Typography;
 
 interface StatusRailProps {
   attentionCount: number;
@@ -20,6 +23,13 @@ interface StatusRailProps {
   inspectionHistory: Array<{ date: string; avgDurationMs: number | null }>;
   deliveryHistory: Array<{ date: string; delivered: number; failed: number; uncertain: number }>;
 }
+
+const toneBadgeStatus = {
+  ok: "success",
+  warn: "warning",
+  error: "error",
+  idle: "default",
+} as const;
 
 export function StatusRail({
   attentionCount,
@@ -139,34 +149,44 @@ export function StatusRail({
   ];
 
   return (
-    <div className="manager-status-rail" role="status" aria-label="当前状态总览">
-      {cards.map((card) => (
-        <article className={`manager-status-card is-${card.tone}`} key={card.id}>
-          <div className="manager-status-head">
-            <span className={`manager-status-dot is-${card.tone}`} aria-hidden="true" />
-            <span className="manager-status-label">{card.label}</span>
-          </div>
-          <div className="manager-status-value-row">
-            <strong className="manager-status-value">{card.value}</strong>
-            {card.trend !== undefined && (
-              <Sparkline
-                values={card.trend.values}
-                label={card.trend.label}
-                tone={card.trend.tone}
-              />
-            )}
-          </div>
-          <p className="manager-status-detail">{card.detail}</p>
-          {card.action !== undefined &&
-            (card.action.kind === "link" ? (
-              <Link className="manager-status-action" to={card.action.to ?? "/gateway"}>
-                {card.action.label} →
-              </Link>
-            ) : (
-              <span className="manager-status-action">{card.action.label}</span>
-            ))}
-        </article>
-      ))}
+    <div role="status" aria-label="当前状态总览">
+      <Row gutter={[16, 16]}>
+        {cards.map((card) => (
+          <Col xs={24} sm={12} xl={6} key={card.id}>
+            <Card size="small" style={{ height: "100%" }}>
+              <Flex vertical gap={8}>
+                <Flex align="center" gap={8}>
+                  <Badge status={toneBadgeStatus[card.tone]} />
+                  <Text type="secondary">{card.label}</Text>
+                </Flex>
+                <Flex align="center" justify="space-between" gap={8}>
+                  <Text strong style={{ fontSize: 24 }}>
+                    {card.value}
+                  </Text>
+                  {card.trend !== undefined && (
+                    <Sparkline
+                      values={card.trend.values}
+                      label={card.trend.label}
+                      tone={card.trend.tone}
+                    />
+                  )}
+                </Flex>
+                <Text type="secondary">{card.detail}</Text>
+                {card.action !== undefined &&
+                  (card.action.kind === "link" ? (
+                    <Link to={card.action.to ?? "/gateway"}>
+                      <Button type="link" size="small" style={{ paddingInline: 0 }}>
+                        {card.action.label}
+                      </Button>
+                    </Link>
+                  ) : (
+                    <Text type="secondary">{card.action.label}</Text>
+                  ))}
+              </Flex>
+            </Card>
+          </Col>
+        ))}
+      </Row>
     </div>
   );
 }

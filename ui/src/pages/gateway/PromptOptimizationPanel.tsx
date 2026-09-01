@@ -1,10 +1,25 @@
 /**
  * 消息整理面板：消息整理对照历史、规则文件改进记录与候选版本采用。
  * 从 components/ 迁入 gateway 子目录；轮询改走 usePolling（后台自动暂停）。
+ * 已按 antd v6 设计语言重构：布局走 Flex/Row/Col/Card，状态统一 Badge，不依赖旧页面 CSS。
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, Table } from "antd";
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  Col,
+  Empty,
+  Flex,
+  Row,
+  Statistic,
+  Table,
+  Tag,
+  Typography,
+} from "antd";
 import type { TableColumnsType } from "antd";
+import { ArrowRightOutlined } from "@ant-design/icons";
 import { TrendCard, ChartEmpty, TrendColumn } from "../../components/charts/index.js";
 import {
   chartThemeFor,
@@ -18,6 +33,8 @@ import { ConnectionChip } from "../../components/ConnectionChip.js";
 import { fetchJson, loadJson, postJson, type FetchState } from "../../lib/api.js";
 import { formatTime } from "../../lib/format.js";
 import { usePolling } from "../../hooks/usePolling.js";
+
+const { Paragraph, Text, Title } = Typography;
 
 interface PromptGate {
   status:
@@ -113,6 +130,9 @@ interface OptimizationHistoryPayload {
   items: InboundHistoryEntry[];
 }
 
+/** Badge 状态语义：成功 / 进行中 / 失败 / 中性。 */
+type ToneStatus = "success" | "processing" | "error" | "default";
+
 function promptTargetLabel(targetId: string): string {
   const labels: Record<string, string> = {
     "hermes-soul": "人设与性格",
@@ -129,16 +149,16 @@ function promptFormatLabel(format: string): string {
   return format || "—";
 }
 
-function gateTone(status: string): string {
-  if (status === "ok") return "is-ok";
+function gateStatus(status: string): ToneStatus {
+  if (status === "ok") return "success";
   if (
     status === "missing" ||
     status === "hash-mismatch" ||
     status === "protected-clause-mismatch"
   ) {
-    return "is-fail";
+    return "error";
   }
-  return "is-pending";
+  return "processing";
 }
 
 function gateLabel(status: string): string {
@@ -152,10 +172,10 @@ function gateLabel(status: string): string {
   return labels[status] ?? "需检查";
 }
 
-function candidateTone(status: string): string {
-  if (status === "approval-pending" || status === "pending-evaluation") return "is-pending";
-  if (status === "rejected-static" || status === "rejected-quality") return "is-fail";
-  return "is-ok";
+function candidateStatus(status: string): ToneStatus {
+  if (status === "approval-pending" || status === "pending-evaluation") return "processing";
+  if (status === "rejected-static" || status === "rejected-quality") return "error";
+  return "success";
 }
 
 function candidateLabel(status: string): string {
@@ -210,14 +230,14 @@ function modeLabel(
   return "原样发送";
 }
 
-function modeTone(
+function modeStatus(
   mode: OptimizeMode | undefined,
   hasDecision: boolean,
   pendingText: string,
-): string {
-  if (!hasDecision) return pendingText === "正在处理" ? "is-pending" : "is-muted";
-  if (mode === "quick" || mode === "rule" || mode === "llm") return "is-ok";
-  return "is-muted";
+): ToneStatus {
+  if (!hasDecision) return pendingText === "正在处理" ? "processing" : "default";
+  if (mode === "quick" || mode === "rule" || mode === "llm") return "success";
+  return "default";
 }
 
 function isSameDay(value: string | null, now: Date): boolean {
@@ -382,44 +402,49 @@ export function PromptOptimizationPanel() {
     (item) => item.decision === null && missingDecisionLabel(item, now) === "正在处理",
   ).length;
 
+  const todayStats = [
+    { label: "今天整理", value: todayRewritten },
+    { label: "快捷指令", value: todayQuick },
+    { label: "原样发送", value: todayPassed },
+    { label: "处理中", value: pendingCount },
+  ];
+
   return (
-    <section className="prompt-panel">
-      <div className="prompt-panel-head">
-        <div>
-          <span className="evolution-kicker">消息整理</span>
-          <h2>消息整理</h2>
-          <p>
+    <Flex vertical gap={16}>
+      <Flex wrap justify="space-between" align="flex-start" gap={16}>
+        <div style={{ minWidth: 0 }}>
+          <Text
+            type="secondary"
+            style={{ display: "block", fontSize: 12, fontWeight: 600, letterSpacing: "0.08em" }}
+          >
+            消息整理
+          </Text>
+          <Title level={4} component="h2" style={{ marginBottom: 0 }}>
+            消息整理
+          </Title>
+          <Paragraph type="secondary" style={{ marginBottom: 0 }}>
             你发来的消息会先按规则整理成更明确的内容；每条消息都会留下对照记录，方便查看具体改动。
-          </p>
+          </Paragraph>
         </div>
-        <span className="evolution-connection">
+        <div style={{ flexShrink: 0 }}>
           <ConnectionChip
             reachable={history.status === "loading" ? null : history.status === "ready" ? history.data.reachable : false}
             connectingText="正在连接管家"
             onlineText="管家服务已连接"
             offlineText="管家服务暂时连不上"
           />
-        </span>
-      </div>
+        </div>
+      </Flex>
 
-      <div className="po-stats" aria-label="今日消息整理统计">
-        <div className="po-stat">
-          <strong>{todayRewritten}</strong>
-          <span>今天整理</span>
-        </div>
-        <div className="po-stat">
-          <strong>{todayQuick}</strong>
-          <span>快捷指令</span>
-        </div>
-        <div className="po-stat">
-          <strong>{todayPassed}</strong>
-          <span>原样发送</span>
-        </div>
-        <div className="po-stat">
-          <strong>{pendingCount}</strong>
-          <span>处理中</span>
-        </div>
-      </div>
+      <Row gutter={[16, 16]} aria-label="今日消息整理统计">
+        {todayStats.map((stat) => (
+          <Col key={stat.label} xs={12} sm={6}>
+            <Card size="small">
+              <Statistic title={stat.label} value={stat.value} />
+            </Card>
+          </Col>
+        ))}
+      </Row>
 
       {history.status === "failed" ? (
         <ChartEmpty hint={`消息整理趋势接口不可用：${history.reason}`} />
@@ -444,40 +469,51 @@ export function PromptOptimizationPanel() {
         <ChartEmpty hint="还没有整理记录；处理消息后，这里会出现近 30 天的趋势。" />
       )}
 
-      <div className="po-note">
-        消息会先按规则整理；规则无法判断时会保留原文发送，避免因整理失败而中断或漏发。
-      </div>
+      <Alert
+        type="info"
+        showIcon
+        title="消息会先按规则整理；规则无法判断时会保留原文发送，避免因整理失败而中断或漏发。"
+      />
 
-      <div className="prompt-subhead">
+      <Flex wrap justify="space-between" align="flex-end" gap={16}>
         <div>
-          <span className="evolution-kicker">对照历史</span>
-          <h3>你发的消息和整理后的内容</h3>
+          <Text
+            type="secondary"
+            style={{ display: "block", fontSize: 12, fontWeight: 600, letterSpacing: "0.08em" }}
+          >
+            对照历史
+          </Text>
+          <Title level={5} component="h3" style={{ marginBottom: 0 }}>
+            你发的消息和整理后的内容
+          </Title>
         </div>
-        <span className="po-retention">保留最近 30 天</span>
-      </div>
+        <Text type="secondary">保留最近 30 天</Text>
+      </Flex>
 
       {history.status === "loading" && (
-        <div className="prompt-empty">正在读取整理记录…</div>
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="正在读取整理记录…" />
       )}
 
       {history.status === "failed" && (
-        <div className="prompt-empty">整理记录读取失败：{history.reason}</div>
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={`整理记录读取失败：${history.reason}`} />
       )}
 
       {history.status === "ready" && !history.data.reachable && (
-        <div className="prompt-empty">
-          暂时连不上消息服务，等管家恢复后这里会自动显示对照记录。
-        </div>
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description="暂时连不上消息服务，等管家恢复后这里会自动显示对照记录。"
+        />
       )}
 
       {history.status === "ready" && history.data.reachable && history.data.items.length === 0 && (
-        <div className="prompt-empty">
-          还没有消息记录。发送一条消息后，这里会显示“你发的原文”和“整理后的内容”对照。
-        </div>
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description="还没有消息记录。发送一条消息后，这里会显示“你发的原文”和“整理后的内容”对照。"
+        />
       )}
 
       {history.status === "ready" && history.data.reachable && history.data.items.length > 0 && (
-        <div className="po-history">
+        <Flex vertical gap={12}>
           {history.data.items.map((item) => {
             const hasDecision = item.decision !== null;
             const mode = item.decision?.mode;
@@ -486,47 +522,81 @@ export function PromptOptimizationPanel() {
             const optimized = item.decision?.optimizedText ?? original;
             const changed = hasDecision && optimized !== original;
             return (
-              <article className="po-card" key={item.inboundMessageId}>
-                <div className="po-meta">
-                  <span className="po-channel">{channelLabel(item.inbound.channel)}</span>
-                  <span className="po-time">{formatTime(item.inbound.receivedAt)}</span>
-                  <span className={"po-badge " + modeTone(mode, hasDecision, pendingText)}>
-                    {modeLabel(mode, hasDecision, pendingText)}
-                  </span>
-                  {!hasDecision && pendingText === "正在处理" && (
-                    <span className="po-pending-hint">对照结果稍后自动出现</span>
-                  )}
-                </div>
-                <div className="po-compare">
-                  <div className="po-col po-original">
-                    <span className="po-col-label">你发的原文</span>
-                    <p>{original || "（图片或语音消息，没有文字）"}</p>
-                  </div>
-                  <div className="po-arrow" aria-hidden="true">
-                    →
-                  </div>
-                  <div className={"po-col po-optimized" + (changed ? " is-changed" : "")}>
-                    <span className="po-col-label">整理后的内容</span>
-                    <p>{optimized || "（无文字内容）"}</p>
-                    {!changed && hasDecision && (
-                      <span className="po-unchanged">没有改动，原样发送</span>
+              <Card size="small" key={item.inboundMessageId}>
+                <Flex vertical gap={12}>
+                  <Flex wrap gap={8} align="center">
+                    <Text strong>{channelLabel(item.inbound.channel)}</Text>
+                    <Text type="secondary">{formatTime(item.inbound.receivedAt)}</Text>
+                    <Badge
+                      status={modeStatus(mode, hasDecision, pendingText)}
+                      text={modeLabel(mode, hasDecision, pendingText)}
+                    />
+                    {!hasDecision && pendingText === "正在处理" && (
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        对照结果稍后自动出现
+                      </Text>
                     )}
-                  </div>
-                </div>
-                {hasDecision && (item.decision?.changes?.length ?? 0) > 0 && (
-                  <div className="po-changes">
-                    <span className="po-changes-label">改动要点</span>
-                    {(item.decision?.changes ?? []).map((change) => (
-                      <span className="po-chip" key={change}>
-                        {change}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </article>
+                  </Flex>
+                  <Flex gap={12} align="center">
+                    <div
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        background: "var(--ant-color-fill-tertiary)",
+                        padding: 12,
+                        borderRadius: 8,
+                      }}
+                    >
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        你发的原文
+                      </Text>
+                      <Paragraph style={{ marginBottom: 0 }}>
+                        {original || "（图片或语音消息，没有文字）"}
+                      </Paragraph>
+                    </div>
+                    <ArrowRightOutlined
+                      aria-hidden="true"
+                      style={{ color: "var(--ant-color-text-quaternary)", flexShrink: 0 }}
+                    />
+                    <div
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        background: changed
+                          ? "var(--ant-color-primary-bg)"
+                          : "var(--ant-color-fill-tertiary)",
+                        padding: 12,
+                        borderRadius: 8,
+                      }}
+                    >
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        整理后的内容
+                      </Text>
+                      <Paragraph style={{ marginBottom: 0 }}>
+                        {optimized || "（无文字内容）"}
+                      </Paragraph>
+                      {!changed && hasDecision && (
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          没有改动，原样发送
+                        </Text>
+                      )}
+                    </div>
+                  </Flex>
+                  {hasDecision && (item.decision?.changes?.length ?? 0) > 0 && (
+                    <Flex wrap gap={4} align="center">
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        改动要点
+                      </Text>
+                      {(item.decision?.changes ?? []).map((change) => (
+                        <Tag key={change}>{change}</Tag>
+                      ))}
+                    </Flex>
+                  )}
+                </Flex>
+              </Card>
             );
           })}
-        </div>
+        </Flex>
       )}
 
       <AdvancedDetails
@@ -537,14 +607,15 @@ export function PromptOptimizationPanel() {
           </>
         }
       >
-        {data !== null && data.targets.length === 0 && (
-          <div className="prompt-empty">
-            还没有找到可查看的规则；完成规则配置后，这里会显示真实内容。
-          </div>
-        )}
+        <Flex vertical gap={16}>
+          {data !== null && data.targets.length === 0 && (
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description="还没有找到可查看的规则；完成规则配置后，这里会显示真实内容。"
+            />
+          )}
 
-        {data !== null && data.targets.length > 0 && (
-          <div className="prompt-table-wrap">
+          {data !== null && data.targets.length > 0 && (
             <Table<PromptTarget>
               size="small"
               rowKey="targetId"
@@ -556,9 +627,9 @@ export function PromptOptimizationPanel() {
                     title: "规则内容",
                     ellipsis: true,
                     render: (_, target) => (
-                      <strong title={target.sourcePath}>
+                      <Text strong title={target.sourcePath}>
                         {promptTargetLabel(target.targetId)}
-                      </strong>
+                      </Text>
                     ),
                   },
                   {
@@ -583,53 +654,64 @@ export function PromptOptimizationPanel() {
                     title: "当前状态",
                     width: 100,
                     render: (_, target) => (
-                      <code title={target.activeVersion}>
+                      <Text code title={target.activeVersion}>
                         {target.activeVersion === "baseline" ? "当前版本" : "试用版本"}
-                      </code>
+                      </Text>
                     ),
                   },
                   {
                     title: "检查结果",
                     width: 220,
                     render: (_, target) => (
-                      <div className="po-eval-cell">
-                        <span className={`prompt-gate ${gateTone(target.gate.status)}`}>
-                          {gateLabel(target.gate.status)}
-                        </span>
-                        <small title={target.gate.detail}>{target.gate.detail}</small>
-                        <em>{formatTime(target.gate.checkedAt)}</em>
-                      </div>
+                      <Flex vertical gap={2}>
+                        <Badge status={gateStatus(target.gate.status)} text={gateLabel(target.gate.status)} />
+                        <Text type="secondary" style={{ fontSize: 12 }} title={target.gate.detail} ellipsis>
+                          {target.gate.detail}
+                        </Text>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          {formatTime(target.gate.checkedAt)}
+                        </Text>
+                      </Flex>
                     ),
                   },
                 ] satisfies TableColumnsType<PromptTarget>
               }
             />
-          </div>
-        )}
+          )}
 
-        {data !== null && data.targets.length > 0 && (
-          <div className="prompt-panel-note">
-            <span>现在能做什么</span>
-            <p>
-              只有通过正式样本、受信评估和保护段复验的版本才会显示采用按钮；采用动作会再次核对源文件并留下审计记录。
-            </p>
-          </div>
-        )}
+          {data !== null && data.targets.length > 0 && (
+            <div
+              style={{
+                background: "var(--ant-color-fill-tertiary)",
+                borderRadius: 8,
+                padding: 16,
+              }}
+            >
+              <Text strong>现在能做什么</Text>
+              <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                只有通过正式样本、受信评估和保护段复验的版本才会显示采用按钮；采用动作会再次核对源文件并留下审计记录。
+              </Paragraph>
+            </div>
+          )}
 
-        {promotionNotice !== null && (
-          <div className="prompt-promotion-notice" role="status" aria-live="polite">
-            {promotionNotice}
-          </div>
-        )}
+          {promotionNotice !== null && (
+            <Alert
+              type="info"
+              showIcon={false}
+              role="status"
+              aria-live="polite"
+              title={promotionNotice}
+            />
+          )}
 
-        {candidates !== null && candidates.candidates.length === 0 && (
-          <div className="prompt-empty">
-            还没有试过新的规则版本；现在只能查看，不能创建或替换。
-          </div>
-        )}
+          {candidates !== null && candidates.candidates.length === 0 && (
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description="还没有试过新的规则版本；现在只能查看，不能创建或替换。"
+            />
+          )}
 
-        {candidates !== null && candidates.candidates.length > 0 && (
-          <div className="prompt-table-wrap prompt-table-spaced">
+          {candidates !== null && candidates.candidates.length > 0 && (
             <Table<PromptCandidate>
               size="small"
               rowKey="candidateId"
@@ -642,7 +724,7 @@ export function PromptOptimizationPanel() {
                     dataIndex: "description",
                     ellipsis: true,
                     render: (_, candidate) => (
-                      <strong>{candidate.description || "改进版本"}</strong>
+                      <Text strong>{candidate.description || "改进版本"}</Text>
                     ),
                   },
                   {
@@ -655,25 +737,23 @@ export function PromptOptimizationPanel() {
                     title: "当前状态",
                     width: 150,
                     render: (_, candidate) => (
-                      <>
-                        <span className={"prompt-gate " + candidateTone(candidate.status)}>
-                          {candidateLabel(candidate.status)}
-                        </span>
+                      <Flex vertical gap={2}>
+                        <Badge status={candidateStatus(candidate.status)} text={candidateLabel(candidate.status)} />
                         {candidate.gateErrors.length > 0 && (
-                          <small title={candidate.gateErrors.join("；")}>
+                          <Text type="secondary" style={{ fontSize: 12 }} title={candidate.gateErrors.join("；")} ellipsis>
                             {candidate.gateErrors[0]}
-                          </small>
+                          </Text>
                         )}
-                      </>
+                      </Flex>
                     ),
                   },
                   {
                     title: "测试结果",
                     width: 200,
                     render: (_, candidate) => (
-                      <div className="po-eval-cell">
-                        <strong>{evaluationLabel(candidate.latestEvaluation)}</strong>
-                        <span>
+                      <Flex vertical gap={2}>
+                        <Text strong>{evaluationLabel(candidate.latestEvaluation)}</Text>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
                           {candidate.latestEvaluation === null
                             ? "等待测试"
                             : candidate.latestEvaluation.canPromote
@@ -681,8 +761,8 @@ export function PromptOptimizationPanel() {
                               : candidate.latestEvaluation.tier === "exploratory"
                                 ? "还在初步测试，不能当最终结论"
                                 : "暂不建议采用"}
-                        </span>
-                      </div>
+                        </Text>
+                      </Flex>
                     ),
                   },
                   {
@@ -712,9 +792,9 @@ export function PromptOptimizationPanel() {
                 ] satisfies TableColumnsType<PromptCandidate>
               }
             />
-          </div>
-        )}
+          )}
+        </Flex>
       </AdvancedDetails>
-    </section>
+    </Flex>
   );
 }

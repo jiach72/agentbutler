@@ -1,30 +1,25 @@
 /**
- * 图表视觉规范：把 tokens.ts 的两套色板桥接为 @ant-design/charts(G2 v5) 的通用配置。
+ * 图表视觉规范：把 tokens.ts 的语义色板桥接为 @ant-design/charts(G2 v5) 的通用配置。
  * 图表自身不允许出现硬编码色值；亮暗切换由 ConfigProvider 的 mode 驱动，
- * 与页面共用同一真源（lightPalette / nightPalette）。
+ * 与页面共用同一真源（paletteFor）。
  */
 import type { ThemeMode } from "../../theme/tokens.js";
-import { lightPalette, nightPalette } from "../../theme/tokens.js";
+import { paletteFor } from "../../theme/tokens.js";
 
 export interface ChartTheme {
   /** G2 内置主题：暗色切 classicDark，底色/文字自动反转。 */
   g2Theme: "classic" | "classicDark";
-  /** 系列色序：主交互 → 信息蓝 → 成功 → 警示 → 错误。 */
+  /** 系列色序：主色 → 信息青 → 成功 → 警示 → 错误。 */
   seriesColors: string[];
   muted: string;
   rule: string;
 }
 
-const PALETTES: Record<ThemeMode, typeof lightPalette | typeof nightPalette> = {
-  light: lightPalette,
-  dark: nightPalette,
-};
-
 export function chartThemeFor(mode: ThemeMode): ChartTheme {
-  const p = PALETTES[mode];
+  const p = paletteFor(mode);
   return {
     g2Theme: mode === "dark" ? "classicDark" : "classic",
-    seriesColors: [p.accent, p.teal, p.ok, p.warn, p.error],
+    seriesColors: [p.primary, p.teal, p.ok, p.warn, p.error],
     muted: p.muted,
     rule: p.rule,
   };
@@ -37,9 +32,9 @@ export function semanticSeries(
     [key: string, label: string, tone: "accent" | "teal" | "ok" | "warn" | "error" | "muted"]
   >,
 ): Array<{ key: string; label: string; color: string }> {
-  const p = PALETTES[mode];
+  const p = paletteFor(mode);
   const toneColor = {
-    accent: p.accent,
+    accent: p.primary,
     teal: p.teal,
     ok: p.ok,
     warn: p.warn,
@@ -49,9 +44,9 @@ export function semanticSeries(
   return defs.map(([key, label, tone]) => ({ key, label, color: toneColor[tone] }));
 }
 
-/** 单系列图的主填充色（accent），避免页面直接取色板。 */
+/** 单系列图的主填充色（primary），避免页面直接取色板。 */
 export function primaryFill(mode: ThemeMode): string {
-  return PALETTES[mode].accent;
+  return paletteFor(mode).primary;
 }
 
 /**
