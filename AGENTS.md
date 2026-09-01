@@ -44,7 +44,7 @@ bash scripts/deploy.sh
 
 ### 2.1 WSL + Hermes 消息接入（分支 A 扩展）
 
-编辑 `.env`（Hermes 在 WSL 用户家目录时，deploy.sh 会自动探测 `~/.hermes`，只需确认以下三项）：
+编辑 `.env`（Hermes 在 WSL 用户家目录时，deploy.sh 会自动探测 `~/.hermes` 并把探测结果**持久化写入 `.env` 的 `BUTLER_HERMES_HOST_PATH`**，确保后续手动 `docker compose` 命令与 UI 一键升级使用相同挂载源；只需确认以下三项）：
 
 ```ini
 BUTLER_HERMES_HOST_PATH=/home/<user>/.hermes        # 必须存在 agent-butler/bridge.token
@@ -118,9 +118,11 @@ curl -s http://127.0.0.1:7531/api/health | grep -o '"connected":[a-z]*'  # 消�
 
 | 症状 | 处置 |
 |---|---|
-| `docker compose ps` 有容器非 healthy | `docker compose logs --tail=200 <服务名>` 定位 |
+| `docker compose ps` 有容器非 healthy | `docker compose logs --tail=200 <服务名>` 定位；deploy.sh 健康等待超时时会自动打印未就绪服务的日志尾部 |
 | 部署失败提示 token missing | `BUTLER_HERMES_HOST_PATH` 指向的目录缺 `agent-butler/bridge.token`，检查路径 |
+| butler-gateway 崩溃循环 `cannot access BUTLER_HERMES_BRIDGE_TOKEN_FILE` | `.env` 的 `BUTLER_HERMES_HOST_PATH` 仍是默认 `./.runtime/hermes`（deploy.sh 会自动持久化探测路径；手动改过 `.env` 或换机迁移后需修正） |
 | hermes-gateway 崩溃循环 `Bridge host must remain on loopback` | `~/.hermes/.env` 的 `HERMES_BUTLER_HOST` 必须是 `127.0.0.1`（改回后等 systemd 自动重启） |
+| butler-web 崩溃循环「面板监听地址不是本机地址…没有设置访问口令」 | 非回环发布（如 `0.0.0.0`，WSL portproxy 场景需要）必须配套强随机 `BUTLER_ACCESS_TOKEN`；或改回 `BUTLER_WEB_PUBLISH_HOST=127.0.0.1` |
 | Windows 浏览器打不开 7531 但容器 healthy | WSL IP 变化致 portproxy 失效：管理员 PowerShell 执行 `scripts/fix-portproxy.ps1`；或启用 mirrored networking |
 | `/api/messages/overview` 显示 bridge 不可达 | 先跑 `bash scripts/bridge-healthcheck.sh` 定位断点；Gateway 侧无需处理（自愈中） |
 | pnpm install EACCES（在 /mnt/c） | 迁移仓库到 WSL ext4 后重来，禁止在 NTFS 挂载上构建 |

@@ -110,7 +110,17 @@ hermes_host_path="${hermes_host_path:-./.runtime/hermes}"
 if [[ "$hermes_host_path" == "./.runtime/hermes" && -d "$HOME/.hermes/hermes-agent" ]]; then
   hermes_host_path="$HOME/.hermes"
   export BUTLER_HERMES_HOST_PATH="$hermes_host_path"
-  echo "Detected WSL Hermes at $hermes_host_path; using it for Compose mounts."
+  # 持久化到 .env：手动 docker compose 命令与 UI 一键升级（updater sidecar）
+  # 不带本次 shell 的环境覆盖，若只运行时注入会让 gateway 挂载空目录并崩溃循环
+  # （cannot access BUTLER_HERMES_BRIDGE_TOKEN_FILE）。
+  if grep -qE '^BUTLER_HERMES_HOST_PATH=' .env; then
+    env_tmp="$(mktemp .env.XXXXXX)"
+    awk -v value="$hermes_host_path" '/^BUTLER_HERMES_HOST_PATH=/ { print "BUTLER_HERMES_HOST_PATH=" value; next } { print }' .env > "$env_tmp"
+    mv "$env_tmp" .env
+  else
+    printf '\nBUTLER_HERMES_HOST_PATH=%s\n' "$hermes_host_path" >> .env
+  fi
+  echo "Detected WSL Hermes at $hermes_host_path; persisted to .env for Compose mounts."
 fi
 if [[ "$hermes_host_path" != /* ]]; then
   hermes_host_path="$ROOT_DIR/$hermes_host_path"
@@ -179,5 +189,16 @@ for _ in {1..30}; do
   sleep 2
 done
 
-echo "Agent Butler did not become healthy. Check: docker compose logs --tail=200" >&2
+echo "Agent Butler did not become healthy." >&2
+# 直接给出未就绪服务的日志尾部：web/gateway 的 fail-closed 检查（如无口令公开、
+# token 文件不可达）只在容器日志里有清晰指引，部署者不必再手动翻全量日志。
+for pair in "butler-web:$web_ok" "butler-gateway:$gateway_ok" "butler-watch:$watch_ok"; do
+  svc="${pair%%:*}"
+  ok="${pair##*:}"
+  if [[ "$ok" != true ]]; then
+    echo "---- $svc 未就绪，最近日志 ----" >&2
+    compose logs --tail=30 "$svc" >&2 || true
+  fi
+done
+echo "Full logs: docker compose logs --tail=200" >&2
 exit 1
