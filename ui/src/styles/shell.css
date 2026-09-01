@@ -1,18 +1,15 @@
 /**
- * 应用外壳：左侧固定导航（图标 + 双行文案）+ 顶栏（页题、通知、主题切换）+ 内容区。
- * 布局为 100dvh 双栏：侧栏白色面板 + 发丝线分隔，内容区独立滚动。
+ * 应用外壳：antd Layout 骨架之上的少量结构样式。
+ * 颜色、圆角、密度全部交给 antd v6 Design Token；这里只补 antd 不管的三件事：
+ * 布局滚动关系（100dvh 双栏 + 内容独立滚动）、导航双行文案、响应式折叠。
  */
 
 .app {
-  display: flex;
   height: 100dvh;
   overflow: hidden;
 }
 
-.main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
+.app-main {
   min-width: 0;
 }
 
@@ -26,6 +23,19 @@
 .content > [class$="-page"] {
   max-width: 1360px;
   margin-inline: auto;
+}
+
+/* ---- 侧栏骨架 ---- */
+
+.app-sider {
+  border-right: 1px solid var(--butler-rule);
+}
+
+.app-sider .ant-layout-sider-children {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow-y: auto;
 }
 
 /* ---- 品牌区 ---- */
@@ -43,7 +53,7 @@
   width: 34px;
   height: 34px;
   flex-shrink: 0;
-  border-radius: 10px;
+  border-radius: var(--butler-radius-card);
   background: var(--butler-accent);
   color: var(--butler-on-accent);
   font-size: 18px;
@@ -69,81 +79,47 @@
   text-overflow: ellipsis;
 }
 
-/* ---- 导航 ---- */
+/* ---- 导航（antd inline Menu + 双行文案） ---- */
 
-.sidebar {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  overflow-y: auto;
-  /* 导航面与内容面拉出层次：亮色下是微冷的导航灰，暗色下略沉于内容表。 */
-  background: color-mix(in srgb, var(--butler-bg) 42%, var(--butler-surface));
+.app-nav {
+  border-inline-end: none !important;
+  flex: 1;
 }
 
-.sidebar-desktop {
-  width: 232px;
-  flex-shrink: 0;
-  border-right: 1px solid var(--butler-rule);
-  box-shadow: 10px 0 32px -24px color-mix(in srgb, var(--butler-ink) 22%, transparent);
-}
-
-.nav {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 4px 10px;
-}
-
-.nav-link {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 7px 10px;
+/* Menu item 高度放开，由双行文案决定。 */
+.app-nav .ant-menu-item {
+  height: auto;
   min-height: 44px;
-  border-radius: 8px;
-  color: var(--butler-ink-soft);
+  padding-block: 7px;
+  line-height: 1.4;
+}
+
+.app-nav .ant-menu-title-content {
+  height: auto;
+  width: 100%;
+  line-height: inherit;
+}
+
+.menu-link {
+  display: block;
+  color: inherit;
+}
+.menu-link:hover {
+  color: inherit;
   text-decoration: none;
-  transition: background-color var(--butler-dur-fast) var(--butler-ease),
-    color var(--butler-dur-fast) var(--butler-ease);
-}
-.nav-link:hover {
-  background: var(--butler-sunken);
-  color: var(--butler-ink);
-}
-.nav-link.active {
-  background: var(--butler-accent-soft);
-  color: var(--butler-accent);
 }
 
-.nav-icon {
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  flex-shrink: 0;
-  font-size: 15px;
-  color: var(--butler-muted);
-  transition: color var(--butler-dur-fast) var(--butler-ease);
-}
-.nav-link:hover .nav-icon {
-  color: var(--butler-ink-soft);
-}
-.nav-link.active .nav-icon {
-  color: var(--butler-accent);
-}
-
-.nav-copy {
+.menu-copy {
   display: flex;
   flex-direction: column;
   min-width: 0;
 }
-.nav-copy strong {
+.menu-copy strong {
   font-size: var(--butler-text-sm);
   font-weight: 550;
   line-height: 1.35;
 }
-.nav-copy small {
+.menu-copy small {
   color: var(--butler-muted);
   font-size: var(--butler-text-xs);
   line-height: 1.35;
@@ -151,13 +127,12 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.nav-link.active .nav-copy strong {
-  color: var(--butler-accent);
-}
-.nav-link.active .nav-copy small {
-  color: var(--butler-accent);
+.app-nav .ant-menu-item-selected .menu-copy small {
+  color: inherit;
   opacity: 0.75;
 }
+
+/* ---- 侧栏底部：设置入口 + 访问状态 ---- */
 
 .sidebar-bottom {
   display: flex;
@@ -167,13 +142,49 @@
   padding: 10px;
 }
 
+.sidebar-settings {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: var(--butler-radius-control);
+  color: var(--butler-ink-soft);
+  text-decoration: none;
+  transition: background-color var(--butler-dur-fast) var(--butler-ease),
+    color var(--butler-dur-fast) var(--butler-ease);
+}
+.sidebar-settings:hover {
+  background: var(--butler-sunken);
+  color: var(--butler-ink);
+}
+.sidebar-settings.active {
+  background: var(--butler-accent-soft);
+  color: var(--butler-accent);
+}
+
+.sidebar-settings-icon {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  flex-shrink: 0;
+  font-size: 15px;
+  color: var(--butler-muted);
+  transition: color var(--butler-dur-fast) var(--butler-ease);
+}
+.sidebar-settings:hover .sidebar-settings-icon {
+  color: var(--butler-ink-soft);
+}
+.sidebar-settings.active .sidebar-settings-icon {
+  color: var(--butler-accent);
+}
+
 .sidebar-meta {
   display: flex;
   align-items: flex-start;
   gap: 8px;
   padding: 10px 12px;
   border: 1px solid var(--butler-rule);
-  border-radius: 8px;
+  border-radius: var(--butler-radius-control);
   background: var(--butler-surface-subtle);
   color: var(--butler-muted);
   font-size: var(--butler-text-xs);
@@ -192,12 +203,10 @@
   opacity: 0.85;
 }
 
-/* 访问范围不是本机时，保留语义色提示，但用克制的中性底 +
-   细彩色边框 + 彩色图标点缀，弱化整块色块带来的视觉干扰。 */
+/* 访问范围不是本机时，保留语义色提示：中性底 + 细彩色边框 + 彩色图标。 */
 .sidebar-meta.is-warn {
   border-color: color-mix(in srgb, var(--butler-warn) 45%, var(--butler-rule));
   background: var(--butler-sunken);
-  color: var(--butler-muted);
 }
 .sidebar-meta.is-warn .anticon {
   color: var(--butler-warn);
@@ -205,7 +214,6 @@
 .sidebar-meta.is-error {
   border-color: color-mix(in srgb, var(--butler-error) 45%, var(--butler-rule));
   background: var(--butler-sunken);
-  color: var(--butler-muted);
 }
 .sidebar-meta.is-error .anticon {
   color: var(--butler-error);
@@ -214,18 +222,15 @@
 /* ---- 顶栏 ---- */
 
 .app-topbar {
-  position: sticky;
-  top: 0;
-  z-index: 20;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  height: 54px;
-  flex-shrink: 0;
+  height: 56px;
+  padding-block: 0;
   padding-inline: clamp(16px, 2.6vw, 28px);
-  background: color-mix(in srgb, var(--butler-surface) 88%, transparent);
-  backdrop-filter: blur(8px);
+  line-height: normal;
+  background: var(--butler-surface);
   border-bottom: 1px solid var(--butler-rule);
 }
 
@@ -271,13 +276,93 @@
   display: none;
 }
 
-/* ---- 抽屉式移动导航 ---- */
+/* ---- 移动端抽屉导航 ---- */
 
 .mobile-nav-drawer .ant-drawer-body {
   padding: 0;
 }
-.mobile-nav-drawer .sidebar-mobile {
+.sidebar-mobile {
   padding-bottom: 12px;
+}
+
+/* ---- 页面顶部进度条 ---- */
+
+.page-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--butler-space-2);
+  padding: var(--butler-space-3) var(--butler-space-4);
+  background: var(--butler-surface);
+  border: 1px solid var(--butler-rule);
+  border-radius: var(--butler-radius-card);
+}
+.page-progress.is-compact {
+  padding: 10px var(--butler-space-3);
+}
+.page-progress-copy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--butler-text-sm);
+}
+.page-progress-copy span {
+  color: var(--butler-muted);
+  font-size: var(--butler-text-xs);
+}
+.page-progress-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--butler-text-xs);
+}
+.page-progress-steps li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--butler-muted);
+}
+.page-progress-steps li i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--butler-ink-faint);
+  opacity: 0.45;
+}
+.page-progress-steps li.is-active {
+  color: var(--butler-accent);
+}
+.page-progress-steps li.is-active i {
+  background: var(--butler-accent);
+  opacity: 1;
+}
+.page-progress-steps li.is-done {
+  color: var(--butler-ok);
+}
+.page-progress-steps li.is-done i {
+  background: var(--butler-ok);
+  opacity: 1;
+}
+.page-progress-steps li.is-failed {
+  color: var(--butler-error);
+}
+.page-progress-steps li.is-failed i {
+  background: var(--butler-error);
+  opacity: 1;
+}
+
+/* ---- 访问口令闸门 ---- */
+
+.access-gate-field {
+  display: grid;
+  gap: 6px;
+}
+.access-gate-field > label {
+  font-size: var(--butler-text-sm);
+  font-weight: 550;
 }
 
 /* ---- 响应式 ---- */
@@ -286,10 +371,7 @@
   .topbar-brand {
     display: none;
   }
-  .sidebar-desktop {
-    width: 208px;
-  }
-  .nav-copy small {
+  .menu-copy small {
     display: none;
   }
 }
@@ -301,7 +383,7 @@
 }
 
 @media (max-width: 600px) {
-  .sidebar-desktop {
+  .app-sider {
     display: none;
   }
   .mobile-menu-button {
@@ -311,6 +393,6 @@
     padding-inline: 12px;
   }
   .content {
-    padding: 14px 12px 24px;
+    padding: 12px;
   }
 }

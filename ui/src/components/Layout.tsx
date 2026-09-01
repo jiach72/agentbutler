@@ -1,6 +1,7 @@
 /**
- * 应用外壳：左侧固定导航（图标 + 双行文案，底部安全区说明）+ 顶栏（页题、通知、主题切换）
- * + 右侧内容路由出口。移动端侧栏收进 Drawer。
+ * 应用外壳（antd v6 原生）：Layout/Sider/Menu/Header/Content 承担骨架，
+ * 导航是 inline Menu（组内嵌 react-router Link，保留真实 <a href> 语义），
+ * 移动端侧栏收进 Drawer。顶栏保留页题、通知与主题切换。
  */
 import {
   DashboardOutlined,
@@ -16,9 +17,10 @@ import {
   ThunderboltOutlined,
   FileMarkdownOutlined,
 } from "@ant-design/icons";
-import { Button, Drawer } from "antd";
+import { Button, Drawer, Layout as AntLayout, Menu } from "antd";
+import type { MenuProps } from "antd";
 import { Suspense, useEffect, useState } from "react";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { Link, Outlet, useLocation } from "react-router-dom";
 import { NotificationCenter } from "./NotificationCenter.js";
 import { PageProgress } from "./PageProgress.js";
 import { NotificationsProvider } from "../hooks/useNotifications.js";
@@ -47,6 +49,29 @@ const SETTINGS_ITEM = {
   label: "设置",
   note: "本机安全、备份与偏好",
 };
+
+interface NavItem {
+  to: string;
+  icon: React.ReactNode;
+  label: string;
+  note: string;
+}
+
+function navEntry(item: NavItem, onNavigate?: () => void): NonNullable<MenuProps["items"]>[number] {
+  return {
+    key: item.to,
+    icon: item.icon,
+    title: item.label,
+    label: (
+      <Link to={item.to} onClick={onNavigate} className="menu-link">
+        <span className="menu-copy">
+          <strong>{item.label}</strong>
+          <small>{item.note}</small>
+        </span>
+      </Link>
+    ),
+  };
+}
 
 /**
  * 侧栏底部那句「仅本机访问」必须来自真实监听地址。
@@ -81,6 +106,27 @@ function SidebarContent({
   onNavigate?: () => void;
   baseline: SecurityBaselinePayload | null;
 }) {
+  const location = useLocation();
+  const settingsActive =
+    location.pathname.startsWith(SETTINGS_ITEM.to) || location.pathname.startsWith("/preferences");
+  const currentEntry = ALL_NAV_ITEMS.find((item) => location.pathname.startsWith(item.to));
+  const selectedKey = settingsActive ? SETTINGS_ITEM.to : (currentEntry?.to ?? "");
+
+  const menuItems: MenuProps["items"] = [
+    {
+      key: "group-console",
+      type: "group",
+      label: "控制台",
+      children: NAV_ITEMS.map((item) => navEntry(item, onNavigate)),
+    },
+    {
+      key: "group-management",
+      type: "group",
+      label: "维护与升级",
+      children: MANAGEMENT_ITEMS.map((item) => navEntry(item, onNavigate)),
+    },
+  ];
+
   return (
     <>
       <div className="brand">
@@ -92,56 +138,21 @@ function SidebarContent({
           <small>本地运维控制台</small>
         </span>
       </div>
-      <nav className="nav" aria-label="主导航">
-        <span className="nav-group-label">控制台</span>
-        {NAV_ITEMS.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            onClick={onNavigate}
-            className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}
-          >
-            <span className="nav-icon" aria-hidden="true">
-              {item.icon}
-            </span>
-            <span className="nav-copy">
-              <strong>{item.label}</strong>
-              <small>{item.note}</small>
-            </span>
-          </NavLink>
-        ))}
-        <span className="nav-group-label">维护与升级</span>
-        {MANAGEMENT_ITEMS.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            onClick={onNavigate}
-            className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}
-          >
-            <span className="nav-icon" aria-hidden="true">
-              {item.icon}
-            </span>
-            <span className="nav-copy">
-              <strong>{item.label}</strong>
-              <small>{item.note}</small>
-            </span>
-          </NavLink>
-        ))}
-      </nav>
+      <Menu mode="inline" className="app-nav" items={menuItems} selectedKeys={[selectedKey]} />
       <div className="sidebar-bottom">
-        <NavLink
+        <Link
           to={SETTINGS_ITEM.to}
           onClick={onNavigate}
-          className={({ isActive }) => `nav-link nav-link-preferences${isActive ? " active" : ""}`}
+          className={`sidebar-settings${settingsActive ? " active" : ""}`}
         >
-          <span className="nav-icon" aria-hidden="true">
+          <span className="sidebar-settings-icon" aria-hidden="true">
             {SETTINGS_ITEM.icon}
           </span>
-          <span className="nav-copy">
+          <span className="menu-copy">
             <strong>{SETTINGS_ITEM.label}</strong>
             <small>{SETTINGS_ITEM.note}</small>
           </span>
-        </NavLink>
+        </Link>
         <div className={`sidebar-meta${baselineTone(baseline) !== "ok" ? ` is-${baselineTone(baseline)}` : ""}`}>
           <SafetyCertificateOutlined aria-hidden="true" />
           <span>
@@ -180,10 +191,10 @@ export function Layout() {
       <a className="skip-link" href="#main-content">
         跳到主内容
       </a>
-      <div className="app">
-        <aside className="sidebar sidebar-desktop">
+      <AntLayout className="app">
+        <AntLayout.Sider className="app-sider" width={232} theme="light">
           <SidebarContent baseline={baseline} />
-        </aside>
+        </AntLayout.Sider>
         <Drawer
           open={drawerOpen}
           onClose={() => setDrawerOpen(false)}
@@ -192,12 +203,12 @@ export function Layout() {
           title="Agent Butler"
           className="mobile-nav-drawer"
         >
-          <div className="sidebar sidebar-mobile">
+          <div className="sidebar-mobile">
             <SidebarContent onNavigate={() => setDrawerOpen(false)} baseline={baseline} />
           </div>
         </Drawer>
-        <div className="main">
-          <header className="app-topbar">
+        <AntLayout className="app-main">
+          <AntLayout.Header className="app-topbar">
             <div className="topbar-leading">
               <Button
                 className="mobile-menu-button"
@@ -221,14 +232,14 @@ export function Layout() {
                 onClick={toggleMode}
               />
             </div>
-          </header>
-          <main className="content" id="main-content">
+          </AntLayout.Header>
+          <AntLayout.Content className="content" id="main-content">
             <Suspense fallback={<PageProgress title="正在打开页面" detail="本机资源正在加载。" compact indeterminate />}>
               <Outlet />
             </Suspense>
-          </main>
-        </div>
-      </div>
+          </AntLayout.Content>
+        </AntLayout>
+      </AntLayout>
     </NotificationsProvider>
   );
 }

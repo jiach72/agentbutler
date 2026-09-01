@@ -2,7 +2,6 @@
 @import "./styles/base.css";
 @import "./styles/shell.css";
 @import "./styles/primitives.css";
-@import "./styles/access-gate.css";
 @import "./styles/pages/dashboard.css";
 @import "./styles/pages/gateway.css";
 @import "./styles/pages/evolution.css";
