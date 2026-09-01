@@ -11,6 +11,8 @@
  *   可用版本源 / 快照历史）；升级发起与快照回滚按 watch 代理透传；
  * - Task 15.2：/api/gateway 一次聚合消息网关数据（限流统计 / Hermes 形态补丁 /
  *   告警队列），补丁 apply/reapply/detect 三动作代理透传 watch 控制通道；
+ * - M1 一键接管：/api/messages/relay 代理透传 gateway 切换接口，
+ *   /api/messages/status 与 /api/messages/overview 透传 relay 控制块；
  * - M5 切片 1/2：/api/prompt-optimization 与 /targets 只读聚合 Prompt Registry，
  *   /active/:targetId 代理 baseline/version 快照查询，/candidates 代理候选与成对
  *   评估报告；批准/canary/提升/回滚写入口不暴露；
@@ -376,6 +378,8 @@ export interface MessageBridgeView {
 export interface MessageStatusView {
   bridge: MessageBridgeView;
   counts: Record<string, number>;
+  /** 消息链路一键接管开关视图（旧 gateway 无此字段时缺省）。 */
+  relay?: { enabled: boolean; pending: boolean; updatedAt: string | null };
 }
 
 export interface MessageItemView {
@@ -1243,6 +1247,18 @@ function parseMessageCounts(value: unknown): Record<string, number> | null {
   return counts;
 }
 
+/** 消息链路一键接管开关视图结构校验；缺字段或畸形一律视为旧 gateway（undefined）。 */
+function parseRelayControl(value: unknown): { enabled: boolean; pending: boolean; updatedAt: string | null } | undefined {
+  if (!isRecord(value) || typeof value["enabled"] !== "boolean" || typeof value["pending"] !== "boolean") {
+    return undefined;
+  }
+  return {
+    enabled: value["enabled"],
+    pending: value["pending"],
+    updatedAt: isNullableString(value["updatedAt"]) ? (value["updatedAt"] as string | null) : null,
+  };
+}
+
 function parseMessageStatus(value: unknown): MessageStatusView | null {
   if (!isRecord(value) || !isRecord(value["bridge"])) return null;
   const bridge = value["bridge"];
@@ -1298,6 +1314,7 @@ function parseMessageStatus(value: unknown): MessageStatusView | null {
       lastCycleAt: nullableString("lastCycleAt"),
       lastError: nullableString("lastError"),
     },
+    relay: parseRelayControl(value["relay"]),
     counts,
   };
 }
@@ -1916,6 +1933,10 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   });
   app.post("/api/messages/reconnect", async (request, reply) =>
     proxyGatewayPost("/api/messages/reconnect", request.body, reply),
+  );
+  // 消息链路一键接管切换：响应体与状态码原样透传 gateway（含离线 pending 语义）。
+  app.post("/api/messages/relay", async (request, reply) =>
+    proxyGatewayPost("/api/messages/relay", request.body, reply),
   );
 
   /* ---------------------- watch 控制通道代理（Task 10） ---------------------- */
