@@ -1,8 +1,12 @@
 /**
- * 主题真源：「Console Light」（亮色，默认）与「Graphite Night」（暗色）两套冷中性色板、
- * 圆角、字号、间距、动效的唯一定义处。
- * antd ConfigProvider 与 CSS 变量桥都从这里取值；界面样式只允许引用 --butler-* 变量，
- * 硬编码色值仅允许出现在本文件。
+ * 主题真源（antd v6 原生重构版）：
+ * 以 antd v6 设计语言为唯一基准 —— 钴蓝品牌色、中性面板、扁平发丝线，
+ * 亮色走 defaultAlgorithm、暗色走 darkAlgorithm 派生，cssVar 显式开启。
+ * 本文件是唯一允许出现具体色值的地方；界面样式只允许引用变量。
+ *
+ * 兼容说明：历史 CSS 使用 --butler-* 变量名。在页面 antd 化迁移完成前，
+ * applyThemeCssBridge 继续以同名变量输出新设计的取值；迁移完成后该桥退役，
+ * 残留样式统一改用 antd 的 --ant-* 变量。
  */
 import { theme, type ThemeConfig } from "antd";
 
@@ -52,7 +56,14 @@ export function writeStoredThemeMode(
   }
 }
 
-export interface ButlerPalette {
+/**
+ * 语义色板：antd 算法产出的关键派生色的静态快照，
+ * 供「CSS 兼容桥」与图表主题取值。antd 组件自身一律走 ConfigProvider 派生，
+ * 不读取这里的值 —— 两处取值必须保持视觉一致，改色时同步修改。
+ */
+export interface SemanticPalette {
+  primary: string;
+  primarySoft: string;
   bg: string;
   surface: string;
   surfaceSubtle: string;
@@ -63,95 +74,99 @@ export interface ButlerPalette {
   inkFaint: string;
   muted: string;
   rule: string;
-  accent: string;
-  accentSoft: string;
-  cinnabar: string;
-  cinnabarSoft: string;
-  teal: string;
-  tealSoft: string;
+  ruleStrong: string;
   ok: string;
   okSoft: string;
   warn: string;
   warnSoft: string;
   error: string;
   errorSoft: string;
-  onAccent: string;
-  ruleStrong: string;
+  onPrimary: string;
+  /** 图表第二系列（青色系）。 */
+  teal: string;
+  tealSoft: string;
+  /** 暖橙强调（危险/降级类徽标的辅助色相）。 */
+  cinnabar: string;
+  cinnabarSoft: string;
+  onPrimaryEmphasis: string;
   shadow: string;
   shadowStrong: string;
   focusRing: string;
-  /** 卡片表面顶部的一丝高光，让面板更立体（深浅主题不同的内阴影）。 */
   cardHighlight: string;
 }
 
-/** Console Light：冷灰白底 + 近黑文字 + 青蓝交互，发丝线边框优先于投影。 */
-export const lightPalette: ButlerPalette = {
-  bg: "#eef1f4",
+/** 亮色：冷灰白底 + 近黑文字 + 钴蓝交互，发丝线优先于投影。 */
+export const lightPalette: SemanticPalette = {
+  primary: "#2f54eb",
+  primarySoft: "#f0f5ff",
+  bg: "#f5f6f8",
   surface: "#ffffff",
-  surfaceSubtle: "#f6f8fa",
-  sunken: "#edf0f3",
+  surfaceSubtle: "#f7f8fa",
+  sunken: "#eef1f4",
   raised: "#ffffff",
-  ink: "#16191e",
-  inkSoft: "#40474f",
-  // Used for secondary text on white surfaces; keep above WCAG AA for normal text.
-  inkFaint: "#66717d",
-  muted: "#5d6672",
-  rule: "#e3e7eb",
-  accent: "#0e7683",
-  accentSoft: "#e2f3f5",
-  cinnabar: "#ce3b45",
-  cinnabarSoft: "#fbe9ea",
-  teal: "#3a67c9",
-  tealSoft: "#e7edfb",
-  ok: "#16803c",
-  okSoft: "#e6f5ea",
-  warn: "#b25e09",
-  warnSoft: "#fbf0dd",
-  error: "#d02f35",
-  errorSoft: "#fceaec",
-  onAccent: "#ffffff",
-  ruleStrong: "#cfd5db",
-  // 两级阴影都刻意压高一档 alpha，保证在浅冷灰背景上纵深肉眼可见。
-  shadow: "0 1px 2px rgb(16 24 40 / 7%), 0 3px 8px rgb(16 24 40 / 6%), 0 10px 24px -18px rgb(16 24 40 / 22%)",
-  shadowStrong: "0 22px 44px rgb(16 24 40 / 16%), 0 8px 18px rgb(16 24 40 / 9%), 0 2px 6px rgb(16 24 40 / 6%)",
-  focusRing: "0 0 0 3px rgb(14 118 131 / 28%)",
-  cardHighlight: "inset 0 1px 0 rgb(255 255 255 / 0.9), inset 0 0 0 1px rgb(255 255 255 / 0.35)",
+  ink: "#1d2129",
+  inkSoft: "#4e5969",
+  inkFaint: "#86909c",
+  muted: "#6b7280",
+  rule: "#e5e6eb",
+  ruleStrong: "#c9cdd4",
+  ok: "#52c41a",
+  okSoft: "#f6ffed",
+  warn: "#faad14",
+  warnSoft: "#fffbe6",
+  error: "#ff4d4f",
+  errorSoft: "#fff1f0",
+  onPrimary: "#ffffff",
+  teal: "#13c2c2",
+  tealSoft: "#e6fffb",
+  cinnabar: "#fa541c",
+  cinnabarSoft: "#fff2e8",
+  onPrimaryEmphasis: "#1d2129",
+  shadow: "0 1px 2px rgb(15 23 42 / 5%), 0 4px 12px rgb(15 23 42 / 6%)",
+  shadowStrong: "0 18px 44px rgb(15 23 42 / 16%), 0 6px 16px rgb(15 23 42 / 8%)",
+  focusRing: "0 0 0 3px rgb(47 84 235 / 25%)",
+  cardHighlight: "inset 0 1px 0 rgb(255 255 255 / 0.65)",
 };
 
-/** Graphite Night：石墨底 + 暖白文字 + 亮青交互；语义色整体提亮保证对比度。 */
-export const nightPalette: ButlerPalette = {
-  bg: "#0e1116",
-  surface: "#151a20",
-  surfaceSubtle: "#191f26",
-  sunken: "#0a0d11",
-  raised: "#1d242b",
-  ink: "#e9edf0",
-  inkSoft: "#c5ccd2",
-  inkFaint: "#7f8993",
-  muted: "#97a1ab",
-  rule: "#262e36",
-  accent: "#41b7c4",
-  accentSoft: "#113b42",
-  cinnabar: "#ef7d76",
-  cinnabarSoft: "#3c2220",
-  teal: "#8da6f2",
-  tealSoft: "#1c2743",
-  ok: "#55c583",
-  okSoft: "#14301f",
-  warn: "#e4af4c",
-  warnSoft: "#3a2d12",
-  error: "#ef7a70",
-  errorSoft: "#3d211e",
-  onAccent: "#06282e",
-  ruleStrong: "#3a454f",
-  shadow: "0 1px 2px rgb(0 0 0 / 35%), 0 4px 14px rgb(0 0 0 / 24%)",
-  shadowStrong: "0 16px 38px rgb(0 0 0 / 42%), 0 6px 12px rgb(0 0 0 / 30%)",
-  focusRing: "0 0 0 3px rgb(65 183 196 / 38%)",
+/** 暗色：石墨蓝黑底 + 柔白文字 + 提亮钴蓝；语义色整体提亮保证对比度。 */
+export const nightPalette: SemanticPalette = {
+  primary: "#85a5ff",
+  primarySoft: "#1c2748",
+  bg: "#0f1115",
+  surface: "#16181d",
+  surfaceSubtle: "#1b1e24",
+  sunken: "#0c0e11",
+  raised: "#1f2229",
+  ink: "#e8eaed",
+  inkSoft: "#b8bfc9",
+  inkFaint: "#7c8590",
+  muted: "#98a1ab",
+  rule: "#262a32",
+  ruleStrong: "#363c46",
+  ok: "#95de64",
+  okSoft: "#1a2b1c",
+  warn: "#ffc53d",
+  warnSoft: "#2f2a12",
+  error: "#ff7875",
+  errorSoft: "#3a221f",
+  onPrimary: "#0d1b4d",
+  teal: "#36cfc9",
+  tealSoft: "#123a3f",
+  cinnabar: "#ff9a6e",
+  cinnabarSoft: "#3d2417",
+  onPrimaryEmphasis: "#e8eaed",
+  shadow: "0 1px 2px rgb(0 0 0 / 45%), 0 4px 14px rgb(0 0 0 / 30%)",
+  shadowStrong: "0 18px 44px rgb(0 0 0 / 55%), 0 6px 16px rgb(0 0 0 / 35%)",
+  focusRing: "0 0 0 3px rgb(133 165 255 / 35%)",
   cardHighlight: "inset 0 1px 0 rgb(255 255 255 / 0.04)",
 };
 
+export function paletteFor(mode: ThemeMode): SemanticPalette {
+  return mode === "dark" ? nightPalette : lightPalette;
+}
+
 export const radius = {
-  card: 12,
+  card: 10,
   control: 8,
 } as const;
 
@@ -164,100 +179,40 @@ export const fontFamily = fontStack;
 export const monoFontFamily =
   '"Cascadia Mono", Consolas, "SF Mono", Menlo, "Courier New", monospace';
 
-/** 展示型标题沿用正文字体（加字重），不再引入衬线/网络字体。 */
-export const displayFontFamily = fontStack;
-
-const motion = {
-  durFast: "120ms",
-  durBase: "200ms",
-  durSlow: "320ms",
-  ease: "cubic-bezier(0.2, 0, 0, 1)",
-} as const;
-
 /**
- * 字号阶梯（px）：全站最小 12，正文 14，区块题 16-18，页面题 20-24。
- * CSS 一律通过 --butler-text-* 引用。
+ * ConfigProvider 主题：antd v6 原生观感，组件层零覆盖。
+ * 品牌色用同一颗种子交给算法派生，避免手调两套色阶漂移。
  */
-const typeScale = {
-  xs: "12px",
-  sm: "13px",
-  md: "14px",
-  lg: "16px",
-  xl: "20px",
-  xxl: "24px",
-} as const;
+const BRAND_SEED = "#2f54eb";
 
-/** 4/8 间距网格。CSS 通过 --butler-space-* 引用。 */
-const spaceScale = [4, 8, 12, 16, 24, 32] as const;
-
-function buildThemeConfig(p: ButlerPalette, mode: ThemeMode): ThemeConfig {
+export function themeConfigFor(mode: ThemeMode): ThemeConfig {
   return {
+    // antd v6 起 cssVar 的类型为 { prefix?, key? } | false，空对象即开启（默认 --ant-* 前缀）。
+    cssVar: {},
     algorithm: mode === "dark" ? theme.darkAlgorithm : theme.defaultAlgorithm,
     token: {
-      colorPrimary: p.accent,
-      colorInfo: p.accent,
-      colorSuccess: p.ok,
-      colorWarning: p.warn,
-      colorError: p.error,
-      // 语义柔和底统一走本文件色板的 soft 变体，避免 antd 默认派生色与页面不协调。
-      colorInfoBg: p.accentSoft,
-      colorInfoBgHover: p.accentSoft,
-      colorSuccessBg: p.okSoft,
-      colorSuccessBgHover: p.okSoft,
-      colorWarningBg: p.warnSoft,
-      colorWarningBgHover: p.warnSoft,
-      colorErrorBg: p.errorSoft,
-      colorErrorBgHover: p.errorSoft,
-      colorBgLayout: p.bg,
-      colorBgContainer: p.surface,
-      colorBgElevated: mode === "dark" ? p.raised : p.raised,
-      colorText: p.ink,
-      colorTextSecondary: p.muted,
-      colorBorder: p.ruleStrong,
-      colorBorderSecondary: p.rule,
+      colorPrimary: BRAND_SEED,
+      colorInfo: BRAND_SEED,
+      colorBgLayout: mode === "dark" ? "#0f1115" : "#f5f6f8",
+      ...(mode === "dark" ? { colorBgBase: "#13151a" } : {}),
+      colorText: mode === "dark" ? "#e8eaed" : "#1d2129",
+      colorTextSecondary: mode === "dark" ? "#b8bfc9" : "#4e5969",
+      colorTextTertiary: mode === "dark" ? "#98a1ab" : "#6b7280",
+      colorTextQuaternary: mode === "dark" ? "#7c8590" : "#86909c",
+      colorBorder: mode === "dark" ? "#363c46" : "#c9cdd4",
+      colorBorderSecondary: mode === "dark" ? "#262a32" : "#e5e6eb",
       borderRadius: radius.control,
       borderRadiusLG: radius.card,
-      borderRadiusSM: 4,
-      boxShadowTertiary: p.shadow,
+      borderRadiusSM: 5,
+      boxShadowTertiary: paletteFor(mode).shadow,
       fontFamily,
       fontSize: 14,
-      // 全站统一控件高度（输入框/按钮/下拉等），避免同排控件因默认尺寸差异出现错位。
       controlHeight: 32,
-    },
-    components: {
-      Button: {
-        fontWeight: 500,
-        primaryColor: p.onAccent,
-        defaultBorderColor: p.ruleStrong,
-      },
-      Table: {
-        headerBg: p.surfaceSubtle,
-        headerSplitColor: "transparent",
-        cellFontSizeSM: 13,
-        cellPaddingBlockSM: 6,
-        rowHoverBg: p.surfaceSubtle,
-      },
-      Tag: {
-        defaultBg: p.sunken,
-      },
-      Modal: {
-        titleFontSize: 16,
-      },
-      Tooltip: {
-        fontSize: 12,
-      },
-      Collapse: {
-        headerBg: p.surfaceSubtle,
-      },
     },
   };
 }
 
-export function themeConfigFor(mode: ThemeMode): ThemeConfig {
-  return buildThemeConfig(mode === "dark" ? nightPalette : lightPalette, mode);
-}
-
-const paletteVars = (p: ButlerPalette): Record<string, string> => ({
+const paletteVars = (p: SemanticPalette): Record<string, string> => ({
   "--butler-bg": p.bg,
   "--butler-surface": p.surface,
   "--butler-surface-subtle": p.surfaceSubtle,
@@ -268,8 +223,8 @@ const paletteVars = (p: ButlerPalette): Record<string, string> => ({
   "--butler-ink-faint": p.inkFaint,
   "--butler-muted": p.muted,
   "--butler-rule": p.rule,
-  "--butler-accent": p.accent,
-  "--butler-accent-soft": p.accentSoft,
+  "--butler-accent": p.primary,
+  "--butler-accent-soft": p.primarySoft,
   "--butler-cinnabar": p.cinnabar,
   "--butler-cinnabar-soft": p.cinnabarSoft,
   "--butler-teal": p.teal,
@@ -280,9 +235,9 @@ const paletteVars = (p: ButlerPalette): Record<string, string> => ({
   "--butler-warn-soft": p.warnSoft,
   "--butler-error": p.error,
   "--butler-error-soft": p.errorSoft,
-  "--butler-on-accent": p.onAccent,
+  "--butler-on-accent": p.onPrimary,
   "--butler-rule-strong": p.ruleStrong,
-  // 兼容历史命别名（text-muted 与 muted 同源），样式迁移期保留。
+  // 兼容历史命别名（text-muted 与 muted 同源），迁移期保留。
   "--butler-text-muted": p.muted,
   "--butler-shadow": p.shadow,
   "--butler-shadow-strong": p.shadowStrong,
@@ -291,11 +246,11 @@ const paletteVars = (p: ButlerPalette): Record<string, string> => ({
 });
 
 /**
- * 把当前主题 token 写入 :root 内联变量并设置 data-theme：
+ * 把当前主题变量写入 :root 内联样式并设置 data-theme：
  * 内联优先级高于任何样式表声明，杜绝历史 :root 残留干扰。
  */
 export function applyThemeCssBridge(mode: ThemeMode): void {
-  const p = mode === "dark" ? nightPalette : lightPalette;
+  const p = paletteFor(mode);
   const root = document.documentElement;
   root.dataset.theme = mode;
   root.style.colorScheme = mode;
@@ -305,10 +260,10 @@ export function applyThemeCssBridge(mode: ThemeMode): void {
     "--butler-radius-control": `${radius.control}px`,
     "--butler-control-h": "32px",
     "--butler-focus-ring": p.focusRing,
-    "--butler-dur-fast": motion.durFast,
-    "--butler-dur-base": motion.durBase,
-    "--butler-dur-slow": motion.durSlow,
-    "--butler-ease": motion.ease,
+    "--butler-dur-fast": "120ms",
+    "--butler-dur-base": "200ms",
+    "--butler-dur-slow": "320ms",
+    "--butler-ease": "cubic-bezier(0.2, 0, 0, 1)",
     "--butler-body-font": fontFamily,
     "--butler-mono-font": monoFontFamily,
     ...Object.fromEntries(typeScaleEntries()),
@@ -319,14 +274,23 @@ export function applyThemeCssBridge(mode: ThemeMode): void {
   }
 }
 
+/** 字号阶梯（px）：全站最小 12，正文 14。CSS 通过 --butler-text-* 引用。 */
 function typeScaleEntries(): Array<[string, string]> {
+  const typeScale = {
+    xs: "12px",
+    sm: "13px",
+    md: "14px",
+    lg: "16px",
+    xl: "20px",
+    xxl: "24px",
+  } as const;
   return Object.entries(typeScale).map(([key, value]) => [`--butler-text-${key}`, value]);
 }
 
+/** 4/8 间距网格。CSS 通过 --butler-space-* 引用。 */
 function spaceVars(): Record<string, string> {
-  const entries: Array<[string, string]> = spaceScale.map((value, index) => [
-    `--butler-space-${index + 1}`,
-    `${value}px`,
-  ]);
-  return Object.fromEntries(entries);
+  const spaceScale = [4, 8, 12, 16, 24, 32] as const;
+  return Object.fromEntries(
+    spaceScale.map((value, index) => [`--butler-space-${index + 1}`, `${value}px`]),
+  );
 }

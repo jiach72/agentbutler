@@ -1,6 +1,7 @@
 /**
- * 全局基础层：文档背景/字体、焦点环、选区、滚动条、动效降级与通用工具类。
- * 所有颜色/字号/间距一律引用 --butler-* 变量（真源见 theme/tokens.ts）。
+ * 全局基础层：文档底色/字体、焦点环、选区、滚动条、动效降级与通用工具类。
+ * 控件观感全部交给 antd（ConfigProvider + Design Token），这里只兜底
+ * antd 不管理的原生元素；颜色/字号一律引用 --butler-* 变量（真源见 theme/tokens.ts）。
  */
 
 html {
@@ -16,13 +17,6 @@ body {
   min-width: 320px;
   min-height: 100%;
   background-color: var(--butler-bg);
-  /* 细微工程氛围：右上青蓝辉光 + 左下辅助色晕 + 全网状点阵。refined-motion 下仍为静态。 */
-  background-image:
-    radial-gradient(1150px 640px at 90% -10%, color-mix(in srgb, var(--butler-accent) 8%, transparent), transparent 60%),
-    radial-gradient(860px 520px at -8% 112%, color-mix(in srgb, var(--butler-teal) 7%, transparent), transparent 58%),
-    radial-gradient(color-mix(in srgb, var(--butler-ink) 5%, transparent) 1px, transparent 1.6px);
-  background-size: auto, auto, 24px 24px;
-  background-attachment: fixed, fixed, fixed;
   color: var(--butler-ink);
   font-family: var(--butler-body-font);
   font-size: var(--butler-text-md);
@@ -41,21 +35,6 @@ textarea {
 /* 裸 <small> 不再依赖浏览器相对缩小（会跌到 9.6-10.4px），统一锚定最小字号 token。 */
 small {
   font-size: var(--butler-text-xs);
-}
-
-/* 控件最小命中区域兜底：对齐 tokens.ts 的统一控件高度（32px，真源 controlHeight/--butler-control-h）。
-   零优先级 :where 只防 antd 内部尺寸漂移，不覆盖任何页面级意图。 */
-:where(.ant-btn) {
-  min-height: var(--butler-control-h);
-}
-:where(.ant-btn.ant-btn-icon-only) {
-  min-width: var(--butler-control-h);
-}
-:where(.ant-select-single .ant-select-selector),
-:where(.ant-input),
-:where(.ant-input-affix-wrapper),
-:where(.ant-input-number) {
-  min-height: var(--butler-control-h);
 }
 
 ::selection {
@@ -127,7 +106,7 @@ small {
   left: 16px;
   z-index: 2000;
   padding: 8px 14px;
-  border-radius: 8px;
+  border-radius: var(--butler-radius-control);
   background: var(--butler-accent);
   color: var(--butler-on-accent);
   font-size: var(--butler-text-sm);
