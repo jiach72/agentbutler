@@ -1,13 +1,10 @@
-"""国内 IM 通道目录与运行态聚合（Butler 面板控制面）。
-
-配置写入/启停/重启触发（update_config/set_enabled/schema/request_restart）
-由后续任务补齐；本模块当前只提供目录与每通道运行态视图。
-"""
+"""国内 IM 通道目录、运行态聚合与配置写入/启停/重启（Butler 面板控制面）。"""
 
 from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -164,3 +161,101 @@ class ChannelControl:
             }
             for channel in CHANNEL_SCHEMAS
         }
+
+    # ---------- schema / 配置写入 / 启停 / 重启 ----------
+
+    def schema(self, channel: str) -> dict[str, Any]:
+        base = CHANNEL_SCHEMAS.get(channel)
+        if base is None:
+            raise ValueError(f"unsupported channel: {channel}")
+        return {"channel": channel, "kind": base["kind"], "label": base["label"], "fields": list(base["fields"])}
+
+    def update_config(self, channel: str, values: dict[str, str]) -> dict[str, Any]:
+        base = CHANNEL_SCHEMAS.get(channel)
+        if base is None:
+            raise ValueError(f"unsupported channel: {channel}")
+        field_names = {field["name"] for field in base["fields"]}
+        unknown = sorted(set(values) - field_names)
+        if unknown:
+            raise ValueError(f"unsupported fields: {', '.join(unknown)}")
+        incoming = {name: str(value).strip() for name, value in values.items()}
+        missing = [
+            field["name"]
+            for field in base["fields"]
+            if field["required"] and not incoming.get(field["name"])
+        ]
+        if missing:
+            raise ValueError(f"missing required fields: {', '.join(missing)}")
+        self._mutate_platforms(channel, lambda section: self._apply_fields(channel, section, incoming))
+        # 掩码视图：只回显本次提供的字段；secret 字段固定掩码，其余原值。
+        secret_by_name = {field["name"]: bool(field["secret"]) for field in base["fields"]}
+        saved: dict[str, Any] = {}
+        for name in (field["name"] for field in base["fields"]):
+            value = incoming.get(name)
+            if value:
+                saved[name] = "••••" if secret_by_name[name] else value
+        return saved
+
+    @staticmethod
+    def _apply_fields(channel: str, section: dict[str, Any], incoming: dict[str, str]) -> dict[str, Any]:
+        extra = section.setdefault("extra", {})
+        if not isinstance(extra, dict):
+            section["extra"] = extra = {}
+        for name, value in incoming.items():
+            if value:
+                extra[name] = value
+        return section
+
+    def set_enabled(self, channel: str, enabled: bool) -> dict[str, Any]:
+        base = CHANNEL_SCHEMAS.get(channel)
+        if base is None:
+            raise ValueError(f"unsupported channel: {channel}")
+
+        def mutate(section: dict[str, Any]) -> dict[str, Any]:
+            # 与 _is_enabled 读取约定对称：feishu/dingtalk/wecom 用 enabled 布尔，
+            # 其余通道用 disabled 标记（缺省视为启用）。
+            if channel in {"feishu", "dingtalk", "wecom"}:
+                section["enabled"] = enabled
+            else:
+                section["disabled"] = not enabled
+            return section
+
+        self._mutate_platforms(channel, mutate)
+        return {"channel": channel, "enabled": enabled}
+
+    def _mutate_platforms(self, channel: str, mutate) -> None:
+        path = self._config_path()
+        data: dict[str, Any] = {}
+        if path.is_file():
+            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        if not isinstance(data, dict):
+            data = {}
+        platforms = data.setdefault("platforms", {})
+        if not isinstance(platforms, dict):
+            raise ValueError("config.yaml platforms must be a mapping")
+        if path.is_file():
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            backup = path.with_name(f"config.yaml.bak-butler-{stamp}")
+            backup.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+        section = platforms.get(channel)
+        section = section if isinstance(section, dict) else {}
+        platforms[channel] = mutate(section)
+        text = yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
+        temp = path.with_name(f".config.yaml.butler-{os.getpid()}.tmp")
+        temp.write_text(text, encoding="utf-8")
+        os.replace(temp, path)
+        return None
+
+    def request_restart(self, registry) -> bool:
+        """触发 Hermes 网关优雅重启一次；失败不重试。"""
+        if registry is None:
+            return False
+        for binding in registry.bindings():
+            runner = getattr(binding.adapter, "gateway_runner", None)
+            request = getattr(runner, "request_restart", None)
+            if callable(request):
+                try:
+                    return bool(request(via_service=True))
+                except Exception:
+                    return False
+        return False

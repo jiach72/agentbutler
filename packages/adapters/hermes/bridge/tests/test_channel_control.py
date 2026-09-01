@@ -4,6 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import yaml
+
 from agent_butler_bridge.channel_control import CHANNEL_SCHEMAS, ChannelControl
 
 
@@ -90,6 +92,85 @@ class ChannelDirectoryTests(unittest.TestCase):
         registry = _Registry([])
         status = self.control.status_map(registry)
         self.assertEqual(status["weixin"]["loginState"], "logged_out")
+
+
+class ChannelConfigTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.home = Path(self.tmp.name)
+        (self.home / "config.yaml").write_text(
+            "gateway:\n  loop_watchdog: true\nplatforms:\n  feishu:\n    enabled: false\n",
+            encoding="utf-8",
+        )
+        self.control = ChannelControl(self.home)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _platforms(self):
+        data = yaml.safe_load((self.home / "config.yaml").read_text(encoding="utf-8"))
+        return data["platforms"]
+
+    def test_schema_masks_secret_fields(self):
+        view = self.control.schema("feishu")
+        self.assertEqual(view["channel"], "feishu")
+        self.assertTrue(any(f["name"] == "app_secret" and f["secret"] for f in view["fields"]))
+
+    def test_unknown_channel_rejected(self):
+        with self.assertRaises(ValueError):
+            self.control.schema("telegram")
+
+    def test_update_config_writes_whitelist_and_backs_up(self):
+        saved = self.control.update_config("feishu", {"app_id": "cli_a", "app_secret": "s3cret"})
+        self.assertEqual(saved["app_id"], "cli_a")
+        self.assertEqual(saved["app_secret"], "••••")
+        platforms = self._platforms()
+        self.assertEqual(platforms["feishu"]["extra"]["app_id"], "cli_a")
+        self.assertEqual(platforms["feishu"]["extra"]["app_secret"], "s3cret")
+        # 其他配置节不受影响
+        data = yaml.safe_load((self.home / "config.yaml").read_text(encoding="utf-8"))
+        self.assertTrue(data["gateway"]["loop_watchdog"])
+        backups = list(self.home.glob("config.yaml.bak-butler-*"))
+        self.assertEqual(len(backups), 1)
+
+    def test_update_config_rejects_unknown_field(self):
+        with self.assertRaises(ValueError):
+            self.control.update_config("feishu", {"root_password": "x"})
+
+    def test_update_config_requires_required_fields(self):
+        with self.assertRaises(ValueError):
+            self.control.update_config("dingtalk", {"client_id": "x"})  # 缺 client_secret
+
+    def test_enable_disable_roundtrip_keeps_credentials(self):
+        self.control.update_config("dingtalk", {"client_id": "c1", "client_secret": "s1"})
+        self.control.set_enabled("dingtalk", True)
+        self.assertTrue(self._platforms()["dingtalk"]["enabled"] is True)
+        self.control.set_enabled("dingtalk", False)
+        self.assertTrue(self._platforms()["dingtalk"]["enabled"] is False)
+        # 凭据保留
+        self.assertEqual(self._platforms()["dingtalk"]["extra"]["client_id"], "c1")
+
+    def test_request_restart_invokes_runner_once(self):
+        class _Runner:
+            def __init__(self):
+                self.calls = 0
+
+            def request_restart(self, **kwargs):
+                self.calls += 1
+                return True
+
+        class _Binding:
+            def __init__(self, runner):
+                self.adapter = type("A", (), {"gateway_runner": runner})()
+
+        runner = _Runner()
+        registry = _Registry([_Binding(runner)])
+        self.assertTrue(self.control.request_restart(registry))
+        self.assertEqual(runner.calls, 1)
+
+    def test_request_restart_without_runner_returns_false(self):
+        registry = _Registry([])
+        self.assertFalse(self.control.request_restart(registry))
 
 
 if __name__ == "__main__":

@@ -293,11 +293,57 @@ def create_app(
             return _conflict_or_invalid(exc)
         return web.json_response({"cancelled": weixin_login.cancel(str(payload["sessionId"]))})
 
+    async def channel_schema(request: web.Request) -> web.Response:
+        if channel_control is None:
+            return _error(404, "not_found", "channel control unavailable")
+        try:
+            return web.json_response(channel_control.schema(request.match_info["channel"]))
+        except ValueError as exc:
+            return _error(400, "invalid", str(exc))
+
+    async def channel_config_put(request: web.Request) -> web.Response:
+        if channel_control is None:
+            return _error(404, "not_found", "channel control unavailable")
+        channel = request.match_info["channel"]
+        try:
+            fields = channel_control.schema(channel)["fields"]
+            allowed = {field["name"] for field in fields}
+            payload = await _read_object(request, required=set(), allowed=allowed)
+            values = {key: str(value) for key, value in payload.items() if str(value).strip() != ""}
+            saved = channel_control.update_config(channel, values)
+            return web.json_response({"saved": True, **saved})
+        except ValueError as exc:
+            return _error(400, "invalid", str(exc))
+
+    async def channel_enable(request: web.Request) -> web.Response:
+        if channel_control is None:
+            return _error(404, "not_found", "channel control unavailable")
+        channel = request.match_info["channel"]
+        try:
+            channel_control.set_enabled(channel, True)
+        except ValueError as exc:
+            return _error(400, "invalid", str(exc))
+        return web.json_response({"restarting": channel_control.request_restart(registry)})
+
+    async def channel_disable(request: web.Request) -> web.Response:
+        if channel_control is None:
+            return _error(404, "not_found", "channel control unavailable")
+        channel = request.match_info["channel"]
+        try:
+            channel_control.set_enabled(channel, False)
+        except ValueError as exc:
+            return _error(400, "invalid", str(exc))
+        return web.json_response({"restarting": channel_control.request_restart(registry)})
+
     app.router.add_get("/v1/health", health)
     app.router.add_get("/v1/channels", channels_directory)
     app.router.add_post("/v1/channels/weixin/login/start", weixin_login_start)
     app.router.add_get("/v1/channels/weixin/login/status", weixin_login_status)
     app.router.add_post("/v1/channels/weixin/login/cancel", weixin_login_cancel)
+    app.router.add_get("/v1/channels/{channel}/schema", channel_schema)
+    app.router.add_put("/v1/channels/{channel}/config", channel_config_put)
+    app.router.add_post("/v1/channels/{channel}/enable", channel_enable)
+    app.router.add_post("/v1/channels/{channel}/disable", channel_disable)
     app.router.add_post("/v1/policy", install_policy)
     app.router.add_get("/v1/outbox/changes", changes)
     app.router.add_post("/v1/outbox/{message_id}/decision", decide)
