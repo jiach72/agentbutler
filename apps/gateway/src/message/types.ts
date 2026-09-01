@@ -12,6 +12,8 @@ export interface ChannelPolicy {
 export interface MessagePolicyConfig {
   version: string;
   inlineResponse: "allow";
+  /** 缺省 takeover；passthrough 时 Bridge 捕获后立即原样发送。 */
+  relayMode?: "takeover" | "passthrough";
   digest: {
     windowSec: number;
     maxItems: number;

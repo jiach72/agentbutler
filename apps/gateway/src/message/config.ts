@@ -7,6 +7,7 @@ import type { ChannelPolicy, MessagePolicyConfig } from "./types.js";
 export const DEFAULT_MESSAGE_POLICY: MessagePolicyConfig = {
   version: "message-policy-v1",
   inlineResponse: "allow",
+  relayMode: "takeover",
   digest: {
     windowSec: 120,
     maxItems: 8,
@@ -99,6 +100,10 @@ function validateChannelPolicy(channelId: ChannelId, policy: ChannelPolicy): voi
 export function validateMessagePolicy(config: MessagePolicyConfig): void {
   if (config.inlineResponse !== "allow") {
     throw new Error('inlineResponse must be exactly "allow"');
+  }
+
+  if (config.relayMode !== undefined && config.relayMode !== "takeover" && config.relayMode !== "passthrough") {
+    throw new Error('relayMode must be "takeover" or "passthrough"');
   }
 
   for (const [field, value] of CONFIG_NUMBERS(config)) {

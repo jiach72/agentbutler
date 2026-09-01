@@ -2,6 +2,10 @@ import type { ChannelId, InstanceId, InstanceRef, Result } from "./common.js";
 
 export const BRIDGE_PROTOCOL_VERSION = 1 as const;
 
+/** 消息链路模式：takeover=Butler 策略接管；passthrough=原通道直发（仍捕获审计）。 */
+export const RELAY_MODES = ["takeover", "passthrough"] as const;
+export type RelayMode = (typeof RELAY_MODES)[number];
+
 export const TRANSPORT_CLASSES = ["queued-push", "inline-response"] as const;
 
 export const MESSAGE_KINDS = [

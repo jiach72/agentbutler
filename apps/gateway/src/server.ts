@@ -576,7 +576,11 @@ function parseDndBody(
 
 function parsePolicyBody(value: unknown): MessagePolicyConfig {
   const root = requireRecord(value, "policy");
-  assertExactKeys(root, ["version", "inlineResponse", "digest", "delivery", "channels"], "policy");
+  assertExactKeys(
+    root,
+    ["version", "inlineResponse", "relayMode", "digest", "delivery", "channels"],
+    "policy",
+  );
   if (readString(root["version"]) === null)
     throw new Error("policy.version must be a non-empty string");
   const digest = requireRecord(root["digest"], "policy.digest");
@@ -607,6 +611,9 @@ function parsePolicyBody(value: unknown): MessagePolicyConfig {
       channelKeys,
       `policy.channels.${channel}`,
     );
+  }
+  if (root["relayMode"] !== undefined && root["relayMode"] !== "takeover" && root["relayMode"] !== "passthrough") {
+    throw new Error('policy.relayMode must be "takeover" or "passthrough"');
   }
   const config = root as unknown as MessagePolicyConfig;
   validateMessagePolicy(config);
