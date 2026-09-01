@@ -3,8 +3,10 @@
  * 30 秒轻量轮询让备份/审计在管家自动动作后出现；危险操作统一走确认弹窗。
  */
 import { useCallback, useEffect, useState } from "react";
-import { App, Tabs } from "antd";
+import { Alert, App, Flex, Tabs, Typography } from "antd";
+import { ConnectionChip } from "../../components/ConnectionChip.js";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
+import { PageHeader } from "../../components/PageHeader.js";
 import { loadJson, postJson, type LoadResult } from "../../lib/api.js";
 import { usePolling } from "../../hooks/usePolling.js";
 import { formatTime } from "../../lib/format.js";
@@ -31,6 +33,8 @@ import { DiagnosticsCenter } from "./DiagnosticsCenter.js";
 import { SecurityBaseline } from "./SecurityBaseline.js";
 import { PreferencesPanel } from "../preferences/PreferencesPage.js";
 import { LlmProfileManager } from "./LlmProfileManager.js";
+
+const { Paragraph, Text } = Typography;
 
 export function SettingsPage() {
   const { message } = App.useApp();
@@ -186,144 +190,158 @@ export function SettingsPage() {
     : true;
 
   return (
-    <section className="page product-page settings-page">
-      <header className="page-heading product-heading">
-        <div>
-          <span className="product-eyebrow">应用设置</span>
-          <h1>设置</h1>
-          <p className="hint">
-            管理本机安全、备份与还原、诊断报告，以及界面和通知偏好。
-          </p>
-        </div>
-        <span className={`page-live ${securityOnline ? "is-online" : "is-offline"}`}>
-          <i />
-          {securityOnline ? "安全状态已读取" : "服务暂时连不上"}
-        </span>
-      </header>
+    <section className="settings-page">
+      <Flex vertical gap={24}>
+        <PageHeader
+          eyebrow="应用设置"
+          title="设置"
+          description="管理本机安全、备份与还原、诊断报告，以及界面和通知偏好。"
+          extra={
+            <ConnectionChip
+              reachable={securityOnline}
+              onlineText="安全状态已读取"
+              offlineText="服务暂时连不上"
+            />
+          }
+        />
 
-      <Tabs
-        className="settings-tabs"
-        activeKey={activeTab}
-        onChange={setActiveTab}
-        items={[
-          {
-            key: "security",
-            label: "本机安全",
-            children: (
-              <section className="settings-tab-panel">
-                {sources.baseline.status === "ready" && sources.baseline.data.warnings.length > 0 && (
-                  <div className="settings-risk" role="status">
-                    <strong>当前风险提示</strong>
-                    <span>{sources.baseline.data.warnings.join("；")}</span>
+        <Tabs
+          activeKey={activeTab}
+          onChange={setActiveTab}
+          items={[
+            {
+              key: "security",
+              label: "本机安全",
+              children: (
+                <Flex vertical gap={16}>
+                  {sources.baseline.status === "ready" && sources.baseline.data.warnings.length > 0 && (
+                    <Alert
+                      role="status"
+                      type="warning"
+                      showIcon
+                      message="当前风险提示"
+                      description={sources.baseline.data.warnings.join("；")}
+                    />
+                  )}
+                  <SecurityBaseline
+                    baseline={sources.baseline}
+                    alerts={sources.alerts}
+                    runbooks={sources.runbooks}
+                    security={sources.security}
+                    audit={sources.audit}
+                    backups={sources.backups}
+                    busy={busy}
+                    onRetry={retrySource}
+                    onRequestReset={requestResetBreaker}
+                  />
+                </Flex>
+              ),
+            },
+            {
+              key: "backups",
+              label: "备份与还原",
+              children: (
+                <Flex vertical gap={16}>
+                  <BackupCenter
+                    backups={sources.backups}
+                    butlerSelf={sources.butlerSelf}
+                    busy={busy}
+                    onRetry={retrySource}
+                    onRunBackup={onRunBackup}
+                    onRequestRestore={onRequestRestore}
+                  />
+                </Flex>
+              ),
+            },
+            {
+              key: "llm",
+              label: "模型与 API Key",
+              children: (
+                <Flex vertical gap={16}>
+                  <LlmProfileManager />
+                </Flex>
+              ),
+            },
+            {
+              key: "diagnostics",
+              label: "诊断报告",
+              children: (
+                <Flex vertical gap={16}>
+                  <DiagnosticsCenter actionBusy={busy !== null} />
+                  <AuditLog audit={sources.audit} onRetry={() => retrySource("audit")} />
+                  <div
+                    style={{
+                      borderTop: "1px dashed var(--ant-color-border)",
+                      paddingTop: 16,
+                    }}
+                  >
+                    <Text strong>目前能做到</Text>
+                    <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                      本页展示真实的安全状态、备份、操作记录和脱敏的凭据管理状态。
+                    </Paragraph>
                   </div>
-                )}
-                <SecurityBaseline
-                  baseline={sources.baseline}
-                  alerts={sources.alerts}
-                  runbooks={sources.runbooks}
-                  security={sources.security}
-                  audit={sources.audit}
-                  backups={sources.backups}
-                  busy={busy}
-                  onRetry={retrySource}
-                  onRequestReset={requestResetBreaker}
-                />
-              </section>
-            ),
-          },
-          {
-            key: "backups",
-            label: "备份与还原",
-            children: (
-              <section className="settings-tab-panel">
-                <BackupCenter
-                  backups={sources.backups}
-                  butlerSelf={sources.butlerSelf}
-                  busy={busy}
-                  onRetry={retrySource}
-                  onRunBackup={onRunBackup}
-                  onRequestRestore={onRequestRestore}
-                />
-              </section>
-            ),
-          },
-          {
-            key: "llm",
-            label: "模型与 API Key",
-            children: <section className="settings-tab-panel"><LlmProfileManager /></section>,
-          },
-          {
-            key: "diagnostics",
-            label: "诊断报告",
-            children: (
-              <section className="settings-tab-panel">
-                <DiagnosticsCenter actionBusy={busy !== null} />
-                <AuditLog audit={sources.audit} onRetry={() => retrySource("audit")} />
-                <div className="settings-boundary">
-                  <span>目前能做到</span>
-                  <p>本页展示真实的安全状态、备份、操作记录和脱敏的凭据管理状态。</p>
-                </div>
-              </section>
-            ),
-          },
-          {
-            key: "preferences",
-            label: "常规偏好",
-            children: (
-              <section className="settings-tab-panel">
-                <PreferencesPanel />
-              </section>
-            ),
-          },
-        ]}
-      />
+                </Flex>
+              ),
+            },
+            {
+              key: "preferences",
+              label: "常规偏好",
+              children: (
+                <Flex vertical gap={16}>
+                  <PreferencesPanel />
+                </Flex>
+              ),
+            },
+          ]}
+        />
 
-      {confirmAction !== null && (
-        <DangerConfirmModal
-          open
-          title={confirmAction.kind === "reset" ? "确认解除自动修复保护" : "确认还原备份"}
-          busy={busy !== null}
-          confirmLabel={confirmAction.kind === "reset" ? "确认解除保护" : "确认还原"}
-          onCancel={() => setConfirmAction(null)}
-          onConfirm={() =>
-            confirmAction.kind === "reset"
-              ? executeResetBreaker(confirmAction.runbook)
-              : executeRestoreBackup(confirmAction.backup)
-          }
-          impact={
-            confirmAction.kind === "reset"
-              ? "如果根因尚未处理，自动修复可能再次重启或重连服务。"
-              : "还原前会自动备份当前状态；运行中的 Hermes 文件可能被跳过，建议先停止 Hermes。"
-          }
-          steps={
-            confirmAction.kind === "reset"
-              ? [
-                  "解除该自动修复方案的熔断状态",
-                  "允许后续巡检再次触发它",
-                  "继续记录执行结果，失败时仍会再次暂停",
-                ]
-              : [
-                  "先为当前状态创建一份操作前备份",
-                  "还原选中的备份文件",
-                  "刷新安全状态和操作记录",
-                ]
-          }
-        >
-          {confirmAction.kind === "reset" ? (
-            <p>
-              「{confirmAction.runbook.label}
-              」已因连续失败暂停。请确认根因已经处理；解除后，管家会恢复该方案的自动执行资格。
-            </p>
-          ) : (
-            <p>
-              将还原「
-              {confirmAction.backup.label ?? backupKindLabel(confirmAction.backup.kind)}」（
-              {formatTime(confirmAction.backup.createdAt)}）到{" "}
-              {confirmAction.backup.target || "当前管家"}。
-            </p>
-          )}
-        </DangerConfirmModal>
-      )}
+        {confirmAction !== null && (
+          <DangerConfirmModal
+            open
+            title={confirmAction.kind === "reset" ? "确认解除自动修复保护" : "确认还原备份"}
+            busy={busy !== null}
+            confirmLabel={confirmAction.kind === "reset" ? "确认解除保护" : "确认还原"}
+            onCancel={() => setConfirmAction(null)}
+            onConfirm={() =>
+              confirmAction.kind === "reset"
+                ? executeResetBreaker(confirmAction.runbook)
+                : executeRestoreBackup(confirmAction.backup)
+            }
+            impact={
+              confirmAction.kind === "reset"
+                ? "如果根因尚未处理，自动修复可能再次重启或重连服务。"
+                : "还原前会自动备份当前状态；运行中的 Hermes 文件可能被跳过，建议先停止 Hermes。"
+            }
+            steps={
+              confirmAction.kind === "reset"
+                ? [
+                    "解除该自动修复方案的熔断状态",
+                    "允许后续巡检再次触发它",
+                    "继续记录执行结果，失败时仍会再次暂停",
+                  ]
+                : [
+                    "先为当前状态创建一份操作前备份",
+                    "还原选中的备份文件",
+                    "刷新安全状态和操作记录",
+                  ]
+            }
+          >
+            {confirmAction.kind === "reset" ? (
+              <p>
+                「{confirmAction.runbook.label}
+                」已因连续失败暂停。请确认根因已经处理；解除后，管家会恢复该方案的自动执行资格。
+              </p>
+            ) : (
+              <p>
+                将还原「
+                {confirmAction.backup.label ?? backupKindLabel(confirmAction.backup.kind)}」（
+                {formatTime(confirmAction.backup.createdAt)}）到{" "}
+                {confirmAction.backup.target || "当前管家"}。
+              </p>
+            )}
+          </DangerConfirmModal>
+        )}
+      </Flex>
     </section>
   );
 }

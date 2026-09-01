@@ -62,7 +62,6 @@ body {
 
 /* 区块级小标签：一致的大写青色。 */
 .product-kicker,
-.preferences-kicker,
 .version-instance-kicker {
   color: var(--butler-accent);
   letter-spacing: 0.11em;
@@ -73,7 +72,6 @@ body {
 /* 区块头排印节奏：胶囊/kicker 与标题、标题与引导语之间拉开呼吸感，
    避免三行贴死（首页就绪度/场景区、各页 kicker 区块统一生效）。 */
 .product-kicker,
-.preferences-kicker,
 .version-instance-kicker,
 .product-eyebrow {
   display: inline-flex;
@@ -81,7 +79,6 @@ body {
 }
 
 .section-title,
-.settings-section-head > strong,
 .plugin-section-head strong {
   font-size: 17px;
   font-weight: 660;
@@ -95,9 +92,7 @@ body {
 
 .card,
 .chart-card,
-.setup-card,
-.settings-tab-panel,
-.preferences-section {
+.setup-card {
   border: 1px solid var(--butler-rule-strong);
   border-radius: var(--butler-radius-card);
   box-shadow: var(--butler-card-highlight), var(--butler-shadow);
@@ -137,8 +132,6 @@ body {
   line-height: 1.6;
 }
 
-.settings-section-head,
-.preferences-section-head,
 .plugin-section-head {
   gap: 10px;
   padding-bottom: 12px;
@@ -169,9 +162,6 @@ body {
 .butler-version-card,
 .version-instance-card,
 .version-item,
-.settings-section,
-.settings-subsection,
-.preferences-section,
 .setup-card {
   border-radius: var(--butler-radius-card);
 }
@@ -183,20 +173,6 @@ body {
 
 .pipeline-step {
   min-height: 42px;
-  border-radius: var(--butler-radius-control);
-}
-
-.settings-tabs {
-  padding: 4px 0 0;
-}
-
-.settings-tab-panel,
-.preferences-section {
-  padding: 20px;
-}
-
-.settings-risk,
-.settings-boundary {
   border-radius: var(--butler-radius-control);
 }
 
@@ -267,8 +243,6 @@ body {
 
   .card,
   .chart-card,
-  .settings-tab-panel,
-  .preferences-section,
   .setup-card {
     padding: 16px;
   }

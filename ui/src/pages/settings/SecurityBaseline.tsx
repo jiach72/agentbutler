@@ -1,10 +1,14 @@
 /**
  * 设置页左栏：本机安全检查、配置规则与密钥文件详情、自动修复保护、通知方式。
  * 各数据源独立三态：failed 显示降级横幅 + 重试，loading 仅在首屏短暂出现。
+ * 视觉全部走 antd List / Badge / Collapse 原语，不依赖旧页面 CSS。
  */
 import { useMemo } from "react";
-import { Button } from "antd";
+import { Badge, Button, Flex, List, Typography } from "antd";
+import type { BadgeProps } from "antd";
+import { AdvancedDetails } from "../../components/AdvancedDetails.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
+import { SectionHeader } from "../../components/SectionHeader.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import type { FetchState } from "../../lib/api.js";
 import {
@@ -21,6 +25,8 @@ import {
   type SettingsSourceKey,
   sourceData,
 } from "./helpers.js";
+
+const { Text } = Typography;
 
 interface BaselineItem {
   title: string;
@@ -57,6 +63,19 @@ function retryBanner(
       }
     />
   );
+}
+
+/** 检查状态 → antd Badge status 映射（pass/warn/fail 之外的都按中性处理）。 */
+function statusToBadge(status: string): BadgeProps["status"] {
+  if (status === "pass") return "success";
+  if (status === "warn") return "warning";
+  if (status === "fail") return "error";
+  return "default";
+}
+
+/** 检查状态 → 右侧结论文案（已满足 / 需注意 / 建设中）。 */
+function stateLabel(status: string): string {
+  return status === "pass" ? "已满足" : status === "warn" ? "需注意" : "建设中";
 }
 
 export function SecurityBaseline({
@@ -187,162 +206,174 @@ export function SecurityBaseline({
   ], [baseline, security, audit, backups, backupStrategyOk, invariantAggregateItem, runbooks, trippedRunbooks]);
 
   return (
-    <>
-      <div className="settings-section-head">
-        <div>
-          <span className="product-kicker">本机安全</span>
-          <h2>本机安全检查</h2>
-        </div>
-        <StatusBadge tone="muted" label="基础检查" />
-      </div>
+    <Flex vertical gap={16}>
+      <SectionHeader
+        kicker="本机安全"
+        title="本机安全检查"
+        extra={<StatusBadge tone="muted" label="基础检查" />}
+      />
 
       {baseline.status === "failed" && retryBanner("baseline", baseline.reason, onRetry)}
       {security.status === "failed" && retryBanner("security", security.reason, onRetry)}
 
-      <div className="baseline-list">
-        {baselineItems.map((item) => (
-          <article className="baseline-row" key={item.title}>
-            <i className={`baseline-dot is-${item.status}`} />
-            <div>
-              <strong>{item.title}</strong>
-              <span>{item.detail}</span>
-            </div>
-            <em>
-              {item.status === "pass" ? "已满足" : item.status === "warn" ? "需注意" : "建设中"}
-            </em>
-          </article>
-        ))}
-      </div>
+      <List
+        size="small"
+        dataSource={baselineItems}
+        renderItem={(item) => (
+          <List.Item
+            actions={[
+              <Text key="state" type="secondary">
+                {stateLabel(item.status)}
+              </Text>,
+            ]}
+          >
+            <List.Item.Meta
+              avatar={<Badge status={statusToBadge(item.status)} />}
+              title={item.title}
+              description={item.detail}
+            />
+          </List.Item>
+        )}
+      />
 
       {security.status === "ready" && security.data.invariants.length > 0 && (
-        <details className="advanced-details settings-advanced">
-          <summary>查看配置规则详情</summary>
-          <div className="advanced-details-body">
-            {security.data.invariants.map((item) => (
-              <article className="invariant-row" key={item.id}>
-                <i className={`baseline-dot is-${item.status}`} />
-                <div>
-                  <strong>{item.title}</strong>
-                  <span>{item.detail}</span>
-                </div>
-                <em>{invariantStatusLabel(item.status)}</em>
-              </article>
-            ))}
-          </div>
-        </details>
+        <AdvancedDetails summary="查看配置规则详情">
+          <List
+            size="small"
+            dataSource={security.data.invariants}
+            renderItem={(item) => (
+              <List.Item
+                actions={[
+                  <Text key="label" type="secondary">
+                    {invariantStatusLabel(item.status)}
+                  </Text>,
+                ]}
+              >
+                <List.Item.Meta
+                  avatar={<Badge status={statusToBadge(item.status)} />}
+                  title={item.title}
+                  description={item.detail}
+                />
+              </List.Item>
+            )}
+          />
+        </AdvancedDetails>
       )}
 
       {security.status === "ready" && security.data.secrets.length > 0 && (
-        <details className="advanced-details settings-advanced">
-          <summary>
-            密钥文件权限（
-            {security.data.insecureSecretFiles === 0
-              ? "全部正常"
-              : `${security.data.insecureSecretFiles} 个需处理`}
-            ）
-          </summary>
-          <div className="advanced-details-body">
-            <p className="hint">{security.data.message}</p>
-            <ul className="secret-list">
-              {security.data.secrets.map((secret) => (
-                <li key={secret.rel}>
-                  <code>{secret.rel}</code>
-                  <span>
-                    {secret.secure ? "权限正常" : "权限过宽"} · {secret.mode}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </details>
+        <AdvancedDetails
+          summary={`密钥文件权限（${security.data.insecureSecretFiles === 0 ? "全部正常" : `${security.data.insecureSecretFiles} 个需处理`}）`}
+        >
+          <Flex vertical gap={8}>
+            <Text type="secondary">{security.data.message}</Text>
+            <List
+              size="small"
+              dataSource={security.data.secrets}
+              renderItem={(secret) => (
+                <List.Item>
+                  <List.Item.Meta
+                    title={<Text code>{secret.rel}</Text>}
+                    description={`${secret.secure ? "权限正常" : "权限过宽"} · ${secret.mode}`}
+                  />
+                </List.Item>
+              )}
+            />
+          </Flex>
+        </AdvancedDetails>
       )}
 
-      <div className="settings-subsection">
-        <div className="settings-section-head is-compact">
-          <div>
-            <span className="product-kicker">自动修复保护</span>
-            <h2>反复失败时会停下</h2>
-          </div>
-          <StatusBadge
-            tone={
-              runbooks.status !== "ready" || runbooks.data.reachable === false
-                ? "muted"
-                : trippedRunbooks.length === 0
-                  ? "ok"
-                  : "warn"
-            }
-            label={
-              runbooks.status === "loading"
-                ? "读取中"
-                : runbooks.status === "failed"
-                  ? "暂不可用"
-                  : runbooks.data.reachable === false
-                    ? "服务离线"
-                    : trippedRunbooks.length === 0
-                      ? "运行正常"
-                      : `${trippedRunbooks.length} 项已暂停`
-            }
-          />
-        </div>
-        {runbooks.status === "loading" && <p className="hint">正在读取自动修复保护状态…</p>}
+      <Flex vertical gap={12}>
+        <SectionHeader
+          compact
+          kicker="自动修复保护"
+          title="反复失败时会停下"
+          extra={
+            <StatusBadge
+              tone={
+                runbooks.status !== "ready" || runbooks.data.reachable === false
+                  ? "muted"
+                  : trippedRunbooks.length === 0
+                    ? "ok"
+                    : "warn"
+              }
+              label={
+                runbooks.status === "loading"
+                  ? "读取中"
+                  : runbooks.status === "failed"
+                    ? "暂不可用"
+                    : runbooks.data.reachable === false
+                      ? "服务离线"
+                      : trippedRunbooks.length === 0
+                        ? "运行正常"
+                        : `${trippedRunbooks.length} 项已暂停`
+              }
+            />
+          }
+        />
+        {runbooks.status === "loading" && <Text type="secondary">正在读取自动修复保护状态…</Text>}
         {runbooks.status === "failed" && retryBanner("runbooks", runbooks.reason, onRetry)}
         {runbooks.status === "ready" && runbooks.data.reachable && trippedRunbooks.length === 0 && (
-          <p className="hint">10 分钟内连续失败达到阈值时，管家会暂停对应自动修复，避免无限重启。</p>
+          <Text type="secondary">10 分钟内连续失败达到阈值时，管家会暂停对应自动修复，避免无限重启。</Text>
         )}
         {runbooks.status === "ready" && !runbooks.data.reachable && (
-          <p className="hint">管家服务暂时连不上，无法读取或解除自动修复保护。</p>
+          <Text type="secondary">管家服务暂时连不上，无法读取或解除自动修复保护。</Text>
         )}
-        {runbooks.status === "ready" &&
-          runbooks.data.reachable &&
-          trippedRunbooks.map((runbook) => (
-            <article className="route-row" key={runbook.id}>
-              <StatusBadge tone="warn" label="已暂停" />
-              <div>
-                <strong>{runbook.label}</strong>
-                <span>{runbook.description || "连续失败后等待人工确认"}</span>
-              </div>
-              <Button
-                disabled={busy !== null}
-                loading={busy === `reset-${runbook.id}`}
-                onClick={() => onRequestReset(runbook)}
+        {runbooks.status === "ready" && runbooks.data.reachable && trippedRunbooks.length > 0 && (
+          <List
+            size="small"
+            dataSource={trippedRunbooks}
+            renderItem={(runbook) => (
+              <List.Item
+                actions={[
+                  <Button
+                    key="reset"
+                    disabled={busy !== null}
+                    loading={busy === `reset-${runbook.id}`}
+                    onClick={() => onRequestReset(runbook)}
+                  >
+                    确认后解除
+                  </Button>,
+                ]}
               >
-                确认后解除
-              </Button>
-            </article>
-          ))}
-      </div>
+                <List.Item.Meta
+                  avatar={<StatusBadge tone="warn" label="已暂停" />}
+                  title={runbook.label}
+                  description={runbook.description || "连续失败后等待人工确认"}
+                />
+              </List.Item>
+            )}
+          />
+        )}
+      </Flex>
 
-      <div className="settings-subsection">
-        <div className="settings-section-head is-compact">
-          <div>
-            <span className="product-kicker">通知方式</span>
-            <h2>消息送达与保留</h2>
-          </div>
-        </div>
+      <Flex vertical gap={12}>
+        <SectionHeader compact kicker="通知方式" title="消息送达与保留" />
         {alerts.status === "failed" && retryBanner("alerts", alerts.reason, onRetry)}
-        <div className="route-row">
-          <StatusBadge tone="muted" label="规则" />
-          <div>
-            <strong>按当前消息通道发送</strong>
-            <span>系统只使用当前通道，不设置备用通知链路</span>
-          </div>
-        </div>
-        <div className="route-row">
-          <StatusBadge tone="muted" label="当前" />
-          <div>
-            <strong>
-              {alerts.status === "ready" && alerts.data.reachable
-                ? "通知服务在线"
-                : "通知服务暂时连不上"}
-            </strong>
-            <span>
-              {alerts.status === "ready" && alerts.data.reachable
-                ? "当前消息通道可用"
-                : "真实发送失败仍会保留记录"}
-            </span>
-          </div>
-        </div>
-      </div>
-    </>
+        <List size="small">
+          <List.Item>
+            <List.Item.Meta
+              avatar={<StatusBadge tone="muted" label="规则" />}
+              title="按当前消息通道发送"
+              description="系统只使用当前通道，不设置备用通知链路"
+            />
+          </List.Item>
+          <List.Item>
+            <List.Item.Meta
+              avatar={<StatusBadge tone="muted" label="当前" />}
+              title={
+                alerts.status === "ready" && alerts.data.reachable
+                  ? "通知服务在线"
+                  : "通知服务暂时连不上"
+              }
+              description={
+                alerts.status === "ready" && alerts.data.reachable
+                  ? "当前消息通道可用"
+                  : "真实发送失败仍会保留记录"
+              }
+            />
+          </List.Item>
+        </List>
+      </Flex>
+    </Flex>
   );
 }

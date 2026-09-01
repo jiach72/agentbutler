@@ -2,9 +2,10 @@
  * 设置页右栏备份面板：手动备份入口、保留策略与备份记录时间线。
  * 备份/管家自检两路数据独立三态，失败时显示降级横幅与单源重试。
  */
-import { Button } from "antd";
+import { Button, Card, Divider, Empty, Flex, Space, Spin, Timeline, Typography } from "antd";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
+import { SectionHeader } from "../../components/SectionHeader.js";
 import { formatBytes, formatTime } from "../../lib/format.js";
 import type { FetchState } from "../../lib/api.js";
 import {
@@ -17,6 +18,8 @@ import {
   snapshotRetentionOf,
   snapshotStatusLabel,
 } from "./helpers.js";
+
+const { Paragraph, Text } = Typography;
 
 interface BackupCenterProps {
   backups: FetchState<BackupsPayload>;
@@ -45,19 +48,19 @@ export function BackupCenter({
   );
 
   return (
-    <>
-      <div className="settings-section-head">
-        <div>
-          <span className="product-kicker">备份与还原</span>
-          <h2>备份记录</h2>
-        </div>
-        <StatusBadge
-          tone={backups.status === "ready" && backups.data.items.length > 0 ? "ok" : "muted"}
-          label={`${backups.status === "ready" ? backups.data.items.length : 0} 条`}
-        />
-      </div>
+    <Flex vertical gap={16}>
+      <SectionHeader
+        kicker="备份与还原"
+        title="备份记录"
+        extra={
+          <StatusBadge
+            tone={backups.status === "ready" && backups.data.items.length > 0 ? "ok" : "muted"}
+            label={`${backups.status === "ready" ? backups.data.items.length : 0} 条`}
+          />
+        }
+      />
 
-      <div className="backup-actions">
+      <Space wrap>
         <Button
           type="primary"
           loading={busy === "full"}
@@ -73,105 +76,109 @@ export function BackupCenter({
         >
           备份记忆
         </Button>
-      </div>
+      </Space>
 
-      <div className="backup-policy" aria-label="备份保留策略">
-        <div className="backup-policy-head">
+      <Card size="small" title="保留策略" aria-label="备份保留策略">
+        <Flex vertical gap={12}>
           <div>
-            <strong>保留策略</strong>
-            <span>升级恢复点和日常备份分别计算，不共用同一个数量。</span>
+            <Flex justify="space-between" wrap gap={8}>
+              <Text strong>升级快照</Text>
+              <Text type="secondary">最多 {snapshotRetention} 份</Text>
+            </Flex>
+            <Paragraph type="secondary" style={{ marginBottom: 8 }}>
+              管家自身升级前创建，用于升级失败时自动回滚。
+            </Paragraph>
+            {butlerSelf.status === "failed" && (
+              <DegradedBanner
+                severity="warn"
+                message={DEGRADED_TEXT}
+                description={butlerSelf.reason}
+                action={<Button onClick={() => onRetry("butlerSelf")}>重试</Button>}
+              />
+            )}
+            <Flex justify="space-between" wrap gap={8}>
+              <Text type="secondary">当前恢复点</Text>
+              <Text strong>
+                {butlerSelf.status === "loading"
+                  ? "读取中…"
+                  : butlerSelf.status === "ready"
+                    ? butlerSelf.data.reachable
+                      ? `${butlerSelf.data.snapshots.length} / ${snapshotRetention} 份`
+                      : "服务离线"
+                    : DEGRADED_TEXT}
+              </Text>
+            </Flex>
           </div>
-        </div>
-        <div className="backup-policy-group">
-          <div className="backup-policy-group-head">
-            <strong>升级快照</strong>
-            <span>最多 {snapshotRetention} 份</span>
+          <Divider style={{ margin: 0 }} />
+          <div>
+            <Flex justify="space-between" wrap gap={8}>
+              <Text strong>日常备份</Text>
+              <Text type="secondary">按类型轮转</Text>
+            </Flex>
+            <Paragraph type="secondary" style={{ marginBottom: 8 }}>
+              日常备份不会挤占升级快照；过期记录会自动标记并清理文件。
+            </Paragraph>
+            <Flex gap={16} wrap>
+              <Text type="secondary">每日全量 · {backupRetention.full} 份</Text>
+              <Text type="secondary">记忆增量 · {backupRetention.memory} 份</Text>
+              <Text type="secondary">操作前 · {backupRetention.event} 份</Text>
+            </Flex>
           </div>
-          <p>管家自身升级前创建，用于升级失败时自动回滚。</p>
-          {butlerSelf.status === "failed" && (
-            <DegradedBanner
-              severity="warn"
-              message={DEGRADED_TEXT}
-              description={butlerSelf.reason}
-              action={
-                <Button onClick={() => onRetry("butlerSelf")}>
-                  重试
-                </Button>
-              }
-            />
-          )}
-          <div className="backup-policy-meta">
-            <span>当前恢复点</span>
-            <strong>
-              {butlerSelf.status === "loading"
-                ? "读取中…"
-                : butlerSelf.status === "ready"
-                  ? butlerSelf.data.reachable
-                    ? `${butlerSelf.data.snapshots.length} / ${snapshotRetention} 份`
-                    : "服务离线"
-                  : DEGRADED_TEXT}
-            </strong>
-          </div>
-        </div>
-        <div className="backup-policy-group">
-          <div className="backup-policy-group-head">
-            <strong>日常备份</strong>
-            <span>按类型轮转</span>
-          </div>
-          <p>日常备份不会挤占升级快照；过期记录会自动标记并清理文件。</p>
-          <div className="backup-policy-meta">
-            <span>每日全量 · {backupRetention.full} 份</span>
-            <span>记忆增量 · {backupRetention.memory} 份</span>
-            <span>操作前 · {backupRetention.event} 份</span>
-          </div>
-        </div>
-      </div>
+        </Flex>
+      </Card>
 
-      <div className="backup-timeline">
-        {backups.status === "ready" &&
-          backups.data.items.slice(0, 8).map((item) => (
-            <article className="backup-row" key={item.id}>
-              <i />
-              <div>
-                <strong>{item.label ?? backupKindLabel(item.kind)}</strong>
-                <span>
-                  {backupKindLabel(item.kind)} · {formatTime(item.createdAt)} ·{" "}
-                  {formatBytes(item.sizeBytes)}
-                </span>
-              </div>
-              <em>{snapshotStatusLabel(item.status)}</em>
-              {restoreable(item) && (
-                <Button
-                  disabled={busy !== null}
-                  loading={busy === `restore-${item.id}`}
-                  onClick={() => onRequestRestore(item)}
-                >
-                  还原
-                </Button>
-              )}
-            </article>
-          ))}
-        {backups.status === "loading" && (
-          <div className="empty-state">正在读取备份记录…</div>
-        )}
-        {backups.status === "failed" && (
-          <DegradedBanner
-            severity="warn"
-            message={DEGRADED_TEXT}
-            description={backups.reason}
-            action={
-              <Button onClick={() => onRetry("backups")}>
-                重试
-              </Button>
-            }
-          />
-        )}
-        {backups.status === "ready" && backups.data.items.length === 0 && (
-          <div className="empty-state">
-            还没有备份记录；点击「立即全量备份」开始第一次备份，之后管家每天自动备份。
-          </div>
-        )}
-      </div>
-    </>
+      {backups.status === "ready" && backups.data.items.length > 0 && (
+        <Timeline
+          items={backups.data.items.slice(0, 8).map((item) => ({
+            key: item.id,
+            children: (
+              <Flex justify="space-between" align="flex-start" wrap gap={12}>
+                <div style={{ minWidth: 0 }}>
+                  <Text strong>{item.label ?? backupKindLabel(item.kind)}</Text>
+                  <br />
+                  <Text type="secondary">
+                    {backupKindLabel(item.kind)} · {formatTime(item.createdAt)} ·{" "}
+                    {formatBytes(item.sizeBytes)}
+                  </Text>
+                </div>
+                <Space>
+                  <StatusBadge tone="muted" label={snapshotStatusLabel(item.status)} />
+                  {restoreable(item) && (
+                    <Button
+                      size="small"
+                      disabled={busy !== null}
+                      loading={busy === `restore-${item.id}`}
+                      onClick={() => onRequestRestore(item)}
+                    >
+                      还原
+                    </Button>
+                  )}
+                </Space>
+              </Flex>
+            ),
+          }))}
+        />
+      )}
+      {backups.status === "loading" && (
+        <Flex align="center" gap={8}>
+          <Spin size="small" />
+          <Text type="secondary">正在读取备份记录…</Text>
+        </Flex>
+      )}
+      {backups.status === "failed" && (
+        <DegradedBanner
+          severity="warn"
+          message={DEGRADED_TEXT}
+          description={backups.reason}
+          action={<Button onClick={() => onRetry("backups")}>重试</Button>}
+        />
+      )}
+      {backups.status === "ready" && backups.data.items.length === 0 && (
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description="还没有备份记录；点击「立即全量备份」开始第一次备份，之后管家每天自动备份。"
+        />
+      )}
+    </Flex>
   );
 }

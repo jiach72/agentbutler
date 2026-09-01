@@ -43,7 +43,6 @@
 }
 
 .section-title,
-.settings-section-head > strong,
 .plugin-section-head strong {
   font-size: var(--butler-text-lg);
   font-weight: 600;
@@ -110,8 +109,7 @@
 
 .field-label,
 .po-col-label,
-.backup-policy-meta,
-.route-row strong {
+.backup-policy-meta {
   font-size: var(--butler-text-xs);
   color: var(--butler-muted);
   font-weight: 550;
