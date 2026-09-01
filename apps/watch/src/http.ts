@@ -376,11 +376,9 @@ export interface WatchHttpDeps {
       | { status: "failed"; connection: Record<string, unknown> }
     >;
   };
-  /** OpenClaw 安装能力：仅在显式配置且用户确认后执行。 */
+  /** OpenClaw 状态探测：安装由用户在宿主手动完成，管家只读状态。 */
   openclawInstall?: {
     status(): Record<string, unknown>;
-    install(): Promise<{ status: "started" | "already-installed" | "busy" | "failed"; jobId?: string; detail?: string }>;
-    cancel?(jobId: string): Promise<Record<string, unknown>>;
   };
   /** runbook 元信息列表（含熔断态与最近执行）。 */
   runbooks(): RunbookSummary[];
@@ -1372,34 +1370,6 @@ async function handle(
       if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
       if (deps.openclawInstall === undefined) return sendJson(res, 503, { error: "openclaw-install-unavailable" });
       return sendJson(res, 200, deps.openclawInstall.status());
-    }
-
-    if (path === "/api/openclaw/install") {
-      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
-      if (deps.openclawInstall === undefined) return sendJson(res, 503, { error: "openclaw-install-unavailable" });
-      const body = await readJsonBody(req, res);
-      if (body === null) return;
-      if (body["confirmed"] !== true) return sendJson(res, 400, { error: "confirmation-required" });
-      const outcome = await deps.openclawInstall.install();
-      if (outcome.status === "started") return sendJson(res, 202, outcome);
-      if (outcome.status === "already-installed") return sendJson(res, 200, outcome);
-      if (outcome.status === "busy") return sendJson(res, 409, outcome);
-      return sendJson(res, 500, outcome);
-    }
-
-    const openclawInstallStatus = /^\/api\/openclaw\/install\/status$/.test(path);
-    if (openclawInstallStatus) {
-      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
-      if (deps.openclawInstall === undefined) return sendJson(res, 503, { error: "openclaw-install-unavailable" });
-      return sendJson(res, 200, deps.openclawInstall.status());
-    }
-
-    const openclawCancel = /^\/api\/openclaw\/install\/([^/]+)\/cancel$/.exec(path);
-    if (openclawCancel !== null) {
-      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
-      if (deps.openclawInstall?.cancel === undefined) return sendJson(res, 503, { error: "openclaw-install-unavailable" });
-      const result = await deps.openclawInstall.cancel(decodeURIComponent(openclawCancel[1]!));
-      return sendJson(res, result.status === "not-found" ? 404 : 200, result);
     }
 
     if (path === "/api/skills") {

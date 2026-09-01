@@ -2102,23 +2102,8 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
 
   app.get("/api/openclaw/status", async (_request, reply) => {
     const res = await fetchWatch("/api/openclaw/status");
-    if (res === null) return reply.status(503).send({ error: "openclaw-install-unavailable" });
+    if (res === null) return reply.status(503).send({ error: "openclaw-status-unavailable" });
     return reply.status(res.status).send(await res.json().catch(() => ({ error: "invalid-response" })));
-  });
-
-  app.post("/api/openclaw/install", async (request, reply) =>
-    proxyWatchPost("/api/openclaw/install", request.body, reply, 10 * 60_000),
-  );
-
-  app.get("/api/openclaw/install/status", async (_request, reply) => {
-    const res = await fetchWatch("/api/openclaw/install/status");
-    if (res === null) return reply.status(503).send({ error: "openclaw-install-unavailable" });
-    return reply.status(res.status).send(await res.json().catch(() => ({ error: "invalid-response" })));
-  });
-
-  app.post("/api/openclaw/install/:jobId/cancel", async (request, reply) => {
-    const jobId = encodeURIComponent((request.params as { jobId?: string })["jobId"] ?? "");
-    return proxyWatchPost(`/api/openclaw/install/${jobId}/cancel`, request.body, reply, 10_000);
   });
 
   /* --------------------- 升级与快照代理（Task 13.3） --------------------- */

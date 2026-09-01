@@ -16,7 +16,6 @@ import type {
   InspectionHistoryPayload,
   LlmStatusView,
   MessageStatusPayload,
-  OpenClawInstallJobView,
   OpenClawStatusView,
   RunbooksPayload,
 } from "./types.js";
@@ -25,7 +24,6 @@ export function useDashboardData() {
   const [dashboard, setDashboard] = useState<DashboardPayload | null>(null);
   const [connections, setConnections] = useState<ConnectionsPayload | null>(null);
   const [openClawStatus, setOpenClawStatus] = useState<OpenClawStatusView | null>(null);
-  const [openClawInstallJob, setOpenClawInstallJob] = useState<OpenClawInstallJobView | null>(null);
   const [alerts, setAlerts] = useState<AlertsPayload | null>(null);
   const [deliveryHistory, setDeliveryHistory] = useState<DeliveryHistoryPayload | null>(null);
   const [inspectionHistory, setInspectionHistory] = useState<InspectionHistoryPayload | null>(null);
@@ -74,7 +72,6 @@ export function useDashboardData() {
     if (next !== null) setConnections(next);
     if (openclaw !== null) {
       setOpenClawStatus(openclaw);
-      if (openclaw.job !== undefined) setOpenClawInstallJob(openclaw.job ?? null);
     }
     if (messageStatus !== null) {
       setDashboard((current) =>
@@ -137,8 +134,6 @@ export function useDashboardData() {
     dashboard,
     connections,
     openClawStatus,
-    openClawInstallJob,
-    setOpenClawInstallJob,
     alerts,
     initialLoad,
     refresh,

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
 import net from "node:net";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -110,7 +110,9 @@ async function scanRoot(rootPath: string, prober: PortProber): Promise<DetectedI
     confidence += 0.3;
   }
 
-  const venvPython = findVenvPython(rootPath);
+  // 运行形态判定按「布局证据」：宿主 venv/bin/python 常是指向 .hermes-runtime 绝对
+  // 路径的符号链接，挂载进容器后目标不可解析（existsSync 失败），悬空链接也算证据。
+  const venvPython = findVenvLayoutPath(rootPath);
   if (venvPython) {
     evidence.push(`${venvPython} 存在`);
     confidence += 0.15;
@@ -157,6 +159,22 @@ export function parsePyprojectVersion(content: string): string | null {
 /** 返回首个存在的 venv Python 相对路径；不存在返回 null。 */
 export function findVenvPython(rootPath: string): string | null {
   return VENV_PYTHON_CANDIDATES.find((rel) => existsSync(join(rootPath, rel))) ?? null;
+}
+
+/**
+ * venv 布局证据：符号链接本体存在即计（lstat 不跟随目标）。
+ * 与 findVenvPython 的差异：后者要求目标可解析（用于挑选可执行解释器），
+ * 本函数只用于运行形态判定——跨挂载点悬空的 venv 链接仍是进程形态的证据。
+ */
+export function findVenvLayoutPath(rootPath: string): string | null {
+  return VENV_PYTHON_CANDIDATES.find((rel) => {
+    try {
+      lstatSync(join(rootPath, rel));
+      return true;
+    } catch {
+      return false;
+    }
+  }) ?? null;
 }
 
 /** 解析 API 探活端点：port 取 config 声明（缺省 8642）；通配地址归一为 127.0.0.1。 */

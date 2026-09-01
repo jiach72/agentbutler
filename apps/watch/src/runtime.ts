@@ -75,6 +75,10 @@ function wslPathOf(distro: string, pathValue: string): string | null {
 
 function isWslLinux(): boolean {
   if (process.platform !== "linux") return false;
+  // WSL 内的 Docker 容器同样能在 /proc/version 看到 WSL 内核标识，但容器内
+  // 执行 npm install -g 只会装进容器（且通常无权限）。容器形态不算「WSL 直跑」，
+  // 由 /.dockerenv 判定排除，OpenClaw 安装等宿主侧操作按容器形态给出指引。
+  if (existsSync("/.dockerenv")) return false;
   if (process.env["WSL_DISTRO_NAME"]?.trim()) return true;
   try {
     return /microsoft|wsl/i.test(readFileSync("/proc/version", "utf8"));

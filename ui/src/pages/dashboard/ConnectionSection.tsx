@@ -1,6 +1,7 @@
 /**
- * 服务连接区：Hermes / OpenClaw 连接卡片、OpenClaw 安装面板与实时日志抽屉。
+ * 服务连接区：Hermes / OpenClaw 连接卡片与 OpenClaw 手动安装指引。
  */
+import { App } from "antd";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -10,16 +11,13 @@ import {
   Card,
   Col,
   Descriptions,
-  Drawer,
   Flex,
-  Progress,
   Row,
   Space,
-  Steps,
   Tag,
   Typography,
 } from "antd";
-import { DisconnectOutlined, LinkOutlined, ReloadOutlined } from "@ant-design/icons";
+import { CopyOutlined, DisconnectOutlined, LinkOutlined, ReloadOutlined } from "@ant-design/icons";
 import { AdvancedDetails } from "../../components/AdvancedDetails.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { formatRelative } from "../../lib/format.js";
@@ -32,40 +30,46 @@ import {
 } from "./helpers.js";
 import type {
   ConnectionsPayload,
-  OpenClawInstallJobView,
   OpenClawStatusView,
 } from "./types.js";
 
 const { Paragraph, Text, Title } = Typography;
 
+/** 与后端探测同源的安装命令；管家不代装，用户在宿主执行。 */
+const OPENCLAW_INSTALL_COMMAND = "npm install --global openclaw";
+
 interface ConnectionSectionProps {
   connections: ConnectionsPayload | null;
   openClawStatus: OpenClawStatusView | null;
-  openClawInstallJob: OpenClawInstallJobView | null;
   /** 形如 check-<id> / connect-<id> / disconnect-<id> / check-all 的在途动作标记。 */
   connectionBusy: string | null;
-  openClawInstallBusy: boolean;
   onCheckAll: () => void;
   onCheckOne: (instanceId: string) => void;
   onToggleConnection: (instanceId: string, action: "connect" | "disconnect") => void;
-  onInstall: () => void;
-  onCancelInstall: () => void;
 }
 
 export function ConnectionSection({
   connections,
   openClawStatus,
-  openClawInstallJob,
   connectionBusy,
-  openClawInstallBusy,
   onCheckAll,
   onCheckOne,
   onToggleConnection,
-  onInstall,
-  onCancelInstall,
 }: ConnectionSectionProps) {
-  const [installLogOpen, setInstallLogOpen] = useState(false);
+  const { message } = App.useApp();
+  const [copied, setCopied] = useState(false);
   const connectionItems = connections?.connections ?? [];
+
+  const copyInstallCommand = async () => {
+    try {
+      await navigator.clipboard.writeText(OPENCLAW_INSTALL_COMMAND);
+      setCopied(true);
+      message.success("安装命令已复制，请在宿主终端执行");
+      setTimeout(() => setCopied(false), 2_000);
+    } catch {
+      message.error("复制失败，请手动选择命令文本复制");
+    }
+  };
 
   return (
     <section aria-labelledby="connection-section-title">
@@ -168,70 +172,25 @@ export function ConnectionSection({
                         </Flex>
                       </AdvancedDetails>
                     )}
-                    {openClawInstallJob !== null && (
-                      <Card size="small">
-                        <Flex vertical gap={8}>
-                          <Flex wrap="wrap" justify="space-between" align="center" gap={8}>
-                            <Text strong>
-                              {openClawInstallJob.status === "done" ? "安装完成"
-                                : openClawInstallJob.status === "failed" ? "安装失败"
-                                  : openClawInstallJob.status === "cancelled" ? "已取消"
-                                    : openClawInstallJob.status === "queued" ? "提交中"
-                                      : "安装中"}
-                            </Text>
-                            <StatusBadge
-                              tone={
-                                openClawInstallJob.status === "failed"
-                                  ? "error"
-                                  : openClawInstallJob.status === "done"
-                                    ? "ok"
-                                    : "info"
-                              }
-                              label={`${openClawInstallJob.progress}%`}
-                            />
-                          </Flex>
-                          <Progress
-                            percent={openClawInstallJob.progress}
+                    {openClawStatus?.installed !== true && (
+                      <Flex vertical gap={4}>
+                        <Text type="secondary">
+                          在宿主终端执行以下命令完成安装（需要 Node.js 24.15+），完成后回到这里重新检查连接：
+                        </Text>
+                        <Flex gap={8} align="center">
+                          <Text code copyable={false} style={{ flex: 1, padding: "4px 8px" }}>
+                            {OPENCLAW_INSTALL_COMMAND}
+                          </Text>
+                          <Button
                             size="small"
-                            status={openClawInstallJob.status === "failed" ? "exception" : openClawInstallJob.status === "done" ? "success" : "active"}
-                          />
-                          {openClawInstallJob.steps.length > 0 && (
-                            <Steps
-                              size="small"
-                              direction="vertical"
-                              current={Math.max(0, openClawInstallJob.steps.findIndex((step) => step.status === "running"))}
-                              items={openClawInstallJob.steps.map((step) => ({
-                                title: step.label,
-                                description: step.detail,
-                                status: step.status === "failed" ? "error" : step.status === "passed" ? "finish" : step.status === "running" ? "process" : step.status === "cancelled" ? "error" : "wait",
-                              }))}
-                            />
-                          )}
-                          {openClawInstallJob.error !== null && <Alert type="error" showIcon title="安装未完成" description={openClawInstallJob.error} />}
-                          <Space wrap>
-                            {(openClawInstallJob.status === "queued" || openClawInstallJob.status === "running") && (
-                              <Button onClick={onCancelInstall}>取消安装</Button>
-                            )}
-                            {openClawInstallJob.status === "failed" && (
-                              <Button type="link" onClick={onInstall}>重试安装</Button>
-                            )}
-                            {openClawInstallJob.logTail.length > 0 && (
-                              <Button type="link" onClick={() => setInstallLogOpen(true)}>查看实时日志</Button>
-                            )}
-                          </Space>
+                            icon={<CopyOutlined />}
+                            onClick={() => void copyInstallCommand()}
+                          >
+                            {copied ? "已复制" : "复制"}
+                          </Button>
                         </Flex>
-                      </Card>
+                      </Flex>
                     )}
-                    <div>
-                      <Button
-                        type="primary"
-                        onClick={onInstall}
-                        loading={openClawInstallBusy || openClawStatus?.busy === true || openClawInstallJob?.status === "queued" || openClawInstallJob?.status === "running"}
-                        disabled={openClawStatus?.installed === true || openClawInstallJob?.status === "queued" || openClawInstallJob?.status === "running"}
-                      >
-                        {openClawStatus?.installed ? "已安装 OpenClaw" : "一键安装 OpenClaw"}
-                      </Button>
-                    </div>
                   </Flex>
                 </Card>
               </Col>
@@ -349,27 +308,6 @@ export function ConnectionSection({
           </Row>
         )}
       </Flex>
-
-      <Drawer
-        title="OpenClaw 安装日志"
-        open={installLogOpen}
-        onClose={() => setInstallLogOpen(false)}
-        size={560}
-      >
-        <pre
-          style={{
-            margin: 0,
-            padding: 12,
-            background: "var(--ant-color-fill-tertiary)",
-            borderRadius: 8,
-            fontFamily: "var(--ant-font-family-code)",
-            fontSize: 12,
-            overflow: "auto",
-          }}
-        >
-          {openClawInstallJob?.logTail.join("\n") || "暂无日志"}
-        </pre>
-      </Drawer>
     </section>
   );
 }

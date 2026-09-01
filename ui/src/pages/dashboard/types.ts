@@ -253,7 +253,6 @@ export interface OpenClawStatusView {
   version: string | null;
   rootPath: string | null;
   detail: string;
-  busy: boolean;
   runtime?: {
     kind?: string;
     distro?: string | null;
@@ -264,26 +263,6 @@ export interface OpenClawStatusView {
     dataRoot?: string;
     npmGlobalRoot?: string | null;
   };
-  job?: OpenClawInstallJobView | null;
-}
-
-export interface OpenClawInstallStepView {
-  id: string;
-  label: string;
-  status: "pending" | "running" | "passed" | "failed" | "cancelled" | string;
-  detail?: string;
-}
-
-export interface OpenClawInstallJobView {
-  jobId: string;
-  status: "queued" | "running" | "done" | "failed" | "cancelled" | string;
-  progress: number;
-  currentStep: string | null;
-  steps: OpenClawInstallStepView[];
-  logTail: string[];
-  error: string | null;
-  startedAt: string;
-  finishedAt: string | null;
 }
 
 export interface AlertsPayload {

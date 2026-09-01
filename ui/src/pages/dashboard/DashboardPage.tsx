@@ -23,7 +23,6 @@ import { ConnectionSection } from "./ConnectionSection.js";
 import { FingerprintsTable, InspectCard, RunbooksPanel } from "./AdvancedPanels.js";
 import { InstanceHealthCard } from "./InstanceHealthCard.js";
 import { useDashboardData } from "./useDashboardData.js";
-import { useOpenClawInstall } from "./useOpenClawInstall.js";
 import type { RunbookView } from "./types.js";
 
 export function DashboardPage() {
@@ -32,8 +31,6 @@ export function DashboardPage() {
     dashboard,
     connections,
     openClawStatus,
-    openClawInstallJob,
-    setOpenClawInstallJob,
     alerts,
     initialLoad,
     refresh,
@@ -47,12 +44,6 @@ export function DashboardPage() {
     readinessRefreshing,
     refreshReadiness,
   } = useDashboardData();
-  const openClawInstall = useOpenClawInstall({
-    status: openClawStatus,
-    job: openClawInstallJob,
-    setJob: setOpenClawInstallJob,
-    onStarted: () => void refreshConnections(),
-  });
 
   const [inspectionRequested, setInspectionRequested] = useState(false);
   const [connectionBusy, setConnectionBusy] = useState<string | null>(null);
@@ -244,14 +235,10 @@ export function DashboardPage() {
         <ConnectionSection
           connections={connections}
           openClawStatus={openClawStatus}
-          openClawInstallJob={openClawInstallJob}
           connectionBusy={connectionBusy}
-          openClawInstallBusy={openClawInstall.busy}
           onCheckAll={() => void runConnectionCheck()}
           onCheckOne={(instanceId) => void runConnectionCheck(instanceId)}
           onToggleConnection={(instanceId, action) => void runConnectionAction(instanceId, action)}
-          onInstall={openClawInstall.install}
-          onCancelInstall={() => void openClawInstall.cancel()}
         />
 
         <IssuesSection
