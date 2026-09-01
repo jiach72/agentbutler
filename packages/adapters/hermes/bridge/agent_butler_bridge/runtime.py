@@ -12,6 +12,7 @@ from typing import Any
 
 from aiohttp import web
 
+from .channel_control import ChannelControl
 from .llm_optimizer import LlmConfig
 from .outbox import Outbox
 from .registry import AdapterBinding, NativeRegistry
@@ -87,8 +88,9 @@ class RuntimeConfig:
 class BridgeRuntime:
     """Own exactly one Bridge HTTP server, registry, and Outbox."""
 
-    def __init__(self, config: RuntimeConfig):
+    def __init__(self, config: RuntimeConfig, channel_control: ChannelControl | None = None):
         self.config = config
+        self.channel_control: ChannelControl | None = channel_control
         self.outbox: Outbox | None = None
         self.registry: NativeRegistry | None = None
         self._runner: web.AppRunner | None = None
@@ -126,6 +128,9 @@ class BridgeRuntime:
             _ensure_private_directory(self.config.outbox_path.parent)
             _prepare_private_database(self.config.outbox_path)
 
+            if self.channel_control is None:
+                self.channel_control = ChannelControl()
+            channel_control = self.channel_control
             outbox: Outbox | None = None
             runner: web.AppRunner | None = None
             try:
@@ -140,6 +145,8 @@ class BridgeRuntime:
                     instance_id=self.config.instance_id,
                     coverage_provider=self.coverage_snapshot,
                     started_at_provider=lambda: self._started_at,
+                    channel_control=channel_control,
+                    channel_status_provider=lambda: channel_control.status_map(registry),
                 )
                 runner = web.AppRunner(app, access_log=None)
                 await runner.setup()

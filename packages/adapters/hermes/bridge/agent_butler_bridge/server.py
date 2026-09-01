@@ -71,6 +71,8 @@ def create_app(
     instance_id: str,
     coverage_provider: Callable[[], Mapping[str, str]] | None = None,
     started_at_provider: Callable[[], str | None] | None = None,
+    channel_control: Any | None = None,
+    channel_status_provider: Callable[[], Mapping[str, Any]] | None = None,
 ) -> web.Application:
     app = web.Application(
         client_max_size=MAX_BODY_BYTES,
@@ -92,8 +94,14 @@ def create_app(
                 "channels": channels,
                 "coverage": coverage,
                 "startedAt": None if started_at_provider is None else started_at_provider(),
+                "channelStatus": None if channel_status_provider is None else channel_status_provider(),
             }
         )
+
+    async def channels_directory(_request: web.Request) -> web.Response:
+        if channel_control is None:
+            return _error(404, "not_found", "channel control unavailable")
+        return web.json_response(channel_control.directory(registry))
 
     async def install_policy(request: web.Request) -> web.Response:
         try:
@@ -258,6 +266,7 @@ def create_app(
         return web.json_response(view)
 
     app.router.add_get("/v1/health", health)
+    app.router.add_get("/v1/channels", channels_directory)
     app.router.add_post("/v1/policy", install_policy)
     app.router.add_get("/v1/outbox/changes", changes)
     app.router.add_post("/v1/outbox/{message_id}/decision", decide)

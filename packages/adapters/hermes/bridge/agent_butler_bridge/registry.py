@@ -70,6 +70,9 @@ class NativeRegistry:
     def attached_adapter_ids(self) -> list[str]:
         return sorted(self._by_adapter_id)
 
+    def bindings(self) -> list[AdapterBinding]:
+        return list(self._by_adapter_id.values())
+
     def attach(
         self,
         adapter: Any,
