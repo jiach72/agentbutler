@@ -17,6 +17,7 @@ from .llm_optimizer import LlmConfig
 from .outbox import Outbox
 from .registry import AdapterBinding, NativeRegistry
 from .server import create_app
+from .weixin_login import WeixinLoginManager
 from .wrapper import attach_adapter
 
 
@@ -88,9 +89,15 @@ class RuntimeConfig:
 class BridgeRuntime:
     """Own exactly one Bridge HTTP server, registry, and Outbox."""
 
-    def __init__(self, config: RuntimeConfig, channel_control: ChannelControl | None = None):
+    def __init__(
+        self,
+        config: RuntimeConfig,
+        channel_control: ChannelControl | None = None,
+        weixin_login: WeixinLoginManager | None = None,
+    ):
         self.config = config
         self.channel_control: ChannelControl | None = channel_control
+        self.weixin_login: WeixinLoginManager | None = weixin_login
         self.outbox: Outbox | None = None
         self.registry: NativeRegistry | None = None
         self._runner: web.AppRunner | None = None
@@ -131,6 +138,9 @@ class BridgeRuntime:
             if self.channel_control is None:
                 self.channel_control = ChannelControl()
             channel_control = self.channel_control
+            if self.weixin_login is None:
+                self.weixin_login = WeixinLoginManager()
+            weixin_login = self.weixin_login
             outbox: Outbox | None = None
             runner: web.AppRunner | None = None
             try:
@@ -147,6 +157,7 @@ class BridgeRuntime:
                     started_at_provider=lambda: self._started_at,
                     channel_control=channel_control,
                     channel_status_provider=lambda: channel_control.status_map(registry),
+                    weixin_login=weixin_login,
                 )
                 runner = web.AppRunner(app, access_log=None)
                 await runner.setup()
