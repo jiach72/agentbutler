@@ -17,6 +17,7 @@ from .context import (
     native_delivery_scope,
 )
 from .ids import uuid7
+from .relay import RELAY_PASSTHROUGH, relay_mode
 from .registry import AdapterBinding, NativeRegistry
 from .registry import CaptureFilter, DeliveryOverride, TransportResolver
 from .spool import AttachmentSpool
@@ -202,8 +203,9 @@ def capture_inline_response(
     )
     registry.outbox.capture(envelope)
 
+    passthrough = relay_mode(registry.outbox) == RELAY_PASSTHROUGH
     policy = registry.outbox.get_policy_snapshot()
-    if policy is None or policy["payload"].get("inlineResponse") != "allow":
+    if not passthrough and (policy is None or policy["payload"].get("inlineResponse") != "allow"):
         registry.outbox.apply_decision(
             envelope["messageId"],
             f"inline:{envelope['messageId']}:policy-unavailable",
@@ -228,6 +230,41 @@ def capture_inline_response(
         attempt_id,
         provider_message_id,
     )
+
+
+async def _passthrough_deliver(registry: NativeRegistry, envelope: dict[str, Any], call):
+    """passthrough：捕获后立即原生发送；成功 delivered，失败 dead_letter（不做 Butler 重试）。"""
+    attempt_id = f"passthrough:{envelope['messageId']}"
+    registry.outbox.begin_delivery(
+        envelope["messageId"],
+        attempt_id,
+        envelope["contentSha256"],
+        allow_captured=True,
+    )
+    try:
+        with native_delivery_scope():
+            result = await call()
+    except asyncio.CancelledError as exc:
+        registry.outbox.mark_unknown(
+            envelope["messageId"], attempt_id, str(exc) or "passthrough delivery cancelled"
+        )
+        raise
+    except Exception as exc:
+        registry.outbox.mark_unknown(envelope["messageId"], attempt_id, str(exc))
+        raise
+    if bool(getattr(result, "success", False)):
+        registry.outbox.finish_delivery(
+            envelope["messageId"],
+            attempt_id,
+            getattr(result, "message_id", None),
+        )
+        return result
+    registry.outbox.mark_dead_letter(
+        envelope["messageId"],
+        envelope["contentSha256"],
+        str(getattr(result, "error", None) or "native send failed"),
+    )
+    return result
 
 
 def attach_adapter(
@@ -302,14 +339,23 @@ def attach_adapter(
                 spool.cleanup(envelope["messageId"])
             raise
 
+        if relay_mode(registry.outbox) == RELAY_PASSTHROUGH:
+            return await _passthrough_deliver(
+                registry,
+                envelope,
+                lambda: binding.original_send(
+                    chat_id, content, reply_to=reply_to, metadata=metadata
+                ),
+            )
         if envelope["transport"] == "queued-push":
             return _send_result(
                 success=True,
                 message_id=f"butler:{envelope['messageId']}",
             )
 
+        passthrough = relay_mode(registry.outbox) == RELAY_PASSTHROUGH
         policy = registry.outbox.get_policy_snapshot()
-        if policy is None or policy["payload"].get("inlineResponse") != "allow":
+        if not passthrough and (policy is None or policy["payload"].get("inlineResponse") != "allow"):
             registry.outbox.apply_decision(
                 envelope["messageId"],
                 f"inline:{envelope['messageId']}:policy-unavailable",
@@ -585,8 +631,9 @@ def _wrap_media_methods(
                     message_id=f"butler:{envelope['messageId']}",
                 )
 
+            passthrough = relay_mode(registry.outbox) == RELAY_PASSTHROUGH
             policy = registry.outbox.get_policy_snapshot()
-            if policy is None or policy["payload"].get("inlineResponse") != "allow":
+            if not passthrough and (policy is None or policy["payload"].get("inlineResponse") != "allow"):
                 registry.outbox.apply_decision(
                     envelope["messageId"],
                     f"inline:{envelope['messageId']}:policy-unavailable",
@@ -651,8 +698,9 @@ async def _capture_unspooled_media(
             success=True,
             message_id=f"butler:{envelope['messageId']}",
         )
+    passthrough = relay_mode(registry.outbox) == RELAY_PASSTHROUGH
     policy = registry.outbox.get_policy_snapshot()
-    if policy is None or policy["payload"].get("inlineResponse") != "allow":
+    if not passthrough and (policy is None or policy["payload"].get("inlineResponse") != "allow"):
         registry.outbox.apply_decision(
             envelope["messageId"],
             f"inline:{envelope['messageId']}:policy-unavailable",
