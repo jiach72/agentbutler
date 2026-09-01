@@ -3,6 +3,7 @@ import type { BridgeHealth, InstanceRef, MessagingAdapter, PolicySnapshot } from
 import { createPolicySnapshot } from "./config.js";
 import { MessageReconciler } from "./reconciler.js";
 import { MESSAGE_HISTORY_RETENTION_MS, MessagePolicyStore } from "./store.js";
+import type { RelayControlView } from "./store.js";
 import type { MessagePolicyConfig } from "./types.js";
 
 export interface Scheduler {
@@ -70,6 +71,11 @@ export class MessageGatewayService {
     this.clock = options.clock ?? (() => new Date());
     this.scheduler = options.scheduler ?? { setInterval, clearInterval };
     this.config = policyConfigFromSnapshot(createPolicySnapshot(options.config));
+    // 恢复持久化的一键接管开关：Bridge 离线期间的切换在重启/重连后自动生效。
+    const relay = options.store.getRelayControl();
+    if (!relay.enabled) {
+      this.config = { ...this.config, relayMode: "passthrough" };
+    }
   }
 
   start(): Promise<void> {
@@ -108,7 +114,9 @@ export class MessageGatewayService {
   }
 
   async updatePolicy(config: MessagePolicyConfig): Promise<PolicySnapshot> {
-    const snapshot = createPolicySnapshot(config);
+    // relayMode 以服务内当前生效开关为准（构造时从 store 恢复、setRelayEnabled 更新），
+    // 避免旧策略回灌或并发更新悄悄翻转用户的接管意图。
+    const snapshot = createPolicySnapshot({ ...config, relayMode: this.config.relayMode });
     const result = await this.options.adapter.updatePolicy(this.options.instance, snapshot);
     if (!result.ok || result.data === undefined) {
       throw new MessagePolicyInstallError(
@@ -124,6 +132,27 @@ export class MessageGatewayService {
     this.policyInstalled = true;
     this.bridgeConnected = true;
     return stored;
+  }
+
+  /** 一键接管切换：先落盘用户意图，再推策略；Bridge 离线时保持 pending，重连自动生效。 */
+  async setRelayEnabled(enabled: boolean): Promise<RelayControlView> {
+    const updatedAt = this.clock().toISOString();
+    this.config = { ...this.config, relayMode: enabled ? "takeover" : "passthrough" };
+    this.options.store.setRelayControl(enabled, true, updatedAt);
+    try {
+      await this.updatePolicy(this.config);
+    } catch (error) {
+      if (error instanceof MessagePolicyInstallError && error.bridgeUnavailable) {
+        return { enabled, pending: true, updatedAt };
+      }
+      throw error;
+    }
+    this.options.store.setRelayControl(enabled, false, updatedAt);
+    return { enabled, pending: false, updatedAt };
+  }
+
+  relayStatus(): RelayControlView {
+    return this.options.store.getRelayControl();
   }
 
   async status(): Promise<MessageGatewayStatus> {
