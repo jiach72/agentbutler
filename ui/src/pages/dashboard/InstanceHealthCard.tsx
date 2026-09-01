@@ -47,6 +47,11 @@ export function InstanceHealthCard({ instances, inspections }: InstanceHealthCar
     );
   }
 
+  // 栅格按实例数自适应：单实例占满整行，避免右侧大面积留白；
+  // 两个实例各半，三个及以上恢复一排三列。
+  const lgSpan = instances.length === 1 ? 24 : 12;
+  const xlSpan = instances.length === 1 ? 24 : instances.length === 2 ? 12 : 8;
+
   return (
     <Row gutter={[12, 12]}>
       {instances.map((instance) => {
@@ -54,7 +59,7 @@ export function InstanceHealthCard({ instances, inspections }: InstanceHealthCar
         const overall = overallBadge(inspection?.overall ?? null);
         const confidence = inspection?.confidence ?? instance.confidence;
         return (
-          <Col xs={24} lg={12} xl={8} key={instance.instanceId}>
+          <Col xs={24} lg={lgSpan} xl={xlSpan} key={instance.instanceId}>
             <Card size="small" style={{ height: "100%" }}>
               <Flex vertical gap={8}>
                 <Flex wrap="wrap" align="center" gap={8}>
