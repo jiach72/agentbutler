@@ -1,9 +1,11 @@
 /**
  * 英雄结论区：一句话结论 + 主行动（立即检查）+ 元信息。
  */
-import { Button } from "antd";
+import { Alert, Button, Divider, Flex, Typography } from "antd";
 import { formatRelative } from "../../lib/format.js";
 import type { HeroView, InspectStatusView } from "./types.js";
+
+const { Text } = Typography;
 
 interface HeroConclusionProps {
   hero: HeroView;
@@ -12,6 +14,13 @@ interface HeroConclusionProps {
   inspectRequested: boolean;
   onInspect: () => void;
 }
+
+const heroAlertType = {
+  ok: "success",
+  warn: "warning",
+  error: "error",
+  idle: "info",
+} as const;
 
 export function HeroConclusion({
   hero,
@@ -22,31 +31,31 @@ export function HeroConclusion({
   const inspectInFlight =
     inspectRequested || inspectStatus?.inFlight === true;
   return (
-    <div className={`manager-hero is-${hero.tone}`}>
-      <span className="manager-hero-band" aria-hidden="true" />
-      <div className="manager-hero-icon" aria-hidden="true">
-        {hero.tone === "ok" ? "✓" : hero.tone === "error" || hero.tone === "warn" ? "!" : "…"}
-      </div>
-      <div className="manager-hero-copy">
-        <span className="manager-hero-kicker">当前状态</span>
-        <h2>{hero.title}</h2>
-        <p>{hero.copy}</p>
-      </div>
-      <div className="manager-hero-actions">
-        <Button
-          type="primary"
-          className="manager-action"
-          loading={inspectInFlight}
-          onClick={onInspect}
-        >
-          立即检查
-        </Button>
-      </div>
-      <div className="manager-hero-meta">
-        <span>上次检查：{formatRelative(inspectStatus?.lastAt)}</span>
-        <span>自动检查：{inspectStatus?.intervalMin ?? "—"} 分钟一次</span>
-        <span>管家服务：{inspectStatus?.reachable ? "在线" : "未连接"}</span>
-      </div>
-    </div>
+    <Flex vertical gap={12}>
+      <Text
+        type="secondary"
+        style={{ display: "block", fontSize: 12, fontWeight: 600, letterSpacing: "0.08em" }}
+      >
+        当前状态
+      </Text>
+      <Alert
+        type={heroAlertType[hero.tone]}
+        showIcon
+        title={hero.title}
+        description={hero.copy}
+        action={
+          <Button type="primary" loading={inspectInFlight} onClick={onInspect}>
+            立即检查
+          </Button>
+        }
+      />
+      <Flex wrap="wrap" align="center" gap={8}>
+        <Text type="secondary">上次检查：{formatRelative(inspectStatus?.lastAt)}</Text>
+        <Divider type="vertical" />
+        <Text type="secondary">自动检查：{inspectStatus?.intervalMin ?? "—"} 分钟一次</Text>
+        <Divider type="vertical" />
+        <Text type="secondary">管家服务：{inspectStatus?.reachable ? "在线" : "未连接"}</Text>
+      </Flex>
+    </Flex>
   );
 }

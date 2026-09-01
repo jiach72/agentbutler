@@ -1,7 +1,7 @@
 /**
  * 高级详情内的三块面板：一键处理方案、管家最近检查、经常出现的问题。
  */
-import { Button, Table } from "antd";
+import { Button, Card, Descriptions, Empty, Flex, Table, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table/interface.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
@@ -14,6 +14,8 @@ import {
   instanceLabel,
 } from "./helpers.js";
 import type { FingerprintView, InspectStatusView, RunbookView, RunbooksPayload } from "./types.js";
+
+const { Text } = Typography;
 
 /** 可以一键处理：修复方案列表，熔断中的方案被过滤。 */
 export function RunbooksPanel({
@@ -32,35 +34,40 @@ export function RunbooksPanel({
         <DegradedBanner severity="warn" message="管家暂时连不上：处理方案列表暂不可用" />
       )}
       {runbooks !== null && runbooks.reachable && available.length === 0 && (
-        <div className="empty-state">管家在线，但还没有可以一键处理的问题。</div>
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description="管家在线，但还没有可以一键处理的问题。"
+        />
       )}
       {runbooks !== null && runbooks.reachable && (
-        <div className="cards-stack">
+        <Flex vertical gap={8}>
           {available.map((runbook) => (
-            <div className="card runbook-item" key={runbook.id}>
-              <div className="runbook-main">
-                <div className="runbook-title">
-                  <span className="instance-name">{runbook.label}</span>
-                  {runbook.breakerTripped === true && (
-                    <StatusBadge tone="error" label="已暂停" />
+            <Card size="small" key={runbook.id}>
+              <Flex wrap="wrap" justify="space-between" align="center" gap={12}>
+                <Flex vertical gap={4} style={{ minWidth: 0 }}>
+                  <Flex wrap="wrap" align="center" gap={8}>
+                    <Text strong>{runbook.label}</Text>
+                    {runbook.breakerTripped === true && (
+                      <StatusBadge tone="error" label="已暂停" />
+                    )}
+                  </Flex>
+                  {runbook.description !== undefined && runbook.description !== "" && (
+                    <Text type="secondary">{runbook.description}</Text>
                   )}
-                </div>
-                {runbook.description !== undefined && runbook.description !== "" && (
-                  <div className="runbook-desc">{runbook.description}</div>
-                )}
-                <div className="runbook-lastrun">
-                  上次执行：
-                  {runbook.lastRun
-                    ? `${formatRelative(runbook.lastRun.at)}（${runbook.lastRun.success ? "成功" : "失败"}）`
-                    : "从未执行"}
-                </div>
-              </div>
-              <Button onClick={() => onRepair(runbook)}>
-                开始处理
-              </Button>
-            </div>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    上次执行：
+                    {runbook.lastRun
+                      ? `${formatRelative(runbook.lastRun.at)}（${runbook.lastRun.success ? "成功" : "失败"}）`
+                      : "从未执行"}
+                  </Text>
+                </Flex>
+                <Button onClick={() => onRepair(runbook)}>
+                  开始处理
+                </Button>
+              </Flex>
+            </Card>
           ))}
-        </div>
+        </Flex>
       )}
     </>
   );
@@ -76,40 +83,41 @@ export function InspectCard({
 }) {
   if (inspectStatus === null || !inspectStatus.reachable) {
     return (
-      <div className="card inspect-card">
-        <div className="empty-state">
-          管家服务暂时连不上：看不到最近检查，也无法开始新的检查。
-        </div>
-      </div>
+      <Empty
+        image={Empty.PRESENTED_IMAGE_SIMPLE}
+        description="管家服务暂时连不上：看不到最近检查，也无法开始新的检查。"
+      />
     );
   }
   const criticalProbe = inspectStatus.criticalProbe;
   const criticalBadge = criticalProbeBadge(criticalProbe);
   return (
-    <div className="card inspect-card">
+    <Flex vertical gap={16}>
       {criticalProbe === undefined ? null : (
-        <div className="inspect-sla" role="status">
+        <Flex wrap="wrap" align="center" gap={8} role="status">
           <StatusBadge tone={criticalBadge.tone} label={criticalBadge.label} />
-          <span>关键记忆探针：每 {criticalProbe.intervalMin} 分钟，SLA {criticalProbe.slaMin} 分钟</span>
+          <Text type="secondary">
+            关键记忆探针：每 {criticalProbe.intervalMin} 分钟，SLA {criticalProbe.slaMin} 分钟
+          </Text>
           {criticalProbe.lastDurationMs !== null ? (
-            <span>最近耗时 {formatDuration(criticalProbe.lastDurationMs)}</span>
+            <Text type="secondary">最近耗时 {formatDuration(criticalProbe.lastDurationMs)}</Text>
           ) : null}
-        </div>
+        </Flex>
       )}
-      <dl className="kv">
-        <dt>上次检查</dt>
-        <dd>{formatRelative(inspectStatus.lastAt)}</dd>
-        <dt>下次预计</dt>
-        <dd>{formatRelative(inspectStatus.nextAt)}</dd>
-        <dt>多久检查一次</dt>
-        <dd>{inspectStatus.intervalMin ?? "—"} 分钟</dd>
-        <dt>现在</dt>
-        <dd>{inspectStatus.inFlight ? "正在检查" : "没有在检查"}</dd>
-      </dl>
-      <div className="inspect-actions">
+      <Descriptions
+        size="small"
+        column={1}
+        items={[
+          { key: "last", label: "上次检查", children: formatRelative(inspectStatus.lastAt) },
+          { key: "next", label: "下次预计", children: formatRelative(inspectStatus.nextAt) },
+          { key: "interval", label: "多久检查一次", children: `${inspectStatus.intervalMin ?? "—"} 分钟` },
+          { key: "now", label: "现在", children: inspectStatus.inFlight ? "正在检查" : "没有在检查" },
+        ]}
+      />
+      <div>
         <Button onClick={onInspect}>立即检查</Button>
       </div>
-    </div>
+    </Flex>
   );
 }
 
@@ -118,7 +126,7 @@ const FINGERPRINT_COLUMNS = (onOpenLogs: () => void): ColumnsType<FingerprintVie
     title: "问题内容",
     ellipsis: true,
     render: (_, fp) => (
-      <span className="fp-sample" title={fp.lastSample ?? undefined}>
+      <span title={fp.lastSample ?? undefined}>
         {formatSample(fp.lastSample)}
       </span>
     ),
@@ -168,20 +176,19 @@ export function FingerprintsTable({
 }) {
   if (fingerprints.length === 0) {
     return (
-      <div className="empty-state">
-        暂时没有经常出现的问题；如果以后出现，会显示在这里。
-      </div>
+      <Empty
+        image={Empty.PRESENTED_IMAGE_SIMPLE}
+        description="暂时没有经常出现的问题；如果以后出现，会显示在这里。"
+      />
     );
   }
   return (
-    <div className="table-card card">
-      <Table<FingerprintView>
-        size="small"
-        rowKey="signature"
-        pagination={false}
-        dataSource={fingerprints}
-        columns={FINGERPRINT_COLUMNS(onOpenLogs)}
-      />
-    </div>
+    <Table<FingerprintView>
+      size="small"
+      rowKey="signature"
+      pagination={false}
+      dataSource={fingerprints}
+      columns={FINGERPRINT_COLUMNS(onOpenLogs)}
+    />
   );
 }

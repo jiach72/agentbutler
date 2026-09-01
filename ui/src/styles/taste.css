@@ -42,7 +42,6 @@ body {
 
 .page-heading p,
 .product-heading p,
-.manager-subhead,
 .gateway-mode-note {
   max-width: 68ch;
   color: var(--butler-muted);
@@ -70,7 +69,6 @@ body {
 .product-kicker,
 .evolution-kicker,
 .skills-kicker,
-.manager-section-kicker,
 .preferences-kicker,
 .version-instance-kicker {
   color: var(--butler-accent);
@@ -84,7 +82,6 @@ body {
 .product-kicker,
 .evolution-kicker,
 .skills-kicker,
-.manager-section-kicker,
 .preferences-kicker,
 .version-instance-kicker,
 .product-eyebrow,
@@ -94,10 +91,6 @@ body {
   align-items: center;
 }
 
-.manager-section-head > div:first-child > h2,
-.manager-hero-copy h2,
-.readiness-section-head h2,
-.scenario-continuation h2,
 .skills-header h2,
 .evolution-panel-head h2,
 .prompt-panel-head h2,
@@ -105,11 +98,7 @@ body {
   margin-top: 8px;
 }
 
-.manager-section-head > div:first-child > p,
-.readiness-summary,
-.scenario-continuation p,
 .skills-header p,
-.manager-hero-copy p,
 .evolution-panel-head p,
 .prompt-panel-head p {
   margin-top: 6px;
@@ -131,13 +120,10 @@ body {
 
 .card,
 .chart-card,
-.manager-section,
 .evolution-panel,
 .prompt-panel,
 .asset-center-section,
 .setup-card,
-.recovery-panel,
-.log-viewer,
 .settings-tab-panel,
 .preferences-section,
 .skills-pane,
@@ -167,14 +153,11 @@ body {
 }
 
 .empty-state,
-.check-empty,
 .gateway-quiet-state,
 .message-feed-empty,
 .message-inspector-empty,
 .skills-empty,
 .version-empty-explained,
-.log-source-empty,
-.log-diagnosis-empty,
 .prompt-empty,
 .evolution-empty {
   min-height: 168px;
@@ -190,78 +173,6 @@ body {
   line-height: 1.6;
 }
 
-/* ---- Dashboard ---- */
-
-.manager-heading {
-  align-items: flex-start;
-}
-
-.manager-hero {
-  padding: 32px 36px;
-  gap: 26px;
-  border: 1px solid color-mix(in srgb, var(--butler-accent) 30%, var(--butler-rule));
-  border-radius: 20px;
-  background:
-    radial-gradient(820px 420px at -6% -42%, color-mix(in srgb, var(--butler-accent) 26%, transparent), transparent 60%),
-    radial-gradient(620px 360px at 106% 122%, color-mix(in srgb, var(--butler-teal) 18%, transparent), transparent 56%),
-    linear-gradient(135deg, color-mix(in srgb, var(--butler-accent-soft) 92%, var(--butler-surface)), var(--butler-surface) 60%);
-  box-shadow: var(--butler-card-highlight), 0 32px 72px -36px color-mix(in srgb, var(--butler-accent) 54%, transparent);
-}
-
-/* 左侧状态色条：与语义色调联动，加强“一切正常 / 需注意”的即时识别。 */
-.manager-hero-band {
-  inset: 16px auto 16px 0;
-  width: 5px;
-  border-radius: 0 5px 5px 0;
-  background: linear-gradient(180deg, var(--tone-color, var(--butler-accent)), color-mix(in srgb, var(--tone-color, var(--butler-accent)) 42%, transparent));
-}
-
-.manager-hero-icon {
-  width: 68px;
-  height: 68px;
-  border-radius: 20px;
-  background: linear-gradient(
-    150deg,
-    color-mix(in srgb, var(--tone-bg, var(--butler-accent-soft)) 80%, var(--butler-surface)),
-    var(--butler-surface) 62%
-  );
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--butler-surface) 80%, transparent),
-    0 10px 24px -10px color-mix(in srgb, var(--tone-color, var(--butler-accent)) 48%, transparent);
-  font-size: 30px;
-}
-
-.manager-hero-kicker {
-  justify-self: start;
-  align-self: start;
-  padding: 5px 12px;
-  border: 1px solid color-mix(in srgb, var(--tone-color, var(--butler-accent)) 22%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--tone-color, var(--butler-accent)) 13%, transparent);
-  color: var(--tone-color, var(--butler-accent));
-  font-size: var(--butler-text-xs);
-  font-weight: 700;
-  letter-spacing: 0.11em;
-}
-
-.manager-hero-copy h2 {
-  margin: 0;
-  font-size: clamp(26px, 2.8vw, 34px);
-  font-weight: 720;
-  letter-spacing: -0.022em;
-  line-height: 1.18;
-}
-
-.manager-hero-copy strong {
-  letter-spacing: -0.02em;
-}
-
-.manager-status-rail {
-  gap: 14px;
-  padding: 0;
-}
-
-.manager-section-head,
-.connection-section-head,
 .settings-section-head,
 .preferences-section-head,
 .plugin-section-head {
@@ -270,74 +181,8 @@ body {
   border-bottom: 1px solid var(--butler-rule);
 }
 
-.connection-grid,
-.readiness-grid,
 .evolution-metric-grid {
   gap: 14px;
-}
-
-.instance-card,
-.connection-card,
-.readiness-card,
-.issue-list,
-.runbook-item {
-  border-radius: var(--butler-radius-card);
-}
-
-/* 状态总览 KPI 卡：按语义色调着色 + 顶部色条 + 醒目数值，与普通卡片拉开层次。 */
-.manager-status-card {
-  position: relative;
-  overflow: hidden;
-  padding: 18px 18px 16px;
-  gap: 8px;
-  border: 1px solid var(--butler-rule);
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--tone-bg, var(--butler-surface-subtle)) 74%, var(--butler-surface)),
-    var(--butler-surface) 58%
-  );
-  box-shadow: var(--butler-card-highlight), var(--butler-shadow);
-}
-.manager-status-card::before {
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 3px;
-  background: linear-gradient(
-    90deg,
-    var(--tone-color, var(--butler-ink-faint)),
-    color-mix(in srgb, var(--tone-color, var(--butler-ink-faint)) 14%, transparent)
-  );
-  content: "";
-  opacity: 1;
-}
-.manager-status-card .manager-status-head {
-  gap: 8px;
-}
-.manager-status-card .manager-status-dot {
-  width: 9px;
-  height: 9px;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tone-color, var(--butler-ink-faint)) 18%, transparent);
-}
-.manager-status-card .manager-status-label {
-  color: var(--butler-ink-soft);
-  font-size: var(--butler-text-xs);
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-.manager-status-card .manager-status-value {
-  font-size: clamp(22px, 2vw, 27px);
-  font-weight: 730;
-  letter-spacing: -0.02em;
-  color: var(--tone-color, var(--butler-ink));
-}
-.manager-status-card .manager-status-detail {
-  color: var(--butler-muted);
-}
-.manager-status-card .manager-status-action {
-  align-self: flex-start;
-  color: var(--butler-accent);
-  font-weight: 600;
 }
 
 /* ---- Gateway / messages ---- */
@@ -539,9 +384,7 @@ body {
 .settings-section,
 .settings-subsection,
 .preferences-section,
-.setup-card,
-.recovery-action-card,
-.recovery-job-card {
+.setup-card {
   border-radius: var(--butler-radius-card);
 }
 
@@ -575,7 +418,6 @@ body {
 
 /* ---- Logs / core files / troubleshoot ---- */
 
-.log-viewer,
 .table-card,
 .wizard-step,
 .evidence-findings,
@@ -584,14 +426,10 @@ body {
   border-radius: var(--butler-radius-card);
 }
 
-.log-viewer,
 .table-card {
   overflow: hidden;
 }
 
-.log-viewer-meta,
-.log-viewer-pager,
-.log-diagnosis-head,
 .wizard-nav {
   gap: 10px;
 }
@@ -665,10 +503,6 @@ body {
   .preferences-section,
   .setup-card {
     padding: 16px;
-  }
-
-  .manager-hero {
-    padding: 20px;
   }
 
   .topbar-title {

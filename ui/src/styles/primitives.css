@@ -15,8 +15,7 @@
 .product-kicker,
 .product-eyebrow,
 .evolution-kicker,
-.skills-kicker,
-.manager-section-kicker {
+.skills-kicker {
   color: var(--butler-accent);
   font-size: var(--butler-text-xs);
   font-weight: 650;
@@ -39,8 +38,7 @@
 }
 
 .page-heading p,
-.product-heading p,
-.manager-subhead {
+.product-heading p {
   color: var(--butler-muted);
   font-size: var(--butler-text-sm);
 }
@@ -124,14 +122,11 @@
 /* ---- 空态 ---- */
 
 .empty-state,
-.check-empty,
 .gateway-quiet-state,
 .message-feed-empty,
 .message-inspector-empty,
 .skills-empty,
 .version-empty-explained,
-.log-source-empty,
-.log-diagnosis-empty,
 .prompt-empty,
 .evolution-empty {
   display: grid;
@@ -197,8 +192,6 @@
 
 .butler-version-fact,
 .version-instance-facts,
-.connection-meta,
-.instance-meta,
 .message-facts {
   color: var(--butler-muted);
   font-size: var(--butler-text-xs);

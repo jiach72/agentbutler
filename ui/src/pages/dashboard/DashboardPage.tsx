@@ -6,11 +6,12 @@
  * - 管家控制通道离线（reachable:false）时如实展示降级，不伪造健康结论。
  */
 import { useMemo, useState } from "react";
-import { App, Button } from "antd";
+import { App, Badge, Button, Flex } from "antd";
 import { AdvancedDetails } from "../../components/AdvancedDetails.js";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
-import { PageProgress } from "../../components/PageProgress.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
+import { PageHeader } from "../../components/PageHeader.js";
+import { PageProgress } from "../../components/PageProgress.js";
 import { postJson } from "../../lib/api.js";
 import { isRecord } from "../../lib/format.js";
 import { buildConclusions } from "./conclusions.js";
@@ -162,148 +163,150 @@ export function DashboardPage() {
 
   if (!initialLoad.finished) {
     return (
-      <section className="page product-page dashboard-page manager-home">
-        <header className="page-heading product-heading manager-heading">
-          <div>
-            <span className="product-eyebrow">首页</span>
-            <h1>本地管家</h1>
-            <p className="hint">正在汇总服务、检查结果和消息状态。</p>
-          </div>
-        </header>
-        <PageProgress
-          title="正在读取管家状态"
-          detail="每一项完成后都会立即更新，不需要重复刷新页面。"
-          steps={[
-            { label: "运行与检查", state: initialLoad.dashboard ? "done" : "active" },
-            { label: "消息状态", state: initialLoad.alerts ? "done" : initialLoad.dashboard ? "active" : "pending" },
-          ]}
-        />
+      <section className="dashboard-page">
+        <Flex vertical gap={24}>
+          <PageHeader
+            eyebrow="首页"
+            title="本地管家"
+            description="正在汇总服务、检查结果和消息状态。"
+          />
+          <PageProgress
+            title="正在读取管家状态"
+            detail="每一项完成后都会立即更新，不需要重复刷新页面。"
+            steps={[
+              { label: "运行与检查", state: initialLoad.dashboard ? "done" : "active" },
+              { label: "消息状态", state: initialLoad.alerts ? "done" : initialLoad.dashboard ? "active" : "pending" },
+            ]}
+          />
+        </Flex>
       </section>
     );
   }
 
   return (
-    <section className="page product-page dashboard-page manager-home">
-      <header className="page-heading product-heading manager-heading">
-        <div>
-          <span className="product-eyebrow">首页</span>
-          <h1>本地管家</h1>
-          <p className="hint">查看本机服务状态、连接情况和消息通知。</p>
-        </div>
-        <span className={`page-live ${inspectStatus?.reachable ? "is-online" : "is-offline"}`}>
-          <i />
-          {inspectStatus?.reachable ? "管家服务已连接" : "管家服务暂时连不上"}
-        </span>
-      </header>
-
-      {criticalLoadFailed && (
-        <DegradedBanner
-          severity="critical"
-          message="关键状态暂时读不到"
-          description="管家服务可能暂时不可用；页面显示的可能是旧数据，点击右侧按钮重新检查。"
-          action={
-            <Button danger onClick={() => { void refresh(); void refreshConnections(); }}>
-              重新检查
-            </Button>
+    <section className="dashboard-page">
+      <Flex vertical gap={24}>
+        <PageHeader
+          eyebrow="首页"
+          title="本地管家"
+          description="查看本机服务状态、连接情况和消息通知。"
+          extra={
+            <Badge
+              status={inspectStatus?.reachable ? "success" : "error"}
+              text={inspectStatus?.reachable ? "管家服务已连接" : "管家服务暂时连不上"}
+            />
           }
         />
-      )}
 
-      <HeroConclusion
-        hero={hero}
-        inspectStatus={inspectStatus}
-        inspectRequested={inspectionRequested}
-        onInspect={() => void runInspect()}
-      />
+        {criticalLoadFailed && (
+          <DegradedBanner
+            severity="critical"
+            message="关键状态暂时读不到"
+            description="管家服务可能暂时不可用；页面显示的可能是旧数据，点击右侧按钮重新检查。"
+            action={
+              <Button danger onClick={() => { void refresh(); void refreshConnections(); }}>
+                重新检查
+              </Button>
+            }
+          />
+        )}
 
-      <ReadinessSection
-        connections={connections}
-        llmStatus={llmStatus}
-        discoveredModels={discoveredModels}
-        refreshing={readinessRefreshing}
-        onRefresh={() => void refreshReadiness()}
-      />
-
-      <OnboardingContinuation />
-
-      <StatusRail
-        attentionCount={attentionCount}
-        hasError={hasError}
-        hasWarn={hasWarn}
-        healthyInspectionCount={healthyInspectionCount}
-        instanceCount={instances.length}
-        downInstanceCount={downInstanceCount}
-        degradedInstanceCount={degradedInstanceCount}
-        inspectStatus={inspectStatus}
-        messageStats={messageStats}
-        inspectionHistory={inspectionHistory?.items ?? []}
-        deliveryHistory={deliveryHistory?.items ?? []}
-      />
-
-      <ConnectionSection
-        connections={connections}
-        openClawStatus={openClawStatus}
-        openClawInstallJob={openClawInstallJob}
-        connectionBusy={connectionBusy}
-        openClawInstallBusy={openClawInstall.busy}
-        onCheckAll={() => void runConnectionCheck()}
-        onCheckOne={(instanceId) => void runConnectionCheck(instanceId)}
-        onToggleConnection={(instanceId, action) => void runConnectionAction(instanceId, action)}
-        onInstall={openClawInstall.install}
-        onCancelInstall={() => void openClawInstall.cancel()}
-      />
-
-      <IssuesSection
-        issues={issues}
-        attentionCount={attentionCount}
-        onInspect={() => void runInspect()}
-      />
-
-      <AdvancedDetails summary="检查明细" extra={`${instances.length} 个实例`}>
-        <InstanceHealthCard
-          instances={instances}
-          inspections={dashboard?.latestInspections ?? []}
+        <HeroConclusion
+          hero={hero}
+          inspectStatus={inspectStatus}
+          inspectRequested={inspectionRequested}
+          onInspect={() => void runInspect()}
         />
-      </AdvancedDetails>
 
-      <AdvancedDetails summary="检查安排">
-        <InspectCard inspectStatus={inspectStatus} onInspect={() => void runInspect()} />
-      </AdvancedDetails>
-
-      <AdvancedDetails summary="可用的处理方案">
-        <RunbooksPanel runbooks={runbooks} onRepair={setRunbookCandidate} />
-      </AdvancedDetails>
-
-      <AdvancedDetails summary="经常出现的问题">
-        <FingerprintsTable
-          fingerprints={dashboard?.fingerprints ?? []}
-          onOpenLogs={() => { window.location.assign("/logs"); }}
+        <ReadinessSection
+          connections={connections}
+          llmStatus={llmStatus}
+          discoveredModels={discoveredModels}
+          refreshing={readinessRefreshing}
+          onRefresh={() => void refreshReadiness()}
         />
-      </AdvancedDetails>
 
-      {(inspectionRequested || inspectStatus?.inFlight === true) && (
-        <PageProgress
-          compact
-          indeterminate
-          title="正在检查本机服务"
-          detail="正在检查进程、接口、记忆、消息通道和模型连接，完成后本页会自动更新。"
+        <OnboardingContinuation />
+
+        <StatusRail
+          attentionCount={attentionCount}
+          hasError={hasError}
+          hasWarn={hasWarn}
+          healthyInspectionCount={healthyInspectionCount}
+          instanceCount={instances.length}
+          downInstanceCount={downInstanceCount}
+          degradedInstanceCount={degradedInstanceCount}
+          inspectStatus={inspectStatus}
+          messageStats={messageStats}
+          inspectionHistory={inspectionHistory?.items ?? []}
+          deliveryHistory={deliveryHistory?.items ?? []}
         />
-      )}
 
-      <DangerConfirmModal
-        open={runbookCandidate !== null}
-        title="确认开始处理"
-        confirmLabel="确认处理"
-        cancelLabel="先不处理"
-        busy={runbookBusy}
-        onCancel={() => setRunbookCandidate(null)}
-        onConfirm={() => void runRunbook()}
-        impact={runbookCandidate?.impact ?? "该操作会修改本机服务状态，完成后会自动复核。"}
-      >
-        管家将执行「<strong>{runbookCandidate?.label ?? "处理方案"}</strong>」。
-        确认后才会开始执行。
-      </DangerConfirmModal>
+        <ConnectionSection
+          connections={connections}
+          openClawStatus={openClawStatus}
+          openClawInstallJob={openClawInstallJob}
+          connectionBusy={connectionBusy}
+          openClawInstallBusy={openClawInstall.busy}
+          onCheckAll={() => void runConnectionCheck()}
+          onCheckOne={(instanceId) => void runConnectionCheck(instanceId)}
+          onToggleConnection={(instanceId, action) => void runConnectionAction(instanceId, action)}
+          onInstall={openClawInstall.install}
+          onCancelInstall={() => void openClawInstall.cancel()}
+        />
 
+        <IssuesSection
+          issues={issues}
+          attentionCount={attentionCount}
+          onInspect={() => void runInspect()}
+        />
+
+        <AdvancedDetails summary="检查明细" extra={`${instances.length} 个实例`}>
+          <InstanceHealthCard
+            instances={instances}
+            inspections={dashboard?.latestInspections ?? []}
+          />
+        </AdvancedDetails>
+
+        <AdvancedDetails summary="检查安排">
+          <InspectCard inspectStatus={inspectStatus} onInspect={() => void runInspect()} />
+        </AdvancedDetails>
+
+        <AdvancedDetails summary="可用的处理方案">
+          <RunbooksPanel runbooks={runbooks} onRepair={setRunbookCandidate} />
+        </AdvancedDetails>
+
+        <AdvancedDetails summary="经常出现的问题">
+          <FingerprintsTable
+            fingerprints={dashboard?.fingerprints ?? []}
+            onOpenLogs={() => { window.location.assign("/logs"); }}
+          />
+        </AdvancedDetails>
+
+        {(inspectionRequested || inspectStatus?.inFlight === true) && (
+          <PageProgress
+            compact
+            indeterminate
+            title="正在检查本机服务"
+            detail="正在检查进程、接口、记忆、消息通道和模型连接，完成后本页会自动更新。"
+          />
+        )}
+
+        <DangerConfirmModal
+          open={runbookCandidate !== null}
+          title="确认开始处理"
+          confirmLabel="确认处理"
+          cancelLabel="先不处理"
+          busy={runbookBusy}
+          onCancel={() => setRunbookCandidate(null)}
+          onConfirm={() => void runRunbook()}
+          impact={runbookCandidate?.impact ?? "该操作会修改本机服务状态，完成后会自动复核。"}
+        >
+          管家将执行「<strong>{runbookCandidate?.label ?? "处理方案"}</strong>」。
+          确认后才会开始执行。
+        </DangerConfirmModal>
+
+      </Flex>
     </section>
   );
 }

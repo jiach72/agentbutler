@@ -3,12 +3,28 @@
  * 面板自身的加载/分析/修复确认状态全部内聚在本组件内。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { App, Button, Progress } from "antd";
+import {
+  Alert,
+  App,
+  Badge,
+  Button,
+  Card,
+  Drawer,
+  Empty,
+  Flex,
+  Menu,
+  Progress,
+  Space,
+  Spin,
+  Typography,
+} from "antd";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
 import { fetchJson, loadJson, postJson } from "../../lib/api.js";
 import { usePolling } from "../../hooks/usePolling.js";
 import { formatBytes, formatNumber } from "../../lib/format.js";
 import type { LogAnalyzeView, LogIssueView, LogSourceView, LogTailView } from "./types.js";
+
+const { Text } = Typography;
 
 interface LogPanelProps {
   open?: boolean;
@@ -127,136 +143,172 @@ export function LogPanel({ open = true, onClose = () => undefined, embedded = fa
     }
   };
 
+  const body = (
+    <Flex vertical gap={16}>
+      {fixJob !== null && (
+        <Card size="small">
+          <Flex vertical gap={8}>
+            <Text strong>{fixJob.label}</Text>
+            <Progress
+              percent={fixJob.progress}
+              status={fixJob.status === "failed" ? "exception" : fixJob.status === "done" ? "success" : "active"}
+            />
+            <Text type="secondary" style={{ fontSize: 12 }}>{fixJob.detail}</Text>
+          </Flex>
+        </Card>
+      )}
+      <Card
+        size="small"
+        title="日志分析"
+        extra={
+          analyzeLoading ? (
+            <Spin size="small" />
+          ) : (
+            <Badge
+              status={issues.length === 0 ? "success" : "warning"}
+              text={issues.length === 0 ? "未发现明显错误" : `发现 ${issues.length} 类问题`}
+            />
+          )
+        }
+      >
+        {issues.length === 0 && !analyzeLoading ? (
+          <Text type="secondary">
+            最近一段日志没有匹配到常见错误；你仍然可以在下面直接查看原始日志。
+          </Text>
+        ) : (
+          <Flex vertical gap={8}>
+            {issues.map((issue) => (
+              <Alert
+                key={issue.id}
+                type={issue.severity === "error" ? "error" : "warning"}
+                showIcon
+                title={
+                  <>
+                    {issue.title} <Text type="secondary">×{issue.count}</Text>
+                  </>
+                }
+                description={
+                  <Flex vertical gap={4}>
+                    <span>{issue.detail}</span>
+                    {issue.examples.length > 0 && (
+                      <Text code style={{ fontSize: 12 }}>{issue.examples[0]}</Text>
+                    )}
+                  </Flex>
+                }
+                action={
+                  issue.suggestedAction !== null ? (
+                    <Button
+                      type="primary"
+                      onClick={() => setConfirmFix(issue)}
+                    >
+                      一键修复
+                    </Button>
+                  ) : undefined
+                }
+              />
+            ))}
+          </Flex>
+        )}
+      </Card>
+      <Flex gap={16} align="flex-start" wrap="wrap">
+        <Flex vertical gap={8} style={{ width: 240, flexShrink: 0 }}>
+          <Text strong>日志文件</Text>
+          <Menu
+            mode="inline"
+            selectedKeys={activeLog === null ? [] : [activeLog.sourceId]}
+            style={{ borderInlineEnd: 0 }}
+            onClick={({ key }) => void loadLogTail(key)}
+            items={sources.map((source) => ({
+              key: source.id,
+              label: (
+                <Flex vertical gap={2}>
+                  <span>{source.id.startsWith("butler:") ? "管家·" + source.id.split(":").pop() : source.id.split(":").pop()}</span>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    {source.format === "journald" ? "服务日志" : formatBytes(source.sizeBytes)}
+                  </Text>
+                </Flex>
+              ),
+            }))}
+          />
+          {!loading && sources.length === 0 && (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有可用的日志文件" />
+          )}
+        </Flex>
+        <Flex vertical gap={8} style={{ flex: 1, minWidth: 0 }}>
+          {error !== null && <Alert type="error" showIcon title={error} />}
+          {loading && (
+            <Flex align="center" gap={8}>
+              <Spin size="small" />
+              <Text type="secondary">正在读取日志…</Text>
+            </Flex>
+          )}
+          {activeLog !== null && (
+            <>
+              <Flex wrap="wrap" align="center" justify="space-between" gap={8}>
+                <Text code style={{ fontSize: 12 }} title={activeLog.path}>{activeLog.path}</Text>
+                <Text type="secondary">
+                  {activeLog.truncated
+                    ? `只显示最后 ${activeLog.lines.length} 行（共 ${formatNumber(activeLog.totalLines)} 行）`
+                    : `共 ${formatNumber(activeLog.totalLines)} 行`}
+                </Text>
+              </Flex>
+              {(activeLog.hasOlder || activeLog.hasNewer) && (
+                <Space wrap>
+                  {activeLog.hasOlder && (
+                    <Button
+                      disabled={loading}
+                      onClick={() => void loadLogTail(activeLog.sourceId, activeLog.pageStart)}
+                    >
+                      更早的日志
+                    </Button>
+                  )}
+                  {activeLog.hasNewer && (
+                    <Button
+                      disabled={loading}
+                      onClick={() => void loadLogTail(activeLog.sourceId, null)}
+                    >
+                      回到最新
+                    </Button>
+                  )}
+                </Space>
+              )}
+              {activeLog.error !== undefined ? (
+                <Alert type="error" showIcon title={`读取失败：${activeLog.error}`} />
+              ) : (
+                <pre
+                  style={{
+                    margin: 0,
+                    padding: 12,
+                    background: "var(--ant-color-fill-tertiary)",
+                    borderRadius: 8,
+                    fontFamily: "var(--ant-font-family-code)",
+                    fontSize: 12,
+                    maxHeight: 480,
+                    overflow: "auto",
+                  }}
+                >
+                  {activeLog.lines.map((line, index) => (
+                    <code key={index} style={{ display: "block", whiteSpace: "pre-wrap" }}>{line}</code>
+                  ))}
+                </pre>
+              )}
+            </>
+          )}
+        </Flex>
+      </Flex>
+    </Flex>
+  );
+
   return (
     <>
       {open && (
-        <div
-          className={embedded ? "log-page-shell" : "log-drawer-backdrop"}
-          role={embedded ? undefined : "dialog"}
-          aria-modal={embedded ? undefined : true}
-          aria-labelledby="log-drawer-title"
-          onClick={(event) => {
-            if (embedded) return;
-            if (event.target === event.currentTarget) onClose();
-          }}
-        >
-          <div className={embedded ? "log-page-shell-inner" : "log-drawer"}>
-            <div className="log-drawer-head">
-              <div>
-                <span className="log-drawer-eyebrow">只读查看</span>
-                <h3 id="log-drawer-title">系统日志</h3>
-              </div>
-              {!embedded && <Button type="text" onClick={onClose}>关闭</Button>}
-            </div>
-            <div className="log-drawer-body">
-              {fixJob !== null && <section className="log-fix-progress"><strong>{fixJob.label}</strong><Progress percent={fixJob.progress} status={fixJob.status === "failed" ? "exception" : fixJob.status === "done" ? "success" : "active"} /><small>{fixJob.detail}</small></section>}
-              <section className="log-diagnosis">
-                <div className="log-diagnosis-head">
-                  <strong>日志分析</strong>
-                  {analyzeLoading ? (
-                    <span className="log-diagnosis-state">正在扫描日志…</span>
-                  ) : issues.length === 0 ? (
-                    <span className="log-diagnosis-state is-ok">未发现明显错误</span>
-                  ) : (
-                    <span className="log-diagnosis-state is-warn">
-                      发现 {issues.length} 类问题
-                    </span>
-                  )}
-                </div>
-                {issues.length === 0 && !analyzeLoading ? (
-                  <p className="log-diagnosis-empty">
-                    最近一段日志没有匹配到常见错误；你仍然可以在下面直接查看原始日志。
-                  </p>
-                ) : (
-                  <div className="log-issue-list">
-                    {issues.map((issue) => (
-                      <article className={`log-issue is-${issue.severity}`} key={issue.id}>
-                        <div className="log-issue-main">
-                          <strong>{issue.title}</strong>
-                          <span className="log-issue-count">×{issue.count}</span>
-                          <p>{issue.detail}</p>
-                          {issue.examples.length > 0 && (
-                            <code className="log-issue-example">{issue.examples[0]}</code>
-                          )}
-                        </div>
-                        {issue.suggestedAction !== null && (
-                          <Button
-                            type="primary"
-                            onClick={() => setConfirmFix(issue)}
-                          >
-                            一键修复
-                          </Button>
-                        )}
-                      </article>
-                    ))}
-                  </div>
-                )}
-              </section>
-              <aside className="log-source-list">
-                <strong>日志文件</strong>
-                {sources.map((source) => (
-                  <button
-                    type="button"
-                    key={source.id}
-                    className={`log-source-item${activeLog?.sourceId === source.id ? " is-active" : ""}`}
-                    onClick={() => void loadLogTail(source.id)}
-                  >
-                    <span>{source.id.startsWith("butler:") ? "管家·" + source.id.split(":").pop() : source.id.split(":").pop()}</span>
-                    <small>{source.format === "journald" ? "服务日志" : formatBytes(source.sizeBytes)}</small>
-                  </button>
-                ))}
-                {!loading && sources.length === 0 && (
-                  <p className="log-source-empty">没有可用的日志文件</p>
-                )}
-              </aside>
-              <section className="log-viewer">
-                {error !== null && <div className="log-viewer-error">{error}</div>}
-                {loading && <div className="log-viewer-loading">正在读取日志…</div>}
-                {activeLog !== null && (
-                  <>
-                    <div className="log-viewer-meta">
-                      <code title={activeLog.path}>{activeLog.path}</code>
-                      <span>
-                        {activeLog.truncated
-                          ? `只显示最后 ${activeLog.lines.length} 行（共 ${formatNumber(activeLog.totalLines)} 行）`
-                          : `共 ${formatNumber(activeLog.totalLines)} 行`}
-                      </span>
-                    </div>
-                    {(activeLog.hasOlder || activeLog.hasNewer) && (
-                      <div className="log-viewer-pager">
-                        {activeLog.hasOlder && (
-                          <Button
-                            disabled={loading}
-                            onClick={() => void loadLogTail(activeLog.sourceId, activeLog.pageStart)}
-                          >
-                            更早的日志
-                          </Button>
-                        )}
-                        {activeLog.hasNewer && (
-                          <Button
-                            disabled={loading}
-                            onClick={() => void loadLogTail(activeLog.sourceId, null)}
-                          >
-                            回到最新
-                          </Button>
-                        )}
-                      </div>
-                    )}
-                    {activeLog.error !== undefined ? (
-                      <div className="log-viewer-error">读取失败：{activeLog.error}</div>
-                    ) : (
-                      <pre className="log-lines">
-                        {activeLog.lines.map((line, index) => (
-                          <code key={index}>{line}</code>
-                        ))}
-                      </pre>
-                    )}
-                  </>
-                )}
-              </section>
-            </div>
-          </div>
-        </div>
+        embedded ? (
+          <Flex vertical gap={16}>{body}</Flex>
+        ) : (
+          <Drawer width={920} title="系统日志" open onClose={onClose}>
+            {body}
+          </Drawer>
+        )
       )}
 
       <DangerConfirmModal
