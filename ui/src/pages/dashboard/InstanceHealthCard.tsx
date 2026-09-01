@@ -48,7 +48,7 @@ export function InstanceHealthCard({ instances, inspections }: InstanceHealthCar
   }
 
   return (
-    <Row gutter={[16, 16]}>
+    <Row gutter={[12, 12]}>
       {instances.map((instance) => {
         const inspection = inspectionByInstance.get(instance.instanceId) ?? null;
         const overall = overallBadge(inspection?.overall ?? null);
@@ -59,14 +59,20 @@ export function InstanceHealthCard({ instances, inspections }: InstanceHealthCar
               <Flex vertical gap={8}>
                 <Flex wrap="wrap" align="center" gap={8}>
                   <Badge status={stateDotBadgeStatus[stateDotClass(instance.state)]} />
-                  <Text strong style={{ flex: 1, minWidth: 0 }}>
+                  <Text strong style={{ flex: "1 1 auto", minWidth: 0 }}>
                     {instanceLabel(instance.instanceId)}
                   </Text>
+                  {inspection !== null && (
+                    <Text type="secondary" style={{ fontSize: 12, flexShrink: 0 }}>
+                      检查于 {formatRelative(inspection.ts)}
+                    </Text>
+                  )}
                   <StatusBadge tone={overall.tone} label={overall.label} />
                 </Flex>
                 <Descriptions
                   size="small"
                   column={2}
+                  className="dense-descriptions"
                   items={[
                     { key: "state", label: "状态", children: instanceStateLabel(instance.state) },
                     { key: "runtime", label: "运行环境", children: instanceRuntimeLabel(instance.runtime) },
@@ -74,34 +80,32 @@ export function InstanceHealthCard({ instances, inspections }: InstanceHealthCar
                     { key: "confidence", label: "把握", children: `${Math.round((confidence ?? 0) * 100)}%` },
                   ]}
                 />
-                <Text type="secondary">
-                  上次检查：{formatRelative(inspection?.ts)}
-                  {inspection?.confidence !== null && inspection?.confidence !== undefined
-                    ? ` · 把握 ${Math.round(inspection.confidence * 100)}%`
-                    : ""}
-                </Text>
                 {inspection === null ? (
                   <Text type="secondary">尚无检查明细</Text>
                 ) : (
-                  <Flex wrap="wrap" align="center" gap={8}>
+                  <ul className="check-list">
                     {inspection.checks.map((check) => {
                       const badge = checkBadge(check.status);
                       return (
-                        <Flex align="center" gap={8} style={{ width: "100%" }} key={check.id}>
-                          <Text style={{ flexShrink: 0 }} title={check.id}>
+                        <li className="check-row" key={check.id}>
+                          <Text className="check-row-label" title={check.id}>
                             {CHECK_LABELS[check.id] ?? "其他检查"}
                           </Text>
                           <StatusBadge tone={badge.tone} label={badge.label} />
-                          <span title={formatDetail(check.detail)} style={{ flex: 1, minWidth: 0 }}>
-                            <Text type="secondary">{formatDetail(check.detail)}</Text>
-                          </span>
-                          <Text type="secondary">
+                          <Text
+                            type="secondary"
+                            className="check-row-detail"
+                            title={formatDetail(check.detail)}
+                          >
+                            {formatDetail(check.detail)}
+                          </Text>
+                          <Text type="secondary" className="check-row-duration">
                             {formatDuration(check.durationMs)}
                           </Text>
-                        </Flex>
+                        </li>
                       );
                     })}
-                  </Flex>
+                  </ul>
                 )}
               </Flex>
             </Card>

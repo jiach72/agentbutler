@@ -35,6 +35,8 @@ export const CHECK_LABELS: Record<string, string> = {
   "channel-probe": "消息通道是否正常",
   "llm-probe": "模型服务是否可连接",
   "stall-write": "数据是否还在正常写入",
+  "resource-watermark": "资源水位是否正常",
+  "dashboard-signal": "管理页信号是否正常",
 };
 
 export function instanceLabel(instanceId: string): string {

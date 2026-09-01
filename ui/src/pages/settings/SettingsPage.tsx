@@ -4,6 +4,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { Alert, App, Flex, Tabs, Typography } from "antd";
+import { useSearchParams } from "react-router-dom";
 import { ConnectionChip } from "../../components/ConnectionChip.js";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
 import { PageHeader } from "../../components/PageHeader.js";
@@ -33,15 +34,26 @@ import { DiagnosticsCenter } from "./DiagnosticsCenter.js";
 import { SecurityBaseline } from "./SecurityBaseline.js";
 import { PreferencesPanel } from "../preferences/PreferencesPage.js";
 import { LlmProfileManager } from "./LlmProfileManager.js";
+import { VersionsPanel } from "../versions/VersionsPage.js";
 
 const { Paragraph, Text } = Typography;
+
+/** 设置页标签键：默认 security，其余通过 ?tab= 直达（如 /versions 旧链接）。 */
+const SETTINGS_TABS = ["security", "backups", "llm", "diagnostics", "preferences", "about"] as const;
 
 export function SettingsPage() {
   const { message } = App.useApp();
   const [sources, setSources] = useState(createInitialSources);
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<SettingsConfirmAction | null>(null);
-  const [activeTab, setActiveTab] = useState("security");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get("tab");
+  const activeTab = (SETTINGS_TABS as readonly string[]).includes(tabParam ?? "")
+    ? (tabParam as string)
+    : "security";
+  const setActiveTab = (key: string) => {
+    setSearchParams(key === "security" ? {} : { tab: key }, { replace: true });
+  };
 
   const applyResult = useCallback((key: SettingsSourceKey, result: LoadResult<unknown>) => {
     setSources((prev) =>
@@ -195,7 +207,7 @@ export function SettingsPage() {
         <PageHeader
           eyebrow="应用设置"
           title="设置"
-          description="管理本机安全、备份与还原、诊断报告，以及界面和通知偏好。"
+          description="管理本机安全、备份与还原、诊断报告、界面与通知偏好；「关于」里查看版本并升级。"
           extra={
             <ConnectionChip
               reachable={securityOnline}
@@ -289,6 +301,15 @@ export function SettingsPage() {
               children: (
                 <Flex vertical gap={16}>
                   <PreferencesPanel />
+                </Flex>
+              ),
+            },
+            {
+              key: "about",
+              label: "关于",
+              children: (
+                <Flex vertical gap={16}>
+                  <VersionsPanel />
                 </Flex>
               ),
             },

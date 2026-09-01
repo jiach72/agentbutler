@@ -92,7 +92,7 @@ export function InspectCard({
   const criticalProbe = inspectStatus.criticalProbe;
   const criticalBadge = criticalProbeBadge(criticalProbe);
   return (
-    <Flex vertical gap={16}>
+    <Flex vertical gap={12}>
       {criticalProbe === undefined ? null : (
         <Flex wrap="wrap" align="center" gap={8} role="status">
           <StatusBadge tone={criticalBadge.tone} label={criticalBadge.label} />
@@ -106,7 +106,7 @@ export function InspectCard({
       )}
       <Descriptions
         size="small"
-        column={1}
+        column={2}
         items={[
           { key: "last", label: "上次检查", children: formatRelative(inspectStatus.lastAt) },
           { key: "next", label: "下次预计", children: formatRelative(inspectStatus.nextAt) },
@@ -114,9 +114,7 @@ export function InspectCard({
           { key: "now", label: "现在", children: inspectStatus.inFlight ? "正在检查" : "没有在检查" },
         ]}
       />
-      <div>
-        <Button onClick={onInspect}>立即检查</Button>
-      </div>
+      <Button onClick={onInspect}>立即检查</Button>
     </Flex>
   );
 }

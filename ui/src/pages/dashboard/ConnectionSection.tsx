@@ -69,8 +69,8 @@ export function ConnectionSection({
 
   return (
     <section aria-labelledby="connection-section-title">
-      <Flex vertical gap={16}>
-        <Flex wrap="wrap" justify="space-between" align="flex-start" gap={16}>
+      <Flex vertical gap={12}>
+        <Flex wrap="wrap" justify="space-between" align="flex-start" gap={12}>
           <div style={{ minWidth: 0 }}>
             <Text
               type="secondary"
@@ -102,14 +102,14 @@ export function ConnectionSection({
             description="无法读取 Hermes / OpenClaw 的实时连接状态，服务恢复后会自动重试。"
           />
         ) : (
-          <Row gutter={[16, 16]}>
+          <Row gutter={[12, 12]}>
             {!connectionItems.some((item) => item.frameworkId === "hermes") && (
               <Col xs={24} lg={12}>
-                <Card size="small" style={{ height: "100%" }}>
-                  <Flex vertical gap={12}>
-                    <Flex wrap="wrap" justify="space-between" align="flex-start" gap={8}>
-                      <Flex vertical gap={4}>
-                        <Tag color="cyan" style={{ alignSelf: "flex-start" }}>Hermes</Tag>
+                <Card size="small">
+                  <Flex vertical gap={8}>
+                    <Flex wrap="wrap" justify="space-between" align="center" gap={8}>
+                      <Flex align="center" gap={8} style={{ minWidth: 0 }}>
+                        <Tag color="cyan" style={{ marginInlineEnd: 0 }}>Hermes</Tag>
                         <Title level={5} style={{ marginBottom: 0 }}>尚未配置</Title>
                       </Flex>
                       <Badge status="default" text="未发现实例" />
@@ -129,11 +129,11 @@ export function ConnectionSection({
             )}
             {!connectionItems.some((item) => item.frameworkId === "openclaw") && (
               <Col xs={24} lg={12}>
-                <Card size="small" style={{ height: "100%" }}>
-                  <Flex vertical gap={12}>
-                    <Flex wrap="wrap" justify="space-between" align="flex-start" gap={8}>
-                      <Flex vertical gap={4}>
-                        <Tag color="geekblue" style={{ alignSelf: "flex-start" }}>OpenClaw</Tag>
+                <Card size="small">
+                  <Flex vertical gap={8}>
+                    <Flex wrap="wrap" justify="space-between" align="center" gap={8}>
+                      <Flex align="center" gap={8} style={{ minWidth: 0 }}>
+                        <Tag color="geekblue" style={{ marginInlineEnd: 0 }}>OpenClaw</Tag>
                         <Title level={5} style={{ marginBottom: 0 }}>
                           {openClawStatus?.installed ? "已安装，等待连接" : "尚未安装"}
                         </Title>
@@ -170,7 +170,7 @@ export function ConnectionSection({
                     )}
                     {openClawInstallJob !== null && (
                       <Card size="small">
-                        <Flex vertical gap={12}>
+                        <Flex vertical gap={8}>
                           <Flex wrap="wrap" justify="space-between" align="center" gap={8}>
                             <Text strong>
                               {openClawInstallJob.status === "done" ? "安装完成"
@@ -249,7 +249,7 @@ export function ConnectionSection({
               return (
                 <Col xs={24} lg={12} key={connection.instanceId}>
                   <Card size="small" style={{ height: "100%" }}>
-                    <Flex vertical gap={12}>
+                    <Flex vertical gap={8}>
                       <Flex wrap="wrap" justify="space-between" align="flex-start" gap={8}>
                         <Flex vertical gap={4} style={{ minWidth: 0 }}>
                           <Tag
@@ -269,7 +269,8 @@ export function ConnectionSection({
                       </Flex>
                       <Descriptions
                         size="small"
-                        column={1}
+                        column={2}
+                        className="dense-descriptions"
                         items={[
                           {
                             key: "runtime",
@@ -284,22 +285,30 @@ export function ConnectionSection({
                           {
                             key: "latency",
                             label: "响应延迟",
-                            children: connection.latencyMs === null ? "尚未测延迟" : `响应 ${connection.latencyMs}ms`,
+                            children: connection.latencyMs === null ? "尚未测延迟" : `${connection.latencyMs}ms`,
+                          },
+                          {
+                            key: "reachable",
+                            label: "可达状态",
+                            children: connection.connected ? "服务可达" : connection.connectionState === "checking" ? "正在探测" : "服务不可达",
                           },
                           {
                             key: "root",
                             label: "数据目录",
                             children: <span title={connection.rootPath}>{connection.rootPath || "未配置目录"}</span>,
                           },
+                          {
+                            key: "lastChecked",
+                            label: "最近检查",
+                            children: formatRelative(connection.lastCheckedAt),
+                          },
+                          {
+                            key: "lastAction",
+                            label: "最近动作",
+                            children: formatRelative(connection.lastActionAt),
+                          },
                         ]}
                       />
-                      <Flex vertical gap={4}>
-                        <Text strong>
-                          {connection.connected ? "服务可达" : connection.connectionState === "checking" ? "正在探测服务" : "服务不可达"}
-                        </Text>
-                        <Text type="secondary">最近检查：{formatRelative(connection.lastCheckedAt)}</Text>
-                        <Text type="secondary">最近动作：{formatRelative(connection.lastActionAt)}</Text>
-                      </Flex>
                       {connection.lastError !== null && <Text type="danger">{connection.lastError}</Text>}
                       {connection.checks.length > 0 && (
                         <Flex vertical gap={4}>

@@ -1,45 +1,32 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+/**
+ * GitHub 技能管理：公开项目趋势与推荐安装。
+ * 本地技能库/使用统计已迁移至「智能体与记忆」页，这里不再重复展示。
+ */
+import { useCallback, useEffect, useState } from "react";
 import {
-  Alert,
   App,
   Avatar,
   Button,
   Card,
-  Col,
   Empty,
   Flex,
   List,
   Modal,
   Progress,
-  Row,
-  Select,
-  Statistic,
   Steps,
-  Table,
-  Tag,
   Typography,
 } from "antd";
-import type { TableColumnsType } from "antd";
 import {
   ReloadOutlined,
-  InboxOutlined,
   DownloadOutlined,
   StarOutlined,
   ForkOutlined,
 } from "@ant-design/icons";
 import { loadJson, postJson } from "../../lib/api.js";
-import { formatDurationMs, formatNumber, formatPercent, formatTime } from "../../lib/format.js";
-import { TrendColumn } from "../../components/charts/index.js";
-import { chartThemeFor, primaryFill, quietAxes } from "../../components/charts/chartTheme.js";
-import { useTheme } from "../../theme/ThemeProvider.js";
-import type { SkillsPayload } from "./helpers.js";
-import { fillUsageSeries } from "./usageTrend.js";
+import { formatTime } from "../../lib/format.js";
 
 const { Link, Paragraph, Text } = Typography;
 
-type UsageItem = { name: string; calls: number; lastUsedAt: string | null; successRate: number | null; avgDurationMs: number | null; status: "known" | "unknown" };
-type UsageGranularity = "day" | "week" | "month";
-type UsageView = { rangeDays: number; granularity: UsageGranularity; coverage: { from: string | null; to: string | null; days: number; source: string; complete: boolean }; series: Array<{ date: string; calls: number }>; skills: UsageItem[]; notice: string };
 type TrendView = { items: Array<{ name: string; url: string; stars: number; forks: number; updatedAt: string; description?: string }>; syncedAt: string | null; notice: string; error?: string };
 type Recommendation = { id: string; name: string; reason: string; description?: string; sourceUrl: string };
 type InstallPhase = "confirm" | "download" | "install" | "done" | "failed";
@@ -53,13 +40,8 @@ function postError(result: { data: unknown }, fallback: string): string {
   return fallback;
 }
 
-export function AssetCenter({ skills, onSkillsChanged }: { skills: SkillsPayload["skills"]; onSkillsChanged?: () => void | Promise<void> }) {
-  const { message, modal } = App.useApp();
-  const { mode } = useTheme();
-  const chartTheme = useMemo(() => chartThemeFor(mode), [mode]);
-  const [range, setRange] = useState("30");
-  const [granularity, setGranularity] = useState<UsageGranularity>("day");
-  const [usage, setUsage] = useState<UsageView | null>(null);
+export function AssetCenter({ onSkillsChanged }: { onSkillsChanged?: () => void | Promise<void> }) {
+  const { message } = App.useApp();
   const [trends, setTrends] = useState<TrendView | null>(null);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
@@ -68,12 +50,10 @@ export function AssetCenter({ skills, onSkillsChanged }: { skills: SkillsPayload
 
   const refresh = useCallback(async () => {
     setBusy("refresh");
-    const [u, t, r] = await Promise.all([
-      loadJson<UsageView>("/api/skills/usage?range=" + range + "d&granularity=" + granularity, 15_000),
+    const [t, r] = await Promise.all([
       loadJson<TrendView>("/api/skills/github-trends", 10_000),
       loadJson<{ items: Recommendation[] }>("/api/skills/recommendations", 10_000),
     ]);
-    if (u.ok) setUsage(u.data);
     let nextTrend = t.ok ? t.data : null;
     let nextRecommendations = r.ok ? r.data.items ?? [] : [];
     if (nextTrend?.items.length === 0 && nextTrend.syncedAt === null) {
@@ -90,7 +70,7 @@ export function AssetCenter({ skills, onSkillsChanged }: { skills: SkillsPayload
     if (nextTrend) setTrends(nextTrend);
     setRecommendations(nextRecommendations);
     setBusy(null);
-  }, [range, granularity]);
+  }, []);
   const syncTrends = async () => {
     setBusy("sync");
     const result = await postJson("/api/skills/github-trends/refresh", {}, 30_000);
@@ -101,24 +81,6 @@ export function AssetCenter({ skills, onSkillsChanged }: { skills: SkillsPayload
   };
   useEffect(() => { void refresh(); }, [refresh]);
 
-  const usageSeries = useMemo(
-    () => (usage === null ? [] : fillUsageSeries(usage.series, usage.rangeDays, usage.granularity)),
-    [usage],
-  );
-  const usageSummary = useMemo(() => {
-    if (usage === null) return null;
-    const rates = usage.skills.map((item) => item.successRate).filter((rate): rate is number => rate !== null);
-    const totalCalls = usage.series.reduce((sum, point) => sum + point.calls, 0);
-    const successRate = rates.length ? rates.reduce((sum, rate) => sum + rate, 0) / rates.length : null;
-    return { skills: usage.skills.length, calls: totalCalls, successRate, days: usage.coverage.days };
-  }, [usage]);
-  const known = useMemo(() => new Set(skills.items.map((item) => item.name)), [skills.items]);
-  const archive = (name: string) => {
-    modal.confirm({ title: "归档技能 " + name + "？", content: "归档前会自动备份；内置技能不可归档。", okText: "归档", cancelText: "取消", onOk: async () => {
-      const result = await postJson("/api/skills/" + encodeURIComponent(name) + "/archive", { thresholdDays: 90 }, 20_000);
-      if (result.ok) { message.success("技能已归档"); await refresh(); } else message.error("归档被阻止：请查看返回的原因和解决方案");
-    } });
-  };
   const startInstall = async () => {
     if (installTarget === null) return;
     const target = installTarget;
@@ -149,65 +111,8 @@ export function AssetCenter({ skills, onSkillsChanged }: { skills: SkillsPayload
     await onSkillsChanged?.();
   };
 
-  const columns: TableColumnsType<UsageItem> = [
-    { title: "技能", dataIndex: "name", render: (name: string, item: UsageItem) => <><strong>{name}</strong>{item.status === "unknown" && <Tag color="default">未知技能</Tag>}</> },
-    { title: "调用次数", dataIndex: "calls", width: 110, align: "right", sorter: (a: UsageItem, b: UsageItem) => b.calls - a.calls, render: (value: number) => formatNumber(value) },
-    { title: "成功率", width: 100, align: "right", render: (_: unknown, item: UsageItem) => formatPercent(item.successRate) },
-    { title: "平均耗时", width: 120, align: "right", render: (_: unknown, item: UsageItem) => formatDurationMs(item.avgDurationMs) },
-    { title: "最近使用", render: (_: unknown, item: UsageItem) => item.lastUsedAt ? formatTime(item.lastUsedAt) : "未知" },
-    { title: "操作", render: (_: unknown, item: UsageItem) => known.has(item.name) ? <Button icon={<InboxOutlined />} disabled={skills.items.find((skill) => skill.name === item.name)?.source === "builtin"} onClick={() => archive(item.name)}>归档</Button> : null },
-  ];
-
   return (
     <Flex vertical gap={16}>
-      <Card
-        size="small"
-        title="技能使用情况"
-        extra={
-          <Flex gap={8}>
-            <Select value={granularity} onChange={setGranularity} options={[{ value: "day", label: "按日" }, { value: "week", label: "按周" }, { value: "month", label: "按月" }]} />
-            <Select value={range} onChange={setRange} options={[{ value: "30", label: "近 30 天" }, { value: "90", label: "近 90 天" }, { value: "180", label: "近 180 天" }]} />
-          </Flex>
-        }
-      >
-        {usage && (
-          <Flex vertical gap={16}>
-            {usageSummary && (
-              <Row gutter={[16, 16]}>
-                <Col flex="1 1 130px"><Statistic title="技能数" value={formatNumber(usageSummary.skills)} /></Col>
-                <Col flex="1 1 130px"><Statistic title="累计调用" value={formatNumber(usageSummary.calls)} /></Col>
-                <Col flex="1 1 130px"><Statistic title="平均成功率" value={formatPercent(usageSummary.successRate)} /></Col>
-                <Col flex="1 1 130px"><Statistic title="覆盖范围" value={`${usageSummary.days} 天`} /></Col>
-              </Row>
-            )}
-            <Alert
-              type={usage.coverage.complete ? "info" : "warning"}
-              showIcon
-              message={"数据覆盖：" + (usage.coverage.from ? formatTime(usage.coverage.from) + " 至 " + formatTime(usage.coverage.to ?? usage.coverage.from) : "未知")}
-              description={usage.coverage.source + "；实际覆盖 " + usage.coverage.days + " 天。" + usage.notice}
-            />
-            <div aria-label="技能调用次数趋势">
-              {usageSeries.length === 0 ? (
-                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前范围没有可证明的调用记录" />
-              ) : (
-                <TrendColumn
-                  data={usageSeries}
-                  xField="date"
-                  yField="calls"
-                  theme={chartTheme.g2Theme}
-                  autoFit
-                  height={200}
-                  axis={quietAxes(chartTheme)}
-                  style={{ maxWidth: 26, fill: primaryFill(mode), radiusTopLeft: 3, radiusTopRight: 3 }}
-                  tooltip={{ items: [{ channel: "y", name: "调用次数" }] }}
-                />
-              )}
-            </div>
-            <Table rowKey="name" size="small" pagination={{ pageSize: 8, hideOnSinglePage: true }} dataSource={usage.skills} columns={columns} scroll={{ x: 700 }} />
-          </Flex>
-        )}
-      </Card>
-
       <Card
         size="small"
         title="GitHub 技能项目"

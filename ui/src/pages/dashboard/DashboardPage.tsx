@@ -6,8 +6,7 @@
  * - 管家控制通道离线（reachable:false）时如实展示降级，不伪造健康结论。
  */
 import { useMemo, useState } from "react";
-import { App, Badge, Button, Flex } from "antd";
-import { AdvancedDetails } from "../../components/AdvancedDetails.js";
+import { App, Badge, Button, Collapse, Flex } from "antd";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { PageHeader } from "../../components/PageHeader.js";
@@ -261,27 +260,61 @@ export function DashboardPage() {
           onInspect={() => void runInspect()}
         />
 
-        <AdvancedDetails summary="检查明细" extra={`${instances.length} 个实例`}>
-          <InstanceHealthCard
-            instances={instances}
-            inspections={dashboard?.latestInspections ?? []}
-          />
-        </AdvancedDetails>
-
-        <AdvancedDetails summary="检查安排">
-          <InspectCard inspectStatus={inspectStatus} onInspect={() => void runInspect()} />
-        </AdvancedDetails>
-
-        <AdvancedDetails summary="可用的处理方案">
-          <RunbooksPanel runbooks={runbooks} onRepair={setRunbookCandidate} />
-        </AdvancedDetails>
-
-        <AdvancedDetails summary="经常出现的问题">
-          <FingerprintsTable
-            fingerprints={dashboard?.fingerprints ?? []}
-            onOpenLogs={() => { window.location.assign("/logs"); }}
-          />
-        </AdvancedDetails>
+        <Collapse
+          className="advanced-details"
+          size="small"
+          items={[
+            {
+              key: "inspect",
+              label: (
+                <span className="advanced-details-summary">
+                  <span>检查明细</span>
+                  <span className="advanced-details-extra">{instances.length} 个实例</span>
+                </span>
+              ),
+              children: (
+                <InstanceHealthCard
+                  instances={instances}
+                  inspections={dashboard?.latestInspections ?? []}
+                />
+              ),
+            },
+            {
+              key: "schedule",
+              label: (
+                <span className="advanced-details-summary">
+                  <span>检查安排</span>
+                </span>
+              ),
+              children: (
+                <InspectCard inspectStatus={inspectStatus} onInspect={() => void runInspect()} />
+              ),
+            },
+            {
+              key: "runbooks",
+              label: (
+                <span className="advanced-details-summary">
+                  <span>可用的处理方案</span>
+                </span>
+              ),
+              children: <RunbooksPanel runbooks={runbooks} onRepair={setRunbookCandidate} />,
+            },
+            {
+              key: "fingerprints",
+              label: (
+                <span className="advanced-details-summary">
+                  <span>经常出现的问题</span>
+                </span>
+              ),
+              children: (
+                <FingerprintsTable
+                  fingerprints={dashboard?.fingerprints ?? []}
+                  onOpenLogs={() => { window.location.assign("/logs"); }}
+                />
+              ),
+            },
+          ]}
+        />
 
         {(inspectionRequested || inspectStatus?.inFlight === true) && (
           <PageProgress

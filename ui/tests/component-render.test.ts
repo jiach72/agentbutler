@@ -21,28 +21,26 @@ describe("关键页面组件渲染", () => {
         null,
         React.createElement(
           MemoryRouter,
-          { initialEntries: ["/versions"] },
+          { initialEntries: ["/evolution"] },
           React.createElement(Layout),
         ),
       ),
     );
 
-    expect(html).toContain('href="/versions"');
     expect(html).toContain('href="/evolution"');
-    expect(html).toContain('href="/versions"');
     expect(html).toContain('href="/assets"');
+    expect(html).not.toContain('href="/versions"');
     expect(html).not.toContain("nav-advanced");
     expect(html).not.toContain("<details");
-    expect(html).toContain('href="/assets"');
-    expect(html).toContain("版本升级");
     expect(html).toContain("自进化");
     expect(html).toContain("GitHub 技能管理");
     expect(html).not.toContain("高级工具");
-    expect(html).toContain("智能体与知识");
+    expect(html).toContain("智能体与记忆");
     expect(html).toContain("核心文件");
     expect(html).not.toContain('href="/troubleshoot"');
     expect(html).not.toContain("排查问题");
-    expect(html).toContain('class="topbar-title">版本升级</strong>');
+    expect(html).toContain('class="topbar-title">自进化</strong>');
+    expect(html).toContain('href="/settings"');
   });
 
   it("首页实例详情能输出状态、版本和检查结果", () => {

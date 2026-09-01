@@ -76,6 +76,10 @@
 
 .advanced-details .ant-collapse-header {
   align-items: center !important;
+  padding-block: 7px !important;
+}
+.advanced-details .ant-collapse-content-box {
+  padding: 10px 12px !important;
 }
 .advanced-details-summary {
   display: flex;
@@ -89,6 +93,51 @@
 .advanced-details-extra {
   color: var(--butler-muted);
   font-size: var(--butler-text-xs);
+}
+
+/* ---- 紧凑描述列表（连接卡片 / 检查明细头部） ---- */
+
+.dense-descriptions .ant-descriptions-item-label,
+.dense-descriptions .ant-descriptions-item-content {
+  padding-block: 3px !important;
+}
+
+/* ---- 检查明细行：标签定宽 + 状态徽标 + 说明省略 + 耗时右对齐 ---- */
+
+.check-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  line-height: 22px;
+}
+.check-row-label {
+  flex: 0 0 auto;
+  width: 10.5em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.check-row-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.check-row-duration {
+  flex: 0 0 auto;
+  min-width: 3.5em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---- 通知中心 ---- */

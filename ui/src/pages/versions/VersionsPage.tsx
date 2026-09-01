@@ -1,13 +1,12 @@
 /**
- * 版本页编排层：三组数据拉取、事件流/轮询驱动刷新、升级与回滚动作分发。
+ * 设置页 · 关于面板：三组数据拉取、事件流/轮询驱动刷新、升级与回滚动作分发。
+ * 嵌入设置页后不再展示页面标题与升级检查进度条，数据到位前各卡片自行显示占位。
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { App, Card, Flex } from "antd";
 import { PageProgress, type PageProgressStep } from "../../components/PageProgress.js";
-import { ConnectionChip } from "../../components/ConnectionChip.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
-import { PageHeader } from "../../components/PageHeader.js";
 import { useTheme } from "../../theme/ThemeProvider.js";
 import { useEventStream } from "../../hooks/useEventStream.js";
 import { usePolling } from "../../hooks/usePolling.js";
@@ -53,7 +52,7 @@ const SELF_REFRESH_TIMEOUT_MS = 30_000;
 /** 受管实例升级提交/运行期间的轮询间隔。 */
 const UPGRADE_POLL_MS = 2000;
 
-export function VersionsPage() {
+export function VersionsPanel() {
   const { message } = App.useApp();
   const { mode } = useTheme();
   const [data, setData] = useState<VersionsPayload | null>(null);
@@ -66,36 +65,23 @@ export function VersionsPage() {
   const [selectedInstance, setSelectedInstance] = useState("");
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
-  const [initialLoad, setInitialLoad] = useState({
-    managed: false,
-    butler: false,
-    self: false,
-    finished: false,
-  });
 
-  const refresh = useCallback(async (trackInitial = false) => {
-    const mark = (key: "managed" | "butler" | "self") => {
-      if (trackInitial) setInitialLoad((current) => ({ ...current, [key]: true }));
-    };
+  const refresh = useCallback(async () => {
     await Promise.all([
       fetchJson<VersionsPayload>("/api/versions").then((payload) => {
         if (payload !== null) setData(payload);
-        mark("managed");
       }),
       fetchJson<ButlerVersionView>("/api/butler/version").then((payload) => {
         if (payload !== null) setButler(payload);
-        mark("butler");
       }),
       fetchJson<ButlerSelfView>("/api/butler/self", SELF_REFRESH_TIMEOUT_MS).then((payload) => {
         if (payload !== null) setButlerSelf(payload);
-        mark("self");
       }),
     ]);
-    if (trackInitial) setInitialLoad((current) => ({ ...current, finished: true }));
   }, []);
 
   useEffect(() => {
-    void refresh(true);
+    void refresh();
   }, [refresh]);
 
   useEventStream({
@@ -364,51 +350,9 @@ export function VersionsPage() {
     }
   };
 
-  if (!initialLoad.finished) {
-    return (
-      <section className="versions-page">
-        <Flex vertical gap={24}>
-          <PageHeader
-            eyebrow="版本管理"
-            title="正在确认可用版本"
-            description="正在读取当前版本、最新更新和上一版本恢复点。"
-          />
-          <PageProgress
-            title="正在加载版本信息"
-            detail="三组真实数据会分别完成；全部读取后自动进入版本管理。"
-            steps={[
-              { label: "受管 AI 版本", state: initialLoad.managed ? "done" : "active" },
-              {
-                label: "管家当前版本",
-                state: initialLoad.butler ? "done" : initialLoad.managed ? "active" : "pending",
-              },
-              {
-                label: "更新与恢复点",
-                state: initialLoad.self ? "done" : initialLoad.butler ? "active" : "pending",
-              },
-            ]}
-          />
-        </Flex>
-      </section>
-    );
-  }
-
   return (
-    <section className="versions-page">
-      <Flex vertical gap={24}>
-        <PageHeader
-          eyebrow="更新与恢复"
-          title="版本管理"
-          description="这里只显示当前版本、最新更新和退回上一版本，不展示冗长历史。"
-          extra={
-            <ConnectionChip
-              reachable={data?.watchReachable ?? false}
-              onlineText="管家服务已连接"
-              offlineText="管家服务暂时连不上"
-            />
-          }
-        />
-        {butlerSelf?.lastJob?.status === "running" && (
+    <Flex vertical gap={16}>
+      {butlerSelf?.lastJob?.status === "running" && (
           <PageProgress
             compact
             title={butlerSelf.lastJob.kind === "upgrade" ? "正在更新管家自身" : "正在退回上一版本"}
@@ -528,7 +472,6 @@ export function VersionsPage() {
             )}
           </DangerConfirmModal>
         )}
-      </Flex>
-    </section>
+    </Flex>
   );
 }

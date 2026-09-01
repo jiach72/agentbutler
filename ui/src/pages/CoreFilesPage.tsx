@@ -144,7 +144,7 @@ export function CoreFilesPage() {
     <section className="core-files-page">
       <Flex vertical gap={16}>
         <PageHeader
-          eyebrow="智能体与知识"
+          eyebrow="智能体与记忆"
           title="核心文件"
           description="管理实例声明的 USER、AGENT、SOUL 与 MEMORY Markdown 文件。"
           extra={
