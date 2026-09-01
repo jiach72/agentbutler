@@ -1,3 +1,4 @@
+import type { ChannelRuntimeStatus } from "./channels.js";
 import type { ChannelId, InstanceId, InstanceRef, Result } from "./common.js";
 
 export const BRIDGE_PROTOCOL_VERSION = 1 as const;
@@ -101,6 +102,8 @@ export interface BridgeHealth {
   /** Runtime-observed path coverage. Optional for backward-compatible Bridge v1 peers. */
   coverage?: Record<string, "ok" | "degraded" | "unavailable" | "pending">;
   startedAt?: string | null;
+  /** 每通道运行态（可选，向后兼容旧 Bridge）。 */
+  channelStatus?: Record<ChannelId, ChannelRuntimeStatus>;
 }
 
 export interface PolicySnapshot {

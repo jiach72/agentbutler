@@ -5,6 +5,7 @@ export * from "./discipline.js";
 export * from "./discovery.js";
 export * from "./control.js";
 export * from "./messaging.js";
+export * from "./channels.js";
 export * from "./drivers.js";
 export * from "./operations.js";
 
