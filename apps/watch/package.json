@@ -18,6 +18,7 @@
     "@butler/adapter-hermes": "workspace:*",
     "@butler/adapter-openclaw": "workspace:*",
     "@butler/contract": "workspace:*",
-    "@butler/core": "workspace:*"
+    "@butler/core": "workspace:*",
+    "yaml": "^2.9.0"
   }
 }

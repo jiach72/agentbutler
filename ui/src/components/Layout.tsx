@@ -5,7 +5,6 @@
  */
 import {
   DashboardOutlined,
-  CloudUploadOutlined,
   DatabaseOutlined,
   MenuOutlined,
   MoonOutlined,
@@ -30,15 +29,14 @@ import type { SecurityBaselinePayload } from "../pages/settings/helpers.js";
 
 const NAV_ITEMS = [
   { to: "/dashboard", icon: <DashboardOutlined />, label: "首页", note: "运行总览与一键检查" },
-  { to: "/skills", icon: <ApiOutlined />, label: "智能体与知识", note: "技能、插件与记忆" },
+  { to: "/skills", icon: <ApiOutlined />, label: "智能体与记忆", note: "技能、插件与记忆" },
   { to: "/core-files", icon: <FileMarkdownOutlined />, label: "核心文件", note: "查看、编辑与回滚 Markdown" },
   { to: "/gateway", icon: <NotificationOutlined />, label: "消息通知", note: "频率控制与送达记录" },
 ];
 
 const MANAGEMENT_ITEMS = [
-  { to: "/versions", icon: <CloudUploadOutlined />, label: "版本升级", note: "更新、备份与回滚" },
   { to: "/evolution", icon: <ThunderboltOutlined />, label: "自进化", note: "分析日志与优化方案" },
-  { to: "/assets", icon: <DatabaseOutlined />, label: "GitHub 技能管理", note: "发现、安装与使用统计" },
+  { to: "/assets", icon: <DatabaseOutlined />, label: "GitHub 技能管理", note: "发现与安装公开技能" },
 ];
 
 const ALL_NAV_ITEMS = [...NAV_ITEMS, ...MANAGEMENT_ITEMS];

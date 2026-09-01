@@ -37,6 +37,7 @@ function activityAlertType(status: string): "success" | "warning" | "info" {
 const ACTIVITY_LABEL: Record<string, string> = {
   active: "写入活跃",
   stalled: "可能停写",
+  external: "记忆由外部服务接管",
   empty: "尚无记忆",
 };
 

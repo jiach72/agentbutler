@@ -120,7 +120,7 @@ export interface SkillsPayload {
     health: MemoryHealthView | null;
     preview: MemoryEntry[];
     previewLimit: number;
-    writeActivity: { status: "active" | "stalled" | "empty" | "unknown"; detail: string };
+    writeActivity: { status: "active" | "stalled" | "external" | "empty" | "unknown"; detail: string };
     directory: DirectoryInventory;
     notice: string;
   };

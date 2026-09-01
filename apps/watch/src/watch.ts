@@ -81,6 +81,7 @@ import { buildDiagnosticSummary, renderDiagnosticReport } from "./diagnostics.js
 import type { LogMtimeSampler } from "./probes/stall-write.js";
 import type { MemoryProbeProvider, SqliteOpener } from "./probes/memory-probe.js";
 import { createSkillsMemoryService, type SkillsMemoryService } from "./skills.js";
+import { discoverHermesLlm } from "./llm-discovery.js";
 import { createExternalEvolutionService, type ExternalEvolutionService } from "./external-evolution.js";
 import { createSkillAssetService, type SkillAssetService } from "./skill-assets.js";
 import { createLogAnalyzer } from "./log-analyzer.js";
@@ -457,80 +458,8 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     openclawRoot: config.openclawRoot,
   });
   const commandExec = options.exec ?? createRuntimeCommandExecutor(runtime);
-  llm.setDiscoveryReader(async () => {
-    const script = [
-      "import json, os, re, sys",
-      "from pathlib import Path",
-      "root = Path(sys.argv[1])",
-      "env = {}",
-      "try:",
-      "  for raw in (root / '.env').read_text(errors='ignore').splitlines():",
-      "    line = raw.strip()",
-      "    if line and not line.startswith('#') and '=' in line:",
-      "      k, v = line.split('=', 1); env[k.strip().upper()] = v.strip().strip(\"'\\\"\")",
-      "except OSError: pass",
-      "cfg = {}",
-      "try:",
-      "  import yaml",
-      "  value = yaml.safe_load((root / 'config.yaml').read_text(errors='ignore')) or {}",
-      "  cfg = value if isinstance(value, dict) else {}",
-      "except Exception: pass",
-      "model_cfg = cfg.get('model') if isinstance(cfg.get('model'), dict) else {}",
-      "provider = str(model_cfg.get('provider') or '').strip()",
-      "model = str(model_cfg.get('default') or model_cfg.get('model') or '').strip()",
-      "endpoint = str(model_cfg.get('base_url') or model_cfg.get('baseUrl') or '').strip()",
-      "custom = cfg.get('custom_providers') if isinstance(cfg.get('custom_providers'), list) else []",
-      "for item in custom:",
-      "  if not isinstance(item, dict): continue",
-      "  item_provider = str(item.get('provider') or item.get('name') or item.get('id') or '').strip()",
-      "  item_model = str(item.get('model') or item.get('default') or '').strip()",
-      "  if (provider and item_provider.lower() == provider.lower()) or (model and item_model == model):",
-      "    endpoint = endpoint or str(item.get('base_url') or item.get('baseUrl') or '').strip()",
-      "    model = model or item_model",
-      "    break",
-      "prefix = re.sub(r'[^A-Za-z0-9]+', '_', provider).strip('_').upper()",
-      "merged = {**env, **os.environ}",
-      "key = str(model_cfg.get('api_key') or (merged.get(prefix + '_API_KEY') if prefix else '') or merged.get('OPENAI_API_KEY') or merged.get('DEEPSEEK_API_KEY') or merged.get('OPENROUTER_API_KEY') or merged.get('LLM_API_KEY') or '').strip()",
-      "endpoint = endpoint or str(env.get(prefix + '_BASE_URL') or env.get('OPENAI_BASE_URL') or env.get('LLM_BASE_URL') or '').strip()",
-      "model = model or next((str(merged.get(k)).strip() for k in ('HERMES_BUTLER_LLM_MODEL', 'BUTLER_LLM_MODEL', 'LLM_MODEL', 'OPENAI_MODEL') if merged.get(k)), '')",
-      "if provider or endpoint or model or key:",
-      "  print(json.dumps([{'id':'hermes-default','source':str(root),'provider':provider or 'OpenAI-compatible','protocol':'openai-compatible','endpoint':endpoint,'model':model,'apiKey':key,'importable':bool(endpoint and model and key),'runtimeObserved':False}], ensure_ascii=False))",
-      "else:",
-      "  observed = ''",
-      "  try:",
-      "    lines = (root / 'logs' / 'agent.log').read_text(errors='ignore').splitlines()[-2000:]",
-      "    for line in reversed(lines):",
-      "      match = re.search(r'\\bmodel=([A-Za-z0-9][A-Za-z0-9._:/-]{1,159})', line)",
-      "      if match: observed = match.group(1); break",
-      "  except OSError: pass",
-      "  print(json.dumps([{'id':'hermes-runtime-log','source':str(root / 'logs' / 'agent.log'),'provider':'Hermes runtime','protocol':'openai-compatible','endpoint':'','model':observed,'apiKey':'','importable':False,'runtimeObserved':True}], ensure_ascii=False) if observed else '[]')",
-    ].join("\n");
-    const result = await commandExec.exec("python3", ["-c", script, runtime.hermesRoot], { timeoutMs: 8_000 });
-    if (result.code !== 0) return [];
-    try {
-      const parsed = JSON.parse(result.stdout.trim()) as unknown;
-      return Array.isArray(parsed)
-        ? parsed
-            .filter((item): item is Record<string, unknown> =>
-              typeof item === "object" &&
-              item !== null &&
-              typeof (item as Record<string, unknown>)["id"] === "string" &&
-              typeof (item as Record<string, unknown>)["apiKey"] === "string",
-            )
-            .map((item) => ({
-              id: String(item["id"]),
-              source: typeof item["source"] === "string" ? item["source"] : runtime.hermesRoot,
-              provider: typeof item["provider"] === "string" ? item["provider"] : "OpenAI-compatible",
-              protocol: "openai-compatible" as const,
-              endpoint: typeof item["endpoint"] === "string" ? item["endpoint"] : "",
-              model: typeof item["model"] === "string" ? item["model"] : "",
-              apiKey: String(item["apiKey"]),
-              importable: item["importable"] !== false,
-              runtimeObserved: item["runtimeObserved"] === true,
-            }))
-        : [];
-    } catch { return []; }
-  });
+  // 模型发现优先 Node 直读（Docker 挂载/宿主直跑均可用），目录不可达时退回 python3 通道。
+  llm.setDiscoveryReader(async () => discoverHermesLlm(runtime.hermesRoot, { exec: commandExec }));
 
   // 控制面复用 core 的 store/snapshotsDir，避免适配器自建第二连接。
   const adapter =

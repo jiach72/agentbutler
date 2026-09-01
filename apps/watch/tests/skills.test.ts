@@ -36,7 +36,7 @@ function registerServingInstance(): void {
   });
 }
 
-function createMemoryDb(valid = true): void {
+function createMemoryDb(valid = true, createdAt = "2026-08-21 06:00:00"): void {
   const db = new DatabaseSync(join(root, "memory_store.db"));
   if (valid) {
     db.exec(`
@@ -51,7 +51,7 @@ function createMemoryDb(valid = true): void {
       );
       CREATE VIRTUAL TABLE facts_fts USING fts5(content, tags, tokenize='trigram');
       INSERT INTO facts (content, tags, retrieval_count, created_at, updated_at)
-      VALUES ('agent butler memory', 'channel:web', 1, '2026-08-21 06:00:00', '2026-08-21 06:00:00');
+      VALUES ('agent butler memory', 'channel:web', 1, '${createdAt}', '${createdAt}');
       INSERT INTO facts_fts(rowid, content, tags) VALUES (1, 'agent butler memory', 'channel:web');
     `);
   } else {
@@ -108,6 +108,29 @@ describe("技能与记忆只读聚合服务", () => {
       riskStatus: "unscanned",
       riskDetail: "尚未执行风险扫描",
     });
+  });
+
+  it("本地记忆库停写时按阈值告警；hindsight 接管后同场景不再误报停写", async () => {
+    createMemoryDb(true, "2026-08-01 00:00:00");
+    const makeService = () =>
+      createSkillsMemoryService({
+        core,
+        memoryDriver: createHermesMemoryDriver({ now: () => Date.parse("2026-08-21T06:10:00Z") }),
+        now: () => Date.parse("2026-08-21T06:10:00Z"),
+        stallThresholdMin: 30,
+      });
+
+    const withoutHindsight = await makeService().status({});
+    expect(withoutHindsight.memory.writeActivity.status).toBe("stalled");
+    expect(withoutHindsight.memory.writeActivity.detail).toContain("阈值");
+
+    // Hermes 记忆已迁移到 hindsight（远程服务）：本地只留下 config.json，旧库停写属预期。
+    mkdirSync(join(root, "hindsight"), { recursive: true });
+    writeFileSync(join(root, "hindsight", "config.json"), "{}", "utf8");
+
+    const withHindsight = await makeService().status({});
+    expect(withHindsight.memory.writeActivity.status).toBe("external");
+    expect(withHindsight.memory.writeActivity.detail).toContain("hindsight");
   });
 
   it("风险状态显式区分未扫描与解析失败资产", async () => {

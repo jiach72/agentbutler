@@ -19,6 +19,11 @@ describe("技能资产 GitHub 阶段化下载", () => {
   };
 
   it("将 GitHub API 限流 403 转成可执行提示，并携带客户端标识", async () => {
+    // 密封环境：宿主机 gh CLI 注入的 GH_TOKEN/GITHUB_TOKEN 不应影响「未配置 token」用例。
+    const savedGithubToken = process.env["GITHUB_TOKEN"];
+    const savedGhToken = process.env["GH_TOKEN"];
+    delete process.env["GITHUB_TOKEN"];
+    delete process.env["GH_TOKEN"];
     let requestHeaders: HeadersInit | undefined;
     const { core, service } = makeService(async (_input, init) => {
       requestHeaders = init?.headers;
@@ -38,6 +43,8 @@ describe("技能资产 GitHub 阶段化下载", () => {
       expect(new Headers(requestHeaders).get("Authorization")).toBeNull();
     } finally {
       core.close();
+      if (savedGithubToken !== undefined) process.env["GITHUB_TOKEN"] = savedGithubToken;
+      if (savedGhToken !== undefined) process.env["GH_TOKEN"] = savedGhToken;
     }
   });
 

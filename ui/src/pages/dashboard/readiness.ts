@@ -109,7 +109,7 @@ function nativeModelReadiness(models: DiscoveredLlmConfigView[] | null): Readine
   };
 }
 
-function managedModelReadiness(status: LlmStatusView | null): ReadinessItem {
+function managedModelReadiness(status: LlmStatusView | null, nativeConfigured: boolean): ReadinessItem {
   if (status === null) {
     return {
       id: "managed-model",
@@ -138,6 +138,17 @@ function managedModelReadiness(status: LlmStatusView | null): ReadinessItem {
       detail: `已有 ${status.activeBindings} 个有效绑定，可用于受管的诊断和进化任务。`,
     };
   }
+  if (nativeConfigured) {
+    // Hermes 原生模型已可用：受管任务模型是可选能力，未绑定不应阻塞就绪判断。
+    return {
+      id: "managed-model",
+      title: "管家受管任务模型",
+      tone: "idle",
+      status: "未启用（可选）",
+      detail: "Hermes 原生模型已可用，日常对话不受影响；绑定受管模型后管家才能执行受管的诊断和进化任务。",
+      action: { label: "完成绑定", to: "/setup" },
+    };
+  }
   if (status.activeProfiles === 0) {
     return {
       id: "managed-model",
@@ -163,13 +174,16 @@ export function buildLocalReadiness(
   llmStatus: LlmStatusView | null,
   discoveredModels: DiscoveredLlmConfigView[] | null,
 ): LocalReadiness {
+  const nativeConfigured =
+    discoveredModels !== null && discoveredModels.some((model) => !model.runtimeObserved);
   const items = [
     connectionReadiness(connections),
     nativeModelReadiness(discoveredModels),
-    managedModelReadiness(llmStatus),
+    managedModelReadiness(llmStatus, nativeConfigured),
   ];
   const blockingItem = items.find((item) => item.tone === "error") ?? items.find((item) => item.tone === "warn");
-  const pending = items.some((item) => item.tone === "idle");
+  // idle 只代表信息级说明；真正在加载中的项以“正在确认”状态标识。
+  const pending = items.some((item) => item.status === "正在确认");
 
   if (blockingItem !== undefined) {
     return {
@@ -191,7 +205,9 @@ export function buildLocalReadiness(
   return {
     ready: true,
     summary: "本机已具备运行条件",
-    detail: "智能体已连接；Hermes 原生模型与管家受管任务模型均已确认。",
+    detail: items.some((item) => item.id === "managed-model" && item.status === "未启用（可选）")
+      ? "智能体已连接，Hermes 原生模型已确认；受管任务模型未绑定（可选，不影响 Hermes 自身对话）。"
+      : "智能体已连接；Hermes 原生模型与管家受管任务模型均已确认。",
     items,
   };
 }

@@ -70,7 +70,7 @@ export interface DirectoryInventory {
 }
 
 export interface WriteActivityView {
-  status: "active" | "stalled" | "empty" | "unknown";
+  status: "active" | "stalled" | "external" | "empty" | "unknown";
   detail: string;
 }
 
@@ -238,15 +238,26 @@ function writeActivity(
   stats: MemoryStats | null,
   now: () => number,
   thresholdMin: number,
+  hindsightActive = false,
 ): WriteActivityView {
   if (stats === null) return { status: "unknown", detail: "驱动未能解析最近写入时间" };
-  if (stats.lastWriteAt === null) return { status: "empty", detail: "记忆库尚无用户记忆写入" };
+  if (stats.lastWriteAt === null) {
+    return hindsightActive
+      ? { status: "external", detail: "记忆由 hindsight 服务接管；本地旧记忆库无写入记录，不作为停写依据" }
+      : { status: "empty", detail: "记忆库尚无用户记忆写入" };
+  }
   const last = Date.parse(stats.lastWriteAt);
   if (!Number.isFinite(last)) return { status: "unknown", detail: "最近写入时间格式无法识别" };
   const ageMin = Math.max(0, Math.floor((now() - last) / 60_000));
-  return ageMin > thresholdMin
-    ? { status: "stalled", detail: `距上次写入 ${ageMin} 分钟，超过 ${thresholdMin} 分钟阈值` }
-    : { status: "active", detail: `最近 ${ageMin} 分钟内有写入` };
+  if (ageMin > thresholdMin) {
+    return hindsightActive
+      ? {
+          status: "external",
+          detail: `记忆由 hindsight 服务接管；旧本地记忆库 ${ageMin} 分钟未写入属预期，不作为停写告警`,
+        }
+      : { status: "stalled", detail: `距上次写入 ${ageMin} 分钟，超过 ${thresholdMin} 分钟阈值` };
+  }
+  return { status: "active", detail: `最近 ${ageMin} 分钟内有写入` };
 }
 
 function unavailableView(): SkillsMemoryView {
@@ -530,7 +541,12 @@ export function createSkillsMemoryService(deps: SkillsMemoryServiceDeps): Skills
           health: memoryHealth,
           preview: memoryPreview,
           previewLimit: MEMORY_PREVIEW_LIMIT,
-          writeActivity: writeActivity(memoryStats, now, stallThresholdMin),
+          writeActivity: writeActivity(
+            memoryStats,
+            now,
+            stallThresholdMin,
+            existsSync(join(instance.rootPath, "hindsight", "config.json")),
+          ),
           directory: memoryDirectory,
           notice:
             memoryMode === "driver"
