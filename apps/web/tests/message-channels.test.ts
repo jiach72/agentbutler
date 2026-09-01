@@ -225,3 +225,153 @@ describe("butler-web 通道目录代理与登录态透传（Task 12，fastify in
     expect(Object.keys(details.feishu ?? {})).not.toContain("account");
   });
 });
+
+describe("butler-web 微信扫码登录代理（Task 15，fastify inject）", () => {
+  let tmp: string;
+  let uiDist: string;
+  const apps: FastifyInstance[] = [];
+
+  const LOGIN_ACK = {
+    sessionId: "s1",
+    qrValue: "tok",
+    qrUrl: "https://qr/1",
+    expiresAt: "2026-09-01T00:05:00.000Z",
+  };
+
+  beforeEach(() => {
+    tmp = makeTempDir();
+    uiDist = makeUiDist(tmp);
+  });
+
+  afterEach(async () => {
+    for (const app of apps) await app.close();
+    apps.length = 0;
+    rmTempDir(tmp);
+  });
+
+  function build(fetchImpl: typeof fetch): FastifyInstance {
+    const app = createWebServer({
+      home: tmp,
+      uiDist,
+      watchUrl: WATCH_URL,
+      gatewayUrl: GATEWAY_URL,
+      fetchImpl,
+    });
+    apps.push(app);
+    return app;
+  }
+
+  it("start 透传 gateway 扫码会话 ack", async () => {
+    const transport = makeFetch({
+      [`POST ${GATEWAY_URL}/api/messages/channels/weixin/login/start`]: { status: 200, body: LOGIN_ACK },
+    });
+    const app = build(transport.fetch);
+
+    const res = await app.inject({ method: "POST", url: "/api/messages/channels/weixin/login/start", payload: {} });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual(LOGIN_ACK);
+    expect(transport.calls).toEqual([
+      { url: `${GATEWAY_URL}/api/messages/channels/weixin/login/start`, method: "POST", body: "{}" },
+    ]);
+  });
+
+  it("status 携带 sessionId 查询参数并透传状态", async () => {
+    const transport = makeFetch({
+      [`GET ${GATEWAY_URL}/api/messages/channels/weixin/login/status?sessionId=s1`]: {
+        status: 200,
+        body: { state: "scanned" },
+      },
+    });
+    const app = build(transport.fetch);
+
+    const res = await app.inject({ method: "GET", url: "/api/messages/channels/weixin/login/status?sessionId=s1" });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ state: "scanned" });
+    expect(transport.calls).toEqual([
+      {
+        url: `${GATEWAY_URL}/api/messages/channels/weixin/login/status?sessionId=s1`,
+        method: "GET",
+        body: "",
+      },
+    ]);
+
+    // sessionId 特殊字符需原样转发（gateway 侧自行解码）。
+    const encodedTransport = makeFetch({
+      [`GET ${GATEWAY_URL}/api/messages/channels/weixin/login/status?sessionId=a%2Bb%3Dc`]: {
+        status: 200,
+        body: { state: "wait" },
+      },
+    });
+    const encodedApp = build(encodedTransport.fetch);
+    const encoded = await encodedApp.inject({
+      method: "GET",
+      url: "/api/messages/channels/weixin/login/status?sessionId=a%2Bb%3Dc",
+    });
+    expect(encoded.statusCode).toBe(200);
+    expect(encoded.json()).toEqual({ state: "wait" });
+    expect(encodedTransport.calls).toHaveLength(1);
+    expect(encodedTransport.calls[0]?.url).toBe(
+      `${GATEWAY_URL}/api/messages/channels/weixin/login/status?sessionId=a%2Bb%3Dc`,
+    );
+  });
+
+  it("status 缺 sessionId 返回 400", async () => {
+    const transport = makeFetch({});
+    const app = build(transport.fetch);
+
+    const res = await app.inject({ method: "GET", url: "/api/messages/channels/weixin/login/status" });
+    const blank = await app.inject({ method: "GET", url: "/api/messages/channels/weixin/login/status?sessionId=%20" });
+
+    expect(res.statusCode).toBe(400);
+    expect(blank.statusCode).toBe(400);
+    expect(transport.calls).toEqual([]);
+  });
+
+  it("cancel 透传取消结果", async () => {
+    const transport = makeFetch({
+      [`POST ${GATEWAY_URL}/api/messages/channels/weixin/login/cancel`]: { status: 200, body: { cancelled: true } },
+    });
+    const app = build(transport.fetch);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/messages/channels/weixin/login/cancel",
+      payload: { sessionId: "s1" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ cancelled: true });
+    expect(transport.calls).toEqual([
+      { url: `${GATEWAY_URL}/api/messages/channels/weixin/login/cancel`, method: "POST", body: JSON.stringify({ sessionId: "s1" }) },
+    ]);
+  });
+
+  it("gateway 不可达或非 2xx 时 status 返回 502", async () => {
+    const unreachable = makeFetch({
+      [`GET ${GATEWAY_URL}/api/messages/channels/weixin/login/status?sessionId=s1`]: "throw",
+    });
+    const unreachableApp = build(unreachable.fetch);
+    const unreachableRes = await unreachableApp.inject({
+      method: "GET",
+      url: "/api/messages/channels/weixin/login/status?sessionId=s1",
+    });
+    expect(unreachableRes.statusCode).toBe(502);
+    expect(unreachableRes.json()).toEqual({ error: "gateway-unreachable" });
+
+    const notOk = makeFetch({
+      [`GET ${GATEWAY_URL}/api/messages/channels/weixin/login/status?sessionId=s1`]: {
+        status: 503,
+        body: { error: "channel-control-unavailable" },
+      },
+    });
+    const notOkApp = build(notOk.fetch);
+    const notOkRes = await notOkApp.inject({
+      method: "GET",
+      url: "/api/messages/channels/weixin/login/status?sessionId=s1",
+    });
+    expect(notOkRes.statusCode).toBe(502);
+    expect(notOkRes.json()).toEqual({ error: "gateway-unreachable" });
+  });
+});

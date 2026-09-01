@@ -19,9 +19,20 @@ class FakeChannelControl implements ChannelControlPort {
   async updateChannelConfig() { return { saved: true as const }; }
   async enableChannel() { return { restarting: true }; }
   async disableChannel() { return { restarting: true }; }
-  async weixinLoginStart() { throw new Error("unused"); }
-  async weixinLoginStatus() { throw new Error("unused"); }
-  async weixinLoginCancel() { throw new Error("unused"); }
+  loginSessions = new Set<string>();
+  async weixinLoginStart() {
+    const sessionId = "s1";
+    this.loginSessions.add(sessionId);
+    return { sessionId, qrValue: "tok", qrUrl: "https://qr/1", expiresAt: "2026-09-01T00:05:00.000Z" };
+  }
+  async weixinLoginStatus(sessionId: string) {
+    return this.loginSessions.has(sessionId)
+      ? { state: "scanned" as const }
+      : { state: "failed" as const, reason: "session expired" };
+  }
+  async weixinLoginCancel(sessionId: string) {
+    return { cancelled: this.loginSessions.delete(sessionId) };
+  }
 }
 
 function buildApp() {
@@ -46,6 +57,44 @@ describe("gateway channel routes", () => {
     try {
       const res = await app.inject({ method: "GET", url: "/api/messages/channels" });
       expect(res.statusCode).toBe(503);
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+describe("gateway weixin login routes", () => {
+  it("start/status/cancel 链路", async () => {
+    const app = buildApp();
+    try {
+      const start = await app.inject({ method: "POST", url: "/api/messages/channels/weixin/login/start" });
+      expect(start.statusCode).toBe(200);
+      const sessionId = start.json().sessionId as string;
+      const status = await app.inject({ method: "GET", url: `/api/messages/channels/weixin/login/status?sessionId=${sessionId}` });
+      expect(status.json().state).toBe("scanned");
+      await app.inject({ method: "POST", url: "/api/messages/channels/weixin/login/cancel", payload: { sessionId } });
+      const after = await app.inject({ method: "GET", url: `/api/messages/channels/weixin/login/status?sessionId=${sessionId}` });
+      expect(after.json().state).toBe("failed");
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("status 缺 sessionId 返回 400", async () => {
+    const app = buildApp();
+    try {
+      const res = await app.inject({ method: "GET", url: "/api/messages/channels/weixin/login/status" });
+      expect(res.statusCode).toBe(400);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("cancel 缺 sessionId 返回 400", async () => {
+    const app = buildApp();
+    try {
+      const res = await app.inject({ method: "POST", url: "/api/messages/channels/weixin/login/cancel", payload: {} });
+      expect(res.statusCode).toBe(400);
     } finally {
       await app.close();
     }

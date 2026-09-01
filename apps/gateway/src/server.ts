@@ -408,6 +408,42 @@ function registerMessageRoutes(
     }
   });
 
+  /** 微信扫码登录：start 建会话，status 轮询（sessionId 必填），cancel 主动取消。 */
+  app.post("/api/messages/channels/weixin/login/start", async (_request, reply) => {
+    if (channelControl === undefined) return channelUnavailable(reply);
+    try {
+      return await channelControl.weixinLoginStart();
+    } catch {
+      return channelUnavailable(reply);
+    }
+  });
+
+  app.get("/api/messages/channels/weixin/login/status", async (request, reply) => {
+    if (channelControl === undefined) return channelUnavailable(reply);
+    const query = (request.query ?? {}) as Record<string, string | undefined>;
+    const sessionId = query["sessionId"];
+    if (sessionId === undefined || sessionId.trim() === "") {
+      return reply.code(400).send({ error: "sessionId is required" });
+    }
+    try {
+      return await channelControl.weixinLoginStatus(sessionId);
+    } catch {
+      return channelUnavailable(reply);
+    }
+  });
+
+  app.post("/api/messages/channels/weixin/login/cancel", async (request, reply) => {
+    if (channelControl === undefined) return channelUnavailable(reply);
+    const body = asRecord(request.body);
+    const sessionId = body === null ? null : readString(body["sessionId"]);
+    if (sessionId === null) return reply.code(400).send({ error: "sessionId is required" });
+    try {
+      return await channelControl.weixinLoginCancel(sessionId);
+    } catch {
+      return channelUnavailable(reply);
+    }
+  });
+
   app.get("/api/messages/tasks/:runId", async (request, reply) => {
     if (messageStore === undefined) return bridgeUnavailable(reply, "E302");
     const runId = readString((request.params as Record<string, unknown>)["runId"]);

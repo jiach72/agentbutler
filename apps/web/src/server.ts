@@ -1948,6 +1948,26 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   app.post("/api/messages/relay", async (request, reply) =>
     proxyGatewayPost("/api/messages/relay", request.body, reply),
   );
+  // 微信扫码登录代理：POST 动作原样透传 gateway；GET status 携带 sessionId 查询透传
+  // （不可达/非 2xx 一律 502 降级，模式同 GET /api/messages/channels）。
+  app.post("/api/messages/channels/weixin/login/start", async (request, reply) =>
+    proxyGatewayPost("/api/messages/channels/weixin/login/start", request.body, reply),
+  );
+  app.get("/api/messages/channels/weixin/login/status", async (request, reply) => {
+    const query = (request.query ?? {}) as Record<string, string | undefined>;
+    const sessionId = query["sessionId"];
+    if (sessionId === undefined || sessionId.trim() === "") {
+      return reply.status(400).send({ error: "sessionId is required" });
+    }
+    const res = await fetchGateway(
+      `/api/messages/channels/weixin/login/status?sessionId=${encodeURIComponent(sessionId)}`,
+    );
+    if (res === null || !res.ok) return reply.status(502).send({ error: "gateway-unreachable" });
+    return reply.status(res.status).send(await res.json().catch(() => ({})));
+  });
+  app.post("/api/messages/channels/weixin/login/cancel", async (request, reply) =>
+    proxyGatewayPost("/api/messages/channels/weixin/login/cancel", request.body, reply),
+  );
 
   /* ---------------------- watch 控制通道代理（Task 10） ---------------------- */
 
