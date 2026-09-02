@@ -282,7 +282,7 @@ def create_app(
         session_id = request.query.get("sessionId", "")
         if not session_id:
             return _error(400, "invalid", "sessionId is required")
-        return web.json_response(await weixin_login.status(session_id))
+        return web.json_response(weixin_login.status(session_id))
 
     async def weixin_login_cancel(request: web.Request) -> web.Response:
         if weixin_login is None:
