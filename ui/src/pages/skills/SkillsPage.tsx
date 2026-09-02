@@ -20,6 +20,7 @@ import {
 import { MemoryPanel } from "./MemoryPanel.js";
 import { PluginLibrary } from "./PluginLibrary.js";
 import { SkillLibrary } from "./SkillLibrary.js";
+import { SkillsManagerPanel } from "./SkillsManagerPanel.js";
 
 const { Text } = Typography;
 
@@ -229,6 +230,15 @@ export function SkillsPage() {
                   </Flex>
                 )}
                 {mainState.status === "ready" && <SkillLibrary skills={mainState.data.skills} />}
+              </div>
+            ),
+          },
+          {
+            key: "manager",
+            label: "技能库",
+            children: (
+              <div id="skills-manager-panel">
+                <SkillsManagerPanel />
               </div>
             ),
           },
