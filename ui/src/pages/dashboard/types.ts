@@ -362,3 +362,49 @@ export interface HeroView {
   title: string;
   copy: string;
 }
+
+/** 单条 GPU 采样（无 GPU / 驱动缺失时整条为 null）。 */
+export interface HostGpuSample {
+  name: string;
+  utilPercent: number | null;
+  memUsedMb: number;
+}
+
+/** watch /api/host/metrics 的机器样本（与 watch src/host-metrics.ts 同构；null 表示该项不可用）。 */
+export interface HostMetricsSample {
+  capturedAt: string;
+  cpuPercent: number | null;
+  memTotalBytes: number | null;
+  memFreeBytes: number | null;
+  load1: number | null;
+  uptimeSeconds: number | null;
+  diskTotalBytes: number | null;
+  diskUsedBytes: number | null;
+  gpu: HostGpuSample | null;
+}
+
+/** 单个 agent 进程资源占用；实例不在或采样失败时字段为 null。 */
+export interface AgentProcessSample {
+  instanceId: string;
+  cpuPercent: number | null;
+  rssBytes: number | null;
+}
+
+export interface HostMetricsPayload {
+  machine: HostMetricsSample;
+  agents: AgentProcessSample[];
+  samples: HostMetricsSample[];
+}
+
+/** /api/health 单服务健康视图（含 /healthz 往返延迟；不可达时 latencyMs 为 null）。 */
+export interface ServiceHealthView {
+  reachable: boolean;
+  serviceVersion: string | null;
+  schemaVersion: string | null;
+  latencyMs: number | null;
+}
+
+export interface HealthPayload {
+  ok: boolean;
+  services: { gateway: ServiceHealthView; watch: ServiceHealthView };
+}

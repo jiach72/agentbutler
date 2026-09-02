@@ -1668,6 +1668,8 @@ interface RemoteServiceHealth {
   reachable: boolean;
   serviceVersion: string | null;
   schemaVersion: string | null;
+  /** /healthz 往返耗时（毫秒）；探测失败（不可达/畸形响应）为 null。 */
+  latencyMs: number | null;
 }
 
 /** 探测本地服务健康与控制面版本。畸形响应也视为不可用，避免伪造同步状态。 */
@@ -1675,20 +1677,22 @@ async function probeServiceHealth(
   doFetch: typeof fetch,
   serviceUrl: string,
 ): Promise<RemoteServiceHealth> {
+  const startedAt = Date.now();
   try {
     const res = await doFetch(`${serviceUrl}/healthz`, { signal: AbortSignal.timeout(2000) });
-    if (!res.ok) return { reachable: false, serviceVersion: null, schemaVersion: null };
+    if (!res.ok) return { reachable: false, serviceVersion: null, schemaVersion: null, latencyMs: null };
     const body = (await res.json()) as unknown;
     if (!isRecord(body) || body["ok"] !== true) {
-      return { reachable: false, serviceVersion: null, schemaVersion: null };
+      return { reachable: false, serviceVersion: null, schemaVersion: null, latencyMs: null };
     }
     return {
       reachable: true,
       serviceVersion: typeof body["serviceVersion"] === "string" ? body["serviceVersion"] : null,
       schemaVersion: typeof body["schemaVersion"] === "string" ? body["schemaVersion"] : null,
+      latencyMs: Date.now() - startedAt,
     };
   } catch {
-    return { reachable: false, serviceVersion: null, schemaVersion: null };
+    return { reachable: false, serviceVersion: null, schemaVersion: null, latencyMs: null };
   }
 }
 
@@ -2083,6 +2087,14 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     const res = await fetchWatch("/api/runtime");
     if (res === null) return reply.status(503).send({ kind: "unknown", detail: "管家控制通道不可达" });
     return reply.status(res.status).send(await res.json().catch(() => ({ kind: "unknown", detail: "运行时响应无效" })));
+  });
+
+  // 主机指标透传（就绪度「Agent 主机状态」卡）：快照含 GPU/nvidia-smi 采样，放宽到 10s；
+  // watch 不可达 / 非 2xx / 畸形响应一律 503 { reachable:false } 降级，不伪造指标。
+  app.get("/api/host/metrics", async (_request, reply) => {
+    const res = await fetchWatch("/api/host/metrics", 10_000);
+    if (res === null || !res.ok) return reply.status(503).send({ reachable: false });
+    return reply.status(200).send(await res.json().catch(() => ({ reachable: false })));
   });
 
   /**

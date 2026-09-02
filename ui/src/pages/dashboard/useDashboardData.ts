@@ -13,6 +13,8 @@ import type {
   DashboardPayload,
   DeliveryHistoryPayload,
   DiscoveredLlmPayload,
+  HealthPayload,
+  HostMetricsPayload,
   InspectionHistoryPayload,
   LlmStatusView,
   MessageStatusPayload,
@@ -30,6 +32,8 @@ export function useDashboardData() {
   const [runbooks, setRunbooks] = useState<RunbooksPayload | null>(null);
   const [llmStatus, setLlmStatus] = useState<LlmStatusView | null>(null);
   const [discoveredModels, setDiscoveredModels] = useState<DiscoveredLlmPayload["configs"] | null>(null);
+  const [hostMetrics, setHostMetrics] = useState<HostMetricsPayload | null>(null);
+  const [serviceHealth, setServiceHealth] = useState<HealthPayload | null>(null);
   const [readinessRefreshing, setReadinessRefreshing] = useState(false);
   const [initialLoad, setInitialLoad] = useState({
     dashboard: false,
@@ -95,12 +99,24 @@ export function useDashboardData() {
     }
   }, []);
 
+  // 主机指标（watch 快照含 CPU 双采样与 GPU 探测）+ 各服务健康检查延迟：
+  // 就绪度信息卡数据，非操作入口，低频 30s 轮询即可。
+  const refreshHostMetrics = useCallback(async () => {
+    const [metrics, health] = await Promise.all([
+      fetchJson<HostMetricsPayload>("/api/host/metrics", 10_000),
+      fetchJson<HealthPayload>("/api/health", 10_000),
+    ]);
+    if (metrics !== null) setHostMetrics(metrics);
+    if (health !== null) setServiceHealth(health);
+  }, []);
+
   // 首屏：聚合端点一次取齐。
   useEffect(() => {
     void refresh(true);
     void refreshConnections();
     void refreshReadiness();
-  }, [refresh, refreshConnections, refreshReadiness]);
+    void refreshHostMetrics();
+  }, [refresh, refreshConnections, refreshReadiness, refreshHostMetrics]);
 
   // 状态条需要跟随告警/通道变化，额外每 10 秒刷新一次。
   usePolling(() => void refresh(), 10_000);
@@ -109,6 +125,8 @@ export function useDashboardData() {
   usePolling(() => void refreshConnections(), 5_000);
 
   usePolling(() => void refreshReadiness(), 30_000);
+
+  usePolling(() => void refreshHostMetrics(), 30_000);
 
   // 实时性：复用共享 /ws 事件流（与通知中心一致），相关事件触发节流 5s 的刷新。
   const handleEventSignal = useCallback(() => {
@@ -146,5 +164,7 @@ export function useDashboardData() {
     discoveredModels,
     readinessRefreshing,
     refreshReadiness,
+    hostMetrics,
+    serviceHealth,
   };
 }

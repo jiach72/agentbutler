@@ -3,7 +3,7 @@
  * 徽标只输出 tone + 文案，渲染统一交给 <StatusBadge>。
  */
 import type { SemanticTone } from "../../components/StatusBadge.js";
-import type { InspectStatusView } from "./types.js";
+import type { InspectionView, InspectStatusView } from "./types.js";
 
 /** 事件流节流刷新间隔（收到相关事件后最多每 5s 拉一次聚合端点）。 */
 export const REFRESH_THROTTLE_MS = 5000;
@@ -118,9 +118,9 @@ export function checkBadge(status: string): ToneBadge {
   }
 }
 
-/** 同类错误状态标签：活跃黄、已知灰、其他灰。 */
+/** 同类错误状态标签：新出现红、已知灰、其他灰（与待办区 fingerprintIssue 口径一致）。 */
 export function fingerprintBadge(status: string): ToneBadge {
-  if (status === "open") return { tone: "warn", label: "待处理" };
+  if (status === "open") return { tone: "error", label: "待处理" };
   if (status === "known") return { tone: "muted", label: "已知问题" };
   return { tone: "muted", label: status };
 }
@@ -147,6 +147,60 @@ export function quickProbeBadge(status: string): ToneBadge {
 
 export function formatDuration(ms: number | null): string {
   return ms === null ? "—" : `${ms}ms`;
+}
+
+/** 秒 → 人性化运行时长："3 天 4 小时" / "5 小时 30 分钟" / "25 分钟"；无效值占位。 */
+export function formatUptime(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined || !Number.isFinite(seconds) || seconds <= 0) {
+    return "—";
+  }
+  const days = Math.floor(seconds / 86_400);
+  const hours = Math.floor((seconds % 86_400) / 3_600);
+  const minutes = Math.floor((seconds % 3_600) / 60);
+  if (days > 0) return hours > 0 ? `${days} 天 ${hours} 小时` : `${days} 天`;
+  if (hours > 0) return minutes > 0 ? `${hours} 小时 ${minutes} 分钟` : `${hours} 小时`;
+  if (minutes > 0) return `${minutes} 分钟`;
+  return `${Math.floor(seconds)} 秒`;
+}
+
+/** used/total 占用百分比（0~100 封顶取整）；任一值无效返回 null。 */
+export function usedPercentOf(used: number | null, total: number | null): number | null {
+  if (
+    used === null ||
+    total === null ||
+    !Number.isFinite(used) ||
+    !Number.isFinite(total) ||
+    total <= 0
+  ) {
+    return null;
+  }
+  return Math.min(100, Math.max(0, Math.round((used / total) * 100)));
+}
+
+/** 实例短名（多实例 Tabs 标签）：取框架前缀（hermes-main → hermes）；空 id 回退「主实例」。 */
+export function instanceShortName(instanceId: string): string {
+  if (instanceId === "") return "主实例";
+  const index = instanceId.indexOf("-");
+  return index > 0 ? instanceId.slice(0, index) : instanceId;
+}
+
+/**
+ * 巡检最近耗时：优先关键记忆探针 lastDurationMs；
+ * 缺省回退最近一次巡检各 check（可计时部分）均值；两者都缺返回 null。
+ */
+export function recentInspectionDurationMs(
+  inspectStatus: InspectStatusView | null,
+  latestInspections: InspectionView[],
+): number | null {
+  const probeMs = inspectStatus?.criticalProbe?.lastDurationMs ?? null;
+  if (probeMs !== null) return probeMs;
+  const latest = latestInspections[0];
+  if (latest === undefined) return null;
+  const durations = latest.checks
+    .map((check) => check.durationMs)
+    .filter((ms): ms is number => typeof ms === "number" && Number.isFinite(ms));
+  if (durations.length === 0) return null;
+  return Math.round(durations.reduce((sum, ms) => sum + ms, 0) / durations.length);
 }
 
 /** detail 摘要：字符串截断，对象 JSON 化后截断。 */

@@ -3,7 +3,14 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { ReadinessSection } from "../src/pages/dashboard/ReadinessSection.js";
 import { buildLocalReadiness } from "../src/pages/dashboard/readiness.js";
-import type { ConnectionsPayload, DiscoveredLlmConfigView, LlmStatusView } from "../src/pages/dashboard/types.js";
+import type {
+  ConnectionsPayload,
+  DiscoveredLlmConfigView,
+  HealthPayload,
+  HostMetricsPayload,
+  InspectionHistoryPayload,
+  LlmStatusView,
+} from "../src/pages/dashboard/types.js";
 
 const connected: ConnectionsPayload = {
   reachable: true,
@@ -131,5 +138,73 @@ describe("首页本机运行就绪度", () => {
     expect(html).toContain("Hermes 原生模型");
     expect(html).toContain("管家受管任务模型");
     expect(html).toContain('href="/setup"');
+  });
+
+  it("新增两张信息卡：主机指标渲染机器与 agent 占用，指标不可达时给次要提示", () => {
+    const hostMetrics: HostMetricsPayload = {
+      machine: {
+        capturedAt: "2026-09-01T08:00:00.000Z",
+        cpuPercent: 12.5,
+        memTotalBytes: 16_000_000_000,
+        memFreeBytes: 8_000_000_000,
+        load1: 0.4,
+        uptimeSeconds: 3 * 86_400 + 4 * 3_600,
+        diskTotalBytes: 1_000_000_000_000,
+        diskUsedBytes: 250_000_000_000,
+        gpu: { name: "Test GPU", utilPercent: 35, memUsedMb: 1234 },
+      },
+      agents: [
+        { instanceId: "hermes-main", cpuPercent: 3.2, rssBytes: 4096 },
+        { instanceId: "openclaw-a", cpuPercent: 1.1, rssBytes: 2048 },
+      ],
+      samples: [],
+    };
+    const html = renderToStaticMarkup(
+      React.createElement(ReadinessSection, {
+        connections: connected,
+        llmStatus: readyManaged,
+        discoveredModels: [],
+        refreshing: false,
+        onRefresh: () => undefined,
+        hostMetrics,
+        inspectionHistory: { days: 14, items: [] },
+      }),
+    );
+
+    expect(html).toContain("Agent 主机状态");
+    expect(html).toContain("12.5%");
+    expect(html).toContain("3 天 4 小时");
+    expect(html).toContain("Test GPU");
+    // 多实例 → Tabs 短名切换
+    expect(html).toContain("hermes");
+    expect(html).toContain("openclaw");
+    expect(html).toContain("管家运行指标");
+    expect(html).toContain("暂无走势数据");
+  });
+
+  it("主机指标不可达时信息卡降级为次要提示而非报错", () => {
+    const serviceHealth: HealthPayload = {
+      ok: true,
+      services: {
+        gateway: { reachable: true, serviceVersion: "g@1", schemaVersion: "v1", latencyMs: 12 },
+        watch: { reachable: true, serviceVersion: "w@1", schemaVersion: "v1", latencyMs: 34 },
+      },
+    };
+    const html = renderToStaticMarkup(
+      React.createElement(ReadinessSection, {
+        connections: connected,
+        llmStatus: readyManaged,
+        discoveredModels: [],
+        refreshing: false,
+        onRefresh: () => undefined,
+        serviceHealth,
+        inspectStatus: null,
+      }),
+    );
+
+    expect(html).toContain("主机指标暂不可用");
+    expect(html).toContain("告警网关（gateway）");
+    expect(html).toContain("12ms");
+    expect(html).toContain("34ms");
   });
 });
