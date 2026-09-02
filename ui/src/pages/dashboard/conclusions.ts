@@ -4,7 +4,7 @@
  */
 import { formatRelative } from "../../lib/format.js";
 import { instanceLabel } from "./helpers.js";
-import type { AlertsPayload, DashboardPayload, HeroView, IssueView } from "./types.js";
+import type { AlertsPayload, DashboardPayload, FingerprintView, HeroView, IssueView } from "./types.js";
 
 /** 消息通知卡片的统计口径。 */
 export interface MessageStats {
@@ -88,13 +88,7 @@ function buildIssues(dashboard: DashboardPayload | null): IssueView[] {
   }
 
   for (const fp of fingerprints) {
-    list.push({
-      id: `fingerprint-${fp.signature}`,
-      tone: "error",
-      title: `最近出现 ${fp.count} 次相同问题`,
-      detail: `最近一次在 ${formatRelative(fp.lastSeen)}；可以在「高级详情」里查看错误内容。`,
-      action: { label: "开始排查", to: "/troubleshoot?symptom=error" },
-    });
+    list.push(fingerprintIssue(fp));
   }
 
   if (list.length === 0 && latestInspections.length > 0 && instances.length > 0) {
@@ -218,5 +212,31 @@ export function buildConclusions(
     downInstanceCount,
     degradedInstanceCount,
     messageStats,
+  };
+}
+
+/**
+ * 重复问题指纹 → 待办条目。语义刻意「降焦虑」：
+ * - open（本窗口新出现）才是红色；known 只是持续跟踪，用黄色并明确「可忽略」。
+ * - 携带 fingerprint 数据，供「复制求助提示词 / 转发给智能体」使用。
+ */
+export function fingerprintIssue(fp: FingerprintView): IssueView {
+  const isNew = fp.status === "open";
+  return {
+    id: `fingerprint-${fp.signature}`,
+    tone: isNew ? "error" : "warn",
+    title: isNew
+      ? `新问题：最近出现 ${fp.count} 次`
+      : `同类问题持续跟踪中（累计 ${fp.count} 次）`,
+    detail: `最近一次在 ${formatRelative(fp.lastSeen)}；功能一切正常时可以忽略，需要处理可交给智能体分析。`,
+    action: { label: "开始排查", to: "/troubleshoot?symptom=error" },
+    fingerprint: {
+      signature: fp.signature,
+      count: fp.count,
+      firstSeen: fp.firstSeen,
+      lastSeen: fp.lastSeen,
+      lastSample: fp.lastSample,
+      instance: fp.instance,
+    },
   };
 }

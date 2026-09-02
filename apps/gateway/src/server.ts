@@ -12,9 +12,11 @@
  * degradedChannels/close），队列、通道、时钟、调度器均可注入便于测试。
  */
 import path from "node:path";
+import os from "node:os";
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import { CONTROL_API_SCHEMA_VERSION, CONTRACT_VERSION, isOutboxState } from "@butler/contract";
 import type { ChannelControlPort, InboundHistoryView, PolicySnapshot, Result } from "@butler/contract";
+import { readHermesConfig } from "@butler/adapter-hermes";
 import { ensureButlerHome } from "@butler/core";
 import { buildEnvChannels, degradedChannelLabels, type AlertChannel } from "./channels.js";
 import { DeliveryLoop, type Clock, type LoopScheduler } from "./loop.js";
@@ -252,6 +254,76 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
       pending: queueRef.counts().pending,
       ...(message === undefined ? {} : { message }),
     };
+  });
+
+  // 把求助提示词转发给本机 Hermes 智能体（走其 api_server 的 OpenAI 兼容聊天接口）。
+  // 面板→web→gateway→host:port；key 只在本链路内部使用，绝不回显。
+  app.post("/api/agent-message", async (request, reply) => {
+    const body = asRecord(request.body);
+    const text = body === null ? null : readString(body["text"]);
+    if (text === null) {
+      return reply.code(400).send({ error: "text must be a non-empty string" });
+    }
+    if (text.length > 8_000) {
+      return reply.code(400).send({ error: "text is too long (max 8000 chars)" });
+    }
+    const hermesRoot =
+      process.env["BUTLER_HERMES_ROOT"]?.trim() || path.join(os.homedir(), ".hermes");
+    const config = await readHermesConfig(hermesRoot);
+    const api = config?.apiServer;
+    if (api === undefined || api.port === null || api.key === null) {
+      return reply
+        .code(503)
+        .send({ error: "agent-api-unavailable", detail: "未找到智能体接口（api_server）配置" });
+    }
+    // bind 地址（0.0.0.0）不能直接访问；容器内优先走 host.docker.internal。
+    const hosts = [...new Set([api.host, "127.0.0.1", "host.docker.internal"])].filter(
+      (host) => host !== null && host !== "" && host !== "0.0.0.0",
+    );
+    let lastError = "unknown";
+    for (const host of hosts) {
+      let response: Response;
+      try {
+        response = await fetch(`http://${host}:${api.port}/v1/chat/completions`, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${api.key}`,
+            "content-type": "application/json",
+            "x-hermes-session-id": "butler-troubleshoot",
+          },
+          body: JSON.stringify({
+            messages: [{ role: "user", content: text }],
+            stream: false,
+          }),
+          signal: AbortSignal.timeout(170_000),
+        });
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error);
+        continue;
+      }
+      if (response.status === 401 || response.status === 403) {
+        return reply.code(502).send({
+          error: "agent-auth-failed",
+          detail: "智能体接口鉴权失败，请检查 api_server 的 key 配置",
+        });
+      }
+      if (!response.ok) {
+        lastError = `HTTP ${response.status}`;
+        continue;
+      }
+      const payload = (await response.json().catch(() => null)) as {
+        choices?: Array<{ message?: { content?: unknown } }>;
+      } | null;
+      const replyText =
+        typeof payload?.choices?.[0]?.message?.content === "string"
+          ? payload.choices[0].message.content
+          : "";
+      return reply.code(200).send({ ok: true, reply: replyText });
+    }
+    return reply.code(502).send({
+      error: "agent-unreachable",
+      detail: `无法连接智能体接口：${lastError}`,
+    });
   });
 
   registerMessageRoutes(

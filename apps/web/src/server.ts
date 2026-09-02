@@ -1978,6 +1978,31 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   app.post("/api/messages/relay", async (request, reply) =>
     proxyGatewayPost("/api/messages/relay", request.body, reply),
   );
+  // 求助提示词转发给智能体：gateway 侧调 Hermes api_server 聊天接口（LLM 回合可能
+  // 需要数十秒到数分钟），代理超时放宽到 200s。
+  app.post("/api/agent-message", async (request, reply) => {
+    let res: Response;
+    try {
+      res = await doFetch(`${gatewayUrl}/api/agent-message`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(request.body ?? {}),
+        signal: AbortSignal.timeout(200_000),
+      });
+    } catch {
+      return reply.status(502).send({ error: "gateway-unreachable" });
+    }
+    const raw = await res.text();
+    let parsed: unknown = {};
+    if (raw !== "") {
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        parsed = { raw };
+      }
+    }
+    return reply.status(res.status).send(parsed);
+  });
   // 微信扫码登录代理：POST 动作原样透传 gateway；GET status 携带 sessionId 查询透传
   // （不可达/非 2xx 一律 502 降级，模式同 GET /api/messages/channels）。
   app.post("/api/messages/channels/weixin/login/start", async (request, reply) =>

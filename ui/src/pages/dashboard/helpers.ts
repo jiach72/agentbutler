@@ -161,3 +161,23 @@ export function formatSample(sample: string | null): string {
   if (sample === null || sample === "") return "—";
   return sample.length > 80 ? `${sample.slice(0, 80)}…` : sample;
 }
+
+/** 重复问题 → 求助提示词（用户可复制发给智能体，或经管家直接转发）。 */
+export function buildAgentHelpPrompt(fp: {
+  signature: string;
+  count: number;
+  firstSeen: string;
+  lastSeen: string;
+  lastSample: string | null;
+  instance?: string;
+}): string {
+  return [
+    "管家（Butler）在巡检中发现一个反复出现的问题，请帮我定位并处理：",
+    `- 问题样本：${fp.lastSample ?? "（无样本，见错误签名）"}`,
+    `- 错误签名：${fp.signature}`,
+    `- 累计出现：${fp.count} 次`,
+    `- 最近一次：${fp.lastSeen}（首次：${fp.firstSeen}）`,
+    `- 所在实例：${fp.instance ?? "未知"}`,
+    "请检查相关日志与配置，找出根本原因；如果可以直接修复请处理，否则告诉我具体的修复步骤。",
+  ].join("\n");
+}

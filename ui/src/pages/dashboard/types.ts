@@ -331,6 +331,15 @@ export interface IssueView {
     to?: string;
   };
   runbook?: RunbookView;
+  /** 重复问题指纹：有值时渲染「复制求助提示词 / 转发给智能体」动作。 */
+  fingerprint?: {
+    signature: string;
+    count: number;
+    firstSeen: string;
+    lastSeen: string;
+    lastSample: string | null;
+    instance?: string;
+  };
 }
 
 export interface StatusCardView {
