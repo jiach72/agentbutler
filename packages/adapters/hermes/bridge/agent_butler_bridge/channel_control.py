@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import stat
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -255,8 +256,10 @@ class ChannelControl:
     def _mutate_platforms(self, channel: str, mutate) -> None:
         path = self._config_path()
         data: dict[str, Any] = {}
+        mode = 0o600
         if path.is_file():
             data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            mode = stat.S_IMODE(os.stat(path).st_mode)
         if not isinstance(data, dict):
             data = {}
         platforms = data.setdefault("platforms", {})
@@ -266,12 +269,14 @@ class ChannelControl:
             stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
             backup = path.with_name(f"config.yaml.bak-butler-{stamp}")
             backup.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+            os.chmod(backup, mode)
         section = platforms.get(channel)
         section = section if isinstance(section, dict) else {}
         platforms[channel] = mutate(section)
         text = yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
         temp = path.with_name(f".config.yaml.butler-{os.getpid()}.tmp")
         temp.write_text(text, encoding="utf-8")
+        os.chmod(temp, mode)
         os.replace(temp, path)
         return None
 

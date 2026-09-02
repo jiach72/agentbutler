@@ -1,5 +1,7 @@
 """通道目录与运行态聚合。"""
 import json
+import os
+import stat
 import tempfile
 import unittest
 from pathlib import Path
@@ -229,6 +231,22 @@ class ChannelConfigTests(unittest.TestCase):
         self.assertTrue(yb["app_secret"]["secret"] and yb["app_secret"]["required"])
         self.assertTrue(yb["app_id"]["required"] and not yb["app_id"]["secret"])
         self.assertFalse(yb["bot_id"]["required"] and not yb["bot_id"]["secret"])
+
+    @unittest.skipIf(os.name == "nt", "POSIX permission bits")
+    def test_mutate_platforms_preserves_0600_on_config_and_backup(self):
+        path = self.home / "config.yaml"
+        os.chmod(path, 0o600)
+        self.control.set_enabled("feishu", True)
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+        backups = list(self.home.glob("config.yaml.bak-butler-*"))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(stat.S_IMODE(backups[0].stat().st_mode), 0o600)
+
+    @unittest.skipIf(os.name == "nt", "POSIX permission bits")
+    def test_mutate_platforms_defaults_to_0600_when_config_missing(self):
+        (self.home / "config.yaml").unlink()
+        self.control.set_enabled("weixin", True)
+        self.assertEqual(stat.S_IMODE((self.home / "config.yaml").stat().st_mode), 0o600)
 
     def test_request_restart_invokes_runner_once(self):
         class _Runner:
