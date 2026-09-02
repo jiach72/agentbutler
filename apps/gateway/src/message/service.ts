@@ -43,6 +43,17 @@ class MessagePolicyInstallError extends Error {
   }
 }
 
+/**
+ * Bridge 确认了不同的策略快照（version/sha 校验失败）。这说明 Bridge 行为异常、
+ * 属代码级 bug，启动期唯一保留 fail-fast 的错误。
+ */
+class MessagePolicyAckMismatchError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MessagePolicyAckMismatchError";
+  }
+}
+
 /** Lifecycle owner around a single reconciler. It serializes timer ticks by design. */
 export class MessageGatewayService {
   private readonly intervalMs: number;
@@ -145,7 +156,9 @@ export class MessageGatewayService {
       );
     }
     if (result.data.version !== snapshot.version || result.data.sha256 !== snapshot.sha256) {
-      throw new Error("policy install failed: Bridge acknowledged a different policy snapshot");
+      throw new MessagePolicyAckMismatchError(
+        "policy install failed: Bridge acknowledged a different policy snapshot",
+      );
     }
     const stored = this.options.store.savePolicy(snapshot);
     this.config = policyConfigFromSnapshot(stored);
@@ -216,12 +229,15 @@ export class MessageGatewayService {
     try {
       await this.updatePolicy(this.config);
     } catch (error) {
-      if (!(error instanceof MessagePolicyInstallError) || !error.bridgeUnavailable) {
+      // 启动期策略安装失败与运行期保持同一策略：除 ack 快照不一致（代码级 bug，
+      // fail-fast）外，401/400/409、Bridge 不可达等都只记录 lastError、保持运行，
+      // 交给周期重试。否则容器会在 restart: unless-stopped 下无限 crash loop。
+      if (error instanceof MessagePolicyAckMismatchError) {
         this.running = false;
         throw error;
       }
       this.bridgeConnected = false;
-      this.lastError = error.message;
+      this.lastError = error instanceof Error ? error.message : String(error);
     }
     await this.runCycle();
     if (this.running && !this.stopRequested) {

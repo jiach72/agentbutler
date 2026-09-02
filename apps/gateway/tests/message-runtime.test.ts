@@ -28,6 +28,7 @@ class RuntimeAdapter implements MessagingAdapter {
   readonly instances: InstanceRef[] = [];
   policyFailure = false;
   policyErrorCode: "E302" | "E303" = "E303";
+  ackMismatch = false;
   healthFailure = false;
   batchFor = (afterSequence: number): OutboxChangeBatch => ({
     afterSequence,
@@ -55,9 +56,13 @@ class RuntimeAdapter implements MessagingAdapter {
   updatePolicy = async (instance: InstanceRef, snapshot: PolicySnapshot) => {
     this.calls.push("policy");
     this.instances.push(instance);
-    return this.policyFailure
-      ? fail(this.policyErrorCode, "policy refused")
-      : ok({ version: snapshot.version, sha256: snapshot.sha256, appliedAt: NOW });
+    if (this.policyFailure) {
+      return fail(this.policyErrorCode, "policy refused");
+    }
+    if (this.ackMismatch) {
+      return ok({ version: "other-version", sha256: "other-sha", appliedAt: NOW });
+    }
+    return ok({ version: snapshot.version, sha256: snapshot.sha256, appliedAt: NOW });
   };
   listChanges = async (instance: InstanceRef, afterSequence: number) => {
     this.calls.push("changes");
@@ -277,13 +282,35 @@ describe("createHermesMessageRuntime", () => {
     await expect(runtime.start()).rejects.toThrow(/closed/i);
   });
 
-  it("rolls back startup and closes its projection when policy installation fails", async () => {
+  it("degrades a refused policy install at startup to periodic retry instead of a crash loop", async () => {
     const tmp = tempDir();
     const adapter = new RuntimeAdapter();
     adapter.policyFailure = true;
+    adapter.policyErrorCode = "E303";
+    const runtime = createHermesMessageRuntime(
+      runtimeOptions(tmp, adapter, { pollIntervalMs: 60_000 }),
+    );
+
+    await runtime.start();
+    expect((await runtime.service.status()).running).toBe(true);
+    expect((await runtime.service.status()).lastError).toMatch(/policy install failed/);
+
+    adapter.policyFailure = false;
+    runtime.service.wake();
+    await vi.waitFor(async () => {
+      expect((await runtime.service.status()).bridgeConnected).toBe(true);
+    });
+    expect(adapter.calls.filter((call) => call === "policy").length).toBeGreaterThanOrEqual(2);
+    await runtime.stop();
+  });
+
+  it("fails fast and rolls back when Bridge acknowledges a different policy snapshot", async () => {
+    const tmp = tempDir();
+    const adapter = new RuntimeAdapter();
+    adapter.ackMismatch = true;
     const runtime = createHermesMessageRuntime(runtimeOptions(tmp, adapter));
 
-    await expect(runtime.start()).rejects.toThrow(/policy install failed/);
+    await expect(runtime.start()).rejects.toThrow(/different policy snapshot/);
     expect(() => runtime.store.counts()).toThrow();
     await runtime.stop();
   });
