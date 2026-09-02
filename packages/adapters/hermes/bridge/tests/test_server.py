@@ -482,5 +482,48 @@ class ServerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rejected.status, 400)
 
 
+class _WarningChannelControl:
+    """set_enabled 返回 warning 的最小桩，验证 enable/disable 端点原样透传。"""
+
+    def set_enabled(self, channel: str, enabled: bool) -> dict:
+        return {"channel": channel, "enabled": enabled, "warning": "env-forced"}
+
+    def request_restart(self, registry) -> bool:
+        return False
+
+
+class ChannelToggleWarningTest(unittest.IsolatedAsyncioTestCase):
+    async def test_enable_disable_response_passes_through_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            outbox = Outbox(Path(tmp) / "outbox.sqlite")
+            registry = NativeRegistry(outbox, instance_id="hermes-main")
+            app = create_app(
+                outbox,
+                registry,
+                token=TOKEN,
+                instance_id="hermes-main",
+                channel_control=_WarningChannelControl(),
+            )
+            server = TestServer(app)
+            client = TestClient(server)
+            await client.start_server()
+            try:
+                disabled = await client.post("/v1/channels/weixin/disable", headers=AUTH)
+                self.assertEqual(disabled.status, 200)
+                self.assertEqual(
+                    await disabled.json(),
+                    {"restarting": False, "channel": "weixin", "enabled": False, "warning": "env-forced"},
+                )
+                enabled = await client.post("/v1/channels/weixin/enable", headers=AUTH)
+                self.assertEqual(enabled.status, 200)
+                self.assertEqual(
+                    await enabled.json(),
+                    {"restarting": False, "channel": "weixin", "enabled": True, "warning": "env-forced"},
+                )
+            finally:
+                await client.close()
+                outbox.close()
+
+
 if __name__ == "__main__":
     unittest.main()

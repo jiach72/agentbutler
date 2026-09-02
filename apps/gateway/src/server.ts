@@ -797,8 +797,8 @@ function errorMessage(error: unknown): string {
 
 /** secret 字段名单与 contract ChannelFieldSchema / Bridge CHANNEL_SCHEMAS 一致（按通道硬编码镜像；掩码仅用于响应体回显）。 */
 const CHANNEL_SECRET_FIELDS: Record<string, readonly string[]> = {
-  qqbot: ["app_secret"],
-  yuanbao: ["app_key"],
+  qqbot: ["client_secret"],
+  yuanbao: ["app_secret"],
   feishu: ["app_secret", "verification_token"],
   dingtalk: ["client_secret"],
   wecom: ["secret"],

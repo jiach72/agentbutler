@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -19,14 +20,15 @@ CHANNEL_SCHEMAS: dict[str, dict[str, Any]] = {
         "kind": "credential",
         "fields": [
             {"name": "app_id", "label": "App ID", "type": "string", "required": True, "secret": False},
-            {"name": "app_secret", "label": "App Secret", "type": "string", "required": True, "secret": True},
+            {"name": "client_secret", "label": "Client Secret", "type": "string", "required": True, "secret": True},
         ],
     },
     "yuanbao": {
         "label": "腾讯元宝",
         "kind": "credential",
         "fields": [
-            {"name": "app_key", "label": "App Key", "type": "string", "required": True, "secret": True},
+            {"name": "app_id", "label": "App ID", "type": "string", "required": True, "secret": False},
+            {"name": "app_secret", "label": "App Secret", "type": "string", "required": True, "secret": True},
             {"name": "bot_id", "label": "Bot ID", "type": "string", "required": False, "secret": False},
         ],
     },
@@ -63,6 +65,16 @@ def default_hermes_home() -> Path:
     return Path(os.environ.get("HERMES_HOME") or (Path(os.environ.get("HOME") or Path.home()) / ".hermes"))
 
 
+# Hermes 侧核心平台存在 env 强制启用块（hermes-agent gateway/config.py）：
+# 任一键在 ~/.hermes/.env 中带非空值即无条件 enabled=True（优先于 YAML 显式停用）。
+# 只做键存在性检查，绝不读取/输出值。
+_ENV_FORCE_KEYS: dict[str, tuple[str, ...]] = {
+    "weixin": ("WEIXIN_TOKEN", "WEIXIN_ACCOUNT_ID"),
+    "qqbot": ("QQ_APP_ID", "QQ_CLIENT_SECRET"),
+    "yuanbao": ("YUANBAO_APP_ID", "YUANBAO_APP_SECRET"),
+}
+
+
 class ChannelControl:
     """读取 Hermes config.yaml 的 platforms 子树并聚合通道运行态。"""
 
@@ -93,11 +105,23 @@ class ChannelControl:
                 return False
         return True
 
-    @staticmethod
-    def _is_enabled(channel: str, section: dict[str, Any]) -> bool:
-        if channel in {"feishu", "dingtalk", "wecom"}:
-            return section.get("enabled") is True
-        return bool(section) and section.get("disabled") is not True
+    def _is_enabled(self, channel: str, section: dict[str, Any]) -> bool:
+        # 「有效启用」= YAML enabled 键（Hermes PlatformConfig.enabled，缺省 False）
+        # 或 ~/.hermes/.env 的 env 强制启用（与 Hermes 实际装载行为一致）。
+        if section.get("enabled") is True:
+            return True
+        return self.env_forces_enabled(channel)
+
+    def env_forces_enabled(self, channel: str) -> bool:
+        """~/.hermes/.env 是否存在会强制启用该通道的变量（非空值）。"""
+        keys = _ENV_FORCE_KEYS.get(channel)
+        if not keys:
+            return False
+        try:
+            text = (self.hermes_home / ".env").read_text(encoding="utf-8")
+        except OSError:
+            return False
+        return any(re.search(rf"^{key}=\S", text, re.MULTILINE) for key in keys)
 
     def _weixin_login_state(self) -> tuple[str, str | None]:
         # 真实落盘结构（hermes weixin.py::_account_dir/_account_file，及
@@ -212,16 +236,21 @@ class ChannelControl:
             raise ValueError(f"unsupported channel: {channel}")
 
         def mutate(section: dict[str, Any]) -> dict[str, Any]:
-            # 与 _is_enabled 读取约定对称：feishu/dingtalk/wecom 用 enabled 布尔，
-            # 其余通道用 disabled 标记（缺省视为启用）。
-            if channel in {"feishu", "dingtalk", "wecom"}:
-                section["enabled"] = enabled
-            else:
-                section["disabled"] = not enabled
+            # Hermes 对所有平台统一认 enabled 布尔（PlatformConfig.enabled，缺省 False），
+            # 不识别 disabled 键；历史遗留的 disabled 一并清除。extra 凭据保持不动。
+            section.pop("disabled", None)
+            section["enabled"] = enabled
             return section
 
         self._mutate_platforms(channel, mutate)
-        return {"channel": channel, "enabled": enabled}
+        result: dict[str, Any] = {"channel": channel, "enabled": enabled}
+        if not enabled and self.env_forces_enabled(channel):
+            forced = " 或 ".join(_ENV_FORCE_KEYS[channel])
+            result["warning"] = (
+                f"Hermes 的 ~/.hermes/.env 中 {forced} 会强制启用{base['label']}，"
+                "停用将在移除这些变量后才生效"
+            )
+        return result
 
     def _mutate_platforms(self, channel: str, mutate) -> None:
         path = self._config_path()

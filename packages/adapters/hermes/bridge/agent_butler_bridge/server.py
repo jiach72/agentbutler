@@ -320,20 +320,20 @@ def create_app(
             return _error(404, "not_found", "channel control unavailable")
         channel = request.match_info["channel"]
         try:
-            channel_control.set_enabled(channel, True)
+            result = channel_control.set_enabled(channel, True)
         except ValueError as exc:
             return _error(400, "invalid", str(exc))
-        return web.json_response({"restarting": channel_control.request_restart(registry)})
+        return web.json_response({"restarting": channel_control.request_restart(registry), **result})
 
     async def channel_disable(request: web.Request) -> web.Response:
         if channel_control is None:
             return _error(404, "not_found", "channel control unavailable")
         channel = request.match_info["channel"]
         try:
-            channel_control.set_enabled(channel, False)
+            result = channel_control.set_enabled(channel, False)
         except ValueError as exc:
             return _error(400, "invalid", str(exc))
-        return web.json_response({"restarting": channel_control.request_restart(registry)})
+        return web.json_response({"restarting": channel_control.request_restart(registry), **result})
 
     app.router.add_get("/v1/health", health)
     app.router.add_get("/v1/channels", channels_directory)

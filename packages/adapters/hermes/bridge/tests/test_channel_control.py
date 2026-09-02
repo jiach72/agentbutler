@@ -36,7 +36,7 @@ class ChannelDirectoryTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.home = Path(self.tmp.name)
         (self.home / "config.yaml").write_text(
-            "platforms:\n  weixin:\n    dm_policy: open\n  feishu:\n    enabled: false\n    extra:\n      app_id: cli_x\n      app_secret: sec\n",
+            "platforms:\n  weixin:\n    enabled: true\n    dm_policy: open\n  feishu:\n    enabled: false\n    extra:\n      app_id: cli_x\n      app_secret: sec\n",
             encoding="utf-8",
         )
         self.control = ChannelControl(self.home)
@@ -94,6 +94,46 @@ class ChannelDirectoryTests(unittest.TestCase):
         self.assertEqual(status["weixin"]["loginState"], "logged_out")
 
 
+class EffectiveEnabledTests(unittest.TestCase):
+    """_is_enabled 的「有效启用」语义：enabled 键 + ~/.hermes/.env env 强制启用。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.home = Path(self.tmp.name)
+        self.control = ChannelControl(self.home)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_env_forced_weixin_reports_enabled(self):
+        (self.home / ".env").write_text("WEIXIN_TOKEN=redacted\n", encoding="utf-8")
+        self.assertTrue(self.control.env_forces_enabled("weixin"))
+        self.assertTrue(self.control._is_enabled("weixin", {}))
+
+    def test_env_force_overrides_explicit_disabled(self):
+        (self.home / ".env").write_text("QQ_APP_ID=123456\n", encoding="utf-8")
+        self.assertTrue(self.control._is_enabled("qqbot", {"enabled": False}))
+
+    def test_enabled_absent_without_env_is_disabled(self):
+        # Hermes PlatformConfig.enabled 缺省 False，无 env 强制时缺省即停用。
+        self.assertFalse(self.control._is_enabled("weixin", {"dm_policy": "open"}))
+        self.assertFalse(self.control.env_forces_enabled("weixin"))
+
+    def test_empty_env_value_does_not_force(self):
+        (self.home / ".env").write_text("YUANBAO_APP_SECRET=\n", encoding="utf-8")
+        self.assertFalse(self.control.env_forces_enabled("yuanbao"))
+        self.assertFalse(self.control._is_enabled("yuanbao", {}))
+
+    def test_qqbot_and_yuanbao_env_keys_force_enabled(self):
+        (self.home / ".env").write_text("QQ_CLIENT_SECRET=redacted\nYUANBAO_APP_ID=redacted\n", encoding="utf-8")
+        self.assertTrue(self.control.env_forces_enabled("qqbot"))
+        self.assertTrue(self.control.env_forces_enabled("yuanbao"))
+
+    def test_plugin_channels_have_no_env_force_keys(self):
+        for channel in ("feishu", "dingtalk", "wecom"):
+            self.assertFalse(self.control.env_forces_enabled(channel))
+
+
 class ChannelConfigTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -149,6 +189,46 @@ class ChannelConfigTests(unittest.TestCase):
         self.assertTrue(self._platforms()["dingtalk"]["enabled"] is False)
         # 凭据保留
         self.assertEqual(self._platforms()["dingtalk"]["extra"]["client_id"], "c1")
+
+    def test_set_enabled_writes_enabled_key_and_clears_disabled_for_core_channels(self):
+        # 核心通道（weixin/qqbot/yuanbao）与插件通道统一写 enabled 布尔；
+        # 历史遗留的 disabled 键（Hermes 不识别）必须清除，extra 凭据保留。
+        (self.home / "config.yaml").write_text(
+            "platforms:\n  qqbot:\n    disabled: true\n    extra:\n      app_id: a\n      client_secret: s\n",
+            encoding="utf-8",
+        )
+        self.control.set_enabled("qqbot", True)
+        section = self._platforms()["qqbot"]
+        self.assertIs(section["enabled"], True)
+        self.assertNotIn("disabled", section)
+        self.assertEqual(section["extra"]["client_secret"], "s")
+        self.control.set_enabled("qqbot", False)
+        section = self._platforms()["qqbot"]
+        self.assertIs(section["enabled"], False)
+        self.assertNotIn("disabled", section)
+
+    def test_disable_env_forced_channel_returns_warning(self):
+        (self.home / ".env").write_text("WEIXIN_ACCOUNT_ID=wx123\n", encoding="utf-8")
+        result = self.control.set_enabled("weixin", False)
+        self.assertIs(result["enabled"], False)
+        self.assertEqual(result["channel"], "weixin")
+        self.assertIn("warning", result)
+        self.assertIn("WEIXIN_ACCOUNT_ID", result["warning"])
+        self.assertNotIn("wx123", result["warning"])  # 绝不回显变量值
+        # enable 不带 warning；未被 env 强制的通道 disable 也不带
+        self.assertNotIn("warning", self.control.set_enabled("weixin", True))
+        self.assertNotIn("warning", self.control.set_enabled("feishu", False))
+
+    def test_qqbot_yuanbao_schema_fields_match_hermes(self):
+        qq = {f["name"]: f for f in CHANNEL_SCHEMAS["qqbot"]["fields"]}
+        self.assertEqual(set(qq), {"app_id", "client_secret"})
+        self.assertTrue(qq["client_secret"]["secret"] and qq["client_secret"]["required"])
+        self.assertFalse(qq["app_id"]["secret"])
+        yb = {f["name"]: f for f in CHANNEL_SCHEMAS["yuanbao"]["fields"]}
+        self.assertEqual(set(yb), {"app_id", "app_secret", "bot_id"})
+        self.assertTrue(yb["app_secret"]["secret"] and yb["app_secret"]["required"])
+        self.assertTrue(yb["app_id"]["required"] and not yb["app_id"]["secret"])
+        self.assertFalse(yb["bot_id"]["required"] and not yb["bot_id"]["secret"])
 
     def test_request_restart_invokes_runner_once(self):
         class _Runner:
