@@ -74,7 +74,8 @@ import {
   type WatchHttpDeps,
   type MemorySelfCheckOutcome,
 } from "./http.js";
-import { createDefaultStages, type InspectionStage, type ResourceSampler } from "./pipeline.js";
+import { createDefaultStages, defaultResourceSampler, type InspectionStage, type ResourceSampler } from "./pipeline.js";
+import { createHostMetricsService, type HostMetricsService } from "./host-metrics.js";
 import { createMemoryProbeStage } from "./probes/memory-probe.js";
 import { buildDiagnosticSummary, renderDiagnosticReport } from "./diagnostics.js";
 import type { LogMtimeSampler } from "./probes/stall-write.js";
@@ -145,6 +146,8 @@ export interface WatchAppOptions {
   timerDriver?: TimerDriver;
   /** 追加到内置阶段之后的额外巡检阶段。 */
   extraStages?: InspectionStage[];
+  /** 主机与 agent 进程指标服务（缺省按实例列表 + 巡检资源采样器组装；测试可注入）。 */
+  hostMetrics?: HostMetricsService;
   /** 是否自动启动调度与 tail 循环（默认 true；测试可关）。 */
   autoStart?: boolean;
 }
@@ -1673,6 +1676,14 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     };
   }
 
+  // 主机与 agent 进程指标（就绪度「Agent 主机状态」卡）：复用巡检资源采样器与实例列表。
+  const hostMetrics =
+    options.hostMetrics ??
+    createHostMetricsService({
+      instancesProvider: () => core.instances.listInstances(),
+      resourceSampler: defaultResourceSampler(commandExec),
+    });
+
   const watchHttp = startWatchHttp(
     {
       runtime: () => runtime,
@@ -1683,6 +1694,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       executeRunbook: executeRunbookViaHttp,
       resetRunbookBreaker: resetRunbookBreakerViaHttp,
       logs: logsService,
+      hostMetrics,
       analyzeLogs: (instanceId?: string, range?: "24h" | "7d" | "30d") => logAnalyzer.analyze(instanceId, range),
       butler,
       butlerSelf,

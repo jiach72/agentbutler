@@ -17,6 +17,9 @@
  *                                      deadlineAt, lastDurationMs, lastStatus,
  *                                      lastWithinSla, overdue, inFlight,
  *                                      runCount, missedTicks } }
+ * - GET  /api/host/metrics           → HostMetricsSnapshot（机器 CPU/内存/磁盘/GPU
+ *                                      + 各 agent 进程 CPU/RSS + 60 点环形缓冲；
+ *                                      结构见 host-metrics.ts）。服务未接线 → 503
  * - GET  /api/connections            → 当前 Hermes/OpenClaw 实例的实时连接视图；
  * - POST /api/connections/check      → 手动探测（body { instanceId? }）；
  * - POST /api/connections/:id/connect|disconnect → 连接/断开指定实例；
@@ -127,6 +130,7 @@ import { toUserFacingError, type LlmCredentialService, type LlmProtocol } from "
 import { createDiagnosticZip } from "./diagnostics.js";
 import type { DiagnosticSummary } from "./diagnostics.js";
 import { classifyRuntimeState } from "./runtime-diagnosis.js";
+import type { HostMetricsService } from "./host-metrics.js";
 
 /** 记忆按需自检（memory-probe 单阶段）的结论。 */
 export interface MemorySelfCheckResult {
@@ -464,6 +468,8 @@ export interface WatchHttpDeps {
   security?: SecurityService;
   /** 核心 Markdown 文件管理。 */
   markdownFiles?: MarkdownFileService;
+  /** 主机与 agent 进程指标服务（可选；未接线时 /api/host/metrics 返回 503）。 */
+  hostMetrics?: HostMetricsService;
 }
 
 export interface WatchHttpOptions {
@@ -1219,6 +1225,15 @@ async function handle(
     if (path === "/api/inspect/status") {
       if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
       return sendJson(res, 200, deps.scheduler.status());
+    }
+
+    // 主机与 agent 进程指标（就绪度「Agent 主机状态」卡）；服务未接线 → 503。
+    if (path === "/api/host/metrics") {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.hostMetrics === undefined) {
+        return sendJson(res, 503, { error: "host-metrics-unavailable" });
+      }
+      return sendJson(res, 200, await deps.hostMetrics.snapshot());
     }
 
     if (path === "/api/recovery/diagnose") {
