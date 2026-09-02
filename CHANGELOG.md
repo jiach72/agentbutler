@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [1.0.0-beta.23] - 2026-09-02
+
+### Added
+
+- 集成 [skills-manager](https://github.com/xingkongliang/skills-manager) CLI：技能页新增「技能库」标签，提供中央技能库（Git/本地来源安装）、部署/取消部署到 Hermes 技能目录、更新检查。破坏性操作均为预览+确认二段式，中央库持久化在数据卷。
+
 ## [1.0.0-beta.22] - 2026-09-02
 
 ### Added
