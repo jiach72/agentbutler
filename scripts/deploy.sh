@@ -144,8 +144,13 @@ if docker volume inspect "$DATA_VOLUME" >/dev/null 2>&1; then
     was_running=true
   fi
   if docker run --rm -v "$DATA_VOLUME:/data:ro" -v "$PWD/backups:/backup" alpine \
-      tar czf "/backup/$backup_name" -C /data .; then
+      tar czf "/backup/$backup_name" --exclude "./backups" -C /data .; then
     echo "Backup OK."
+    # 备份保留策略：只留最近 BUTLER_BACKUP_KEEP 份（默认 4），防止每次部署 +数 GB 永久累积。
+    backup_keep="${BUTLER_BACKUP_KEEP:-4}"
+    ls -1t backups/butler-data-*.tgz 2>/dev/null | tail -n +"$((backup_keep + 1))" | while IFS= read -r old; do
+      rm -f "$old" && echo "Pruned old backup: $old"
+    done
   else
     [[ "$was_running" == true ]] && compose start >/dev/null 2>&1 || true
     if [[ "${BUTLER_ALLOW_UNBACKED_DEPLOY:-$(env_value BUTLER_ALLOW_UNBACKED_DEPLOY)}" != "true" ]]; then
