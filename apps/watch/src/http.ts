@@ -96,6 +96,16 @@
  * - POST /api/prompt-optimization/candidates/:id/evaluate → body
  *      { cases?, datasetPath?, datasetHash?, datasetSchemaVersion?, modelParams?, seed? }；
  *      201 { report }；400/404 按错误映射
+ * - GET  /api/skills-manager/status → 200 SkillsManagerStatusView | { available:false, installHint }；
+ *      CLI 缺失仍 200（UI 渲染安装指引）；未接线 → 503
+ * - GET  /api/skills-manager/updates → 200 check --all 数组；未接线 → 503
+ * - POST /api/skills-manager/install → body { source, name?, confirmed? }：
+ *      200 预览/结果；缺 source → 400 { error:"missing-source" }
+ * - POST /api/skills-manager/deploy|undeploy|update → body { name, confirmed? }：
+ *      200 预览/结果（confirmed !== true 时服务层 --dry-run）；缺 name → 400
+ * - POST /api/skills-manager/adopt → body { dir, confirmed? }；缺 dir → 400
+ *      CLI 业务错误映射：unavailable → 503(+installHint)；TARGET_CONFLICT/目标占用 → 409；
+ *      INVALID_ARGUMENT → 400；其余 CLI 失败 → 502 { code, message }
  *
  * 请求体解析上限 16KB（超出 413；非法 JSON 400）。监听 127.0.0.1:7533
  * （BUTLER_WATCH_HOST / BUTLER_WATCH_PORT 可覆盖，config.ts 读入）。依赖全部
@@ -131,6 +141,7 @@ import { createDiagnosticZip } from "./diagnostics.js";
 import type { DiagnosticSummary } from "./diagnostics.js";
 import { classifyRuntimeState } from "./runtime-diagnosis.js";
 import type { HostMetricsService } from "./host-metrics.js";
+import { SkillsManagerError, SKILLS_MANAGER_INSTALL_HINT, type SkillsManagerCli } from "./skills-manager.js";
 
 /** 记忆按需自检（memory-probe 单阶段）的结论。 */
 export interface MemorySelfCheckResult {
@@ -470,6 +481,8 @@ export interface WatchHttpDeps {
   markdownFiles?: MarkdownFileService;
   /** 主机与 agent 进程指标服务（可选；未接线时 /api/host/metrics 返回 503）。 */
   hostMetrics?: HostMetricsService;
+  /** 技能库管理器（skills-manager CLI 集成；未接线时 /api/skills-manager/* 返回 503）。 */
+  skillsManager?: SkillsManagerCli;
 }
 
 export interface WatchHttpOptions {
@@ -1464,6 +1477,50 @@ async function handle(
       const body = await readJsonBody(req, res); if (body === null) return;
       const result = await deps.skillAssets.installStaged(decodeURIComponent(installMatch[1]!), body["confirmed"] === true);
       return sendJson(res, result.ok === true ? 200 : 409, result);
+    }
+
+    // 技能库管理器（skills-manager CLI 集成）：status/updates 只读直连；
+    // install/deploy/undeploy/update/adopt 由服务层二段式（confirmed !== true → --dry-run 预览）。
+    if (path === "/api/skills-manager/status") {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.skillsManager === undefined) return sendJson(res, 503, { error: "skills-manager-unavailable" });
+      return sendJson(res, 200, await deps.skillsManager.status());
+    }
+
+    if (path === "/api/skills-manager/updates") {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.skillsManager === undefined) return sendJson(res, 503, { error: "skills-manager-unavailable" });
+      return sendJson(res, 200, await deps.skillsManager.check());
+    }
+
+    if (path === "/api/skills-manager/install") {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.skillsManager === undefined) return sendJson(res, 503, { error: "skills-manager-unavailable" });
+      const body = await readJsonBody(req, res); if (body === null) return;
+      const source = typeof body["source"] === "string" ? body["source"].trim() : "";
+      if (source === "") return sendJson(res, 400, { error: "missing-source" });
+      const name = typeof body["name"] === "string" && body["name"].trim() !== "" ? body["name"] : undefined;
+      const result = await deps.skillsManager.install({ source, ...(name === undefined ? {} : { name }), confirmed: body["confirmed"] === true });
+      return sendJson(res, 200, result);
+    }
+
+    const skillManagerAction = /^\/api\/skills-manager\/(deploy|undeploy|update|adopt)$/.exec(path);
+    if (skillManagerAction !== null) {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.skillsManager === undefined) return sendJson(res, 503, { error: "skills-manager-unavailable" });
+      const body = await readJsonBody(req, res); if (body === null) return;
+      const action = skillManagerAction[1]!;
+      // update 名单上 name 必填（逐技能更新）；adopt 校验 dir；deploy/undeploy 校验 name。
+      const requiredKey = action === "adopt" ? "dir" : "name";
+      const value = typeof body[requiredKey] === "string" ? body[requiredKey].trim() : "";
+      if (value === "") return sendJson(res, 400, { error: `missing-${requiredKey}` });
+      const confirmed = body["confirmed"] === true;
+      const result =
+        action === "deploy" ? await deps.skillsManager.deploy({ name: value, confirmed })
+        : action === "undeploy" ? await deps.skillsManager.undeploy({ name: value, confirmed })
+        : action === "update" ? await deps.skillsManager.update({ name: value, confirmed })
+        : await deps.skillsManager.adopt({ dir: value, confirmed });
+      return sendJson(res, 200, result);
     }
 
     if (path === "/api/butler/version") {
@@ -2588,6 +2645,28 @@ async function handle(
 
     return sendJson(res, 404, { error: "not-found" });
   } catch (error) {
+    if (error instanceof SkillsManagerError) {
+      return sendJson(res, skillsManagerErrorStatus(error.code), skillsManagerErrorBody(error));
+    }
     sendJson(res, 500, internalErrorResponse(error));
   }
+}
+
+/**
+ * skills-manager CLI 业务错误 → HTTP 状态码：
+ * 不可用（ENOENT）→ 503（带安装指引）；目标/部署冲突 → 409；
+ * 参数无效 → 400；其余 CLI 失败 → 502 透传 code/message 供面板展示。
+ */
+function skillsManagerErrorStatus(code: string): number {
+  if (code === "skills-manager-unavailable") return 503;
+  if (code === "TARGET_CONFLICT" || code === "deploy-target-conflict") return 409;
+  if (code === "INVALID_ARGUMENT") return 400;
+  return 502;
+}
+
+function skillsManagerErrorBody(error: SkillsManagerError): Record<string, string> {
+  if (error.code === "skills-manager-unavailable") {
+    return { error: "skills-manager-unavailable", code: error.code, message: error.message, installHint: SKILLS_MANAGER_INSTALL_HINT };
+  }
+  return { error: "skills-manager-cli-failed", code: error.code, message: error.message };
 }

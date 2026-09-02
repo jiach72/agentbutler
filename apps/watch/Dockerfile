@@ -47,6 +47,20 @@ ENV NODE_ENV=production
 ENV BUTLER_HOME=/home/butler
 WORKDIR /app
 
+# skills-manager CLI（中央技能库）：固定版本、构建参数可覆盖；ENV 供服务回报版本。
+# glibc 动态链接二进制，node:22-slim（Debian）直接可跑；git 供 CLI 的 git 安装源使用，
+# curl 仅下载期需要，装完即清除以保持镜像面最小。
+ARG SKILLS_MANAGER_CLI_VERSION=v1.36.0
+ARG SKILLS_MANAGER_CLI_URL=https://github.com/xingkongliang/skills-manager/releases/download/${SKILLS_MANAGER_CLI_VERSION}/skills-manager-cli-Linux-x64
+ENV SKILLS_MANAGER_CLI_VERSION=${SKILLS_MANAGER_CLI_VERSION}
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends git ca-certificates curl \
+  && curl -fsSL "$SKILLS_MANAGER_CLI_URL" -o /usr/local/bin/skills-manager-cli \
+  && chmod +x /usr/local/bin/skills-manager-cli \
+  && apt-get purge -y curl \
+  && apt-get autoremove -y \
+  && rm -rf /var/lib/apt/lists/*
+
 # 只带运行时产物：生产依赖树 + 各包编译输出；不含 devDependencies 与源码
 COPY --from=deps-prod --chown=node:node /app /app
 COPY --from=build --chown=node:node /app/packages/contract/dist ./packages/contract/dist
