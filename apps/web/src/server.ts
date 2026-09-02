@@ -3049,6 +3049,35 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     const id = encodeURIComponent((request.params as { id?: string }).id ?? "");
     return proxyWatchPost("/api/skills/staged/" + id + "/install", request.body, reply, 30_000);
   });
+
+  // 技能库管理器（skills-manager CLI）代理：status/updates 读取 10s（watch 不可达
+  // → 503 { available:false }，面板按「管理器未安装/离线」渲染）；install/update 等
+  // CLI 动作可能拉取远端 git 源，超时放宽 120s，全部透传 watch 语义。
+  app.get("/api/skills-manager/status", async (_request, reply) => {
+    const res = await fetchWatch("/api/skills-manager/status", 10_000);
+    if (res === null) return reply.status(503).send({ available: false, reason: "watch-unreachable" });
+    return reply.status(res.status).send(await res.json().catch(() => ({ available: false })));
+  });
+  app.get("/api/skills-manager/updates", async (_request, reply) => {
+    const res = await fetchWatch("/api/skills-manager/updates", 10_000);
+    if (res === null) return reply.status(503).send({ available: false, reason: "watch-unreachable" });
+    return reply.status(res.status).send(await res.json().catch(() => ({ available: false })));
+  });
+  app.post("/api/skills-manager/install", async (request, reply) =>
+    proxyWatchPost("/api/skills-manager/install", request.body, reply, 120_000),
+  );
+  app.post("/api/skills-manager/deploy", async (request, reply) =>
+    proxyWatchPost("/api/skills-manager/deploy", request.body, reply, 120_000),
+  );
+  app.post("/api/skills-manager/undeploy", async (request, reply) =>
+    proxyWatchPost("/api/skills-manager/undeploy", request.body, reply, 120_000),
+  );
+  app.post("/api/skills-manager/update", async (request, reply) =>
+    proxyWatchPost("/api/skills-manager/update", request.body, reply, 120_000),
+  );
+  app.post("/api/skills-manager/adopt", async (request, reply) =>
+    proxyWatchPost("/api/skills-manager/adopt", request.body, reply, 120_000),
+  );
   app.post("/api/evolution/proposals/:id/validate", async (request, reply) => {
     const id = encodeURIComponent((request.params as { id?: string }).id ?? "");
     return proxyWatchPost(`/api/evolution/proposals/${id}/validate`, request.body, reply, 30_000);
