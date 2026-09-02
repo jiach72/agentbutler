@@ -772,6 +772,62 @@ describe("MessageReconciler", () => {
     expect(adapter.prewarms).toHaveLength(0);
   });
 
+  it("cancels an attempt-exhausted message even when a stale pending decision exists, unblocking the queue", async () => {
+    // 昨夜 VM 抖动遗留：消息已尝试 6 次（> 上限 5），行上还挂着一份旧的 staged ready
+    // 决策。取消决策与旧 pending 不同 id，stageDecision 的防冲突守卫此前会让每一轮
+    // reconcile 永久失败、堵死队列。
+    const exhausted = message({
+      messageId: "exhausted-stale",
+      sequence: 1,
+      state: "ready",
+      attemptCount: DEFAULT_MESSAGE_POLICY.delivery.maxAttempts + 1,
+    });
+    adapter.changes = batch([exhausted]);
+    store.ingestBatch(adapter.changes, INSTANCE.instanceId);
+    store.stageDecision(
+      "exhausted-stale",
+      buildMessageDecision(
+        exhausted,
+        DEFAULT_MESSAGE_POLICY.version,
+        "ready",
+        ["policy:queued-push"],
+        "ready",
+      ),
+    );
+
+    await expect(reconciler().reconcileOnce()).resolves.toBeUndefined();
+
+    expect(adapter.decisions[0]).toMatchObject({
+      messageId: "exhausted-stale",
+      state: "cancelled",
+      reason: "delivery attempt limit reached",
+    });
+    // 取消已应用：pending 被消费清空，投影进入终态。
+    expect(store.pendingDecision("exhausted-stale")).toBeUndefined();
+    expect(store.messageView("exhausted-stale")).toMatchObject({ state: "cancelled" });
+    expect(adapter.deliveries).toHaveLength(0);
+
+    // 队头解决后不再阻塞：后一条消息下一轮照常投递。
+    adapter.changes = {
+      afterSequence: 1,
+      nextSequence: 2,
+      items: [message({ messageId: "behind", sequence: 2 })],
+      taskEvents: [],
+      inbound: [],
+    };
+    adapter.deliveryResult = ok({
+      messageId: "behind",
+      attemptId: "attempt-1",
+      accepted: true,
+      deduped: false,
+      state: "delivered",
+      providerMessageId: "behind-provider",
+      finishedAt: NOW,
+    });
+    await reconciler("2026-08-22T10:01:00.000Z").reconcileOnce();
+    expect(adapter.deliveries.map((delivery) => delivery.messageId)).toEqual(["behind"]);
+  });
+
   it("does not retry delivery_unknown and replays ready after transport loss before a later delivery", async () => {
     adapter.deliveryResult = ok({
       messageId: "m1",

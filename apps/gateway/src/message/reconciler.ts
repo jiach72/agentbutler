@@ -84,10 +84,14 @@ export class MessageReconciler {
   ): Promise<void> {
     const taskHold = this.taskCompletionHold(candidate, now);
     if (taskHold !== undefined) {
+      // 新决策取代可能残留的旧 pending（例如上一轮 staged 的 ready），否则
+      // stageDecision 的防冲突守卫会让整轮 reconcile 永久失败。
+      this.options.store.clearPendingDecision(candidate.messageId);
       await this.applyDecision(taskHold);
       return;
     }
     if (candidate.attemptCount >= this.options.config.delivery.maxAttempts) {
+      this.options.store.clearPendingDecision(candidate.messageId);
       await this.applyDecision(
         buildMessageDecision(
           candidate,
