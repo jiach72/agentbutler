@@ -263,6 +263,7 @@ async def _passthrough_deliver(registry: NativeRegistry, envelope: dict[str, Any
         envelope["messageId"],
         envelope["contentSha256"],
         str(getattr(result, "error", None) or "native send failed"),
+        allow_delivering=True,
     )
     return result
 

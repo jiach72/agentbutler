@@ -1822,6 +1822,8 @@ class Outbox:
         message_id: str,
         expected_content_sha256: str,
         reason: str,
+        *,
+        allow_delivering: bool = False,
     ) -> dict[str, Any]:
         if not isinstance(reason, str) or not reason.strip():
             raise ValueError("dead letter reason must be a non-empty string")
@@ -1830,10 +1832,27 @@ class Outbox:
             if row["content_sha256"] != expected_content_sha256:
                 raise ValueError("content hash conflict")
             if row["state"] == "delivery_unknown":
-                raise ValueError("delivery_unknown requires explicit retry or cancellation review")
-            if row["state"] not in DEAD_LETTER_SOURCE_STATES:
-                raise ValueError(f"message cannot enter dead_letter from state {row['state']}")
+                raise ValueError(
+                    "delivery_unknown requires explicit retry or cancellation review"
+                )
+            if row["state"] not in DEAD_LETTER_SOURCE_STATES and not (
+                allow_delivering and row["state"] == "delivering"
+            ):
+                raise ValueError(
+                    f"message cannot enter dead_letter from state {row['state']}"
+                )
             now = _utc_now()
+            if row["state"] == "delivering":
+                # 从 delivering 落 dead_letter 时收尾活动 attempt，保证无悬挂行
+                #（与 _finish_failed_attempt 的收尾方式一致）。
+                attempt_id = row["active_attempt_id"]
+                if attempt_id:
+                    self._conn.execute(
+                        """UPDATE delivery_attempts
+                           SET finished_at = ?, outcome = 'failed', error = ?
+                           WHERE attempt_id = ?""",
+                        (now, reason.strip(), attempt_id),
+                    )
             self._conn.execute(
                 """UPDATE outbound_messages
                    SET state = 'dead_letter', active_attempt_id = NULL,

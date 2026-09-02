@@ -30,8 +30,8 @@ class FakeOutbox:
     def finish_delivery(self, message_id, attempt_id, provider_message_id):
         self.calls.append(("finish", message_id, provider_message_id))
 
-    def mark_dead_letter(self, message_id, sha, reason):
-        self.calls.append(("dead_letter", message_id, reason))
+    def mark_dead_letter(self, message_id, sha, reason, allow_delivering=False):
+        self.calls.append(("dead_letter", message_id, reason, allow_delivering))
 
     def mark_unknown(self, message_id, attempt_id, reason):
         self.calls.append(("unknown", message_id, reason))
@@ -107,6 +107,8 @@ class PassthroughSendTests(unittest.TestCase):
             result = asyncio.run(wrapped.send("chat-1", "hello"))
         self.assertFalse(result.success)
         self.assertEqual(outbox.calls[-1][0], "dead_letter")
+        # 必须显式带 allow_delivering=True，否则真实 Outbox 会拒绝 delivering → dead_letter
+        self.assertIs(outbox.calls[-1][3], True)
 
     def test_takeover_keeps_queued_push_ack(self):
         outbox = FakeOutbox({"relayMode": "takeover"})
@@ -116,6 +118,48 @@ class PassthroughSendTests(unittest.TestCase):
             result = asyncio.run(wrapped.send("chat-1", "hello"))
         self.assertEqual(result.message_id.startswith("butler:"), True)
         self.assertEqual(len(adapter.send_calls), 0)
+
+
+class PassthroughRealOutboxTests(unittest.TestCase):
+    """集成回归：真实 Outbox 状态机下，passthrough 原生发送失败必须落 dead_letter。"""
+
+    def test_failure_dead_letters_real_outbox(self):
+        import hashlib
+        import json
+        import tempfile
+
+        from agent_butler_bridge.outbox import Outbox
+
+        with tempfile.TemporaryDirectory() as tmp:
+            outbox = Outbox(Path(tmp) / "outbox.sqlite")
+            try:
+                payload = {"relayMode": "passthrough"}
+                payload_json = json.dumps(
+                    payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+                )
+                outbox.set_policy_snapshot(
+                    "policy-passthrough",
+                    hashlib.sha256(payload_json.encode("utf-8")).hexdigest(),
+                    payload,
+                )
+                adapter = FakeAdapter(SendResult(success=False, error="rate limited"))
+                registry, wrapped = _attached(outbox, adapter)
+                with message_context(inbound_message_id="inbound-1"):
+                    result = asyncio.run(wrapped.send("chat-1", "hello"))
+
+                self.assertFalse(result.success)
+                message = outbox.list_changes(0, 10)["items"][0]
+                self.assertEqual(message["state"], "dead_letter")
+                self.assertIn("rate limited", message["lastError"])
+                attempt = outbox._conn.execute(
+                    "SELECT finished_at, outcome FROM delivery_attempts WHERE attempt_id = ?",
+                    (f"passthrough:{message['messageId']}",),
+                ).fetchone()
+                self.assertIsNotNone(attempt)
+                self.assertIsNotNone(attempt["finished_at"])
+                self.assertEqual(attempt["outcome"], "failed")
+            finally:
+                outbox.close()
 
 
 class _HookOutbox(FakeOutbox):

@@ -729,6 +729,64 @@ class OutboxTest(unittest.TestCase):
                 "must not convert uncertainty",
             )
 
+    def test_dead_letter_from_delivering_with_allow_flag_finishes_attempt(self) -> None:
+        message = make_envelope("018bcfe5-6800-7000-8000-000000000504")
+        self.outbox.capture(message)
+        attempt_id = "attempt-passthrough-1"
+        self.outbox.begin_delivery(
+            message["messageId"],
+            attempt_id,
+            message["contentSha256"],
+            allow_captured=True,
+        )
+
+        dead = self.outbox.mark_dead_letter(
+            message["messageId"],
+            message["contentSha256"],
+            "native send failed: rate limited",
+            allow_delivering=True,
+        )
+
+        self.assertEqual(dead["state"], "dead_letter")
+        row = self.outbox.get(message["messageId"])
+        self.assertEqual(row["state"], "dead_letter")
+        self.assertIn("rate limited", row["lastError"])
+        attempt = self.outbox._conn.execute(
+            "SELECT finished_at, outcome, error FROM delivery_attempts WHERE attempt_id = ?",
+            (attempt_id,),
+        ).fetchone()
+        self.assertIsNotNone(attempt["finished_at"])
+        self.assertEqual(attempt["outcome"], "failed")
+        self.assertIn("rate limited", attempt["error"])
+        history = self.outbox.state_history(message["messageId"])
+        self.assertEqual(history[-1]["fromState"], "delivering")
+        self.assertEqual(history[-1]["toState"], "dead_letter")
+
+    def test_dead_letter_from_delivering_without_flag_is_rejected(self) -> None:
+        message = make_envelope("018bcfe5-6800-7000-8000-000000000505")
+        self.outbox.capture(message)
+        attempt_id = "attempt-passthrough-2"
+        self.outbox.begin_delivery(
+            message["messageId"],
+            attempt_id,
+            message["contentSha256"],
+            allow_captured=True,
+        )
+
+        with self.assertRaisesRegex(ValueError, "delivering"):
+            self.outbox.mark_dead_letter(
+                message["messageId"],
+                message["contentSha256"],
+                "native send failed",
+            )
+
+        self.assertEqual(self.outbox.get(message["messageId"])["state"], "delivering")
+        attempt = self.outbox._conn.execute(
+            "SELECT finished_at FROM delivery_attempts WHERE attempt_id = ?",
+            (attempt_id,),
+        ).fetchone()
+        self.assertIsNone(attempt["finished_at"])
+
     def test_task_results_can_be_finalized_and_duplicate_results_absorbed(self) -> None:
         started = self.outbox.begin_run(session_id="session-summary", run_id="run-summary")
         first = make_envelope("018bcfe5-6800-7000-8000-000000000601")
