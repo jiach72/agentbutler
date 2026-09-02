@@ -158,6 +158,12 @@ export interface ChannelDirectoryEntryView {
   account?: string;
 }
 
+/** 通道启停应答（镜像 Bridge 新契约）：restarting=false 表示已保存但未触发通道重启。 */
+export interface ChannelToggleAck {
+  restarting?: boolean;
+  warning?: string;
+}
+
 export interface MessageOverviewPayload {
   reachable: boolean;
   status: null | {
@@ -461,6 +467,40 @@ export function responseError(data: unknown): string {
   if (typeof detail === "string" && detail !== "") return detail;
   const error = body["error"];
   return typeof error === "string" ? error : "";
+}
+
+/** postJson 的 data 为 unknown：收敛为通道启停应答形状，不是对象时返回 null。 */
+export function channelToggleAck(data: unknown): ChannelToggleAck | null {
+  if (data === null || typeof data !== "object") return null;
+  return data as ChannelToggleAck;
+}
+
+/**
+ * 通道启停/配置启用成功后的警示文案：
+ * - Bridge 返回 warning（如停用被环境变量强制启用的通道）→ 原样展示；
+ * - restarting === false → 已保存但未触发重启，需要手动重启本机 AI。
+ * 返回需要 message.warning 逐条展示的文案列表（可能为空）。
+ */
+export function channelToggleWarnings(ack: ChannelToggleAck | null): string[] {
+  if (ack === null) return [];
+  const notices: string[] = [];
+  if (typeof ack.warning === "string" && ack.warning.trim() !== "") notices.push(ack.warning);
+  if (ack.restarting === false) {
+    notices.push("已保存，但未触发通道重启，需要手动重启本机 AI 后生效");
+  }
+  return notices;
+}
+
+/**
+ * 通道启停、接管切换、重新连接等简单动作的失败文案：
+ * 优先取响应体 error/detail（responseError，如 web 代理 502 {error}），
+ * 取不到（如 Bridge 503 {code:E302/E303} 只带 code）按状态码给通用文案；status=0 表示请求未送达。
+ */
+export function channelActionError(status: number, data: unknown): string {
+  const detail = responseError(data);
+  if (detail !== "") return detail;
+  if (status === 0) return "请求未送达，请确认管家服务正在运行";
+  return `操作失败（HTTP ${status}），请稍后重试`;
 }
 
 export function seedDrafts(current: PatchDrafts, patches: GatewayPatch[]): PatchDrafts {

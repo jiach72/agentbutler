@@ -2,10 +2,10 @@
  * 通道首次接入/配置弹窗：按 Bridge schema 动态渲染；secret 字段掩码、留空不修改。
  * 保存 → 启用 → Bridge 触发优雅重启 → 轮询目录直至通道上线或超时提示。
  */
-import { Alert, Form, Input, Modal, Typography } from "antd";
+import { Alert, App, Form, Input, Modal, Typography } from "antd";
 import { useEffect, useState } from "react";
 import { fetchJson, postJson } from "../../lib/api.js";
-import { responseError } from "./helpers.js";
+import { channelToggleAck, channelToggleWarnings, responseError } from "./helpers.js";
 
 interface ChannelConfigModalProps {
   channel: string;
@@ -29,6 +29,7 @@ interface SchemaView {
 }
 
 export function ChannelConfigModal({ channel, label, onClose, onApplied }: ChannelConfigModalProps) {
+  const { message } = App.useApp();
   const [schema, setSchema] = useState<SchemaView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
@@ -63,7 +64,15 @@ export function ChannelConfigModal({ channel, label, onClose, onApplied }: Chann
         setError(detail !== "" ? `保存失败：${detail}` : `保存失败（HTTP ${saved.status}）`);
         return;
       }
-      await postJson(`/api/messages/channels/${encodeURIComponent(channel)}/enable`, {}, 10_000);
+      const enabled = await postJson(`/api/messages/channels/${encodeURIComponent(channel)}/enable`, {}, 10_000);
+      if (!enabled.ok) {
+        const detail = responseError(enabled.data);
+        setError(detail !== "" ? `启用失败：${detail}` : `启用失败（HTTP ${enabled.status}）`);
+        return; // 保持弹窗打开，不进入 watchChannel 轮询
+      }
+      for (const notice of channelToggleWarnings(channelToggleAck(enabled.data))) {
+        message.warning(notice);
+      }
       onApplied();
     } finally {
       setApplying(false);

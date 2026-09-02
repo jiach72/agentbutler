@@ -70,6 +70,9 @@ export function GatewayPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  // 上一次 refresh 是否失败；初始视为失败，保证首次加载有 loading 遮罩。
+  // 成功轮询不再置 loading，避免「正在同步」每 10 秒跳动。
+  const prevRefreshFailedRef = useRef(true);
   const [promptFlash, setPromptFlash] = useState(false);
   const promptFlashTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -100,7 +103,7 @@ export function GatewayPage() {
   }, []);
 
   const refresh = useCallback(async () => {
-    setLoading(true);
+    if (prevRefreshFailedRef.current) setLoading(true);
     const [payload, messages] = await Promise.all([
       fetchJson<GatewayPayload>("/api/gateway"),
       fetchJson<MessageOverviewPayload>("/api/messages/overview?limit=60"),
@@ -118,8 +121,10 @@ export function GatewayPage() {
         return messages.messages.items[0]?.messageId ?? null;
       });
     }
+    const failed = payload === null || messages === null;
     if (payload !== null || messages !== null) setLastUpdated(new Date());
-    setLoadError(payload === null || messages === null);
+    prevRefreshFailedRef.current = failed;
+    setLoadError(failed);
     setLoading(false);
   }, []);
 
@@ -319,12 +324,13 @@ export function GatewayPage() {
   const bridgeReady =
     messageBridge?.connected === true && messageBridge.attached && messageBridge.outboxWritable;
   const reconnectMessages = async () => {
-    try {
-      await postJson("/api/messages/reconnect", {}, 10_000);
+    // postJson 网络失败不抛异常（status=0），无需 try/catch；以状态码判断成败
+    const result = await postJson("/api/messages/reconnect", {}, 10_000);
+    if (result.status === 200) {
       message.success("已请求重新连接，稍后刷新查看结果");
       await refresh();
-    } catch {
-      message.error("重新连接请求未送达，请稍后重试");
+    } else {
+      message.error("重新连接请求失败，请稍后重试");
     }
   };
 
@@ -395,7 +401,7 @@ export function GatewayPage() {
           />
         )}
 
-        <ChannelGrid refreshedAt={lastUpdated} onReconnect={() => void reconnectMessages()} />
+        <ChannelGrid onReconnect={() => void reconnectMessages()} />
 
         <ConnectionHealth
           messageBridge={messageBridge}
