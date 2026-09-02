@@ -131,8 +131,18 @@ class EffectiveEnabledTests(unittest.TestCase):
         self.assertTrue(self.control.env_forces_enabled("qqbot"))
         self.assertTrue(self.control.env_forces_enabled("yuanbao"))
 
-    def test_plugin_channels_have_no_env_force_keys(self):
+    def test_plugin_channels_env_keys_force_enabled(self):
+        # Hermes 对插件平台同样有 env 强制启用块（config.py:2319/2339/2367）。
+        (self.home / ".env").write_text(
+            "WECOM_BOT_ID=redacted\nDINGTALK_CLIENT_ID=redacted\nFEISHU_APP_ID=redacted\n",
+            encoding="utf-8",
+        )
         for channel in ("feishu", "dingtalk", "wecom"):
+            self.assertTrue(self.control.env_forces_enabled(channel))
+            self.assertTrue(self.control._is_enabled(channel, {}))
+
+    def test_all_six_channels_without_env_keys_are_not_forced(self):
+        for channel in ("feishu", "dingtalk", "wecom", "weixin", "qqbot", "yuanbao"):
             self.assertFalse(self.control.env_forces_enabled(channel))
 
 

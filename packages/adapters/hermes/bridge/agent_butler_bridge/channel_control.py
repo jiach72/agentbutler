@@ -66,13 +66,16 @@ def default_hermes_home() -> Path:
     return Path(os.environ.get("HERMES_HOME") or (Path(os.environ.get("HOME") or Path.home()) / ".hermes"))
 
 
-# Hermes 侧核心平台存在 env 强制启用块（hermes-agent gateway/config.py）：
+# Hermes 侧各平台存在 env 强制启用块（hermes-agent gateway/config.py 1900-2534）：
 # 任一键在 ~/.hermes/.env 中带非空值即无条件 enabled=True（优先于 YAML 显式停用）。
 # 只做键存在性检查，绝不读取/输出值。
 _ENV_FORCE_KEYS: dict[str, tuple[str, ...]] = {
     "weixin": ("WEIXIN_TOKEN", "WEIXIN_ACCOUNT_ID"),
     "qqbot": ("QQ_APP_ID", "QQ_CLIENT_SECRET"),
     "yuanbao": ("YUANBAO_APP_ID", "YUANBAO_APP_SECRET"),
+    "wecom": ("WECOM_BOT_ID", "WECOM_SECRET"),
+    "dingtalk": ("DINGTALK_CLIENT_ID", "DINGTALK_CLIENT_SECRET"),
+    "feishu": ("FEISHU_APP_ID", "FEISHU_APP_SECRET"),
 }
 
 
