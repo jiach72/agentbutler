@@ -36,6 +36,9 @@ interface MessageInspectorProps {
   taskLoading: boolean;
 }
 
+/** 列表与详情两栏的固定高度：超出部分卡片内部滚动，避免长列表把页面拉长。 */
+const MESSAGE_LIST_HEIGHT = 560;
+
 /** tone → 圆点颜色（全部走 antd CSS 变量，不硬编码色值）。 */
 const TONE_DOT_COLOR: Record<string, string> = {
   ok: "var(--ant-color-success)",
@@ -163,6 +166,8 @@ export function MessageInspector({
                 按时间从新到旧
               </Typography.Text>
             }
+            style={{ height: MESSAGE_LIST_HEIGHT, display: "flex", flexDirection: "column" }}
+            styles={{ body: { flex: 1, minHeight: 0, overflowY: "auto" } }}
           >
             {messageItems.length === 0 ? (
               <Empty
@@ -223,7 +228,12 @@ export function MessageInspector({
           </Card>
         </Col>
         <Col xs={24} lg={14}>
-          <Card size="small" aria-label="所选消息详情">
+          <Card
+            size="small"
+            aria-label="所选消息详情"
+            style={{ height: MESSAGE_LIST_HEIGHT, display: "flex", flexDirection: "column" }}
+            styles={{ body: { flex: 1, minHeight: 0, overflowY: "auto" } }}
+          >
             {selectedMessage === null ? (
               <Empty
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
