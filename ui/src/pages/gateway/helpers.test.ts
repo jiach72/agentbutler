@@ -5,6 +5,9 @@ import {
   channelKindLabel,
   channelToggleAck,
   channelToggleWarnings,
+  filterHistoryByDay,
+  historyDayOptions,
+  historySummaryLine,
   loginStateCopy,
   relayModeCopy,
 } from "./helpers.js";
@@ -67,5 +70,36 @@ describe("channelActionError", () => {
   });
   it("status=0 表示请求未送达", () => {
     expect(channelActionError(0, null)).toBe("请求未送达，请确认管家服务正在运行");
+  });
+});
+
+describe("对照历史日期分组与摘要", () => {
+  const now = new Date();
+  const iso = (offsetMs: number) => new Date(Date.now() + offsetMs).toISOString();
+  const items = [
+    { inbound: { receivedAt: iso(0) } },
+    { inbound: { receivedAt: iso(-3_600_000) } },
+    { inbound: { receivedAt: iso(-86_400_000) } },
+    { inbound: { receivedAt: "not-a-date" } },
+  ];
+
+  it("historyDayOptions 按天聚合并把最近一天标为今天", () => {
+    const options = historyDayOptions(items);
+    expect(options[0].label.startsWith("今天")).toBe(true);
+    expect(options[0].count).toBe(2);
+    expect(options[1].label.startsWith("昨天")).toBe(true);
+    expect(options.reduce((sum, o) => sum + o.count, 0)).toBe(3);
+  });
+
+  it("filterHistoryByDay 只保留所选日期，null 表示全部", () => {
+    const day = historyDayOptions(items)[0]?.key ?? null;
+    expect(filterHistoryByDay(items, day)).toHaveLength(2);
+    expect(filterHistoryByDay(items, null)).toHaveLength(4);
+  });
+
+  it("historySummaryLine 取首个非空行并截断", () => {
+    expect(historySummaryLine("\n  第二行内容\n第三行")).toBe("第二行内容");
+    expect(historySummaryLine("x".repeat(80))).toHaveLength(65);
+    expect(historySummaryLine("")).toBe("（图片或语音消息，没有文字）");
   });
 });

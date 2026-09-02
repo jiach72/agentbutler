@@ -12,14 +12,16 @@ import {
   Col,
   Empty,
   Flex,
+  Pagination,
   Row,
+  Select,
   Statistic,
   Table,
   Tag,
   Typography,
 } from "antd";
 import type { TableColumnsType } from "antd";
-import { ArrowRightOutlined } from "@ant-design/icons";
+import { ArrowRightOutlined, DownOutlined, UpOutlined } from "@ant-design/icons";
 import { TrendCard, ChartEmpty, TrendColumn } from "../../components/charts/index.js";
 import {
   chartThemeFor,
@@ -33,6 +35,7 @@ import { ConnectionChip } from "../../components/ConnectionChip.js";
 import { fetchJson, loadJson, postJson, type FetchState } from "../../lib/api.js";
 import { formatTime } from "../../lib/format.js";
 import { usePolling } from "../../hooks/usePolling.js";
+import { filterHistoryByDay, historyDayOptions, historySummaryLine } from "./helpers.js";
 
 const { Paragraph, Text, Title } = Typography;
 
@@ -130,8 +133,8 @@ interface OptimizationHistoryPayload {
   items: InboundHistoryEntry[];
 }
 
-/** Badge 状态语义：成功 / 进行中 / 失败 / 中性。 */
-type ToneStatus = "success" | "processing" | "error" | "default";
+/** Badge 状态语义：成功 / 进行中 / 警示 / 失败 / 中性。 */
+type ToneStatus = "success" | "processing" | "warning" | "error" | "default";
 
 function promptTargetLabel(targetId: string): string {
   const labels: Record<string, string> = {
@@ -151,22 +154,18 @@ function promptFormatLabel(format: string): string {
 
 function gateStatus(status: string): ToneStatus {
   if (status === "ok") return "success";
-  if (
-    status === "missing" ||
-    status === "hash-mismatch" ||
-    status === "protected-clause-mismatch"
-  ) {
-    return "error";
-  }
-  return "processing";
+  // 手动修改/保护段改动是正常使用现象，不是错误——用警示黄而不是红。
+  if (status === "hash-mismatch" || status === "protected-clause-mismatch") return "warning";
+  if (status === "missing") return "error";
+  return "default";
 }
 
 function gateLabel(status: string): string {
   const labels: Record<string, string> = {
-    ok: "通过",
-    missing: "规则文件缺失",
-    "hash-mismatch": "文件被改过",
-    "protected-clause-mismatch": "必须保留的内容被改过",
+    ok: "与官方版本一致",
+    missing: "目标文件缺失",
+    "hash-mismatch": "文件有手动修改（正常）",
+    "protected-clause-mismatch": "关键段有改动，自动采用已暂停",
     "unknown-target": "未登记",
   };
   return labels[status] ?? "需检查";
@@ -174,16 +173,17 @@ function gateLabel(status: string): string {
 
 function candidateStatus(status: string): ToneStatus {
   if (status === "approval-pending" || status === "pending-evaluation") return "processing";
-  if (status === "rejected-static" || status === "rejected-quality") return "error";
+  // 未采用的候选是正常筛选结果，不是错误。
+  if (status === "rejected-static" || status === "rejected-quality") return "default";
   return "success";
 }
 
 function candidateLabel(status: string): string {
   const labels: Record<string, string> = {
-    "pending-evaluation": "等待测试",
+    "pending-evaluation": "测试中",
     "approval-pending": "等待确认",
-    "rejected-static": "检查未通过",
-    "rejected-quality": "测试未通过",
+    "rejected-static": "未采用（检查未通过）",
+    "rejected-quality": "未采用（测试未通过）",
     "kept-baseline": "保留当前版本",
     promoted: "已正式采用",
   };
@@ -314,6 +314,9 @@ export function PromptOptimizationPanel() {
   const [history, setHistory] = useState<FetchState<OptimizationHistoryPayload>>({ status: "loading" });
   const [promotingCandidateId, setPromotingCandidateId] = useState<string | null>(null);
   const [promotionNotice, setPromotionNotice] = useState<string | null>(null);
+  const [historyDay, setHistoryDay] = useState<string | null>(null);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(new Set());
 
   const refresh = useCallback(async () => {
     const payload = await fetchJson<PromptPayload>("/api/prompt-optimization");
@@ -327,7 +330,7 @@ export function PromptOptimizationPanel() {
 
   const refreshHistory = useCallback(async () => {
     const payload = await loadJson<OptimizationHistoryPayload>(
-      "/api/messages/optimization-history?limit=300",
+      "/api/messages/optimization-history?limit=100",
     );
     setHistory(payload.ok ? { status: "ready", data: payload.data } : { status: "failed", reason: payload.reason });
   }, []);
@@ -371,12 +374,32 @@ export function PromptOptimizationPanel() {
     refreshAll();
   }, [refreshAll]);
 
-  usePolling(refreshAll, 10_000);
+  // 对照历史不是实时关键数据，降频轮询即可。
+  usePolling(refreshAll, 60_000);
 
   const now = new Date();
   const { mode } = useTheme();
   const chartTheme = useMemo(() => chartThemeFor(mode), [mode]);
   const historyData = history.status === "ready" ? history.data : null;
+  const historyItems = historyData?.items ?? [];
+  const historyPageSize = 8;
+  const historyDays = useMemo(() => historyDayOptions(historyItems), [historyItems]);
+  const filteredHistory = useMemo(
+    () => filterHistoryByDay(historyItems, historyDay),
+    [historyItems, historyDay],
+  );
+  const pagedHistory = useMemo(() => {
+    const start = (historyPage - 1) * historyPageSize;
+    return filteredHistory.slice(start, start + historyPageSize);
+  }, [filteredHistory, historyPage]);
+  const toggleHistoryExpanded = useCallback((id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
   const trend = useMemo(() => buildOptimizationTrend(historyData?.items ?? []), [historyData]);
   const trendSeries = useMemo(
     () =>
@@ -512,98 +535,157 @@ export function PromptOptimizationPanel() {
         />
       )}
 
-      {history.status === "ready" && history.data.reachable && history.data.items.length > 0 && (
+      {history.status === "ready" && history.data.reachable && historyItems.length > 0 && (
         <Flex vertical gap={12}>
-          {history.data.items.map((item) => {
+          <Flex wrap justify="space-between" align="center" gap={12}>
+            <Select
+              aria-label="按日期筛选对照历史"
+              value={historyDay ?? "all"}
+              onChange={(value) => {
+                setHistoryDay(value === "all" ? null : value);
+                setHistoryPage(1);
+              }}
+              options={[
+                { value: "all", label: `全部日期（${historyItems.length} 条）` },
+                ...historyDays.map((day) => ({ value: day.key, label: day.label })),
+              ]}
+              style={{ minWidth: 190 }}
+              size="small"
+            />
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              默认收起，点击单条展开全文对照
+            </Text>
+          </Flex>
+
+          {filteredHistory.length === 0 && (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="这一天没有消息记录。" />
+          )}
+
+          {pagedHistory.map((item) => {
             const hasDecision = item.decision !== null;
             const mode = item.decision?.mode;
             const pendingText = missingDecisionLabel(item, now);
             const original = item.inbound.content;
             const optimized = item.decision?.optimizedText ?? original;
             const changed = hasDecision && optimized !== original;
+            const isExpanded = expandedIds.has(item.inboundMessageId);
             return (
               <Card size="small" key={item.inboundMessageId}>
-                <Flex vertical gap={12}>
-                  <Flex wrap gap={8} align="center">
-                    <Text strong>{channelLabel(item.inbound.channel)}</Text>
-                    <Text type="secondary">{formatTime(item.inbound.receivedAt)}</Text>
-                    <Badge
-                      status={modeStatus(mode, hasDecision, pendingText)}
-                      text={modeLabel(mode, hasDecision, pendingText)}
-                    />
-                    {!hasDecision && pendingText === "正在处理" && (
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        对照结果稍后自动出现
-                      </Text>
-                    )}
-                  </Flex>
-                  <Flex gap={12} align="center">
-                    <div
-                      style={{
-                        flex: 1,
-                        minWidth: 0,
-                        background: "var(--ant-color-fill-tertiary)",
-                        padding: 12,
-                        borderRadius: 8,
-                      }}
-                    >
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        你发的原文
-                      </Text>
-                      <Paragraph style={{ marginBottom: 0 }}>
-                        {original || "（图片或语音消息，没有文字）"}
-                      </Paragraph>
-                    </div>
-                    <ArrowRightOutlined
-                      aria-hidden="true"
-                      style={{ color: "var(--ant-color-text-quaternary)", flexShrink: 0 }}
-                    />
-                    <div
-                      style={{
-                        flex: 1,
-                        minWidth: 0,
-                        background: changed
-                          ? "var(--ant-color-primary-bg)"
-                          : "var(--ant-color-fill-tertiary)",
-                        padding: 12,
-                        borderRadius: 8,
-                      }}
-                    >
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        整理后的内容
-                      </Text>
-                      <Paragraph style={{ marginBottom: 0 }}>
-                        {optimized || "（无文字内容）"}
-                      </Paragraph>
-                      {!changed && hasDecision && (
-                        <Text type="secondary" style={{ fontSize: 12 }}>
-                          没有改动，原样发送
-                        </Text>
-                      )}
-                    </div>
-                  </Flex>
-                  {hasDecision && (item.decision?.changes?.length ?? 0) > 0 && (
-                    <Flex wrap gap={4} align="center">
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        改动要点
-                      </Text>
-                      {(item.decision?.changes ?? []).map((change) => (
-                        <Tag key={change}>{change}</Tag>
-                      ))}
+                <Flex
+                  vertical
+                  gap={12}
+                  onClick={() => toggleHistoryExpanded(item.inboundMessageId)}
+                  style={{ cursor: "pointer" }}
+                  role="button"
+                  aria-expanded={isExpanded}
+                >
+                  <Flex wrap gap={8} align="center" justify="space-between">
+                    <Flex wrap gap={8} align="center">
+                      <Text strong>{channelLabel(item.inbound.channel)}</Text>
+                      <Text type="secondary">{formatTime(item.inbound.receivedAt)}</Text>
+                      <Badge
+                        status={modeStatus(mode, hasDecision, pendingText)}
+                        text={modeLabel(mode, hasDecision, pendingText)}
+                      />
                     </Flex>
+                    <Text type="secondary" style={{ fontSize: 12 }} aria-hidden="true">
+                      {isExpanded ? "收起" : "展开对照"}
+                      {isExpanded ? <UpOutlined style={{ marginLeft: 4 }} /> : <DownOutlined style={{ marginLeft: 4 }} />}
+                    </Text>
+                  </Flex>
+                  {!isExpanded && (
+                    <Text
+                      type="secondary"
+                      style={{ marginBottom: 0, display: "block" }}
+                      ellipsis={{ tooltip: historySummaryLine(item.inbound.content) }}
+                    >
+                      {historySummaryLine(item.inbound.content)}
+                    </Text>
+                  )}
+                  {isExpanded && (
+                    <>
+                      <Flex gap={12} align="center">
+                        <div
+                          style={{
+                            flex: 1,
+                            minWidth: 0,
+                            background: "var(--ant-color-fill-tertiary)",
+                            padding: 12,
+                            borderRadius: 8,
+                          }}
+                        >
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            你发的原文
+                          </Text>
+                          <Paragraph style={{ marginBottom: 0 }}>
+                            {original || "（图片或语音消息，没有文字）"}
+                          </Paragraph>
+                        </div>
+                        <ArrowRightOutlined
+                          aria-hidden="true"
+                          style={{ color: "var(--ant-color-text-quaternary)", flexShrink: 0 }}
+                        />
+                        <div
+                          style={{
+                            flex: 1,
+                            minWidth: 0,
+                            background: changed
+                              ? "var(--ant-color-primary-bg)"
+                              : "var(--ant-color-fill-tertiary)",
+                            padding: 12,
+                            borderRadius: 8,
+                          }}
+                        >
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            整理后的内容
+                          </Text>
+                          <Paragraph style={{ marginBottom: 0 }}>
+                            {optimized || "（无文字内容）"}
+                          </Paragraph>
+                          {!changed && hasDecision && (
+                            <Text type="secondary" style={{ fontSize: 12 }}>
+                              没有改动，原样发送
+                            </Text>
+                          )}
+                        </div>
+                      </Flex>
+                      {hasDecision && (item.decision?.changes?.length ?? 0) > 0 && (
+                        <Flex wrap gap={4} align="center">
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            改动要点
+                          </Text>
+                          {(item.decision?.changes ?? []).map((change) => (
+                            <Tag key={change}>{change}</Tag>
+                          ))}
+                        </Flex>
+                      )}
+                    </>
                   )}
                 </Flex>
               </Card>
             );
           })}
+
+          <Pagination
+            align="end"
+            current={historyPage}
+            pageSize={historyPageSize}
+            total={filteredHistory.length}
+            onChange={(page) => setHistoryPage(page)}
+            hideOnSinglePage
+            showSizeChanger={false}
+            size="small"
+          />
         </Flex>
       )}
 
       <AdvancedDetails
         summary={
           <>
-            <strong>高级：规则文件改进记录</strong>
-            <small>管家提示词文件的当前版本、检查结果和经过正式评估的改进</small>
+            <strong>提示词版本管理（实验功能）</strong>
+            <small>
+              管家提示词与内置版本的差异对比。这里的「文件有手动修改」「关键段有改动」都是正常使用现象，不是错误；只有「目标文件缺失」才需要处理。
+            </small>
           </>
         }
       >
@@ -660,7 +742,7 @@ export function PromptOptimizationPanel() {
                     ),
                   },
                   {
-                    title: "检查结果",
+                    title: "文件状态",
                     width: 220,
                     render: (_, target) => (
                       <Flex vertical gap={2}>

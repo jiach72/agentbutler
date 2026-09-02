@@ -547,3 +547,51 @@ export function instanceKeyOf(selectedInstance: string): string {
 export function patchBusyKey(action: PatchAction, patchId: string, instKey: string): string {
   return `${action}:${instKey}:${patchId}`;
 }
+
+/* ---- 消息整理对照历史：日期分组 / 筛选 / 折叠摘要 ---- */
+
+/** 本地时区的年月日键（YYYY-MM-DD）；无效时间返回 null。 */
+export function historyDayKey(value: string): string | null {
+  const time = new Date(value);
+  if (Number.isNaN(time.getTime())) return null;
+  const month = String(time.getMonth() + 1).padStart(2, "0");
+  const day = String(time.getDate()).padStart(2, "0");
+  return `${time.getFullYear()}-${month}-${day}`;
+}
+
+/** 按日期（新→旧）聚合对照历史，生成日期快筛选项；label 对今天/昨天做特殊标注。 */
+export function historyDayOptions(
+  items: ReadonlyArray<{ inbound: { receivedAt: string } }>,
+): Array<{ key: string; label: string; count: number }> {
+  const nowKey = historyDayKey(new Date().toISOString());
+  const yesterdayKey = historyDayKey(new Date(Date.now() - 86_400_000).toISOString());
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const key = historyDayKey(item.inbound.receivedAt);
+    if (key === null) continue;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => (a[0] < b[0] ? 1 : -1))
+    .map(([key, count]) => {
+      const suffix = `${key.slice(5, 7)}月${key.slice(8, 10)}日`;
+      const label = key === nowKey ? `今天（${suffix}）` : key === yesterdayKey ? `昨天（${suffix}）` : suffix;
+      return { key, label: `${label} · ${count} 条`, count };
+    });
+}
+
+/** 按日期键筛选；day 为 null 表示全部。 */
+export function filterHistoryByDay<T extends { inbound: { receivedAt: string } }>(
+  items: ReadonlyArray<T>,
+  day: string | null,
+): Array<T> {
+  if (day === null) return [...items];
+  return items.filter((item) => historyDayKey(item.inbound.receivedAt) === day);
+}
+
+/** 折叠态单行摘要：取第一条非空行，超长截断。 */
+export function historySummaryLine(content: string, max = 64): string {
+  const firstLine = (content.split("\n").find((line) => line.trim() !== "") ?? "").trim();
+  if (firstLine === "") return "（图片或语音消息，没有文字）";
+  return firstLine.length > max ? `${firstLine.slice(0, max)}…` : firstLine;
+}
