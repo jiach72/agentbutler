@@ -61,6 +61,8 @@ export class MessageGatewayService {
   private policyInstalled = false;
   private lastCycleAt: string | null = null;
   private lastError: string | null = null;
+  /** 串行化所有策略安装的 promise 链（HTTP 更新、接管开关、周期重装共用）。 */
+  private policyChain: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly options: MessageGatewayServiceOptions) {
     this.intervalMs = options.intervalMs ?? 1_000;
@@ -114,6 +116,24 @@ export class MessageGatewayService {
   }
 
   async updatePolicy(config: MessagePolicyConfig): Promise<PolicySnapshot> {
+    return this.serializePolicyInstall(() => this.installPolicy(config));
+  }
+
+  /**
+   * 所有 updatePolicy 调用（HTTP 触发、setRelayEnabled、performCycle 重装）都通过
+   * 同一条 promise 链排队执行，防止并发请求交错导致 Bridge 最终模式 / UI / store
+   * 三方矛盾。
+   */
+  private serializePolicyInstall<T>(operation: () => Promise<T>): Promise<T> {
+    const run = this.policyChain.then(operation, operation);
+    this.policyChain = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  private async installPolicy(config: MessagePolicyConfig): Promise<PolicySnapshot> {
     // relayMode 以服务内当前生效开关为准（构造时从 store 恢复、setRelayEnabled 更新），
     // 避免旧策略回灌或并发更新悄悄翻转用户的接管意图。
     const snapshot = createPolicySnapshot({ ...config, relayMode: this.config.relayMode });
@@ -131,7 +151,18 @@ export class MessageGatewayService {
     this.config = policyConfigFromSnapshot(stored);
     this.policyInstalled = true;
     this.bridgeConnected = true;
+    this.reconcileRelayPending();
     return stored;
+  }
+
+  /**
+   * 策略确认生效后对账一键接管开关：离线切换遗留的 pending（包括请求超时被归为
+   * E302 但实际已生效的场景）按 store 当前意图清账，UI 不再永远显示「切换中」。
+   */
+  private reconcileRelayPending(): void {
+    const relay = this.options.store.getRelayControl();
+    if (!relay.pending) return;
+    this.options.store.setRelayControl(relay.enabled, false, this.clock().toISOString());
   }
 
   /** 一键接管切换：先落盘用户意图，再推策略；Bridge 离线时保持 pending，重连自动生效。 */
