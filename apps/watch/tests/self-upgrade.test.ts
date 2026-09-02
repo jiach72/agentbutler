@@ -112,7 +112,8 @@ describe("管家自身版本管理服务", () => {
     expect(status.repoClean).toBe(true);
     expect(status.remoteConfigured).toBe(true);
     expect(status.availableUpdates[0]?.version).toBe("0.2.0");
-    expect(status.prefs.channel).toBe("stable");
+    // 默认通道为 beta（本项目发布全部为 -beta 标签）。
+    expect(status.prefs.channel).toBe("beta");
     expect(status.snapshots).toEqual([]);
     expect(status.snapshotRetention).toBe(3);
   });

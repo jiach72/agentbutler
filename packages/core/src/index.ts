@@ -31,7 +31,7 @@ export * from "./atomic-write.js";
 export * from "./operation-lock.js";
 export * from "./user-facing-error.js";
 
-export const CORE_VERSION = `core@1.0.0-beta.23+${CONTRACT_VERSION}`;
+export const CORE_VERSION = `core@1.0.0-beta.24+${CONTRACT_VERSION}`;
 
 export interface CoreOptions {
   /** 覆盖 Butler 主目录（测试注入）；缺省 resolveButlerHome()。 */

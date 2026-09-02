@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { App, Card, Flex } from "antd";
 import { PageProgress, type PageProgressStep } from "../../components/PageProgress.js";
+import { AdvancedDetails } from "../../components/AdvancedDetails.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
 import { useTheme } from "../../theme/ThemeProvider.js";
@@ -380,47 +381,59 @@ export function VersionsPanel() {
           />
         </Card>
 
-        <Card title="当前使用的版本">
-          <ManagedInstances instances={instances} />
+        <Card title="受管实例与可升级版本">
+          <Flex vertical gap={16}>
+            <ManagedInstances instances={instances} />
+            <CandidateList
+              available={available}
+              watchReachable={data?.watchReachable}
+              instances={instances}
+              targetInstance={targetInstance}
+              currentVersion={currentVersion}
+              candidates={upgradeCandidates}
+              launchPending={managedUpgradePending !== null}
+              jobRunning={job?.status === "running"}
+              onSelectInstance={setSelectedInstance}
+              onUpgrade={requestUpgrade}
+              onRefresh={() => void refresh()}
+            />
+          </Flex>
         </Card>
 
-        <Card title="最新可升级版本">
-          <CandidateList
-            available={available}
-            watchReachable={data?.watchReachable}
-            instances={instances}
-            targetInstance={targetInstance}
-            currentVersion={currentVersion}
-            candidates={upgradeCandidates}
-            launchPending={managedUpgradePending !== null}
-            jobRunning={job?.status === "running"}
-            onSelectInstance={setSelectedInstance}
-            onUpgrade={requestUpgrade}
-            onRefresh={() => void refresh()}
-          />
-        </Card>
+        {(job?.status === "running" || managedUpgradePending !== null) && (
+          <Card title="升级进度">
+            <UpgradePipeline
+              job={job}
+              launchPending={managedUpgradePending !== null}
+              progress={upgradeProgress}
+            />
+          </Card>
+        )}
 
-        <Card title="升级进度">
-          <UpgradePipeline
-            job={job}
-            launchPending={managedUpgradePending !== null}
-            progress={upgradeProgress}
-          />
-        </Card>
-
-        <Card title="升级前检查">
-          <PrecheckList step={precheckStep} precheck={precheck} />
-        </Card>
-
-        <BackupCadenceChart
-          snapshots={snapshots}
-          selfSnapshots={butlerSelf?.snapshots ?? []}
-          mode={mode}
-        />
+        {precheckStep !== null && (
+          <Card title="升级前检查">
+            <PrecheckList step={precheckStep} precheck={precheck} />
+          </Card>
+        )}
 
         <Card title="退回上一版本">
           <SnapshotRollback snapshot={previousSnapshot} onRollback={requestRollback} />
         </Card>
+
+        <AdvancedDetails
+          summary={
+            <>
+              <strong>备份节奏</strong>
+              <small>管家与自身升级的备份频率趋势（高级）</small>
+            </>
+          }
+        >
+          <BackupCadenceChart
+            snapshots={snapshots}
+            selfSnapshots={butlerSelf?.snapshots ?? []}
+            mode={mode}
+          />
+        </AdvancedDetails>
 
         {confirmAction !== null && (
           <DangerConfirmModal

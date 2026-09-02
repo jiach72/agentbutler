@@ -648,8 +648,9 @@ export function createButlerSelfUpgradeService(
 
   function prefs(): ButlerSelfPrefs {
     const value = readJson<Partial<ButlerSelfPrefs>>(prefsFile, {});
+    // 本项目发布全部为 -beta 标签，默认通道必须是 beta，否则更新候选永远为空。
     return {
-      channel: value.channel === "beta" ? "beta" : "stable",
+      channel: value.channel === "stable" ? "stable" : "beta",
       locked: value.locked === true,
     };
   }
