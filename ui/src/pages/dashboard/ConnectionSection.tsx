@@ -15,6 +15,7 @@ import {
   Row,
   Space,
   Tag,
+  Tooltip,
   Typography,
 } from "antd";
 import { CopyOutlined, DisconnectOutlined, LinkOutlined, ReloadOutlined } from "@ant-design/icons";
@@ -228,56 +229,41 @@ export function ConnectionSection({
                       </Flex>
                       <Descriptions
                         size="small"
-                        column={2}
+                        column={1}
                         className="dense-descriptions"
                         items={[
                           {
                             key: "runtime",
                             label: "运行环境",
-                            children: instanceRuntimeLabel(connection.runtime),
-                          },
-                          {
-                            key: "version",
-                            label: "版本",
-                            children: connection.version ?? "版本未知",
-                          },
-                          {
-                            key: "latency",
-                            label: "响应延迟",
-                            children: connection.latencyMs === null ? "尚未测延迟" : `${connection.latencyMs}ms`,
-                          },
-                          {
-                            key: "reachable",
-                            label: "可达状态",
-                            children: connection.connected ? "服务可达" : connection.connectionState === "checking" ? "正在探测" : "服务不可达",
-                          },
-                          {
-                            key: "root",
-                            label: "数据目录",
-                            children: <span title={connection.rootPath}>{connection.rootPath || "未配置目录"}</span>,
-                          },
-                          {
-                            key: "lastChecked",
-                            label: "最近检查",
-                            children: formatRelative(connection.lastCheckedAt),
-                          },
-                          {
-                            key: "lastAction",
-                            label: "最近动作",
-                            children: formatRelative(connection.lastActionAt),
+                            children: `${instanceRuntimeLabel(connection.runtime)} · ${
+                              connection.version ?? "版本未知"
+                            } · 延迟 ${
+                              connection.latencyMs === null ? "未测" : `${connection.latencyMs}ms`
+                            } · 最近检查 ${formatRelative(connection.lastCheckedAt)}`,
                           },
                         ]}
                       />
                       {connection.lastError !== null && <Text type="danger">{connection.lastError}</Text>}
                       {connection.checks.length > 0 && (
-                        <Flex vertical gap={4}>
+                        <Flex wrap gap={12} align="center">
                           {connection.checks.slice(0, 6).map((check) => {
                             const badge = quickProbeBadge(check.status);
                             return (
-                              <Flex justify="space-between" align="center" gap={8} key={`${connection.instanceId}-${check.id}`}>
-                                <Text type="secondary">{check.label}</Text>
-                                <StatusBadge tone={badge.tone} label={badge.label} />
-                              </Flex>
+                              <Tooltip
+                                key={`${connection.instanceId}-${check.id}`}
+                                title={
+                                  check.detail === undefined || check.detail === ""
+                                    ? `${check.label}：${badge.label}${check.durationMs === undefined ? "" : `（${check.durationMs}ms）`}`
+                                    : `${check.label}：${check.detail}`
+                                }
+                              >
+                                <Flex align="center" gap={4}>
+                                  <Text type="secondary" style={{ fontSize: 13 }}>
+                                    {check.label}
+                                  </Text>
+                                  <StatusBadge tone={badge.tone} label={badge.label} />
+                                </Flex>
+                              </Tooltip>
                             );
                           })}
                         </Flex>
