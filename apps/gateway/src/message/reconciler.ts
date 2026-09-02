@@ -18,6 +18,16 @@ import type { MessagePolicyConfig } from "./types.js";
 
 const TASK_RESULT_STABILIZATION_MS = 500;
 
+/** content hash 对账后不重新决策的行状态：终态/投递中/未知，交由既有流程收敛。 */
+const NON_REDECIDABLE_STATES: ReadonlySet<string> = new Set([
+  "delivered",
+  "absorbed",
+  "dead_letter",
+  "cancelled",
+  "delivering",
+  "delivery_unknown",
+]);
+
 export class MessageWorkerError extends Error {
   constructor(operation: string, detail: string) {
     super(`${operation} failed: ${detail}`);
@@ -64,10 +74,14 @@ export class MessageReconciler {
       this.options.instance.instanceId,
     )[0];
     if (candidate === undefined || candidate.state === "delivery_unknown") return;
-    await this.processCandidate(candidate, now);
+    await this.processCandidate(candidate, now, batch.items);
   }
 
-  private async processCandidate(candidate: OutboxMessageView, now: string): Promise<void> {
+  private async processCandidate(
+    candidate: OutboxMessageView,
+    now: string,
+    batchItems: readonly OutboxMessageView[],
+  ): Promise<void> {
     const taskHold = this.taskCompletionHold(candidate, now);
     if (taskHold !== undefined) {
       await this.applyDecision(taskHold);
@@ -85,23 +99,62 @@ export class MessageReconciler {
       );
       return;
     }
-    let working = candidate;
-    const pending = this.options.store.pendingDecision(candidate.messageId);
-    let readyDecision: MessageDecision;
-    let readyRow: OutboxMessageView;
-    if (pending !== undefined) {
-      let replay: { row: OutboxMessageView; mismatch: boolean };
-      try {
-        replay = await this.applyDecision(pending);
-      } catch (error) {
-        const terminalState = terminalStateFromConflict(error);
-        if (terminalState === undefined) throw error;
+    // ready 决策 + Bridge 行 + 决策所依据的消息行；source 必须与决策同行，避免把
+    // 过期的 contentSha256 通过 appendTrace 写回新的 ready 决策。
+    const ready = await this.resolveReadyDecision(candidate, now, batchItems);
+    if (ready === undefined) return;
+    let readyDecision = ready.decision;
+    let readyRow = ready.row;
 
+    // Bridge's ready state is durable before channel readiness is probed. A replayed ready
+    // decision intentionally follows this same path so a restart cannot skip prewarm.
+    const prewarm = await this.prewarm(ready.source, now);
+    if (prewarm.hold !== undefined) {
+      await this.applyDecision(prewarm.hold);
+      return;
+    }
+    if (prewarm.trace.length > 0) {
+      readyDecision = appendTrace(ready.source, readyDecision, prewarm.trace);
+      const applied = await this.applyDecision(readyDecision);
+      if (applied.mismatch || applied.row.state !== "ready") return;
+      readyRow = applied.row;
+    }
+
+    // Preserve this exact ready request until delivery is acknowledged. Transport loss then
+    // causes the next cycle to replay it before another delivery attempt.
+    this.options.store.stageDecision(readyDecision.messageId, readyDecision);
+    await this.deliverReady(readyRow, now, readyDecision.decisionId);
+  }
+
+  /**
+   * Resolves the ready decision for the queue head from a pending replay or a fresh
+   * decision. Returns undefined when the head must not proceed this cycle.
+   */
+  private async resolveReadyDecision(
+    candidate: OutboxMessageView,
+    now: string,
+    batchItems: readonly OutboxMessageView[],
+  ): Promise<
+    | { decision: MessageDecision; row: OutboxMessageView; source: OutboxMessageView }
+    | undefined
+  > {
+    const pending = this.options.store.pendingDecision(candidate.messageId);
+    if (pending === undefined) {
+      const fresh = await this.decideAndApply(candidate, now);
+      return fresh === undefined ? undefined : { ...fresh, source: candidate };
+    }
+    let replay: { row: OutboxMessageView; mismatch: boolean };
+    try {
+      replay = await this.applyDecision(pending);
+    } catch (error) {
+      const terminalState = terminalStateFromConflict(error);
+      if (terminalState !== undefined) {
         // Another Bridge-side writer may have finalized this message (for example,
         // Hermes absorbing an older terminal result when a newer canonical result arrives).
         // Treat the 409 as an idempotent observation and heal the local projection so the
         // stale queue head cannot block newer messages forever.
-        const recoveredAt = terminalState === "delivered" ? candidate.deliveredAt ?? now : candidate.deliveredAt;
+        const recoveredAt =
+          terminalState === "delivered" ? candidate.deliveredAt ?? now : candidate.deliveredAt;
         this.options.store.updateRemoteView(
           {
             ...candidate,
@@ -116,58 +169,47 @@ export class MessageReconciler {
           },
           pending.decisionId,
         );
-        return;
+        return undefined;
       }
-      if (replay.mismatch) return;
-      if (pending.state === "ready") {
-        readyDecision = pending;
-        readyRow = replay.row;
-      } else {
-        // A held decision is only valid until its release time. Once the
-        // replay succeeds, discard that old hold and recompute policy so a
-        // stale queue head cannot block later terminal results forever.
-        this.options.store.clearPendingDecision(candidate.messageId);
-        working = replay.row;
-        const policy = this.decide(working, now);
-        for (const companion of policy.companionDecisions) {
-          const applied = await this.applyDecision(companion);
-          if (applied.mismatch) return;
-        }
-        const applied = await this.applyDecision(policy.decision);
-        if (applied.mismatch || applied.row.state !== "ready") return;
-        readyDecision = policy.decision;
-        readyRow = applied.row;
-      }
-    } else {
-      const policy = this.decide(working, now);
-      for (const companion of policy.companionDecisions) {
-        const applied = await this.applyDecision(companion);
-        if (applied.mismatch) return;
-      }
-      const applied = await this.applyDecision(policy.decision);
-      if (applied.mismatch || applied.row.state !== "ready") return;
-      readyDecision = policy.decision;
-      readyRow = applied.row;
+      if (!isContentHashConflict(error)) throw error;
+      // Hermes 编辑消息（managed_edit → update_pending_content）会改写内容/hash 但不清
+      // decision_id，回放的 staged 决策带着过期 expectedContentSha256 被 Bridge 以
+      // 409 "content hash conflict" 拒绝。对账：清掉本地 pending，用本轮 batch 里的
+      // Bridge 权威行刷新投影后按正常流程重新决策；batch 里没有该行则跳过本轮
+      // （下一轮 listChanges 会带回权威行）。
+      this.options.store.clearPendingDecision(candidate.messageId);
+      const authoritative = batchItems.find((item) => item.messageId === candidate.messageId);
+      if (authoritative === undefined) return undefined;
+      this.options.store.updateRemoteView(authoritative);
+      if (NON_REDECIDABLE_STATES.has(authoritative.state)) return undefined;
+      const fresh = await this.decideAndApply(authoritative, now);
+      return fresh === undefined ? undefined : { ...fresh, source: authoritative };
     }
+    if (replay.mismatch) return undefined;
+    if (pending.state === "ready") {
+      return { decision: pending, row: replay.row, source: candidate };
+    }
+    // A held decision is only valid until its release time. Once the
+    // replay succeeds, discard that old hold and recompute policy so a
+    // stale queue head cannot block later terminal results forever.
+    this.options.store.clearPendingDecision(candidate.messageId);
+    const fresh = await this.decideAndApply(replay.row, now);
+    return fresh === undefined ? undefined : { ...fresh, source: replay.row };
+  }
 
-    // Bridge's ready state is durable before channel readiness is probed. A replayed ready
-    // decision intentionally follows this same path so a restart cannot skip prewarm.
-    const prewarm = await this.prewarm(candidate, now);
-    if (prewarm.hold !== undefined) {
-      await this.applyDecision(prewarm.hold);
-      return;
+  /** Re-decides from the given row and applies the decision (with companions). */
+  private async decideAndApply(
+    message: OutboxMessageView,
+    now: string,
+  ): Promise<{ decision: MessageDecision; row: OutboxMessageView } | undefined> {
+    const policy = this.decide(message, now);
+    for (const companion of policy.companionDecisions) {
+      const applied = await this.applyDecision(companion);
+      if (applied.mismatch) return undefined;
     }
-    if (prewarm.trace.length > 0) {
-      readyDecision = appendTrace(candidate, readyDecision, prewarm.trace);
-      const applied = await this.applyDecision(readyDecision);
-      if (applied.mismatch || applied.row.state !== "ready") return;
-      readyRow = applied.row;
-    }
-
-    // Preserve this exact ready request until delivery is acknowledged. Transport loss then
-    // causes the next cycle to replay it before another delivery attempt.
-    this.options.store.stageDecision(readyDecision.messageId, readyDecision);
-    await this.deliverReady(readyRow, now, readyDecision.decisionId);
+    const applied = await this.applyDecision(policy.decision);
+    if (applied.mismatch || applied.row.state !== "ready") return undefined;
+    return { decision: policy.decision, row: applied.row };
   }
 
   private decide(message: OutboxMessageView, now: string) {
@@ -457,6 +499,11 @@ function terminalStateFromConflict(error: unknown): OutboxMessageView["state"] |
   const detail = error instanceof Error ? error.message : String(error);
   const match = /already terminal:\s*(delivered|absorbed|dead_letter|cancelled)\b/i.exec(detail);
   return match?.[1] as OutboxMessageView["state"] | undefined;
+}
+
+function isContentHashConflict(error: unknown): boolean {
+  const detail = error instanceof Error ? error.message : String(error);
+  return /content hash conflict/i.test(detail);
 }
 
 function retryAt(now: string, attemptCount: number, config: MessagePolicyConfig): string {

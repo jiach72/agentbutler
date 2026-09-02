@@ -449,6 +449,138 @@ describe("MessageReconciler", () => {
     expect(adapter.deliveries.map((delivery) => delivery.messageId)).toEqual(["final-after-stale"]);
   });
 
+  it("reconciles a content hash conflict from a Hermes edit instead of blocking the queue head", async () => {
+    const stale = message({
+      messageId: "staged-stale",
+      sequence: 1,
+      content: "旧内容",
+      contentSha256: "old-content-sha",
+    });
+    adapter.changes = {
+      afterSequence: 0,
+      nextSequence: 1,
+      items: [stale],
+      taskEvents: [],
+      inbound: [],
+    };
+    store.ingestBatch(adapter.changes, INSTANCE.instanceId);
+    store.stageDecision(
+      "staged-stale",
+      buildMessageDecision(stale, DEFAULT_MESSAGE_POLICY.version, "ready", ["policy:ready"], "ready"),
+    );
+
+    // Hermes 侧 managed_edit 改写内容/hash（update_pending_content 会分配新 sequence），
+    // 本轮 batch 带回 Bridge 权威行。
+    const edited = message({
+      messageId: "staged-stale",
+      sequence: 5,
+      content: "编辑后的新内容",
+      contentSha256: "new-content-sha",
+      state: "captured",
+    });
+    adapter.changes = {
+      afterSequence: 1,
+      nextSequence: 5,
+      items: [edited],
+      taskEvents: [],
+      inbound: [],
+    };
+    const rawDecide = adapter.decideOutbound.bind(adapter);
+    let decideCalls = 0;
+    adapter.decideOutbound = async (instance, decision) => {
+      decideCalls += 1;
+      if (decideCalls === 1) {
+        throw new Error("Hermes Bridge 409 conflict: content hash conflict");
+      }
+      return rawDecide(instance, decision);
+    };
+    adapter.deliveryResult = ok({
+      messageId: "staged-stale",
+      attemptId: "attempt-1",
+      accepted: true,
+      deduped: false,
+      state: "delivered",
+      providerMessageId: "stale-provider",
+      finishedAt: NOW,
+    });
+
+    await expect(reconciler().reconcileOnce()).resolves.toBeUndefined();
+
+    expect(store.pendingDecision("staged-stale")).toBeUndefined();
+    expect(store.messageView("staged-stale")).toMatchObject({
+      contentSha256: "new-content-sha",
+    });
+    const redecided = adapter.decisions.filter((decision) => decision.messageId === "staged-stale");
+    expect(redecided.at(-1)?.expectedContentSha256).toBe("new-content-sha");
+    expect(adapter.deliveries.map((delivery) => delivery.messageId)).toEqual(["staged-stale"]);
+
+    // 队头 healed 后不再阻塞：后一条消息在下一轮照常处理（时钟前移越过 weixin
+    // nativeMinIntervalSec 的通道节流）。
+    adapter.changes = {
+      afterSequence: 5,
+      nextSequence: 6,
+      items: [message({ messageId: "behind", sequence: 6 })],
+      taskEvents: [],
+      inbound: [],
+    };
+    adapter.deliveryResult = ok({
+      messageId: "behind",
+      attemptId: "attempt-1",
+      accepted: true,
+      deduped: false,
+      state: "delivered",
+      providerMessageId: "behind-provider",
+      finishedAt: NOW,
+    });
+    await reconciler("2026-08-22T10:01:00.000Z").reconcileOnce();
+    expect(adapter.deliveries.map((delivery) => delivery.messageId)).toEqual([
+      "staged-stale",
+      "behind",
+    ]);
+  });
+
+  it("clears a conflicting pending decision and skips the cycle when the Bridge row is absent", async () => {
+    adapter.changes = {
+      afterSequence: 0,
+      nextSequence: 1,
+      items: [message()],
+      taskEvents: [],
+      inbound: [],
+    };
+    store.ingestBatch(adapter.changes, INSTANCE.instanceId);
+    store.stageDecision(
+      "m1",
+      buildMessageDecision(message(), DEFAULT_MESSAGE_POLICY.version, "ready", ["policy:ready"], "ready"),
+    );
+    // 本轮 batch 未带回该行（items 为空）：清 pending 并跳过本轮。
+    adapter.changes = {
+      afterSequence: 1,
+      nextSequence: 1,
+      items: [],
+      taskEvents: [],
+      inbound: [],
+    };
+    const rawDecide = adapter.decideOutbound.bind(adapter);
+    adapter.decideOutbound = async () =>
+      Promise.reject(new Error("Hermes Bridge 409 conflict: content hash conflict"));
+
+    await expect(reconciler().reconcileOnce()).resolves.toBeUndefined();
+    expect(store.pendingDecision("m1")).toBeUndefined();
+    expect(adapter.deliveries).toHaveLength(0);
+
+    // 下一轮 listChanges 带回权威行后照常决策并投递。
+    adapter.changes = {
+      afterSequence: 1,
+      nextSequence: 2,
+      items: [message({ messageId: "m1", sequence: 2 })],
+      taskEvents: [],
+      inbound: [],
+    };
+    adapter.decideOutbound = rawDecide;
+    await reconciler().reconcileOnce();
+    expect(adapter.deliveries.map((delivery) => delivery.messageId)).toEqual(["m1"]);
+  });
+
   it("only processes candidates owned by its configured Hermes instance", async () => {
     const other = message({ messageId: "other", instanceId: "a-hermes", sequence: 1 });
     store.ingestBatch(
