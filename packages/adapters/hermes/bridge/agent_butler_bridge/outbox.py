@@ -278,13 +278,16 @@ class Outbox:
                            WHERE attempt_id = ? AND finished_at IS NULL""",
                         (now, "recovered stale delivering after Bridge restart", attempt_id),
                     )
-            self._conn.execute(
-                """UPDATE outbound_messages
-                   SET state = 'delivery_unknown', active_attempt_id = NULL,
-                       last_error = ?, updated_at = ?
-                   WHERE state = 'delivering'""",
-                ("recovered stale delivering after Bridge restart", now),
-            )
+                # 恢复同样分配新 sequence：轮询方在 Bridge 重启前可能已采到 delivering，
+                # 不分配则 delivery_unknown 永不下发。
+                sequence = self._next_sequence_locked()
+                self._conn.execute(
+                    """UPDATE outbound_messages
+                       SET sequence = ?, state = 'delivery_unknown', active_attempt_id = NULL,
+                           last_error = ?, updated_at = ?
+                       WHERE message_id = ?""",
+                    (sequence, "recovered stale delivering after Bridge restart", now, row["message_id"]),
+                )
             self._cancel_unlinked_replies_locked()
 
     def close(self) -> None:
@@ -1165,12 +1168,15 @@ class Outbox:
                    VALUES (?, ?, ?)""",
                 (attempt_id, message_id, now),
             )
+            # 状态跳变分配新的 change_sequence：1 秒轮询方 cursor 已越过旧 sequence 时，
+            # delivering 仍能通过 list_changes 下发（否则终态可能永不可见）。
+            sequence = self._next_sequence_locked()
             self._conn.execute(
                 """UPDATE outbound_messages
-                   SET state = 'delivering', active_attempt_id = ?,
+                   SET sequence = ?, state = 'delivering', active_attempt_id = ?,
                        attempt_count = attempt_count + 1, last_error = NULL, updated_at = ?
                    WHERE message_id = ?""",
-                (attempt_id, now, message_id),
+                (sequence, attempt_id, now, message_id),
             )
             return {
                 "deduped": False,
@@ -1189,12 +1195,13 @@ class Outbox:
                    WHERE attempt_id = ?""",
                 (now, attempt_id),
             )
+            sequence = self._next_sequence_locked()
             self._conn.execute(
                 """UPDATE outbound_messages
-                   SET state = 'delivered', active_attempt_id = NULL,
+                   SET sequence = ?, state = 'delivered', active_attempt_id = NULL,
                        provider_message_id = ?, delivered_at = ?, updated_at = ?, last_error = NULL
                    WHERE message_id = ?""",
-                (provider_message_id, now, now, message_id),
+                (sequence, provider_message_id, now, now, message_id),
             )
             return self._message_from_row(self._require_message_locked(row["message_id"]))
 
@@ -1348,11 +1355,12 @@ class Outbox:
                    SET finished_at = ?, outcome = ?, error = ? WHERE attempt_id = ?""",
                 (now, outcome, error, attempt_id),
             )
+            sequence = self._next_sequence_locked()
             self._conn.execute(
                 """UPDATE outbound_messages
-                   SET state = ?, active_attempt_id = NULL, last_error = ?,
+                   SET sequence = ?, state = ?, active_attempt_id = NULL, last_error = ?,
                        available_at = ?, updated_at = ? WHERE message_id = ?""",
-                (state, error, now if state == "retry_wait" else None, now, message_id),
+                (sequence, state, error, now if state == "retry_wait" else None, now, message_id),
             )
             return self._message_from_row(self._require_message_locked(message_id))
 
@@ -1853,12 +1861,13 @@ class Outbox:
                            WHERE attempt_id = ?""",
                         (now, reason.strip(), attempt_id),
                     )
+            sequence = self._next_sequence_locked()
             self._conn.execute(
                 """UPDATE outbound_messages
-                   SET state = 'dead_letter', active_attempt_id = NULL,
+                   SET sequence = ?, state = 'dead_letter', active_attempt_id = NULL,
                        available_at = NULL, last_error = ?, updated_at = ?
                    WHERE message_id = ?""",
-                (reason.strip(), now, message_id),
+                (sequence, reason.strip(), now, message_id),
             )
             self._conn.execute(
                 """INSERT INTO message_state_events(

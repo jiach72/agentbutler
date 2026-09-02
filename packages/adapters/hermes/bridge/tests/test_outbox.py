@@ -370,6 +370,87 @@ class OutboxTest(unittest.TestCase):
         self.assertEqual(row["state"], "delivery_unknown")
         self.assertIn("recovered stale delivering", row["lastError"])
 
+    def _capture_and_ready(self, message_id: str, decision_id: str) -> dict:
+        envelope = make_envelope(message_id)
+        captured = self.outbox.capture(envelope)
+        self.outbox.apply_decision(
+            message_id,
+            decision_id,
+            envelope["contentSha256"],
+            "ready",
+            None,
+            [],
+            "policy-1",
+            "ready",
+        )
+        return envelope, captured["message"]["sequence"]
+
+    def test_delivery_transitions_allocate_change_sequences(self) -> None:
+        envelope, captured_seq = self._capture_and_ready(
+            "018bcfe5-6800-7000-8000-000000000301", "decision-seq-1"
+        )
+        message_id = envelope["messageId"]
+
+        begun = self.outbox.begin_delivery(message_id, "attempt-seq-1", envelope["contentSha256"])
+
+        self.assertGreater(begun["message"]["sequence"], captured_seq)
+        delivering = self.outbox.list_changes(captured_seq)
+        self.assertEqual([item["state"] for item in delivering["items"]], ["delivering"])
+
+        finished = self.outbox.finish_delivery(message_id, "attempt-seq-1", "provider-seq-1")
+
+        self.assertGreater(finished["sequence"], begun["message"]["sequence"])
+        delivered = self.outbox.list_changes(begun["message"]["sequence"])
+        self.assertEqual([item["state"] for item in delivered["items"]], ["delivered"])
+        self.assertEqual(delivered["items"][0]["providerMessageId"], "provider-seq-1")
+
+    def test_retry_and_dead_letter_transitions_allocate_change_sequences(self) -> None:
+        envelope, captured_seq = self._capture_and_ready(
+            "018bcfe5-6800-7000-8000-000000000302", "decision-seq-2"
+        )
+        message_id = envelope["messageId"]
+        begun = self.outbox.begin_delivery(message_id, "attempt-seq-2", envelope["contentSha256"])
+        self.assertGreater(begun["message"]["sequence"], captured_seq)
+
+        retried = self.outbox.mark_retry(message_id, "attempt-seq-2", "provider 500")
+
+        self.assertGreater(retried["sequence"], begun["message"]["sequence"])
+        retry_feed = self.outbox.list_changes(begun["message"]["sequence"])
+        self.assertEqual([item["state"] for item in retry_feed["items"]], ["retry_wait"])
+
+        dead = self.outbox.mark_dead_letter(
+            message_id, envelope["contentSha256"], "manual review"
+        )
+
+        self.assertGreater(dead["sequence"], retried["sequence"])
+        dead_feed = self.outbox.list_changes(retried["sequence"])
+        self.assertEqual([item["state"] for item in dead_feed["items"]], ["dead_letter"])
+
+    def test_stale_delivering_recovery_allocates_change_sequence(self) -> None:
+        envelope, captured_seq = self._capture_and_ready(
+            "018bcfe5-6800-7000-8000-000000000303", "decision-seq-3"
+        )
+        message_id = envelope["messageId"]
+        begun = self.outbox.begin_delivery(message_id, "attempt-seq-3", envelope["contentSha256"])
+
+        self.reopen()
+
+        recovered = self.outbox.get(message_id)
+        self.assertEqual(recovered["state"], "delivery_unknown")
+        self.assertGreater(recovered["sequence"], begun["message"]["sequence"])
+        feed = self.outbox.list_changes(captured_seq)
+        self.assertEqual(
+            [(item["messageId"], item["state"]) for item in feed["items"]],
+            [(message_id, "delivery_unknown")],
+        )
+
+        # 高水位必须随恢复推进：新库实例重启后新消息的 sequence 不得回退。
+        followup = make_envelope("018bcfe5-6800-7000-8000-000000000304")
+        followup["inboundMessageId"] = None
+        followup["runId"] = None
+        new_capture = self.outbox.capture(followup)
+        self.assertGreater(new_capture["message"]["sequence"], recovered["sequence"])
+
     def test_same_decision_id_is_idempotent_after_content_transform(self) -> None:
         envelope = make_envelope("018bcfe5-6800-7000-8000-000000000101")
         self.outbox.capture(envelope)
