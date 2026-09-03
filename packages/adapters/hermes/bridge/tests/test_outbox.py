@@ -227,7 +227,9 @@ class OutboxTest(unittest.TestCase):
         self.assertEqual(cancelled["state"], "cancelled")
         self.assertIn("superseded by explicit run run-new", cancelled["lastError"])
 
-    def test_unlinked_queued_reply_is_cancelled_unless_explicitly_proactive(self) -> None:
+    def test_unlinked_queued_reply_is_forwarded_like_proactive(self) -> None:
+        # 无入站关联的 queued-push 按主动外发放行：Hermes 定时任务/晨报（Cronjob
+        # Response 等）正是这种形态，之前被误取消导致用户收不到晨报。
         reply = make_envelope("018bcfe5-6800-7000-8000-00000000000a")
         reply["runId"] = None
         reply["inboundMessageId"] = None
@@ -235,8 +237,8 @@ class OutboxTest(unittest.TestCase):
 
         captured = self.outbox.capture(reply)
 
-        self.assertEqual(captured["message"]["state"], "cancelled")
-        self.assertIn("missing inbound correlation", captured["message"]["lastError"])
+        self.assertEqual(captured["message"]["state"], "captured")
+        self.assertNotIn("missing inbound correlation", captured["message"]["lastError"] or "")
 
         proactive = make_envelope("018bcfe5-6800-7000-8000-00000000000b")
         proactive["runId"] = None
@@ -295,7 +297,7 @@ class OutboxTest(unittest.TestCase):
         self.assertEqual(row["state"], "cancelled")
         self.assertIn("superseded by newer inbound", row["lastError"])
 
-    def test_reopen_cancels_legacy_unlinked_queued_replies(self) -> None:
+    def test_reopen_does_not_cancel_legacy_unlinked_queued_replies(self) -> None:
         retry = make_envelope("018bcfe5-6800-7000-8000-00000000000d")
         unknown = make_envelope("018bcfe5-6800-7000-8000-00000000000e")
         self.outbox.capture(retry)
@@ -313,8 +315,8 @@ class OutboxTest(unittest.TestCase):
 
         for message_id in (retry["messageId"], unknown["messageId"]):
             row = self.outbox.get(message_id)
-            self.assertEqual(row["state"], "cancelled")
-            self.assertIn("missing inbound correlation", row["lastError"])
+            # 无关联 queued-push 消息不再被启动扫描取消（主动外发合法）。
+            self.assertNotEqual(row["state"], "cancelled")
 
     def test_delivery_unknown_is_not_claimable_after_restart(self) -> None:
         envelope = make_envelope("018bcfe5-6800-7000-8000-000000000002")

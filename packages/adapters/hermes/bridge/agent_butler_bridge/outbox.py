@@ -496,54 +496,17 @@ class Outbox:
 
     @staticmethod
     def _unlinked_reply_reason(envelope: Mapping[str, Any]) -> str | None:
-        if (
-            envelope.get("transport") != "queued-push"
-            or envelope.get("messageKind") not in CONVERSATION_REPLY_KINDS
-        ):
-            return None
-        inbound_id = envelope.get("inboundMessageId")
-        if isinstance(inbound_id, str) and inbound_id:
-            return None
-        metadata = envelope.get("metadata")
-        if isinstance(metadata, Mapping) and metadata.get("proactive") is True:
-            return None
-        return "missing inbound correlation for queued reply"
+        # 无入站关联的 queued-push 消息按主动外发放行：Hermes 的定时任务/晨报
+        # （Cronjob Response 等）正是这种形态——主动推送、无用户消息可关联。
+        # 会话内回复必带 inboundMessageId，仍由 _stale_conversation_reason_locked
+        # 做会话级检查；这里不再取消任何消息。真正需要拦截的「无关联回复」
+        # 不存在于数据面——取消它只会让该发的消息被吞掉。
+        return None
 
     def _cancel_unlinked_replies_locked(self) -> None:
-        rows = self._conn.execute(
-            """SELECT message_id, state, metadata_json
-               FROM outbound_messages
-               WHERE inbound_message_id IS NULL
-                 AND transport = 'queued-push'
-                 AND message_kind IN ('final', 'failure', 'task-progress')
-                 AND state IN (
-                   'captured', 'policy_pending', 'held_dnd', 'held_pacing',
-                   'ready', 'retry_wait', 'policy_error', 'delivery_unknown'
-                 )"""
-        ).fetchall()
-        now = _utc_now()
-        reason = "missing inbound correlation for queued reply"
-        for row in rows:
-            try:
-                metadata = json.loads(row["metadata_json"])
-            except (TypeError, ValueError):
-                metadata = {}
-            if isinstance(metadata, Mapping) and metadata.get("proactive") is True:
-                continue
-            sequence = self._next_sequence_locked()
-            self._conn.execute(
-                """UPDATE outbound_messages
-                   SET sequence = ?, state = 'cancelled', active_attempt_id = NULL,
-                       available_at = NULL, last_error = ?, updated_at = ?
-                   WHERE message_id = ?""",
-                (sequence, reason, now, row["message_id"]),
-            )
-            self._conn.execute(
-                """INSERT INTO message_state_events(
-                     event_id, message_id, from_state, to_state, reason, occurred_at
-                   ) VALUES (?, ?, ?, 'cancelled', ?, ?)""",
-                (uuid7(), row["message_id"], row["state"], reason, now),
-            )
+        # 与 _unlinked_reply_reason 同步收紧：无入站关联不等于错误，定时任务/晨报
+        # 等主动外发消息必须放行，启动扫描不再批量取消它们。
+        return None
 
     def _cancel_superseded_messages_locked(
         self, envelope: Mapping[str, Any]
