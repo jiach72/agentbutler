@@ -21,7 +21,7 @@ import {
   Tag,
   Typography,
 } from "antd";
-import { CloudDownloadOutlined, ReloadOutlined } from "@ant-design/icons";
+import { CloudDownloadOutlined, FolderOpenOutlined, ReloadOutlined } from "@ant-design/icons";
 import { loadJson, postJson } from "../../lib/api.js";
 import type { FetchState } from "../../lib/api.js";
 
@@ -40,6 +40,7 @@ interface SkillsManagerStatusOk {
   skills: SkillsManagerSkill[];
   deployAgent?: Record<string, unknown> | null;
   deployTarget?: { agent: string; dir: string; symlinked: boolean };
+  hermesSkillsDir?: string;
 }
 
 type SkillsManagerStatus = SkillsManagerStatusOk | { available: false; installHint?: string };
@@ -135,7 +136,7 @@ function opDoneText(op: PendingAction["op"]): string {
 }
 
 export function SkillsManagerPanel() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [state, setState] = useState<FetchState<SkillsManagerStatus>>({ status: "loading" });
   const [updates, setUpdates] = useState<Record<string, UpdateCheckItem>>({});
   const [refreshing, setRefreshing] = useState(false);
@@ -211,6 +212,7 @@ export function SkillsManagerPanel() {
     void loadAll({ silent: true });
   };
 
+  const [adoptBusy, setAdoptBusy] = useState(false);
   const beginInstall = async (): Promise<void> => {
     const source = installSource.trim();
     if (source === "") {
@@ -296,10 +298,73 @@ export function SkillsManagerPanel() {
   }
 
   const skills = data.skills ?? [];
+  const hermesSkillsDir = data.hermesSkillsDir;
   const deployedCount = skills.filter(deployedToTarget).length;
   const updatableCount = skills.filter((item) => hasAvailableUpdate(updates[item.name])).length;
   const skillCount = typeof data.repo["skill_count"] === "number" ? data.repo["skill_count"] : skills.length;
   const preview = pending === null ? [] : previewEntries(pending.preview);
+
+  const adoptCandidates = useCallback(async (): Promise<
+    Array<{ path: string; name: string; reason: string }>
+  > => {
+    const dir = data !== null && data.available === true ? data.hermesSkillsDir : undefined;
+    if (dir === undefined || dir === "") return [];
+    const result = await postJson(
+      "/api/skills-manager/adopt",
+      { dir },
+      ACTION_TIMEOUT_MS,
+    );
+    if (!result.ok) {
+      message.error(extractError(result.data));
+      return [];
+    }
+    return (result.data as { candidates?: Array<{ path: string; name: string; reason: string }> })
+      .candidates ?? [];
+  }, [data]);
+
+  const adoptLocalSkills = async (): Promise<void> => {
+    if (adoptBusy) return;
+    const dir = data !== null && data.available === true ? data.hermesSkillsDir : undefined;
+    if (dir === undefined || dir === "") return;
+    setAdoptBusy(true);
+    const result = await postJson(
+      "/api/skills-manager/adopt",
+      { dir, confirmed: true },
+      ACTION_TIMEOUT_MS,
+    );
+    setAdoptBusy(false);
+    if (!result.ok) {
+      message.error(extractError(result.data));
+      return;
+    }
+    const adopted = (result.data as { adopted?: Array<{ name?: string }> }).adopted ?? [];
+    message.success(`已收编 ${adopted.length} 个本机技能到中央库`);
+    void loadAll({ silent: true });
+  };
+
+  const previewAdopt = async (): Promise<void> => {
+    if (adoptBusy) return;
+    setAdoptBusy(true);
+    const candidates = await adoptCandidates();
+    setAdoptBusy(false);
+    if (candidates.length === 0) {
+      message.info("本机技能目录里没有可收编的新技能。");
+      return;
+    }
+    modal.info({
+      title: `发现 ${candidates.length} 个本机技能可收编`,
+      content: (
+        <ul style={{ maxHeight: 260, overflow: "auto", paddingLeft: 20, margin: 0 }}>
+          {candidates.map((c) => (
+            <li key={c.path}>{c.name}</li>
+          ))}
+        </ul>
+      ),
+      okText: "收编到中央库",
+      onOk: () => void adoptLocalSkills(),
+    });
+  };
+
 
   return (
     <Flex vertical gap={16}>
@@ -356,9 +421,18 @@ export function SkillsManagerPanel() {
           >
             安装
           </Button>
+          <Button
+            icon={<FolderOpenOutlined />}
+            loading={adoptBusy}
+            onClick={() => void previewAdopt()}
+            title="把本机已安装、尚未纳入中央库的技能收编进来统一管理"
+          >
+            收编本机技能
+          </Button>
         </Flex>
         <Typography.Paragraph type="secondary" style={{ marginBottom: 0, marginTop: 8, fontSize: 12 }}>
-          安装会先做试运行预览，确认后才真正拉取到中央技能库。
+          安装会直接拉取到中央技能库（同名技能会被拒绝）；「收编本机技能」会把
+          Hermes 已安装、但还不在中央库里的技能纳入统一管理，原目录保持不变。
         </Typography.Paragraph>
       </Card>
 
@@ -368,14 +442,21 @@ export function SkillsManagerPanel() {
         <Card size="small" styles={{ body: { padding: "4px 16px" } }}>
           <List
             dataSource={skills}
-            renderItem={(item) => {
+            renderItem={(item: SkillsManagerSkill) => {
               const deployed = deployedToTarget(item);
               const check = updates[item.name];
               const statusLabel = updateStatusLabel(check?.update_status);
+              // 收编自 Hermes skills 目录的本地技能：本体仍在原目录运行，
+              // 中央库只是登记；对它们隐藏「部署/更新」，避免 TARGET_CONFLICT。
+              const isLocalAdopted =
+                item.source_type === "local" &&
+                typeof item["source_ref"] === "string" &&
+                typeof hermesSkillsDir === "string" &&
+                (item["source_ref"] as string).startsWith(hermesSkillsDir);
               return (
                 <List.Item
                   actions={[
-                    hasAvailableUpdate(check) ? (
+                    hasAvailableUpdate(check) && !isLocalAdopted ? (
                       <Button
                         key="update"
                         size="small"
@@ -386,7 +467,11 @@ export function SkillsManagerPanel() {
                         更新
                       </Button>
                     ) : null,
-                    deployed ? (
+                    isLocalAdopted ? (
+                      <Tag key="local" color="blue">
+                        本机已有
+                      </Tag>
+                    ) : deployed ? (
                       <Button
                         key="undeploy"
                         size="small"
@@ -445,6 +530,11 @@ export function SkillsManagerPanel() {
                       <Flex align="center" gap={8} wrap="wrap">
                         <Typography.Text strong>{item.name}</Typography.Text>
                         {item.source_type !== undefined && <Tag>{item.source_type}</Tag>}
+                        {isLocalAdopted && (
+                          <Tag color="blue" style={{ marginRight: 0 }}>
+                            本机已有
+                          </Tag>
+                        )}
                         <Tag color={deployed ? "success" : "default"}>
                           {deployed ? "已部署到 Hermes" : "未部署"}
                         </Tag>

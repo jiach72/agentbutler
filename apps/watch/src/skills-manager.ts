@@ -307,6 +307,7 @@ export function createSkillsManagerCli(deps: SkillsManagerCliDeps = {}): SkillsM
         skills: Array.isArray(skills) ? skills : [],
         deployAgent: isRecord(deployAgent) ? deployAgent : null,
         deployTarget,
+        hermesSkillsDir,
       };
     },
 
