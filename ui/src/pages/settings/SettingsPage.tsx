@@ -31,6 +31,7 @@ import {
   type SourcesState,
 } from "./helpers.js";
 import { DiagnosticsCenter } from "./DiagnosticsCenter.js";
+import { GithubTokenCard } from "./GithubTokenCard.js";
 import { SecurityBaseline } from "./SecurityBaseline.js";
 import { PreferencesPanel } from "../preferences/PreferencesPage.js";
 import { LlmProfileManager } from "./LlmProfileManager.js";
@@ -246,6 +247,7 @@ export function SettingsPage() {
                     onRetry={retrySource}
                     onRequestReset={requestResetBreaker}
                   />
+                  <GithubTokenCard />
                 </Flex>
               ),
             },

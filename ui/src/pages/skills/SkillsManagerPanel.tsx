@@ -1,8 +1,9 @@
 /**
  * 技能库管理器面板（skills-manager CLI 集成）：中央技能库统计、技能列表
- * （部署状态 / 更新状态）、安装技能与部署/取消部署/更新的二段式确认
- * （先 dry-run 预览 Modal，确认后 confirmed:true 真执行）。
- * CLI 未安装时渲染安装指引空态；数据手动刷新 + 操作后刷新，避免高频调 CLI。
+ * （部署状态 / 更新状态）、安装技能与部署/取消部署/更新/删除的二段式确认
+ * （先 dry-run 预览 Modal，确认后 confirmed:true 真执行；删除的 confirmed 请求
+ * 由 watch 服务层先取消部署再移除中央库条目）。更新成功后会为已部署技能
+ * 自动重新部署。CLI 未安装时渲染安装指引空态；数据手动刷新 + 操作后刷新。
  */
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -55,7 +56,7 @@ interface UpdateCheckItem {
 /** 待确认动作：payload 不含 confirmed（发预览请求用），确认时再补 confirmed:true。 */
 interface PendingAction {
   title: string;
-  op: "install" | "deploy" | "undeploy" | "update";
+  op: "install" | "deploy" | "undeploy" | "update" | "remove";
   payload: Record<string, unknown>;
   preview: unknown;
 }
@@ -139,6 +140,7 @@ function opDoneText(op: PendingAction["op"]): string {
   if (op === "install") return "技能已安装到中央库。";
   if (op === "deploy") return "已部署到 Hermes skills 目录。";
   if (op === "undeploy") return "已从 Hermes skills 目录移除部署。";
+  if (op === "remove") return "已从中央技能库删除该技能。";
   return "技能已更新。";
 }
 
@@ -245,20 +247,29 @@ export function SkillsManagerPanel() {
     void loadAll({ silent: true });
   };
 
-  const runUpdate = async (name: string): Promise<void> => {
+  const runUpdate = async (item: SkillsManagerSkill): Promise<void> => {
+    const name = item.name;
     // CLI 的 update 不支持 dry-run（只更新中央库、不动已部署副本），单段直接执行。
     setBusySkill(`update:${name}`);
-    const result = await postJson(
-      "/api/skills-manager/update",
-      { name, confirmed: true },
-      ACTION_TIMEOUT_MS,
-    );
-    setBusySkill(null);
+    const result = await postJson("/api/skills-manager/update", { name, confirmed: true }, ACTION_TIMEOUT_MS);
     if (!result.ok) {
+      setBusySkill(null);
       message.error(extractError(result.data));
       return;
     }
-    message.success(`已更新 ${name}`);
+    // 更新前已部署的技能：中央库更新后自动重新部署，让部署副本与库保持同步。
+    if (deployedToTarget(item)) {
+      const redeploy = await postJson("/api/skills-manager/deploy", { name, confirmed: true }, ACTION_TIMEOUT_MS);
+      setBusySkill(null);
+      if (!redeploy.ok) {
+        message.warning(`已更新 ${name}，但重新部署失败：${extractError(redeploy.data)}`);
+      } else {
+        message.success(`已更新并重新部署 ${name}`);
+      }
+    } else {
+      setBusySkill(null);
+      message.success(`已更新 ${name}`);
+    }
     void loadAll({ silent: true });
   };
 
@@ -378,8 +389,9 @@ export function SkillsManagerPanel() {
                       <Button
                         key="update"
                         size="small"
+                        type="primary"
                         loading={busySkill === `update:${item.name}`}
-                        onClick={() => void runUpdate(item.name)}
+                        onClick={() => void runUpdate(item)}
                       >
                         更新
                       </Button>
@@ -420,6 +432,22 @@ export function SkillsManagerPanel() {
                         部署
                       </Button>
                     ),
+                    <Button
+                      key="remove"
+                      size="small"
+                      danger
+                      loading={busySkill === `remove:${item.name}`}
+                      onClick={() =>
+                        void beginAction(
+                          "remove",
+                          `删除 ${item.name}`,
+                          { name: item.name },
+                          `remove:${item.name}`,
+                        )
+                      }
+                    >
+                      删除
+                    </Button>,
                   ].filter((node) => node !== null)}
                 >
                   <List.Item.Meta
@@ -455,7 +483,8 @@ export function SkillsManagerPanel() {
       <Modal
         open={pending !== null}
         title={pending === null ? null : `${pending.title}（先试运行）`}
-        okText="确认执行"
+        okText={pending?.op === "remove" ? "确认删除" : "确认执行"}
+        okButtonProps={pending?.op === "remove" ? { danger: true } : undefined}
         cancelText="再想想"
         confirmLoading={confirming}
         onOk={() => void confirmPending()}
@@ -466,6 +495,11 @@ export function SkillsManagerPanel() {
         <Typography.Paragraph type="secondary">
           以下是试运行预览；确认后才会真正执行。
         </Typography.Paragraph>
+        {pending?.op === "remove" && (
+          <Typography.Paragraph type="danger" style={{ marginBottom: 12 }}>
+            本次变更：移除该技能在 Hermes 的部署 + 从中央技能库删除（不可撤销）。
+          </Typography.Paragraph>
+        )}
         {preview.length > 0 && (
           <Descriptions size="small" column={1} bordered style={{ marginBottom: 12 }}>
             {preview.map(([label, value]) => (
