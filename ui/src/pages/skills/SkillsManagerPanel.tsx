@@ -177,6 +177,27 @@ export function SkillsManagerPanel() {
     void loadAll();
   }, [loadAll]);
 
+  const adoptCandidates = useCallback(async (): Promise<
+    Array<{ path: string; name: string; reason: string }>
+  > => {
+    // 早退分支之后不能再调用 hooks；目录改为在回调内从 state 安全读取。
+    if (state.status !== "ready") return [];
+    if (state.status !== "ready" || state.data.available !== true) return [];
+    const dir = state.data.hermesSkillsDir;
+    if (dir === undefined || dir === "") return [];
+    const result = await postJson(
+      "/api/skills-manager/adopt",
+      { dir },
+      ACTION_TIMEOUT_MS,
+    );
+    if (!result.ok) {
+      message.error(extractError(result.data));
+      return [];
+    }
+    return (result.data as { candidates?: Array<{ path: string; name: string; reason: string }> })
+      .candidates ?? [];
+  }, []);
+
   /** 发起动作：先不带 confirmed 拿 dry-run 预览，弹出确认 Modal。 */
   const beginAction = async (
     op: PendingAction["op"],
@@ -303,24 +324,6 @@ export function SkillsManagerPanel() {
   const updatableCount = skills.filter((item) => hasAvailableUpdate(updates[item.name])).length;
   const skillCount = typeof data.repo["skill_count"] === "number" ? data.repo["skill_count"] : skills.length;
   const preview = pending === null ? [] : previewEntries(pending.preview);
-
-  const adoptCandidates = useCallback(async (): Promise<
-    Array<{ path: string; name: string; reason: string }>
-  > => {
-    const dir = data !== null && data.available === true ? data.hermesSkillsDir : undefined;
-    if (dir === undefined || dir === "") return [];
-    const result = await postJson(
-      "/api/skills-manager/adopt",
-      { dir },
-      ACTION_TIMEOUT_MS,
-    );
-    if (!result.ok) {
-      message.error(extractError(result.data));
-      return [];
-    }
-    return (result.data as { candidates?: Array<{ path: string; name: string; reason: string }> })
-      .candidates ?? [];
-  }, [data]);
 
   const adoptLocalSkills = async (): Promise<void> => {
     if (adoptBusy) return;
