@@ -36,7 +36,7 @@ const NAV_ITEMS = [
 
 const MANAGEMENT_ITEMS = [
   { to: "/evolution", icon: <ThunderboltOutlined />, label: "自进化", note: "分析日志与优化方案" },
-  { to: "/assets", icon: <DatabaseOutlined />, label: "GitHub 技能管理", note: "发现与安装公开技能" },
+  { to: "/assets", icon: <DatabaseOutlined />, label: "发现技能", note: "浏览公开项目与安装推荐" },
 ];
 
 const ALL_NAV_ITEMS = [...NAV_ITEMS, ...MANAGEMENT_ITEMS];

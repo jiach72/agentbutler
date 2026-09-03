@@ -9,7 +9,7 @@ const { Paragraph, Text, Title } = Typography;
 
 interface PageHeaderProps {
   /** 页面所属区域的小标签，如「首页」「系统日志」。 */
-  eyebrow: string;
+  eyebrow?: string;
   /** 页面主标题，渲染为真实 h1（字号跟随 Title level 3）。 */
   title: string;
   /** 标题下方的一句说明。 */
@@ -23,12 +23,14 @@ export function PageHeader({ eyebrow, title, description, extra }: PageHeaderPro
     <header>
       <Flex wrap justify="space-between" align="flex-start" gap={16}>
         <div style={{ minWidth: 0 }}>
-          <Text
-            type="secondary"
-            style={{ display: "block", fontSize: 12, fontWeight: 600, letterSpacing: "0.08em" }}
-          >
-            {eyebrow}
-          </Text>
+          {eyebrow !== undefined && (
+            <Text
+              type="secondary"
+              style={{ display: "block", fontSize: 12, fontWeight: 600, letterSpacing: "0.08em" }}
+            >
+              {eyebrow}
+            </Text>
+          )}
           <Title level={3} component="h1" style={{ marginBottom: 0 }}>
             {title}
           </Title>

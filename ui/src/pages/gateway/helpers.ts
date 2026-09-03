@@ -178,6 +178,99 @@ export interface MessageOverviewPayload {
   degraded: string[];
 }
 
+/** 消息页恢复面板的操作与原因：以唯一根因代替并列横幅。 */
+export type RecoveryAction = "reconnect" | "refresh";
+export type RecoveryReason = "bridge" | "messages" | "watch" | "alerts" | "records" | "refresh";
+
+export interface RecoveryDetail {
+  reason: RecoveryReason;
+  severity: "critical" | "warn";
+  title: string;
+  description: string;
+}
+
+export interface RecoveryState extends RecoveryDetail {
+  action: RecoveryAction;
+  details: RecoveryDetail[];
+}
+
+export interface RecoveryStateInput {
+  messageData: MessageOverviewPayload | null;
+  messageBridge: MessageBridgeView | null;
+  watchReachable: boolean | undefined;
+  alerts: AlertsView | null;
+  loadError: boolean;
+}
+
+/**
+ * 将同时出现的消息故障按用户可操作性归并为唯一主因。
+ * 优先级固定为 Bridge、消息记录、管家、通知、记录完整性、刷新失败。
+ */
+export function deriveRecoveryState(input: RecoveryStateInput): RecoveryState | null {
+  const details: RecoveryDetail[] = [];
+  const bridgeReady =
+    input.messageBridge?.connected === true &&
+    input.messageBridge.attached &&
+    input.messageBridge.outboxWritable;
+
+  if (input.messageBridge !== null && !bridgeReady) {
+    details.push({
+      reason: "bridge",
+      severity: "critical",
+      title: "消息接管还没准备好",
+      description: "请确认本机 AI 正在运行；重新连接后，页面会自动刷新状态。",
+    });
+  }
+  if (input.messageData !== null && !input.messageData.reachable) {
+    details.push({
+      reason: "messages",
+      severity: "critical",
+      title: "暂时读不到消息记录",
+      description: "服务恢复后会自动重试，已排队消息会继续保留。",
+    });
+  }
+  if (input.watchReachable === false) {
+    details.push({
+      reason: "watch",
+      severity: "warn",
+      title: "管家服务暂时连不上",
+      description: "消息频率和通知设置会在服务恢复后继续可用。",
+    });
+  }
+  if (input.alerts !== null && !input.alerts.reachable) {
+    details.push({
+      reason: "alerts",
+      severity: "warn",
+      title: "通知服务暂时离线",
+      description: "正在排队中的提醒暂不可见，稍后会自动恢复。",
+    });
+  }
+  if (input.messageData?.reachable === true && input.messageData.degraded.length > 0) {
+    details.push({
+      reason: "records",
+      severity: "warn",
+      title: "部分消息记录暂时不完整",
+      description: "服务恢复后会自动补齐缺失记录。",
+    });
+  }
+  if (input.loadError) {
+    details.push({
+      reason: "refresh",
+      severity: "warn",
+      title: "这次刷新没有拿到完整数据",
+      description: "页面保留上一次成功数据；可以手动刷新后再确认。",
+    });
+  }
+
+  const [primary, ...remaining] = details;
+  if (primary === undefined) return null;
+  return {
+    ...primary,
+    action: primary.reason === "bridge" ? "reconnect" : "refresh",
+    details: remaining,
+  };
+}
+
 export interface TaskEventView {
   runId: string;
   sequence: number;

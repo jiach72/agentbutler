@@ -32,12 +32,6 @@ export function HeroConclusion({
     inspectRequested || inspectStatus?.inFlight === true;
   return (
     <Flex vertical gap={12}>
-      <Text
-        type="secondary"
-        style={{ display: "block", fontSize: 12, fontWeight: 600, letterSpacing: "0.08em" }}
-      >
-        当前状态
-      </Text>
       <Alert
         type={heroAlertType[hero.tone]}
         showIcon

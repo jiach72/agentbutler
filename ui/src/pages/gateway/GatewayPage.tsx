@@ -32,6 +32,7 @@ import {
   PARAM_LABELS,
   REFRESH_INTERVAL_MS,
   effectivePatchParams,
+  deriveRecoveryState,
   instanceKeyOf,
   patchActionError,
   patchBusyKey,
@@ -297,7 +298,7 @@ export function GatewayPage() {
     return (
       <section className="gateway-page">
         <Flex vertical gap={24}>
-          <PageHeader eyebrow="消息通知" title="消息通知" />
+          <PageHeader title="消息通知" />
           <Card>
             <Flex vertical align="center" gap={12} style={{ padding: "40px 0" }}>
               <Spin />
@@ -323,6 +324,13 @@ export function GatewayPage() {
   );
   const bridgeReady =
     messageBridge?.connected === true && messageBridge.attached && messageBridge.outboxWritable;
+  const recoveryState = deriveRecoveryState({
+    messageData,
+    messageBridge,
+    watchReachable: data?.watchReachable,
+    alerts,
+    loadError,
+  });
   const reconnectMessages = async () => {
     // postJson 网络失败不抛异常（status=0），无需 try/catch；以状态码判断成败
     const result = await postJson("/api/messages/reconnect", {}, 10_000);
@@ -338,7 +346,6 @@ export function GatewayPage() {
     <section className="gateway-page">
       <Flex vertical gap={24}>
         <PageHeader
-          eyebrow="消息通知"
           title="消息通知"
           description="记录消息发送结果，合并重复内容，并按免打扰规则调度；所有通知保留可追溯记录。"
           extra={
@@ -362,36 +369,38 @@ export function GatewayPage() {
           }
         />
 
-        {loadError && (
-          <DegradedBanner severity="warn" message="部分服务暂时连不上，当前显示上一次成功数据" />
-        )}
-        {messageData !== null && !messageData.reachable && (
-          <DegradedBanner
-            severity="critical"
-            message="暂时读不到消息记录"
-            description="服务恢复后将自动重试，已排队消息会继续保留。"
-          />
-        )}
-        {(messageData?.degraded.length ?? 0) > 0 && messageData?.reachable === true && (
-          <DegradedBanner severity="warn" message="部分消息记录暂时不完整，服务恢复后将自动补齐" />
-        )}
-        {messageBridge !== null && !bridgeReady && (
-          <DegradedBanner
-            severity="critical"
-            message="消息接管还没准备好：请确认本机 AI 正在运行，稍后刷新重试。"
-          />
-        )}
-        {data?.watchReachable === false && (
-          <DegradedBanner
-            severity="warn"
-            message="管家服务暂时连不上：消息频率和通知设置需要等服务恢复后查看。"
-          />
-        )}
-        {alerts !== null && !alerts.reachable && (
-          <DegradedBanner
-            severity="warn"
-            message="通知服务暂时离线：正在排队中的提醒暂不可见，稍后会自动恢复。"
-          />
+        {recoveryState !== null && (
+          <>
+            <DegradedBanner
+              severity={recoveryState.severity}
+              message={recoveryState.title}
+              description={recoveryState.description}
+              action={
+                <Button
+                  type="primary"
+                  loading={loading}
+                  onClick={() =>
+                    recoveryState.action === "reconnect" ? void reconnectMessages() : void refresh()
+                  }
+                >
+                  {recoveryState.action === "reconnect" ? "重新连接" : "刷新"}
+                </Button>
+              }
+            />
+            {recoveryState.details.length > 0 && (
+              <AdvancedDetails
+                summary={<><strong>另有 {recoveryState.details.length} 项受影响</strong><small>不影响当前恢复操作</small></>}
+              >
+                <Flex vertical gap={8}>
+                  {recoveryState.details.map((detail) => (
+                    <Typography.Text key={detail.reason} type="secondary">
+                      <Typography.Text strong>{detail.title}</Typography.Text>：{detail.description}
+                    </Typography.Text>
+                  ))}
+                </Flex>
+              </AdvancedDetails>
+            )}
+          </>
         )}
 
         {messageData?.status?.relay !== undefined && messageData.status.relay !== null && (

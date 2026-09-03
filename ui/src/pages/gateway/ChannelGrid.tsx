@@ -123,26 +123,27 @@ export function ChannelGrid({ onReconnect }: ChannelGridProps) {
   usePolling(() => void refresh(), REFRESH_INTERVAL_MS);
 
   return (
-    <Card
-      title="通讯工具"
-      extra={
+    <section className="channel-directory" aria-labelledby="channel-grid-heading">
+      <Flex className="channel-directory-head" wrap="wrap" justify="space-between" align="center" gap={12}>
+        <Typography.Title id="channel-grid-heading" level={4} style={{ margin: 0 }}>
+          通讯工具
+        </Typography.Title>
         <Flex wrap="wrap" justify="flex-end" align="center" gap={12}>
           {unreachable && <Tag color="warning">通道服务不可达</Tag>}
           <Button icon={<ReloadOutlined />} onClick={onReconnect}>
             重新连接通道
           </Button>
         </Flex>
-      }
-    >
-      {channels === null ? (
-        <Typography.Text type="secondary">{unreachable ? "暂时读不到通道目录，稍后自动重试。" : "正在读取通道目录…"}</Typography.Text>
-      ) : (
-        <Flex gap={16} wrap="wrap">
+      </Flex>
+      <div className="channel-grid" aria-live="polite">
+        {channels === null ? (
+          <Typography.Text type="secondary">{unreachable ? "暂时读不到通道目录，稍后自动重试。" : "正在读取通道目录…"}</Typography.Text>
+        ) : (
+          <>
           {channels.map((channel) => (
             <Card
               key={channel.id}
               size="small"
-              style={{ width: 260 }}
               title={
                 <Flex align="center" gap={8}>
                   <span>{channel.label}</span>
@@ -184,8 +185,9 @@ export function ChannelGrid({ onReconnect }: ChannelGridProps) {
               </Flex>
             </Card>
           ))}
-        </Flex>
-      )}
+          </>
+        )}
+      </div>
       <WeixinLoginModal open={loginOpen} onClose={closeLogin} onConfirmed={confirmLogin} />
       {configChannel !== null && (
         <ChannelConfigModal
@@ -199,6 +201,6 @@ export function ChannelGrid({ onReconnect }: ChannelGridProps) {
           }}
         />
       )}
-    </Card>
+    </section>
   );
 }

@@ -271,12 +271,6 @@ export function ReadinessSection({
       <Flex vertical gap={16}>
         <Flex wrap="wrap" justify="space-between" align="flex-start" gap={16}>
           <div style={{ minWidth: 0 }}>
-            <Text
-              type="secondary"
-              style={{ display: "block", fontSize: 12, fontWeight: 600, letterSpacing: "0.08em" }}
-            >
-              持续就绪
-            </Text>
             <Title level={4} id="readiness-heading" style={{ marginBottom: 4 }}>
               本机运行就绪度
             </Title>
@@ -323,7 +317,7 @@ export function ReadinessSection({
           <Col xs={24} md={12}>
             <Card size="small" style={{ height: "100%" }}>
               <Flex vertical gap={8}>
-                <InfoCardHeader title="Agent 主机状态" />
+                <InfoCardHeader title="本机资源" />
                 <HostMetricsCardBody metrics={hostMetrics} />
               </Flex>
             </Card>

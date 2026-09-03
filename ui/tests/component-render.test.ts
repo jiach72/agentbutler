@@ -33,7 +33,7 @@ describe("关键页面组件渲染", () => {
     expect(html).not.toContain("nav-advanced");
     expect(html).not.toContain("<details");
     expect(html).toContain("自进化");
-    expect(html).toContain("GitHub 技能管理");
+    expect(html).toContain("发现技能");
     expect(html).not.toContain("高级工具");
     expect(html).toContain("智能体与记忆");
     expect(html).toContain("核心文件");

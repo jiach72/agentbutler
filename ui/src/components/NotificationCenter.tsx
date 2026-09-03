@@ -82,7 +82,7 @@ export function NotificationCenter() {
       overlayClassName="notification-popover"
       content={<NotificationContent onClose={() => setOpen(false)} />}
     >
-      <Badge count={count} overflowCount={99} size="small" offset={[-2, 2]}>
+      <Badge className="notification-badge" count={count} overflowCount={99} size="small" offset={[-2, 2]}>
         <Button type="text" className="notification-trigger" icon={<BellOutlined />} aria-label={label} title={label} />
       </Badge>
     </Popover>

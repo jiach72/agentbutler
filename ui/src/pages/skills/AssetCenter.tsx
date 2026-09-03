@@ -1,5 +1,5 @@
 /**
- * GitHub 技能管理：公开项目趋势与推荐安装。
+ * 公开技能项目：趋势浏览与推荐安装。
  * 本地技能库/使用统计已迁移至「智能体与记忆」页，这里不再重复展示。
  */
 import { useCallback, useEffect, useState } from "react";
@@ -115,12 +115,12 @@ export function AssetCenter({ onSkillsChanged }: { onSkillsChanged?: () => void 
     <Flex vertical gap={16}>
       <Card
         size="small"
-        title="GitHub 技能项目"
+        title="公开技能项目"
         extra={<Button icon={<ReloadOutlined />} loading={busy === "sync" || busy === "refresh"} onClick={() => void syncTrends()}>同步公开数据</Button>}
       >
         <Flex vertical gap={16}>
           <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-            按 GitHub Star 热度排序，数据来自公开仓库，仅供参考。{trends?.syncedAt ? "同步于 " + formatTime(trends.syncedAt) : "尚未同步"}{trends?.error ? "；上次同步失败，当前显示缓存。" : ""}
+            按公开项目热度排序；数据源为 GitHub 公开仓库，仅供参考。{trends?.syncedAt ? "同步于 " + formatTime(trends.syncedAt) : "尚未同步"}{trends?.error ? "；上次同步失败，当前显示缓存。" : ""}
           </Paragraph>
           {(trends?.items ?? []).length === 0 ? (
             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚未同步公开项目" />

@@ -81,6 +81,8 @@ export interface SemanticPalette {
   warnSoft: string;
   error: string;
   errorSoft: string;
+  notificationBadge: string;
+  notificationBadgeOn: string;
   onPrimary: string;
   /** 图表第二系列（青色系）。 */
   teal: string;
@@ -116,6 +118,8 @@ export const lightPalette: SemanticPalette = {
   warnSoft: "#fffbe6",
   error: "#ff4d4f",
   errorSoft: "#fff1f0",
+  notificationBadge: "#b42318",
+  notificationBadgeOn: "#ffffff",
   onPrimary: "#ffffff",
   teal: "#13c2c2",
   tealSoft: "#e6fffb",
@@ -149,6 +153,8 @@ export const nightPalette: SemanticPalette = {
   warnSoft: "#2f2a12",
   error: "#ff7875",
   errorSoft: "#3a221f",
+  notificationBadge: "#b42318",
+  notificationBadgeOn: "#ffffff",
   onPrimary: "#0d1b4d",
   teal: "#36cfc9",
   tealSoft: "#123a3f",
@@ -235,6 +241,8 @@ const paletteVars = (p: SemanticPalette): Record<string, string> => ({
   "--butler-warn-soft": p.warnSoft,
   "--butler-error": p.error,
   "--butler-error-soft": p.errorSoft,
+  "--butler-notification-badge": p.notificationBadge,
+  "--butler-notification-badge-on": p.notificationBadgeOn,
   "--butler-on-accent": p.onPrimary,
   "--butler-rule-strong": p.ruleStrong,
   // 兼容历史命别名（text-muted 与 muted 同源），迁移期保留。

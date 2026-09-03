@@ -5,7 +5,7 @@
  * - 「立即检查」触发即走（202 提示已启动，结果经事件流观察，不阻塞）；
  * - 管家控制通道离线（reachable:false）时如实展示降级，不伪造健康结论。
  */
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { App, Badge, Button, Collapse, Flex } from "antd";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
@@ -25,6 +25,38 @@ import { InstanceHealthCard } from "./InstanceHealthCard.js";
 import { useDashboardData } from "./useDashboardData.js";
 import type { RunbookView } from "./types.js";
 
+interface RuntimeDetailsProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  children: ReactNode;
+}
+
+/** 将资源、连接和实例检查统一放在默认关闭的运行详情中。 */
+export function RuntimeDetails({ open, onOpenChange, children }: RuntimeDetailsProps) {
+  return (
+    <div id="runtime-details">
+      <Collapse
+        className="advanced-details runtime-details"
+        size="small"
+        activeKey={open ? ["runtime"] : []}
+        onChange={(keys) => onOpenChange(Array.isArray(keys) && keys.includes("runtime"))}
+        items={[
+          {
+            key: "runtime",
+            label: (
+              <span className="advanced-details-summary">
+                <span>运行详情</span>
+                <span className="advanced-details-extra">资源、连接与实例检查</span>
+              </span>
+            ),
+            children,
+          },
+        ]}
+      />
+    </div>
+  );
+}
+
 export function DashboardPage() {
   const { message } = App.useApp();
   const {
@@ -37,7 +69,6 @@ export function DashboardPage() {
     refreshConnections,
     criticalLoadFailed,
     inspectionHistory,
-    deliveryHistory,
     runbooks,
     llmStatus,
     discoveredModels,
@@ -51,6 +82,14 @@ export function DashboardPage() {
   const [connectionBusy, setConnectionBusy] = useState<string | null>(null);
   const [runbookCandidate, setRunbookCandidate] = useState<RunbookView | null>(null);
   const [runbookBusy, setRunbookBusy] = useState(false);
+  const [runtimeDetailsOpen, setRuntimeDetailsOpen] = useState(false);
+
+  const openSection = (id: string, expandRuntime = false) => {
+    if (expandRuntime) setRuntimeDetailsOpen(true);
+    window.requestAnimationFrame(() => {
+      document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  };
 
   const runInspect = async () => {
     setInspectionRequested(true);
@@ -158,7 +197,6 @@ export function DashboardPage() {
       <section className="dashboard-page">
         <Flex vertical gap={24}>
           <PageHeader
-            eyebrow="首页"
             title="本地管家"
             description="正在汇总服务、检查结果和消息状态。"
           />
@@ -179,7 +217,6 @@ export function DashboardPage() {
     <section className="dashboard-page">
       <Flex vertical gap={24}>
         <PageHeader
-          eyebrow="首页"
           title="本地管家"
           description="查看本机服务状态、连接情况和消息通知。"
           extra={
@@ -210,21 +247,6 @@ export function DashboardPage() {
           onInspect={() => void runInspect()}
         />
 
-        <ReadinessSection
-          connections={connections}
-          llmStatus={llmStatus}
-          discoveredModels={discoveredModels}
-          refreshing={readinessRefreshing}
-          onRefresh={() => void refreshReadiness()}
-          hostMetrics={hostMetrics}
-          serviceHealth={serviceHealth}
-          inspectStatus={inspectStatus}
-          inspectionHistory={inspectionHistory}
-          latestInspections={dashboard?.latestInspections ?? []}
-        />
-
-        <OnboardingContinuation />
-
         <StatusRail
           attentionCount={attentionCount}
           hasError={hasError}
@@ -235,80 +257,91 @@ export function DashboardPage() {
           degradedInstanceCount={degradedInstanceCount}
           inspectStatus={inspectStatus}
           messageStats={messageStats}
-          inspectionHistory={inspectionHistory?.items ?? []}
-          deliveryHistory={deliveryHistory?.items ?? []}
+          runtimeDetailsOpen={runtimeDetailsOpen}
+          onOpenRuntimeDetails={() => openSection("runtime-details", true)}
+          onOpenIssues={() => openSection("dashboard-issues")}
         />
 
-        <ConnectionSection
-          connections={connections}
-          openClawStatus={openClawStatus}
-          connectionBusy={connectionBusy}
-          onCheckAll={() => void runConnectionCheck()}
-          onCheckOne={(instanceId) => void runConnectionCheck(instanceId)}
-          onToggleConnection={(instanceId, action) => void runConnectionAction(instanceId, action)}
-        />
+        <OnboardingContinuation />
 
-        <IssuesSection
-          issues={issues}
-          attentionCount={attentionCount}
-          onInspect={() => void runInspect()}
-        />
+        {attentionCount > 0 && (
+          <div id="dashboard-issues">
+            <IssuesSection
+              issues={issues}
+              attentionCount={attentionCount}
+              onInspect={() => void runInspect()}
+            />
+          </div>
+        )}
 
-        <Collapse
-          className="advanced-details"
-          size="small"
-          items={[
-            {
-              key: "inspect",
-              label: (
-                <span className="advanced-details-summary">
-                  <span>检查明细</span>
-                  <span className="advanced-details-extra">{instances.length} 个实例</span>
-                </span>
-              ),
-              children: (
-                <InstanceHealthCard
-                  instances={instances}
-                  inspections={dashboard?.latestInspections ?? []}
-                />
-              ),
-            },
-            {
-              key: "schedule",
-              label: (
-                <span className="advanced-details-summary">
-                  <span>检查安排</span>
-                </span>
-              ),
-              children: (
-                <InspectCard inspectStatus={inspectStatus} onInspect={() => void runInspect()} />
-              ),
-            },
-            {
-              key: "runbooks",
-              label: (
-                <span className="advanced-details-summary">
-                  <span>可用的处理方案</span>
-                </span>
-              ),
-              children: <RunbooksPanel runbooks={runbooks} onRepair={setRunbookCandidate} />,
-            },
-            {
-              key: "fingerprints",
-              label: (
-                <span className="advanced-details-summary">
-                  <span>经常出现的问题</span>
-                </span>
-              ),
-              children: (
-                <FingerprintsTable
-                  fingerprints={dashboard?.fingerprints ?? []}
-                  onOpenLogs={() => { window.location.assign("/logs"); }}
-                />
-              ),
-            },
-          ]}
-        />
+        <RuntimeDetails open={runtimeDetailsOpen} onOpenChange={setRuntimeDetailsOpen}>
+          <Flex vertical gap={24}>
+            <ReadinessSection
+              connections={connections}
+              llmStatus={llmStatus}
+              discoveredModels={discoveredModels}
+              refreshing={readinessRefreshing}
+              onRefresh={() => void refreshReadiness()}
+              hostMetrics={hostMetrics}
+              serviceHealth={serviceHealth}
+              inspectStatus={inspectStatus}
+              inspectionHistory={inspectionHistory}
+              latestInspections={dashboard?.latestInspections ?? []}
+            />
+            <ConnectionSection
+              connections={connections}
+              openClawStatus={openClawStatus}
+              connectionBusy={connectionBusy}
+              onCheckAll={() => void runConnectionCheck()}
+              onCheckOne={(instanceId) => void runConnectionCheck(instanceId)}
+              onToggleConnection={(instanceId, action) => void runConnectionAction(instanceId, action)}
+            />
+            <InstanceHealthCard
+              instances={instances}
+              inspections={dashboard?.latestInspections ?? []}
+            />
+            <Collapse
+              className="advanced-details"
+              size="small"
+              items={[
+                {
+                  key: "schedule",
+                  label: (
+                    <span className="advanced-details-summary">
+                      <span>检查安排</span>
+                    </span>
+                  ),
+                  children: (
+                    <InspectCard inspectStatus={inspectStatus} onInspect={() => void runInspect()} />
+                  ),
+                },
+                {
+                  key: "runbooks",
+                  label: (
+                    <span className="advanced-details-summary">
+                      <span>可用的处理方案</span>
+                    </span>
+                  ),
+                  children: <RunbooksPanel runbooks={runbooks} onRepair={setRunbookCandidate} />,
+                },
+                {
+                  key: "fingerprints",
+                  label: (
+                    <span className="advanced-details-summary">
+                      <span>经常出现的问题</span>
+                    </span>
+                  ),
+                  children: (
+                    <FingerprintsTable
+                      fingerprints={dashboard?.fingerprints ?? []}
+                      onOpenLogs={() => { window.location.assign("/logs"); }}
+                    />
+                  ),
+                },
+              ]}
+            />
+          </Flex>
+        </RuntimeDetails>
 
         {(inspectionRequested || inspectStatus?.inFlight === true) && (
           <PageProgress

@@ -8,7 +8,6 @@ import type {
   DiscoveredLlmConfigView,
   HealthPayload,
   HostMetricsPayload,
-  InspectionHistoryPayload,
   LlmStatusView,
 } from "../src/pages/dashboard/types.js";
 
@@ -140,7 +139,7 @@ describe("首页本机运行就绪度", () => {
     expect(html).toContain('href="/setup"');
   });
 
-  it("新增两张信息卡：主机指标渲染机器与 agent 占用，指标不可达时给次要提示", () => {
+  it("运行详情中的本机资源与管家指标保留完整数据", () => {
     const hostMetrics: HostMetricsPayload = {
       machine: {
         capturedAt: "2026-09-01T08:00:00.000Z",
@@ -171,7 +170,7 @@ describe("首页本机运行就绪度", () => {
       }),
     );
 
-    expect(html).toContain("Agent 主机状态");
+    expect(html).toContain("本机资源");
     expect(html).toContain("12.5%");
     expect(html).toContain("3 天 4 小时");
     expect(html).toContain("Test GPU");

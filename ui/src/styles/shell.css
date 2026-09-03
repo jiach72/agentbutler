@@ -127,9 +127,18 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.app-nav .ant-menu-item-selected {
+  background: var(--butler-accent-soft) !important;
+}
+.app-nav .ant-menu-item-selected,
+.app-nav .ant-menu-item-selected .menu-link,
+.app-nav .ant-menu-item-selected .menu-copy strong,
+.app-nav .ant-menu-item-selected .anticon {
+  color: var(--butler-ink) !important;
+}
 .app-nav .ant-menu-item-selected .menu-copy small {
-  color: inherit;
-  opacity: 0.75;
+  color: var(--butler-ink-soft);
+  opacity: 1;
 }
 
 /* ---- 侧栏底部：设置入口 + 访问状态 ---- */
@@ -159,7 +168,7 @@
 }
 .sidebar-settings.active {
   background: var(--butler-accent-soft);
-  color: var(--butler-accent);
+  color: var(--butler-ink);
 }
 
 .sidebar-settings-icon {
@@ -175,7 +184,29 @@
   color: var(--butler-ink-soft);
 }
 .sidebar-settings.active .sidebar-settings-icon {
-  color: var(--butler-accent);
+  color: var(--butler-ink);
+}
+
+/* ---- 消息通道目录：标题行不再包一层 Card，卡片只用于单个通道。 ---- */
+
+.channel-directory {
+  display: flex;
+  flex-direction: column;
+  gap: var(--butler-space-3);
+}
+
+.channel-directory-head {
+  min-height: 32px;
+}
+
+.channel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--butler-space-4);
+}
+
+.channel-grid > .ant-card {
+  height: 100%;
 }
 
 .sidebar-meta {

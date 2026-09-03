@@ -1,12 +1,11 @@
 /**
- * 状态总览条：管家服务 / 消息通知 / 待处理 / 受管实例 四张卡片。
+ * 状态总览条：把日常判断收进四项紧凑状态，并直达消息、待办或运行详情。
  */
-import { Badge, Button, Card, Col, Flex, Row, Typography } from "antd";
+import { Badge, Button, Flex, Typography } from "antd";
 import { Link } from "react-router-dom";
-import { Sparkline } from "../../components/charts/Sparkline.js";
 import { formatRelative } from "../../lib/format.js";
 import type { MessageStats } from "./conclusions.js";
-import type { InspectStatusView, StatusCardView } from "./types.js";
+import type { InspectStatusView } from "./types.js";
 
 const { Text } = Typography;
 
@@ -20,8 +19,9 @@ interface StatusRailProps {
   degradedInstanceCount: number;
   inspectStatus: InspectStatusView | null;
   messageStats: MessageStats;
-  inspectionHistory: Array<{ date: string; avgDurationMs: number | null }>;
-  deliveryHistory: Array<{ date: string; delivered: number; failed: number; uncertain: number }>;
+  runtimeDetailsOpen: boolean;
+  onOpenRuntimeDetails: () => void;
+  onOpenIssues: () => void;
 }
 
 const toneBadgeStatus = {
@@ -41,17 +41,11 @@ export function StatusRail({
   degradedInstanceCount,
   inspectStatus,
   messageStats,
-  inspectionHistory,
-  deliveryHistory,
+  runtimeDetailsOpen,
+  onOpenRuntimeDetails,
+  onOpenIssues,
 }: StatusRailProps) {
-  const inspectionValues = inspectionHistory
-    .map((point) => point.avgDurationMs)
-    .filter((value): value is number => value !== null);
-  const deliveryValues = deliveryHistory.map((point) => point.delivered);
-  const deliveryTone = deliveryHistory.some((point) => point.failed > 0 || point.uncertain > 0)
-    ? "warn"
-    : "ok";
-  const assistantTone: StatusCardView["tone"] =
+  const assistantTone =
     downInstanceCount > 0
       ? "error"
       : degradedInstanceCount > 0
@@ -60,7 +54,7 @@ export function StatusRail({
           ? "ok"
           : "idle";
 
-  const cards: StatusCardView[] = [
+  const items = [
     {
       id: "watch",
       tone: inspectStatus === null ? "idle" : inspectStatus.reachable ? "ok" : "warn",
@@ -72,14 +66,7 @@ export function StatusRail({
           : inspectStatus.reachable
             ? `上次检查 ${formatRelative(inspectStatus.lastAt)}`
             : "暂时连不上，稍后会自动重试",
-      trend:
-        inspectionValues.length > 1
-          ? {
-              values: inspectionValues,
-              label: "近 14 天巡检平均耗时走势",
-              tone: "accent",
-            }
-          : undefined,
+      action: { label: "查看运行详情", kind: "runtime" as const },
     },
     {
       id: "gateway",
@@ -105,22 +92,7 @@ export function StatusRail({
               : !messageStats.relayEnabled
                 ? "原通道直发中：消息由本机 AI 直接发送"
                 : "消息接管通道正常",
-      trend:
-        deliveryValues.length > 1
-          ? {
-              values: deliveryValues,
-              label: "近 7 天每日已送达消息数量走势",
-              tone: deliveryTone,
-            }
-          : undefined,
-      action:
-        !messageStats.messageStatusKnown
-          ? undefined
-          : !messageStats.messageConnected || messageStats.pendingMessageAlerts > 0
-            ? { label: "去处理", kind: "link", to: "/gateway" }
-            : messageStats.deliveredCriticalCount > 0
-              ? { label: "去看看", kind: "link", to: "/gateway" }
-              : undefined,
+      action: { label: "查看消息", kind: "link" as const, to: "/gateway" },
     },
     {
       id: "attention",
@@ -132,7 +104,7 @@ export function StatusRail({
         : hasWarn
           ? "有需要留意的事"
           : "暂无待办",
-      action: attentionCount > 0 ? { label: "查看诊断", kind: "link", to: "/recovery" } : undefined,
+      action: attentionCount > 0 ? { label: "查看待办", kind: "issues" as const } : undefined,
     },
     {
       id: "assistant",
@@ -147,48 +119,48 @@ export function StatusRail({
             : instanceCount === 0
               ? "尚未发现可管理的实例"
               : "运行正常",
+      action: { label: "查看运行详情", kind: "runtime" as const },
     },
   ];
 
   return (
-    <div role="status" aria-label="当前状态总览">
-      <Row gutter={[16, 16]}>
-        {cards.map((card) => (
-          <Col xs={24} sm={12} xl={6} key={card.id}>
-            <Card size="small" style={{ height: "100%" }}>
-              <Flex vertical gap={8}>
-                <Flex align="center" gap={8}>
-                  <Badge status={toneBadgeStatus[card.tone]} />
-                  <Text type="secondary">{card.label}</Text>
-                </Flex>
-                <Flex align="center" justify="space-between" gap={8}>
-                  <Text strong style={{ fontSize: 24 }}>
-                    {card.value}
-                  </Text>
-                  {card.trend !== undefined && (
-                    <Sparkline
-                      values={card.trend.values}
-                      label={card.trend.label}
-                      tone={card.trend.tone}
-                    />
-                  )}
-                </Flex>
-                <Text type="secondary">{card.detail}</Text>
-                {card.action !== undefined &&
-                  (card.action.kind === "link" ? (
-                    <Link to={card.action.to ?? "/gateway"}>
-                      <Button type="link" size="small" style={{ paddingInline: 0 }}>
-                        {card.action.label}
-                      </Button>
-                    </Link>
-                  ) : (
-                    <Text type="secondary">{card.action.label}</Text>
-                  ))}
-              </Flex>
-            </Card>
-          </Col>
-        ))}
-      </Row>
-    </div>
+    <section className="dashboard-status-rail" aria-label="当前状态总览">
+      {items.map((item) => (
+        <Flex className="dashboard-status-item" vertical gap={6} key={item.id}>
+          <Flex align="center" gap={8}>
+            <Badge status={toneBadgeStatus[item.tone as keyof typeof toneBadgeStatus]} />
+            <Text type="secondary">{item.label}</Text>
+          </Flex>
+          <Text strong className="dashboard-status-value">
+            {item.value}
+          </Text>
+          <Text type="secondary" className="dashboard-status-detail">{item.detail}</Text>
+          {item.action?.kind === "link" && (
+            <Link to={item.action.to}>
+              <Button type="link" size="small" style={{ paddingInline: 0 }}>
+                {item.action.label}
+              </Button>
+            </Link>
+          )}
+          {item.action?.kind === "runtime" && (
+            <Button
+              type="link"
+              size="small"
+              style={{ paddingInline: 0, alignSelf: "flex-start" }}
+              aria-controls="runtime-details"
+              aria-expanded={runtimeDetailsOpen}
+              onClick={onOpenRuntimeDetails}
+            >
+              {item.action.label}
+            </Button>
+          )}
+          {item.action?.kind === "issues" && (
+            <Button type="link" size="small" style={{ paddingInline: 0, alignSelf: "flex-start" }} onClick={onOpenIssues}>
+              {item.action.label}
+            </Button>
+          )}
+        </Flex>
+      ))}
+    </section>
   );
 }

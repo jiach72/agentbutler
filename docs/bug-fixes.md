@@ -1,5 +1,14 @@
 # Bug Fixes
 
+## 2026-09-03 - 首页、消息恢复与技能发现的产品 UI 收敛
+
+- **Problem:** 首页正常态混排资源指标、趋势图和诊断细节，普通用户无法快速判断是否要处理；消息页在多项服务异常时堆叠多个横幅，恢复动作不明确；通道目录额外套用外层卡片，窄屏空间紧张；技能页和多处页面重复使用技术式 kicker/统计卡，导航与来源文案偏实现导向。
+- **Impact:** 日常任务需要先筛读专业信息，恢复路径容易被重复告警掩盖；小屏下通道操作和状态扫描成本偏高；亮暗主题的侧栏选中项与通知角标存在可读性风险。
+- **Changed scope:** 首页重组为结论、主操作和四项状态带，并将资源、连接、实例检查与高级诊断收进默认关闭的“运行详情”，异常待办保留在折叠外；主操作同步 `aria-expanded`/`aria-controls`，使展开状态可被辅助技术识别；消息页新增纯前端 `deriveRecoveryState`，按 Bridge、消息记录、管家、通知、记录完整性、刷新失败的固定优先级只显示一个根因和对应的“重新连接”或“刷新”动作，其余受影响项收进折叠明细；通道目录改为无外层卡片的自适应网格；技能入口更名为“发现技能”，GitHub 来源改为辅助说明；移除重复 kicker/概览统计，并通过主题 token 提升侧栏选中态和通知角标的文字对比度。
+- **Regression coverage:** `ui/src/pages/gateway/helpers.test.ts` 覆盖各恢复根因、按钮动作、部分降级与多故障优先级；`ui/tests/dashboard-product-ui.test.ts` 覆盖四项状态带、消息直达入口、运行详情默认关闭、ARIA 展开状态与通道目录响应式容器；更新首次设置和组件渲染断言。定向 UI Vitest 共 5 个文件、40 项通过。
+- **Verification:** `corepack pnpm --filter @butler/ui exec tsc -p tsconfig.json --noEmit --pretty false`、定向 UI Vitest、`corepack pnpm --filter @butler/ui exec vite build` 与 Impeccable detector（`node .claude/skills/impeccable/scripts/detect.mjs --json ui/src`，输出 `[]`）通过；`git diff --check` 通过。桌面 `1280x900` 和移动 `390x844` 下 `/dashboard`、`/gateway`、`/skills` 均无水平溢出，首页默认收起运行详情，通道目录无 `.ant-card` 外层卡片；深色/亮色侧栏选中态对比度分别为 `12.16:1`/`14.76:1`，通知角标为 `6.57:1`。全量 `corepack pnpm lint` 仍被 3 个范围外未使用变量阻塞（`apps/web/tests/host-metrics.test.ts`、`ui/src/pages/versions/VersionsPage.tsx`）；全量 `corepack pnpm test` 为 1200 passed、5 failed，均为既有本机 Hermes 配置覆盖、Windows Watch 超时/临时目录清理和 Updater 回滚超时，未归因于本次 UI 改动。
+- **Data/function impact:** 不改后端 API、路由、消息协议或轮询行为；首页和消息页仅重组现有前端数据的呈现与恢复入口。
+
 ## 2026-08-31 - 数据展示与交互基础层统一
 
 - **Problem:** 共享图表、表格和按钮虽然已有主题桥接，但动画、加载反馈、数值精度、列宽/滚动和禁用/焦点状态仍由页面零散决定；核心文件页还保留大量内联布局值。

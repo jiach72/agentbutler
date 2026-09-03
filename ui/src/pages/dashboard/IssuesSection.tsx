@@ -75,12 +75,6 @@ export function IssuesSection({ issues, attentionCount, onInspect }: IssuesSecti
       <Flex vertical gap={16}>
         <Flex wrap="wrap" justify="space-between" align="flex-start" gap={16}>
           <div style={{ minWidth: 0 }}>
-            <Text
-              type="secondary"
-              style={{ display: "block", fontSize: 12, fontWeight: 600, letterSpacing: "0.08em" }}
-            >
-              当前状态
-            </Text>
             <Title level={4} style={{ marginBottom: 0 }}>
               {attentionCount > 0 ? `有 ${attentionCount} 件事需要处理` : "当前没有待处理事项"}
             </Title>

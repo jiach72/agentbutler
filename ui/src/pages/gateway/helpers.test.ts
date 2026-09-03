@@ -5,12 +5,51 @@ import {
   channelKindLabel,
   channelToggleAck,
   channelToggleWarnings,
+  deriveRecoveryState,
   filterHistoryByDay,
   historyDayOptions,
   historySummaryLine,
   loginStateCopy,
   relayModeCopy,
 } from "./helpers.js";
+import type { AlertsView, MessageBridgeView, MessageOverviewPayload, RecoveryStateInput } from "./helpers.js";
+
+const messageData = (overrides: Partial<MessageOverviewPayload> = {}): MessageOverviewPayload => ({
+  reachable: true,
+  status: null,
+  messages: { counts: {}, items: [] },
+  degraded: [],
+  ...overrides,
+});
+
+const messageBridge = (overrides: Partial<MessageBridgeView> = {}): MessageBridgeView => ({
+  connected: true,
+  running: true,
+  inFlight: false,
+  attached: true,
+  outboxWritable: true,
+  protocolVersion: null,
+  bridgeVersion: null,
+  instanceId: null,
+  policyVersion: null,
+  remotePolicyVersion: null,
+  channels: {},
+  coverage: {},
+  startedAt: null,
+  lastCycleAt: null,
+  lastError: null,
+  ...overrides,
+});
+
+const alerts = (reachable: boolean): AlertsView => ({ reachable, counts: {}, degradedChannels: [], items: [] });
+const recoveryInput = (overrides: Partial<RecoveryStateInput> = {}): RecoveryStateInput => ({
+  messageData: null,
+  messageBridge: null,
+  watchReachable: undefined,
+  alerts: null,
+  loadError: false,
+  ...overrides,
+});
 
 describe("relayModeCopy", () => {
   it("接管中", () => {
@@ -73,8 +112,47 @@ describe("channelActionError", () => {
   });
 });
 
+describe("deriveRecoveryState", () => {
+  it("Bridge 未就绪时优先提示重新连接", () => {
+    const state = deriveRecoveryState(recoveryInput({ messageBridge: messageBridge({ connected: false }) }));
+
+    expect(state).toMatchObject({ reason: "bridge", severity: "critical", action: "reconnect" });
+  });
+
+  it("消息数据不可达时提供刷新操作", () => {
+    const state = deriveRecoveryState(recoveryInput({ messageData: messageData({ reachable: false }) }));
+
+    expect(state).toMatchObject({ reason: "messages", severity: "critical", action: "refresh" });
+  });
+
+  it("管家和通知服务不可达时按既定优先级归因", () => {
+    expect(deriveRecoveryState(recoveryInput({ watchReachable: false }))?.reason).toBe("watch");
+    expect(deriveRecoveryState(recoveryInput({ alerts: alerts(false) }))?.reason).toBe("alerts");
+  });
+
+  it("记录不完整和刷新失败会提示刷新", () => {
+    expect(deriveRecoveryState(recoveryInput({ messageData: messageData({ degraded: ["outbox"] }) }))).toMatchObject({
+      reason: "records",
+      action: "refresh",
+    });
+    expect(deriveRecoveryState(recoveryInput({ loadError: true }))).toMatchObject({ reason: "refresh", action: "refresh" });
+  });
+
+  it("多故障只展示一个根因，其他问题放入降级明细", () => {
+    const state = deriveRecoveryState(recoveryInput({
+      messageBridge: messageBridge({ attached: false }),
+      messageData: messageData({ reachable: false }),
+      watchReachable: false,
+      alerts: alerts(false),
+      loadError: true,
+    }));
+
+    expect(state?.reason).toBe("bridge");
+    expect(state?.details.map((detail) => detail.reason)).toEqual(["messages", "watch", "alerts", "refresh"]);
+  });
+});
+
 describe("对照历史日期分组与摘要", () => {
-  const now = new Date();
   const iso = (offsetMs: number) => new Date(Date.now() + offsetMs).toISOString();
   const items = [
     { inbound: { receivedAt: iso(0) } },

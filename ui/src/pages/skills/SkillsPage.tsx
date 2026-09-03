@@ -148,7 +148,7 @@ export function SkillsPage() {
   const refreshing = mainState.status === "loading" || searching;
   const memoryStats = libraryData?.memory.stats ?? null;
 
-  // 全局概览带：把技能 / 插件 / 记忆三库的核心指标汇成一排。
+  // 全局概览带：只保留技能、插件和记忆三库的当前规模。
   const overview = [
     {
       key: "skills",
@@ -170,26 +170,13 @@ export function SkillsPage() {
       value: memoryStats === null ? "…" : formatNumber(memoryStats.totalEntries),
       sub: "累计入库",
     },
-    {
-      key: "memory-cold",
-      label: "长期未用",
-      value: memoryStats === null ? "…" : formatNumber(memoryStats.coldCandidates),
-      sub: "可考虑归档",
-    },
-    {
-      key: "memory-recalls",
-      label: "累计召回",
-      value: memoryStats === null ? "…" : formatNumber(memoryStats.cumulativeRecalls),
-      sub: "检索命中",
-    },
   ];
 
   return (
     <section className="skills-page">
       <PageHeader
-        eyebrow="技能资产管理"
         title="技能与记忆"
-        description="「技能库」统一管理智能体技能：安装（Git 来源）、更新、删除、部署到 Hermes；插件为只读查看，记忆支持检索与维护。"
+        description="在「技能库」中安装、更新、删除和部署智能体技能；插件可查看状态，记忆支持检索与维护。"
         extra={
           <Flex vertical align="flex-end" gap={4}>
             <ConnectionChip
