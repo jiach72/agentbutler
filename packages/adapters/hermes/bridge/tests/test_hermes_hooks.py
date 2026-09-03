@@ -20,6 +20,7 @@ from agent_butler_bridge.hermes_hooks import (
 )
 from agent_butler_bridge.llm_optimizer import LlmConfig
 from agent_butler_bridge.runtime import BridgeRuntime, RuntimeConfig
+from agent_butler_bridge.task_receipts import TASK_RECEIPT_MESSAGES
 
 
 @dataclass
@@ -591,7 +592,7 @@ class HermesHooksTest(unittest.IsolatedAsyncioTestCase):
         receipts = [item for item in batch["items"] if item["metadata"].get("taskReceipt") is True]
         results = [item for item in batch["items"] if item["messageKind"] == "failure"]
         self.assertEqual(len(receipts), 1)
-        self.assertEqual(receipts[0]["content"], "已收到，任务完成后汇报。")
+        self.assertIn(receipts[0]["content"], TASK_RECEIPT_MESSAGES)
         outbound = results[0]
         self.assertEqual(outbound["messageKind"], "failure")
         self.assertEqual(outbound["priority"], "urgent")

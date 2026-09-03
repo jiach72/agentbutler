@@ -490,3 +490,11 @@
 - **回归测试：** Bridge 覆盖普通新入站不取消旧终态、晚到终态可捕获、显式 run 替代仍取消，以及重启时旧进度清理；Watch memory-probe 覆盖自定义 provider、只读环境和 provider 异常。
 - **验证命令：** `$env:PYTHONPATH='packages/adapters/hermes/bridge'; python -m unittest discover -s packages/adapters/hermes/bridge/tests -p 'test_outbox.py' -q`（32 passed）；`corepack pnpm exec vitest run apps/watch/tests/memory-probe.test.ts apps/watch/tests/pipeline.test.ts`（37 passed）；`corepack pnpm exec tsc -b apps/watch/tsconfig.json --pretty false`；`git diff --check`。
 - **运行验证：** 附件诊断结论与代码现状一致：Hermes hindsight 在 2026-08-31 21:03 有 RETAIN/CONSOLIDATION 写入，验收记忆在 21:14 落库；本次改动未触碰记忆数据库，仅改变探针选择与 Bridge 出站状态判定。
+
+## 2026-09-03 - 微信任务启动回执固定重复
+
+- **问题：** 微信受管任务开始时始终发送“已收到，任务完成后汇报。”，连续使用时缺乏变化，也没有体现任务已经开始处理的即时感。
+- **风险/影响：** 客户虽然能收到确认，但会反复看到机械的同一句，降低消息网关作为持续协作入口的亲和力与可感知进度。
+- **修复范围：** Bridge 新增 128 条受控中文启动回执，由 16 个开场句与 8 个结果承诺组合生成；每条都明确“已收到、正在处理、稍后汇报”。使用加密安全随机选择，并在当前 Bridge 进程内避免连续两次重复同一句。既有微信通道限定、每个 run 只发一次回执、终态汇报和失败降级逻辑不变。
+- **回归测试：** `test_task_receipts.py` 覆盖 128 条唯一性、语义基线、随机索引边界与不连续重复；`test_hermes_hooks.py` 保留任务回执幂等和 failure 终态断言，并改为校验回执来自受控话术池。
+- **验证命令：** `wsl.exe -d Ubuntu-24.04 -- bash -lc "cd '/mnt/c/Users/jiach/Documents/Agent Butler' && export PYTHONPATH='packages/adapters/hermes/bridge:/home/jiach/.hermes/hermes-agent' && /home/jiach/.hermes/hermes-agent/venv/bin/python -m unittest discover -s packages/adapters/hermes/bridge/tests -p 'test_hermes_hooks.py' -q"`（16 passed）；`$env:PYTHONPATH='packages/adapters/hermes/bridge'; python -m unittest discover -s packages/adapters/hermes/bridge/tests -p 'test_task_receipts.py' -q`；`python -m compileall -q packages/adapters/hermes/bridge/agent_butler_bridge`；`git diff --check`。

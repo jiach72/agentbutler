@@ -27,6 +27,7 @@ from .runtime import (
     start_process_runtime,
     stop_process_runtime,
 )
+from .task_receipts import select_task_receipt
 from .wrapper import attach_adapter, capture_inline_response
 
 
@@ -534,7 +535,7 @@ async def _capture_task_receipt(
     try:
         result = await adapter.send(
             chat_id,
-            "已收到，任务完成后汇报。",
+            select_task_receipt(),
             metadata={
                 "notify": True,
                 "solicitedReply": True,
