@@ -3078,6 +3078,22 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   app.post("/api/skills-manager/adopt", async (request, reply) =>
     proxyWatchPost("/api/skills-manager/adopt", request.body, reply, 120_000),
   );
+  // 技能删除（watch 服务层 confirmed 时会先取消部署再删中央库）。
+  app.post("/api/skills-manager/remove", async (request, reply) =>
+    proxyWatchPost("/api/skills-manager/remove", request.body, reply, 120_000),
+  );
+
+  // GitHub 访问令牌（设置页「安全」）：GET 查配置状态（watch 绝不回显值），
+  // POST 写入/清除透传；watch 不可达 → GET 503 { configured:false }（面板按未配置渲染），
+  // POST 走通用 502 { watch-unreachable }。写入/清除耗时短，10s/15s 超时足够。
+  app.get("/api/github-token", async (_request, reply) => {
+    const res = await fetchWatch("/api/github-token", 10_000);
+    if (res === null) return reply.status(503).send({ configured: false, reason: "watch-unreachable" });
+    return reply.status(res.status).send(await res.json().catch(() => ({ configured: false })));
+  });
+  app.post("/api/github-token", async (request, reply) =>
+    proxyWatchPost("/api/github-token", request.body, reply, 15_000),
+  );
   app.post("/api/evolution/proposals/:id/validate", async (request, reply) => {
     const id = encodeURIComponent((request.params as { id?: string }).id ?? "");
     return proxyWatchPost(`/api/evolution/proposals/${id}/validate`, request.body, reply, 30_000);

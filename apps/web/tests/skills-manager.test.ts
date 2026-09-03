@@ -95,6 +95,7 @@ describe("butler-web 技能库管理器代理", () => {
         if (action === "deploy") return { body: { ok: true, action: "deploy", changed_pairs: 1 } };
         if (action === "undeploy") return { body: { ok: true, action: "undeploy" } };
         if (action === "update") return { body: { ok: true, action: "update" } };
+        if (action === "remove") return { body: { ok: true, action: "remove" } };
         if (action === "adopt") return { body: { ok: true, adopted: [] } };
       }
       return null;
@@ -107,7 +108,7 @@ describe("butler-web 技能库管理器代理", () => {
     expect(install.statusCode).toBe(200);
     expect(install.json()).toMatchObject({ ok: true, skill_id: "s1" });
 
-    for (const action of ["deploy", "undeploy", "update", "adopt"] as const) {
+    for (const action of ["deploy", "undeploy", "update", "remove", "adopt"] as const) {
       const res = await post(`/api/skills-manager/${action}`, { name: "demo", confirmed: true });
       expect(res.statusCode).toBe(200);
     }
@@ -116,6 +117,7 @@ describe("butler-web 技能库管理器代理", () => {
       "/api/skills-manager/deploy",
       "/api/skills-manager/undeploy",
       "/api/skills-manager/update",
+      "/api/skills-manager/remove",
       "/api/skills-manager/adopt",
     ]);
     const installInit = transport.calls[0]?.init;
