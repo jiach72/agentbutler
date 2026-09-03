@@ -439,7 +439,8 @@ describe("createUpgradeService（listVersions 版本源）", () => {
     const result = await harness.service.listVersions();
     expect(result.reachable).toBe(false);
     expect(result.versions).toEqual([]);
-    expect(result.attempts).toHaveLength(3);
+    // 源序列（无 mirror）：github-releases → atom 兜底 → pypi → docker-hub
+    expect(result.attempts).toHaveLength(4);
   });
 });
 

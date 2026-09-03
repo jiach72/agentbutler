@@ -54,6 +54,8 @@ export interface VersionSourceOptions {
   pypiPackage?: string;
   /** ghproxy 类 GitHub API 镜像（见 mirrorUrlOf）。 */
   mirrorHost?: string;
+  /** GitHub API 访问令牌；配置后 api.github.com 不再受匿名限流（403）。 */
+  githubToken?: string;
   /** 单源请求超时（默认 10_000，只读纪律）。 */
   timeoutMs?: number;
 }
@@ -84,6 +86,70 @@ function createPypiSource(packageName: string, fetchFn: typeof fetch, timeoutMs:
       } catch (error) {
         return fail("E203", `version source pypi returned invalid JSON: ${String(error)}`, { startedAt });
       }
+    },
+  };
+}
+
+/* --------------------- GitHub Releases（Atom 订阅兜底） --------------------- */
+
+/**
+ * releases.atom 兜底源：走 github.com 的 Atom 订阅（非 api.github.com），
+ * 不受 GitHub API 匿名限流影响。从正文提取 /releases/tag/<tag> 并解析版本号。
+ */
+export function parseReleasesAtom(xml: string): VersionListEntry[] {
+  const tags = new Set<string>();
+  // 兼容两种形态：链接 https://github.com/<repo>/releases/tag/<tag> 与
+  // 条目 id tag:github.com,2008:Repository/<owner>/<repo>/<tag>。
+  const pattern = /(?:\/releases\/tag\/|Repository\/[^/]+\/[^/]+\/)(v?[0-9][A-Za-z0-9.+-]*)/g;
+  for (const match of xml.matchAll(pattern)) {
+    tags.add(match[1]!);
+  }
+  const versions: VersionListEntry[] = [];
+  for (const tag of tags) {
+    const version = stripVPrefix(tag);
+    if (!/^\d+(?:\.\d+)*(?:-[\w.+-]+)?$/.test(version)) continue;
+    versions.push({ version, channel: version.includes("-") ? "beta" : "stable" });
+  }
+  return versions;
+}
+
+function createGithubReleasesAtomSource(
+  id: string,
+  atomUrl: string,
+  fetchFn: typeof fetch,
+  timeoutMs: number,
+): VersionListSource {
+  return {
+    id,
+    url: atomUrl,
+    list: async () => {
+      const startedAt = Date.now();
+      let response: Response;
+      try {
+        response = await fetchFn(atomUrl, { signal: AbortSignal.timeout(timeoutMs) });
+      } catch (e) {
+        return fail("E203", `version source ${id} request failed: ${String(e)}`, { startedAt });
+      }
+      if (!response.ok) {
+        return fail("E203", `version source ${id} HTTP ${response.status}`, {
+          userHint:
+            response.status === 404
+              ? `版本源 ${id} HTTP 404：上游仓库不存在或不可见，可用 BUTLER_VERSION_REPO 指定实际仓库`
+              : `版本源 ${id} 返回 HTTP ${response.status}`,
+          startedAt,
+        });
+      }
+      let xml = "";
+      try {
+        xml = await response.text();
+      } catch {
+        xml = "";
+      }
+      const versions = parseReleasesAtom(xml);
+      if (versions.length === 0) {
+        return fail("E203", `version source ${id} parsed 0 releases`, { startedAt });
+      }
+      return ok({ versions: dedupeAndSortDesc(versions) }, startedAt);
     },
   };
 }
@@ -183,6 +249,7 @@ function createGithubReleasesSource(
   url: string,
   fetchFn: typeof fetch,
   timeoutMs: number,
+  token?: string,
 ): VersionListSource {
   return {
     id,
@@ -191,7 +258,13 @@ function createGithubReleasesSource(
       const startedAt = Date.now();
       let response: Response;
       try {
-        response = await fetchFn(url, { signal: AbortSignal.timeout(timeoutMs) });
+        response = await fetchFn(url, {
+          signal: AbortSignal.timeout(timeoutMs),
+          headers: {
+            accept: "application/vnd.github+json",
+            ...(token === undefined || token === "" ? {} : { authorization: `Bearer ${token}` }),
+          },
+        });
       } catch (e) {
         return fail("E203", `version source ${id} request failed: ${String(e)}`, {
           userHint: `版本源 ${id} 请求失败（网络不可达或超时）`,
@@ -201,7 +274,12 @@ function createGithubReleasesSource(
       }
       if (!response.ok) {
         return fail("E203", `version source ${id} HTTP ${response.status}`, {
-          userHint: `版本源 ${id} 返回 HTTP ${response.status}`,
+          userHint:
+            response.status === 403 || response.status === 429
+              ? `版本源 ${id} 触发 GitHub API 限流（HTTP ${response.status}）；配置 GITHUB_TOKEN 可解除`
+              : response.status === 404
+                ? `版本源 ${id} HTTP 404：上游仓库不存在或不可见，可用 BUTLER_VERSION_REPO 指定实际仓库`
+                : `版本源 ${id} 返回 HTTP ${response.status}`,
           startedAt,
         });
       }
@@ -328,9 +406,12 @@ export function createVersionSources(options: VersionSourceOptions = {}): Versio
   const repo = options.repo ?? DEFAULT_VERSION_REPO;
   const dockerImage = options.dockerImage ?? DEFAULT_VERSION_DOCKER_IMAGE;
   const pypiPackage = options.pypiPackage ?? "hermes-agent";
+  const githubToken = options.githubToken;
 
   const githubUrl = `https://api.github.com/repos/${repo}/releases`;
-  const sources: VersionListSource[] = [createGithubReleasesSource("github-releases", githubUrl, fetchFn, timeoutMs)];
+  const sources: VersionListSource[] = [
+    createGithubReleasesSource("github-releases", githubUrl, fetchFn, timeoutMs, githubToken),
+  ];
   if (options.mirrorHost) {
     sources.push(
       createGithubReleasesSource(
@@ -338,9 +419,19 @@ export function createVersionSources(options: VersionSourceOptions = {}): Versio
         mirrorUrlOf(options.mirrorHost, githubUrl),
         fetchFn,
         timeoutMs,
+        githubToken,
       ),
     );
   }
+  // Atom 兜底：github.com 页面订阅（非 API），匿名限流下依然可用。
+  sources.push(
+    createGithubReleasesAtomSource(
+      "github-releases-atom",
+      `https://github.com/${repo}/releases.atom`,
+      fetchFn,
+      timeoutMs,
+    ),
+  );
   sources.push(createPypiSource(pypiPackage, fetchFn, timeoutMs));
   sources.push(createDockerHubSource(dockerImage, fetchFn, timeoutMs));
   return sources;

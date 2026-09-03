@@ -5,6 +5,7 @@ import {
   createVersionSources,
   listAvailableVersions,
   mirrorUrlOf,
+  parseReleasesAtom,
   type VersionListSource,
 } from "../src/control/version-source.js";
 
@@ -88,12 +89,12 @@ describe("mirrorUrlOf", () => {
 describe("createVersionSources", () => {
   it("默认序列：GitHub → PyPI → Docker Hub（无 mirror 时不插入镜像源）", () => {
     const sources = createVersionSources({});
-    expect(sources.map((s) => s.id)).toEqual(["github-releases", "pypi", "docker-hub"]);
+    expect(sources.map((s) => s.id)).toEqual(["github-releases", "github-releases-atom", "pypi", "docker-hub"]);
   });
 
   it("提供 mirrorHost 时插入镜像源（GitHub → 镜像 → PyPI → Docker Hub）", () => {
     const sources = createVersionSources({ mirrorHost: "gh-mirror.example.com" });
-    expect(sources.map((s) => s.id)).toEqual(["github-releases", "github-releases-mirror", "pypi", "docker-hub"]);
+    expect(sources.map((s) => s.id)).toEqual(["github-releases", "github-releases-mirror", "github-releases-atom", "pypi", "docker-hub"]);
   });
 
   it("自定义 sources 覆盖默认序列", () => {
@@ -102,9 +103,38 @@ describe("createVersionSources", () => {
   });
 });
 
+describe("parseReleasesAtom", () => {
+  it("从 atom 正文提取标签并解析为版本（去重、去 v 前缀、过滤非版本）", () => {
+    const xml = `
+      <feed>
+        <entry>
+          <id>tag:github.com,2008:Repository/NousResearch/hermes-agent/v0.21.1</id>
+          <link href="https://github.com/NousResearch/hermes-agent/releases/tag/v0.21.1"/>
+        </entry>
+        <entry><id>tag:github.com,2008:Repository/NousResearch/hermes-agent/v0.21.0</id></entry>
+        <entry><link href="https://github.com/NousResearch/hermes-agent/releases/tag/v0.21.0"/></entry>
+        <entry><id>tag:github.com,2008:Repository/NousResearch/hermes-agent/latest</id></entry>
+      </feed>`;
+    expect(parseReleasesAtom(xml).map((v) => v.version)).toEqual(["0.21.1", "0.21.0"]);
+  });
+});
+
 /* ---------------------------- listAvailableVersions ---------------------------- */
 
 describe("listAvailableVersions", () => {
+  it("github 源携带配置的 GITHUB_TOKEN 鉴权头", async () => {
+    const authHeaders: string[] = [];
+    const r = await listAvailableVersions({
+      githubToken: "gh-token-x",
+      fetchFn: ((url: unknown, init?: { headers?: unknown }) => {
+        authHeaders.push(String(new Headers(init?.headers).get("authorization") ?? ""));
+        return Promise.resolve(jsonResponse(releasesBody));
+      }) as unknown as typeof fetch,
+    });
+    expect(r.ok).toBe(true);
+    expect(authHeaders[0]).toBe("Bearer gh-token-x");
+  });
+
   it("GitHub 源成功：去 v 前缀、prerelease→beta、去重降序", async () => {
     const r = await listAvailableVersions({
       fetchFn: fakeFetch(() => jsonResponse(releasesBody)),
@@ -158,28 +188,21 @@ describe("listAvailableVersions", () => {
     ]);
   });
 
-  it("解析异常（非数组载荷 / json 抛错）→ 该源失败转下一源", async () => {
+  it("解析异常（非数组载荷 / json 抛错）→ 该源失败转下一源，由 pypi 兜底成功", async () => {
     let call = 0;
     const r = await listAvailableVersions({
       fetchFn: fakeFetch(() => {
         call += 1;
-        if (call === 1) return jsonResponse({ message: "not an array" }); // GitHub：结构异常
-        if (call === 2) {
-          return {
-            ok: true,
-            status: 200,
-            json: async () => {
-              throw new Error("Unexpected token < in JSON");
-            },
-          } as unknown as Response; // Docker Hub：JSON 解析失败
-        }
-        return jsonResponse(releasesBody);
+        if (call === 1) return jsonResponse({ message: "not an array" }); // GitHub API：结构异常
+        if (call === 2) return jsonResponse("<feed>not json</feed>"); // Atom：文本无标签 → 失败
+        if (call === 3) return jsonResponse({ releases: { "0.21.0": [], "0.20.4": [] } }); // PyPI：成功兜底
+        return jsonResponse({ results: [] }); // Docker Hub
       }),
     });
+    // 源序列：github-releases → atom → pypi（成功）→ docker-hub（不再探测）
     expect(call).toBe(3);
-    expect(r.ok).toBe(false);
-    expect(r.error!.code).toBe("E203");
-    expect(r.error!.userHint).toContain("mirrorHost");
+    expect(r.ok).toBe(true);
+    expect(r.data!.source).toBe("pypi");
   });
 
   it("空版本列表视为源失败（无 release 的仓库转下一源）", async () => {

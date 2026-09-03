@@ -383,6 +383,8 @@ export function createUpgradeService(deps: UpgradeServiceDeps): UpgradeService {
       dockerImage: deps.versionDockerImage,
       pypiPackage: deps.pipPackage,
       mirrorHost: deps.versionMirrorHost,
+      // 配置 GITHUB_TOKEN/GH_TOKEN 后 api.github.com 不再受匿名限流。
+      githubToken: process.env["GITHUB_TOKEN"] ?? process.env["GH_TOKEN"],
     });
     if (result.ok) {
       return { reachable: true, source: result.data!.source, versions: result.data!.versions, checkedAt: new Date().toISOString(), attempts: result.data!.attempts };

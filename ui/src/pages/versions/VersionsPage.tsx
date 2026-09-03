@@ -12,10 +12,8 @@ import { useTheme } from "../../theme/ThemeProvider.js";
 import { useEventStream } from "../../hooks/useEventStream.js";
 import { usePolling } from "../../hooks/usePolling.js";
 import { fetchJson, postJson } from "../../lib/api.js";
-import { isRecord } from "../../lib/format.js";
+import { formatRelative, isRecord } from "../../lib/format.js";
 import { compareVersion } from "../../lib/semver.js";
-import { CandidateList } from "./CandidateList.js";
-import { ManagedInstances } from "./ManagedInstances.js";
 import { PrecheckList } from "./PrecheckList.js";
 import { SnapshotRollback } from "./SnapshotRollback.js";
 import { UpgradePipeline } from "./UpgradePipeline.js";
@@ -399,21 +397,73 @@ export function VersionsPanel() {
       key: "instances",
       label: "受管实例版本与候选升级",
       content: (
-        <Flex vertical gap={16}>
-          <ManagedInstances instances={instances} />
-          <CandidateList
-            available={available}
-            watchReachable={data?.watchReachable}
-            instances={instances}
-            targetInstance={targetInstance}
-            currentVersion={currentVersion}
-            candidates={upgradeCandidates}
-            launchPending={managedUpgradePending !== null}
-            jobRunning={job?.status === "running"}
-            onSelectInstance={setSelectedInstance}
-            onUpgrade={requestUpgrade}
-            onRefresh={() => void refresh()}
-          />
+        <Flex vertical gap={12}>
+          {available !== null && !available.reachable && (
+            <Text type="secondary">版本源暂时不可用；点击下方「重新检查版本」重试。</Text>
+          )}
+          {instances.length === 0 && (
+            <Text type="secondary">还没有发现受管实例；完成实例接入后会显示在这里。</Text>
+          )}
+          {instances.map((instance) => {
+            const base = instance.version ?? "";
+            const candidate =
+              available?.reachable === true && base !== ""
+                ? available.versions
+                    .filter((entry) => compareVersion(entry.version, base) > 0)
+                    .sort(
+                      (left, right) => compareVersion(right.version, left.version),
+                    )[0] ?? null
+                : null;
+            return (
+              <Flex
+                key={instance.instanceId}
+                wrap="wrap"
+                justify="space-between"
+                align="center"
+                gap={8}
+              >
+                <Flex align="center" gap={8}>
+                  <Text strong>{instanceLabel(instance.instanceId)}</Text>
+                  <Text type="secondary">v{base || "?"}</Text>
+                </Flex>
+                {candidate !== null ? (
+                  <Flex align="center" gap={8}>
+                    <Text>
+                      可升级到{" "}
+                      <Text strong>{candidate.displayVersion ?? candidate.version}</Text>
+                    </Text>
+                    <Button
+                      size="small"
+                      type="primary"
+                      onClick={() => {
+                        setSelectedInstance(instance.instanceId);
+                        requestUpgrade(candidate);
+                      }}
+                    >
+                      升级
+                    </Button>
+                  </Flex>
+                ) : (
+                  <Text type="secondary">已是最新</Text>
+                )}
+              </Flex>
+            );
+          })}
+          {available !== null && (
+            <Text
+              type="secondary"
+              style={{ fontSize: 12 }}
+              title={(available.attempts ?? [])
+                .map((a) => `${a.id}：${a.status === "ok" ? "可用" : a.error ?? "失败"}`)
+                .join("；")}
+            >
+              版本源：{available.source ?? "—"} · 已检查{" "}
+              {available.checkedAt ?? "—"} · 检查过程见悬停
+            </Text>
+          )}
+          <Button size="small" onClick={() => void refresh()}>
+            重新检查版本
+          </Button>
           {(job?.status === "running" || managedUpgradePending !== null) && (
             <UpgradePipeline
               job={job}
