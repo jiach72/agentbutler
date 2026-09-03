@@ -1,6 +1,6 @@
 import { createCore } from "@butler/core";
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSkillAssetService } from "../src/skill-assets.js";
@@ -68,6 +68,35 @@ describe("技能资产 GitHub 阶段化下载", () => {
       expect(readFileSync(join(homeOf(core), "skill-assets", "staged", stageId, "SKILL.md"), "utf8")).toContain("name: demo");
     } finally {
       core.close();
+    }
+  });
+
+  it("未设 env/dep 时回退读取 <home>/github-token.json 的令牌（env 始终优先）", async () => {
+    // 密封环境：env 注入的 token 不应掩盖「文件兜底」用例。
+    const savedGithubToken = process.env["GITHUB_TOKEN"];
+    const savedGhToken = process.env["GH_TOKEN"];
+    delete process.env["GITHUB_TOKEN"];
+    delete process.env["GH_TOKEN"];
+    let requestHeaders: HeadersInit | undefined;
+    const home = mkdtempSync(join(tmpdir(), "butler-skill-assets-test-"));
+    homes.push(home);
+    writeFileSync(join(home, "github-token.json"), JSON.stringify({ token: "ghp_from-file" }), "utf8");
+    const core = createCore({ home });
+    const service = createSkillAssetService({
+      core,
+      skills: {} as never,
+      fetch: async (_input, init) => {
+        requestHeaders = init?.headers;
+        return new Response("{}", { status: 403, headers: { "x-ratelimit-remaining": "0" } });
+      },
+    });
+    try {
+      await service.refreshGithubTrends();
+      expect(new Headers(requestHeaders).get("Authorization")).toBe("Bearer ghp_from-file");
+    } finally {
+      core.close();
+      if (savedGithubToken !== undefined) process.env["GITHUB_TOKEN"] = savedGithubToken;
+      if (savedGhToken !== undefined) process.env["GH_TOKEN"] = savedGhToken;
     }
   });
 

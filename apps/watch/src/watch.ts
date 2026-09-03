@@ -1717,6 +1717,8 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       evolutionAnalytics,
       skillAssets,
       skillsManager,
+      // github-token.json 与 skill-assets / upgrade 消费端同源（core.paths.home）。
+      dataDir: core.paths.home,
       llm,
       skills,
       memorySelfCheck: runMemorySelfCheck,

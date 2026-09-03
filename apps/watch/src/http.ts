@@ -101,11 +101,14 @@
  * - GET  /api/skills-manager/updates → 200 check --all 数组；未接线 → 503
  * - POST /api/skills-manager/install → body { source, name?, confirmed? }：
  *      200 预览/结果；缺 source → 400 { error:"missing-source" }
- * - POST /api/skills-manager/deploy|undeploy|update → body { name, confirmed? }：
+ * - POST /api/skills-manager/deploy|undeploy|update|remove → body { name, confirmed? }：
  *      200 预览/结果（confirmed !== true 时服务层 --dry-run）；缺 name → 400
  * - POST /api/skills-manager/adopt → body { dir, confirmed? }；缺 dir → 400
  *      CLI 业务错误映射：unavailable → 503(+installHint)；TARGET_CONFLICT/目标占用 → 409；
  *      INVALID_ARGUMENT → 400；其余 CLI 失败 → 502 { code, message }
+ * - GET  /api/github-token → { configured: boolean }（绝不回显令牌值）；未接线 dataDir → 503
+ * - POST /api/github-token → body { token }（trim 后 8..200 字符）→ 写入 { configured:true }；
+ *      body { clear:true } → 删除文件 { configured:false }；长度不合法 → 400
  *
  * 请求体解析上限 16KB（超出 413；非法 JSON 400）。监听 127.0.0.1:7533
  * （BUTLER_WATCH_HOST / BUTLER_WATCH_PORT 可覆盖，config.ts 读入）。依赖全部
@@ -142,6 +145,7 @@ import type { DiagnosticSummary } from "./diagnostics.js";
 import { classifyRuntimeState } from "./runtime-diagnosis.js";
 import type { HostMetricsService } from "./host-metrics.js";
 import { SkillsManagerError, SKILLS_MANAGER_INSTALL_HINT, type SkillsManagerCli } from "./skills-manager.js";
+import { readGithubToken, writeGithubToken } from "./github-token.js";
 
 /** 记忆按需自检（memory-probe 单阶段）的结论。 */
 export interface MemorySelfCheckResult {
@@ -483,6 +487,11 @@ export interface WatchHttpDeps {
   hostMetrics?: HostMetricsService;
   /** 技能库管理器（skills-manager CLI 集成；未接线时 /api/skills-manager/* 返回 503）。 */
   skillsManager?: SkillsManagerCli;
+  /**
+   * 数据目录（github-token.json 存放处）。与 upgrade / skill-assets 消费端同一来源
+   * （watch.ts 组装处传 core.paths.home）；未接线时 /api/github-token 返回 503。
+   */
+  dataDir?: string;
 }
 
 export interface WatchHttpOptions {
@@ -1480,7 +1489,8 @@ async function handle(
     }
 
     // 技能库管理器（skills-manager CLI 集成）：status/updates 只读直连；
-    // install/deploy/undeploy/update/adopt 由服务层二段式（confirmed !== true → --dry-run 预览）。
+    // install/deploy/undeploy/update/remove/adopt 由服务层二段式（confirmed !== true → --dry-run 预览；
+    // install/update/remove 单段直执行的差异由服务层承担，HTTP 只透传 confirmed）。
     if (path === "/api/skills-manager/status") {
       if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
       if (deps.skillsManager === undefined) return sendJson(res, 503, { error: "skills-manager-unavailable" });
@@ -1504,13 +1514,13 @@ async function handle(
       return sendJson(res, 200, result);
     }
 
-    const skillManagerAction = /^\/api\/skills-manager\/(deploy|undeploy|update|adopt)$/.exec(path);
+    const skillManagerAction = /^\/api\/skills-manager\/(deploy|undeploy|update|remove|adopt)$/.exec(path);
     if (skillManagerAction !== null) {
       if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
       if (deps.skillsManager === undefined) return sendJson(res, 503, { error: "skills-manager-unavailable" });
       const body = await readJsonBody(req, res); if (body === null) return;
       const action = skillManagerAction[1]!;
-      // update 名单上 name 必填（逐技能更新）；adopt 校验 dir；deploy/undeploy 校验 name。
+      // update 名单上 name 必填（逐技能更新）；adopt 校验 dir；deploy/undeploy/remove 校验 name。
       const requiredKey = action === "adopt" ? "dir" : "name";
       const value = typeof body[requiredKey] === "string" ? body[requiredKey].trim() : "";
       if (value === "") return sendJson(res, 400, { error: `missing-${requiredKey}` });
@@ -1519,8 +1529,33 @@ async function handle(
         action === "deploy" ? await deps.skillsManager.deploy({ name: value, confirmed })
         : action === "undeploy" ? await deps.skillsManager.undeploy({ name: value, confirmed })
         : action === "update" ? await deps.skillsManager.update({ name: value, confirmed })
+        : action === "remove" ? await deps.skillsManager.remove({ name: value, confirmed })
         : await deps.skillsManager.adopt({ dir: value, confirmed });
       return sendJson(res, 200, result);
+    }
+
+    // GitHub 访问令牌（设置页「安全」保存）：值只落数据目录文件（0600），
+    // 任何响应只回 configured 布尔、绝不回显令牌本身；clear:true 优先删除文件。
+    if (path === "/api/github-token") {
+      if (method !== "GET" && method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.dataDir === undefined) return sendJson(res, 503, { error: "github-token-unavailable" });
+      if (method === "GET") {
+        return sendJson(res, 200, { configured: readGithubToken(deps.dataDir) !== null });
+      }
+      if (method === "POST") {
+        const body = await readJsonBody(req, res);
+        if (body === null) return;
+        if (body["clear"] === true) {
+          writeGithubToken(deps.dataDir, null);
+          return sendJson(res, 200, { configured: false });
+        }
+        const token = typeof body["token"] === "string" ? body["token"].trim() : "";
+        if (token.length < 8 || token.length > 200) {
+          return sendJson(res, 400, { error: "invalid-github-token", detail: "令牌长度需在 8-200 字符之间。" });
+        }
+        writeGithubToken(deps.dataDir, token);
+        return sendJson(res, 200, { configured: true });
+      }
     }
 
     if (path === "/api/butler/version") {

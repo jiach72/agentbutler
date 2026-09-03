@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { atomicWriteJson, withManagedOperationLock, type Core, type InstanceRecord } from "@butler/core";
+import { readGithubToken } from "./github-token.js";
 import type { BackupService } from "./backup.js";
 import type { BackupGate } from "./backup-gate.js";
 import type { SkillsMemoryService } from "./skills.js";
@@ -148,7 +149,9 @@ function describeRepository(name: string): string {
 export function createSkillAssetService(deps: { core: Core; skills: SkillsMemoryService; backup?: BackupService; backupGate?: BackupGate; logs?: { listSources(instanceId?: string): LogSource[]; readTail(sourceId: string, instanceId?: string, limit?: number): { lines: string[] } | null }; now?: () => number; fetch?: FetchLike; githubToken?: string }): SkillAssetService {
   const now = deps.now ?? Date.now;
   const fetchImpl = deps.fetch ?? globalThis.fetch.bind(globalThis);
-  const githubToken = (deps.githubToken ?? process.env["GITHUB_TOKEN"] ?? process.env["GH_TOKEN"] ?? "").trim();
+  // GitHub 令牌优先级：env（部署显式配置）> 注入 dep（测试）> 设置页保存的
+  // <home>/github-token.json（与本体目录同源解析）；都没有则匿名访问（受限流）。
+  const githubToken = (process.env["GITHUB_TOKEN"] ?? process.env["GH_TOKEN"] ?? deps.githubToken ?? readGithubToken(deps.core.paths.home) ?? "").trim();
   const headers = githubHeaders(githubToken);
   const root = join(deps.core.paths.home, "skill-assets"); const archiveRoot = join(root, "archive"); const stageRoot = join(root, "staged"); const trendPath = join(root, "github-trends.json");
   mkdirSync(archiveRoot, { recursive: true }); mkdirSync(stageRoot, { recursive: true });

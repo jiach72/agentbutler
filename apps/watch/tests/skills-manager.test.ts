@@ -263,6 +263,61 @@ describe("createSkillsManagerCli", () => {
     });
   });
 
+  describe("remove", () => {
+    it("未 confirmed：--dry-run 预览（无 --yes），不触发 undeploy", async () => {
+      const { exec, calls } = makeExec();
+      const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), execFile: exec });
+      await cli.remove({ name: " demo " });
+      expect(calls).toHaveLength(1);
+      expect(calls[0]!.args).toEqual(["skills", "remove", "demo", "--dry-run", "--json"]);
+    });
+
+    it("confirmed：先 undeploy（claude_code）容忍「未部署」失败，再 remove --yes", async () => {
+      // 第一段 undeploy 返回「未部署」类业务错误：remove 应容忍并继续删除中央库条目。
+      const { exec, calls } = makeExec([
+        {
+          error: Object.assign(new Error("exit 1"), {
+            code: 1,
+            stdout: '{"ok":false,"code":"NOT_DEPLOYED","message":"skill not deployed to claude_code"}',
+          }),
+        },
+        { stdout: '{"ok":true}' },
+      ]);
+      const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), execFile: exec });
+      await cli.remove({ name: "demo", confirmed: true });
+      expect(calls.map((call) => call.args)).toEqual([
+        ["skills", "undeploy", "demo", "--agent", "claude_code", "--json"],
+        ["skills", "remove", "demo", "--yes", "--json"],
+      ]);
+    });
+
+    it("confirmed：undeploy 非「未部署」失败原样抛出，不继续 remove", async () => {
+      const { exec, calls } = makeExec([
+        {
+          error: Object.assign(new Error("exit 1"), {
+            code: 1,
+            stdout: '{"ok":false,"code":"TARGET_CONFLICT","message":"occupied"}',
+          }),
+        },
+      ]);
+      const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), execFile: exec });
+      await expect(cli.remove({ name: "demo", confirmed: true })).rejects.toMatchObject({
+        code: "TARGET_CONFLICT",
+      });
+      expect(calls).toHaveLength(1);
+    });
+
+    it("name 缺失/空白抛 INVALID_ARGUMENT，不调用 CLI", async () => {
+      const { exec, calls } = makeExec();
+      const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), execFile: exec });
+      await expect(cli.remove({ name: "  " })).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+      await expect(cli.remove({ name: "", confirmed: true })).rejects.toMatchObject({
+        code: "INVALID_ARGUMENT",
+      });
+      expect(calls).toHaveLength(0);
+    });
+  });
+
   describe("status", () => {
     it("CLI 可用：返回 repo/skills/deployAgent(claude_code)/deployTarget，并确保 symlink", async () => {
       const hermes = join(tmp, "hermes-skills");

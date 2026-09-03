@@ -54,6 +54,10 @@ function makeService(overrides: Partial<SkillsManagerCli> = {}): {
       calls.push({ op: "update", input });
       return { ok: true, dry_run: input.confirmed !== true };
     },
+    remove: async (input) => {
+      calls.push({ op: "remove", input });
+      return { ok: true, dry_run: input.confirmed !== true };
+    },
     adopt: async (input) => {
       calls.push({ op: "adopt", input });
       return { ok: true, dry_run: input.confirmed !== true };
@@ -166,6 +170,25 @@ describe("startWatchHttp /api/skills-manager 端点", () => {
     expect(fake.calls.at(-1)).toEqual({ op: "adopt", input: { dir: "/home/x/skills", confirmed: true } });
   });
 
+  it("remove 未 confirmed 走 dry-run 预览，confirmed 透传（服务内部先 undeploy）", async () => {
+    const fake = await boot();
+    const post = (body: unknown): Promise<Response> =>
+      fetch(`${base}/api/skills-manager/remove`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+    const preview = await post({ name: "demo" });
+    expect(preview.status).toBe(200);
+    expect((await preview.json()) as { dry_run: boolean }).toMatchObject({ dry_run: true });
+    expect(fake.calls.at(-1)).toEqual({ op: "remove", input: { name: "demo", confirmed: false } });
+
+    const applied = await post({ name: "demo", confirmed: true });
+    expect(applied.status).toBe(200);
+    expect(fake.calls.at(-1)).toEqual({ op: "remove", input: { name: "demo", confirmed: true } });
+  });
+
   it("缺参数返回 400，非 GET/POST 返回 405", async () => {
     await boot();
     const post = (path: string, body: unknown): Promise<Response> =>
@@ -178,6 +201,7 @@ describe("startWatchHttp /api/skills-manager 端点", () => {
     expect((await post("/api/skills-manager/deploy", {})).status).toBe(400);
     expect((await post("/api/skills-manager/undeploy", { name: "" })).status).toBe(400);
     expect((await post("/api/skills-manager/update", {})).status).toBe(400);
+    expect((await post("/api/skills-manager/remove", {})).status).toBe(400);
     expect((await post("/api/skills-manager/adopt", {})).status).toBe(400);
     expect((await fetch(`${base}/api/skills-manager/status`, { method: "POST" })).status).toBe(405);
     expect((await fetch(`${base}/api/skills-manager/updates`, { method: "POST" })).status).toBe(405);
@@ -197,6 +221,9 @@ describe("startWatchHttp /api/skills-manager 端点", () => {
       status: async () => {
         throw new SkillsManagerError("deploy-target-conflict", "真实目录占用");
       },
+      remove: async () => {
+        throw new SkillsManagerError("TARGET_CONFLICT", "deploy target busy");
+      },
     });
     const post = (path: string, body: unknown): Promise<Response> =>
       fetch(`${base}${path}`, {
@@ -208,6 +235,10 @@ describe("startWatchHttp /api/skills-manager 端点", () => {
     const conflict = await post("/api/skills-manager/deploy", { name: "demo", confirmed: true });
     expect(conflict.status).toBe(409);
     expect(await conflict.json()).toMatchObject({ code: "TARGET_CONFLICT", message: "already deployed elsewhere" });
+
+    const removeConflict = await post("/api/skills-manager/remove", { name: "demo", confirmed: true });
+    expect(removeConflict.status).toBe(409);
+    expect(await removeConflict.json()).toMatchObject({ code: "TARGET_CONFLICT" });
 
     const invalid = await post("/api/skills-manager/install", { source: "x", confirmed: true });
     expect(invalid.status).toBe(400);

@@ -43,6 +43,7 @@ import {
 } from "@butler/adapter-hermes";
 import type { Core, InstanceRecord } from "@butler/core";
 import { DEFAULT_UPGRADE_NOTIFY_COOLDOWN_MS } from "./config.js";
+import { readGithubToken } from "./github-token.js";
 import { ALERT_SOURCE, type AlertPoster } from "./alert-forward.js";
 import { defaultFetchLike, type FetchLike } from "./dashboard-signal.js";
 import { InspectionPipeline, type InspectionStage } from "./pipeline.js";
@@ -383,8 +384,9 @@ export function createUpgradeService(deps: UpgradeServiceDeps): UpgradeService {
       dockerImage: deps.versionDockerImage,
       pypiPackage: deps.pipPackage,
       mirrorHost: deps.versionMirrorHost,
-      // 配置 GITHUB_TOKEN/GH_TOKEN 后 api.github.com 不再受匿名限流。
-      githubToken: process.env["GITHUB_TOKEN"] ?? process.env["GH_TOKEN"],
+      // 配置 GITHUB_TOKEN/GH_TOKEN 后 api.github.com 不再受匿名限流；
+      // env 优先，未配置时回退设置页保存的 <home>/github-token.json。
+      githubToken: process.env["GITHUB_TOKEN"] ?? process.env["GH_TOKEN"] ?? readGithubToken(core.paths.home) ?? undefined,
     });
     if (result.ok) {
       return { reachable: true, source: result.data!.source, versions: result.data!.versions, checkedAt: new Date().toISOString(), attempts: result.data!.attempts };

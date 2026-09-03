@@ -10,7 +10,7 @@
  *   CLI 的中央库（~/.skills-manager）随之持久化在 Butler 数据卷；
  * - 部署目标 agent key 固定 claude_code：deploy 落在 $HOME/.claude/skills，
  *   服务把该路径维护为指向 Hermes skills 目录的 symlink，文件穿透落位；
- * - 破坏性操作（install/deploy/undeploy/update/adopt）二段式：
+ * - 破坏性操作（deploy/undeploy/remove/adopt）二段式：
  *   confirmed !== true 时内部追加 --dry-run 只做预览。
  */
 import { execFile as execFileCallback } from "node:child_process";
@@ -138,6 +138,11 @@ export interface SkillsManagerUpdateInput {
   confirmed?: boolean;
 }
 
+export interface SkillsManagerRemoveInput {
+  name: string;
+  confirmed?: boolean;
+}
+
 export interface SkillsManagerAdoptInput {
   dir: string;
   confirmed?: boolean;
@@ -159,6 +164,7 @@ export interface SkillsManagerCli {
   undeploy(input: SkillsManagerNameInput): Promise<unknown>;
   check(): Promise<unknown>;
   update(input: SkillsManagerUpdateInput): Promise<unknown>;
+  remove(input: SkillsManagerRemoveInput): Promise<unknown>;
   adopt(input: SkillsManagerAdoptInput): Promise<unknown>;
 }
 
@@ -337,6 +343,27 @@ export function createSkillsManagerCli(deps: SkillsManagerCliDeps = {}): SkillsM
       const nameClean = trimmed(name);
       const args = nameClean !== "" ? ["skills", "update", nameClean] : ["skills", "update", "--all"];
       return run(args);
+    },
+
+    async remove({ name, confirmed = false }) {
+      // 删除支持 --dry-run：预览只展示将移除的部署与中央库条目。
+      const nameClean = trimmed(name);
+      if (nameClean === "") {
+        throw new SkillsManagerError("INVALID_ARGUMENT", "删除技能需要提供 name。");
+      }
+      const args = ["skills", "remove", nameClean];
+      if (!confirmed) return run([...args, "--dry-run"]);
+      // 确认删除前先取消部署（复用 undeploy 同一段调用）；技能本就未部署是
+      // 删除的正常前置态，这类失败容忍并继续，其余失败原样抛出、不删中央库。
+      try {
+        await this.undeploy({ name: nameClean, confirmed: true });
+      } catch (error) {
+        const notDeployed =
+          error instanceof SkillsManagerError &&
+          (/NOT_DEPLOYED/i.test(error.code) || /not deployed|未部署/i.test(error.message));
+        if (!notDeployed) throw error;
+      }
+      return run([...args, "--yes"]);
     },
 
     async adopt({ dir, confirmed = false }) {
