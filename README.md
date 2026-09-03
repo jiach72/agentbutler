@@ -84,6 +84,8 @@ bash scripts/deploy.sh
 bash scripts/bridge-healthcheck.sh  # 启用 Hermes 时
 ```
 
+> 已部署在旧版 updater（容器内 `docker-compose` v1）的环境，先拉取包含 Compose v2 修复的版本，并在宿主机执行一次 `docker compose up -d --build --force-recreate butler-updater`。这一步是升级 sidecar 自身的引导操作；完成后可继续使用 UI 一键升级。
+
 容器镜像按设计不携带 `.git`；updater 通过 `BUTLER_REPOSITORY_PATH` 挂载宿主机工作树来执行自更新。默认从仓库根目录启动 Compose 时无需修改该值；如果从其他目录启动，请填写仓库绝对路径。
 
 WSL Hermes 部署请在 WSL shell 使用 `bash scripts/deploy.sh`；该路径包含 Hermes token/loopback 预检、数据卷备份门禁和 Bridge 转发器选择。PowerShell 脚本适合 Docker Desktop 或不启用 Hermes 消息数据面的场景。

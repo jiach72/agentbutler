@@ -138,7 +138,10 @@ export function SetupPage() {
     if (selected === null) return false;
     const result = await postJson("/api/llm/bindings", { profileId, scope: "instance", instanceId: selected }, 15_000);
     if (!result.ok) {
-      setModelMessage("模型已验证，但没有完成绑定。请稍后重试，或到设置页检查是否已有同范围绑定。");
+      const error = isRecord(result.data) ? result.data["error"] : undefined;
+      setModelMessage(error === "credential-writes-require-loopback"
+        ? "当前部署已关闭模型配置写入。请在 .env 设置 BUTLER_CREDENTIAL_WRITES_ALLOWED=true 后重启 Watch 服务，再完成绑定。"
+        : "模型已验证，但没有完成绑定。请稍后重试，或到设置页检查是否已有同范围绑定。");
       return false;
     }
     await loadStatus();

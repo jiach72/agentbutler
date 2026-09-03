@@ -17,6 +17,16 @@ bash scripts/deploy.sh
 
 无需先 `docker compose down`——`up -d --build` 会滚动重建变更的容器，减少停机。
 
+### Updater 首次引导
+
+当前 updater 使用 Docker CLI 的 Compose v2 插件，以支持 Compose 文件顶层的 `name:`。如果部署仍在运行旧版、内置 `docker-compose` v1 的 updater，旧容器无法在自己的 UI 升级流程中先替换该二进制。先拉取本修复，然后在宿主机执行一次：
+
+```bash
+docker compose up -d --build --force-recreate butler-updater
+```
+
+该命令只重建 updater sidecar；成功后再从 UI 发起一键升级即可。
+
 ## 2. 回滚
 
 镜像回滚（推荐，秒级）：

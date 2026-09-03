@@ -1,7 +1,7 @@
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { once } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import { delimiter, join, resolve } from "node:path";
 
@@ -22,6 +22,7 @@ let binDir = "";
 let homeDir = "";
 let healthServer: Server | undefined;
 let healthUrl = "";
+let composeArgsFile = "";
 let updater: RunningUpdater | undefined;
 let revisions: { from: string; target: string };
 
@@ -70,7 +71,14 @@ function writeCommandShims(): void {
     ].join("\r\n"),
     "utf8",
   );
-  writeFileSync(join(binDir, "docker-compose.cmd"), "@echo off\r\nexit /b 0\r\n", "utf8");
+  const composeShim = [
+    "@echo off",
+    "if not \"%BUTLER_UPDATER_TEST_COMPOSE_ARGS_FILE%\"==\"\" echo %*>>\"%BUTLER_UPDATER_TEST_COMPOSE_ARGS_FILE%\"",
+    "exit /b 0",
+    "",
+  ].join("\r\n");
+  writeFileSync(join(binDir, "docker-compose.cmd"), composeShim, "utf8");
+  writeFileSync(join(binDir, "docker.cmd"), composeShim, "utf8");
 }
 
 async function startHealthServer(): Promise<void> {
@@ -94,7 +102,7 @@ async function waitFor(check: () => Promise<boolean>, timeoutMs = 8_000): Promis
   throw new Error("timed out waiting for updater state");
 }
 
-async function startUpdater(options: { failBuildOnce?: boolean } = {}): Promise<RunningUpdater> {
+async function startUpdater(options: { failBuildOnce?: boolean; composeBinary?: string } = {}): Promise<RunningUpdater> {
   const probe = createServer();
   probe.listen(0, "127.0.0.1");
   await once(probe, "listening");
@@ -112,13 +120,14 @@ async function startUpdater(options: { failBuildOnce?: boolean } = {}): Promise<
       BUTLER_UPDATER_SOURCE: sourceDir,
       BUTLER_COMPOSE_PROJECT_DIR: sourceDir,
       BUTLER_COMPOSE_FILE: "docker-compose.yml",
-      BUTLER_COMPOSE_BIN: join(binDir, "docker-compose.cmd"),
+      BUTLER_COMPOSE_BIN: options.composeBinary ?? join(binDir, "docker-compose.cmd"),
       BUTLER_UPDATER_COREPACK_BIN: join(binDir, "corepack.cmd"),
       BUTLER_UPDATER_SERVICES: "butler-web",
       BUTLER_UPDATER_HOST: "127.0.0.1",
       BUTLER_UPDATER_PORT: String(port),
       BUTLER_UPDATER_HEALTH_URLS: healthUrl,
       BUTLER_ACCESS_TOKEN: TOKEN,
+      BUTLER_UPDATER_TEST_COMPOSE_ARGS_FILE: composeArgsFile,
       ...(options.failBuildOnce ? { BUTLER_UPDATER_TEST_BUILD_FAILURE_FILE: failureFile } : {}),
     },
     stdio: "ignore",
@@ -167,6 +176,7 @@ beforeEach(async () => {
   sourceDir = join(root, "source");
   binDir = join(root, "bin");
   homeDir = join(root, "home");
+  composeArgsFile = join(root, "compose-args.txt");
   mkdirSync(homeDir, { recursive: true });
   revisions = makeRepository();
   writeCommandShims();
@@ -222,6 +232,21 @@ describe("butler-updater security and rollback", () => {
     const status = await terminalStatus();
     expect(status["lastJob"]).toMatchObject({ status: "done", phase: "done", target: "v0.2.0" });
     expect(runGit(["rev-parse", "--short", "HEAD"])).toBe(revisions.target);
+  }, 15_000);
+
+  it("uses the Docker Compose v2 subcommand when configured with docker", async () => {
+    updater = await startUpdater({ composeBinary: join(binDir, "docker.cmd") });
+    const response = await request("/api/upgrade", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-butler-token": TOKEN },
+      body: JSON.stringify({ target: "v0.2.0", confirmed: true }),
+    });
+    expect(response.status).toBe(202);
+
+    const status = await terminalStatus();
+    expect(status["lastJob"]).toMatchObject({ status: "done", phase: "done" });
+    const invocation = readFileSync(composeArgsFile, "utf8").replaceAll('"', "");
+    expect(invocation).toContain(`compose --project-directory ${sourceDir} -f ${join(sourceDir, "docker-compose.yml")} up -d --build butler-web`);
   }, 15_000);
 
   it("automatically restores the previous commit when the target build fails", async () => {

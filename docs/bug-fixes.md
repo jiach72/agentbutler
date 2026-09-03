@@ -1,5 +1,23 @@
 # Bug Fixes
 
+## 2026-09-03 - UI 一键升级使用了不兼容的 Compose v1
+
+- **Problem:** updater 镜像通过 apt 安装 `docker-compose` 1.29.2。该旧实现无法解析 Compose 文件顶层的 `name: agent-butler`，导致从 UI 触发升级时在重启阶段失败；宿主的 `docker compose` v2 不受影响。
+- **Impact:** 已部署系统的 UI 一键升级必然失败，只能人工执行部署脚本，且错误发生在拉取/构建之后，恢复路径不清晰。
+- **Changed scope:** updater 改为从官方 Docker CLI 镜像复制 `docker` 与 Compose v2 插件，并通过 `docker compose` 执行重启；移除只为 apt Docker 20.10 兼容保留的 API 版本强制覆盖。保留 Compose 顶层项目名，避免升级时按目录推导出不同项目名而产生重复容器或网络。部署、运维与智能体指引明确旧 sidecar 的一次性宿主机重建步骤。
+- **Regression coverage:** `apps/updater/tests/main.test.ts` 覆盖 updater 配置为 `docker` 时实际调用 `docker compose --project-directory … -f … up -d --build …`；既有升级、鉴权与回滚覆盖保持。
+- **Verification:** `corepack pnpm exec tsc -b apps/updater/tsconfig.json --pretty false`；`corepack pnpm exec vitest run apps/updater/tests/main.test.ts --reporter=dot`；`docker build -f apps/updater/Dockerfile -t agent-butler-updater-compose-v2-test .`；容器内 `docker compose version` 与 `docker compose --project-directory /workspace -f /workspace/docker-compose.yml config -q`；`docker compose config -q`；`git diff --check`。
+- **Runtime validation:** 运行旧 updater 的已部署环境必须先拉取修复并在宿主机执行一次 `docker compose up -d --build --force-recreate butler-updater`。旧 v1 sidecar 在替换前无法可靠执行自身升级；此引导完成后，UI 一键升级可保留既有项目名并正常重启 Gateway、Watch 与 Web。
+
+## 2026-09-03 - Docker 部署首次设置的模型绑定被错误拒绝
+
+- **Problem:** Compose 中的 Watch 为了被 Web 容器访问而监听 `0.0.0.0`，但 `BUTLER_CREDENTIAL_WRITES_ALLOWED` 的 Compose 默认值仍为 `false`。模型探针成功后，首次设置提交实例绑定会被 Watch 以 `credential-writes-require-loopback` 拒绝（HTTP 403）。
+- **Impact:** 用户能够验证模型服务，却无法保存绑定；首次设置卡在模型步骤，设置页的创建、轮换和删除绑定也同样不可用。
+- **Changed scope:** `docker-compose.yml` 将受 Compose 内网隔离、Web 访问口令和同源校验保护的默认写入策略改为启用；仍可在 `.env` 显式设为 `false`，以关闭所有模型凭据与绑定写操作。首次设置页识别该具体拒绝原因，给出可执行的环境变量与重启提示，而不是泛化为“稍后重试”。
+- **Regression coverage:** `apps/watch/tests/http.test.ts` 覆盖 `0.0.0.0` 监听且显式允许写入时可创建实例范围的模型绑定；保留非回环默认拒绝和显式允许创建 profile 的既有覆盖。
+- **Verification:** `corepack pnpm exec vitest run apps/watch/tests/http.test.ts --reporter=dot`；`corepack pnpm exec tsc -b apps/watch/tsconfig.json ui/tsconfig.json --pretty false`；`docker compose config -q`；`git diff --check`。
+- **Runtime validation:** 已部署的环境需重建 Watch（例如 `docker compose up -d --force-recreate butler-watch`）或在 `.env` 显式设置 `BUTLER_CREDENTIAL_WRITES_ALLOWED=true` 后重启；然后在 `/setup` 验证模型探针成功后创建绑定返回 201。
+
 ## 2026-09-03 - 首页、消息恢复与技能发现的产品 UI 收敛
 
 - **Problem:** 首页正常态混排资源指标、趋势图和诊断细节，普通用户无法快速判断是否要处理；消息页在多项服务异常时堆叠多个横幅，恢复动作不明确；通道目录额外套用外层卡片，窄屏空间紧张；技能页和多处页面重复使用技术式 kicker/统计卡，导航与来源文案偏实现导向。

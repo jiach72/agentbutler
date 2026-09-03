@@ -173,6 +173,31 @@ describe("startWatchHttp（注入依赖，回环真实端口）", () => {
     }
   });
 
+  it("显式开启凭据写入时允许模型绑定，避免验证成功后在首次设置中卡在 403", async () => {
+    const llm = {
+      listBindings: () => [],
+      addBinding: (input: unknown) => input,
+    } as unknown as NonNullable<WatchHttpDeps["llm"]>;
+    const remote = startWatchHttp(
+      { ...fake.deps, llm },
+      { host: "0.0.0.0", port: 0, credentialWritesAllowed: true },
+    );
+    const address = await remote.start();
+    try {
+      const res = await fetch(`http://127.0.0.1:${address.port}/api/llm/bindings`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ profileId: "profile-1", scope: "instance", instanceId: "hermes-main" }),
+      });
+      expect(res.status).toBe(201);
+      await expect(res.json()).resolves.toMatchObject({
+        binding: { profileId: "profile-1", scope: "instance", instanceId: "hermes-main" },
+      });
+    } finally {
+      remote.close();
+    }
+  });
+
   it("GET /api/runbooks → 三段结构（id/label/description/breakerTripped/lastRun 可选）", async () => {
     fake.state.runbooks = () => [
       {

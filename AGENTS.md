@@ -105,7 +105,7 @@ curl -s http://127.0.0.1:7531/api/health | grep -o '"connected":[a-z]*'  # 消�
 
 ### 4.3 升级 / 回滚（交付后运维）
 
-- 更新：`bash scripts/deploy.sh`（滚动重建，升级前自动备份数据卷），或在 UI「设置 → 关于」一键升级（内部 updater sidecar 执行，失败自动回滚）；
+- 更新：`bash scripts/deploy.sh`（滚动重建，升级前自动备份数据卷），或在 UI「设置 → 关于」一键升级（内部 updater sidecar 执行，失败自动回滚）。旧版 updater 若仍内置 `docker-compose` v1，先拉取本修复并在宿主机一次性执行 `docker compose up -d --build --force-recreate butler-updater`，再使用 UI 升级；
 - 回滚：`BUTLER_VERSION=<旧版本> docker compose up -d --no-build --force-recreate`。
 
 ## 5. 安全红线
@@ -131,5 +131,6 @@ curl -s http://127.0.0.1:7531/api/health | grep -o '"connected":[a-z]*'  # 消�
 | pnpm install EACCES（在 /mnt/c） | 迁移仓库到 WSL ext4 后重来，禁止在 NTFS 挂载上构建 |
 | 面板切换接管后一直显示「待生效」 | Bridge 离线（`bash scripts/bridge-healthcheck.sh` 定位）；恢复后下一轮 reconcile 自动生效，无需人工处理 |
 | 通道启停后 60 秒仍「应用中」 | Hermes 网关重启失败：查 hermes-gateway 服务日志；Bridge 不会自动反复重启 |
+| UI 一键升级提示 Compose 不认识顶层 `name` | updater 仍在运行旧的 `docker-compose` v1；拉取修复后执行一次 `docker compose up -d --build --force-recreate butler-updater`，随后从 UI 重试 |
 
 更多细节见 `docs/docker-operations.md` 与 `docs/deployment-20260825.md`（含完整踩坑记录）。

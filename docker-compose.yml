@@ -61,8 +61,9 @@ services:
       BUTLER_WATCH_HOST: 0.0.0.0
       BUTLER_WATCH_PORT: 7533
       # Watch 在容器内必须监听 0.0.0.0 才能被 Web 访问；凭据写入权限单独控制。
-      # 仅在 Web 绑定本机回环且当前部署没有其他认证层时开启。
-      BUTLER_CREDENTIAL_WRITES_ALLOWED: ${BUTLER_CREDENTIAL_WRITES_ALLOWED:-false}
+      # Watch 仅暴露在 Compose 内网；Web 的访问口令与同源校验保护写请求。
+      # 本机默认可写，发布到不可信网络时应在 .env 显式设为 false。
+      BUTLER_CREDENTIAL_WRITES_ALLOWED: ${BUTLER_CREDENTIAL_WRITES_ALLOWED:-true}
       BUTLER_GATEWAY_URL: http://butler-gateway:7532
       BUTLER_AUTO_START: ${BUTLER_AUTO_START:-true}
       BUTLER_HERMES_ROOT: /home/butler/hermes
@@ -150,13 +151,11 @@ services:
       BUTLER_UPDATER_PORT: 7540
       BUTLER_UPDATER_SOURCE: /workspace
       BUTLER_COMPOSE_PROJECT_DIR: /workspace
-      BUTLER_COMPOSE_BIN: docker-compose
+      BUTLER_COMPOSE_BIN: docker
       BUTLER_REPOSITORY_URL: ${BUTLER_REPOSITORY_URL:-https://github.com/jiach72/agentbutler}
       BUTLER_UPDATER_SERVICES: butler-gateway butler-watch butler-web
       # 必填。updater 会执行 git checkout、重建镜像、重启服务，没有口令时它拒绝一切请求。
       BUTLER_ACCESS_TOKEN: ${BUTLER_ACCESS_TOKEN:-}
-      # apt docker.io(20.10, API 1.41) 太旧，daemon 要求 >=1.44；用 env 强制协商
-      DOCKER_API_VERSION: ${DOCKER_API_VERSION:-1.44}
     expose:
       - "7540"
     volumes:

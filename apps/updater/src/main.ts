@@ -10,7 +10,7 @@ import {
   writeFileSync,
   closeSync,
 } from "node:fs";
-import { delimiter, dirname, extname, join } from "node:path";
+import { basename, delimiter, dirname, extname, join } from "node:path";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 
 type CommandResult = { ok: boolean; stdout: string; error: string };
@@ -39,7 +39,7 @@ const lockFile = join(stateDir, "updater.lock");
 const repositoryUrl = process.env["BUTLER_REPOSITORY_URL"]?.trim().replace(/\.git$/, "") || null;
 const composeProjectDir = process.env["BUTLER_COMPOSE_PROJECT_DIR"]?.trim() || sourceDir;
 const composeFile = process.env["BUTLER_COMPOSE_FILE"]?.trim() || "docker-compose.yml";
-const composeBinary = process.env["BUTLER_COMPOSE_BIN"]?.trim() || "docker-compose";
+const composeBinary = process.env["BUTLER_COMPOSE_BIN"]?.trim() || "docker";
 const corepackBinary = process.env["BUTLER_UPDATER_COREPACK_BIN"]?.trim() || "corepack";
 const services = (process.env["BUTLER_UPDATER_SERVICES"] ?? "butler-gateway butler-watch butler-web")
   .split(/\s+/)
@@ -124,7 +124,7 @@ function run(command: string, args: string[], cwd = sourceDir, timeout = 120_000
 
 /**
  * Node cannot execute .cmd/.bat files through execFileSync on Windows. corepack and
- * docker-compose are usually command scripts there, so invoke only those through cmd.exe.
+ * configured Compose executables can be command scripts there, so invoke only those through cmd.exe.
  * All updater-controlled arguments are validated before reaching this boundary.
  */
 function isWindowsBatchCommand(command: string): boolean {
@@ -243,7 +243,9 @@ async function waitHealthy(): Promise<boolean> {
 }
 
 function composeUp(): CommandResult {
-  const composeArgs = composeBinary === "docker-compose" ? [] : ["compose"];
+  const composeArgs = ["docker-compose", "docker-compose.exe", "docker-compose.cmd", "docker-compose.bat"].includes(basename(composeBinary).toLowerCase())
+    ? []
+    : ["compose"];
   return run(
     composeBinary,
     [...composeArgs, "--project-directory", composeProjectDir, "-f", join(composeProjectDir, composeFile), "up", "-d", "--build", ...services],

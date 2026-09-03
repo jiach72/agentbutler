@@ -1,3 +1,5 @@
+FROM docker:29.7.2-cli AS docker-cli
+
 FROM node:22-slim AS build
 
 ENV PNPM_HOME=/pnpm
@@ -24,7 +26,9 @@ FROM node:22-slim
 ENV NODE_ENV=production
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
-RUN corepack enable && apt-get update && apt-get install -y --no-install-recommends git docker.io docker-compose ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN corepack enable && apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins/docker-compose /usr/local/libexec/docker/cli-plugins/docker-compose
 WORKDIR /app
 COPY --from=build /app/apps/updater/dist ./apps/updater/dist
 COPY --from=build /app/apps/updater/package.json ./apps/updater/package.json
