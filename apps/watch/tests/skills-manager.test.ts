@@ -223,11 +223,11 @@ describe("createSkillsManagerCli", () => {
   });
 
   describe("高层操作参数拼装", () => {
-    it("install 未 confirmed 追加 --dry-run，confirmed 则真执行；name 可选", async () => {
+    it("install 单段直接执行（CLI install 无 dry-run）；name 可选且会去空白", async () => {
       const { exec, calls } = makeExec();
       const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), execFile: exec });
       await cli.install({ source: "owner/repo" });
-      expect(calls[0]!.args).toEqual(["skills", "install", "owner/repo", "--dry-run", "--json"]);
+      expect(calls[0]!.args).toEqual(["skills", "install", "owner/repo", "--json"]);
       await cli.install({ source: "https://github.com/a/b.git", name: " My Skill ", confirmed: true });
       expect(calls[1]!.args).toEqual(["skills", "install", "https://github.com/a/b.git", "--name", "My Skill", "--json"]);
     });
@@ -244,7 +244,7 @@ describe("createSkillsManagerCli", () => {
       expect(calls[1]!.args).toEqual(["skills", "undeploy", "demo", "--agent", "claude_code", "--json"]);
     });
 
-    it("check 直连执行（CLI 无 dry-run），update 带 name，adopt 追加 --dry-run", async () => {
+    it("check/update 直连执行（CLI update 无 dry-run），adopt 追加 --dry-run", async () => {
       const { exec, calls } = makeExec();
       const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), execFile: exec });
       await cli.check();
@@ -255,11 +255,11 @@ describe("createSkillsManagerCli", () => {
       expect(calls[2]!.args).toEqual(["skills", "adopt", join(tmp, "existing"), "--dry-run", "--json"]);
     });
 
-    it("update 不带 name 时更新全部（仍走二段式）", async () => {
+    it("update 未确认也直接执行（CLI update 不支持 --dry-run）", async () => {
       const { exec, calls } = makeExec();
       const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), execFile: exec });
       await cli.update({ name: "  " });
-      expect(calls[0]!.args).toEqual(["skills", "update", "--all", "--dry-run", "--json"]);
+      expect(calls[0]!.args).toEqual(["skills", "update", "--all", "--json"]);
     });
   });
 

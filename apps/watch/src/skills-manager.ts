@@ -304,11 +304,12 @@ export function createSkillsManagerCli(deps: SkillsManagerCliDeps = {}): SkillsM
       };
     },
 
-    async install({ source, name, confirmed = false }) {
+    async install({ source, name }) {
+      // CLI 的 skills install 不支持 --dry-run（安装是向中央库新增，重名会被
+      // CLI 自身拒绝），因此本操作单段直接执行。
       const args = ["skills", "install", source];
       const nameClean = trimmed(name);
       if (nameClean !== "") args.push("--name", nameClean);
-      if (!confirmed) args.push("--dry-run");
       return run(args);
     },
 
@@ -330,10 +331,11 @@ export function createSkillsManagerCli(deps: SkillsManagerCliDeps = {}): SkillsM
       return run(["skills", "check", "--all"]);
     },
 
-    async update({ name, confirmed = false }) {
+    async update({ name }) {
+      // CLI 的 skills update 不支持 --dry-run（更新只写中央库、不动已部署副本，
+      // 「有可用更新」的预览由 skills check 承担），因此本操作单段直接执行。
       const nameClean = trimmed(name);
       const args = nameClean !== "" ? ["skills", "update", nameClean] : ["skills", "update", "--all"];
-      if (!confirmed) args.push("--dry-run");
       return run(args);
     },
 

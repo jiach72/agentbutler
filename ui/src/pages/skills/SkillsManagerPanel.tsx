@@ -228,9 +228,10 @@ export function SkillsManagerPanel() {
     if (installBusy) return;
     setInstallBusy(true);
     const name = installName.trim();
+    // CLI 的 install 不支持 dry-run（向中央库新增，重名自动拒绝），单段直接安装。
     const result = await postJson(
       "/api/skills-manager/install",
-      { source, ...(name === "" ? {} : { name }) },
+      { source, confirmed: true, ...(name === "" ? {} : { name }) },
       ACTION_TIMEOUT_MS,
     );
     setInstallBusy(false);
@@ -238,7 +239,27 @@ export function SkillsManagerPanel() {
       message.error(extractError(result.data));
       return;
     }
-    setPending({ title: `安装 ${source}`, op: "install", payload: { source, ...(name === "" ? {} : { name }) }, preview: result.data });
+    message.success(`技能已安装到中央库：${name === "" ? source : name}`);
+    setInstallSource("");
+    setInstallName("");
+    void loadAll({ silent: true });
+  };
+
+  const runUpdate = async (name: string): Promise<void> => {
+    // CLI 的 update 不支持 dry-run（只更新中央库、不动已部署副本），单段直接执行。
+    setBusySkill(`update:${name}`);
+    const result = await postJson(
+      "/api/skills-manager/update",
+      { name, confirmed: true },
+      ACTION_TIMEOUT_MS,
+    );
+    setBusySkill(null);
+    if (!result.ok) {
+      message.error(extractError(result.data));
+      return;
+    }
+    message.success(`已更新 ${name}`);
+    void loadAll({ silent: true });
   };
 
   if (state.status === "failed") {
@@ -343,7 +364,7 @@ export function SkillsManagerPanel() {
       {skills.length === 0 ? (
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="中央技能库还没有技能；先用上方表单安装一个吧。" />
       ) : (
-        <Card size="small" styles={{ body: { padding: 0 } }}>
+        <Card size="small" styles={{ body: { padding: "4px 16px" } }}>
           <List
             dataSource={skills}
             renderItem={(item) => {
@@ -358,14 +379,7 @@ export function SkillsManagerPanel() {
                         key="update"
                         size="small"
                         loading={busySkill === `update:${item.name}`}
-                        onClick={() =>
-                          void beginAction(
-                            "update",
-                            `更新 ${item.name}`,
-                            { name: item.name },
-                            `update:${item.name}`,
-                          )
-                        }
+                        onClick={() => void runUpdate(item.name)}
                       >
                         更新
                       </Button>
