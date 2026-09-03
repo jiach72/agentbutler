@@ -495,6 +495,14 @@
 
 - **问题：** 微信受管任务开始时始终发送“已收到，任务完成后汇报。”，连续使用时缺乏变化，也没有体现任务已经开始处理的即时感。
 - **风险/影响：** 客户虽然能收到确认，但会反复看到机械的同一句，降低消息网关作为持续协作入口的亲和力与可感知进度。
-- **修复范围：** Bridge 新增 128 条受控中文启动回执，由 16 个开场句与 8 个结果承诺组合生成；每条都明确“已收到、正在处理、稍后汇报”。使用加密安全随机选择，并在当前 Bridge 进程内避免连续两次重复同一句。既有微信通道限定、每个 run 只发一次回执、终态汇报和失败降级逻辑不变。
-- **回归测试：** `test_task_receipts.py` 覆盖 128 条唯一性、语义基线、随机索引边界与不连续重复；`test_hermes_hooks.py` 保留任务回执幂等和 failure 终态断言，并改为校验回执来自受控话术池。
+- **修复范围：** Bridge 新增 2,048 条受控中文启动回执，由 64 个开场句与 32 个结果承诺组合生成；每条都明确“已收到、正在处理、稍后汇报”。使用加密安全随机选择，并在当前 Bridge 进程内避免连续两次重复同一句。既有微信通道限定、每个 run 只发一次回执、终态汇报和失败降级逻辑不变。
+- **回归测试：** `test_task_receipts.py` 覆盖 2,048 条唯一性、语义基线、随机索引边界与不连续重复；`test_hermes_hooks.py` 保留任务回执幂等和 failure 终态断言，并改为校验回执来自受控话术池。
 - **验证命令：** `wsl.exe -d Ubuntu-24.04 -- bash -lc "cd '/mnt/c/Users/jiach/Documents/Agent Butler' && export PYTHONPATH='packages/adapters/hermes/bridge:/home/jiach/.hermes/hermes-agent' && /home/jiach/.hermes/hermes-agent/venv/bin/python -m unittest discover -s packages/adapters/hermes/bridge/tests -p 'test_hermes_hooks.py' -q"`（16 passed）；`$env:PYTHONPATH='packages/adapters/hermes/bridge'; python -m unittest discover -s packages/adapters/hermes/bridge/tests -p 'test_task_receipts.py' -q`；`python -m compileall -q packages/adapters/hermes/bridge/agent_butler_bridge`；`git diff --check`。
+
+## 2026-09-03 - 顶栏通知预览的信息密度过高
+
+- **问题：** 右上角通知预览在每一项中同时显示等级、标题、正文、时间和来源。对于只想快速确认是否有新提醒的用户，内容重复且难以扫描。
+- **风险/影响：** 顶栏弹层占用较多视觉注意力，长正文容易遮蔽后续条目；用户要到消息通知页才能进行的排查信息被过早塞进了高频预览。
+- **修复范围：** 通知预览列表只显示标题，保留未读圆点、点击标记已读、刷新、全部标记已读与完整消息队列入口；详细正文、来源、时间和等级仍在消息通知页可查。列表项保持 44px 最小点击高度，长标题单行省略。
+- **回归测试：** `ui/tests/notification-center.test.ts` 覆盖预览只渲染标题且保留未读状态，不渲染正文、来源或等级文本。
+- **验证命令：** `corepack pnpm --filter @butler/ui exec vitest run --config vitest.config.ts tests/notification-center.test.ts --reporter=dot`；`corepack pnpm exec tsc -b ui/tsconfig.json --pretty false`；`corepack pnpm --filter @butler/ui exec vite build`；`git diff --check`。

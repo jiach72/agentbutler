@@ -2,7 +2,6 @@ import { BellOutlined, CheckOutlined, ReloadOutlined } from "@ant-design/icons";
 import { Badge, Button, Empty, Popover, Spin } from "antd";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { formatRelative } from "../lib/format.js";
 import { usePreferences } from "../lib/preferences.js";
 import { useNotifications, type NotificationItem } from "../hooks/useNotifications.js";
 import { StatusBadge } from "./StatusBadge.js";
@@ -11,10 +10,25 @@ function visibleForPreference(item: NotificationItem, minSeverity: "warn" | "cri
   return minSeverity === "critical" ? item.severity === "critical" : true;
 }
 
-function severityLabel(severity: NotificationItem["severity"]): string {
-  if (severity === "critical") return "紧急";
-  if (severity === "warn") return "留意";
-  return "信息";
+export function NotificationTitleList({
+  items,
+  onRead,
+}: {
+  items: NotificationItem[];
+  onRead: (id: NotificationItem["id"]) => void;
+}) {
+  return (
+    <ul className="notification-list">
+      {items.map((item) => (
+        <li key={item.id} className={`notification-item${item.readAt === null ? " is-unread" : ""}`}>
+          <button type="button" className="notification-item-main" onClick={() => onRead(item.id)}>
+            <strong>{item.title}</strong>
+          </button>
+          {item.readAt === null && <span className="notification-unread-dot" aria-label="未读" />}
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 function NotificationContent({ onClose }: { onClose: () => void }) {
@@ -42,19 +56,7 @@ function NotificationContent({ onClose }: { onClose: () => void }) {
       ) : visibleItems.length === 0 ? (
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有需要留意的通知" />
       ) : (
-        <ul className="notification-list">
-          {visibleItems.map((item) => (
-            <li key={item.id} className={`notification-item${item.readAt === null ? " is-unread" : ""}`}>
-              <button type="button" className="notification-item-main" onClick={() => void markRead(item.id)}>
-                <span className={`notification-severity is-${item.severity}`}><i />{severityLabel(item.severity)}</span>
-                <strong>{item.title}</strong>
-                <span>{item.body}</span>
-                <small>{formatRelative(item.createdAt)} · {item.source}</small>
-              </button>
-              {item.readAt === null && <span className="notification-unread-dot" aria-label="未读" />}
-            </li>
-          ))}
-        </ul>
+        <NotificationTitleList items={visibleItems} onRead={(id) => void markRead(id)} />
       )}
       <footer className="notification-panel-foot">
         <Link to="/gateway" onClick={onClose}>查看完整通知队列</Link>
