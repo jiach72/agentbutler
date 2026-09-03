@@ -67,20 +67,10 @@ const ACTION_TIMEOUT_MS = 120_000;
 
 /** 判断技能是否已部署到部署目标（claude_code / Hermes skills symlink）。 */
 function deployedToTarget(item: SkillsManagerSkill): boolean {
+  // CLI skills list --json 的部署字段是 deployed_to: ["claude_code", ...]。
+  const deployedTo = item["deployed_to"];
+  if (Array.isArray(deployedTo)) return deployedTo.includes(DEPLOY_AGENT);
   if (typeof item["deployed"] === "boolean") return item["deployed"];
-  for (const key of ["deployed_agents", "deployments", "agents"] as const) {
-    const value = item[key];
-    if (!Array.isArray(value)) continue;
-    const hit = value.some((entry) => {
-      if (typeof entry === "string") return entry === DEPLOY_AGENT;
-      if (entry !== null && typeof entry === "object") {
-        const record = entry as Record<string, unknown>;
-        return record["key"] === DEPLOY_AGENT || record["agent"] === DEPLOY_AGENT;
-      }
-      return false;
-    });
-    if (hit) return true;
-  }
   return false;
 }
 

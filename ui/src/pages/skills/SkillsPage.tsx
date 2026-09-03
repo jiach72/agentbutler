@@ -1,7 +1,7 @@
 /**
- * 技能与记忆页主编排（单页连续仪表盘）：顶部全局概览带 + 技能库 / 本机盘点 / 插件库 / 记忆库 分区。
+ * 技能与记忆页主编排（单页连续仪表盘）：顶部全局概览带 + 技能库（安装 / 更新 / 删除 / 部署到 Hermes）/ 插件库 / 记忆库 分区。
  * 技能库（skills-manager 中央库）是主管理视图：安装 / 更新 / 删除 / 部署到 Hermes；
- * 本机盘点与插件只读展示。记忆检索独立于技能/插件列表——搜索只更新记忆分区，失败不回滚列表。
+ * 插件只读展示。记忆检索独立于技能库——搜索只更新记忆分区，失败不回滚列表。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, App, Button, Card, Col, Flex, Row, Spin, Statistic, Tabs, Typography } from "antd";
@@ -20,7 +20,6 @@ import {
 } from "./helpers.js";
 import { MemoryPanel } from "./MemoryPanel.js";
 import { PluginLibrary } from "./PluginLibrary.js";
-import { SkillLibrary } from "./SkillLibrary.js";
 import { SkillsManagerPanel } from "./SkillsManagerPanel.js";
 
 const { Text } = Typography;
@@ -170,7 +169,7 @@ export function SkillsPage() {
       <PageHeader
         eyebrow="技能资产管理"
         title="技能与记忆"
-        description="「技能库」支持安装、更新、删除技能并部署到 Hermes；本机盘点与插件为只读查看，记忆支持检索与维护。"
+        description="「技能库」统一管理智能体技能：安装（Git 来源）、更新、删除、部署到 Hermes；插件为只读查看，记忆支持检索与维护。"
         extra={
           <Flex vertical align="flex-end" gap={4}>
             <ConnectionChip
@@ -217,29 +216,6 @@ export function SkillsPage() {
             children: (
               <div id="skills-manager-panel">
                 <SkillsManagerPanel />
-              </div>
-            ),
-          },
-          {
-            key: "skills",
-            label: "本机盘点（只读）",
-            children: (
-              <div id="skills-panel">
-                {mainState.status === "loading" && (
-                  <Flex vertical gap={16}>
-                    <Alert
-                      type="info"
-                      showIcon
-                      message={modeLabel("unavailable")}
-                      description="正在读取技能状态"
-                    />
-                    <Flex justify="center" align="center" gap={8}>
-                      <Spin />
-                      <Text type="secondary">正在读取技能清单…</Text>
-                    </Flex>
-                  </Flex>
-                )}
-                {mainState.status === "ready" && <SkillLibrary skills={mainState.data.skills} />}
               </div>
             ),
           },
