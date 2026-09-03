@@ -61,7 +61,7 @@ describe("createSkillsManagerCli", () => {
 
   it("run 以 --json 结尾、HOME 指向隔离 cliHome、默认 120s 超时，并解析 stdout JSON", async () => {
     const { exec, calls } = makeExec([{ stdout: '{"skill_count":3}\n' }]);
-    const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), execFile: exec });
+    const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), cliDownloadDir: join(tmp, "bin"), execFile: exec, autoDownload: false });
     const result = await cli.run(["repo", "status"]);
     expect(result).toEqual({ skill_count: 3 });
     expect(calls).toHaveLength(1);
@@ -73,7 +73,7 @@ describe("createSkillsManagerCli", () => {
 
   it("run 透传注入的 timeoutMs", async () => {
     const { exec, calls } = makeExec();
-    const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), execFile: exec, timeoutMs: 5_000 });
+    const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), cliDownloadDir: join(tmp, "bin"), execFile: exec, timeoutMs: 5_000, autoDownload: false });
     await cli.run(["skills", "list"]);
     expect(calls[0]!.options.timeout).toBe(5_000);
   });
@@ -82,7 +82,7 @@ describe("createSkillsManagerCli", () => {
     const { exec } = makeExec([
       { error: Object.assign(new Error("exit 2"), { code: 2, stdout: '{"ok":false,"code":"INVALID_ARGUMENT","message":"bad source"}' }) },
     ]);
-    const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), execFile: exec });
+    const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), cliDownloadDir: join(tmp, "bin"), execFile: exec, autoDownload: false });
     const error = await cli.run(["skills", "install", "bad"]).catch((cause: unknown) => cause);
     expect(error).toBeInstanceOf(SkillsManagerError);
     expect((error as SkillsManagerError).code).toBe("INVALID_ARGUMENT");
@@ -93,13 +93,13 @@ describe("createSkillsManagerCli", () => {
     const { exec } = makeExec([
       { error: Object.assign(new Error("boom"), { code: 1, stderr: '{"ok":false,"code":"TARGET_CONFLICT","message":"occupied"}' }) },
     ]);
-    const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), execFile: exec });
+    const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), cliDownloadDir: join(tmp, "bin"), execFile: exec, autoDownload: false });
     await expect(cli.run(["skills", "deploy", "x"])).rejects.toMatchObject({ code: "TARGET_CONFLICT" });
 
     const { exec: rawExec } = makeExec([
       { error: Object.assign(new Error("segmentation fault"), { code: 139, stdout: "not json", stderr: "" }) },
     ]);
-    const rawCli = createSkillsManagerCli({ cliHome: join(tmp, "home"), execFile: rawExec });
+    const rawCli = createSkillsManagerCli({ cliHome: join(tmp, "home"), cliDownloadDir: join(tmp, "bin"), execFile: rawExec, autoDownload: false });
     await expect(rawCli.run(["skills", "list"])).rejects.toMatchObject({ code: "skills-manager-cli-failed" });
   });
 
@@ -107,7 +107,7 @@ describe("createSkillsManagerCli", () => {
     const { exec } = makeExec([
       { error: Object.assign(new Error("spawn ENOENT"), { code: "ENOENT" }) },
     ]);
-    const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), execFile: exec });
+    const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), cliDownloadDir: join(tmp, "bin"), execFile: exec, autoDownload: false });
     await expect(cli.run(["repo", "status"])).rejects.toMatchObject({ code: "skills-manager-unavailable" });
   });
 
@@ -158,7 +158,7 @@ describe("createSkillsManagerCli", () => {
     it("symlink 不存在时创建指向 hermes skills 目录的链接", () => {
       const { fs, log } = makeFs();
       const hermes = join(tmp, "hermes", "skills");
-      const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), hermesSkillsDir: hermes, fs });
+      const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), cliDownloadDir: join(tmp, "bin"), hermesSkillsDir: hermes, fs, autoDownload: false });
       const target = cli.ensureTarget();
       expect(target).toEqual({ agent: SKILLS_MANAGER_DEPLOY_AGENT, dir: hermes, symlinked: true });
       expect(linkOps(log)).toEqual([`symlink:${join(tmp, "home", ".claude", "skills")}->${resolve(hermes)}`]);
@@ -171,7 +171,7 @@ describe("createSkillsManagerCli", () => {
       // 预置：模拟第一次已建好正确链接
       fs.symlinkSync(resolve(hermes), link);
       log.length = 0;
-      const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), hermesSkillsDir: hermes, fs });
+      const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), cliDownloadDir: join(tmp, "bin"), hermesSkillsDir: hermes, fs, autoDownload: false });
       expect(cli.ensureTarget().symlinked).toBe(true);
       expect(linkOps(log)).toEqual([]);
     });
@@ -183,7 +183,7 @@ describe("createSkillsManagerCli", () => {
       const link = join(tmp, "home", ".claude", "skills");
       fs.symlinkSync(resolve(other), link);
       log.length = 0;
-      const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), hermesSkillsDir: hermes, fs });
+      const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), cliDownloadDir: join(tmp, "bin"), hermesSkillsDir: hermes, fs, autoDownload: false });
       const target = cli.ensureTarget();
       expect(target.symlinked).toBe(true);
       expect(linkOps(log)).toEqual([
@@ -197,7 +197,7 @@ describe("createSkillsManagerCli", () => {
       const hermes = join(tmp, "hermes", "skills");
       const link = join(tmp, "home", ".claude", "skills");
       fs.mkdirSync(link, { recursive: true });
-      const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), hermesSkillsDir: hermes, fs });
+      const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), cliDownloadDir: join(tmp, "bin"), hermesSkillsDir: hermes, fs, autoDownload: false });
       const error = await Promise.resolve()
         .then(() => cli.ensureTarget())
         .catch((cause: unknown) => cause);
@@ -225,7 +225,7 @@ describe("createSkillsManagerCli", () => {
   describe("高层操作参数拼装", () => {
     it("install 单段直接执行（CLI install 无 dry-run）；name 可选且会去空白", async () => {
       const { exec, calls } = makeExec();
-      const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), execFile: exec });
+      const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), cliDownloadDir: join(tmp, "bin"), execFile: exec, autoDownload: false });
       await cli.install({ source: "owner/repo" });
       expect(calls[0]!.args).toEqual(["skills", "install", "owner/repo", "--json"]);
       await cli.install({ source: "https://github.com/a/b.git", name: " My Skill ", confirmed: true });
@@ -246,7 +246,7 @@ describe("createSkillsManagerCli", () => {
 
     it("check/update 直连执行（CLI update 无 dry-run），adopt 追加 --dry-run", async () => {
       const { exec, calls } = makeExec();
-      const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), execFile: exec });
+      const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), cliDownloadDir: join(tmp, "bin"), execFile: exec, autoDownload: false });
       await cli.check();
       expect(calls[0]!.args).toEqual(["skills", "check", "--all", "--json"]);
       await cli.update({ name: "demo", confirmed: true });
@@ -257,7 +257,7 @@ describe("createSkillsManagerCli", () => {
 
     it("update 未确认也直接执行（CLI update 不支持 --dry-run）", async () => {
       const { exec, calls } = makeExec();
-      const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), execFile: exec });
+      const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), cliDownloadDir: join(tmp, "bin"), execFile: exec, autoDownload: false });
       await cli.update({ name: "  " });
       expect(calls[0]!.args).toEqual(["skills", "update", "--all", "--json"]);
     });
@@ -266,7 +266,7 @@ describe("createSkillsManagerCli", () => {
   describe("remove", () => {
     it("未 confirmed：--dry-run 预览（无 --yes），不触发 undeploy", async () => {
       const { exec, calls } = makeExec();
-      const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), execFile: exec });
+      const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), cliDownloadDir: join(tmp, "bin"), execFile: exec, autoDownload: false });
       await cli.remove({ name: " demo " });
       expect(calls).toHaveLength(1);
       expect(calls[0]!.args).toEqual(["skills", "remove", "demo", "--dry-run", "--json"]);
@@ -283,7 +283,7 @@ describe("createSkillsManagerCli", () => {
         },
         { stdout: '{"ok":true}' },
       ]);
-      const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), execFile: exec });
+      const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), cliDownloadDir: join(tmp, "bin"), execFile: exec, autoDownload: false });
       await cli.remove({ name: "demo", confirmed: true });
       expect(calls.map((call) => call.args)).toEqual([
         ["skills", "undeploy", "demo", "--agent", "claude_code", "--json"],
@@ -300,7 +300,7 @@ describe("createSkillsManagerCli", () => {
           }),
         },
       ]);
-      const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), execFile: exec });
+      const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), cliDownloadDir: join(tmp, "bin"), execFile: exec, autoDownload: false });
       await expect(cli.remove({ name: "demo", confirmed: true })).rejects.toMatchObject({
         code: "TARGET_CONFLICT",
       });
@@ -309,12 +309,73 @@ describe("createSkillsManagerCli", () => {
 
     it("name 缺失/空白抛 INVALID_ARGUMENT，不调用 CLI", async () => {
       const { exec, calls } = makeExec();
-      const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), execFile: exec });
+      const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), cliDownloadDir: join(tmp, "bin"), execFile: exec, autoDownload: false });
       await expect(cli.remove({ name: "  " })).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
       await expect(cli.remove({ name: "", confirmed: true })).rejects.toMatchObject({
         code: "INVALID_ARGUMENT",
       });
       expect(calls).toHaveLength(0);
+    });
+  });
+
+  describe("CLI 自动下载", () => {
+    function makeFakeResponse(status: number, body?: Uint8Array): Response {
+      return {
+        ok: status === 200,
+        status,
+        arrayBuffer: async () => (body ?? new Uint8Array(0)).buffer,
+      } as unknown as Response;
+    }
+
+    it("镜像/配置路径缺失时从 GitHub 下载到 cliDownloadDir 并落位", async () => {
+      const dir = join(tmp, "dl");
+      const { exec, calls } = makeExec([{ stdout: '{"skill_count":1}' + String.fromCharCode(10) }]);
+      const fakeBody = new Uint8Array(2_000_000);
+      fakeBody.fill(0x7f);
+      const cli = createSkillsManagerCli({
+        cliHome: join(tmp, "home"),
+        cliDownloadDir: dir,
+        execFile: exec,
+        fetchImpl: (async () => makeFakeResponse(200, fakeBody)) as unknown as typeof fetch,
+        autoDownload: true,
+      });
+      const result = await cli.run(["repo", "status"]);
+      expect(result).toEqual({ skill_count: 1 });
+      expect(calls[0]!.file).toBe(join(dir, "skills-manager-cli"));
+      expect(existsSync(join(dir, "skills-manager-cli"))).toBe(true);
+    });
+
+    it("下载失败（HTTP 404）时回退为不可用并给出安装指引", async () => {
+      const dir = join(tmp, "dl-fail");
+      const cli = createSkillsManagerCli({
+        cliHome: join(tmp, "home"),
+        cliDownloadDir: dir,
+        execFile: makeExec().exec,
+        fetchImpl: (async () => makeFakeResponse(404)) as unknown as typeof fetch,
+        autoDownload: true,
+      });
+      const status = await cli.status();
+      expect(status).toMatchObject({ available: false });
+    });
+
+    it("已有数据卷副本时直接复用（不再尝试下载）", async () => {
+      const dir = join(tmp, "dl-cached");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "skills-manager-cli"), "#!fake");
+      let fetched = false;
+      const cli = createSkillsManagerCli({
+        cliHome: join(tmp, "home"),
+        cliDownloadDir: dir,
+        execFile: makeExec().exec,
+        fetchImpl: (async () => {
+          fetched = true;
+          return makeFakeResponse(200);
+        }) as unknown as typeof fetch,
+        autoDownload: true,
+      });
+      const status = await cli.status();
+      expect(status).toMatchObject({ available: true });
+      expect(fetched).toBe(false);
     });
   });
 

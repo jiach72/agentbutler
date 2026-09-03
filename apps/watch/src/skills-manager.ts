@@ -15,12 +15,15 @@
  */
 import { execFile as execFileCallback } from "node:child_process";
 import {
+  chmodSync as chmodSyncReal,
   existsSync,
   lstatSync as lstatSyncReal,
   mkdirSync,
   readlinkSync,
+  renameSync as renameSyncReal,
   symlinkSync as symlinkSyncReal,
   unlinkSync,
+  writeFileSync as writeFileSyncReal,
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -37,9 +40,8 @@ export const SKILLS_MANAGER_DEFAULT_VERSION = "v1.36.0";
 export const SKILLS_MANAGER_DEPLOY_AGENT = "claude_code";
 /** CLI 缺失时给用户的安装指引（status 200 降级与 503 共用文案）。 */
 export const SKILLS_MANAGER_INSTALL_HINT =
-  "技能库管理器（skills-manager CLI）未随当前 watch 镜像提供。" +
-  "请升级管家镜像（Dockerfile 会下载 skills-manager-cli 到 /usr/local/bin），" +
-  "或重新执行 bash scripts/deploy.sh 构建后重试。";
+  "技能库管理器（skills-manager CLI）未能就绪：镜像内未内置且自动下载失败。" +
+  "请检查网络后重启管家（将重试自动下载），或重新执行 bash scripts/deploy.sh 构建镜像。";
 
 /** CLI 单次调用超时（安装/更新可能拉取远端仓库，默认 120s）。 */
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -69,6 +71,11 @@ export interface SkillsManagerFs {
   readlinkSync(path: string): string;
   symlinkSync(target: string, path: string): void;
   unlinkSync(path: string): void;
+  /** 下载落位后设置可执行权限（默认 0755）。 */
+  chmodSync(path: string, mode: number): void;
+  /** 原子落位：临时文件写入 + 替换。 */
+  writeFileSync(path: string, data: Uint8Array): void;
+  renameSync(from: string, to: string): void;
 }
 
 const defaultFs: SkillsManagerFs = {
@@ -86,11 +93,24 @@ const defaultFs: SkillsManagerFs = {
   symlinkSync: (target, path) =>
     symlinkSyncReal(target, path, process.platform === "win32" ? "junction" : undefined),
   unlinkSync,
+  chmodSync: (path, mode) => chmodSyncReal(path, mode),
+  writeFileSync: (path, data) => writeFileSyncReal(path, data),
+  renameSync: (from, to) => renameSyncReal(from, to),
 };
 
+const SKILLS_MANAGER_DOWNLOAD_ARTIFACT = "skills-manager-cli-Linux-x64";
+
 export interface SkillsManagerCliDeps {
-  /** CLI 二进制路径（默认镜像内固定路径）。 */
+  /** CLI 二进制路径（默认镜像内固定路径；缺失时按 cliDownloadDir 自动下载）。 */
   cliPath?: string;
+  /** CLI 缺失时的下载落位目录（默认 <butler dataDir>/bin）。 */
+  cliDownloadDir?: string;
+  /** 自动下载开关（默认 true；测试可关）。 */
+  autoDownload?: boolean;
+  /** 下载源版本（默认 v1.36.0，与 Dockerfile 对齐；env SKILLS_MANAGER_CLI_VERSION 优先）。 */
+  cliDownloadVersion?: string;
+  /** 下载用 fetch（默认 globalThis.fetch；测试注入）。 */
+  fetchImpl?: typeof fetch;
   /** 隔离 HOME（默认 <butler dataDir>/skills-manager-home，复用 @butler/core 解析）。 */
   cliHome?: string;
   /** Hermes skills 目录（symlink 目标；默认 $BUTLER_HERMES_ROOT/skills，回退 ~/.hermes/skills）。 */
@@ -168,10 +188,10 @@ export interface SkillsManagerCli {
   adopt(input: SkillsManagerAdoptInput): Promise<unknown>;
 }
 
-/** CLI 版本：镜像构建时以 ENV 固化（SKILLS_MANAGER_CLI_VERSION），本地开发回退默认值。 */
-function resolveCliVersion(): string {
+/** CLI 版本：镜像构建时以 ENV 固化（SKILLS_MANAGER_CLI_VERSION）；可选 deps 覆盖（测试），本地开发回退默认值。 */
+function resolveCliVersion(deps: SkillsManagerCliDeps = {}): string {
   const fromEnv = process.env["SKILLS_MANAGER_CLI_VERSION"]?.trim();
-  return fromEnv !== undefined && fromEnv !== "" ? fromEnv : SKILLS_MANAGER_DEFAULT_VERSION;
+  return fromEnv !== undefined && fromEnv !== "" ? fromEnv : (deps.cliDownloadVersion ?? SKILLS_MANAGER_DEFAULT_VERSION);
 }
 
 /** 默认 Hermes skills 目录：$BUTLER_HERMES_ROOT/skills，回退 ~/.hermes/skills。 */
@@ -221,15 +241,54 @@ function toSkillsManagerError(cause: unknown): SkillsManagerError {
   );
 }
 
+
 export function createSkillsManagerCli(deps: SkillsManagerCliDeps = {}): SkillsManagerCli {
-  const cliPath = deps.cliPath ?? SKILLS_MANAGER_CLI_PATH;
   const cliHome = deps.cliHome ?? join(butlerPaths().dataDir, "skills-manager-home");
   const hermesSkillsDir = deps.hermesSkillsDir ?? defaultHermesSkillsDir();
   const exec = deps.execFile ?? (execFile as unknown as SkillsManagerExecFile);
   const fs = deps.fs ?? defaultFs;
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const downloadDir = deps.cliDownloadDir ?? join(butlerPaths().dataDir, "bin");
+  const fallbackPath = join(downloadDir, "skills-manager-cli");
+  const fetchImpl = deps.fetchImpl ?? fetch;
+  const autoDownload = deps.autoDownload ?? true;
+
+  /**
+   * 解析 CLI 可执行路径：镜像内置（/usr/local/bin）存在则优先；
+   * 否则允许上一次运行时已下载到数据卷的副本；都没有且允许自动下载时，
+   * 从 GitHub 下载到 <downloadDir>（原子落位 + 0755），规避「updater 升级
+   * 未重建镜像导致 CLI 缺失」的反馈闭环——只要代码切到新版即可自愈。
+   */
+  const configuredPath = deps.cliPath ?? SKILLS_MANAGER_CLI_PATH;
+  const resolveCliPath = async (): Promise<string> => {
+    // 显式/镜像路径存在时直接使用（测试注入与生产镜像内置都走这条）。
+    if (fs.existsSync(configuredPath)) return configuredPath;
+    if (fs.existsSync(fallbackPath)) return fallbackPath;
+    if (!autoDownload) return configuredPath;
+    try {
+      const version = resolveCliVersion(deps);
+      const url = `https://github.com/xingkongliang/skills-manager/releases/download/${version}/${SKILLS_MANAGER_DOWNLOAD_ARTIFACT}`;
+      const response = await fetchImpl(url, {
+        redirect: "follow",
+        signal: AbortSignal.timeout(120_000),
+      });
+      if (!response.ok) return fallbackPath;
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      if (bytes.byteLength < 1_000_000) return fallbackPath; // 明显不是有效二进制（HTML 错误页等）
+      fs.mkdirSync(downloadDir, { recursive: true });
+      const tmp = join(downloadDir, `.skills-manager-cli.${process.pid}.tmp`);
+      fs.writeFileSync(tmp, bytes);
+      fs.chmodSync(tmp, 0o755);
+      fs.renameSync(tmp, fallbackPath);
+      return fallbackPath;
+    } catch {
+      return fallbackPath; // 下载失败：走 unavailable 提示，不中断服务
+    }
+  };
+  let cliPath = SKILLS_MANAGER_CLI_PATH;
 
   const run = async (args: string[]): Promise<unknown> => {
+    cliPath = await resolveCliPath();
     let stdout: string;
     try {
       ({ stdout } = await exec(cliPath, [...args, "--json"], {
@@ -280,7 +339,9 @@ export function createSkillsManagerCli(deps: SkillsManagerCliDeps = {}): SkillsM
   const trimmed = (value: string | undefined): string => (value ?? "").trim();
 
   return {
-    cliPath,
+    get cliPath() {
+      return cliPath;
+    },
     cliHome,
     hermesSkillsDir,
     run,
@@ -288,6 +349,7 @@ export function createSkillsManagerCli(deps: SkillsManagerCliDeps = {}): SkillsM
     ensureTarget,
 
     async status() {
+      cliPath = await resolveCliPath();
       if (!fs.existsSync(cliPath)) {
         return { available: false, installHint: SKILLS_MANAGER_INSTALL_HINT };
       }
