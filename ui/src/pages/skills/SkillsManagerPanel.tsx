@@ -113,18 +113,20 @@ function previewEntries(preview: unknown): Array<[string, string]> {
   return entries;
 }
 
-function updateStatusLabel(status: string | null | undefined): { text: string; color?: "success" | "warning" | "error" } {
+function updateStatusLabel(status: string | null | undefined): { text: string; color?: "success" | "warning" | "error" | "default" } {
   if (status === "up_to_date") return { text: "已是最新", color: "success" };
+  if (status === "local_only")
+    return { text: "本地来源", color: "default" }; // 收编的本机技能无远端可更新
   if (status === undefined || status === null || status === "") return { text: "未检查" };
   if (status === "skipped") return { text: "已跳过" };
   return { text: "有可用更新", color: "warning" };
 }
 
-/** update_status 不是已知的“无更新/跳过”值时视为有新版，展示更新按钮。 */
+/** update_status 是明确的“有新版”时才展示更新按钮；local_only 不是更新。 */
 function hasAvailableUpdate(item: UpdateCheckItem | undefined): boolean {
   if (item === undefined) return false;
   const status = item.update_status ?? null;
-  return status !== null && status !== "" && status !== "up_to_date" && status !== "skipped";
+  return status !== null && status !== "" && status !== "up_to_date" && status !== "skipped" && status !== "local_only";
 }
 
 function opDoneText(op: PendingAction["op"]): string {
@@ -459,7 +461,7 @@ export function SkillsManagerPanel() {
               return (
                 <List.Item
                   actions={[
-                    hasAvailableUpdate(check) && !isLocalAdopted ? (
+                    hasAvailableUpdate(check) ? (
                       <Button
                         key="update"
                         size="small"
@@ -472,7 +474,7 @@ export function SkillsManagerPanel() {
                     ) : null,
                     isLocalAdopted ? (
                       <Tag key="local" color="blue">
-                        本机已有
+                        无需部署
                       </Tag>
                     ) : deployed ? (
                       <Button
@@ -538,9 +540,15 @@ export function SkillsManagerPanel() {
                             本机已有
                           </Tag>
                         )}
-                        <Tag color={deployed ? "success" : "default"}>
-                          {deployed ? "已部署到 Hermes" : "未部署"}
-                        </Tag>
+                        {isLocalAdopted ? (
+                          <Tag color="success" style={{ marginRight: 0 }}>
+                            本机运行中
+                          </Tag>
+                        ) : (
+                          <Tag color={deployed ? "success" : "default"} style={{ marginRight: 0 }}>
+                            {deployed ? "已部署到 Hermes" : "未部署"}
+                          </Tag>
+                        )}
                         <Tag color={statusLabel.color}>{statusLabel.text}</Tag>
                       </Flex>
                     }
@@ -551,7 +559,11 @@ export function SkillsManagerPanel() {
                         </Typography.Text>
                       ) : (
                         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                          {typeof item.skill_id === "string" ? `ID ${item.skill_id}` : "中央库技能"}
+                          {isLocalAdopted
+                            ? "已收编自本机技能目录（原件保持不动）"
+                            : typeof item.skill_id === "string"
+                              ? `ID ${item.skill_id}`
+                              : "中央库技能"}
                         </Typography.Text>
                       )
                     }
