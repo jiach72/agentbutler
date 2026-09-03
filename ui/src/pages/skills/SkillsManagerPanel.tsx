@@ -439,6 +439,10 @@ export function SkillsManagerPanel() {
           安装会直接拉取到中央技能库（同名技能会被拒绝）；「收编本机技能」会把
           Hermes 已安装、但还不在中央库里的技能纳入统一管理，原目录保持不变。
         </Typography.Paragraph>
+        <Typography.Paragraph type="secondary" style={{ marginBottom: 0, marginTop: 4, fontSize: 12 }}>
+          「更新」按钮只在 Git 来源技能检测到新版本时出现；本地收编技能（本机运行中）
+          没有远端更新来源，如需升级请在其原仓库更新后重新「收编」。
+        </Typography.Paragraph>
       </Card>
 
       {skills.length === 0 ? (

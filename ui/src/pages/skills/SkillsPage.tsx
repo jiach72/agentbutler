@@ -126,6 +126,24 @@ export function SkillsPage() {
     message.error("记忆自检失败；请稍后重试或查看管家日志。");
   };
 
+  const [managerCount, setManagerCount] = useState<number | null>(null);
+  useEffect(() => {
+    let active = true;
+    void loadJson<{ repo?: { skill_count?: number } }>("/api/skills-manager/status", 15_000).then(
+      (payload) => {
+        if (!active) return;
+        const count =
+          payload !== null && typeof payload === "object" && "repo" in payload
+            ? (payload as { repo?: { skill_count?: number } }).repo?.skill_count
+            : undefined;
+        setManagerCount(typeof count === "number" ? count : null);
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const libraryData = mainState.status === "ready" ? mainState.data : null;
   const refreshing = mainState.status === "loading" || searching;
   const memoryStats = libraryData?.memory.stats ?? null;
@@ -134,9 +152,11 @@ export function SkillsPage() {
   const overview = [
     {
       key: "skills",
-      label: "技能",
+      label: "技能（Hermes 全量）",
       value: libraryData === null ? "…" : formatNumber(libraryData.skills.total),
-      sub: libraryData === null ? "读取中" : `共 ${libraryData.skills.items.filter((item) => item.enabled).length} 启用`,
+      sub: libraryData === null
+        ? "读取中"
+        : `含内置/系统技能；中央库受管 ${managerCount} 个`,
     },
     {
       key: "plugins",
