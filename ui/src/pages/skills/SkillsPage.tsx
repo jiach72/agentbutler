@@ -94,7 +94,11 @@ export function SkillsPage() {
   const runMemoryBackup = async () => {
     if (backupBusy) return;
     setBackupBusy(true);
-    const result = await postJson("/api/backups", { kind: "memory", label: "记忆页手动备份" }, 15_000);
+    const result = await postJson(
+      "/api/backups",
+      { kind: "memory", label: "记忆页手动备份" },
+      15_000,
+    );
     setBackupBusy(false);
     if (result.ok && result.data !== null && typeof result.data === "object") {
       message.success("记忆库备份完成，已保存在本地备份目录。");
@@ -154,15 +158,16 @@ export function SkillsPage() {
       key: "skills",
       label: "技能（Hermes 全量）",
       value: libraryData === null ? "…" : formatNumber(libraryData.skills.total),
-      sub: libraryData === null
-        ? "读取中"
-        : `含内置/系统技能；中央库受管 ${managerCount} 个`,
+      sub: libraryData === null ? "读取中" : `含内置/系统技能；中央库受管 ${managerCount} 个`,
     },
     {
       key: "plugins",
       label: "插件",
       value: libraryData === null ? "…" : formatNumber(libraryData.plugins.total),
-      sub: libraryData === null ? "读取中" : `共 ${libraryData.plugins.items.filter((item) => item.enabled).length} 启用`,
+      sub:
+        libraryData === null
+          ? "读取中"
+          : `共 ${libraryData.plugins.items.filter((item) => item.enabled).length} 启用`,
     },
     {
       key: "memory-entries",
@@ -175,8 +180,8 @@ export function SkillsPage() {
   return (
     <section className="skills-page">
       <PageHeader
-        title="技能与记忆"
-        description="在「技能库」中安装、更新、删除和部署智能体技能；插件可查看状态，记忆支持检索与维护。"
+        title="智能体与记忆"
+        description="管理智能体技能的安装、更新与部署；查看插件状态，并检索、维护本机记忆。"
         extra={
           <Flex vertical align="flex-end" gap={4}>
             <ConnectionChip

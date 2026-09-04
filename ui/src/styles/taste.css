@@ -41,14 +41,33 @@
   animation: chart-skeleton-pulse 1.2s var(--butler-ease) infinite alternate;
 }
 
-.chart-skeleton span:nth-child(1) { height: 34%; }
-.chart-skeleton span:nth-child(2) { height: 62%; animation-delay: 90ms; }
-.chart-skeleton span:nth-child(3) { height: 46%; animation-delay: 180ms; }
-.chart-skeleton span:nth-child(4) { height: 78%; animation-delay: 270ms; }
+.chart-skeleton span:nth-child(1) {
+  height: 34%;
+}
+.chart-skeleton span:nth-child(2) {
+  height: 62%;
+  animation-delay: 90ms;
+}
+.chart-skeleton span:nth-child(3) {
+  height: 46%;
+  animation-delay: 180ms;
+}
+.chart-skeleton span:nth-child(4) {
+  height: 78%;
+  animation-delay: 270ms;
+}
 
 @keyframes chart-skeleton-pulse {
-  from { opacity: 0.45; transform: scaleY(0.88); transform-origin: bottom; }
-  to { opacity: 1; transform: scaleY(1); transform-origin: bottom; }
+  from {
+    opacity: 0.45;
+    transform: scaleY(0.88);
+    transform-origin: bottom;
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1);
+    transform-origin: bottom;
+  }
 }
 
 .chart-state {
@@ -91,6 +110,110 @@
 
 .ant-table-tbody > tr > td {
   overflow-wrap: anywhere;
+}
+
+/* ---- 智能体与记忆：把状态、动作、内容分成可扫描的层级 ---- */
+.skills-manager-heading,
+.memory-panel-heading {
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--butler-rule);
+}
+
+.skills-manager-heading > div:first-child,
+.memory-panel-heading > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.skills-manager-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.skills-manager-stats > .ant-card {
+  min-width: 0;
+}
+
+.skills-install-source {
+  flex: 1 1 320px;
+  min-width: 240px;
+}
+
+.skills-install-name {
+  flex: 0 1 220px;
+  min-width: 180px;
+}
+
+.skills-filter-keyword {
+  flex: 1 1 260px;
+  min-width: 220px;
+}
+
+.skills-filter-tags {
+  flex: 1 1 240px;
+  min-width: 220px;
+}
+
+.skills-filter-source {
+  width: 150px;
+}
+
+.skill-table-name {
+  min-width: 180px;
+}
+
+.memory-stat-grid .ant-card {
+  height: 100%;
+}
+
+.memory-stat-grid .ant-statistic-content {
+  min-height: 28px;
+}
+
+.memory-trend-card .ant-card-body {
+  padding-top: 12px;
+}
+
+.memory-panel .ant-list-item {
+  align-items: flex-start;
+}
+
+@media (max-width: 760px) {
+  .skills-manager-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .skills-filter-source {
+    width: 100%;
+  }
+}
+
+@media (max-width: 520px) {
+  .skills-manager-stats {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .skills-manager-heading,
+  .memory-panel-heading {
+    align-items: stretch;
+  }
+
+  .skills-manager-heading .ant-flex:last-child,
+  .memory-panel-heading > .ant-btn {
+    width: 100%;
+  }
+
+  .skills-manager-heading .ant-flex:last-child .ant-btn {
+    flex: 1 1 auto;
+  }
+
+  .skills-install-source,
+  .skills-install-name,
+  .skills-filter-keyword,
+  .skills-filter-tags {
+    min-width: 100%;
+  }
 }
 
 /* ---- Core files 页面容器宽度（壳层基础宽度之上再收紧一档） ---- */

@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import {
   Alert,
   Button,
+  Card,
   Col,
   Empty,
   Flex,
@@ -16,6 +17,7 @@ import {
   Tag,
   Typography,
 } from "antd";
+import { DatabaseOutlined, LineChartOutlined, SearchOutlined } from "@ant-design/icons";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { ChartEmpty, TrendColumn } from "../../components/charts/index.js";
 import { chartThemeFor, primaryFill, quietAxes } from "../../components/charts/chartTheme.js";
@@ -89,46 +91,65 @@ export function MemoryPanel({
       : "—";
 
   return (
-    <Flex vertical gap={16}>
-      <Flex justify="space-between" align="center">
+    <Flex vertical gap={16} className="memory-panel">
+      <Flex
+        justify="space-between"
+        align="flex-start"
+        gap={12}
+        wrap="wrap"
+        className="memory-panel-heading"
+      >
         <Flex vertical>
-          <Title level={4} component="h2" style={{ marginBottom: 0 }}>
-            记忆库
-          </Title>
-          <Text type="secondary">统计与检索预览</Text>
+          <Flex align="center" gap={8}>
+            <DatabaseOutlined aria-hidden="true" />
+            <Title level={4} component="h2" style={{ marginBottom: 0 }}>
+              记忆库
+            </Title>
+          </Flex>
+          <Text type="secondary">先确认记忆是否健康，再查看写入趋势或检索内容。</Text>
         </Flex>
-        <Button type="text" onClick={onRefresh} disabled={refreshing}>
+        <Button type="default" onClick={onRefresh} disabled={refreshing}>
           {refreshing ? "刷新中" : "刷新"}
         </Button>
       </Flex>
 
-      <Row gutter={[16, 16]}>
+      <Row gutter={[12, 12]} className="memory-stat-grid">
         <Col flex="1 1 150px">
-          <Statistic
-            title="记忆条目"
-            value={formatNumber(data?.memory.stats?.totalEntries ?? 0)}
-          />
+          <Card size="small">
+            <Statistic
+              title="记忆条目"
+              value={formatNumber(data?.memory.stats?.totalEntries ?? 0)}
+            />
+          </Card>
         </Col>
         <Col flex="1 1 150px">
-          <Statistic
-            title="长期未使用"
-            value={formatNumber(data?.memory.stats?.coldCandidates ?? 0)}
-          />
+          <Card size="small">
+            <Statistic
+              title="长期未使用"
+              value={formatNumber(data?.memory.stats?.coldCandidates ?? 0)}
+            />
+          </Card>
         </Col>
         <Col flex="1 1 150px">
-          <Statistic
-            title="最近写入"
-            value={formatTime(data?.memory.stats?.lastWriteAt ?? null, "尚无写入")}
-          />
+          <Card size="small">
+            <Statistic
+              title="最近写入"
+              value={formatTime(data?.memory.stats?.lastWriteAt ?? null, "尚无写入")}
+            />
+          </Card>
         </Col>
         <Col flex="1 1 150px">
-          <Statistic
-            title="累计召回"
-            value={formatNumber(data?.memory.stats?.cumulativeRecalls ?? 0)}
-          />
+          <Card size="small">
+            <Statistic
+              title="累计召回"
+              value={formatNumber(data?.memory.stats?.cumulativeRecalls ?? 0)}
+            />
+          </Card>
         </Col>
         <Col flex="1 1 150px">
-          <Statistic title="探针召回命中" value={probeRate} />
+          <Card size="small">
+            <Statistic title="探针召回命中" value={probeRate} />
+          </Card>
         </Col>
       </Row>
 
@@ -151,39 +172,49 @@ export function MemoryPanel({
         <DirectoryFallback directory={data.memory.directory} />
       )}
 
-      <Flex vertical gap={8}>
-        <Flex justify="space-between" align="baseline">
-          <Title level={5} component="h3" style={{ marginBottom: 0 }}>
-            按月写入
-          </Title>
-          <Text type="secondary">
-            {months.length > 0 ? `最近 ${months.length} 个月` : "历史数据"}
-          </Text>
+      <Card size="small" className="memory-trend-card">
+        <Flex vertical gap={8}>
+          <Flex justify="space-between" align="baseline">
+            <Flex align="center" gap={8}>
+              <LineChartOutlined aria-hidden="true" />
+              <Title level={5} component="h3" style={{ marginBottom: 0 }}>
+                按月写入
+              </Title>
+            </Flex>
+            <Text type="secondary">
+              {months.length > 0 ? `最近 ${months.length} 个月` : "历史数据"}
+            </Text>
+          </Flex>
+          {months.length === 0 || months.every((item) => item.count === 0) ? (
+            <ChartEmpty hint="还没有按月写入历史；使用服务后，这里会出现记忆趋势。" />
+          ) : (
+            <TrendColumn
+              data={months}
+              xField="month"
+              yField="count"
+              theme={chartTheme.g2Theme}
+              autoFit
+              height={180}
+              axis={quietAxes(chartTheme)}
+              style={{ maxWidth: 26, fill: primaryFill(mode), radiusTopLeft: 3, radiusTopRight: 3 }}
+              tooltip={{ items: [{ channel: "y", name: "写入条数" }] }}
+            />
+          )}
         </Flex>
-        {months.length === 0 || months.every((item) => item.count === 0) ? (
-          <ChartEmpty hint="还没有按月写入历史；使用服务后，这里会出现记忆趋势。" />
-        ) : (
-          <TrendColumn
-            data={months}
-            xField="month"
-            yField="count"
-            theme={chartTheme.g2Theme}
-            autoFit
-            height={180}
-            axis={quietAxes(chartTheme)}
-            style={{
-              maxWidth: 26,
-              fill: primaryFill(mode),
-              radiusTopLeft: 3,
-              radiusTopRight: 3,
-            }}
-            tooltip={{ items: [{ channel: "y", name: "写入条数" }] }}
-          />
-        )}
-      </Flex>
+      </Card>
 
-      <Flex vertical gap={4}>
-        <Text type="secondary">全文检索记忆</Text>
+      <Card
+        size="small"
+        title={
+          <Flex align="center" gap={8}>
+            <SearchOutlined aria-hidden="true" />
+            全文检索记忆
+          </Flex>
+        }
+      >
+        <Typography.Paragraph type="secondary" style={{ marginBottom: 10 }}>
+          按关键词浏览最近保存的内容，不会修改记忆。
+        </Typography.Paragraph>
         <Input.Search
           allowClear
           enterButton="浏览"
@@ -194,13 +225,13 @@ export function MemoryPanel({
           disabled={refreshing || data?.memory.mode !== "driver"}
           loading={searching}
         />
-      </Flex>
+      </Card>
 
       <Flex justify="space-between" align="baseline" gap={16}>
         <Flex vertical>
           <Text strong>{activeKeyword === "" ? "最近记忆" : `“${activeKeyword}” 的结果`}</Text>
           <Text type="secondary">
-            当前显示 {(data?.memory.preview.length ?? 0)} 条 · 最多显示 {previewLimit} 条
+            当前显示 {data?.memory.preview.length ?? 0} 条 · 最多显示 {previewLimit} 条
           </Text>
         </Flex>
         <Text type={searchError !== null ? "danger" : searching ? "warning" : "secondary"}>
@@ -251,8 +282,8 @@ export function MemoryPanel({
       <Alert
         type="info"
         showIcon={false}
-        message="当前能做到"
-        description="这里仅查看技能、插件、记忆与健康状态；可以运行临时记忆自检，并创建本地记忆备份。"
+        message="记忆页边界"
+        description="这里可以查看技能、插件、记忆与健康状态，也可以运行临时自检和创建本地备份；不会直接编辑或清空记忆。"
       />
     </Flex>
   );

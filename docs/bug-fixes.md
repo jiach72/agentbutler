@@ -1,5 +1,14 @@
 # Bug Fixes
 
+## 2026-09-04 - 智能体与记忆页层级与技能操作列优化
+
+- **Problem:** 技能页导航名称与页面标题不一致；技能管理器把安装、筛选、统计和操作挤在同一层级，操作列在窄屏下过载；记忆页的统计、趋势和检索边界缺少清晰分组。
+- **Impact:** 用户难以快速扫描智能体与记忆相关状态，移动端操作入口拥挤，技能详情入口重复，本机收编技能还缺少删除入口。
+- **Changed scope:** `ui/src/pages/skills/SkillsPage.tsx`、`SkillsManagerPanel.tsx`、`MemoryPanel.tsx` 与 `ui/src/styles/taste.css`。统一页面标题为“智能体与记忆”，重组技能管理器统计/安装/筛选区域，将次要动作收进“更多”菜单，保留详情、部署、取消部署、绑定源和删除技能；记忆页改为分组统计、趋势与全文检索，并明确只读边界；补充响应式布局样式。
+- **Regression coverage:** TypeScript 构建检查、UI 测试、Impeccable detector 与 `git diff --check` 均通过；修复操作菜单重复详情和本机收编技能缺少删除入口的回归。
+- **Verification:** `pnpm exec prettier --write ui/src/pages/skills/SkillsManagerPanel.tsx docs/bug-fixes.md`；`pnpm exec tsc -b --pretty false`；`pnpm --filter @butler/ui test`；`node .claude/skills/impeccable/scripts/detect.mjs --json ui/src/pages/skills ui/src/styles`（输出 `[]`）；`git diff --check`。
+- **Runtime validation:** 已启动本地 Vite 开发服务用于环境检查；项目未安装 Playwright CLI，未完成真实浏览器截图与交互验证。
+
 ## 2026-09-03 - UI 一键升级使用了不兼容的 Compose v1
 
 - **Problem:** updater 镜像通过 apt 安装 `docker-compose` 1.29.2。该旧实现无法解析 Compose 文件顶层的 `name: agent-butler`，导致从 UI 触发升级时在重启阶段失败；宿主的 `docker compose` v2 不受影响。
@@ -440,6 +449,7 @@
 - **修复范围：** 统一使用 Core 原子写入（含文本与 JSON）；自升级、OpenClaw 安装状态、进化状态、技能元数据/趋势缓存改为原子写；技能变更接入 `BackupGate` 与 `withManagedOperationLock`；Watch 错误统一经过脱敏、分类和下一步文案；Gateway 增加通道详情与 `/api/messages/reconnect`，Web/UI 展示不可用原因和修复按钮；README 同步访问口令事实。
 - **回归测试：** Core 原子写入/错误分类/操作锁，Watch 备份门禁/诊断，Installer 维护预览/候选发现，Gateway 消息 HTTP 与 Web 状态解析测试。
 - **验证命令：** `corepack pnpm exec tsc -b packages/core/tsconfig.json apps/watch/tsconfig.json apps/gateway/tsconfig.json apps/web/tsconfig.json ui/tsconfig.json --pretty false`；`corepack pnpm exec vitest run --config vitest.focused.config.ts apps/watch/tests/backup-gate.test.ts apps/watch/tests/runtime-diagnosis.test.ts apps/watch/tests/diagnostic-summary.test.ts packages/installer/tests/maintenance-preview.test.ts packages/installer/tests/installation-candidates.test.ts --reporter=dot`；`git diff --check`。
+
 ## 2026-08-31 - GitHub 技能安装 403 被误报为备份失败
 
 - **问题：** 推荐技能阶段化下载调用 GitHub 公共 API 时，出口 IP 的匿名配额耗尽，返回 `403 API rate limit exceeded`。Watch 只返回 `GitHub tree HTTP 403`，前端又把阶段化失败固定显示在“备份”步骤，用户误以为所有技能或备份服务不可用。
