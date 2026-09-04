@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createCore, type Core, type FingerprintAggregatedPayload, type FingerprintEscalatedPayload } from "@butler/core";
-import { ALERT_FORWARD_FAILED_ACTION, startAlertForwarder, type AlertForwardBody } from "../src/alert-forward.js";
+import { ALERT_FORWARD_FAILED_ACTION, describeFingerprint, startAlertForwarder, type AlertForwardBody } from "../src/alert-forward.js";
 import type { FetchInitLike, FetchLike } from "../src/dashboard-signal.js";
 
 let tmp: string;
@@ -61,7 +61,8 @@ describe("startAlertForwarder", () => {
       source: "butler-watch",
       dedupeKey: "abc123def4567890",
     });
-    expect(body.title).toBe("Connection to <PATH> refused");
+    expect(body.title).toBe("外部服务连接失败");
+    expect(body.title).not.toContain("<PATH>");
     expect(body.body).toContain("abc123def4567890");
     expect(body.body).toContain("3 条");
     expect(body.body).toContain("2026-08-20T10:00:00.000Z");
@@ -97,14 +98,13 @@ describe("startAlertForwarder", () => {
     forwarder.stop();
   });
 
-  it("title 超过 80 字符截断", async () => {
-    const forwarder = startAlertForwarder({ bus: core.bus, audit: core.audit, gatewayUrl: "http://gw", fetchFn: fetchImpl });
-    const longTemplate = "x".repeat(120);
-    core.bus.emit("fingerprint-aggregated", aggregatedPayload({ template: longTemplate }));
-    await forwarder.flush();
-    const body = JSON.parse(posts[0]!.init!.body!) as AlertForwardBody;
-    expect(body.title).toHaveLength(80);
-    forwarder.stop();
+  it("内部指纹模板只用于归类，通知标题使用可读摘要", () => {
+    expect(describeFingerprint("HTTP 402 Insufficient Balance")).toEqual({
+      title: "模型账户余额不足",
+      advice: expect.stringContaining("重启服务无法解决"),
+    });
+    expect(describeFingerprint("Timeout after <NUM>ms").title).toBe("外部服务响应超时");
+    expect(describeFingerprint("x".repeat(120)).title).toBe("智能体任务执行失败");
   });
 
   it("fetch 失败 → 不崩溃且 audit 记录 alert-forward-failed", async () => {

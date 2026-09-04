@@ -15,6 +15,9 @@ import {
   ApiOutlined,
   ThunderboltOutlined,
   FileMarkdownOutlined,
+  BugOutlined,
+  FileSearchOutlined,
+  ToolOutlined,
 } from "@ant-design/icons";
 import { Button, Drawer, Layout as AntLayout, Menu } from "antd";
 import type { MenuProps } from "antd";
@@ -37,6 +40,9 @@ const NAV_ITEMS = [
 const MANAGEMENT_ITEMS = [
   { to: "/evolution", icon: <ThunderboltOutlined />, label: "自进化", note: "分析日志与优化方案" },
   { to: "/assets", icon: <DatabaseOutlined />, label: "发现技能", note: "浏览公开项目与安装推荐" },
+  { to: "/troubleshoot", icon: <ToolOutlined />, label: "排查问题", note: "按现象一步步处理" },
+  { to: "/logs", icon: <FileSearchOutlined />, label: "系统日志", note: "查看记录与修复建议" },
+  { to: "/setup", icon: <BugOutlined />, label: "连接设置", note: "检查本机实例连接" },
 ];
 
 const ALL_NAV_ITEMS = [...NAV_ITEMS, ...MANAGEMENT_ITEMS];
@@ -181,7 +187,12 @@ export function Layout() {
   const currentPage = location.pathname.startsWith(SETTINGS_ITEM.to) ||
       location.pathname.startsWith("/preferences")
     ? SETTINGS_ITEM
-    : ALL_NAV_ITEMS.find((item) => location.pathname.startsWith(item.to)) ?? NAV_ITEMS[0];
+    : ALL_NAV_ITEMS.find((item) => location.pathname.startsWith(item.to)) ?? {
+      to: location.pathname,
+      icon: null,
+      label: "当前页面",
+      note: "",
+    };
   const themeLabel = mode === "dark" ? "切换到亮色主题" : "切换到暗色主题";
 
   return (
@@ -219,7 +230,9 @@ export function Layout() {
               <span className="topbar-brand">Agent Butler · 本地运维控制台</span>
             </div>
             <div className="topbar-actions">
-              <span className="topbar-note">只在你的电脑上运行</span>
+              <span className={`topbar-note${baselineTone(baseline) !== "ok" ? ` is-${baselineTone(baseline)}` : ""}`}>
+                {baselineTitle(baseline)}
+              </span>
               <NotificationCenter />
               <Button
                 type="text"

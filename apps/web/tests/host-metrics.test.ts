@@ -5,7 +5,7 @@
  * - GET /api/health：services.{gateway,watch} 携带 latencyMs（可达为非负数，不可达为 null）。
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import Fastify, { type FastifyInstance } from "fastify";
+import type { FastifyInstance } from "fastify";
 import { createWebServer } from "../src/server";
 import { makeTempDir, makeUiDist, rmTempDir } from "./helpers";
 

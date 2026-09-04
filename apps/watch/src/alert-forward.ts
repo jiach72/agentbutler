@@ -51,6 +51,27 @@ export interface AlertPosterDeps {
 export const ALERT_FORWARD_FAILED_ACTION = "alert-forward-failed";
 export const ALERT_SOURCE = "butler-watch";
 
+/** 将内部归一化模板转换成通知中心可直接理解的短摘要。模板只用于去重，不能直接上屏。 */
+export function describeFingerprint(template: string, sample?: string): { title: string; advice: string } {
+  const text = `${sample ?? ""} ${template}`;
+  if (/\b402\b|insufficient\s+balance|payment\s+required|billing/i.test(text)) {
+    return { title: "模型账户余额不足", advice: "请充值或切换到可用的备用模型；重启服务无法解决余额问题。" };
+  }
+  if (/\b401\b|\b403\b|unauthori[sz]ed|forbidden|invalid\s+(?:api[ _-]?)?key/i.test(text)) {
+    return { title: "模型凭据无效或权限不足", advice: "请检查 API Key、端点和账户权限。" };
+  }
+  if (/\b429\b|rate\s*limit|too\s+many\s+requests|限流/i.test(text)) {
+    return { title: "请求过于频繁，正在等待恢复", advice: "管家会继续重试；若反复出现，请降低并发或检查限流设置。" };
+  }
+  if (/timeout|timed\s*out|超时/i.test(text)) {
+    return { title: "外部服务响应超时", advice: "请检查网络和模型端点，管家会继续观察后续状态。" };
+  }
+  if (/econnrefused|connection\s+(?:to\s+)?[^\n]{0,40}refused|连接被拒绝/i.test(text)) {
+    return { title: "外部服务连接失败", advice: "请确认目标服务正在运行并检查连接地址。" };
+  }
+  return { title: "智能体任务执行失败", advice: "请打开完整通知或日志查看详情；先确认原因，再决定是否重试。" };
+}
+
 /** 公共告警 POST 器：超时保护 + 失败 warn/audit 不重试（gateway 侧有持久化与补发）。 */
 export function createAlertPoster(deps: AlertPosterDeps): AlertPoster {
   const doFetch = deps.fetchFn ?? ((url, init) => fetch(url, init));
@@ -134,11 +155,12 @@ export function startAlertForwarder(deps: AlertForwarderDeps): AlertForwarder {
   const offAggregated = deps.bus.on("fingerprint-aggregated", (event) => {
     const payload = event.payload;
     if (payload.alert !== true) return; // 已知模式复现只记档，不转发
+    const summary = describeFingerprint(payload.template, payload.sample);
     dispatch({
       kind: "fingerprint",
       severity: "warn",
-      title: payload.template.slice(0, 80),
-      body: `错误指纹 ${payload.signature} 于 ${payload.windowStart} 开启聚合窗口，已累计 ${payload.count} 条（首见: ${payload.isFirstEver}）。模板: ${payload.template}`,
+      title: summary.title,
+      body: `${summary.title}。${summary.advice}这是首次发现的可重复问题，已开始合并相同提醒；当前窗口累计 ${payload.count} 条，开始于 ${payload.windowStart}。通知编号 ${payload.signature}。`,
       source: "butler-watch",
       dedupeKey: payload.signature,
     });
@@ -146,11 +168,12 @@ export function startAlertForwarder(deps: AlertForwarderDeps): AlertForwarder {
 
   const offEscalated = deps.bus.on("fingerprint-escalated", (event) => {
     const payload = event.payload;
+    const summary = describeFingerprint(payload.template);
     dispatch({
       kind: "fingerprint",
       severity: "critical",
-      title: payload.template.slice(0, 80),
-      body: `错误指纹 ${payload.signature} 突发升级：本窗 ${payload.count} 条，上一窗口 ${payload.prevCount} 条。模板: ${payload.template}`,
+      title: `${summary.title}（正在加剧）`,
+      body: `${summary.title}正在加剧：当前窗口 ${payload.count} 条，上一窗口 ${payload.prevCount} 条。${summary.advice}通知编号 ${payload.signature}。`,
       source: "butler-watch",
       dedupeKey: payload.signature,
     });

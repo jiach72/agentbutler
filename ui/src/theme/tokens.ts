@@ -144,7 +144,7 @@ export const nightPalette: SemanticPalette = {
   ink: "#e8eaed",
   inkSoft: "#b8bfc9",
   inkFaint: "#7c8590",
-  muted: "#98a1ab",
+  muted: "#b8bfc9",
   rule: "#262a32",
   ruleStrong: "#363c46",
   ok: "#95de64",
@@ -185,28 +185,24 @@ export const fontFamily = fontStack;
 export const monoFontFamily =
   '"Cascadia Mono", Consolas, "SF Mono", Menlo, "Courier New", monospace';
 
-/**
- * ConfigProvider 主题：antd v6 原生观感，组件层零覆盖。
- * 品牌色用同一颗种子交给算法派生，避免手调两套色阶漂移。
- */
-const BRAND_SEED = "#2f54eb";
-
+/** ConfigProvider 主题：antd v6 原生观感，组件层零覆盖。 */
 export function themeConfigFor(mode: ThemeMode): ThemeConfig {
+  const palette = paletteFor(mode);
   return {
     // antd v6 起 cssVar 的类型为 { prefix?, key? } | false，空对象即开启（默认 --ant-* 前缀）。
     cssVar: {},
     algorithm: mode === "dark" ? theme.darkAlgorithm : theme.defaultAlgorithm,
     token: {
-      colorPrimary: BRAND_SEED,
-      colorInfo: BRAND_SEED,
-      colorBgLayout: mode === "dark" ? "#0f1115" : "#f5f6f8",
+      colorPrimary: palette.primary,
+      colorInfo: palette.primary,
+      colorBgLayout: palette.bg,
       ...(mode === "dark" ? { colorBgBase: "#13151a" } : {}),
-      colorText: mode === "dark" ? "#e8eaed" : "#1d2129",
-      colorTextSecondary: mode === "dark" ? "#b8bfc9" : "#4e5969",
-      colorTextTertiary: mode === "dark" ? "#98a1ab" : "#6b7280",
-      colorTextQuaternary: mode === "dark" ? "#7c8590" : "#86909c",
-      colorBorder: mode === "dark" ? "#363c46" : "#c9cdd4",
-      colorBorderSecondary: mode === "dark" ? "#262a32" : "#e5e6eb",
+      colorText: palette.ink,
+      colorTextSecondary: palette.inkSoft,
+      colorTextTertiary: palette.muted,
+      colorTextQuaternary: palette.inkFaint,
+      colorBorder: palette.ruleStrong,
+      colorBorderSecondary: palette.rule,
       borderRadius: radius.control,
       borderRadiusLG: radius.card,
       borderRadiusSM: 5,

@@ -6,6 +6,7 @@
  * - 管家控制通道离线（reachable:false）时如实展示降级，不伪造健康结论。
  */
 import { useMemo, useState, type ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 import { App, Badge, Button, Collapse, Flex } from "antd";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
@@ -59,6 +60,7 @@ export function RuntimeDetails({ open, onOpenChange, children }: RuntimeDetailsP
 
 export function DashboardPage() {
   const { message } = App.useApp();
+  const navigate = useNavigate();
   const {
     dashboard,
     connections,
@@ -233,7 +235,7 @@ export function DashboardPage() {
             message="关键状态暂时读不到"
             description="管家服务可能暂时不可用；页面显示的可能是旧数据，点击右侧按钮重新检查。"
             action={
-              <Button danger onClick={() => { void refresh(); void refreshConnections(); }}>
+              <Button type="primary" onClick={() => { void refresh(); void refreshConnections(); }}>
                 重新检查
               </Button>
             }
@@ -334,7 +336,7 @@ export function DashboardPage() {
                   children: (
                     <FingerprintsTable
                       fingerprints={dashboard?.fingerprints ?? []}
-                      onOpenLogs={() => { window.location.assign("/logs"); }}
+                      onOpenLogs={() => navigate("/logs")}
                     />
                   ),
                 },

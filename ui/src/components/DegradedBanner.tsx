@@ -28,7 +28,7 @@ export function DegradedBanner({ severity, message, description, action }: Degra
       title={message}
       description={description}
       action={action}
-      role="status"
+      role={severity === "critical" ? "alert" : "status"}
     />
   );
 }

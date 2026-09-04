@@ -1,5 +1,14 @@
 # Bug Fixes
 
+## 2026-09-04 - 审查报告问题收口：告警可读性、导航与高风险操作反馈
+
+- **Problem:** Watch 通知标题直接暴露内部指纹模板，402/鉴权/限流/超时等错误缺少可执行摘要；余额不足会被日志分析器建议为重启；排障入口不易发现；暗色主题的主色与弱文本对比度不足；清除 GitHub Token 没有二次确认；进化运行历史和技能安装步骤仍混用内部英文或假百分比进度。
+- **Impact:** 普通用户难以判断告警根因和下一步，可能对计费错误执行无效重启；关键排障路径、危险操作和安装状态的可发现性与信任感不足，窄屏和暗色环境下扫描成本更高。
+- **Changed scope:** `apps/watch/src/alert-forward.ts`、`apps/watch/src/log-analyzer.ts`、`ui/src/components/Layout.tsx`、`DegradedBanner.tsx`、`NotificationCenter.tsx`、`DashboardPage.tsx`、`GithubTokenCard.tsx`、`EvolutionRunHistory.tsx`、`AssetCenter.tsx`、`ui/src/theme/tokens.ts` 及相关测试。告警改为人话摘要并保留计数/时间；402 标记为账单问题；排障入口提升为一级导航；补充 critical 告警语义、动态安全基线、暗色对比度、Token 清除确认；运行历史中文化；安装中允许关闭窗口并移除不可信的假进度。
+- **Regression coverage:** `apps/watch/tests/alert-forward.test.ts`、`apps/watch/tests/log-analyzer.test.ts`、`ui/tests/theme.test.ts`、`ui/tests/component-render.test.ts`、`ui/tests/notification-center.test.ts` 共 5 个测试文件、23 项通过。
+- **Verification:** `corepack pnpm exec vitest run apps/watch/tests/alert-forward.test.ts apps/watch/tests/log-analyzer.test.ts ui/tests/theme.test.ts ui/tests/component-render.test.ts ui/tests/notification-center.test.ts --reporter=dot`（23 passed）；`corepack pnpm exec tsc -b --pretty false`；`corepack pnpm --filter @butler/ui exec vite build`；`corepack pnpm lint`；`node .claude/skills/impeccable/scripts/detect.mjs --json ui/src`（输出 `[]`）；`git diff --check` 均通过。UI 构建仅保留既有大 chunk 提示。
+- **Runtime validation:** 本轮未执行 WSL Docker 部署或真实浏览器交互验证；需要在唯一 WSL 副本中重建并复验面板、告警通知和技能安装流程。
+
 ## 2026-09-04 - 智能体与记忆页层级与技能操作列优化
 
 - **Problem:** 技能页导航名称与页面标题不一致；技能管理器把安装、筛选、统计和操作挤在同一层级，操作列在窄屏下过载；记忆页的统计、趋势和检索边界缺少清晰分组。

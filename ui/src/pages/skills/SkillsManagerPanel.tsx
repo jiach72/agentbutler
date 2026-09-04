@@ -151,7 +151,6 @@ export function SkillsManagerPanel() {
   const [installName, setInstallName] = useState("");
   const [installBusy, setInstallBusy] = useState(false);
   const [adoptBusy, setAdoptBusy] = useState(false);
-  const [busySkill, setBusySkill] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [selectedNames, setSelectedNames] = useState<string[]>([]);
@@ -223,11 +222,8 @@ export function SkillsManagerPanel() {
     op: PendingAction["op"],
     title: string,
     payload: Record<string, unknown>,
-    busyKey: string,
   ) => {
-    setBusySkill(busyKey);
     const result = await postJson(`/api/skills-manager/${op}`, payload, ACTION_TIMEOUT_MS);
-    setBusySkill(null);
     if (!result.ok) {
       message.error(extractError(result.data));
       return;
@@ -637,7 +633,7 @@ export function SkillsManagerPanel() {
               size="small"
               type="primary"
               onClick={() =>
-                void beginAction("deploy", "批量部署", { names: selectedNames }, "batch-deploy")
+                void beginAction("deploy", "批量部署", { names: selectedNames })
               }
             >
               批量部署
@@ -650,7 +646,6 @@ export function SkillsManagerPanel() {
                   "undeploy",
                   "批量取消部署",
                   { names: selectedNames },
-                  "batch-undeploy",
                 )
               }
             >
@@ -660,7 +655,7 @@ export function SkillsManagerPanel() {
               size="small"
               danger
               onClick={() =>
-                void beginAction("remove", "批量删除", { names: selectedNames }, "batch-remove")
+                void beginAction("remove", "批量删除", { names: selectedNames })
               }
             >
               批量删除
@@ -759,7 +754,6 @@ export function SkillsManagerPanel() {
                         "undeploy",
                         `取消部署 ${item.name}`,
                         { name: item.name },
-                        `undeploy:${item.name}`,
                       )
                     }
                   >
@@ -775,7 +769,6 @@ export function SkillsManagerPanel() {
                         "deploy",
                         `部署 ${item.name}`,
                         { name: item.name },
-                        `deploy:${item.name}`,
                       )
                     }
                   >
@@ -790,7 +783,6 @@ export function SkillsManagerPanel() {
                           label: "更新技能",
                           icon: <ReloadOutlined />,
                           onClick: async () => {
-                            setBusySkill(`update:${item.name}`);
                             const result = await postJson(
                               "/api/skills-manager/update",
                               { name: item.name, confirmed: true },
@@ -802,7 +794,6 @@ export function SkillsManagerPanel() {
                                 { name: item.name, confirmed: true },
                                 ACTION_TIMEOUT_MS,
                               );
-                            setBusySkill(null);
                             if (!result.ok) message.error(extractError(result.data));
                             else {
                               message.success("技能已更新");
@@ -821,7 +812,6 @@ export function SkillsManagerPanel() {
                         "remove",
                         `删除 ${item.name}`,
                         { name: item.name },
-                        `remove:${item.name}`,
                       ),
                   },
                 ];
