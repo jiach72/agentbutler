@@ -534,3 +534,12 @@
 - **回归测试：** `apps/watch/tests/repair-session.test.ts` 覆盖低风险自动执行、高风险审批、非白名单动作阻断和审计事件；`apps/watch/tests/http-repair-session.test.ts` 覆盖创建、详情、审批与错误方法；TypeScript 与 UI 构建验证会话载荷兼容性。
 - **验证命令：** `corepack pnpm exec tsc -b apps/watch/tsconfig.json --pretty false`；`corepack pnpm exec vitest run apps/watch/tests/repair-session.test.ts apps/watch/tests/http-repair-session.test.ts --reporter=dot`；`corepack pnpm --filter @butler/ui exec tsc --noEmit`；`corepack pnpm --filter @butler/ui exec vite build`；`git diff --check`。
 - **部署/runtime：** WSL ext4 仓库重建 Docker 后，通过 `/api/health`、`/api/recovery/sessions` 和 `docker compose ps` 复验；后台顾问若接入 Hermes/OpenClaw，仍只能返回白名单 `actionId`，不能获得任意终端或 Docker 控制。
+
+## 2026-09-04 - 容器内一键修复无法控制宿主 Hermes
+
+- **问题：** Watch 运行在 Docker 容器内，原有“重启 AI 实例”路径尝试在容器执行 `systemctl --user`/`kill`，无法触达 WSL 宿主 Hermes，页面只能报控制失败。
+- **风险/影响：** 用户无法从管家页面恢复停止或异常的 Hermes 实例；若误开放 Docker Socket 或任意终端又会扩大宿主权限边界。
+- **修复范围：** 新增仅监听宿主 loopback 的 Hermes 控制桥和 600 权限 token；接口只接受 `status`、`start-hermes`、`stop-hermes`、`restart-hermes`、`cleanup-orphan-gateways` 五个固定动作，使用恒时 token 比较并限制请求体大小。WSL 部署脚本自动安装 user service、持久化控制桥配置并启用 `8757 -> 8756` socat 转发；每次安装显式重启 user service，确保脚本更新后不会残留旧白名单；Watch/适配器在控制桥可用时执行宿主动作，不可达时明确降级，不执行任意容器命令。
+- **回归测试：** `scripts/hermes-control-bridge.test.mjs` 覆盖 token 鉴权、非白名单动作拒绝、restart 固定 systemctl 调用；Hermes capability scan 与 ProcessExecutor 保留桥不可达降级和控制路径测试。
+- **验证命令：** `bash -n scripts/deploy.sh scripts/install-hermes-control-bridge.sh`；`docker compose --profile hermes-control-forward config -q`；`corepack pnpm exec tsc -b`；`git diff --check`。
+- **部署/runtime：** WSL 使用 `/home/jiach/agentbutler` 作为唯一构建源；`deploy.sh` 已完成 Docker 重建，`butler-gateway`、`butler-watch`、`butler-web`、`butler-updater` 均 healthy，`hermes-control-forwarder` 正常运行。宿主 `127.0.0.1:8756` 与容器转发 `host.docker.internal:8757` 的 `status` 均返回 200；通过页面对应 API 执行 `cleanup-gateway` 后，恢复任务轮询最终为 `done`、进度 100%，并通过 process-alive 复验。

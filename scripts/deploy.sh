@@ -14,6 +14,16 @@ env_value() {
   # paths, URLs, or Compose values when this script runs inside WSL.
   awk -F= -v key="$key" '$1 == key { sub(/^[^=]*=/, ""); sub(/\r$/, ""); gsub(/^"|"$/, ""); print; exit }' .env
 }
+env_set() {
+  local key="$1" value="$2" env_tmp
+  env_tmp="$(mktemp .env.XXXXXX)"
+  awk -F= -v key="$key" -v value="$value" '
+    $1 == key { print key "=" value; found = 1; next }
+    { print }
+    END { if (!found) print key "=" value }
+  ' .env > "$env_tmp"
+  mv "$env_tmp" .env
+}
 
 mkdir -p .runtime/hermes .runtime/openclaw
 if [[ ! -f .env ]]; then
@@ -125,6 +135,29 @@ fi
 if [[ "$hermes_host_path" != /* ]]; then
   hermes_host_path="$ROOT_DIR/$hermes_host_path"
 fi
+# WSL 原生 Docker 通过宿主控制桥执行 Hermes 生命周期动作。
+# 仅在真实 Hermes systemd user unit 存在时安装，避免对未知服务执行命令。
+control_url="${BUTLER_HERMES_CONTROL_URL:-$(env_value BUTLER_HERMES_CONTROL_URL)}"
+control_token_container="${BUTLER_HERMES_CONTROL_TOKEN_FILE:-$(env_value BUTLER_HERMES_CONTROL_TOKEN_FILE)}"
+control_token_container="${control_token_container:-/home/butler/hermes/agent-butler/control.token}"
+if [[ "$hermes_host_path" == "$HOME/.hermes" ]] && command -v systemctl >/dev/null 2>&1 &&
+   systemctl --user cat hermes-gateway.service >/dev/null 2>&1; then
+  bash scripts/install-hermes-control-bridge.sh
+  if [[ -z "$control_url" ]]; then
+    control_url="http://host.docker.internal:8757"
+    env_set BUTLER_HERMES_CONTROL_URL "$control_url"
+  fi
+  if [[ -z "$(env_value BUTLER_HERMES_CONTROL_TOKEN_FILE)" ]]; then
+    env_set BUTLER_HERMES_CONTROL_TOKEN_FILE "$control_token_container"
+  fi
+  export BUTLER_HERMES_CONTROL_URL="$control_url"
+  export BUTLER_HERMES_CONTROL_TOKEN_FILE="$control_token_container"
+  echo "Hermes 宿主控制桥已安装；Watch 将通过受限白名单接口执行一键修复。"
+fi
+if [[ "$control_url" == *":8757" ]]; then
+  compose_args+=(--profile hermes-control-forward)
+fi
+
 if [[ -n "$bridge_url" && ! -s "$hermes_host_path/agent-butler/bridge.token" ]]; then
   echo "ERROR: BUTLER_HERMES_BRIDGE_URL is configured but token is missing: $hermes_host_path/agent-butler/bridge.token" >&2
   echo "       Set BUTLER_HERMES_HOST_PATH to the Linux Hermes state directory." >&2

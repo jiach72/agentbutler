@@ -70,6 +70,9 @@ export interface RunbookStep {
   run(ctx: RunbookStepContext): Promise<RunbookStepResult>;
 }
 
+/** 容器部署时，由宿主白名单控制桥代替容器内 pgrep/kill。 */
+export type OrphanGatewayCleaner = (ctx: RunbookStepContext) => Promise<RunbookStepResult>;
+
 export interface RunbookDefinition {
   id: string;
   label: string;
@@ -421,7 +424,11 @@ export const RB_CLEANUP_GATEWAY = "rb-cleanup-gateway";
  * 1. rb-restart：snapshot → restart → 复验 memory/channel 探针；
  * 2. rb-reconnect：snapshot → 清理孤儿网关 → restart → 复验 channel 探针；
  * 3. rb-cleanup-gateway：snapshot → 清理孤儿网关（无孤儿直接成功）→ 复验 process-alive。 */
-export function createBuiltinRunbooks(deps: { control: RunbookControl; exec?: CommandExecutor }): RunbookDefinition[] {
+export function createBuiltinRunbooks(deps: {
+  control: RunbookControl;
+  exec?: CommandExecutor;
+  cleanupOrphans?: OrphanGatewayCleaner;
+}): RunbookDefinition[] {
   const exec = deps.exec ?? createExecFileExecutor();
   const refOf = (ctx: RunbookStepContext): InstanceRef => ({
     instanceId: ctx.instanceId,
@@ -444,6 +451,7 @@ export function createBuiltinRunbooks(deps: { control: RunbookControl; exec?: Co
     id: "cleanup-orphans",
     label: "清理孤儿网关进程",
     async run(ctx) {
+      if (deps.cleanupOrphans !== undefined) return deps.cleanupOrphans(ctx);
       const { orphans } = await findOrphanGatewayPids(exec, ctx.rootPath);
       if (orphans.length === 0) {
         return { status: "passed", detail: "无孤儿网关进程，无需清理" };

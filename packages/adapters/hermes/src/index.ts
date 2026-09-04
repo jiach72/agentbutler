@@ -17,6 +17,7 @@ import {
 } from "./drivers/index.js";
 import { logSources } from "./log-sources.js";
 import { hermesManifest } from "./manifest.js";
+import { HermesControlBridgeClient } from "./control-bridge.js";
 
 /** 从 InstanceRef 解析 rootPath：优先 rootPath 字段，回退解析 "instanceId|rootPath" 复合形式。 */
 function rootPathFromRef(ref: InstanceRef): string | null {
@@ -51,6 +52,7 @@ export type HermesAdapterOptions = HermesControlOptions;
  * 常规控制幂等、长操作同步收敛为终态 Job。
  */
 export function createHermesAdapter(options: HermesAdapterOptions = {}): AdapterBundle {
+  const controlBridge = options.controlBridge;
   const discovery: DiscoveryAdapter = {
     frameworkId: "hermes",
     detect: (hint) => detect(hint),
@@ -65,7 +67,9 @@ export function createHermesAdapter(options: HermesAdapterOptions = {}): Adapter
           },
         );
       }
-      return capabilityScan(rootPath);
+      return capabilityScan(rootPath, {
+        controlProbe: controlBridge ? () => controlBridge.probe() : undefined,
+      });
     },
     logSources: (ref) => {
       const rootPath = rootPathFromRef(ref);
@@ -119,6 +123,12 @@ export {
   type ReadonlySqliteOpener,
 } from "./drivers/index.js";
 export { createHermesControl, type HermesControlInvoker, type HermesControlOptions } from "./control/index.js";
+export {
+  HermesControlBridgeClient,
+  type HermesControlAction,
+  type HermesControlBridgeOptions,
+  type HermesControlBridgeStatus,
+} from "./control-bridge.js";
 export {
   createDefaultPullStrategy,
   createUpgradePipeline,

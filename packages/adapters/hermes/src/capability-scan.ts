@@ -19,6 +19,8 @@ import {
 export interface ScanOptions {
   /** 端口探活实现，默认 net.connect；测试可注入 fakeProber。 */
   prober?: PortProber;
+  /** 外部宿主控制桥探针；配置后优先使用它验证真实控制能力。 */
+  controlProbe?: () => Promise<boolean>;
 }
 
 /** 解析 "instanceId|rootPath" 复合形式的 rootPath；不含 "|" 时返回 null。 */
@@ -57,7 +59,13 @@ export async function capabilityScan(
     "config-driver": "unavailable",
   };
 
-  if (findVenvPython(rootPath)) {
+  if (opts.controlProbe) {
+    if (await opts.controlProbe()) {
+      capabilities["control"] = "ok";
+    } else {
+      anomalies.push("宿主控制桥不可达或鉴权失败（控制面降级）");
+    }
+  } else if (findVenvPython(rootPath)) {
     capabilities["control"] = "ok";
   } else {
     anomalies.push("未找到 venv Python 解释器（非默认进程形态，控制面降级）");

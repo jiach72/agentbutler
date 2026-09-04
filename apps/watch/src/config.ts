@@ -8,6 +8,8 @@
  * - BUTLER_TAIL_POLL_SEC     日志尾随轮询间隔（秒，默认 10）
  * - BUTLER_GATEWAY_URL       告警网关地址（默认 http://127.0.0.1:7532）
  * - BUTLER_HERMES_ROOT       Hermes 根目录（容器形态可显式挂载并指定）
+ * - BUTLER_HERMES_CONTROL_URL / BUTLER_HERMES_CONTROL_TOKEN_FILE
+ *                            容器部署访问宿主受控控制桥（仅固定白名单动作）
  * - BUTLER_EVOLUTION_RUN_ROOT Hermes 候选运行目录（默认 <BUTLER_HOME>/evolution-runs，必须可写）
  * - BUTLER_OPENCLAW_ROOT     OpenClaw 根目录（默认 ~/.openclaw）
  * - BUTLER_FRAMEWORK          管理框架：hermes 或 openclaw（默认 hermes）
@@ -90,6 +92,10 @@ export interface WatchConfig {
   upgradeNotifyCooldownMs: number;
   /** hermes 探测 rootPath 提示（缺省扫 HERMES_ROOT 与 ~/.hermes）。 */
   hermesRoot?: string;
+  /** 宿主 Hermes 控制桥地址；未配置时 process 形态沿用本地执行器。 */
+  hermesControlUrl?: string;
+  /** 宿主 Hermes 控制桥 token 文件。 */
+  hermesControlTokenFile?: string;
   /** Hermes 候选、日志和克隆引擎的隔离目录；不可放在只读 Hermes checkout。 */
   evolutionRunRoot?: string;
   /** openclaw 探测 rootPath 提示。 */
@@ -246,6 +252,11 @@ export function loadWatchConfig(overrides: Partial<WatchConfig> = {}): WatchConf
       readIntEnv("BUTLER_UPGRADE_NOTIFY_COOLDOWN_MS", DEFAULT_UPGRADE_NOTIFY_COOLDOWN_MS),
     hermesRoot:
       overrides.hermesRoot ?? readStrEnv("BUTLER_HERMES_ROOT") ?? readStrEnv("HERMES_ROOT"),
+    hermesControlUrl: overrides.hermesControlUrl ?? readStrEnv("BUTLER_HERMES_CONTROL_URL"),
+    hermesControlTokenFile:
+      overrides.hermesControlTokenFile ??
+      readStrEnv("BUTLER_HERMES_CONTROL_TOKEN_FILE") ??
+      "/home/butler/hermes/agent-butler/control.token",
     evolutionRunRoot: overrides.evolutionRunRoot ?? readStrEnv("BUTLER_EVOLUTION_RUN_ROOT"),
     openclawRoot: overrides.openclawRoot ?? readStrEnv("BUTLER_OPENCLAW_ROOT") ?? readStrEnv("OPENCLAW_HOME"),
   };
