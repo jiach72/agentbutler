@@ -35,7 +35,7 @@ const execFile = promisify(execFileCallback);
 /** CLI 在镜像内的固定安装路径（Dockerfile RUN 下载并 chmod +x）。 */
 export const SKILLS_MANAGER_CLI_PATH = "/usr/local/bin/skills-manager-cli";
 /** 与 Dockerfile ARG SKILLS_MANAGER_CLI_VERSION 保持一致的默认版本。 */
-export const SKILLS_MANAGER_DEFAULT_VERSION = "v1.36.0";
+export const SKILLS_MANAGER_DEFAULT_VERSION = "v1.36.1";
 /** 部署目标 agent key：deploy 落在 $HOME/.claude/skills（经 symlink 穿透到 Hermes）。 */
 export const SKILLS_MANAGER_DEPLOY_AGENT = "claude_code";
 /** CLI 缺失时给用户的安装指引（status 200 降级与 503 共用文案）。 */
@@ -107,7 +107,7 @@ export interface SkillsManagerCliDeps {
   cliDownloadDir?: string;
   /** 自动下载开关（默认 true；测试可关）。 */
   autoDownload?: boolean;
-  /** 下载源版本（默认 v1.36.0，与 Dockerfile 对齐；env SKILLS_MANAGER_CLI_VERSION 优先）。 */
+  /** 下载源版本（默认 v1.36.1，与 Dockerfile 对齐；env SKILLS_MANAGER_CLI_VERSION 优先）。 */
   cliDownloadVersion?: string;
   /** 下载用 fetch（默认 globalThis.fetch；测试注入）。 */
   fetchImpl?: typeof fetch;
@@ -142,12 +142,6 @@ export interface SkillsManagerUnavailableView {
   installHint: string;
 }
 
-export interface SkillsManagerInstallInput {
-  source: string;
-  name?: string;
-  confirmed?: boolean;
-}
-
 export interface SkillsManagerNameInput {
   name: string;
   confirmed?: boolean;
@@ -165,6 +159,39 @@ export interface SkillsManagerRemoveInput {
 
 export interface SkillsManagerAdoptInput {
   dir: string;
+  confirmed?: boolean;
+}
+
+export interface SkillsManagerSearchInput {
+  query: string;
+  limit?: number;
+}
+
+export type SkillsManagerTagsAction = "add" | "remove" | "set";
+
+export interface SkillsManagerTagsInput {
+  action: SkillsManagerTagsAction;
+  name: string;
+  tags: string[];
+}
+
+export interface SkillsManagerSetSourceInput {
+  name: string;
+  gitUrl: string;
+  subpath?: string;
+  branch?: string;
+  /** 新源内容与中央副本不同时覆盖（CLI 默认拒绝差异）。 */
+  force?: boolean;
+  confirmed?: boolean;
+}
+
+/** install 来源类型：缺省保持旧行为（CLI 自行推断，兼容 owner/repo 简写）。 */
+export type SkillsManagerInstallSourceType = "git" | "skills" | "local";
+
+export interface SkillsManagerInstallInput {
+  source: string;
+  name?: string;
+  sourceType?: SkillsManagerInstallSourceType;
   confirmed?: boolean;
 }
 
@@ -186,6 +213,16 @@ export interface SkillsManagerCli {
   update(input: SkillsManagerUpdateInput): Promise<unknown>;
   remove(input: SkillsManagerRemoveInput): Promise<unknown>;
   adopt(input: SkillsManagerAdoptInput): Promise<unknown>;
+  /** skills.sh 市场关键词搜索（网络操作，沿用统一超时）。 */
+  search(input: SkillsManagerSearchInput): Promise<unknown>;
+  /** 单技能详情：skills show + skills status 聚合（均为只读，可并行）。 */
+  detail(name: string): Promise<{ show: unknown; status: unknown }>;
+  /** 标签增删改（CLI 的 tag add/remove/set 无 dry-run，单段执行）。 */
+  tags(input: SkillsManagerTagsInput): Promise<unknown>;
+  /** 把本机/收编技能重指向 Git 源（二段式；未 confirmed 追加 --dry-run）。 */
+  setSource(input: SkillsManagerSetSourceInput): Promise<unknown>;
+  /** 一键更新全部：update --all 后重跑 check --all 刷新各技能更新状态。 */
+  updateAll(): Promise<{ update: unknown; checks: unknown }>;
 }
 
 /** CLI 版本：镜像构建时以 ENV 固化（SKILLS_MANAGER_CLI_VERSION）；可选 deps 覆盖（测试），本地开发回退默认值。 */
@@ -373,10 +410,13 @@ export function createSkillsManagerCli(deps: SkillsManagerCliDeps = {}): SkillsM
       };
     },
 
-    async install({ source, name }) {
+    async install({ source, name, sourceType }) {
       // CLI 的 skills install 不支持 --dry-run（安装是向中央库新增，重名会被
-      // CLI 自身拒绝），因此本操作单段直接执行。
+      // CLI 自身拒绝），因此本操作单段直接执行。sourceType 缺省不加来源旗标，
+      // 保持旧行为由 CLI 推断（兼容 owner/repo 简写）。
       const args = ["skills", "install", source];
+      if (sourceType === "skills") args.push("--skillssh");
+      else if (sourceType === "local") args.push("--local");
       const nameClean = trimmed(name);
       if (nameClean !== "") args.push("--name", nameClean);
       return run(args);
@@ -433,6 +473,74 @@ export function createSkillsManagerCli(deps: SkillsManagerCliDeps = {}): SkillsM
       const args = ["skills", "adopt", dir];
       if (!confirmed) args.push("--dry-run");
       return run(args);
+    },
+
+    async search({ query, limit }) {
+      const queryClean = trimmed(query);
+      if (queryClean === "") {
+        throw new SkillsManagerError("INVALID_ARGUMENT", "市场搜索需要提供关键词。");
+      }
+      const args = ["skills", "search", queryClean];
+      const parsedLimit = typeof limit === "number" && Number.isFinite(limit) ? Math.floor(limit) : NaN;
+      if (parsedLimit > 0) args.push("--limit", String(parsedLimit));
+      return run(args);
+    },
+
+    async detail(name) {
+      const nameClean = trimmed(name);
+      if (nameClean === "") {
+        throw new SkillsManagerError("INVALID_ARGUMENT", "查看技能详情需要提供 name。");
+      }
+      // show/status 均为只读查询，可并行；写入操作仍由各方法串行承担。
+      const [show, status] = await Promise.all([
+        run(["skills", "show", nameClean]),
+        run(["skills", "status", nameClean]),
+      ]);
+      return { show, status };
+    },
+
+    async tags({ action, name, tags }) {
+      const nameClean = trimmed(name);
+      if (nameClean === "") {
+        throw new SkillsManagerError("INVALID_ARGUMENT", "标签操作需要提供 name。");
+      }
+      if (action !== "add" && action !== "remove" && action !== "set") {
+        throw new SkillsManagerError("INVALID_ARGUMENT", `不支持的标签操作：${String(action)}`);
+      }
+      const cleanedTags = (Array.isArray(tags) ? tags : [])
+        .map((tag) => String(tag).trim())
+        .filter((tag) => tag !== "");
+      if (cleanedTags.length === 0) {
+        throw new SkillsManagerError("INVALID_ARGUMENT", "标签操作需要至少一个非空标签。");
+      }
+      return run(["skills", "tag", action, nameClean, ...cleanedTags]);
+    },
+
+    async setSource({ name, gitUrl, subpath, branch, force = false, confirmed = false }) {
+      const nameClean = trimmed(name);
+      const urlClean = trimmed(gitUrl);
+      if (nameClean === "") {
+        throw new SkillsManagerError("INVALID_ARGUMENT", "绑定 Git 源需要提供 name。");
+      }
+      if (urlClean === "") {
+        throw new SkillsManagerError("INVALID_ARGUMENT", "绑定 Git 源需要提供 gitUrl。");
+      }
+      const args = ["skills", "set-source", nameClean, "--git-url", urlClean];
+      const subpathClean = trimmed(subpath);
+      if (subpathClean !== "") args.push("--subpath", subpathClean);
+      const branchClean = trimmed(branch);
+      if (branchClean !== "") args.push("--branch", branchClean);
+      if (force) args.push("--force");
+      if (!confirmed) args.push("--dry-run");
+      return run(args);
+    },
+
+    async updateAll() {
+      // update --all 只写中央库；随后重跑 check --all 让各技能的更新状态
+      // （供「有可用更新」按钮消费）与新版本对齐。
+      const update = await run(["skills", "update", "--all"]);
+      const checks = await run(["skills", "check", "--all"]);
+      return { update, checks };
     },
   };
 }

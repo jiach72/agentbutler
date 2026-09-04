@@ -232,6 +232,17 @@ describe("createSkillsManagerCli", () => {
       expect(calls[1]!.args).toEqual(["skills", "install", "https://github.com/a/b.git", "--name", "My Skill", "--json"]);
     });
 
+    it("install sourceType 显式映射：--skillssh/--local，git/缺省不加旗标保持推断", async () => {
+      const { exec, calls } = makeExec();
+      const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), cliDownloadDir: join(tmp, "bin"), execFile: exec, autoDownload: false });
+      await cli.install({ source: "github/foo/bar-skill", sourceType: "skills" });
+      expect(calls[0]!.args).toEqual(["skills", "install", "github/foo/bar-skill", "--skillssh", "--json"]);
+      await cli.install({ source: "/tmp/some-skill", sourceType: "local" });
+      expect(calls[1]!.args).toEqual(["skills", "install", "/tmp/some-skill", "--local", "--json"]);
+      await cli.install({ source: "owner/repo", sourceType: "git" });
+      expect(calls[2]!.args).toEqual(["skills", "install", "owner/repo", "--json"]);
+    });
+
     it("deploy/undeploy 先 ensureTarget 且固定 --agent claude_code", async () => {
       const hermes = join(tmp, "hermes-skills");
       mkdirSync(hermes, { recursive: true });
@@ -260,6 +271,85 @@ describe("createSkillsManagerCli", () => {
       const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), cliDownloadDir: join(tmp, "bin"), execFile: exec, autoDownload: false });
       await cli.update({ name: "  " });
       expect(calls[0]!.args).toEqual(["skills", "update", "--all", "--json"]);
+    });
+
+    it("search 拼装 query/--limit；空白 query 抛 INVALID_ARGUMENT 且不调用 CLI", async () => {
+      const { exec, calls } = makeExec();
+      const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), cliDownloadDir: join(tmp, "bin"), execFile: exec, autoDownload: false });
+      await cli.search({ query: "  github  ", limit: 7.8 });
+      expect(calls[0]!.args).toEqual(["skills", "search", "github", "--limit", "7", "--json"]);
+      await cli.search({ query: "demo" });
+      expect(calls[1]!.args).toEqual(["skills", "search", "demo", "--json"]);
+      await expect(cli.search({ query: "   " })).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+      await cli.search({ query: "demo", limit: 0 });
+      expect(calls[2]!.args).toEqual(["skills", "search", "demo", "--json"]);
+      expect(calls).toHaveLength(3);
+    });
+
+    it("detail 并行聚合 skills show 与 skills status；空白 name 抛 INVALID_ARGUMENT", async () => {
+      const { exec, calls } = makeExec([
+        { stdout: '{"name":"demo","files":[]}' },
+        { stdout: '{"name":"demo","agents":[]}' },
+      ]);
+      const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), cliDownloadDir: join(tmp, "bin"), execFile: exec, autoDownload: false });
+      const result = await cli.detail(" Demo ");
+      expect(result).toEqual({ show: { name: "demo", files: [] }, status: { name: "demo", agents: [] } });
+      expect(calls.map((call) => call.args)).toEqual([
+        ["skills", "show", "Demo", "--json"],
+        ["skills", "status", "Demo", "--json"],
+      ]);
+      await expect(cli.detail("  ")).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+    });
+
+    it("tags add/remove/set 拼装（标签去空白过滤）；非法输入抛 INVALID_ARGUMENT 不调用 CLI", async () => {
+      const { exec, calls } = makeExec();
+      const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), cliDownloadDir: join(tmp, "bin"), execFile: exec, autoDownload: false });
+      await cli.tags({ action: "add", name: "demo", tags: [" 运维 ", "prod", "  "] });
+      expect(calls[0]!.args).toEqual(["skills", "tag", "add", "demo", "运维", "prod", "--json"]);
+      await cli.tags({ action: "remove", name: "demo", tags: ["prod"] });
+      expect(calls[1]!.args).toEqual(["skills", "tag", "remove", "demo", "prod", "--json"]);
+      await cli.tags({ action: "set", name: "demo", tags: ["single"] });
+      expect(calls[2]!.args).toEqual(["skills", "tag", "set", "demo", "single", "--json"]);
+      await expect(cli.tags({ action: "add", name: "  ", tags: ["x"] })).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+      await expect(cli.tags({ action: "add", name: "demo", tags: ["  "] })).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+      await expect(cli.tags({ action: "delete", name: "demo", tags: ["x"] })).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+      expect(calls).toHaveLength(3);
+    });
+
+    it("set-source 二段式：默认 --dry-run，confirmed 去掉；subpath/branch/force 按需拼装", async () => {
+      const { exec, calls } = makeExec();
+      const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), cliDownloadDir: join(tmp, "bin"), execFile: exec, autoDownload: false });
+      await cli.setSource({ name: "demo", gitUrl: " owner/repo " });
+      expect(calls[0]!.args).toEqual(["skills", "set-source", "demo", "--git-url", "owner/repo", "--dry-run", "--json"]);
+      await cli.setSource({ name: "demo", gitUrl: "https://github.com/a/b.git", subpath: " skills/x ", branch: "main", force: true, confirmed: true });
+      expect(calls[1]!.args).toEqual([
+        "skills", "set-source", "demo",
+        "--git-url", "https://github.com/a/b.git",
+        "--subpath", "skills/x",
+        "--branch", "main",
+        "--force",
+        "--json",
+      ]);
+      await expect(cli.setSource({ name: "  ", gitUrl: "x" })).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+      await expect(cli.setSource({ name: "demo", gitUrl: "  " })).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+      expect(calls).toHaveLength(2);
+    });
+
+    it("updateAll 先 update --all 再 check --all（两段串行）", async () => {
+      const { exec, calls } = makeExec([
+        { stdout: '{"updated":2}' },
+        { stdout: '[{"name":"demo","update_status":"up_to_date"}]' },
+      ]);
+      const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), cliDownloadDir: join(tmp, "bin"), execFile: exec, autoDownload: false });
+      const result = await cli.updateAll();
+      expect(result).toEqual({
+        update: { updated: 2 },
+        checks: [{ name: "demo", update_status: "up_to_date" }],
+      });
+      expect(calls.map((call) => call.args)).toEqual([
+        ["skills", "update", "--all", "--json"],
+        ["skills", "check", "--all", "--json"],
+      ]);
     });
   });
 

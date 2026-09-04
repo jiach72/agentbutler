@@ -99,10 +99,21 @@
  * - GET  /api/skills-manager/status → 200 SkillsManagerStatusView | { available:false, installHint }；
  *      CLI 缺失仍 200（UI 渲染安装指引）；未接线 → 503
  * - GET  /api/skills-manager/updates → 200 check --all 数组；未接线 → 503
- * - POST /api/skills-manager/install → body { source, name?, confirmed? }：
+ * - GET  /api/skills-manager/search?query=&limit= → 200 skills.sh 市场结果数组；
+ *      缺 query → 400 { error:"missing-query" }；limit 非正整数 → 400
+ * - GET  /api/skills-manager/skills/:name → 200 { show, status }（详情聚合）；缺 name → 400
+ * - POST /api/skills-manager/install → body { source, name?, sourceType?("git"|"skills"|"local"), confirmed? }：
  *      200 预览/结果；缺 source → 400 { error:"missing-source" }
+ * - POST /api/skills-manager/tags → body { action("add"|"remove"|"set"), name, tags:string[] }：
+ *      200 结果；action/name/tags 缺失或非法 → 400
+ * - POST /api/skills-manager/set-source → body { name, gitUrl, subpath?, branch?, force?, confirmed? }：
+ *      200 预览/结果（未 confirmed → --dry-run）；缺 name/gitUrl → 400
  * - POST /api/skills-manager/deploy|undeploy|update|remove → body { name, confirmed? }：
- *      200 预览/结果（confirmed !== true 时服务层 --dry-run）；缺 name → 400
+ *      200 预览/结果（confirmed !== true 时服务层 --dry-run）；缺 name → 400；
+ *      或 body { names:string[], confirmed? }（批量，串行执行、单项失败不中断）→
+ *      200 { batch:true, results:[{ name, ok, result?|error? }] }；adopt 不支持批量 → 400
+ * - POST /api/skills-manager/update 另支持 body { all:true } → 200 updateAll()
+ *      （update --all 后重跑 check --all）
  * - POST /api/skills-manager/adopt → body { dir, confirmed? }；缺 dir → 400
  *      CLI 业务错误映射：unavailable → 503(+installHint)；TARGET_CONFLICT/目标占用 → 409；
  *      INVALID_ARGUMENT → 400；其余 CLI 失败 → 502 { code, message }
@@ -1510,7 +1521,74 @@ async function handle(
       const source = typeof body["source"] === "string" ? body["source"].trim() : "";
       if (source === "") return sendJson(res, 400, { error: "missing-source" });
       const name = typeof body["name"] === "string" && body["name"].trim() !== "" ? body["name"] : undefined;
-      const result = await deps.skillsManager.install({ source, ...(name === undefined ? {} : { name }), confirmed: body["confirmed"] === true });
+      const sourceTypeRaw = typeof body["sourceType"] === "string" ? body["sourceType"] : "";
+      const sourceType = sourceTypeRaw === "skills" || sourceTypeRaw === "local" || sourceTypeRaw === "git" ? sourceTypeRaw : undefined;
+      const result = await deps.skillsManager.install({
+        source,
+        ...(name === undefined ? {} : { name }),
+        ...(sourceType === undefined ? {} : { sourceType }),
+        confirmed: body["confirmed"] === true,
+      });
+      return sendJson(res, 200, result);
+    }
+
+    // 市场搜索 / 单技能详情（只读）：search 走 skills.sh 市场（网络），detail 聚合 show+status。
+    if (path === "/api/skills-manager/search") {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.skillsManager === undefined) return sendJson(res, 503, { error: "skills-manager-unavailable" });
+      const query = url.searchParams.get("query")?.trim() ?? "";
+      if (query === "") return sendJson(res, 400, { error: "missing-query" });
+      const limitRaw = url.searchParams.get("limit");
+      let limit: number | undefined;
+      if (limitRaw !== null) {
+        limit = Number(limitRaw);
+        if (!Number.isInteger(limit) || limit <= 0) return sendJson(res, 400, { error: "invalid-limit" });
+      }
+      return sendJson(res, 200, await deps.skillsManager.search({ query, ...(limit === undefined ? {} : { limit }) }));
+    }
+
+    const skillDetailMatch = /^\/api\/skills-manager\/skills\/([^/]+)$/.exec(path);
+    if (skillDetailMatch !== null) {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.skillsManager === undefined) return sendJson(res, 503, { error: "skills-manager-unavailable" });
+      const name = decodeURIComponent(skillDetailMatch[1]!).trim();
+      if (name === "") return sendJson(res, 400, { error: "missing-name" });
+      return sendJson(res, 200, await deps.skillsManager.detail(name));
+    }
+
+    if (path === "/api/skills-manager/tags") {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.skillsManager === undefined) return sendJson(res, 503, { error: "skills-manager-unavailable" });
+      const body = await readJsonBody(req, res); if (body === null) return;
+      const action = body["action"];
+      if (action !== "add" && action !== "remove" && action !== "set") {
+        return sendJson(res, 400, { error: "invalid-action" });
+      }
+      const name = typeof body["name"] === "string" ? body["name"].trim() : "";
+      if (name === "") return sendJson(res, 400, { error: "missing-name" });
+      const tags = Array.isArray(body["tags"])
+        ? body["tags"].filter((tag): tag is string => typeof tag === "string" && tag.trim() !== "").map((tag) => tag.trim())
+        : [];
+      if (tags.length === 0) return sendJson(res, 400, { error: "missing-tags" });
+      return sendJson(res, 200, await deps.skillsManager.tags({ action, name, tags }));
+    }
+
+    if (path === "/api/skills-manager/set-source") {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.skillsManager === undefined) return sendJson(res, 503, { error: "skills-manager-unavailable" });
+      const body = await readJsonBody(req, res); if (body === null) return;
+      const name = typeof body["name"] === "string" ? body["name"].trim() : "";
+      if (name === "") return sendJson(res, 400, { error: "missing-name" });
+      const gitUrl = typeof body["gitUrl"] === "string" ? body["gitUrl"].trim() : "";
+      if (gitUrl === "") return sendJson(res, 400, { error: "missing-git-url" });
+      const result = await deps.skillsManager.setSource({
+        name,
+        gitUrl,
+        ...(typeof body["subpath"] === "string" && body["subpath"].trim() !== "" ? { subpath: body["subpath"].trim() } : {}),
+        ...(typeof body["branch"] === "string" && body["branch"].trim() !== "" ? { branch: body["branch"].trim() } : {}),
+        force: body["force"] === true,
+        confirmed: body["confirmed"] === true,
+      });
       return sendJson(res, 200, result);
     }
 
@@ -1520,6 +1598,44 @@ async function handle(
       if (deps.skillsManager === undefined) return sendJson(res, 503, { error: "skills-manager-unavailable" });
       const body = await readJsonBody(req, res); if (body === null) return;
       const action = skillManagerAction[1]!;
+      // update 支持 { all:true }：一键更新全部（update --all 后重跑 check --all 刷新状态）。
+      if (action === "update" && body["all"] === true) {
+        return sendJson(res, 200, await deps.skillsManager.updateAll());
+      }
+      // 批量：deploy/undeploy/update/remove 接受 names 数组，串行执行（CLI 中央库
+      // 为 SQLite，并发写会竞争），单项失败不中断批次，聚合 200 返回逐项结果。
+      if (Array.isArray(body["names"])) {
+        if (action === "adopt") return sendJson(res, 400, { error: "adopt-no-batch" });
+        const names = [...new Set(
+          body["names"]
+            .filter((name): name is string => typeof name === "string" && name.trim() !== "")
+            .map((name) => name.trim()),
+        )];
+        if (names.length === 0) return sendJson(res, 400, { error: "missing-names" });
+        if (names.length > 100) return sendJson(res, 400, { error: "too-many-names" });
+        const confirmed = body["confirmed"] === true;
+        const results = [];
+        for (const item of names) {
+          try {
+            const result =
+              action === "deploy" ? await deps.skillsManager.deploy({ name: item, confirmed })
+              : action === "undeploy" ? await deps.skillsManager.undeploy({ name: item, confirmed })
+              : action === "update" ? await deps.skillsManager.update({ name: item, confirmed })
+              : await deps.skillsManager.remove({ name: item, confirmed });
+            results.push({ name: item, ok: true, result });
+          } catch (error) {
+            // 单项失败聚合为 ok:false（code/message 供 UI 逐行展示），不中断批次。
+            results.push({
+              name: item,
+              ok: false,
+              error: error instanceof SkillsManagerError
+                ? { code: error.code, message: error.message }
+                : { code: "skills-manager-cli-failed", message: error instanceof Error ? error.message : String(error) },
+            });
+          }
+        }
+        return sendJson(res, 200, { batch: true, results });
+      }
       // update 名单上 name 必填（逐技能更新）；adopt 校验 dir；deploy/undeploy/remove 校验 name。
       const requiredKey = action === "adopt" ? "dir" : "name";
       const value = typeof body[requiredKey] === "string" ? body[requiredKey].trim() : "";

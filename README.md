@@ -180,4 +180,4 @@ MIT
 
 ### 技能库管理（skills-manager 集成）
 
-「技能」页新增「技能库」标签：基于 [skills-manager](https://github.com/xingkongliang/skills-manager) CLI 提供中央技能库——从 Git 仓库安装技能、一键部署/取消部署到 Hermes 技能目录（`~/.hermes/skills`）、更新检查。所有破坏性操作先预览再确认；中央库持久化在数据卷（`skills-manager-home/`）。CLI 未安装时页面会给出安装指引。
+「技能」页新增「技能库」标签：基于 [skills-manager](https://github.com/xingkongliang/skills-manager) CLI 提供中央技能库——从 Git 仓库安装技能、一键部署/取消部署到 Hermes 技能目录（`~/.hermes/skills`）、更新检查。所有破坏性操作先预览再确认；中央库持久化在数据卷（`skills-manager-home/`）。CLI 未安装时页面会给出安装指引。页面同时支持 skills.sh 市场搜索与安装、按关键词/标签/来源筛选、批量部署/取消部署/删除与一键更新全部；本机收编技能可绑定 Git 源，恢复后续更新能力。

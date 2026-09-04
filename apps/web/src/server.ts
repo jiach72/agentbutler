@@ -3082,6 +3082,24 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   app.post("/api/skills-manager/remove", async (request, reply) =>
     proxyWatchPost("/api/skills-manager/remove", request.body, reply, 120_000),
   );
+  // 市场搜索（skills.sh 网络操作，CLI 超时 120s，代理放宽一致）；单技能详情只读
+  // 本地聚合（show+status），30s 足够；标签是本地写；set-source 需解析远端 git 源。
+  app.get("/api/skills-manager/search", async (request, reply) => {
+    const query = request.query as Record<string, unknown>;
+    const params = new URLSearchParams();
+    for (const key of ["query", "limit"] as const) if (typeof query[key] === "string") params.set(key, query[key] as string);
+    return proxyWatchGet("/api/skills-manager/search" + (params.size > 0 ? "?" + params.toString() : ""), reply, 120_000);
+  });
+  app.get("/api/skills-manager/skills/:name", async (request, reply) => {
+    const name = encodeURIComponent((request.params as { name?: string }).name ?? "");
+    return proxyWatchGet(`/api/skills-manager/skills/${name}`, reply, 30_000);
+  });
+  app.post("/api/skills-manager/tags", async (request, reply) =>
+    proxyWatchPost("/api/skills-manager/tags", request.body, reply, 30_000),
+  );
+  app.post("/api/skills-manager/set-source", async (request, reply) =>
+    proxyWatchPost("/api/skills-manager/set-source", request.body, reply, 120_000),
+  );
 
   // GitHub 访问令牌（设置页「安全」）：GET 查配置状态（watch 绝不回显值），
   // POST 写入/清除透传；watch 不可达 → GET 503 { configured:false }（面板按未配置渲染），

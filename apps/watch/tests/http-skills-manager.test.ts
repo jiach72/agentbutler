@@ -62,6 +62,26 @@ function makeService(overrides: Partial<SkillsManagerCli> = {}): {
       calls.push({ op: "adopt", input });
       return { ok: true, dry_run: input.confirmed !== true };
     },
+    search: async (input) => {
+      calls.push({ op: "search", input });
+      return [{ name: "demo-skill", install_ref: "github/a/demo-skill", installs: 3 }];
+    },
+    detail: async (name) => {
+      calls.push({ op: "detail", input: name });
+      return { show: { name }, status: { name, agents: [] } };
+    },
+    tags: async (input) => {
+      calls.push({ op: "tags", input });
+      return { ok: true };
+    },
+    setSource: async (input) => {
+      calls.push({ op: "setSource", input });
+      return { ok: true, dry_run: input.confirmed !== true };
+    },
+    updateAll: async () => {
+      calls.push({ op: "updateAll", input: null });
+      return { update: { ok: true }, checks: [{ name: "demo", update_status: "up_to_date" }] };
+    },
     ...overrides,
   };
   return { service, calls };
@@ -269,5 +289,132 @@ describe("startWatchHttp /api/skills-manager 端点", () => {
     });
     expect(res.status).toBe(503);
     expect(await res.json()).toMatchObject({ error: "skills-manager-unavailable" });
+  });
+
+  it("GET search 透传 query/limit；缺 query 与非法 limit → 400", async () => {
+    const fake = await boot();
+    const res = await fetch(`${base}/api/skills-manager/search?query=github&limit=5`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([{ name: "demo-skill", install_ref: "github/a/demo-skill", installs: 3 }]);
+    expect(fake.calls.at(-1)).toEqual({ op: "search", input: { query: "github", limit: 5 } });
+
+    await fetch(`${base}/api/skills-manager/search?query=demo`);
+    expect(fake.calls.at(-1)).toEqual({ op: "search", input: { query: "demo" } });
+
+    expect((await fetch(`${base}/api/skills-manager/search`)).status).toBe(400);
+    expect((await fetch(`${base}/api/skills-manager/search?query=`)).status).toBe(400);
+    expect((await fetch(`${base}/api/skills-manager/search?query=x&limit=0`)).status).toBe(400);
+    expect((await fetch(`${base}/api/skills-manager/search?query=x&limit=abc`)).status).toBe(400);
+    expect((await fetch(`${base}/api/skills-manager/search?query=x`, { method: "POST" })).status).toBe(405);
+  });
+
+  it("GET skills/:name 返回详情聚合；空 name → 400", async () => {
+    const fake = await boot();
+    const res = await fetch(`${base}/api/skills-manager/skills/demo`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ show: { name: "demo" }, status: { name: "demo", agents: [] } });
+    expect(fake.calls.at(-1)).toEqual({ op: "detail", input: "demo" });
+
+    const encoded = await fetch(`${base}/api/skills-manager/skills/${encodeURIComponent("my skill")}`);
+    expect(encoded.status).toBe(200);
+    expect(fake.calls.at(-1)).toEqual({ op: "detail", input: "my skill" });
+  });
+
+  it("POST tags 校验 action/name/tags；合法输入透传", async () => {
+    const fake = await boot();
+    const post = (body: unknown): Promise<Response> =>
+      fetch(`${base}/api/skills-manager/tags`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    const res = await post({ action: "add", name: "demo", tags: [" 运维 ", "prod", " "] });
+    expect(res.status).toBe(200);
+    expect(fake.calls.at(-1)).toEqual({ op: "tags", input: { action: "add", name: "demo", tags: ["运维", "prod"] } });
+
+    expect((await post({ action: "delete", name: "demo", tags: ["x"] })).status).toBe(400);
+    expect((await post({ action: "add", name: "", tags: ["x"] })).status).toBe(400);
+    expect((await post({ action: "add", name: "demo", tags: [] })).status).toBe(400);
+    expect((await post({ action: "add", name: "demo", tags: "prod" })).status).toBe(400);
+    expect((await fetch(`${base}/api/skills-manager/tags`)).status).toBe(405);
+  });
+
+  it("POST set-source 二段式透传 subpath/branch/force；缺 name/gitUrl → 400", async () => {
+    const fake = await boot();
+    const post = (body: unknown): Promise<Response> =>
+      fetch(`${base}/api/skills-manager/set-source`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    const preview = await post({ name: "demo", gitUrl: "owner/repo" });
+    expect(preview.status).toBe(200);
+    expect(fake.calls.at(-1)).toEqual({ op: "setSource", input: { name: "demo", gitUrl: "owner/repo", force: false, confirmed: false } });
+
+    const applied = await post({ name: "demo", gitUrl: "https://github.com/a/b.git", subpath: "skills/x", branch: "main", force: true, confirmed: true });
+    expect(applied.status).toBe(200);
+    expect(fake.calls.at(-1)).toEqual({
+      op: "setSource",
+      input: { name: "demo", gitUrl: "https://github.com/a/b.git", subpath: "skills/x", branch: "main", force: true, confirmed: true },
+    });
+
+    expect((await post({ name: "", gitUrl: "x" })).status).toBe(400);
+    expect((await post({ name: "demo" })).status).toBe(400);
+  });
+
+  it("批量 names：串行执行、单项失败聚合 ok:false、整体 200；空/超限/adopt → 400", async () => {
+    const calls2: string[] = [];
+    await boot({
+      undeploy: async (input) => {
+        calls2.push(input.name);
+        if (input.name === "bad") throw new SkillsManagerError("TARGET_CONFLICT", "busy");
+        return { ok: true };
+      },
+    });
+    const post = (path: string, body: unknown): Promise<Response> =>
+      fetch(`${base}${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+    const batch = await post("/api/skills-manager/undeploy", { names: ["a", "b", "bad"], confirmed: true });
+    expect(batch.status).toBe(200);
+    const body = (await batch.json()) as { batch: boolean; results: Array<{ name: string; ok: boolean; result?: unknown; error?: { code: string } }> };
+    expect(body.batch).toBe(true);
+    expect(body.results.map((item) => [item.name, item.ok])).toEqual([["a", true], ["b", true], ["bad", false]]);
+    expect(body.results[2]!.error).toMatchObject({ code: "TARGET_CONFLICT" });
+    expect(calls2).toEqual(["a", "b", "bad"]);
+
+    expect((await post("/api/skills-manager/deploy", { names: [] })).status).toBe(400);
+    expect((await post("/api/skills-manager/deploy", { names: ["  "] })).status).toBe(400);
+    expect((await post("/api/skills-manager/adopt", { names: ["a"] })).status).toBe(400);
+    expect((await post("/api/skills-manager/deploy", { names: Array.from({ length: 101 }, (_, i) => `s${i}`) })).status).toBe(400);
+  });
+
+  it("update { all:true } 走 updateAll（update --all + check --all）", async () => {
+    const fake = await boot();
+    const res = await fetch(`${base}/api/skills-manager/update`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ all: true }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ update: { ok: true }, checks: [{ name: "demo", update_status: "up_to_date" }] });
+    expect(fake.calls.at(-1)).toEqual({ op: "updateAll", input: null });
+  });
+
+  it("install sourceType 白名单透传；非法值按缺省处理", async () => {
+    const fake = await boot();
+    const post = (body: unknown): Promise<Response> =>
+      fetch(`${base}/api/skills-manager/install`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    await post({ source: "github/a/b", sourceType: "skills", confirmed: true });
+    expect(fake.calls.at(-1)).toMatchObject({ op: "install", input: { source: "github/a/b", sourceType: "skills", confirmed: true } });
+    await post({ source: "owner/repo", sourceType: "bogus", confirmed: true });
+    expect(fake.calls.at(-1)).toMatchObject({ op: "install", input: { source: "owner/repo", confirmed: true } });
   });
 });

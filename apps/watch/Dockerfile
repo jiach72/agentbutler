@@ -50,7 +50,7 @@ WORKDIR /app
 # skills-manager CLI（中央技能库）：固定版本、构建参数可覆盖；ENV 供服务回报版本。
 # glibc 动态链接二进制，node:22-slim（Debian）直接可跑；git 供 CLI 的 git 安装源使用，
 # curl 仅下载期需要，装完即清除以保持镜像面最小。
-ARG SKILLS_MANAGER_CLI_VERSION=v1.36.0
+ARG SKILLS_MANAGER_CLI_VERSION=v1.36.1
 ARG SKILLS_MANAGER_CLI_URL=https://github.com/xingkongliang/skills-manager/releases/download/${SKILLS_MANAGER_CLI_VERSION}/skills-manager-cli-Linux-x64
 ENV SKILLS_MANAGER_CLI_VERSION=${SKILLS_MANAGER_CLI_VERSION}
 RUN apt-get update \
