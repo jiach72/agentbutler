@@ -12,7 +12,7 @@ import { useTheme } from "../../theme/ThemeProvider.js";
 import { useEventStream } from "../../hooks/useEventStream.js";
 import { usePolling } from "../../hooks/usePolling.js";
 import { fetchJson, postJson } from "../../lib/api.js";
-import { formatRelative, isRecord } from "../../lib/format.js";
+import { isRecord } from "../../lib/format.js";
 import { compareVersion } from "../../lib/semver.js";
 import { PrecheckList } from "./PrecheckList.js";
 import { SnapshotRollback } from "./SnapshotRollback.js";
@@ -22,7 +22,6 @@ import {
   instanceLabel,
   managedUpgradeProgress,
   parsePrecheckDetail,
-  versionComparable,
 } from "./helpers.js";
 import type {
   ButlerAvailableUpdate,
@@ -118,21 +117,6 @@ export function VersionsPanel() {
   const available = data?.availableVersions ?? null;
   const job = data?.upgradeJob ?? null;
   const targetInstance = selectedInstance || instances[0]?.instanceId || "";
-  const currentVersion =
-    instances.find((instance) => instance.instanceId === targetInstance)?.version ??
-    instances[0]?.version ??
-    "";
-
-  const upgradeCandidates = useMemo(() => {
-    if (available === null || !available.reachable) return [];
-    return available.versions
-      .filter(
-        (entry) =>
-          currentVersion === "" || compareVersion(versionComparable(entry), currentVersion) > 0,
-      )
-      .sort((left, right) => compareVersion(versionComparable(right), versionComparable(left)))
-      .slice(0, 1);
-  }, [available, currentVersion]);
 
   const precheckStep = job?.steps.find((step) => step.id === "precheck") ?? null;
   const precheck = useMemo(() => parsePrecheckDetail(precheckStep?.detail), [precheckStep]);

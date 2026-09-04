@@ -12,7 +12,6 @@ import {
   Flex,
   List,
   Modal,
-  Progress,
   Steps,
   Typography,
 } from "antd";
@@ -186,8 +185,8 @@ export function AssetCenter({ onSkillsChanged }: { onSkillsChanged?: () => void 
         )}
       </Card>
 
-      <Modal open={installTarget !== null} title={installJob.phase === "confirm" ? "确认安装" : installTarget ? "安装 " + installTarget.name : "安装技能"} onCancel={() => { if (installJob.phase === "confirm" || installJob.phase === "done" || installJob.phase === "failed") setInstallTarget(null); }} closable={installJob.phase === "confirm" || installJob.phase === "done" || installJob.phase === "failed"} mask={{ closable: false }} footer={installJob.phase === "confirm" ? [<Button key="cancel" onClick={() => setInstallTarget(null)}>取消</Button>, <Button key="ok" type="primary" onClick={() => void startInstall()}>直接安装</Button>] : installJob.phase === "done" || installJob.phase === "failed" ? [<Button key="close" type="primary" onClick={() => setInstallTarget(null)}>关闭</Button>] : null}>
-        {installJob.phase === "confirm" ? <Paragraph>将下载项目并检查技能文件，备份后安装到当前 Hermes 实例。</Paragraph> : <><Progress percent={installJob.phase === "download" ? 35 : installJob.phase === "install" ? 75 : installJob.phase === "failed" && installJob.failedStep === "download" ? 20 : 100} status={installJob.phase === "failed" ? "exception" : installJob.phase === "done" ? "success" : "active"} /><Steps size="small" current={installJob.phase === "download" ? 0 : installJob.phase === "install" ? 2 : installJob.phase === "done" ? 3 : installJob.failedStep === "download" ? 0 : 2} status={installJob.phase === "failed" ? "error" : undefined} items={[{ title: "下载/检查" }, { title: "备份" }, { title: "安装" }]} /><Paragraph type="secondary" style={{ marginBottom: 0 }}>{installJob.detail}</Paragraph></>}
+      <Modal open={installTarget !== null} title={installJob.phase === "confirm" ? "确认安装" : installTarget ? "安装 " + installTarget.name : "安装技能"} onCancel={() => setInstallTarget(null)} closable footer={installJob.phase === "confirm" ? [<Button key="cancel" onClick={() => setInstallTarget(null)}>取消</Button>, <Button key="ok" type="primary" onClick={() => void startInstall()}>直接安装</Button>] : installJob.phase === "download" || installJob.phase === "install" ? [<Button key="background" onClick={() => setInstallTarget(null)}>后台继续</Button>] : [<Button key="close" type="primary" onClick={() => setInstallTarget(null)}>关闭</Button>] }>
+        {installJob.phase === "confirm" ? <Paragraph>将下载项目并检查技能文件，备份后安装到当前 Hermes 实例。</Paragraph> : <><Steps size="small" current={installJob.phase === "download" ? 0 : installJob.phase === "install" ? 1 : installJob.phase === "done" ? 2 : 1} status={installJob.phase === "failed" ? "error" : undefined} items={[{ title: "下载/检查" }, { title: "备份并安装" }]} /><Paragraph type="secondary" style={{ marginBottom: 0 }}>{installJob.detail}{installJob.phase === "download" || installJob.phase === "install" ? "；关闭窗口不会中断安装。" : ""}</Paragraph></>}
       </Modal>
     </Flex>
   );

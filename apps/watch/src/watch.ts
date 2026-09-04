@@ -92,6 +92,8 @@ import {
   createPromptOptimizationService,
   type PromptOptimizationService,
 } from "./prompt-optimization.js";
+import { createRepairSessionService } from "./http.js";
+import type { RepairSessionService } from "./repair-session.js";
 import { resolveButlerSourceDir } from "./self-upgrade.js";
 import {
   createWiredBreaker,
@@ -1219,9 +1221,21 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
 
   function connectionView(record: InstanceRecord): Record<string, unknown> {
     const memory = connectionMemoryFor(record.instanceId);
+    const capabilities =
+      Object.keys(memory.capabilities).length > 0
+        ? memory.capabilities
+        : record.capability?.capabilities ?? {};
+    const checks =
+      memory.checks.length > 0 || record.capability == null
+        ? memory.checks
+        : checksFromReport(record.capability, 0);
+    const anomalies =
+      memory.anomalies.length > 0 || record.capability == null
+        ? memory.anomalies
+        : record.capability.anomalies;
     const managedRuntimeAvailable =
       (record.state === "Serving" || record.state === "Degraded") &&
-      memory.capabilities["control"] === "ok";
+      capabilities["control"] === "ok";
     const connected =
       memory.lastProbeOk === true ||
       managedRuntimeAvailable ||
@@ -1247,9 +1261,9 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       version: record.version,
       confidence: record.confidence,
       effectiveLevel: record.capability?.effectiveLevel ?? null,
-      capabilities: memory.capabilities,
-      checks: memory.checks,
-      anomalies: memory.anomalies,
+      capabilities,
+      checks,
+      anomalies,
       lastCheckedAt: memory.lastCheckedAt,
       lastActionAt: memory.lastActionAt,
       lastAction: memory.lastAction,
@@ -1695,6 +1709,18 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       resourceSampler: defaultResourceSampler(commandExec),
     });
 
+  const repairSessions = createRepairSessionService({
+    scheduler,
+    connections,
+    runbooks: runbookSummaries,
+    executeRunbook: executeRunbookViaHttp,
+    upgrade: upgradeWithBackup,
+    gateway,
+    skills,
+    m6WritesEnabled: false,
+    audit: core.audit,
+  });
+
   const watchHttp = startWatchHttp(
     {
       runtime: () => runtime,
@@ -1746,6 +1772,8 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       backup,
       security,
       markdownFiles,
+      repairSessions,
+      audit: core.audit,
     },
     {
       host: config.watchHttpHost,

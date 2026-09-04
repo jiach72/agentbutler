@@ -113,6 +113,58 @@ export interface RecoveryJobView {
   finishedAt: string | null;
 }
 
+export type RepairSessionStatus =
+  | "collecting"
+  | "awaiting-approval"
+  | "applying"
+  | "verifying"
+  | "done"
+  | "blocked"
+  | "failed";
+
+export interface RepairSessionView {
+  sessionId: string;
+  instanceId: string | null;
+  status: RepairSessionStatus;
+  progress: number;
+  detail: string;
+  diagnosis: {
+    severity: "ok" | "warn" | "error";
+    summary: string;
+    rootCause: string | null;
+    primaryFinding: {
+      title: string;
+      detail: string;
+      evidence: { source: string | null; kind: string; lastSeenLabel: string | null; occurrences: number };
+    } | null;
+    probes: Array<{ id: string; label: string; status: "pass" | "warn" | "fail"; detail: string }>;
+    checkedAt: string;
+  } | null;
+  plan: {
+    actionId: string;
+    label: string;
+    description: string;
+    impact: string;
+    approvalRequired: boolean;
+    source: "deterministic-policy" | "background-advisor";
+  } | null;
+  changes: string[];
+  verification: {
+    status: "pending" | "passed" | "failed" | "not-needed";
+    summary: string;
+    checkedAt: string | null;
+    probes: Array<{ label: string; status: "pass" | "warn" | "fail"; detail: string }>;
+  };
+  advisor: {
+    source: "deterministic-policy" | "background-advisor";
+    promptDispatched: boolean;
+    detail: string;
+  };
+  createdAt: string;
+  updatedAt: string;
+  finishedAt: string | null;
+}
+
 export interface InspectStatusView {
   reachable: boolean;
   lastAt?: string | null;

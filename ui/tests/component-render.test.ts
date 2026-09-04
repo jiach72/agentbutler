@@ -14,7 +14,7 @@ import { ActionStep } from "../src/pages/troubleshoot/steps/ActionStep.js";
 import { SymptomStep } from "../src/pages/troubleshoot/steps/SymptomStep.js";
 
 describe("关键页面组件渲染", () => {
-  it("侧栏直接显示运营入口但不重复暴露排查页", () => {
+  it("侧栏直接显示运营入口并提供排查入口", () => {
     const html = renderToStaticMarkup(
       React.createElement(
         ThemeProvider,
@@ -37,8 +37,8 @@ describe("关键页面组件渲染", () => {
     expect(html).not.toContain("高级工具");
     expect(html).toContain("智能体与记忆");
     expect(html).toContain("核心文件");
-    expect(html).not.toContain('href="/troubleshoot"');
-    expect(html).not.toContain("排查问题");
+    expect(html).toContain('href="/troubleshoot"');
+    expect(html).toContain("排查问题");
     expect(html).toContain('class="topbar-title">自进化</strong>');
     expect(html).toContain('href="/settings"');
   });

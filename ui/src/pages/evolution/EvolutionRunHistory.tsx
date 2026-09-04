@@ -13,7 +13,7 @@ export function EvolutionRunHistory({ runs }: { runs: EvolutionOverviewPayload["
     },
     { title: "时间", dataIndex: "updatedAt", width: 140, render: (value: string) => formatTime(value) },
     {
-      title: "baseline → candidate",
+      title: "基线 → 候选",
       width: 180,
       render: (_, row) =>
         row.baseline === null || row.candidate === null
@@ -21,7 +21,7 @@ export function EvolutionRunHistory({ runs }: { runs: EvolutionOverviewPayload["
           : `${formatDecimal(row.baseline, 3)} → ${formatDecimal(row.candidate, 3)}`,
     },
     {
-      title: "improvement",
+      title: "提升幅度",
       dataIndex: "improvement",
       width: 120,
       align: "right",
@@ -46,7 +46,7 @@ export function EvolutionRunHistory({ runs }: { runs: EvolutionOverviewPayload["
       dataIndex: "gate",
       render: (value: string) => (
         <Tag color={value === "accepted" ? "green" : value === "rejected-regression" ? "red" : "orange"}>
-          {value}
+          {value === "accepted" ? "已采用" : value === "rejected-regression" ? "回归，已拒绝" : value === "rejected-preflight" ? "预检未通过" : value === "preflight-failed" ? "准备失败" : "待处理"}
         </Tag>
       ),
     },

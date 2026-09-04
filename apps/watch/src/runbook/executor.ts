@@ -165,7 +165,7 @@ export class RunbookExecutor {
   /** "<runbookId>:<instanceId>" → 上次自动执行时刻（防抖）。 */
   private readonly lastAutoAt = new Map<string, number>();
   /** "<runbookId>" → 最近一次执行结果（HTTP /api/runbooks 的 lastRun）。 */
-  private readonly lastRuns = new Map<string, { at: string; success: boolean }>();
+  private readonly lastRuns = new Map<string, { at: string; success: boolean; detail?: string }>();
 
   constructor(deps: RunbookExecutorDeps, definitions: RunbookDefinition[] = []) {
     this.core = deps.core;
@@ -189,7 +189,7 @@ export class RunbookExecutor {
   }
 
   /** 最近一次执行结果（HTTP /api/runbooks 的 lastRun；从未执行为 undefined）。 */
-  lastRunOf(id: string): { at: string; success: boolean } | undefined {
+  lastRunOf(id: string): { at: string; success: boolean; detail?: string } | undefined {
     return this.lastRuns.get(id);
   }
 
@@ -360,7 +360,16 @@ export class RunbookExecutor {
       steps,
       durationMs,
     });
-    this.lastRuns.set(id, { at: new Date(this.now()).toISOString(), success });
+    const failedStep = success ? undefined : steps.find((step) => step.status === "failed");
+    this.lastRuns.set(id, {
+      at: new Date(this.now()).toISOString(),
+      success,
+      ...(failedStep?.detail !== undefined
+        ? { detail: `${failedStep.id}: ${failedStep.detail}` }
+        : failedAt !== null
+          ? { detail: `失败环节: ${failedAt}` }
+          : {}),
+    });
     return { runbookId: id, instanceId, trigger: opts.trigger, success, steps, durationMs, alertDedupeKey };
   }
 

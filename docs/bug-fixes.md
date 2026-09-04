@@ -1,5 +1,14 @@
 # Bug Fixes
 
+## 2026-09-04 - 审查报告问题收口：告警可读性、导航与高风险操作反馈
+
+- **Problem:** Watch 通知标题直接暴露内部指纹模板，402/鉴权/限流/超时等错误缺少可执行摘要；余额不足会被日志分析器建议为重启；排障入口不易发现；暗色主题的主色与弱文本对比度不足；清除 GitHub Token 没有二次确认；进化运行历史和技能安装步骤仍混用内部英文或假百分比进度。
+- **Impact:** 普通用户难以判断告警根因和下一步，可能对计费错误执行无效重启；关键排障路径、危险操作和安装状态的可发现性与信任感不足，窄屏和暗色环境下扫描成本更高。
+- **Changed scope:** `apps/watch/src/alert-forward.ts`、`apps/watch/src/log-analyzer.ts`、`ui/src/components/Layout.tsx`、`DegradedBanner.tsx`、`NotificationCenter.tsx`、`DashboardPage.tsx`、`GithubTokenCard.tsx`、`EvolutionRunHistory.tsx`、`AssetCenter.tsx`、`ui/src/theme/tokens.ts` 及相关测试。告警改为人话摘要并保留计数/时间；402 标记为账单问题；排障入口提升为一级导航；补充 critical 告警语义、动态安全基线、暗色对比度、Token 清除确认；运行历史中文化；安装中允许关闭窗口并移除不可信的假进度。
+- **Regression coverage:** `apps/watch/tests/alert-forward.test.ts`、`apps/watch/tests/log-analyzer.test.ts`、`ui/tests/theme.test.ts`、`ui/tests/component-render.test.ts`、`ui/tests/notification-center.test.ts` 共 5 个测试文件、23 项通过。
+- **Verification:** `corepack pnpm exec vitest run apps/watch/tests/alert-forward.test.ts apps/watch/tests/log-analyzer.test.ts ui/tests/theme.test.ts ui/tests/component-render.test.ts ui/tests/notification-center.test.ts --reporter=dot`（23 passed）；`corepack pnpm exec tsc -b --pretty false`；`corepack pnpm --filter @butler/ui exec vite build`；`corepack pnpm lint`；`node .claude/skills/impeccable/scripts/detect.mjs --json ui/src`（输出 `[]`）；`git diff --check` 均通过。UI 构建仅保留既有大 chunk 提示。
+- **Runtime validation:** 本轮未执行 WSL Docker 部署或真实浏览器交互验证；需要在唯一 WSL 副本中重建并复验面板、告警通知和技能安装流程。
+
 ## 2026-09-04 - 智能体与记忆页层级与技能操作列优化
 
 - **Problem:** 技能页导航名称与页面标题不一致；技能管理器把安装、筛选、统计和操作挤在同一层级，操作列在窄屏下过载；记忆页的统计、趋势和检索边界缺少清晰分组。
@@ -516,3 +525,12 @@
 - **修复范围：** 通知预览列表只显示标题，保留未读圆点、点击标记已读、刷新、全部标记已读与完整消息队列入口；详细正文、来源、时间和等级仍在消息通知页可查。列表项保持 44px 最小点击高度，长标题单行省略。
 - **回归测试：** `ui/tests/notification-center.test.ts` 覆盖预览只渲染标题且保留未读状态，不渲染正文、来源或等级文本。
 - **验证命令：** `corepack pnpm --filter @butler/ui exec vitest run --config vitest.config.ts tests/notification-center.test.ts --reporter=dot`；`corepack pnpm exec tsc -b ui/tsconfig.json --pretty false`；`corepack pnpm --filter @butler/ui exec vite build`；`git diff --check`。
+
+## 2026-09-04 - 一键修复缺少根因闭环且依赖旧任务接口
+
+- **问题：** 日志页“一键修复”直接调用旧的日志修复任务接口，只显示单一进度，无法向用户说明根因、证据、计划、实际变更和复验结论；将智能体建议直接映射为可执行输入也容易越过现有 Runbook 与安全门禁。
+- **风险/影响：** 用户难以判断修复是否真的解决问题；后台建议若携带自由命令、路径或补丁文本，会扩大高风险写操作的权限边界。
+- **修复范围：** Watch 新增 `RepairSessionService` 和 `/api/recovery/sessions`、详情及审批接口；会话只接受现有白名单动作，复用快照、熔断、Runbook、任务轮询与复验，审计只记录结构化元数据，不记录 prompt 正文或密钥。日志页改为启动并轮询修复会话，展示根因证据、受限计划、审批、实际变更和复验状态；保留旧日志修复接口兼容既有调用方。
+- **回归测试：** `apps/watch/tests/repair-session.test.ts` 覆盖低风险自动执行、高风险审批、非白名单动作阻断和审计事件；`apps/watch/tests/http-repair-session.test.ts` 覆盖创建、详情、审批与错误方法；TypeScript 与 UI 构建验证会话载荷兼容性。
+- **验证命令：** `corepack pnpm exec tsc -b apps/watch/tsconfig.json --pretty false`；`corepack pnpm exec vitest run apps/watch/tests/repair-session.test.ts apps/watch/tests/http-repair-session.test.ts --reporter=dot`；`corepack pnpm --filter @butler/ui exec tsc --noEmit`；`corepack pnpm --filter @butler/ui exec vite build`；`git diff --check`。
+- **部署/runtime：** WSL ext4 仓库重建 Docker 后，通过 `/api/health`、`/api/recovery/sessions` 和 `docker compose ps` 复验；后台顾问若接入 Hermes/OpenClaw，仍只能返回白名单 `actionId`，不能获得任意终端或 Docker 控制。

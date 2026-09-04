@@ -4,7 +4,7 @@
  * 布尔，任何接口都不回显令牌值；保存后立即生效（版本查询与技能市场即时使用）。
  */
 import { useCallback, useEffect, useState } from "react";
-import { App, Button, Card, Flex, Input, Typography } from "antd";
+import { App, Button, Card, Flex, Input, Popconfirm, Typography } from "antd";
 import { loadJson, postJson } from "../../lib/api.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 
@@ -104,9 +104,15 @@ export function GithubTokenCard() {
           <Button type="primary" loading={busy} disabled={token.trim() === ""} onClick={() => void saveToken()}>
             保存
           </Button>
-          <Button danger disabled={!configured || busy} onClick={() => void clearToken()}>
-            清除
-          </Button>
+          <Popconfirm
+            title="清除 GitHub 访问令牌？"
+            description="清除后公开版本和技能查询可能再次受到匿名限流。"
+            okText="确认清除"
+            cancelText="保留"
+            onConfirm={() => void clearToken()}
+          >
+            <Button danger disabled={!configured || busy}>清除</Button>
+          </Popconfirm>
         </Flex>
         <Text type="secondary" style={{ fontSize: 12 }}>
           令牌以 0600 权限保存在管家数据目录，面板只显示是否已配置，不会回显内容。

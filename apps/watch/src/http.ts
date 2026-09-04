@@ -4,7 +4,7 @@
  * 端点契约（同时提供给 ui/web 代理使用，严格一致；全部 JSON 响应）：
  * - GET  /healthz                    → { ok: true }
  * - GET  /api/runbooks               → { runbooks: Array<{ id, label, description,
- *                                      breakerTripped, lastRun?: { at, success } }> }
+ *                                      breakerTripped, lastRun?: { at, success, detail? } }> }
  * - POST /api/runbooks/:id/execute   → body { instanceId? }（缺省取首个 Serving 实例）
  *                                      202 { started: true }；未知 id → 404 { error }；
  *                                      熔断跳闸 → 409 { error: "circuit-breaker-tripped" }；
@@ -157,6 +157,7 @@ import { classifyRuntimeState } from "./runtime-diagnosis.js";
 import type { HostMetricsService } from "./host-metrics.js";
 import { SkillsManagerError, SKILLS_MANAGER_INSTALL_HINT, type SkillsManagerCli } from "./skills-manager.js";
 import { readGithubToken, writeGithubToken } from "./github-token.js";
+import { RepairSessionService, type RepairActionExecution, type RepairDiagnosis, type RepairSessionDeps } from "./repair-session.js";
 
 /** 记忆按需自检（memory-probe 单阶段）的结论。 */
 export interface MemorySelfCheckResult {
@@ -333,7 +334,8 @@ function monitorRunbookJob(jobId: string, deps: WatchHttpDeps, runbookId: string
         lastRun.success ? "done" : "failed",
         lastRun.success
           ? "Runbook 已完成并通过复验"
-          : "Runbook 未完成：请打开连接诊断，确认 control 能力、实例运行环境和快照步骤；修复前置问题后再重试。",
+          : lastRun.detail ??
+            "Runbook 未完成：请打开连接诊断，确认 control 能力、实例运行环境和快照步骤；修复前置问题后再重试。",
       );
     }
   }, 1000);
@@ -356,7 +358,7 @@ export interface RunbookSummary {
   /** 执行步骤预览（label 列表）。 */
   steps: string[];
   breakerTripped: boolean;
-  lastRun?: { at: string; success: boolean };
+  lastRun?: { at: string; success: boolean; detail?: string };
 }
 
 /** HTTP 层依赖（全部可注入）。 */
@@ -503,6 +505,9 @@ export interface WatchHttpDeps {
    * （watch.ts 组装处传 core.paths.home）；未接线时 /api/github-token 返回 503。
    */
   dataDir?: string;
+  /** 后台修复会话：只允许白名单动作，供一键修复与 UI 轮询使用。 */
+  repairSessions?: RepairSessionService;
+  audit?: { append(entry: { actor: string; action: string; target?: string; detail?: unknown }): void };
 }
 
 export interface WatchHttpOptions {
@@ -769,6 +774,70 @@ async function diagnoseRecovery(deps: WatchHttpDeps, instanceId?: string): Promi
     recommendedActions: actions,
     checkedAt: new Date().toISOString(),
   };
+}
+
+/** 将现有恢复目录包装成后台修复会话执行器。动作仍复用同一套门禁、快照和复验。 */
+export function createRepairSessionService(deps: WatchHttpDeps): RepairSessionService {
+  const execute = async (actionId: string, instanceId?: string): Promise<RepairActionExecution> => {
+    const action = recoveryActionCatalog(deps, instanceId).find((item) => item.id === actionId);
+    if (action === undefined || !action.available) {
+      return { ok: false, detail: action?.unavailableReason ?? "修复动作不可用", changes: [] };
+    }
+    if (actionId === "refresh-probe") {
+      return deps.scheduler.runNow()
+        ? { ok: true, detail: "已触发重新巡检", changes: [] }
+        : { ok: false, detail: "巡检已在执行中", changes: [] };
+    }
+    if (actionId === "rebuild-memory-index") {
+      if (deps.skills === undefined || deps.m6WritesEnabled !== true) return { ok: false, detail: "记忆写操作未启用", changes: [] };
+      const result = await deps.skills.rebuildIndex(instanceId === undefined ? {} : { instanceId });
+      return result.ok
+        ? { ok: true, detail: "记忆索引重建完成", changes: ["重建记忆索引"] }
+        : { ok: false, detail: result.error ?? "重建索引失败", changes: [] };
+    }
+    if (actionId === "reconnect-channel") {
+      if (deps.connections === undefined) return { ok: false, detail: "连接管理服务未接线", changes: [] };
+      const result = await deps.connections.connect(instanceId);
+      if (result.status === "failed" || result.status === "no-instance") return { ok: false, detail: "消息通道重连失败", changes: [] };
+      return { ok: true, detail: "消息通道状态已更新", changes: ["重新连接消息通道"] };
+    }
+    if (actionId === "apply-throttle-patch") {
+      if (deps.gateway === undefined) return { ok: false, detail: "网关补丁服务未接线", changes: [] };
+      const stats = await deps.gateway.stats();
+      const suggestion = stats.suggestions[0];
+      if (!suggestion) return { ok: true, detail: "当前没有需要调整的节流参数", changes: [] };
+      const patchView = (await deps.gateway.patches()).find((patch) => patch.id === suggestion.patchId);
+      if (patchView?.observed !== null && patchView?.observed !== undefined && patchView.applied === null) {
+        return { ok: false, detail: "检测到未纳管的手工补丁，已停止自动覆盖", changes: [] };
+      }
+      const applied = await deps.gateway.applyPatch({ patchId: suggestion.patchId, params: { [suggestion.param]: suggestion.suggested }, instanceId });
+      return applied.status === "ok"
+        ? { ok: true, detail: "网关节流补丁已应用", changes: [`应用网关补丁 ${suggestion.patchId}`] }
+        : { ok: false, detail: "代码补丁应用失败", changes: [] };
+    }
+    const runbookId = actionId === "cleanup-gateway" ? "rb-cleanup-gateway" : actionId === "restart-instance" ? "rb-restart" : null;
+    if (runbookId === null) return { ok: false, detail: "未知的受限修复动作", changes: [] };
+    const beforeRunAt = deps.runbooks().find((item) => item.id === runbookId)?.lastRun?.at ?? null;
+    const job = startRecoveryJob(actionId, action.label, action.estimatedSeconds, instanceId, true);
+    const outcome = await deps.executeRunbook(runbookId, instanceId);
+    if (outcome.status !== "started") {
+      finishRecoveryJob(job.jobId, "failed", outcome.status === "circuit-breaker-tripped" ? "保护机制暂时阻止了执行" : "没有可用的 Hermes 实例");
+      return { ok: false, detail: "Runbook 未启动", changes: [] };
+    }
+    monitorRunbookJob(job.jobId, deps, runbookId, beforeRunAt);
+    return { ok: true, detail: `已启动${action.label}`, changes: [action.label], jobId: job.jobId };
+  };
+  const sessionDeps: RepairSessionDeps = {
+    diagnose: (instanceId) => diagnoseRecovery(deps, instanceId) as Promise<RepairDiagnosis>,
+    actions: (instanceId) => recoveryActionCatalog(deps, instanceId),
+    execute,
+    getJob: (jobId) => {
+      const job = recoveryJobs.get(jobId);
+      return job === undefined ? undefined : { jobId: job.jobId, status: job.status, detail: job.detail };
+    },
+    audit: deps.audit,
+  };
+  return new RepairSessionService(sessionDeps);
 }
 
 /**
@@ -1277,6 +1346,36 @@ async function handle(
         ? body["instanceId"].trim()
         : undefined;
       return sendJson(res, 200, await diagnoseRecovery(deps, instanceId));
+    }
+
+    if (path === "/api/recovery/sessions") {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.repairSessions === undefined) return sendJson(res, 503, { error: "repair-sessions-unavailable" });
+      const body = await readJsonBody(req, res);
+      if (body === null) return;
+      const instanceId = typeof body["instanceId"] === "string" && body["instanceId"].trim() !== ""
+        ? body["instanceId"].trim()
+        : undefined;
+      return sendJson(res, 202, deps.repairSessions.start(instanceId));
+    }
+
+    const repairSessionMatch = /^\/api\/recovery\/sessions\/([^/]+)$/.exec(path);
+    if (repairSessionMatch !== null) {
+      if (deps.repairSessions === undefined) return sendJson(res, 503, { error: "repair-sessions-unavailable" });
+      const sessionId = decodeURIComponent(repairSessionMatch[1]!);
+      if (method === "GET") {
+        const session = deps.repairSessions.get(sessionId);
+        return session === undefined ? sendJson(res, 404, { error: "repair-session-not-found" }) : sendJson(res, 200, session);
+      }
+      return sendJson(res, 405, { error: "method-not-allowed" });
+    }
+
+    const repairApprovalMatch = /^\/api\/recovery\/sessions\/([^/]+)\/approve$/.exec(path);
+    if (repairApprovalMatch !== null) {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.repairSessions === undefined) return sendJson(res, 503, { error: "repair-sessions-unavailable" });
+      const session = deps.repairSessions.approve(decodeURIComponent(repairApprovalMatch[1]!));
+      return session === undefined ? sendJson(res, 404, { error: "repair-session-not-found" }) : sendJson(res, 202, session);
     }
 
     const recoveryActionMatch = /^\/api\/recovery\/actions\/([^/]+)\/execute$/.exec(path);

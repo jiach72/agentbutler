@@ -82,6 +82,15 @@ const MAX_SOURCES = 3;
 
 const RULES: Rule[] = [
   {
+    kind: "llm-billing",
+    severity: "error",
+    title: "模型账户余额不足",
+    detail: "模型服务返回余额不足（HTTP 402）。请充值或切换到可用的备用模型；重启服务无法解决账户余额问题。",
+    match: /(\b402\b|insufficient\s+balance|payment\s+required|billing\s+(?:error|required)|quota\s+(?:exhausted|depleted))/i,
+    action: null,
+    actionLabel: null,
+  },
+  {
     kind: "llm-auth",
     severity: "error",
     title: "模型凭据失效",

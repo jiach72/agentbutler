@@ -2,7 +2,7 @@
  * 系统日志面板：只读查看日志文件、错误聚合与处理建议。
  * 面板自身的加载/分析/修复确认状态全部内聚在本组件内。
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Alert,
   App,
@@ -22,7 +22,7 @@ import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
 import { fetchJson, loadJson, postJson } from "../../lib/api.js";
 import { usePolling } from "../../hooks/usePolling.js";
 import { formatBytes, formatNumber } from "../../lib/format.js";
-import type { LogAnalyzeView, LogIssueView, LogSourceView, LogTailView } from "./types.js";
+import type { LogAnalyzeView, LogIssueView, LogSourceView, LogTailView, RepairSessionView } from "./types.js";
 
 const { Text } = Typography;
 
@@ -42,18 +42,17 @@ export function LogPanel({ open = true, onClose = () => undefined, embedded = fa
   const [analyzeLoading, setAnalyzeLoading] = useState(false);
   const [confirmFix, setConfirmFix] = useState<LogIssueView | null>(null);
   const [fixBusy, setFixBusy] = useState(false);
-  const [fixJob, setFixJob] = useState<{ jobId: string; progress: number; status: string; detail: string; label: string } | null>(null);
-  const recheckTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [repairSession, setRepairSession] = useState<RepairSessionView | null>(null);
 
   usePolling(async () => {
-    if (fixJob === null || fixJob.status !== "running") return;
-    const result = await loadJson<{ jobId: string; progress: number; status: string; detail: string; label: string }>(`/api/logs/fix/${encodeURIComponent(fixJob.jobId)}`, 8_000);
+    if (repairSession === null || ["done", "blocked", "failed"].includes(repairSession.status)) return;
+    const result = await loadJson<RepairSessionView>(`/api/recovery/sessions/${encodeURIComponent(repairSession.sessionId)}`, 8_000);
     if (result.ok) {
-      setFixJob(result.data);
-      if (result.data.status === "done") message.success(`「${result.data.label}」执行完成，正在复检`);
-      if (result.data.status === "failed") message.error(`修复未完成：${result.data.detail}`);
+      setRepairSession(result.data);
+      if (result.data.status === "done" && repairSession.status !== "done") message.success("修复会话已完成并通过复验");
+      if (result.data.status === "failed" && repairSession.status !== "failed") message.error(`修复未完成：${result.data.detail}`);
     }
-  }, fixJob?.status === "running" ? 1000 : null);
+  }, repairSession !== null && !["done", "blocked", "failed"].includes(repairSession.status) ? 1000 : null);
 
   const loadLogTail = useCallback(async (sourceId: string, before?: number | null) => {
     setLoading(true);
@@ -85,7 +84,6 @@ export function LogPanel({ open = true, onClose = () => undefined, embedded = fa
     if (!open) {
       setActiveLog(null);
       setError(null);
-      if (recheckTimer.current !== undefined) clearTimeout(recheckTimer.current);
       return;
     }
     let cancelled = false;
@@ -114,46 +112,67 @@ export function LogPanel({ open = true, onClose = () => undefined, embedded = fa
     };
   }, [open, loadLogAnalyze]);
 
-  useEffect(
-    () => () => {
-      if (recheckTimer.current !== undefined) clearTimeout(recheckTimer.current);
-    },
-    [],
-  );
-
   const runLogFix = async () => {
     if (confirmFix === null || confirmFix.suggestedAction === null) return;
     setFixBusy(true);
-    const result = await postJson("/api/logs/fix", {
-      action: confirmFix.suggestedAction,
-      confirmed: true,
-    });
+    const result = await postJson("/api/recovery/sessions", {});
     setFixBusy(false);
     setConfirmFix(null);
     if (result.ok) {
-      const payload = result.data && typeof result.data === "object" ? result.data as Record<string, unknown> : {};
-      if (typeof payload.jobId === "string") setFixJob({ jobId: payload.jobId, progress: 8, status: "running", detail: "已确认，正在准备执行", label: confirmFix.actionLabel ?? "修复服务" });
-      message.success(`修复已开始：${confirmFix.actionLabel ?? "重启服务"}。可在进度条中查看执行状态。`);
-      if (recheckTimer.current !== undefined) clearTimeout(recheckTimer.current);
-      recheckTimer.current = setTimeout(() => void loadLogAnalyze(), 10_000);
-    } else if (result.status === 409) {
-      message.error("修复暂时被保护机制拦住（熔断），稍后再试。");
+      setRepairSession(result.data as RepairSessionView);
+      message.success("已启动后台修复会话，正在定位根因并生成受限方案");
     } else {
-      message.error("修复没有启动成功，请确认 Hermes 实例是否在线。");
+      message.error("修复会话没有启动成功，请确认管家服务是否在线。");
     }
+  };
+
+  const approveRepair = async () => {
+    if (repairSession === null || repairSession.status !== "awaiting-approval") return;
+    setFixBusy(true);
+    const result = await postJson(`/api/recovery/sessions/${encodeURIComponent(repairSession.sessionId)}/approve`, {});
+    setFixBusy(false);
+    if (result.ok) setRepairSession(result.data as RepairSessionView);
+    else message.error("修复审批没有提交成功，请稍后重试。");
   };
 
   const body = (
     <Flex vertical gap={16}>
-      {fixJob !== null && (
+      {repairSession !== null && (
         <Card size="small">
           <Flex vertical gap={8}>
-            <Text strong>{fixJob.label}</Text>
+            <Flex justify="space-between" align="center" gap={8}>
+              <Text strong>后台修复会话</Text>
+              <Badge
+                status={repairSession.status === "done" ? "success" : repairSession.status === "failed" || repairSession.status === "blocked" ? "error" : "processing"}
+                text={repairSession.status === "done" ? "已完成" : repairSession.status === "blocked" ? "已阻断" : repairSession.status === "failed" ? "执行失败" : repairSession.status === "awaiting-approval" ? "等待确认" : "处理中"}
+              />
+            </Flex>
             <Progress
-              percent={fixJob.progress}
-              status={fixJob.status === "failed" ? "exception" : fixJob.status === "done" ? "success" : "active"}
+              percent={repairSession.progress}
+              status={repairSession.status === "failed" || repairSession.status === "blocked" ? "exception" : repairSession.status === "done" ? "success" : "active"}
             />
-            <Text type="secondary" style={{ fontSize: 12 }}>{fixJob.detail}</Text>
+            <Text type="secondary" style={{ fontSize: 12 }}>{repairSession.detail}</Text>
+            {repairSession.diagnosis !== null && (
+              <Alert
+                type={repairSession.diagnosis.severity === "error" ? "error" : repairSession.diagnosis.severity === "warn" ? "warning" : "success"}
+                showIcon
+                title={repairSession.diagnosis.rootCause ?? repairSession.diagnosis.summary}
+                description={repairSession.diagnosis.primaryFinding === null ? undefined : `${repairSession.diagnosis.primaryFinding.detail} · ${repairSession.diagnosis.primaryFinding.evidence.lastSeenLabel ?? "时间不明"}`}
+              />
+            )}
+            {repairSession.plan !== null && (
+              <Flex vertical gap={2}>
+                <Text strong>建议方案：{repairSession.plan.label}</Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>{repairSession.plan.description} · {repairSession.plan.impact}</Text>
+                {repairSession.plan.approvalRequired && repairSession.status === "awaiting-approval" && (
+                  <Button type="primary" loading={fixBusy} onClick={() => void approveRepair()}>批准执行</Button>
+                )}
+              </Flex>
+            )}
+            {repairSession.changes.length > 0 && <Text>实际变更：{repairSession.changes.join("、")}</Text>}
+            <Text type={repairSession.verification.status === "passed" ? "success" : repairSession.verification.status === "failed" ? "danger" : "secondary"} style={{ fontSize: 12 }}>
+              复验：{repairSession.verification.summary}
+            </Text>
           </Flex>
         </Card>
       )}
