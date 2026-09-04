@@ -4,7 +4,7 @@
  * 端点契约（同时提供给 ui/web 代理使用，严格一致；全部 JSON 响应）：
  * - GET  /healthz                    → { ok: true }
  * - GET  /api/runbooks               → { runbooks: Array<{ id, label, description,
- *                                      breakerTripped, lastRun?: { at, success } }> }
+ *                                      breakerTripped, lastRun?: { at, success, detail? } }> }
  * - POST /api/runbooks/:id/execute   → body { instanceId? }（缺省取首个 Serving 实例）
  *                                      202 { started: true }；未知 id → 404 { error }；
  *                                      熔断跳闸 → 409 { error: "circuit-breaker-tripped" }；
@@ -333,7 +333,8 @@ function monitorRunbookJob(jobId: string, deps: WatchHttpDeps, runbookId: string
         lastRun.success ? "done" : "failed",
         lastRun.success
           ? "Runbook 已完成并通过复验"
-          : "Runbook 未完成：请打开连接诊断，确认 control 能力、实例运行环境和快照步骤；修复前置问题后再重试。",
+          : lastRun.detail ??
+            "Runbook 未完成：请打开连接诊断，确认 control 能力、实例运行环境和快照步骤；修复前置问题后再重试。",
       );
     }
   }, 1000);
@@ -356,7 +357,7 @@ export interface RunbookSummary {
   /** 执行步骤预览（label 列表）。 */
   steps: string[];
   breakerTripped: boolean;
-  lastRun?: { at: string; success: boolean };
+  lastRun?: { at: string; success: boolean; detail?: string };
 }
 
 /** HTTP 层依赖（全部可注入）。 */

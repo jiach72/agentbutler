@@ -81,6 +81,9 @@ services:
       OPENCLAW_GATEWAY_PORT: ${OPENCLAW_GATEWAY_PORT:-18789}
       BUTLER_HERMES_API_HOST: ${BUTLER_HERMES_API_HOST:-host.docker.internal}
       BUTLER_HERMES_API_PORT: ${BUTLER_HERMES_API_PORT:-8642}
+      # WSL 容器通过受限宿主控制桥执行 Hermes start/stop/restart；不暴露任意终端。
+      BUTLER_HERMES_CONTROL_URL: ${BUTLER_HERMES_CONTROL_URL:-}
+      BUTLER_HERMES_CONTROL_TOKEN_FILE: ${BUTLER_HERMES_CONTROL_TOKEN_FILE:-/home/butler/hermes/agent-butler/control.token}
       BUTLER_UPDATER_URL: http://butler-updater:7540
       # 与 updater 共享同一份访问口令；Watch 转发自更新请求时需要带上。
       BUTLER_ACCESS_TOKEN: ${BUTLER_ACCESS_TOKEN:-}
@@ -181,6 +184,17 @@ services:
     restart: unless-stopped
     profiles:
       - bridge-forward
+
+  # WSL 原生 Docker 无法直接访问宿主 systemd --user；控制桥只接受固定白名单动作。
+  # 宿主 bridge 监听 127.0.0.1:8756，本转发器仅把容器内访问转到宿主 loopback。
+  hermes-control-forwarder:
+    image: alpine/socat:latest
+    network_mode: host
+    command: tcp-listen:8757,fork,reuseaddr tcp:127.0.0.1:8756
+    logging: *default-logging
+    restart: unless-stopped
+    profiles:
+      - hermes-control-forward
 
 volumes:
   butler-data:

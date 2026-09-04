@@ -12,6 +12,7 @@ import { join } from "node:path";
 import type { ErrorCode } from "@butler/contract";
 import Docker from "dockerode";
 import { readHermesConfig } from "../config.js";
+import type { HermesControlBridgeClient } from "../control-bridge.js";
 import {
   defaultProber,
   findVenvPython,
@@ -90,6 +91,8 @@ const ALIVE_POLL_INTERVAL_MS = 200;
 export interface ProcessExecutorOptions {
   exec?: CommandExecutor;
   prober?: PortProber;
+  /** 容器部署时连接宿主控制桥；配置后不在容器内执行 systemctl/kill。 */
+  controlBridge?: HermesControlBridgeClient;
   /** systemd user unit 名；未显式配置时禁用 systemd 控制，避免猜测错误服务。 */
   unitName?: string;
 }
@@ -102,15 +105,24 @@ export class ProcessExecutor {
   private readonly runner: CommandExecutor;
   private readonly prober: PortProber;
   private readonly unitName?: string;
+  private readonly controlBridge?: HermesControlBridgeClient;
 
   constructor(opts: ProcessExecutorOptions = {}) {
     this.runner = opts.exec ?? createExecFileExecutor();
     this.prober = opts.prober ?? defaultProber;
+    this.controlBridge = opts.controlBridge;
     const configuredUnit = opts.unitName?.trim();
     this.unitName = configuredUnit === "" ? undefined : configuredUnit;
   }
 
   async isAlive(rootPath: string): Promise<boolean> {
+    if (this.controlBridge) {
+      try {
+        return (await this.controlBridge.status()).active;
+      } catch {
+        return false;
+      }
+    }
     const venvPython = findVenvPython(rootPath);
     if (venvPython) {
       const config = await readHermesConfig(rootPath);
@@ -123,6 +135,14 @@ export class ProcessExecutor {
   async start(rootPath: string, opts: ExecutorOpts = {}): Promise<ExecutorOutcome> {
     if (await this.isAlive(rootPath)) return { ok: true, note: "已在运行，幂等成功" };
     const timeoutMs = (opts.timeoutSec ?? DEFAULT_START_TIMEOUT_SEC) * 1000;
+    if (this.controlBridge) {
+      try {
+        await this.controlBridge.run("start-hermes");
+      } catch (cause) {
+        return { ok: false, code: "E203", message: "宿主控制桥启动 Hermes 失败", userHint: "请检查宿主控制桥状态后重试", cause };
+      }
+      return this.waitAlive(rootPath, timeoutMs, "start");
+    }
     if (await this.unitExists()) {
       const r = await this.runner.exec("systemctl", ["--user", "start", this.unitName!], { timeoutMs });
       if (r.code !== 0) {
@@ -145,6 +165,14 @@ export class ProcessExecutor {
   async stop(rootPath: string, opts: ExecutorOpts = {}): Promise<ExecutorOutcome> {
     if (!(await this.isAlive(rootPath))) return { ok: true, note: "已停止，幂等成功" };
     const timeoutMs = (opts.timeoutSec ?? DEFAULT_STOP_TIMEOUT_SEC) * 1000;
+    if (this.controlBridge) {
+      try {
+        await this.controlBridge.run("stop-hermes");
+      } catch (cause) {
+        return { ok: false, code: "E203", message: "宿主控制桥停止 Hermes 失败", userHint: "请检查宿主控制桥状态后重试", cause };
+      }
+      return this.waitUntilStopped(rootPath, timeoutMs);
+    }
     const hasUnit = await this.unitExists();
     if (hasUnit) {
       await this.runner.exec("systemctl", ["--user", "stop", this.unitName!], { timeoutMs });
@@ -174,9 +202,27 @@ export class ProcessExecutor {
   }
 
   async restart(rootPath: string, opts: ExecutorOpts = {}): Promise<ExecutorOutcome> {
+    if (this.controlBridge) {
+      const timeoutMs = (opts.timeoutSec ?? DEFAULT_START_TIMEOUT_SEC) * 1000;
+      try {
+        await this.controlBridge.run("restart-hermes");
+      } catch (cause) {
+        return { ok: false, code: "E203", message: "宿主控制桥重启 Hermes 失败", userHint: "请检查宿主控制桥状态后重试", cause };
+      }
+      return this.waitAlive(rootPath, timeoutMs, "restart");
+    }
     const stopOut = await this.stop(rootPath, opts);
     if (!stopOut.ok) return stopOut;
     return this.start(rootPath, opts);
+  }
+
+  private async waitUntilStopped(rootPath: string, timeoutMs: number): Promise<ExecutorOutcome> {
+    const deadline = Date.now() + timeoutMs;
+    while (await this.isAlive(rootPath)) {
+      if (Date.now() >= deadline) return { ok: false, code: "E202", message: "stop 等待宿主 Hermes 退出超时" };
+      await sleep(ALIVE_POLL_INTERVAL_MS);
+    }
+    return { ok: true };
   }
 
   private async unitExists(): Promise<boolean> {

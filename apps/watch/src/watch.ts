@@ -32,6 +32,7 @@ import type { ControlAdapter, DiscoveryHint, InstanceRef, Job, Result } from "@b
 import { fail } from "@butler/contract";
 import {
   createHermesAdapter,
+  HermesControlBridgeClient,
   createPatchManager,
   type CommandExecutor,
   type PortProber,
@@ -465,6 +466,13 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
   const commandExec = options.exec ?? createRuntimeCommandExecutor(runtime);
   // 模型发现优先 Node 直读（Docker 挂载/宿主直跑均可用），目录不可达时退回 python3 通道。
   llm.setDiscoveryReader(async () => discoverHermesLlm(runtime.hermesRoot, { exec: commandExec }));
+  const hermesControlBridge =
+    config.framework === "hermes" && config.hermesControlUrl
+      ? new HermesControlBridgeClient({
+          baseUrl: config.hermesControlUrl,
+          tokenFile: config.hermesControlTokenFile ?? "/home/butler/hermes/agent-butler/control.token",
+        })
+      : undefined;
 
   // 控制面复用 core 的 store/snapshotsDir，避免适配器自建第二连接。
   const adapter =
@@ -485,6 +493,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
           snapshotsDir: core.paths.snapshotsDir,
           exec: commandExec,
           prober: options.prober,
+          controlBridge: hermesControlBridge,
           controlInvoker: createCapabilityInvoker(core),
         });
   const registered = core.registry.register(adapter);
@@ -738,6 +747,27 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     },
   };
 
+  const cleanupHostOrphans =
+    hermesControlBridge === undefined
+      ? undefined
+      : async () => {
+          try {
+            const result = await hermesControlBridge.cleanupOrphanGateways();
+            return {
+              status: "passed" as const,
+              detail:
+                result.cleanedPids.length === 0
+                  ? "宿主未发现孤儿网关进程，无需清理"
+                  : `宿主已清理孤儿网关进程 pid ${result.cleanedPids.join(",")}`,
+            };
+          } catch (error) {
+            return {
+              status: "failed" as const,
+              detail: `宿主控制桥清理孤儿网关失败: ${error instanceof Error ? error.message : String(error)}`,
+            };
+          }
+        };
+
   const runbookExecutor = new RunbookExecutor(
     {
       core,
@@ -749,7 +779,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       debounceMs: config.runbookDebounceMs,
       now: options.now,
     },
-    createBuiltinRunbooks({ control: routedControl, exec: commandExec }),
+    createBuiltinRunbooks({ control: routedControl, exec: commandExec, cleanupOrphans: cleanupHostOrphans }),
   );
 
   // Task 15：共享补丁管理器（升级流水线与网关参数面板同一实例，同一 state.json）。
@@ -1219,9 +1249,21 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
 
   function connectionView(record: InstanceRecord): Record<string, unknown> {
     const memory = connectionMemoryFor(record.instanceId);
+    const capabilities =
+      Object.keys(memory.capabilities).length > 0 || memory.lastCheckedAt !== null
+        ? memory.capabilities
+        : record.capability?.capabilities ?? {};
+    const checks =
+      memory.checks.length > 0 || memory.lastCheckedAt !== null || record.capability == null
+        ? memory.checks
+        : checksFromReport(record.capability, 0);
+    const anomalies =
+      memory.anomalies.length > 0 || memory.lastCheckedAt !== null || record.capability == null
+        ? memory.anomalies
+        : record.capability.anomalies;
     const managedRuntimeAvailable =
       (record.state === "Serving" || record.state === "Degraded") &&
-      memory.capabilities["control"] === "ok";
+      capabilities["control"] === "ok";
     const connected =
       memory.lastProbeOk === true ||
       managedRuntimeAvailable ||
@@ -1247,9 +1289,9 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       version: record.version,
       confidence: record.confidence,
       effectiveLevel: record.capability?.effectiveLevel ?? null,
-      capabilities: memory.capabilities,
-      checks: memory.checks,
-      anomalies: memory.anomalies,
+      capabilities,
+      checks,
+      anomalies,
       lastCheckedAt: memory.lastCheckedAt,
       lastActionAt: memory.lastActionAt,
       lastAction: memory.lastAction,

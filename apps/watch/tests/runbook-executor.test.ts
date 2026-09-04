@@ -280,6 +280,31 @@ describe("RunbookExecutor（执行规则）", () => {
 });
 
 describe("内置 rb-cleanup-gateway / 孤儿清理", () => {
+  it("配置宿主清理器时不在容器内执行 pgrep 或 kill", async () => {
+    const exec: CommandExecutor = {
+      exec: async () => {
+        throw new Error("不应在容器内执行清理命令");
+      },
+      spawnDetached: () => {},
+    };
+    const calls: string[] = [];
+    const { executor } = makeHarness(createBuiltinRunbooks({
+      control: makeControl({}),
+      exec,
+      cleanupOrphans: async () => {
+        calls.push("host-cleanup");
+        return { status: "passed", detail: "宿主已清理孤儿网关进程 pid 222" };
+      },
+    }), {
+      stages: [stageOf("process-alive", "pass")],
+    });
+
+    const result = await executor.runRunbook(RB_CLEANUP_GATEWAY, { trigger: "manual", instance });
+    expect(result.success).toBe(true);
+    expect(calls).toEqual(["host-cleanup"]);
+    expect(result.steps[1]).toMatchObject({ id: "cleanup-orphans", status: "passed", detail: expect.stringContaining("宿主") });
+  });
+
   it("无孤儿进程 → 直接成功，不执行 kill", async () => {
     const execCalls: Array<[string, string[]]> = [];
     const exec: CommandExecutor = {

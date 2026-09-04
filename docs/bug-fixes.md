@@ -525,3 +525,12 @@
 - **修复范围：** 通知预览列表只显示标题，保留未读圆点、点击标记已读、刷新、全部标记已读与完整消息队列入口；详细正文、来源、时间和等级仍在消息通知页可查。列表项保持 44px 最小点击高度，长标题单行省略。
 - **回归测试：** `ui/tests/notification-center.test.ts` 覆盖预览只渲染标题且保留未读状态，不渲染正文、来源或等级文本。
 - **验证命令：** `corepack pnpm --filter @butler/ui exec vitest run --config vitest.config.ts tests/notification-center.test.ts --reporter=dot`；`corepack pnpm exec tsc -b ui/tsconfig.json --pretty false`；`corepack pnpm --filter @butler/ui exec vite build`；`git diff --check`。
+
+## 2026-09-04 - 容器内一键修复无法控制宿主 Hermes
+
+- **问题：** Watch 运行在 Docker 容器内，原有“重启 AI 实例”路径尝试在容器执行 `systemctl --user`/`kill`，无法触达 WSL 宿主 Hermes，页面只能报控制失败。
+- **风险/影响：** 用户无法从管家页面恢复停止或异常的 Hermes 实例；若误开放 Docker Socket 或任意终端又会扩大宿主权限边界。
+- **修复范围：** 新增仅监听宿主 loopback 的 Hermes 控制桥和 600 权限 token；接口只接受 `status`、`start-hermes`、`stop-hermes`、`restart-hermes`、`cleanup-orphan-gateways` 五个固定动作，使用恒时 token 比较并限制请求体大小。WSL 部署脚本自动安装 user service、持久化控制桥配置并启用 `8757 -> 8756` socat 转发；每次安装显式重启 user service，确保脚本更新后不会残留旧白名单；Watch/适配器在控制桥可用时执行宿主动作，不可达时明确降级，不执行任意容器命令。
+- **回归测试：** `scripts/hermes-control-bridge.test.mjs` 覆盖 token 鉴权、非白名单动作拒绝、restart 固定 systemctl 调用；Hermes capability scan 与 ProcessExecutor 保留桥不可达降级和控制路径测试。
+- **验证命令：** `bash -n scripts/deploy.sh scripts/install-hermes-control-bridge.sh`；`docker compose --profile hermes-control-forward config -q`；`corepack pnpm exec tsc -b`；`git diff --check`。
+- **部署/runtime：** WSL 使用 `/home/jiach/agentbutler` 作为唯一构建源；`deploy.sh` 已完成 Docker 重建，`butler-gateway`、`butler-watch`、`butler-web`、`butler-updater` 均 healthy，`hermes-control-forwarder` 正常运行。宿主 `127.0.0.1:8756` 与容器转发 `host.docker.internal:8757` 的 `status` 均返回 200；通过页面对应 API 执行 `cleanup-gateway` 后，恢复任务轮询最终为 `done`、进度 100%，并通过 process-alive 复验。

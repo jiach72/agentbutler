@@ -39,6 +39,7 @@ import {
 import { rollbackSnapshot, takeSnapshot, type RollbackExecutors, type SnapshotDeps } from "./snapshot.js";
 import { createUpgradePipeline, type HealthVerifier, type PullStrategy, type UpgradeControl, type UpgradeJobView, type UpgradePipeline } from "./upgrade-pipeline.js";
 import { validateHermesConfig } from "./validate-config.js";
+import type { HermesControlBridgeClient } from "../control-bridge.js";
 
 /** 控制面可注入项：store/snapshotsDir 缺省时按需自建（ensureButlerHome + WAL 安全双连接）。 */
 export interface HermesControlOptions {
@@ -46,6 +47,7 @@ export interface HermesControlOptions {
   snapshotsDir?: string;
   exec?: CommandExecutor;
   prober?: PortProber;
+  controlBridge?: HermesControlBridgeClient;
   process?: { unitName?: string };
   docker?: {
     dockerodeFactory?: DockerodeFactory;
@@ -91,6 +93,7 @@ export function createHermesControl(options: HermesControlOptions = {}): Control
   const processExecutor = new ProcessExecutor({
     exec: options.exec,
     prober: options.prober,
+    controlBridge: options.controlBridge,
     unitName: options.process?.unitName,
   });
   const dockerExecutor = new DockerExecutor({

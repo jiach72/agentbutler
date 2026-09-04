@@ -70,6 +70,9 @@ export interface RunbookStep {
   run(ctx: RunbookStepContext): Promise<RunbookStepResult>;
 }
 
+/** 容器部署时，由宿主白名单控制桥代替容器内 pgrep/kill。 */
+export type OrphanGatewayCleaner = (ctx: RunbookStepContext) => Promise<RunbookStepResult>;
+
 export interface RunbookDefinition {
   id: string;
   label: string;
@@ -165,7 +168,7 @@ export class RunbookExecutor {
   /** "<runbookId>:<instanceId>" → 上次自动执行时刻（防抖）。 */
   private readonly lastAutoAt = new Map<string, number>();
   /** "<runbookId>" → 最近一次执行结果（HTTP /api/runbooks 的 lastRun）。 */
-  private readonly lastRuns = new Map<string, { at: string; success: boolean }>();
+  private readonly lastRuns = new Map<string, { at: string; success: boolean; detail?: string }>();
 
   constructor(deps: RunbookExecutorDeps, definitions: RunbookDefinition[] = []) {
     this.core = deps.core;
@@ -189,7 +192,7 @@ export class RunbookExecutor {
   }
 
   /** 最近一次执行结果（HTTP /api/runbooks 的 lastRun；从未执行为 undefined）。 */
-  lastRunOf(id: string): { at: string; success: boolean } | undefined {
+  lastRunOf(id: string): { at: string; success: boolean; detail?: string } | undefined {
     return this.lastRuns.get(id);
   }
 
@@ -360,7 +363,16 @@ export class RunbookExecutor {
       steps,
       durationMs,
     });
-    this.lastRuns.set(id, { at: new Date(this.now()).toISOString(), success });
+    const failedStep = success ? undefined : steps.find((step) => step.status === "failed");
+    this.lastRuns.set(id, {
+      at: new Date(this.now()).toISOString(),
+      success,
+      ...(failedStep?.detail !== undefined
+        ? { detail: failedStep.id + ": " + failedStep.detail }
+        : failedAt !== null
+          ? { detail: "失败环节: " + failedAt }
+          : {}),
+    });
     return { runbookId: id, instanceId, trigger: opts.trigger, success, steps, durationMs, alertDedupeKey };
   }
 
@@ -412,7 +424,11 @@ export const RB_CLEANUP_GATEWAY = "rb-cleanup-gateway";
  * 1. rb-restart：snapshot → restart → 复验 memory/channel 探针；
  * 2. rb-reconnect：snapshot → 清理孤儿网关 → restart → 复验 channel 探针；
  * 3. rb-cleanup-gateway：snapshot → 清理孤儿网关（无孤儿直接成功）→ 复验 process-alive。 */
-export function createBuiltinRunbooks(deps: { control: RunbookControl; exec?: CommandExecutor }): RunbookDefinition[] {
+export function createBuiltinRunbooks(deps: {
+  control: RunbookControl;
+  exec?: CommandExecutor;
+  cleanupOrphans?: OrphanGatewayCleaner;
+}): RunbookDefinition[] {
   const exec = deps.exec ?? createExecFileExecutor();
   const refOf = (ctx: RunbookStepContext): InstanceRef => ({
     instanceId: ctx.instanceId,
@@ -435,6 +451,7 @@ export function createBuiltinRunbooks(deps: { control: RunbookControl; exec?: Co
     id: "cleanup-orphans",
     label: "清理孤儿网关进程",
     async run(ctx) {
+      if (deps.cleanupOrphans !== undefined) return deps.cleanupOrphans(ctx);
       const { orphans } = await findOrphanGatewayPids(exec, ctx.rootPath);
       if (orphans.length === 0) {
         return { status: "passed", detail: "无孤儿网关进程，无需清理" };
