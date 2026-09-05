@@ -483,7 +483,14 @@ export function createSkillsManagerCli(deps: SkillsManagerCliDeps = {}): SkillsM
       const args = ["skills", "search", queryClean];
       const parsedLimit = typeof limit === "number" && Number.isFinite(limit) ? Math.floor(limit) : NaN;
       if (parsedLimit > 0) args.push("--limit", String(parsedLimit));
-      return run(args);
+      // skills.sh 是在线数据源，容器出口链路易抖动：失败后短暂退避重试一次，
+      // 两次都失败才向上抛（HTTP 层映射为 502 并透传 CLI 原始 message）。
+      try {
+        return await run(args);
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        return run(args);
+      }
     },
 
     async detail(name) {
