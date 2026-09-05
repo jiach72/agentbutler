@@ -2221,6 +2221,20 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     proxyWatchPost("/api/recovery/diagnose", request.body, reply),
   );
 
+  app.post("/api/recovery/sessions", async (request, reply) =>
+    proxyWatchPost("/api/recovery/sessions", request.body, reply),
+  );
+
+  app.get("/api/recovery/sessions/:id", async (request, reply) => {
+    const id = encodeURIComponent((request.params as { id?: string })["id"] ?? "");
+    return proxyWatchGet(`/api/recovery/sessions/${id}`, reply);
+  });
+
+  app.post("/api/recovery/sessions/:id/approve", async (request, reply) => {
+    const id = encodeURIComponent((request.params as { id?: string })["id"] ?? "");
+    return proxyWatchPost(`/api/recovery/sessions/${id}/approve`, request.body, reply);
+  });
+
   app.post("/api/recovery/actions/:id/execute", async (request, reply) => {
     const id = encodeURIComponent((request.params as { id?: string })["id"] ?? "");
     return proxyWatchPost(`/api/recovery/actions/${id}/execute`, request.body, reply, 70_000);

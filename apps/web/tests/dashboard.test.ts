@@ -165,6 +165,74 @@ describe("butler-web 大盘聚合与 watch 代理（Task 10，fastify inject）"
     expect(res.json()).toEqual({ reachable: false, configured: false, connections: [] });
   });
 
+  it("/api/recovery/sessions：创建、读取与审批会话均代理到 watch", async () => {
+    const calls: Array<{ url: string; method: string; body: string }> = [];
+    const fetchSession: typeof fetch = async (input, init) => {
+      calls.push({
+        url: String(input),
+        method: init?.method ?? "GET",
+        body: String(init?.body ?? ""),
+      });
+      const url = String(input);
+      if (url.endsWith("/api/recovery/sessions")) {
+        return new Response(JSON.stringify({ sessionId: "repair/session-1", status: "collecting" }), {
+          status: 202,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.endsWith("/api/recovery/sessions/repair%2Fsession-1")) {
+        return new Response(JSON.stringify({ sessionId: "repair/session-1", status: "awaiting-approval" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.endsWith("/api/recovery/sessions/repair%2Fsession-1/approve")) {
+        return new Response(JSON.stringify({ sessionId: "repair/session-1", status: "applying" }), {
+          status: 202,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ error: "unexpected-watch-path" }), { status: 500 });
+    };
+    const app = build(tmp, { fetchImpl: fetchSession });
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/recovery/sessions",
+      payload: { instanceId: "hermes-main" },
+    });
+    const detail = await app.inject({ method: "GET", url: "/api/recovery/sessions/repair%2Fsession-1" });
+    const approved = await app.inject({
+      method: "POST",
+      url: "/api/recovery/sessions/repair%2Fsession-1/approve",
+      payload: {},
+    });
+
+    expect(created.statusCode).toBe(202);
+    expect(created.json()).toMatchObject({ sessionId: "repair/session-1", status: "collecting" });
+    expect(detail.statusCode).toBe(200);
+    expect(detail.json()).toMatchObject({ sessionId: "repair/session-1", status: "awaiting-approval" });
+    expect(approved.statusCode).toBe(202);
+    expect(approved.json()).toMatchObject({ sessionId: "repair/session-1", status: "applying" });
+    expect(calls).toEqual([
+      {
+        url: "http://127.0.0.1:7533/api/recovery/sessions",
+        method: "POST",
+        body: JSON.stringify({ instanceId: "hermes-main" }),
+      },
+      {
+        url: "http://127.0.0.1:7533/api/recovery/sessions/repair%2Fsession-1",
+        method: "GET",
+        body: "",
+      },
+      {
+        url: "http://127.0.0.1:7533/api/recovery/sessions/repair%2Fsession-1/approve",
+        method: "POST",
+        body: JSON.stringify({}),
+      },
+    ]);
+  });
+
   it("POST /api/runbooks/:id/execute：透传 body 到 watch，watch 的 409 原样透传（状态码+body）", async () => {
     const calls: Array<{ url: string; method: string; body: string }> = [];
     const fetch409: typeof fetch = async (input, init) => {

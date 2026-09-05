@@ -543,3 +543,11 @@
 - **回归测试：** `scripts/hermes-control-bridge.test.mjs` 覆盖 token 鉴权、非白名单动作拒绝、restart 固定 systemctl 调用；Hermes capability scan 与 ProcessExecutor 保留桥不可达降级和控制路径测试。
 - **验证命令：** `bash -n scripts/deploy.sh scripts/install-hermes-control-bridge.sh`；`docker compose --profile hermes-control-forward config -q`；`corepack pnpm exec tsc -b`；`git diff --check`。
 - **部署/runtime：** WSL 使用 `/home/jiach/agentbutler` 作为唯一构建源；`deploy.sh` 已完成 Docker 重建，`butler-gateway`、`butler-watch`、`butler-web`、`butler-updater` 均 healthy，`hermes-control-forwarder` 正常运行。宿主 `127.0.0.1:8756` 与容器转发 `host.docker.internal:8757` 的 `status` 均返回 200；通过页面对应 API 执行 `cleanup-gateway` 后，恢复任务轮询最终为 `done`、进度 100%，并通过 process-alive 复验。
+
+## 2026-09-05 - 一键修复会话在 Web 入口返回 404
+
+- **问题：** Watch 已提供 `/api/recovery/sessions` 创建、详情和审批接口，但 Web 的 `7531` 代理层只注册了旧的 `/api/recovery/diagnose`、`/actions` 和 `/jobs` 路由，日志页从浏览器发起的一键修复请求未到达 Watch，直接返回 404。
+- **风险/影响：** 用户点击一键修复后无法创建修复会话，根因、证据、计划和复验结果均不会展示；Watch 内部实现和测试通过会掩盖实际产品入口断链。
+- **修复范围：** `apps/web/src/server.ts` 新增恢复会话创建、详情和审批的 Web→Watch 代理，保持 Watch 的状态码、响应体和会话 ID 编码语义；`apps/web/tests/dashboard.test.ts` 增加三条代理路径、请求体和状态码透传回归覆盖。
+- **回归测试：** Web dashboard 代理测试 7/7 通过，新增用例验证 `POST /api/recovery/sessions`、`GET /api/recovery/sessions/:id` 和 `POST /api/recovery/sessions/:id/approve`。
+- **验证命令：** `corepack pnpm exec vitest run apps/web/tests/dashboard.test.ts`；`git diff --check`；随后在 WSL Docker 重建后通过真实 `7531` 端口验证创建会话。
