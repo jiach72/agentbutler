@@ -5,7 +5,6 @@
  */
 import {
   DashboardOutlined,
-  DatabaseOutlined,
   MenuOutlined,
   MoonOutlined,
   NotificationOutlined,
@@ -39,7 +38,6 @@ const NAV_ITEMS = [
 
 const MANAGEMENT_ITEMS = [
   { to: "/evolution", icon: <ThunderboltOutlined />, label: "自进化", note: "分析日志与优化方案" },
-  { to: "/assets", icon: <DatabaseOutlined />, label: "发现技能", note: "浏览公开项目与安装推荐" },
   { to: "/troubleshoot", icon: <ToolOutlined />, label: "排查问题", note: "按现象一步步处理" },
   { to: "/logs", icon: <FileSearchOutlined />, label: "系统日志", note: "查看记录与修复建议" },
   { to: "/setup", icon: <BugOutlined />, label: "连接设置", note: "检查本机实例连接" },

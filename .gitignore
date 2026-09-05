@@ -56,3 +56,4 @@ __pycache__/
 .pytest_cache/
 .venv/
 venv/
+.superdesign/

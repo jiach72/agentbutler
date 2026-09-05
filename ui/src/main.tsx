@@ -22,7 +22,6 @@ const GatewayPage = lazy(() => import("./pages/gateway/GatewayPage.js").then(({ 
 const SettingsPage = lazy(() => import("./pages/settings/SettingsPage.js").then(({ SettingsPage: Page }) => ({ default: Page })));
 const SkillsPage = lazy(() => import("./pages/skills/SkillsPage.js").then(({ SkillsPage: Page }) => ({ default: Page })));
 const LogsPage = lazy(() => import("./pages/Logs.js").then(({ LogsPage: Page }) => ({ default: Page })));
-const AssetsPage = lazy(() => import("./pages/Assets.js").then(({ AssetsPage: Page }) => ({ default: Page })));
 const TroubleshootPage = lazy(() => import("./pages/troubleshoot/TroubleshootPage.js").then(({ TroubleshootPage: Page }) => ({ default: Page })));
 const SetupPage = lazy(() => import("./pages/setup/SetupPage.js").then(({ SetupPage: Page }) => ({ default: Page })));
 const CoreFilesPage = lazy(() => import("./pages/CoreFilesPage.js").then(({ CoreFilesPage: Page }) => ({ default: Page })));
@@ -96,10 +95,9 @@ function ThemedApp({ locale }: { locale: React.ComponentProps<typeof ConfigProvi
               <Route path="/gateway" element={<GatewayPage />} />
               <Route path="/evolution" element={<EvolutionPage />} />
               <Route path="/recovery" element={<Navigate to="/troubleshoot" replace />} />
-              <Route path="/troubleshoot" element={<TroubleshootPage />} />
-              <Route path="/setup" element={<SetupPage />} />
+              <Route path="/assets" element={<Navigate to="/skills" replace />} />
+              <Route path="/troubleshoot" element={<TroubleshootPage />} />              <Route path="/setup" element={<SetupPage />} />
               <Route path="/logs" element={<LogsPage />} />
-              <Route path="/assets" element={<AssetsPage />} />
               <Route path="/prompt" element={<Navigate to="/gateway" replace />} />
               <Route path="/skills" element={<SkillsPage />} />
               <Route path="/core-files" element={<CoreFilesPage />} />
