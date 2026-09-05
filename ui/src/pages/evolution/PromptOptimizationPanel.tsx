@@ -35,7 +35,7 @@ import { ConnectionChip } from "../../components/ConnectionChip.js";
 import { fetchJson, loadJson, postJson, type FetchState } from "../../lib/api.js";
 import { formatTime } from "../../lib/format.js";
 import { usePolling } from "../../hooks/usePolling.js";
-import { filterHistoryByDay, historyDayOptions, historySummaryLine } from "./helpers.js";
+import { filterHistoryByDay, historyDayOptions, historySummaryLine } from "../gateway/helpers.js";
 
 const { Paragraph, Text, Title } = Typography;
 

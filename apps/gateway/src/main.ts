@@ -110,6 +110,7 @@ async function main(): Promise<void> {
     messageStore: runtime?.store,
     channelControl: runtime?.channelControl,
     inboundHistory: runtime ? (limit) => runtime!.inboundHistory(limit) : undefined,
+    redeliver: runtime ? (messageId) => runtime!.requeueMessage(messageId) : undefined,
     messageMode: runtime === null ? "native" : "observe",
   }); // home 由 BUTLER_HOME / ~/.agent-butler 解析
   await app.listen({ host, port });

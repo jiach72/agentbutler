@@ -144,6 +144,9 @@ importers:
       '@ant-design/icons':
         specifier: ^6.3.2
         version: 6.3.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@butler/contract':
+        specifier: workspace:*
+        version: link:../packages/contract
       antd:
         specifier: ^6.6.1
         version: 6.6.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)

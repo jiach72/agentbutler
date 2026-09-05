@@ -1,10 +1,11 @@
 /**
- * 技能与记忆页主编排（单页连续仪表盘）：顶部全局概览带 + 技能市场（市场 / 本机已安装）/ 插件库 / 记忆库 分区。
+ * 技能与记忆页主编排（单页连续仪表盘）：顶部全局概览带 + 技能市场（市场 / 本机已安装）/ 记忆库 分区。
  * 技能库 Tab 由 SkillsMarketplace 承载：分类侧栏 + 瀑布流技能卡，市场与已安装一键切换；
- * 插件只读展示。记忆检索独立于技能库——搜索只更新记忆分区，失败不回滚列表。
+ * 插件为只读盘点，降级为折叠区（无任何操作入口，不占一级 Tab）。记忆检索独立于技能库。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, App, Button, Card, Col, Flex, Row, Spin, Statistic, Tabs, Typography } from "antd";
+import { App, Button, Card, Col, Flex, Row, Statistic, Tabs, Typography } from "antd";
+import { AdvancedDetails } from "../../components/AdvancedDetails.js";
 import { ConnectionChip } from "../../components/ConnectionChip.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { PageHeader } from "../../components/PageHeader.js";
@@ -15,7 +16,6 @@ import {
   formatNumber,
   type MemoryPreview,
   type MemorySelfCheckView,
-  modeLabel,
   type SkillsPayload,
 } from "./helpers.js";
 import { MemoryPanel } from "./MemoryPanel.js";
@@ -218,6 +218,14 @@ export function SkillsPage() {
         />
       )}
 
+      {mainState.status === "ready" && libraryData !== null && (
+        <AdvancedDetails
+          summary={`插件（只读盘点 · ${libraryData.plugins.items.filter((item) => item.enabled).length} 启用 / 共 ${libraryData.plugins.total}）`}
+        >
+          <PluginLibrary plugins={libraryData.plugins} />
+        </AdvancedDetails>
+      )}
+
       <Tabs
         defaultActiveKey="manager"
         aria-busy={mainState.status === "loading"}
@@ -228,29 +236,6 @@ export function SkillsPage() {
             children: (
               <div id="skills-marketplace">
                 <SkillsMarketplace />
-              </div>
-            ),
-          },
-          {
-            key: "plugins",
-            label: "插件",
-            children: (
-              <div id="plugins-panel">
-                {mainState.status === "loading" && (
-                  <Flex vertical gap={16}>
-                    <Alert
-                      type="info"
-                      showIcon
-                      message={modeLabel("unavailable")}
-                      description="正在读取插件状态"
-                    />
-                    <Flex justify="center" align="center" gap={8}>
-                      <Spin />
-                      <Text type="secondary">正在读取插件清单…</Text>
-                    </Flex>
-                  </Flex>
-                )}
-                {mainState.status === "ready" && <PluginLibrary plugins={mainState.data.plugins} />}
               </div>
             ),
           },

@@ -1,4 +1,4 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 Set-Location (Join-Path $PSScriptRoot "..")
 
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
@@ -39,6 +39,45 @@ if ([string]::IsNullOrWhiteSpace($masterKey)) {
   Write-Host "Generated and stored the Butler credential vault key in .env."
 }
 $env:BUTLER_SECRET_MASTER_KEY = $masterKey
+
+# ---- 升级前备份数据卷（失败默认阻断部署；与 deploy.sh 同一口径）----
+function Read-EnvValue([string]$Key) {
+  $m = [regex]::Match($envContent, "(?m)^$Key=(.*)$")
+  if ($m.Success) { return $m.Groups[1].Value.Trim().Trim('"', "'") }
+  return ""
+}
+
+$dataVolume = if ($env:BUTLER_DATA_VOLUME) { $env:BUTLER_DATA_VOLUME.Trim() } else { Read-EnvValue "BUTLER_DATA_VOLUME" }
+if (-not $dataVolume) { $dataVolume = "agent-butler-data" }
+docker volume inspect $dataVolume *> $null
+if ($LASTEXITCODE -eq 0) {
+  New-Item -ItemType Directory -Force backups | Out-Null
+  $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+  $backupName = "butler-data-$stamp.tgz"
+  Write-Host "Backing up data volume '$dataVolume' to backups/$backupName ..."
+  $runningIds = (docker compose ps -q butler-gateway butler-watch butler-web | Out-String).Trim()
+  $wasRunning = $runningIds -ne ""
+  if ($wasRunning) { docker compose stop *> $null }
+  docker run --rm -v "${dataVolume}:/data:ro" -v "${PWD}/backups:/backup" alpine tar czf "/backup/$backupName" --exclude "./backups" -C /data .
+  if ($LASTEXITCODE -eq 0) {
+    Write-Host "Backup OK."
+    $keepRaw = if ($env:BUTLER_BACKUP_KEEP) { $env:BUTLER_BACKUP_KEEP.Trim() } else { Read-EnvValue "BUTLER_BACKUP_KEEP" }
+    $keep = 4
+    if ($keepRaw -match '^\d+$') { $keep = [int]$keepRaw }
+    Get-ChildItem backups -Filter "butler-data-*.tgz" |
+      Sort-Object LastWriteTime -Descending |
+      Select-Object -Skip $keep |
+      ForEach-Object { Remove-Item $_.FullName -Force; Write-Host "Pruned old backup: $($_.Name)" }
+  } else {
+    if ($wasRunning) { docker compose start *> $null }
+    $allowRaw = if ($env:BUTLER_ALLOW_UNBACKED_DEPLOY) { $env:BUTLER_ALLOW_UNBACKED_DEPLOY.Trim() } else { Read-EnvValue "BUTLER_ALLOW_UNBACKED_DEPLOY" }
+    if ($allowRaw -ne "true") {
+      throw "数据卷备份失败，已停止部署。设置 BUTLER_ALLOW_UNBACKED_DEPLOY=true 才可强制继续。"
+    }
+    Write-Warning "数据卷备份失败，按 BUTLER_ALLOW_UNBACKED_DEPLOY=true 继续。"
+  }
+  if ($wasRunning) { Write-Host "Existing containers were stopped for a consistent volume snapshot." }
+}
 
 docker compose config -q
 docker compose up -d --build

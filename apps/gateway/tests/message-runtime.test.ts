@@ -71,6 +71,7 @@ class RuntimeAdapter implements MessagingAdapter {
     return ok(this.batchFor(afterSequence));
   };
   decideOutbound = async () => fail("E002", "not used");
+  requeueOutbound = async () => fail("E002", "not used");
   deliver = async () => fail("E002", "not used");
   forwardInbound = async () => fail("E002", "not used");
   subscribeTaskEvents = () => () => undefined;

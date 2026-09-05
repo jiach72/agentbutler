@@ -33,8 +33,10 @@ import { StatStrip } from "../../components/StatStrip.js";
 import { SectionHeader } from "../../components/SectionHeader.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { PageHeader } from "../../components/PageHeader.js";
+import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
 import { Link } from "react-router-dom";
 import { EvolutionOverview } from "./EvolutionOverview.js";
+import { PromptOptimizationPanel } from "./PromptOptimizationPanel.js";
 import type { EvolutionOverviewPayload } from "./types.js";
 
 const { Paragraph, Text } = Typography;
@@ -144,6 +146,9 @@ export function EvolutionPage() {
   const [selectedSkill, setSelectedSkill] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confirmTarget, setConfirmTarget] = useState<
+    { kind: "apply-proposal"; id: string } | { kind: "promote-run"; run: Run } | null
+  >(null);
 
   const refresh = useCallback(async () => {
     const query = new URLSearchParams({ range });
@@ -680,7 +685,7 @@ export function EvolutionPage() {
                           type="primary"
                           danger
                           loading={busy === "apply"}
-                          onClick={() => void apply(selectedProposal.id)}
+                          onClick={() => setConfirmTarget({ kind: "apply-proposal", id: selectedProposal.id })}
                           disabled={
                             selectedProposal.status !== "ready-to-apply" ||
                             !selectedProposal.target.canApply
@@ -763,7 +768,7 @@ export function EvolutionPage() {
                               type="primary"
                               danger
                               loading={busy === "promote"}
-                              onClick={() => void promoteRun(run)}
+                              onClick={() => setConfirmTarget({ kind: "promote-run", run })}
                             >
                               应用到 Hermes
                             </Button>
@@ -800,6 +805,9 @@ export function EvolutionPage() {
             )}
           </Col>
         </Row>
+        <Card title={<SectionHeader kicker="越改越坏防线" title="提示词优化" compact />}>
+          <PromptOptimizationPanel />
+        </Card>
         <Collapse
           className="advanced-details"
           size="small"
@@ -835,6 +843,23 @@ export function EvolutionPage() {
             },
           ]}
         />
+        <DangerConfirmModal
+          open={confirmTarget !== null}
+          title="确认应用到 Hermes？"
+          confirmLabel="确认应用"
+          busy={busy === "apply" || busy === "promote"}
+          onCancel={() => setConfirmTarget(null)}
+          onConfirm={async () => {
+            const target = confirmTarget;
+            setConfirmTarget(null);
+            if (target?.kind === "apply-proposal") await apply(target.id);
+            else if (target?.kind === "promote-run") await promoteRun(target.run);
+          }}
+          impact="应用后 Hermes 将改用候选提示词/配置运行；执行前管家会自动备份当前状态，如需回退可在「设置 → 备份」中恢复。"
+          steps={["备份当前状态", "应用候选变更", "刷新执行状态"]}
+        >
+          这是实际的配置写入操作，会影响 Hermes 正在使用的提示词与行为。
+        </DangerConfirmModal>
       </Flex>
     </section>
   );

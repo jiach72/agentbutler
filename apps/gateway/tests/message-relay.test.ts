@@ -78,6 +78,9 @@ class RecordingAdapter implements MessagingAdapter {
   async decideOutbound() {
     throw new Error("unused");
   }
+  async requeueOutbound() {
+    throw new Error("unused");
+  }
   async deliver() {
     throw new Error("unused");
   }

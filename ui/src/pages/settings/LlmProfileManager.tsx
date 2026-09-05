@@ -81,7 +81,7 @@ export function LlmProfileManager() {
   const refresh = useCallback(async () => {
     setLoading(true);
     const [p, b, s, d] = await Promise.all([loadJson<{ profiles: Profile[] }>("/api/llm/profiles", 10_000), loadJson<{ bindings: Binding[] }>("/api/llm/bindings", 10_000), loadJson<Status>("/api/llm/status", 10_000), loadJson<{ configs: DiscoveredConfig[] }>("/api/llm/discovered", 10_000)]);
-    if (p.ok) setProfiles(p.data.profiles); else message.error("无法读取模型配置，请检查 Watch 服务。");
+    if (p.ok) setProfiles(p.data.profiles); else message.error("无法读取模型配置，请检查管家服务。");
     if (b.ok) setBindings(b.data.bindings);
     if (s.ok) setStatus(s.data);
     if (d.ok) setDiscovered(d.data.configs);

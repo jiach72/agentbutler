@@ -57,3 +57,9 @@ __pycache__/
 .venv/
 venv/
 .superdesign/
+
+# local agent/tooling state (same class as .codex/.loopx/.superpowers)
+.claude/
+.impeccable/
+.zcode/
+spark-output/

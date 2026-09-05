@@ -173,7 +173,7 @@ export type MemorySelfCheckOutcome =
 
 /** 请求体解析上限（字节）。 */
 export const HTTP_BODY_LIMIT_BYTES = 16 * 1024;
-export const WATCH_SERVICE_VERSION = `watch@1.0.0-beta.28+${CONTRACT_VERSION}`;
+export const WATCH_SERVICE_VERSION = `watch@1.0.0-beta.30+${CONTRACT_VERSION}`;
 
 /** runbook 执行结果（由接线层判定，HTTP 层只做状态码映射）。 */
 export type RunbookExecuteOutcome =
@@ -1165,7 +1165,8 @@ async function handle(
     if (path === "/api/security") {
       if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
       if (deps.security === undefined) return sendJson(res, 503, { error: "security-unavailable" });
-      return sendJson(res, 200, await deps.security.status());
+      const status = await deps.security.status();
+      return sendJson(res, 200, { ...status, memoryWritesEnabled: deps.m6WritesEnabled === true });
     }
 
     /* ---------------------- 核心 Markdown 文件管理 ---------------------- */

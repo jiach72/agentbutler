@@ -43,7 +43,8 @@ describe("delivery contract", () => {
     expect(compose).toContain(
       "${BUTLER_UPDATER_DOCKER_SOCKET:-/dev/null}:/var/run/docker.sock",
     );
-    // 口令透传给 web / watch / updater 三个服务；没有口令时 updater 拒绝一切请求。
-    expect(compose.match(/BUTLER_ACCESS_TOKEN: \$\{BUTLER_ACCESS_TOKEN:-\}/g)).toHaveLength(3);
+    // 口令透传给 web / watch / gateway / updater 四个服务；没有口令时 updater 拒绝一切请求，
+    // gateway 的业务路由同样要求鉴权（/healthz 与 /internal/hermes/* 豁免）。
+    expect(compose.match(/BUTLER_ACCESS_TOKEN: \$\{BUTLER_ACCESS_TOKEN:-\}/g)).toHaveLength(4);
   });
 });

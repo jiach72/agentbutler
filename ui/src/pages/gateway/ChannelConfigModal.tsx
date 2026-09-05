@@ -11,7 +11,8 @@ interface ChannelConfigModalProps {
   channel: string;
   label: string;
   onClose: () => void;
-  onApplied: () => void;
+  /** 启用请求的 ack（含 restarting 标记）：让网格在重启未触发时跳过空等轮询。 */
+  onApplied: (ack?: { restarting?: boolean } | null) => void;
 }
 
 interface FieldSchema {
@@ -73,7 +74,7 @@ export function ChannelConfigModal({ channel, label, onClose, onApplied }: Chann
       for (const notice of channelToggleWarnings(channelToggleAck(enabled.data))) {
         message.warning(notice);
       }
-      onApplied();
+      onApplied(channelToggleAck(enabled.data));
     } finally {
       setApplying(false);
     }

@@ -130,13 +130,13 @@ describe("butler-web 进化守门代理", () => {
     expect(degraded.json()).toEqual({
       watchReachable: false,
       connectionStatus: "watch-unreachable",
-      detail: "Watch 控制通道不可达",
+      detail: "管家控制通道不可达",
       schemaVersion: null,
       minHoldoutCount: 10,
       defaultDependencies: [],
       defaultEndpoint: "",
       ledger: [],
-      hermes: { status: "unknown", root: null, detail: "尚未读取 Watch 状态" },
+      hermes: { status: "unknown", root: null, detail: "尚未读取管家服务状态" },
       endpointHealth: {
         status: "unknown",
         category: "unknown",

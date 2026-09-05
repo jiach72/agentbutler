@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { managedUpgradeProgress } from "../../../ui/src/pages/Versions.js";
+import { managedUpgradeProgress } from "../../../ui/src/pages/versions/helpers.js";
 
 describe("版本页升级进度", () => {
   it("提交升级后、服务端 Job 尚未返回时立即显示启动进度", () => {

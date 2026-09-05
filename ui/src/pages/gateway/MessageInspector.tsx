@@ -21,6 +21,7 @@ import {
 import type {
   MessageBridgeView,
   MessageItemView,
+  MessageStateFilter,
   MessageTaskView,
 } from "./helpers.js";
 
@@ -34,6 +35,12 @@ interface MessageInspectorProps {
   onSelectMessage: (messageId: string) => void;
   taskData: MessageTaskView | null;
   taskLoading: boolean;
+  /** 当前状态过滤（all = 不过滤）；点击计数 chips 切换。 */
+  activeStateFilter?: MessageStateFilter;
+  onStateFilterChange?: (filter: MessageStateFilter) => void;
+  /** 死信重投入口；提供后 dead_letter 详情会显示「重新投递」。 */
+  onRedeliver?: (messageId: string) => void;
+  redeliverBusy?: boolean;
 }
 
 /** 列表与详情两栏的固定高度：超出部分卡片内部滚动，避免长列表把页面拉长。 */
@@ -63,6 +70,10 @@ export function MessageInspector({
   onSelectMessage,
   taskData,
   taskLoading,
+  activeStateFilter = "all",
+  onStateFilterChange,
+  onRedeliver,
+  redeliverBusy = false,
 }: MessageInspectorProps) {
   return (
     <>
@@ -145,13 +156,37 @@ export function MessageInspector({
             选择一条消息，可以查看它是否按时送达、被合并或暂存过；不会显示演示数据。
           </Typography.Paragraph>
         </div>
-        <Flex wrap="wrap" gap={16} aria-label="消息关键状态计数">
-          {(["captured", "held_dnd", "ready", "delivered", "dead_letter"] as const).map((state) => (
-            <Typography.Text key={state} type="secondary" style={{ fontSize: 13 }}>
-              {MESSAGE_STATE_LABELS[state]}
-              <Typography.Text strong>{" "}{messageCounts[state] ?? 0}</Typography.Text>
-            </Typography.Text>
-          ))}
+        <Flex wrap="wrap" gap={8} align="center" aria-label="消息关键状态计数（点击可筛选）">
+          {(["captured", "held_dnd", "ready", "delivered", "dead_letter"] as const).map((state) => {
+            const active = activeStateFilter === state;
+            return (
+              <Button
+                key={state}
+                type="text"
+                size="small"
+                aria-pressed={active}
+                title={active ? "点击清除筛选" : `只看${MESSAGE_STATE_LABELS[state] ?? state}`}
+                onClick={() => onStateFilterChange?.(active ? "all" : state)}
+                style={{
+                  height: "auto",
+                  padding: "2px 8px",
+                  border: "1px solid",
+                  borderColor: active ? "var(--ant-color-primary-border)" : "transparent",
+                  ...(active ? { background: "var(--ant-color-primary-bg)" } : {}),
+                }}
+              >
+                <Typography.Text style={{ fontSize: 13 }}>
+                  {MESSAGE_STATE_LABELS[state] ?? state}
+                  <Typography.Text strong>{" "}{messageCounts[state] ?? 0}</Typography.Text>
+                </Typography.Text>
+              </Button>
+            );
+          })}
+          {activeStateFilter !== "all" && onStateFilterChange !== undefined && (
+            <Button type="link" size="small" onClick={() => onStateFilterChange("all")}>
+              清除筛选
+            </Button>
+          )}
         </Flex>
       </Flex>
 
@@ -160,7 +195,13 @@ export function MessageInspector({
           <Card
             size="small"
             aria-label="消息列表"
-            title={<Typography.Text>最近 {messageItems.length} 条</Typography.Text>}
+            title={
+              <Typography.Text>
+                {activeStateFilter !== "all"
+                  ? `${MESSAGE_STATE_LABELS[activeStateFilter] ?? activeStateFilter} · ${messageItems.length} 条`
+                  : `最近 ${messageItems.length} 条`}
+              </Typography.Text>
+            }
             extra={
               <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                 按时间从新到旧
@@ -175,7 +216,11 @@ export function MessageInspector({
                 description={
                   <Flex vertical gap={4}>
                     <Typography.Text strong>
-                      {messagesReachable ? "还没有消息记录" : "暂时读不到消息"}
+                      {!messagesReachable
+                        ? "暂时读不到消息"
+                        : activeStateFilter !== "all"
+                          ? "没有处于该状态的消息"
+                          : "还没有消息记录"}
                     </Typography.Text>
                     <Typography.Text type="secondary">
                       真实消息经过管家后会出现在这里；不会生成演示数据。
@@ -352,6 +397,25 @@ export function MessageInspector({
                     showIcon
                     title="需要处理"
                     description={selectedMessage.lastPolicyError ?? selectedMessage.lastError}
+                  />
+                )}
+
+                {selectedMessage.state === "dead_letter" && onRedeliver !== undefined && (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    title="这条消息发送失败，已被搁置"
+                    description="确认后可以重新投递：消息会按当前策略重新走一遍投递流程，并再次发送给对方。"
+                    action={
+                      <Button
+                        size="small"
+                        danger
+                        loading={redeliverBusy}
+                        onClick={() => onRedeliver(selectedMessage.messageId)}
+                      >
+                        重新投递
+                      </Button>
+                    }
                   />
                 )}
 

@@ -155,3 +155,56 @@ describe("控制通道安全基线", () => {
     expect(badJson.status).toBe(400);
   });
 });
+
+describe("记忆写操作开关可见性", () => {
+  const securityStub = {
+    status: async () => ({
+      checkedAt: new Date().toISOString(),
+      invariants: [],
+      secrets: [],
+      totalSecretFiles: 0,
+      insecureSecretFiles: 0,
+      message: "",
+    }),
+    refresh: async () => ({
+      checkedAt: new Date().toISOString(),
+      invariants: [],
+      secrets: [],
+      totalSecretFiles: 0,
+      insecureSecretFiles: 0,
+      message: "",
+    }),
+    start: () => undefined,
+    stop: () => undefined,
+  };
+
+  it("/api/security 如实回显 memoryWritesEnabled（开启）", async () => {
+    const http = startWatchHttp(
+      { ...makeDeps().deps, security: securityStub, m6WritesEnabled: true },
+      { port: 0 },
+    );
+    const addr = await http.start();
+    try {
+      const res = await fetch(`http://127.0.0.1:${addr.port}/api/security`);
+      expect(res.status).toBe(200);
+      expect((await res.json() as Record<string, unknown>)["memoryWritesEnabled"]).toBe(true);
+    } finally {
+      http.close();
+    }
+  });
+
+  it("/api/security 在默认关闭时回显 false", async () => {
+    const http = startWatchHttp(
+      { ...makeDeps().deps, security: securityStub },
+      { port: 0 },
+    );
+    const addr = await http.start();
+    try {
+      const res = await fetch(`http://127.0.0.1:${addr.port}/api/security`);
+      expect(res.status).toBe(200);
+      expect((await res.json() as Record<string, unknown>)["memoryWritesEnabled"]).toBe(false);
+    } finally {
+      http.close();
+    }
+  });
+});

@@ -13,7 +13,7 @@ from .outbox import Outbox
 from .registry import NativeRegistry
 
 
-BRIDGE_VERSION = "1.0.0-beta.28"
+BRIDGE_VERSION = "1.0.0-beta.30"
 PROTOCOL_VERSION = 1
 MAX_BODY_BYTES = 1024 * 1024
 
@@ -203,6 +203,16 @@ def create_app(
         except ValueError as exc:
             return _conflict_or_invalid(exc)
 
+    async def requeue(request: web.Request) -> web.Response:
+        route_message_id = request.match_info["message_id"]
+        try:
+            row = outbox.requeue_dead_letter(route_message_id)
+            return web.json_response(row)
+        except KeyError:
+            return _error(404, "not_found", "message not found")
+        except ValueError as exc:
+            return _conflict_or_invalid(exc)
+
     async def deliver(request: web.Request) -> web.Response:
         try:
             payload = await _read_object(
@@ -348,6 +358,7 @@ def create_app(
     app.router.add_get("/v1/outbox/changes", changes)
     app.router.add_post("/v1/outbox/{message_id}/decision", decide)
     app.router.add_post("/v1/outbox/{message_id}/dead-letter", dead_letter)
+    app.router.add_post("/v1/outbox/{message_id}/requeue", requeue)
     app.router.add_post("/v1/deliver", deliver)
     app.router.add_post("/v1/inbound/{inbound_id}/decision", inbound_decision)
     app.router.add_get("/v1/inbound/history", inbound_history)

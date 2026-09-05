@@ -2,7 +2,26 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/)；开发预览版本可能包含不兼容调整。
 
-## [Unreleased]
+## [1.0.0-beta.30] - 2026-09-05
+
+### Added
+
+- 消息死信中心：Bridge 新增 `POST /v1/outbox/{messageId}/requeue`（dead_letter → policy_pending，分配新变更序列并落审计事件），Gateway 新增 `POST /api/messages/:messageId/redeliver` 并在重投后立即触发 reconcile；面板消息明细支持按状态筛选（点击计数 chips），死信详情提供「重新投递」确认入口——同类"消息被误吞"事故用户可自助重投，不再只能等发版。
+- 消息结构化指标：新增 `GET /api/messages/metrics`（按通道聚合近 N 天送达/失败/存疑与成功率，数据来自消息投影与终态历史），消息页新增「通道健康（近 30 天）」卡；替代此前对 lastError 文本的正则猜测。
+- 关键事件外发通道：在 Telegram/SMTP 之外新增 Bark 与 Server酱（微信服务号）推送，critical 告警默认降级序列 Telegram → Bark → Server酱 → SMTP（新 env：`BUTLER_BARK_DEVICE_KEY` / `BUTLER_BARK_SERVER` / `BUTLER_SERVERCHAN_SENDKEY`）。
+- Gateway 访问口令：配置 `BUTLER_ACCESS_TOKEN` 后所有业务路由要求鉴权（`/healthz` 与 `/internal/hermes/*` 豁免），`/internal/hermes/*` 增加每分钟 wake 限速（`BUTLER_GATEWAY_WAKE_RATE_LIMIT`，默认 120）；Web 代理自动携带口令；Compose 为 gateway 注入同一口令——内网不再等于可信。
+- 设置 → 本机安全新增「记忆写操作」开关可见性：`BUTLER_MEMORY_WRITES_ENABLED` 接线到 M6 写路由与修复向导（默认关闭；开启后归档/恢复/清理/重建索引/加密导出可用，写动作仍走备份门禁与审计）——能力实现与用户出口打通。
+- 「自进化」页新增「提示词优化」分区（自消息通知页迁入，两套评估/采用口径归并到同一"越改越坏"防线页面）；技能页插件库从一级 Tab 降级为只读折叠区。
+- ui 引入 `@butler/contract`：消息状态过滤枚举改为契约单一来源，消除前后端双份手写漂移。
+
+### Fixed
+
+- 一键升级期间面板失联/误报失败：updater 的 checkout/构建/重启全部改为异步子进程，202 立即返回；`/api/status` 仓库视图 10s 缓存且升级进行中不再触碰 git（此前每次轮询同步执行 5+ git 子进程）。新增"构建期间健康检查与状态轮询保持可用"回归测试。
+- 通道启停/首次配置在 Hermes 运行时不支持在线重启时不再空转 60 秒「应用中」：UI 跳过无效轮询并保留「需手动重启」提示；Bridge 将 `request_restart` 失败原因写入宿主日志（此前静默吞掉）。
+- 进化页「应用到 Hermes」两处入口补齐危险操作二次确认弹窗（对齐全站统一确认层）；用户可见降级文案中的 "Watch" 统一改为「管家服务」。
+- OpenClaw 能力位如实标注：README 与连接卡明确「实验性只读——支持连接探测、启停与升级回滚，技能/记忆/配置只读，不支持消息接管」。
+- deploy.ps1 补齐升级前数据卷备份门禁（与 deploy.sh 同口径：失败默认阻断、保留最近 4 份、`BUTLER_ALLOW_UNBACKED_DEPLOY=true` 显式豁免）；deploy.ps1 增加 UTF-8 BOM，修复 Windows PowerShell 5.1 下中文脚本解析失败；deploy.sh 在 WSL 场景成功输出 portproxy 修复提示；README 标注 `npx agent-butler` 依赖 npm 发布状态。
+- 清理约 1500 行无引用 UI 组件与 re-export 垫片；根目录调试遗留物归档至 docs/archive/；修复存量 eslint 告警（scripts/*.mjs 显式声明 Node 全局、未使用导入）。
 
 ## [1.0.0-beta.29] Added
 
@@ -237,7 +256,10 @@
 - Hermes Bridge 需要在目标 Hermes 环境中单独安装和接线。
 - 真实消息通道、升级与回滚应先在隔离环境验证。
 
-[Unreleased]: https://github.com/jiach72/agentbutler/compare/v1.0.0-beta.17...HEAD
+[Unreleased]: https://github.com/jiach72/agentbutler/compare/v1.0.0-beta.30...HEAD
+[1.0.0-beta.30]: https://github.com/jiach72/agentbutler/releases/tag/v1.0.0-beta.30
+[1.0.0-beta.29]: https://github.com/jiach72/agentbutler/releases/tag/v1.0.0-beta.29
+[1.0.0-beta.28]: https://github.com/jiach72/agentbutler/releases/tag/v1.0.0-beta.28
 [1.0.0-beta.17]: https://github.com/jiach72/agentbutler/releases/tag/v1.0.0-beta.17
 [1.0.0-beta.16]: https://github.com/jiach72/agentbutler/releases/tag/v1.0.0-beta.16
 [1.0.0-beta.15]: https://github.com/jiach72/agentbutler/releases/tag/v1.0.0-beta.15

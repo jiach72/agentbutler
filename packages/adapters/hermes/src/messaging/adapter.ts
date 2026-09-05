@@ -52,6 +52,7 @@ export function createHermesMessaging(options: HermesMessagingOptions): Messagin
     listChanges: (_instance, afterSequence, limit) =>
       wrapCall(() => client.listChanges(afterSequence, limit)),
     decideOutbound: (_instance, decision) => wrapCall(() => client.decide(decision)),
+    requeueOutbound: (_instance, messageId) => wrapCall(() => client.requeueMessage(messageId)),
     deliver: (_instance, request) => wrapCall(() => client.deliver(request)),
     forwardInbound: (_instance, decision) => wrapCall(() => client.forwardInbound(decision)),
     inboundHistory: (_instance, limit) => wrapCall(() => client.inboundHistory(limit)),

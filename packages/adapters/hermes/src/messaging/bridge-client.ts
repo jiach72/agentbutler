@@ -81,6 +81,10 @@ export class HermesBridgeClient {
     );
   }
 
+  requeueMessage(messageId: string): Promise<OutboxMessageView> {
+    return this.request("POST", `/v1/outbox/${encodeURIComponent(messageId)}/requeue`);
+  }
+
   deliver(request: DeliveryRequest): Promise<DeliveryAck> {
     return this.request("POST", "/v1/deliver", request);
   }

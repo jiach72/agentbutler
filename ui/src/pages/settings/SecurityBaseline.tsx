@@ -162,6 +162,23 @@ export function SecurityBaseline({
             : DEGRADED_TEXT,
     },
     {
+      title: "记忆写操作",
+      status:
+        security.status === "ready"
+          ? security.data.memoryWritesEnabled
+            ? "warn"
+            : "pass"
+          : "partial",
+      detail:
+        security.status === "ready"
+          ? security.data.memoryWritesEnabled
+            ? "已开启：记忆归档/清理/重建索引/加密导出入口可用，所有写动作执行前会自动备份并记入操作记录"
+            : "默认关闭。需要归档、清理或导出记忆时，在 .env 设置 BUTLER_MEMORY_WRITES_ENABLED=true 并重启管家服务"
+          : security.status === "loading"
+            ? "正在读取记忆写开关…"
+            : DEGRADED_TEXT,
+    },
+    {
       title: "操作记录只增不改",
       status: audit.status === "ready" ? "pass" : "partial",
       detail:

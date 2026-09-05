@@ -17,7 +17,6 @@ import {
 } from "./drivers/index.js";
 import { logSources } from "./log-sources.js";
 import { hermesManifest } from "./manifest.js";
-import { HermesControlBridgeClient } from "./control-bridge.js";
 
 /** 从 InstanceRef 解析 rootPath：优先 rootPath 字段，回退解析 "instanceId|rootPath" 复合形式。 */
 function rootPathFromRef(ref: InstanceRef): string | null {

@@ -55,6 +55,8 @@ export interface SecurityPayload {
   totalSecretFiles: number;
   insecureSecretFiles: number;
   message: string;
+  /** M6 记忆写操作开关当前状态；watch 不可达时缺省。 */
+  memoryWritesEnabled?: boolean;
 }
 
 export interface BackupItem {

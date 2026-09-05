@@ -85,12 +85,16 @@ export function ChannelGrid({ onReconnect }: ChannelGridProps) {
     }
   }, []);
 
-  /** 配置弹窗保存并启用后：保持「应用中」直至通道上线/超时。 */
+  /** 配置弹窗保存并启用后：保持「应用中」直至通道上线/超时；重启未触发时跳过空等。 */
   const watchChannel = useCallback(
-    async (id: string): Promise<void> => {
+    async (id: string, ack?: { restarting?: boolean } | null): Promise<void> => {
       acquireApplying(id);
       try {
-        await pollChannelOnline(id, true);
+        // restarting === false 说明 Hermes 运行时不支持在线重启（文案已提示手动重启），
+        // 继续轮询 60 秒只会让卡片停在「应用中」；直接刷新目录呈现真实状态。
+        if (ack?.restarting !== false) {
+          await pollChannelOnline(id, true);
+        }
       } finally {
         releaseApplying(id);
         void refresh();
@@ -112,9 +116,11 @@ export function ChannelGrid({ onReconnect }: ChannelGridProps) {
           message.error(channelActionError(result.status, result.data));
           return; // 非 2xx 不进轮询，状态由目录刷新自然呈现
         }
-        for (const notice of channelToggleWarnings(channelToggleAck(result.data))) {
+        const ack = channelToggleAck(result.data);
+        for (const notice of channelToggleWarnings(ack)) {
           message.warning(notice);
         }
+        if (ack?.restarting === false) return; // 已提示手动重启，跳过 60s 空等
         await pollChannelOnline(id, enable);
       } finally {
         releaseApplying(id);
@@ -217,10 +223,10 @@ export function ChannelGrid({ onReconnect }: ChannelGridProps) {
           channel={configChannel.id}
           label={configChannel.label}
           onClose={() => setConfigChannel(null)}
-          onApplied={() => {
+          onApplied={(ack) => {
             const id = configChannel.id;
             setConfigChannel(null);
-            void watchChannel(id);
+            void watchChannel(id, ack);
           }}
         />
       )}

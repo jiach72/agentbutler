@@ -62,6 +62,7 @@ function writeCommandShims(): void {
     join(binDir, "corepack.cmd"),
     [
       "@echo off",
+      "if /I \"%~2\"==\"build\" if not \"%BUTLER_UPDATER_TEST_BUILD_DELAY%\"==\"\" ping -n %BUTLER_UPDATER_TEST_BUILD_DELAY% 127.0.0.1 >nul",
       "if /I \"%~2\"==\"build\" if not \"%BUTLER_UPDATER_TEST_BUILD_FAILURE_FILE%\"==\"\" if not exist \"%BUTLER_UPDATER_TEST_BUILD_FAILURE_FILE%\" (",
       "  type nul > \"%BUTLER_UPDATER_TEST_BUILD_FAILURE_FILE%\"",
       "  exit /b 1",
@@ -102,7 +103,7 @@ async function waitFor(check: () => Promise<boolean>, timeoutMs = 8_000): Promis
   throw new Error("timed out waiting for updater state");
 }
 
-async function startUpdater(options: { failBuildOnce?: boolean; composeBinary?: string } = {}): Promise<RunningUpdater> {
+async function startUpdater(options: { failBuildOnce?: boolean; composeBinary?: string; slowBuild?: number } = {}): Promise<RunningUpdater> {
   const probe = createServer();
   probe.listen(0, "127.0.0.1");
   await once(probe, "listening");
@@ -129,6 +130,7 @@ async function startUpdater(options: { failBuildOnce?: boolean; composeBinary?: 
       BUTLER_ACCESS_TOKEN: TOKEN,
       BUTLER_UPDATER_TEST_COMPOSE_ARGS_FILE: composeArgsFile,
       ...(options.failBuildOnce ? { BUTLER_UPDATER_TEST_BUILD_FAILURE_FILE: failureFile } : {}),
+      ...(options.slowBuild ? { BUTLER_UPDATER_TEST_BUILD_DELAY: String(options.slowBuild) } : {}),
     },
     stdio: "ignore",
     windowsHide: true,
@@ -262,4 +264,33 @@ describe("butler-updater security and rollback", () => {
     expect(status["lastJob"]).toMatchObject({ status: "rolled-back", phase: "done" });
     expect(runGit(["rev-parse", "--short", "HEAD"])).toBe(revisions.from);
   }, 15_000);
+
+  it("keeps /healthz and /api/status responsive while a build is running", async () => {
+    // 构建步骤休眠 6 秒；此期间健康检查与状态轮询必须照常返回，否则面板会把升级误判为失联。
+    updater = await startUpdater({ slowBuild: 6 });
+    const response = await request("/api/upgrade", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-butler-token": TOKEN },
+      body: JSON.stringify({ target: "v0.2.0", confirmed: true }),
+    });
+    expect(response.status).toBe(202);
+
+    await waitFor(async () => {
+      const status = await request("/api/status", { headers: { "x-butler-token": TOKEN } });
+      const job = (await status.json()) as Record<string, unknown>;
+      return (job["lastJob"] as Record<string, unknown> | null)?.["phase"] === "install-build";
+    });
+
+    const healthDuringBuild = await fetch(`${updater.baseUrl}/healthz`, { signal: AbortSignal.timeout(1_000) });
+    expect(healthDuringBuild.status).toBe(200);
+    const statusDuringBuild = await fetch(`${updater.baseUrl}/api/status?token=${encodeURIComponent(TOKEN)}`, {
+      signal: AbortSignal.timeout(1_000),
+    });
+    expect(statusDuringBuild.status).toBe(200);
+    const view = (await statusDuringBuild.json()) as Record<string, unknown>;
+    expect((view["lastJob"] as Record<string, unknown>)["phase"]).toBe("install-build");
+
+    const status = await terminalStatus();
+    expect(status["lastJob"]).toMatchObject({ status: "done", phase: "done" });
+  }, 20_000);
 });

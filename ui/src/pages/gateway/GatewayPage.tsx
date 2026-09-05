@@ -27,11 +27,11 @@ import { fetchJson, postJson } from "../../lib/api.js";
 import { validateGatewayPatches, validatePatchParamAgainstSchema } from "../../lib/patchRules.js";
 import { AlertQueuePanel } from "./AlertQueuePanel.js";
 import { ChannelGrid } from "./ChannelGrid.js";
+import { ChannelMetricsCard } from "./ChannelMetricsCard.js";
 import { ConnectionHealth } from "./ConnectionHealth.js";
 import { DeliveryTrendCard } from "./DeliveryTrendCard.js";
 import { MessageInspector } from "./MessageInspector.js";
 import { PatchBoard } from "./PatchBoard.js";
-import { PromptOptimizationPanel } from "./PromptOptimizationPanel.js";
 import { RateLimitsTable } from "./RateLimitsTable.js";
 import { RelayControlCard } from "./RelayControlCard.js";
 import {
@@ -51,6 +51,7 @@ import type {
   GatewayPatch,
   GatewayPayload,
   MessageOverviewPayload,
+  MessageStateFilter,
   MessageTaskView,
   PatchDrafts,
   PendingPatchAction,
@@ -68,6 +69,9 @@ export function GatewayPage() {
   const [data, setData] = useState<GatewayPayload | null>(null);
   const [messageData, setMessageData] = useState<MessageOverviewPayload | null>(null);
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
+  const [messageStateFilter, setMessageStateFilter] = useState<MessageStateFilter>("all");
+  const [confirmRedeliverId, setConfirmRedeliverId] = useState<string | null>(null);
+  const [redeliverBusy, setRedeliverBusy] = useState(false);
   const [taskData, setTaskData] = useState<MessageTaskView | null>(null);
   const [taskLoading, setTaskLoading] = useState(false);
   const [drafts, setDrafts] = useState<PatchDrafts>({});
@@ -81,21 +85,6 @@ export function GatewayPage() {
   // 上一次 refresh 是否失败；初始视为失败，保证首次加载有 loading 遮罩。
   // 成功轮询不再置 loading，避免「正在同步」每 10 秒跳动。
   const prevRefreshFailedRef = useRef(true);
-  const [promptFlash, setPromptFlash] = useState(false);
-  const promptFlashTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-
-  const flashPromptSection = () => {
-    setPromptFlash(true);
-    if (promptFlashTimer.current !== undefined) clearTimeout(promptFlashTimer.current);
-    promptFlashTimer.current = setTimeout(() => setPromptFlash(false), 2200);
-  };
-
-  useEffect(
-    () => () => {
-      if (promptFlashTimer.current !== undefined) clearTimeout(promptFlashTimer.current);
-    },
-    [],
-  );
 
   const acquireBusy = useCallback((key: string) => {
     setBusyKeys((prev) => new Set(prev).add(key));
@@ -112,9 +101,10 @@ export function GatewayPage() {
 
   const refresh = useCallback(async () => {
     if (prevRefreshFailedRef.current) setLoading(true);
+    const stateQuery = messageStateFilter === "all" ? "" : `&state=${messageStateFilter}`;
     const [payload, messages] = await Promise.all([
       fetchJson<GatewayPayload>("/api/gateway"),
-      fetchJson<MessageOverviewPayload>("/api/messages/overview?limit=60"),
+      fetchJson<MessageOverviewPayload>(`/api/messages/overview?limit=60${stateQuery}`),
     ]);
     if (payload !== null) {
       setData(payload);
@@ -134,7 +124,7 @@ export function GatewayPage() {
     prevRefreshFailedRef.current = failed;
     setLoadError(failed);
     setLoading(false);
-  }, []);
+  }, [messageStateFilter]);
 
   useEffect(() => {
     void refresh();
@@ -349,6 +339,26 @@ export function GatewayPage() {
     }
   };
 
+  /** 死信重投：经确认后把 dead_letter 消息放回策略管线。 */
+  const redeliverMessage = async (messageId: string) => {
+    setRedeliverBusy(true);
+    const result = await postJson(
+      `/api/messages/${encodeURIComponent(messageId)}/redeliver`,
+      {},
+      15_000,
+    );
+    setRedeliverBusy(false);
+    setConfirmRedeliverId(null);
+    if (result.status === 200) {
+      message.success("已重新排队进入策略管线，稍后可在此查看投递结果");
+      await refresh();
+    } else {
+      const data = result.data as { detail?: unknown } | null;
+      const detail = typeof data?.detail === "string" ? data.detail : undefined;
+      message.error(detail !== undefined ? `重投失败：${detail}` : "重投失败，请稍后重试");
+    }
+  };
+
   return (
     <section className="gateway-page">
       <Flex vertical gap={24}>
@@ -369,9 +379,6 @@ export function GatewayPage() {
                 onClick={() => void refresh()}
               >
                 {loading ? "刷新中" : "刷新"}
-              </Button>
-              <Button href="#prompt-optimization" onClick={flashPromptSection}>
-                查看消息优化
               </Button>
             </Flex>
           }
@@ -469,6 +476,8 @@ export function GatewayPage() {
 
         <DeliveryTrendCard />
 
+        <ChannelMetricsCard />
+
         <AdvancedDetails
           summary={
             <>
@@ -488,6 +497,10 @@ export function GatewayPage() {
               onSelectMessage={setSelectedMessageId}
               taskData={taskData}
               taskLoading={taskLoading}
+              activeStateFilter={messageStateFilter}
+              onStateFilterChange={setMessageStateFilter}
+              onRedeliver={(messageId) => setConfirmRedeliverId(messageId)}
+              redeliverBusy={redeliverBusy}
             />
           </Flex>
         </AdvancedDetails>
@@ -533,17 +546,6 @@ export function GatewayPage() {
           </Flex>
         </AdvancedDetails>
 
-        <div
-          id="prompt-optimization"
-          style={{
-            borderRadius: 12,
-            outline: promptFlash ? "2px solid var(--ant-color-primary)" : "2px solid transparent",
-            outlineOffset: 8,
-            transition: "outline-color 0.4s ease",
-          }}
-        >
-          <PromptOptimizationPanel />
-        </div>
         {pendingPatchAction !== null && (
           <DangerConfirmModal
             open
@@ -585,6 +587,19 @@ export function GatewayPage() {
             )}
           </DangerConfirmModal>
         )}
+        <DangerConfirmModal
+          open={confirmRedeliverId !== null}
+          title="确认重新发送这条消息？"
+          confirmLabel="重新发送"
+          busy={redeliverBusy}
+          onCancel={() => setConfirmRedeliverId(null)}
+          onConfirm={() => {
+            if (confirmRedeliverId !== null) void redeliverMessage(confirmRedeliverId);
+          }}
+          impact="消息会按当前策略重新走一遍投递流程，并再次发送给对方。"
+        >
+          这条消息此前发送失败已被搁置。重投后会重新排队，可在消息明细中跟踪投递结果。
+        </DangerConfirmModal>
       </Flex>
     </section>
   );

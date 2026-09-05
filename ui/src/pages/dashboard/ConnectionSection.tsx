@@ -151,6 +151,9 @@ export function ConnectionSection({
                     <Flex vertical gap={4}>
                       <Text strong>{openClawStatus?.version ?? "没有可用版本"}</Text>
                       <Text type="secondary">{openClawStatus?.detail ?? "正在读取 OpenClaw 安装状态"}</Text>
+                      <Text type="secondary">
+                        实验性支持：仅连接探测、启停与升级回滚；技能、记忆与消息接入暂不可用。
+                      </Text>
                     </Flex>
                     {openClawStatus?.runtime !== undefined && (
                       <AdvancedDetails

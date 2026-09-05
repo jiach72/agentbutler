@@ -80,6 +80,8 @@ export interface WatchConfig {
   watchHttpPort: number;
   /** 是否允许 LLM 凭据写入；与监听地址解耦，公网部署默认关闭。 */
   credentialWritesAllowed: boolean;
+  /** M6 记忆写操作开关（归档/恢复/清理/重建索引/加密导出）；默认关闭，开启后写动作仍走备份门禁与审计。 */
+  m6WritesEnabled: boolean;
   /** GitHub API 镜像前缀（版本源逐源探测插入镜像源；未配置则无镜像源）。 */
   versionMirrorHost?: string;
   /** 版本源 GitHub 仓库（默认 hermes-agent/hermes）。 */
@@ -237,6 +239,7 @@ export function loadWatchConfig(overrides: Partial<WatchConfig> = {}): WatchConf
         "BUTLER_CREDENTIAL_WRITES_ALLOWED",
         isLoopbackHost(watchHttpHost),
       ),
+    m6WritesEnabled: overrides.m6WritesEnabled ?? readBoolEnv("BUTLER_MEMORY_WRITES_ENABLED", false),
     versionMirrorHost: overrides.versionMirrorHost ?? readStrEnv("BUTLER_VERSION_MIRROR_HOST"),
     versionRepo: overrides.versionRepo ?? readStrEnv("BUTLER_VERSION_REPO") ?? DEFAULT_VERSION_REPO,
     versionDockerImage:

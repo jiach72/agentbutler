@@ -30,6 +30,7 @@ import {
   CONTROL_API_SCHEMA_VERSION,
   CONTRACT_VERSION,
   MEMORY_PREVIEW_LIMIT,
+  isOutboxState,
   type CapabilityReport,
   type InboundDecision,
   type InboundHistoryEntry,
@@ -41,7 +42,7 @@ import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import { recentEventsAscending, selectNewEvents } from "./events-pump.js";
 
-export const WEB_VERSION = `web@1.0.0-beta.28+${CONTRACT_VERSION}`;
+export const WEB_VERSION = `web@1.0.0-beta.30+${CONTRACT_VERSION}`;
 
 /** 告警网关默认基址（butler-gateway 的固定回环端口）。 */
 export const DEFAULT_GATEWAY_URL = "http://127.0.0.1:7532";
@@ -978,7 +979,7 @@ function parseSkillsStatus(value: unknown): Omit<SkillsApiView, "watchReachable"
 
 function degradedEvolution(
   connectionStatus: Exclude<EvolutionApiView["connectionStatus"], "ready"> = "watch-unreachable",
-  detail: string | null = "Watch 控制通道不可达",
+  detail: string | null = "管家控制通道不可达",
 ): EvolutionApiView {
   return {
     watchReachable: false,
@@ -989,7 +990,7 @@ function degradedEvolution(
     defaultDependencies: [],
     defaultEndpoint: "",
     ledger: [],
-    hermes: { status: "unknown", root: null, detail: "尚未读取 Watch 状态" },
+    hermes: { status: "unknown", root: null, detail: "尚未读取管家服务状态" },
     endpointHealth: {
       status: "unknown",
       category: "unknown",
@@ -1872,7 +1873,10 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   /** 网关告警直读（/api/alerts 路由与 /api/gateway 聚合共用）；不可达/响应异常一律降级载荷。 */
   const alertsFromGateway = async (): Promise<AlertsView> => {
     try {
-      const res = await doFetch(`${gatewayUrl}/api/alerts`, { signal: AbortSignal.timeout(5000) });
+      const res = await doFetch(`${gatewayUrl}/api/alerts`, {
+        signal: AbortSignal.timeout(5000),
+        headers: gatewayAuthHeaders(),
+      });
       if (!res.ok) return degradedAlerts();
       return parseAlertsView(await res.json()) ?? degradedAlerts();
     } catch {
@@ -1880,10 +1884,17 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     }
   };
 
+  /** gateway 访问口令头：配置了 BUTLER_ACCESS_TOKEN 时网关侧校验（内网不等于可信）。 */
+  const gatewayAuthHeaders = (): Record<string, string> =>
+    accessToken === "" ? {} : { "x-butler-token": accessToken };
+
   /** Read-only gateway fetch with transport failures collapsed to null for partitioned degradation. */
   const fetchGateway = async (gatewayPath: string): Promise<Response | null> => {
     try {
-      return await doFetch(`${gatewayUrl}${gatewayPath}`, { signal: AbortSignal.timeout(5000) });
+      return await doFetch(`${gatewayUrl}${gatewayPath}`, {
+        signal: AbortSignal.timeout(5000),
+        headers: gatewayAuthHeaders(),
+      });
     } catch {
       return null;
     }
@@ -1898,7 +1909,7 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     try {
       res = await doFetch(`${gatewayUrl}${gatewayPath}`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...gatewayAuthHeaders() },
         body: JSON.stringify(body ?? {}),
         signal: AbortSignal.timeout(5_000),
       });
@@ -1926,7 +1937,7 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     try {
       res = await doFetch(`${gatewayUrl}${gatewayPath}`, {
         method: "PUT",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...gatewayAuthHeaders() },
         body: JSON.stringify(body ?? {}),
         signal: AbortSignal.timeout(5_000),
       });
@@ -1982,6 +1993,14 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   app.post("/api/messages/relay", async (request, reply) =>
     proxyGatewayPost("/api/messages/relay", request.body, reply),
   );
+  // 死信重投：把 dead_letter 消息放回策略管线，透传 gateway。
+  app.post("/api/messages/:messageId/redeliver", async (request, reply) =>
+    proxyGatewayPost(
+      `/api/messages/${encodeURIComponent(String((request.params as Record<string, string>)["messageId"] ?? ""))}/redeliver`,
+      {},
+      reply,
+    ),
+  );
   // 求助提示词转发给智能体：gateway 侧调 Hermes api_server 聊天接口（LLM 回合可能
   // 需要数十秒到数分钟），代理超时放宽到 200s。
   app.post("/api/agent-message", async (request, reply) => {
@@ -1989,7 +2008,7 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     try {
       res = await doFetch(`${gatewayUrl}/api/agent-message`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...gatewayAuthHeaders() },
         body: JSON.stringify(request.body ?? {}),
         signal: AbortSignal.timeout(200_000),
       });
@@ -2440,9 +2459,12 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     const query = request.query as Record<string, unknown>;
     const rawLimit = Number(query["limit"]);
     const limit = Number.isFinite(rawLimit) ? Math.max(1, Math.min(200, Math.floor(rawLimit))) : 60;
+    // 可选状态过滤（如 dead_letter）：直接透传给 gateway 的 messages 列表。
+    const rawState = typeof query["state"] === "string" ? query["state"] : undefined;
+    const stateFilter = rawState !== undefined && isOutboxState(rawState) ? rawState : undefined;
     const [statusResponse, messagesResponse] = await Promise.all([
       fetchGateway("/api/messages/status"),
-      fetchGateway(`/api/messages?limit=${String(limit)}`),
+      fetchGateway(`/api/messages?limit=${String(limit)}${stateFilter ? `&state=${encodeURIComponent(stateFilter)}` : ""}`),
     ]);
 
     let status: MessageStatusView | null = null;
@@ -2506,6 +2528,39 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
       return parseMessageOptimizationHistory(await response.json()) ?? { reachable: false, items: [] };
     } catch {
       return { reachable: false, items: [] };
+    }
+  });
+
+  /** 按通道送达指标代理：结构化计数（近 N 天），供面板通道健康视图使用。 */
+  app.get("/api/messages/metrics", async (request) => {
+    const query = request.query as Record<string, unknown>;
+    const parsed = Number(query["days"] ?? "30");
+    const days = Number.isFinite(parsed) ? Math.max(1, Math.min(365, Math.floor(parsed))) : 30;
+    const response = await fetchGateway(`/api/messages/metrics?days=${String(days)}`);
+    if (response === null || !response.ok) {
+      return { reachable: false, days, retentionDays: 365, channels: [], daily: [] };
+    }
+    try {
+      const body = (await response.json()) as Record<string, unknown>;
+      const isValidChannelRow = (item: unknown): item is Record<string, number | string> => {
+        if (item === null || typeof item !== "object") return false;
+        const row = item as Record<string, unknown>;
+        return (
+          typeof row["channel"] === "string" &&
+          typeof row["delivered"] === "number" &&
+          typeof row["failed"] === "number" &&
+          typeof row["uncertain"] === "number"
+        );
+      };
+      return {
+        reachable: true,
+        days: typeof body["days"] === "number" ? body["days"] : days,
+        retentionDays: typeof body["retentionDays"] === "number" ? body["retentionDays"] : 365,
+        channels: Array.isArray(body["channels"]) ? body["channels"].filter(isValidChannelRow) : [],
+        daily: Array.isArray(body["daily"]) ? body["daily"].filter(isValidChannelRow) : [],
+      };
+    } catch {
+      return { reachable: false, days, retentionDays: 365, channels: [], daily: [] };
     }
   });
 
@@ -2957,11 +3012,11 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
 
   const evolutionStatusHandler = async (): Promise<EvolutionApiView> => {
     const res = await fetchWatch("/api/evolution/status");
-    if (res === null) return degradedEvolution("watch-unreachable", "Watch 控制通道不可达");
+    if (res === null) return degradedEvolution("watch-unreachable", "管家控制通道不可达");
     if (res.status === 404)
-      return degradedEvolution("watch-route-missing", "当前 Watch 实例未提供进化状态接口，请同步部署 Watch");
+      return degradedEvolution("watch-route-missing", "当前管家实例未提供进化状态接口，请同步部署管家服务");
     if (!res.ok)
-      return degradedEvolution("watch-unreachable", `Watch 返回 HTTP ${String(res.status)}，无法读取进化状态`);
+      return degradedEvolution("watch-unreachable", `管家服务返回 HTTP ${String(res.status)}，无法读取进化状态`);
     try {
       const parsed = parseEvolutionStatus(await res.json());
       if (parsed === null) {

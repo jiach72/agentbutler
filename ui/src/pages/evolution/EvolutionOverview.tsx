@@ -32,7 +32,7 @@ export function EvolutionOverview({ overview, range, onRangeChange, onRefresh, o
           <ConnectionChip
             reachable={overview.status !== "offline"}
             onlineText={`实例 ${overview.instanceId ?? "未知"}`}
-            offlineText="Watch 离线"
+            offlineText="管家服务离线"
           />
           <Segmented
             value={range}

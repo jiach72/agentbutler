@@ -808,6 +808,75 @@ export class MessagePolicyStore {
   }
 
   /** 近 N 天送达结果按日聚合（本地时区；独立历史表不受 7 天投影清理影响）。 */
+  /**
+   * 按通道聚合的每日送达结果（结构化指标，替代对 lastError 文本的正则猜测）。
+   * 通道取自消息投影 payload；投影缺失的历史行归入 "unknown"。
+   */
+  channelMetrics(
+    days: number,
+    now = new Date(),
+  ): {
+    channels: Array<{ channel: string; delivered: number; failed: number; uncertain: number; total: number; successRate: number }>;
+    daily: Array<{ date: string; channel: string; delivered: number; failed: number; uncertain: number }>;
+  } {
+    if (!Number.isInteger(days) || days < 1 || days > MESSAGE_OUTCOME_HISTORY_RETENTION_DAYS) {
+      throw new Error(
+        `metrics days must be an integer from 1 through ${MESSAGE_OUTCOME_HISTORY_RETENTION_DAYS}`,
+      );
+    }
+    const today = new Date(now.getTime());
+    today.setHours(0, 0, 0, 0);
+    const start = new Date(today);
+    start.setDate(start.getDate() - (days - 1));
+    const rows = this.db
+      .prepare(
+        `SELECT date(h.occurred_at, 'localtime') AS day,
+                COALESCE(json_extract(p.payload_json, '$.channel'), 'unknown') AS channel,
+                h.outcome AS outcome,
+                COUNT(*) AS count
+         FROM message_outcome_history h
+         LEFT JOIN message_projection p ON p.message_id = h.message_id
+         WHERE h.occurred_at >= ?
+         GROUP BY day, channel, h.outcome
+         ORDER BY day ASC`,
+      )
+      .all(start.toISOString()) as Array<Record<string, unknown>>;
+
+    const totals = new Map<string, { delivered: number; failed: number; uncertain: number }>();
+    const daily: Array<{ date: string; channel: string; delivered: number; failed: number; uncertain: number }> = [];
+    const dailyBuckets = new Map<string, { delivered: number; failed: number; uncertain: number }>();
+    for (const row of rows) {
+      const channel = String(row["channel"]);
+      const date = String(row["day"]);
+      const outcome = String(row["outcome"]) as "delivered" | "failed" | "uncertain";
+      const count = Number(row["count"]);
+      const total = totals.get(channel) ?? { delivered: 0, failed: 0, uncertain: 0 };
+      total[outcome] += count;
+      totals.set(channel, total);
+      const bucketKey = `${date}::${channel}`;
+      const bucket = dailyBuckets.get(bucketKey) ?? { delivered: 0, failed: 0, uncertain: 0 };
+      bucket[outcome] += count;
+      dailyBuckets.set(bucketKey, bucket);
+    }
+    for (const [bucketKey, value] of dailyBuckets) {
+      const separator = bucketKey.indexOf("::");
+      daily.push({ date: bucketKey.slice(0, separator), channel: bucketKey.slice(separator + 2), ...value });
+    }
+    daily.sort((left, right) => left.date.localeCompare(right.date) || left.channel.localeCompare(right.channel));
+    const channels = [...totals.entries()]
+      .map(([channel, value]) => {
+        const total = value.delivered + value.failed + value.uncertain;
+        return {
+          channel,
+          ...value,
+          total,
+          successRate: total === 0 ? 0 : Math.round((value.delivered / total) * 1000) / 1000,
+        };
+      })
+      .sort((left, right) => right.total - left.total);
+    return { channels, daily };
+  }
+
   dailyOutcomeHistory(
     days: number,
     now = new Date(),

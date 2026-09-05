@@ -6,6 +6,7 @@ import json
 import os
 import re
 import stat
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -293,6 +294,12 @@ class ChannelControl:
             if callable(request):
                 try:
                     return bool(request(via_service=True))
-                except Exception:
+                except Exception as exc:
+                    # 失败原因必须能被宿主日志看到，否则面板只能显示"未触发重启"而无法定位
+                    print(
+                        f"[agent-butler-bridge] request_restart failed: {exc}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
                     return False
         return False

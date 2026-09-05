@@ -1840,6 +1840,35 @@ class Outbox:
             )
             return self._message_from_row(self._require_message_locked(message_id))
 
+    def requeue_dead_letter(self, message_id: str) -> dict[str, Any]:
+        """死信重投：dead_letter → policy_pending，分配新 change sequence。
+
+        dead_letter 是终态，这是唯一获准的出口：消息重新进入策略管线，
+        由 Gateway 按当前策略重新决策。attempt_count 清零（重投意味着
+        给消息一次全新机会），content 与 sha256 保持不变。
+        """
+        with self._transaction():
+            row = self._require_message_locked(message_id)
+            if row["state"] != "dead_letter":
+                raise ValueError(f"message is not in dead_letter state: {row['state']}")
+            now = _utc_now()
+            sequence = self._next_sequence_locked()
+            self._conn.execute(
+                """UPDATE outbound_messages
+                   SET sequence = ?, state = 'policy_pending', active_attempt_id = NULL,
+                       available_at = NULL, decision_id = NULL, attempt_count = 0,
+                       updated_at = ?
+                   WHERE message_id = ?""",
+                (sequence, now, message_id),
+            )
+            self._conn.execute(
+                """INSERT INTO message_state_events(
+                     event_id, message_id, from_state, to_state, reason, occurred_at
+                   ) VALUES (?, ?, 'dead_letter', 'policy_pending', ?, ?)""",
+                (uuid7(), message_id, "manual requeue", now),
+            )
+            return self._message_from_row(self._require_message_locked(message_id))
+
     def state_history(self, message_id: str) -> list[dict[str, Any]]:
         with self._lock:
             self._ensure_open()

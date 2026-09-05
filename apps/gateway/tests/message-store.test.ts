@@ -298,6 +298,34 @@ describe("MessagePolicyStore", () => {
     store.close();
   });
 
+  it("aggregates terminal outcomes per channel with success rate", () => {
+    const store = new MessagePolicyStore(dbFile);
+    const items = [
+      { ...BATCH.items[0], messageId: "metrics-wx-ok", state: "delivered" as const },
+      { ...BATCH.items[0], messageId: "metrics-wx-bad", state: "dead_letter" as const },
+      { ...BATCH.items[0], messageId: "metrics-tg-ok", state: "delivered" as const, channel: "telegram" },
+    ];
+    store.ingestBatch({
+      afterSequence: 0,
+      nextSequence: 3,
+      items: items.map((item, index) => ({ ...item, sequence: index + 1 })),
+      taskEvents: [],
+      inbound: [],
+    });
+
+    const metrics = store.channelMetrics(7);
+
+    expect(metrics.channels).toHaveLength(2);
+    const weixin = metrics.channels.find((row) => row.channel === "weixin");
+    const telegram = metrics.channels.find((row) => row.channel === "telegram");
+    expect(weixin).toMatchObject({ delivered: 1, failed: 1, uncertain: 0, total: 2, successRate: 0.5 });
+    expect(telegram).toMatchObject({ delivered: 1, failed: 0, uncertain: 0, total: 1, successRate: 1 });
+    // 总量大的通道排在前面，便于面板直接看到问题通道
+    expect(metrics.channels[0].channel).toBe("weixin");
+    expect(metrics.daily.every((row) => row.delivered + row.failed + row.uncertain > 0)).toBe(true);
+    store.close();
+  });
+
   it("keeps long-term delivery history after the short-term projection is pruned", () => {
     const store = new MessagePolicyStore(dbFile);
     const now = new Date();

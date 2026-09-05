@@ -158,6 +158,98 @@ export class SmtpChannel implements AlertChannel {
   }
 }
 
+/* ----------------------------------- bark ----------------------------------- */
+
+export interface BarkEnv {
+  BUTLER_BARK_DEVICE_KEY?: string;
+  BUTLER_BARK_SERVER?: string;
+}
+
+export interface BarkChannelOptions {
+  env?: BarkEnv;
+  fetchImpl?: FetchLike;
+  timeoutMs?: number;
+}
+
+/** Bark（iOS 推送）：自托管服务也走同一 JSON 协议，server 可覆盖默认官方端点。 */
+export class BarkChannel implements AlertChannel {
+  readonly name = "bark";
+  private readonly deviceKey: string;
+  private readonly server: string;
+  private readonly fetchImpl: FetchLike;
+  private readonly timeoutMs: number;
+
+  constructor(options: BarkChannelOptions = {}) {
+    const env = options.env ?? process.env;
+    this.deviceKey = (env.BUTLER_BARK_DEVICE_KEY ?? "").trim();
+    this.server = (env.BUTLER_BARK_SERVER ?? "").trim().replace(/\/+$/, "") || "https://api.day.app";
+    this.fetchImpl = options.fetchImpl ?? ((url, init) => fetch(url, init));
+    this.timeoutMs = options.timeoutMs ?? 5000;
+  }
+
+  isConfigured(): boolean {
+    return this.deviceKey !== "";
+  }
+
+  async send(message: OutboundMessage): Promise<void> {
+    if (!this.isConfigured()) throw new Error("bark: missing credentials");
+    const res = await this.fetchImpl(`${this.server}/${encodeURIComponent(this.deviceKey)}`, {
+      method: "POST",
+      headers: { "content-type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ title: message.title, body: formatText(message), group: "butler" }),
+      signal: AbortSignal.timeout(this.timeoutMs),
+    });
+    if (!res.ok) {
+      throw new Error(`bark push failed: HTTP ${res.status} ${await res.text()}`);
+    }
+  }
+}
+
+/* -------------------------------- serverchan -------------------------------- */
+
+export interface ServerChanEnv {
+  BUTLER_SERVERCHAN_SENDKEY?: string;
+}
+
+export interface ServerChanChannelOptions {
+  env?: ServerChanEnv;
+  fetchImpl?: FetchLike;
+  timeoutMs?: number;
+}
+
+/** Server酱（微信服务号推送）：title 为摘要，desp 为正文（Markdown）。 */
+export class ServerChanChannel implements AlertChannel {
+  readonly name = "serverchan";
+  private readonly sendKey: string;
+  private readonly fetchImpl: FetchLike;
+  private readonly timeoutMs: number;
+
+  constructor(options: ServerChanChannelOptions = {}) {
+    const env = options.env ?? process.env;
+    this.sendKey = (env.BUTLER_SERVERCHAN_SENDKEY ?? "").trim();
+    this.fetchImpl = options.fetchImpl ?? ((url, init) => fetch(url, init));
+    this.timeoutMs = options.timeoutMs ?? 5000;
+  }
+
+  isConfigured(): boolean {
+    return this.sendKey !== "";
+  }
+
+  async send(message: OutboundMessage): Promise<void> {
+    if (!this.isConfigured()) throw new Error("serverchan: missing credentials");
+    const form = new URLSearchParams({ title: message.title, desp: formatText(message) });
+    const res = await this.fetchImpl(`https://sctapi.ftqq.com/${encodeURIComponent(this.sendKey)}.send`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: form.toString(),
+      signal: AbortSignal.timeout(this.timeoutMs),
+    });
+    if (!res.ok) {
+      throw new Error(`serverchan push failed: HTTP ${res.status} ${await res.text()}`);
+    }
+  }
+}
+
 /* --------------------------------- 辅助函数 -------------------------------- */
 
 function formatText(message: OutboundMessage): string {
@@ -176,7 +268,14 @@ export function degradedChannelLabels(channels: AlertChannel[]): string[] {
     .map((channel) => `${channel.name}:missing-credentials`);
 }
 
-/** 从 env 组装默认外发候选序列：Telegram → SMTP。 */
-export function buildEnvChannels(env: TelegramEnv & SmtpEnv = process.env): AlertChannel[] {
-  return [new TelegramChannel({ env }), new SmtpChannel({ env })];
+/** 从 env 组装默认外发候选序列：Telegram → Bark → Server酱 → SMTP。 */
+export function buildEnvChannels(
+  env: TelegramEnv & SmtpEnv & BarkEnv & ServerChanEnv = process.env,
+): AlertChannel[] {
+  return [
+    new TelegramChannel({ env }),
+    new BarkChannel({ env }),
+    new ServerChanChannel({ env }),
+    new SmtpChannel({ env }),
+  ];
 }

@@ -2,7 +2,7 @@
   "frameworkId": "hermes",
   "displayName": "Hermes",
   "contractVersion": "1.x",
-  "adapterVersion": "1.0.0-beta.28",
+  "adapterVersion": "1.0.0-beta.30",
   "declaredLevel": 2,
   "capabilities": [
     "probe",

@@ -2,6 +2,8 @@
  * 网关页共享模型与文案映射：payload 类型、标签字典、
  * 状态 → 徽标 tone 的唯一换算出口，以及纯函数工具。
  */
+import type { OutboxState } from "@butler/contract";
+
 import type { SemanticTone } from "../../components/StatusBadge.js";
 
 export interface RateLimitMatch {
@@ -181,6 +183,9 @@ export interface MessageOverviewPayload {
 /** 消息页恢复面板的操作与原因：以唯一根因代替并列横幅。 */
 export type RecoveryAction = "reconnect" | "refresh";
 export type RecoveryReason = "bridge" | "messages" | "watch" | "alerts" | "records" | "refresh";
+
+/** 消息明细状态过滤（all = 不过滤）；源枚举来自 @butler/contract 的 OutboxState，避免前后端双份漂移。 */
+export type MessageStateFilter = "all" | OutboxState;
 
 export interface RecoveryDetail {
   reason: RecoveryReason;

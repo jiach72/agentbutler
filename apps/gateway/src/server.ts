@@ -13,9 +13,10 @@
  */
 import path from "node:path";
 import os from "node:os";
+import { timingSafeEqual } from "node:crypto";
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import { CONTROL_API_SCHEMA_VERSION, CONTRACT_VERSION, isOutboxState } from "@butler/contract";
-import type { ChannelControlPort, InboundHistoryView, PolicySnapshot, Result } from "@butler/contract";
+import type { ChannelControlPort, InboundHistoryView, OutboxMessageView, PolicySnapshot, Result } from "@butler/contract";
 import { readHermesConfig } from "@butler/adapter-hermes";
 import { ensureButlerHome } from "@butler/core";
 import { buildEnvChannels, degradedChannelLabels, type AlertChannel } from "./channels.js";
@@ -64,7 +65,7 @@ function hasAllowedOrigin(origin: string): boolean {
     .filter((value) => value !== "")
     .includes(origin);
 }
-export const GATEWAY_SERVICE_VERSION = `gateway@1.0.0-beta.28+${CONTRACT_VERSION}`;
+export const GATEWAY_SERVICE_VERSION = `gateway@1.0.0-beta.30+${CONTRACT_VERSION}`;
 
 export type MessageDeliveryMode = "native" | "observe" | "disabled";
 
@@ -96,11 +97,17 @@ export interface GatewayServerOptions {
   messageStore?: MessagePolicyStore;
   /** M5 入站消息优化对照历史（由 Hermes 消息运行时提供）。 */
   inboundHistory?: (limit?: number) => Promise<Result<InboundHistoryView>>;
+  /** 死信重投（dead_letter → policy_pending；由 Hermes 消息运行时注入）。 */
+  redeliver?: (messageId: string) => Promise<Result<OutboxMessageView>>;
   /** Bridge 通道控制面端口（目录/启停/微信扫码；仅 Hermes 消息运行时注入）。 */
   channelControl?: ChannelControlPort;
   /** Hermes native is authoritative by default; the Butler runtime is observe-only when enabled. */
   messageMode?: MessageDeliveryMode;
   nativeMinIntervalSec?: number;
+  /** 访问口令（测试显式注入用；生产缺省读 env BUTLER_ACCESS_TOKEN，避免测试间共享 env 竞态）。 */
+  accessToken?: string;
+  /** /internal/hermes/* 每分钟 wake 上限（测试显式注入用；生产缺省读 env，默认 120）。 */
+  wakeRateLimit?: number;
 }
 
 export interface GatewayHandle {
@@ -134,6 +141,50 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
   });
 
   const app = Fastify({ logger: false, bodyLimit: MAX_BODY_BYTES }) as unknown as GatewayApp;
+
+  /**
+   * 访问口令（配置了 BUTLER_ACCESS_TOKEN 时启用）：网关能读全部消息正文、改策略与 DND，
+   * 内网不等于可信。/healthz 与 /internal/hermes/* 豁免（后者仅触发 wake 且单独限速）。
+   */
+  const accessToken = (options.accessToken ?? process.env["BUTLER_ACCESS_TOKEN"] ?? "").trim();
+  if (accessToken !== "") {
+    app.addHook("onRequest", async (request, reply) => {
+      if (request.url === "/healthz" || request.url.startsWith("/internal/hermes/")) return;
+      const auth = request.headers["authorization"];
+      const match = typeof auth === "string" ? /^Bearer\s+(.+)$/i.exec(auth.trim()) : null;
+      const header = request.headers["x-butler-token"];
+      const queryToken = new URL(request.url, "http://127.0.0.1").searchParams.get("token");
+      const received = (match?.[1] ?? (typeof header === "string" ? header : "") ?? "").trim() || (queryToken ?? "").trim();
+      const expected = Buffer.from(accessToken, "utf8");
+      const receivedBytes = Buffer.from(received, "utf8");
+      if (
+        expected.length !== receivedBytes.length ||
+        !timingSafeEqual(expected, receivedBytes)
+      ) {
+        reply.code(401);
+        return reply.send({ error: "unauthorized", reason: "需要访问口令" });
+      }
+    });
+  }
+
+  /** /internal/hermes/* 固定窗口限速：这些端点只触发 wake，但也不能被本机进程无限打。 */
+  const wakeRateLimit =
+    options.wakeRateLimit ?? (Number(process.env["BUTLER_GATEWAY_WAKE_RATE_LIMIT"] ?? 120) || 120);
+  let wakeWindowStart = 0;
+  let wakeCount = 0;
+  app.addHook("onRequest", async (request, reply) => {
+    if (!request.url.startsWith("/internal/hermes/")) return;
+    const nowMs = Date.now();
+    if (nowMs - wakeWindowStart >= 60_000) {
+      wakeWindowStart = nowMs;
+      wakeCount = 0;
+    }
+    wakeCount += 1;
+    if (wakeCount > wakeRateLimit) {
+      reply.code(429);
+      return reply.send({ error: "wake-rate-limited", reason: "内部提示触发过于频繁，本轮已忽略" });
+    }
+  });
 
   /**
    * 来源校验（CSRF 防线）。网关能改免打扰规则、改发送策略、标记已读。
@@ -334,6 +385,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
     options.messageMode,
     options.nativeMinIntervalSec,
     options.channelControl,
+    options.redeliver,
   );
 
   if (options.startLoop !== false) loop.start();
@@ -348,6 +400,7 @@ function registerMessageRoutes(
   messageMode?: MessageDeliveryMode,
   nativeMinIntervalSec?: number,
   channelControl?: ChannelControlPort,
+  redeliver?: (messageId: string) => Promise<Result<OutboxMessageView>>,
 ): void {
   const hints = new BoundedHintDeduper(10_000);
 
@@ -465,6 +518,27 @@ function registerMessageRoutes(
     } catch {
       return bridgeUnavailable(reply, "E303");
     }
+  });
+
+  /** 死信重投：把 dead_letter 消息放回策略管线（dead_letter → policy_pending，新变更序列）。 */
+  app.post("/api/messages/:messageId/redeliver", async (request, reply) => {
+    if (redeliver === undefined) return bridgeUnavailable(reply, "E302");
+    const messageId = readString((request.params as Record<string, unknown>)["messageId"]);
+    if (messageId === null)
+      return reply.code(400).send({ error: "messageId must be a non-empty string" });
+    const result = await redeliver(messageId);
+    if (!result.ok || result.data === undefined) {
+      return reply.code(502).send({
+        error: "redeliver-failed",
+        detail: result.ok ? undefined : result.error?.userHint ?? result.error?.message,
+      });
+    }
+    // 立即触发一轮 reconcile，避免重投消息等待下一个轮询周期。
+    messageService?.wake();
+    return {
+      message: result.data,
+      nextStep: "已重新排队进入策略管线，稍后可在消息明细中查看投递结果。",
+    };
   });
 
   /** Bridge 通道控制面代理：未注入端口或 Bridge 不可达时统一 503。 */
@@ -688,6 +762,24 @@ function registerMessageRoutes(
       days,
       retentionDays: MESSAGE_OUTCOME_HISTORY_RETENTION_DAYS,
       items: messageStore.dailyOutcomeHistory(days),
+    };
+  });
+
+  /** 按通道聚合的送达指标：结构化计数，替代对错误文案的正则猜测。 */
+  app.get("/api/messages/metrics", async (request, reply) => {
+    if (messageStore === undefined) return bridgeUnavailable(reply, "E302");
+    const query = (request.query ?? {}) as Record<string, string | undefined>;
+    const parsed = Number(query["days"] ?? "30");
+    const days = Number.isFinite(parsed) ? Math.floor(parsed) : 30;
+    if (days < 1 || days > MESSAGE_OUTCOME_HISTORY_RETENTION_DAYS) {
+      return reply.code(400).send({
+        error: `invalid days; expected an integer from 1 through ${MESSAGE_OUTCOME_HISTORY_RETENTION_DAYS}`,
+      });
+    }
+    return {
+      days,
+      retentionDays: MESSAGE_OUTCOME_HISTORY_RETENTION_DAYS,
+      ...messageStore.channelMetrics(days),
     };
   });
 

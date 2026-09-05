@@ -229,6 +229,8 @@ export interface MessagingAdapter {
     instance: InstanceRef,
     decision: MessageDecision,
   ): Promise<Result<OutboxMessageView>>;
+  /** 死信重投：dead_letter → policy_pending（新 change sequence），由运营者显式触发。 */
+  requeueOutbound(instance: InstanceRef, messageId: string): Promise<Result<OutboxMessageView>>;
   deliver(instance: InstanceRef, request: DeliveryRequest): Promise<Result<DeliveryAck>>;
   forwardInbound(
     instance: InstanceRef,

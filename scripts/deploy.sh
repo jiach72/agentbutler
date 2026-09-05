@@ -209,6 +209,11 @@ for _ in {1..30}; do
   if [[ "$web_ok" == true && "$gateway_ok" == true && "$watch_ok" == true ]]; then
     published=$(compose port butler-web 7531 | head -n 1)
     echo "Agent Butler is ready: http://$published"
+    # Windows 宿主经 WSL portproxy 访问面板；WSL 重启换 IP 后浏览器会打不开 7531，
+    # 提前给出可自助执行的修复命令（AGENTS.md 故障对照同款）。
+    if grep -qiE '(microsoft|WSL)' /proc/version 2>/dev/null; then
+      echo "提示：Windows 浏览器打不开面板时，多为 WSL IP 变化导致 portproxy 失效；"      echo "      在管理员 PowerShell 执行 scripts/fix-portproxy.ps1 即可恢复。"
+    fi
     # 消息网关链路状态：只提示，不阻断部署。Gateway 在 Bridge 离线时按设计
     # 持续重试并自动接回（见 AGENTS.md 第 3 节），这里给部署者一个明确信号。
     if [[ -n "$bridge_url" ]]; then

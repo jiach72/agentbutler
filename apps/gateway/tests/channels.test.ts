@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   availableOutbound,
+  BarkChannel,
   buildEnvChannels,
   degradedChannelLabels,
   NullChannel,
+  ServerChanChannel,
   SmtpChannel,
   TelegramChannel,
   type FetchLike,
@@ -132,11 +134,87 @@ describe("NullChannel 与通道辅助函数", () => {
   it("availableOutbound / degradedChannelLabels：按配置状态分流", () => {
     const channels = buildEnvChannels({ ...TELEGRAM_ENV }); // 只配了 telegram
     expect(availableOutbound(channels).map((c) => c.name)).toEqual(["telegram"]);
-    expect(degradedChannelLabels(channels)).toEqual(["smtp:missing-credentials"]);
+    expect(degradedChannelLabels(channels)).toEqual([
+      "bark:missing-credentials",
+      "serverchan:missing-credentials",
+      "smtp:missing-credentials",
+    ]);
 
     expect(degradedChannelLabels(buildEnvChannels({}))).toEqual([
       "telegram:missing-credentials",
+      "bark:missing-credentials",
+      "serverchan:missing-credentials",
       "smtp:missing-credentials",
     ]);
+  });
+});
+
+describe("BarkChannel", () => {
+  const BARK_ENV = { BUTLER_BARK_DEVICE_KEY: "device-key-1" };
+
+  it("凭据缺失时不可用，齐备时可用；server 可覆盖官方端点", () => {
+    expect(new BarkChannel({ env: {} }).isConfigured()).toBe(false);
+    expect(new BarkChannel({ env: BARK_ENV }).isConfigured()).toBe(true);
+  });
+
+  it("发送：POST JSON 到 {server}/{deviceKey}，带 group=butler", async () => {
+    const calls: Array<{ url: string; init: { method: string; headers: Record<string, string>; body: string } }> = [];
+    const fetchImpl: FetchLike = async (url, init) => {
+      calls.push({ url, init });
+      return { ok: true, status: 200, text: async () => '{"code":200}' };
+    };
+    const channel = new BarkChannel({ env: BARK_ENV, fetchImpl });
+
+    await channel.send({ severity: "critical", title: "消息链路离线", body: "Bridge 不可达", source: "gateway" });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe("https://api.day.app/device-key-1");
+    expect(calls[0]!.init.method).toBe("POST");
+    expect(calls[0]!.init.headers["content-type"]).toContain("application/json");
+    const payload = JSON.parse(calls[0]!.init.body) as Record<string, string>;
+    expect(payload["title"]).toBe("消息链路离线");
+    expect(payload["body"]).toContain("Bridge 不可达");
+    expect(payload["group"]).toBe("butler");
+  });
+
+  it("失败路径：HTTP 非 2xx 抛错", async () => {
+    const fetchImpl: FetchLike = async () => ({ ok: false, status: 400, text: async () => "bad" });
+    const channel = new BarkChannel({ env: BARK_ENV, fetchImpl });
+    await expect(
+      channel.send({ severity: "critical", title: "t", body: "b", source: "s" }),
+    ).rejects.toThrow("HTTP 400");
+  });
+});
+
+describe("ServerChanChannel", () => {
+  const SC_ENV = { BUTLER_SERVERCHAN_SENDKEY: "SCT-key-1" };
+
+  it("凭据缺失时不可用，齐备时可用", () => {
+    expect(new ServerChanChannel({ env: {} }).isConfigured()).toBe(false);
+    expect(new ServerChanChannel({ env: SC_ENV }).isConfigured()).toBe(true);
+  });
+
+  it("发送：POST form 到 sctapi .send，title 与 desp 对应", async () => {
+    const calls: Array<{ url: string; init: { method: string; body: string } }> = [];
+    const fetchImpl: FetchLike = async (url, init) => {
+      calls.push({ url, init: init as { method: string; body: string } });
+      return { ok: true, status: 200, text: async () => '{"code":0}' };
+    };
+    const channel = new ServerChanChannel({ env: SC_ENV, fetchImpl });
+
+    await channel.send({ severity: "critical", title: "升级已回滚", body: "健康验收未通过", source: "updater" });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe("https://sctapi.ftqq.com/SCT-key-1.send");
+    const form = new URLSearchParams(calls[0]!.init.body);
+    expect(form.get("title")).toBe("升级已回滚");
+    expect(form.get("desp")).toContain("健康验收未通过");
+  });
+});
+
+describe("buildEnvChannels", () => {
+  it("默认候选序列：Telegram → Bark → Server酱 → SMTP", () => {
+    const channels = buildEnvChannels({});
+    expect(channels.map((channel) => channel.name)).toEqual(["telegram", "bark", "serverchan", "smtp"]);
   });
 });

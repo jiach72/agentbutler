@@ -10,6 +10,7 @@ import type {
   ChannelControlPort,
   InboundHistoryView,
   MessagingAdapter,
+  OutboxMessageView,
   Result,
 } from "@butler/contract";
 
@@ -58,6 +59,8 @@ export interface HermesMessageRuntime {
   start(): Promise<void>;
   stop(): Promise<void>;
   inboundHistory(limit?: number): Promise<Result<InboundHistoryView>>;
+  /** 死信重投（dead_letter → policy_pending），由面板显式触发。 */
+  requeueMessage(messageId: string): Promise<Result<OutboxMessageView>>;
 }
 
 interface ResolvedRuntimeConfig {
@@ -201,6 +204,7 @@ export function createHermesMessageRuntime(
     start,
     stop,
     inboundHistory: (limit?: number) => adapter.inboundHistory(instance, limit),
+    requeueMessage: (messageId: string) => adapter.requeueOutbound(instance, messageId),
   };
 }
 

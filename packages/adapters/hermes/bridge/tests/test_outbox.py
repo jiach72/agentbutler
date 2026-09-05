@@ -428,6 +428,27 @@ class OutboxTest(unittest.TestCase):
         dead_feed = self.outbox.list_changes(retried["sequence"])
         self.assertEqual([item["state"] for item in dead_feed["items"]], ["dead_letter"])
 
+    def test_requeue_dead_letter_reenters_policy_pipeline(self) -> None:
+        envelope, _captured_seq = self._capture_and_ready(
+            "018bcfe5-6800-7000-8000-000000000304", "decision-seq-4"
+        )
+        message_id = envelope["messageId"]
+        begun = self.outbox.begin_delivery(message_id, "attempt-seq-4", envelope["contentSha256"])
+        self.outbox.mark_retry(message_id, "attempt-seq-4", "provider 500")
+        dead = self.outbox.mark_dead_letter(message_id, envelope["contentSha256"], "manual review")
+
+        requeued = self.outbox.requeue_dead_letter(message_id)
+
+        self.assertEqual(requeued["state"], "policy_pending")
+        self.assertGreater(requeued["sequence"], dead["sequence"])
+        self.assertEqual(requeued["attemptCount"], 0)
+        feed = self.outbox.list_changes(dead["sequence"])
+        self.assertEqual([item["state"] for item in feed["items"]], ["policy_pending"])
+
+        # 只有 dead_letter 可以重投：重新排队后再次调用必须被拒绝
+        with self.assertRaises(ValueError):
+            self.outbox.requeue_dead_letter(message_id)
+
     def test_stale_delivering_recovery_allocates_change_sequence(self) -> None:
         envelope, captured_seq = self._capture_and_ready(
             "018bcfe5-6800-7000-8000-000000000303", "decision-seq-3"

@@ -66,6 +66,7 @@ class FakeMessagingAdapter implements MessagingAdapter {
   readonly prewarms: string[] = [];
   readonly policies: PolicySnapshot[] = [];
   changes: OutboxChangeBatch = batch();
+  requeueOutbound = async () => fail("E002", "not used");
   decisionRows = new Map<string, OutboxMessageView>();
   decisionFailure: Error | undefined;
   deliveryResult: Result<DeliveryAck> = ok({

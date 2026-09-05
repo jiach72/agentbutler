@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { execFileSync, execSync } from "node:child_process";
+import { execFile as execFileCallback, exec as execCallback } from "node:child_process";
+import { promisify } from "node:util";
 import {
   existsSync,
   mkdirSync,
@@ -12,6 +13,9 @@ import {
 } from "node:fs";
 import { basename, delimiter, dirname, extname, join } from "node:path";
 import { randomUUID, timingSafeEqual } from "node:crypto";
+
+const execFile = promisify(execFileCallback);
+const exec = promisify(execCallback);
 
 type CommandResult = { ok: boolean; stdout: string; error: string };
 type JobStatus = "running" | "done" | "failed" | "rolled-back";
@@ -95,35 +99,37 @@ function validateTarget(raw: string): { ok: true; value: string } | { ok: false;
   return { ok: true, value };
 }
 
-function run(command: string, args: string[], cwd = sourceDir, timeout = 120_000): CommandResult {
+/**
+ * 所有子进程调用都是异步的：checkout/install-build/restart 阶段可能长达数十分钟，
+ * 事件循环一旦被同步进程调用占住，/healthz 与 /api/status 会一起失联，
+ * 面板会把"正在升级"误判为"管家挂了"。异步是升级期可观测性的前提。
+ */
+async function run(command: string, args: string[], cwd = sourceDir, timeout = 120_000): Promise<CommandResult> {
+  const options = {
+    cwd,
+    encoding: "utf8" as const,
+    timeout,
+    maxBuffer: 32 * 1024 * 1024,
+    windowsHide: true,
+  };
   try {
-    const options: {
-      cwd: string;
-      encoding: "utf8";
-      timeout: number;
-      stdio: ["ignore", "pipe", "pipe"];
-    } = {
-      cwd,
-      encoding: "utf8",
-      timeout,
-      stdio: ["ignore", "pipe", "pipe"],
-    };
-    const stdout = isWindowsBatchCommand(command)
-      ? execSync(windowsCommandLine(command, args), options)
-      : execFileSync(command, args, options);
+    const { stdout } = isWindowsBatchCommand(command)
+      ? await exec(windowsCommandLine(command, args), options)
+      : await execFile(command, args, options);
     return { ok: true, stdout: stdout.trim(), error: "" };
   } catch (error) {
-    const detail = error as { stderr?: Buffer | string; message?: string };
-    return {
-      ok: false,
-      stdout: "",
-      error: detail.stderr !== undefined ? String(detail.stderr).trim() : detail.message ?? String(error),
-    };
+    const detail = error as { stderr?: Buffer | string; message?: string; killed?: boolean };
+    const message = detail.killed === true
+      ? `命令超时被终止（>${Math.round(timeout / 1000)}s）`
+      : detail.stderr !== undefined && String(detail.stderr).trim() !== ""
+        ? String(detail.stderr).trim()
+        : detail.message ?? String(error);
+    return { ok: false, stdout: "", error: message };
   }
 }
 
 /**
- * Node cannot execute .cmd/.bat files through execFileSync on Windows. corepack and
+ * Node cannot execute .cmd/.bat files through execFile on Windows. corepack and
  * configured Compose executables can be command scripts there, so invoke only those through cmd.exe.
  * All updater-controlled arguments are validated before reaching this boundary.
  */
@@ -162,7 +168,7 @@ function packageVersion(): string {
   return typeof pkg.version === "string" && pkg.version.trim() !== "" ? pkg.version.trim() : "0.0.0-dev";
 }
 
-function git(args: string[], timeout = 20_000): CommandResult {
+function git(args: string[], timeout = 20_000): Promise<CommandResult> {
   return run("git", args, sourceDir, timeout);
 }
 
@@ -174,27 +180,58 @@ function channelOf(version: string): "stable" | "beta" {
   return version.includes("-") ? "beta" : "stable";
 }
 
-function updates(): Array<{ version: string; channel: "stable" | "beta"; commit: string | null; tag: string }> {
-  const result = git(["tag", "--list"]);
+async function updates(): Promise<Array<{ version: string; channel: "stable" | "beta"; commit: string | null; tag: string }>> {
+  const result = await git(["tag", "--list"]);
   if (!result.ok) return [];
-  return result.stdout
+  const tags = result.stdout
     .split("\n")
     .map((tag) => tag.trim())
-    .filter((tag) => tag !== "" && semanticVersion(tag))
-    .map((tag) => {
-      const rev = git(["rev-parse", "--short", tag]);
+    .filter((tag) => tag !== "" && semanticVersion(tag));
+  if (tags.length === 0) return [];
+  // 一次 rev-parse 解析全部 tag，避免每个 tag 一个子进程的 N+1 调用。
+  const revs = await git(["rev-parse", "--short", ...tags]);
+  const revList = revs.ok ? revs.stdout.split("\n").map((line) => line.trim()) : [];
+  return tags
+    .map((tag, index) => {
       const version = tag.replace(/^v/i, "");
-      return { version, channel: channelOf(version), commit: rev.ok ? rev.stdout : null, tag };
+      return { version, channel: channelOf(version), commit: revList[index] ?? null, tag };
     })
     .sort((left, right) => right.version.localeCompare(left.version, undefined, { numeric: true }));
 }
 
-function status(lastJob: Job | null = readJson<Job | null>(stateFile, null)): Record<string, unknown> {
-  const branch = git(["branch", "--show-current"]);
-  const commit = git(["rev-parse", "--short", "HEAD"]);
-  const tagResult = git(["describe", "--tags", "--exact-match", "--always"]);
-  const remote = git(["remote", "get-url", "origin"]);
-  const clean = git(["status", "--porcelain"]);
+/** 仓库侧状态（git 探测 + 版本偏好 + 快照清单），与进行中的任务信息分开缓存。 */
+type RepoView = {
+  reachable: boolean;
+  source: string;
+  version: string;
+  branch: string | null;
+  commit: string | null;
+  tag: string | null;
+  repository: string | null;
+  repositorySource: string | null;
+  repositoryConfigured: boolean;
+  repoClean: boolean | null;
+  remoteConfigured: boolean;
+  upgradeSupported: boolean;
+  prefs: { channel: string; locked: boolean };
+  snapshots: unknown[];
+  snapshotRetention: number;
+  availableUpdates: Awaited<ReturnType<typeof updates>>;
+};
+
+/**
+ * 仓库视图缓存：/api/status 曾在每次被调用时同步执行 5+ 个 git 子进程，
+ * 面板 2s 轮询一次等于持续拖住事件循环。这里以 10s TTL 复用计算结果。
+ */
+const REPO_VIEW_TTL_MS = 10_000;
+let repoViewCache: { at: number; view: RepoView } | null = null;
+
+async function computeRepoView(): Promise<RepoView> {
+  const branch = await git(["branch", "--show-current"]);
+  const commit = await git(["rev-parse", "--short", "HEAD"]);
+  const tagResult = await git(["describe", "--tags", "--exact-match", "--always"]);
+  const remote = await git(["remote", "get-url", "origin"]);
+  const clean = await git(["status", "--porcelain"]);
   const tag = tagResult.ok && tagResult.stdout !== "" && !/^[0-9a-f]{7,40}$/i.test(tagResult.stdout)
     ? tagResult.stdout
     : null;
@@ -208,20 +245,34 @@ function status(lastJob: Job | null = readJson<Job | null>(stateFile, null)): Re
     repository: remote.ok && remote.stdout !== "" ? remote.stdout.replace(/\.git$/, "") : repositoryUrl,
     repositorySource: remote.ok ? "git-origin" : repositoryUrl === null ? null : "configured-default",
     repositoryConfigured: remote.ok || repositoryUrl !== null,
-    repoClean: clean.ok && clean.stdout === "",
+    repoClean: clean.ok ? clean.stdout === "" : null,
     remoteConfigured: remote.ok,
     upgradeSupported: commit.ok,
     prefs: readJson(join(stateDir, "prefs.json"), { channel: "stable", locked: false }),
     snapshots: readJson(join(stateDir, "snapshots.json"), []),
     snapshotRetention: 3,
-    availableUpdates: updates(),
-    lastJob,
-    checkedAt: now(),
+    availableUpdates: await updates(),
   };
 }
 
-function persistStatus(lastJob?: Job | null): void {
-  writeJson(statusFile, status(lastJob));
+async function repoView(): Promise<RepoView> {
+  if (repoViewCache !== null && Date.now() - repoViewCache.at < REPO_VIEW_TTL_MS) {
+    return repoViewCache.view;
+  }
+  const view = await computeRepoView();
+  repoViewCache = { at: Date.now(), view };
+  return view;
+}
+
+/** 组装对外状态视图。升级进行中绝不触碰 git（工作树正被 checkout/构建），用缓存仓库视图 + 实时 job。 */
+async function statusView(lastJob: Job | null): Promise<Record<string, unknown>> {
+  const view = active && repoViewCache !== null ? repoViewCache.view : await repoView();
+  return { ...view, lastJob, checkedAt: now() };
+}
+
+async function persistStatus(lastJob?: Job | null): Promise<void> {
+  const cachedJob = lastJob === undefined ? readJson<Job | null>(stateFile, null) : lastJob;
+  writeJson(statusFile, await statusView(cachedJob));
 }
 
 async function waitHealthy(): Promise<boolean> {
@@ -242,7 +293,7 @@ async function waitHealthy(): Promise<boolean> {
   return false;
 }
 
-function composeUp(): CommandResult {
+async function composeUp(): Promise<CommandResult> {
   const composeArgs = ["docker-compose", "docker-compose.exe", "docker-compose.cmd", "docker-compose.bat"].includes(basename(composeBinary).toLowerCase())
     ? []
     : ["compose"];
@@ -254,8 +305,8 @@ function composeUp(): CommandResult {
   );
 }
 
-function build(): CommandResult {
-  const install = run(corepackBinary, ["pnpm", "install", "--frozen-lockfile"], sourceDir, 15 * 60_000);
+async function build(): Promise<CommandResult> {
+  const install = await run(corepackBinary, ["pnpm", "install", "--frozen-lockfile"], sourceDir, 15 * 60_000);
   if (!install.ok) return install;
   return run(corepackBinary, ["pnpm", "build"], sourceDir, 15 * 60_000);
 }
@@ -291,34 +342,34 @@ function releaseLock(): void {
 
 async function runJob(job: Job): Promise<void> {
   const oldCommit = job.from;
-  const update = (patch: Partial<Job>): void => {
+  const update = async (patch: Partial<Job>): Promise<void> => {
     job = { ...job, ...patch };
     writeJson(stateFile, job);
-    persistStatus(job);
+    await persistStatus(job);
   };
   try {
-    update({ phase: "checkout" });
-    const remote = git(["remote", "get-url", "origin"], 10_000);
-    if (remote.ok) git(["fetch", "--tags", "origin"], 90_000);
-    const checkout = git(["checkout", job.target], 120_000);
+    await update({ phase: "checkout" });
+    const remote = await git(["remote", "get-url", "origin"], 10_000);
+    if (remote.ok) await git(["fetch", "--tags", "origin"], 90_000);
+    const checkout = await git(["checkout", job.target], 120_000);
     if (!checkout.ok) throw new Error("切到目标版本失败：" + checkout.error);
-    update({ phase: "install-build" });
-    const built = build();
+    await update({ phase: "install-build" });
+    const built = await build();
     if (!built.ok) throw new Error("构建失败：" + built.error);
-    update({ phase: "restart" });
-    const restarted = composeUp();
+    await update({ phase: "restart" });
+    const restarted = await composeUp();
     if (!restarted.ok) throw new Error("重启服务失败：" + restarted.error);
-    update({ phase: "verify" });
+    await update({ phase: "verify" });
     if (!(await waitHealthy())) throw new Error("健康验收未通过（服务未能恢复）");
-    update({ status: "done", phase: "done", finishedAt: now(), error: null });
+    await update({ status: "done", phase: "done", finishedAt: now(), error: null });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    update({ status: "running", phase: "rollback", error: message });
-    const rollback = git(["checkout", oldCommit], 120_000);
-    const rebuilt = rollback.ok ? build() : rollback;
-    const restarted = rebuilt.ok ? composeUp() : rebuilt;
+    await update({ status: "running", phase: "rollback", error: message });
+    const rollback = await git(["checkout", oldCommit], 120_000);
+    const rebuilt = rollback.ok ? await build() : rollback;
+    const restarted = rebuilt.ok ? await composeUp() : rebuilt;
     const healthy = restarted.ok && (await waitHealthy());
-    update({
+    await update({
       status: healthy ? "rolled-back" : "failed",
       phase: healthy ? "done" : "failed",
       finishedAt: now(),
@@ -326,6 +377,8 @@ async function runJob(job: Job): Promise<void> {
     });
   } finally {
     active = false;
+    // 任务收尾后让下一次 /api/status 重新探测仓库状态（checkout 已改变 HEAD）。
+    repoViewCache = null;
     releaseLock();
   }
 }
@@ -360,8 +413,10 @@ const server = createServer(async (request, response) => {
   }
 
   if (request.method === "GET" && path === "/api/status") {
-    persistStatus();
-    return send(response, 200, readJson(statusFile, status()));
+    const lastJob = readJson<Job | null>(stateFile, null);
+    const view = await statusView(lastJob);
+    writeJson(statusFile, view);
+    return send(response, 200, view);
   }
   if (request.method !== "POST") return send(response, 405, { error: "method-not-allowed" });
   if (path !== "/api/upgrade" && path !== "/api/rollback") return send(response, 404, { error: "not-found" });
@@ -384,12 +439,12 @@ const server = createServer(async (request, response) => {
     return send(response, 400, { error: checked.reason });
   }
   const target = checked.value;
-  const current = git(["rev-parse", "--short", "HEAD"]);
+  const current = await git(["rev-parse", "--short", "HEAD"]);
   if (!current.ok) {
     releaseLock();
     return send(response, 503, { error: "no-repo" });
   }
-  const clean = git(["status", "--porcelain"]);
+  const clean = await git(["status", "--porcelain"]);
   if (!clean.ok || clean.stdout !== "") {
     releaseLock();
     return send(response, 409, { error: "repo-dirty", userHint: "更新前请先提交或清理源码改动。" });
@@ -408,14 +463,18 @@ const server = createServer(async (request, response) => {
   };
   active = true;
   writeJson(stateFile, job);
-  persistStatus(job);
-  void runJob(job);
+  // 202 必须在任务真正开始前发出：后续 checkout/build 都是异步等待，事件循环保持空闲。
+  void runJob(job).finally(() => {
+    void persistStatus(readJson<Job | null>(stateFile, null));
+  });
   return send(response, 202, { started: true, jobId: job.jobId });
 });
 
-mkdirSync(stateDir, { recursive: true });
-persistStatus();
-server.listen(port, host, () => console.log(`[butler-updater] listening on ${host}:${port}`));
+void (async () => {
+  mkdirSync(stateDir, { recursive: true });
+  await persistStatus();
+  server.listen(port, host, () => console.log(`[butler-updater] listening on ${host}:${port}`));
+})();
 
 process.once("SIGTERM", () => server.close(() => process.exit(0)));
 process.once("SIGINT", () => server.close(() => process.exit(0)));

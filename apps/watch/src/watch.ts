@@ -94,7 +94,6 @@ import {
   type PromptOptimizationService,
 } from "./prompt-optimization.js";
 import { createRepairSessionService } from "./http.js";
-import type { RepairSessionService } from "./repair-session.js";
 import { resolveButlerSourceDir } from "./self-upgrade.js";
 import {
   createWiredBreaker,
@@ -1747,7 +1746,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     upgrade: upgradeWithBackup,
     gateway,
     skills,
-    m6WritesEnabled: false,
+    m6WritesEnabled: config.m6WritesEnabled,
     audit: core.audit,
   });
 
@@ -1777,6 +1776,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       dataDir: core.paths.home,
       llm,
       skills,
+      m6WritesEnabled: config.m6WritesEnabled,
       memorySelfCheck: runMemorySelfCheck,
       renderDiagnostics: () =>
         renderDiagnosticReport({
