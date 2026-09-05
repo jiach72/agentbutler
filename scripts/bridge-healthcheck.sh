@@ -130,9 +130,15 @@ else
 fi
 
 # 7. Gateway 对外报告的消息连接状态。
+#    配置了访问口令时 Gateway 的业务路由要求鉴权（/healthz 与 /internal/hermes 豁免），
+#    这里从 .env 读取同一口令并作为 x-butler-token 携带。
 if [[ -n "$BRIDGE_URL" ]] && command -v docker >/dev/null 2>&1; then
-  if docker compose exec -T butler-gateway node -e '
-    fetch("http://127.0.0.1:7532/api/messages/status", { signal: AbortSignal.timeout(5000) })
+  ACCESS_TOKEN="$(env_value BUTLER_ACCESS_TOKEN)"
+  if docker compose exec -T -e BUTLER_HEALTHCHECK_TOKEN="$ACCESS_TOKEN" butler-gateway node -e '
+    const headers = process.env["BUTLER_HEALTHCHECK_TOKEN"]
+      ? { "x-butler-token": process.env["BUTLER_HEALTHCHECK_TOKEN"] }
+      : {};
+    fetch("http://127.0.0.1:7532/api/messages/status", { headers, signal: AbortSignal.timeout(5000) })
       .then(async (r) => { const b = await r.json(); process.exit(r.ok && b.bridge?.connected === true && b.bridge?.attached === true ? 0 : 1); })
       .catch(() => process.exit(1));
   ' >/dev/null 2>&1; then
