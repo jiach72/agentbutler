@@ -17,6 +17,7 @@ import { ActionStep } from "./steps/ActionStep.js";
 import { ResultStep } from "./steps/ResultStep.js";
 import { useTroubleshoot } from "./useTroubleshoot.js";
 import { isSymptomId } from "./symptoms.js";
+import "./troubleshoot.css";
 
 const STAGE_INDEX: Record<string, number> = {
   symptom: 0,
@@ -41,9 +42,9 @@ export function TroubleshootPage() {
     <section className="troubleshoot-page">
       <Flex vertical gap={24}>
         <PageHeader
-          eyebrow="排查"
-          title="有问题？我来帮你查"
-          description="不用懂技术，按你看到的现象选一个，管家会查清楚原因并给出可以点的处理办法。"
+          eyebrow="维护与升级"
+          title="排查问题"
+          description="按现象一步步排查：先描述问题，管家收集证据并给出可执行的处理方案。"
         />
 
         <WizardSteps current={STAGE_INDEX[wizard.stage] ?? 0} />

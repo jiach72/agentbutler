@@ -6,18 +6,52 @@
  * 2）不可用的动作不隐藏，折叠起来说明"为什么不能做"和"怎么才能做"，
  *    否则用户会以为是产品坏了。
  * 3）风险用后果说（会中断服务），不用等级说（high risk）。
+ * 展示层与全站统一：动作卡 = 图标底 + 名称 + 风险标签 + 说明与影响。
  */
-import { Alert, Card, Collapse, Flex, Radio, Typography } from "antd";
+import type { ComponentType } from "react";
+import {
+  ApiOutlined,
+  ClearOutlined,
+  ControlOutlined,
+  DatabaseOutlined,
+  PoweroffOutlined,
+  SyncOutlined,
+  ToolOutlined,
+} from "@ant-design/icons";
+import { Collapse, Flex, Radio, Typography } from "antd";
+import { SectionHeader } from "../../../components/SectionHeader.js";
 import { StatusBadge } from "../../../components/StatusBadge.js";
 import type { RecoveryActionView } from "../../dashboard/types.js";
 import type { SymptomId } from "../symptoms.js";
 import { WizardNav } from "./SymptomStep.js";
+
+const { Text, Paragraph } = Typography;
 
 const RISK_LABEL: Record<RecoveryActionView["risk"], { text: string; tone: "ok" | "warn" | "error" }> = {
   low: { text: "不影响使用", tone: "ok" },
   medium: { text: "会有短暂影响", tone: "warn" },
   high: { text: "会中断服务", tone: "error" },
 };
+
+const RISK_TILE_TONE: Record<RecoveryActionView["risk"], string> = {
+  low: "tone-ok",
+  medium: "tone-warn",
+  high: "tone-error",
+};
+
+/** 已知动作的图标底；未知动作回退为通用工具图标。 */
+const ACTION_ICONS: Record<string, ComponentType> = {
+  "reconnect-channel": ApiOutlined,
+  "cleanup-gateway": ClearOutlined,
+  "refresh-probe": SyncOutlined,
+  "restart-instance": PoweroffOutlined,
+  "apply-throttle-patch": ControlOutlined,
+  "rebuild-memory-index": DatabaseOutlined,
+};
+
+function actionIconOf(actionId: string): ComponentType {
+  return ACTION_ICONS[actionId] ?? ToolOutlined;
+}
 
 interface ActionStepProps {
   ranked: RecoveryActionView[];
@@ -45,45 +79,50 @@ export function ActionStep({
 
   return (
     <Flex vertical gap={16}>
-      <Typography.Title level={4} style={{ marginBottom: 0 }}>你想怎么处理？</Typography.Title>
-      <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+      <SectionHeader
+        kicker="选择处理"
+        title="你想怎么处理？"
+        extra={<Text type="secondary" style={{ fontSize: 12 }}>{`可用 ${available.length} 个 · 不可用 ${unavailable.length} 个`}</Text>}
+      />
+      <Paragraph type="secondary" style={{ marginBottom: 0 }}>
         已经按「先试影响最小的」排好序。没有把握就用推荐的那一个。
-      </Typography.Paragraph>
+      </Paragraph>
 
       {available.length === 0 ? (
-        <Alert
-          type="info"
-          showIcon
-          message="现在没有可以自动执行的动作"
-          description="检查项都通过了，或者当前环境不支持自动处理。可以先导出诊断报告，把它发给能帮你的人。"
-        />
+        <Flex className="ts-result is-info" gap={10}>
+          <Flex vertical gap={2} style={{ minWidth: 0 }}>
+            <Text strong>现在没有可以自动执行的动作</Text>
+            <Text type="secondary" style={{ fontSize: 13 }}>
+              检查项都通过了，或者当前环境不支持自动处理。可以先导出诊断报告，把它发给能帮你的人。
+            </Text>
+          </Flex>
+        </Flex>
       ) : (
         <Radio.Group
           value={selected ?? undefined}
           onChange={(event) => onSelect(String(event.target.value))}
-          style={{ display: "grid", gap: 12 }}
+          className="ts-action-grid"
         >
           {available.map((action) => {
             const risk = RISK_LABEL[action.risk];
+            const TileIcon = actionIconOf(action.id);
             return (
-              <Card key={action.id} size="small" variant="outlined">
-                <Radio value={action.id}>
-                  <Flex vertical gap={6}>
-                    <Flex align="center" gap={8} wrap>
-                      <Typography.Text strong>{action.label}</Typography.Text>
-                      {recommended?.id === action.id && (
-                        <StatusBadge tone="info" label="推荐" />
-                      )}
-                    </Flex>
-                    <Typography.Text type="secondary">{action.description}</Typography.Text>
-                    <Flex wrap gap={10} align="center">
-                      <StatusBadge tone={risk.tone} label={risk.text} />
-                      <Typography.Text type="secondary">{action.impact}</Typography.Text>
-                      <Typography.Text type="secondary">约 {action.estimatedSeconds} 秒</Typography.Text>
-                    </Flex>
+              <Radio key={action.id} value={action.id} className="ts-action-card">
+                <Flex vertical gap={6} style={{ minWidth: 0 }}>
+                  <Flex align="center" gap={10} wrap>
+                    <span className={`ts-tile ${RISK_TILE_TONE[action.risk]}`} aria-hidden="true">
+                      <TileIcon />
+                    </span>
+                    <Text strong>{action.label}</Text>
+                    {recommended?.id === action.id && (
+                      <StatusBadge tone="info" label="推荐" />
+                    )}
+                    <StatusBadge tone={risk.tone} label={risk.text} />
                   </Flex>
-                </Radio>
-              </Card>
+                  <Text type="secondary">{action.description}</Text>
+                  <Text type="secondary" style={{ fontSize: 12 }}>{action.impact} · 约 {action.estimatedSeconds} 秒</Text>
+                </Flex>
+              </Radio>
             );
           })}
         </Radio.Group>
@@ -97,19 +136,25 @@ export function ActionStep({
               label: `还有 ${unavailable.length} 个动作现在用不了（点开看原因）`,
               children: (
                 <Flex vertical gap={12}>
-                  {unavailable.map((action) => (
-                    <Card size="small" key={action.id} variant="outlined">
-                      <Flex vertical gap={4}>
-                        <Typography.Text strong>{action.label}</Typography.Text>
-                        <Typography.Text type="secondary">{action.unavailableReason ?? "当前环境不支持"}</Typography.Text>
+                  {unavailable.map((action) => {
+                    const TileIcon = actionIconOf(action.id);
+                    return (
+                      <Flex key={action.id} vertical gap={4} className="ts-action-card is-static">
+                        <Flex align="center" gap={10} wrap>
+                          <span className="ts-tile tone-muted" aria-hidden="true">
+                            <TileIcon />
+                          </span>
+                          <Text strong>{action.label}</Text>
+                        </Flex>
+                        <Text type="secondary">{action.unavailableReason ?? "当前环境不支持"}</Text>
                         {action.unavailableFix !== undefined && (
-                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          <Text type="secondary" style={{ fontSize: 12 }}>
                             想用上的话：{action.unavailableFix}
-                          </Typography.Text>
+                          </Text>
                         )}
                       </Flex>
-                    </Card>
-                  ))}
+                    );
+                  })}
                 </Flex>
               ),
             },

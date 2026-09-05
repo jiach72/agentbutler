@@ -1,9 +1,10 @@
 /**
  * 设置页主编排：七路数据源逐源 FetchState（并行加载、独立降级与重试），
  * 30 秒轻量轮询让备份/审计在管家自动动作后出现；危险操作统一走确认弹窗。
+ * 展示层为「市场风」：PageHeader + 数据源状态概览条 + 左侧分类导航 + 右侧内容区。
  */
 import { useCallback, useEffect, useState } from "react";
-import { Alert, App, Flex, Tabs, Typography } from "antd";
+import { Alert, App, Flex, Typography } from "antd";
 import { useSearchParams } from "react-router-dom";
 import { ConnectionChip } from "../../components/ConnectionChip.js";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
@@ -33,14 +34,14 @@ import {
 import { DiagnosticsCenter } from "./DiagnosticsCenter.js";
 import { GithubTokenCard } from "./GithubTokenCard.js";
 import { SecurityBaseline } from "./SecurityBaseline.js";
+import { SettingsCategoryNav, resolveCategoryKey } from "./SettingsCategoryNav.js";
+import { SourceStatusBar } from "./SourceStatusBar.js";
 import { PreferencesPanel } from "../preferences/PreferencesPage.js";
 import { LlmProfileManager } from "./LlmProfileManager.js";
 import { VersionsPanel } from "../versions/VersionsPage.js";
+import "./settings.css";
 
 const { Paragraph, Text } = Typography;
-
-/** 设置页标签键：默认 security，其余通过 ?tab= 直达（如 /versions 旧链接）。 */
-const SETTINGS_TABS = ["security", "backups", "llm", "diagnostics", "preferences", "about"] as const;
 
 export function SettingsPage() {
   const { message } = App.useApp();
@@ -48,10 +49,7 @@ export function SettingsPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<SettingsConfirmAction | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
-  const tabParam = searchParams.get("tab");
-  const activeTab = (SETTINGS_TABS as readonly string[]).includes(tabParam ?? "")
-    ? (tabParam as string)
-    : "security";
+  const activeTab = resolveCategoryKey(searchParams.get("tab"));
   const setActiveTab = (key: string) => {
     setSearchParams(key === "security" ? {} : { tab: key }, { replace: true });
   };
@@ -202,13 +200,81 @@ export function SettingsPage() {
     ? sources.security.data.watchReachable !== false
     : true;
 
+  /** 右侧内容区：按当前分类渲染对应面板（数据流与旧六签完全一致）。 */
+  function renderCategory(key: string) {
+    switch (key) {
+      case "backups":
+        return (
+          <BackupCenter
+            backups={sources.backups}
+            butlerSelf={sources.butlerSelf}
+            busy={busy}
+            onRetry={retrySource}
+            onRunBackup={onRunBackup}
+            onRequestRestore={onRequestRestore}
+          />
+        );
+      case "llm":
+        return <LlmProfileManager />;
+      case "diagnostics":
+        return (
+          <>
+            <DiagnosticsCenter actionBusy={busy !== null} />
+            <AuditLog audit={sources.audit} onRetry={() => retrySource("audit")} />
+            <div
+              style={{
+                borderTop: "1px dashed var(--ant-color-border)",
+                paddingTop: 16,
+              }}
+            >
+              <Text strong>目前能做到</Text>
+              <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                本页展示真实的安全状态、备份、操作记录和脱敏的凭据管理状态。
+              </Paragraph>
+            </div>
+          </>
+        );
+      case "preferences":
+        return <PreferencesPanel />;
+      case "about":
+        return <VersionsPanel />;
+      case "security":
+      default:
+        return (
+          <>
+            {sources.baseline.status === "ready" && sources.baseline.data.warnings.length > 0 && (
+              <Alert
+                role="status"
+                type="warning"
+                showIcon
+                message="当前风险提示"
+                description={sources.baseline.data.warnings.join("；")}
+              />
+            )}
+            <SecurityBaseline
+              baseline={sources.baseline}
+              alerts={sources.alerts}
+              runbooks={sources.runbooks}
+              security={sources.security}
+              audit={sources.audit}
+              backups={sources.backups}
+              busy={busy}
+              onRetry={retrySource}
+              onRequestReset={requestResetBreaker}
+            />
+            <GithubTokenCard />
+          </>
+        );
+    }
+  }
+
   return (
     <section className="settings-page">
       <Flex vertical gap={24}>
         <PageHeader
-          eyebrow="应用设置"
+          eyebrow="设置"
           title="设置"
-          description="管理本机安全、备份与还原、诊断报告、界面与通知偏好；「关于」里查看版本并升级。"
+          description="管理本机安全、备份与还原、模型密钥、诊断报告与常规偏好；「关于」里查看版本并升级。"
           extra={
             <ConnectionChip
               reachable={securityOnline}
@@ -218,105 +284,14 @@ export function SettingsPage() {
           }
         />
 
-        <Tabs
-          activeKey={activeTab}
-          onChange={setActiveTab}
-          items={[
-            {
-              key: "security",
-              label: "本机安全",
-              children: (
-                <Flex vertical gap={16}>
-                  {sources.baseline.status === "ready" && sources.baseline.data.warnings.length > 0 && (
-                    <Alert
-                      role="status"
-                      type="warning"
-                      showIcon
-                      message="当前风险提示"
-                      description={sources.baseline.data.warnings.join("；")}
-                    />
-                  )}
-                  <SecurityBaseline
-                    baseline={sources.baseline}
-                    alerts={sources.alerts}
-                    runbooks={sources.runbooks}
-                    security={sources.security}
-                    audit={sources.audit}
-                    backups={sources.backups}
-                    busy={busy}
-                    onRetry={retrySource}
-                    onRequestReset={requestResetBreaker}
-                  />
-                  <GithubTokenCard />
-                </Flex>
-              ),
-            },
-            {
-              key: "backups",
-              label: "备份与还原",
-              children: (
-                <Flex vertical gap={16}>
-                  <BackupCenter
-                    backups={sources.backups}
-                    butlerSelf={sources.butlerSelf}
-                    busy={busy}
-                    onRetry={retrySource}
-                    onRunBackup={onRunBackup}
-                    onRequestRestore={onRequestRestore}
-                  />
-                </Flex>
-              ),
-            },
-            {
-              key: "llm",
-              label: "模型与 API Key",
-              children: (
-                <Flex vertical gap={16}>
-                  <LlmProfileManager />
-                </Flex>
-              ),
-            },
-            {
-              key: "diagnostics",
-              label: "诊断报告",
-              children: (
-                <Flex vertical gap={16}>
-                  <DiagnosticsCenter actionBusy={busy !== null} />
-                  <AuditLog audit={sources.audit} onRetry={() => retrySource("audit")} />
-                  <div
-                    style={{
-                      borderTop: "1px dashed var(--ant-color-border)",
-                      paddingTop: 16,
-                    }}
-                  >
-                    <Text strong>目前能做到</Text>
-                    <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                      本页展示真实的安全状态、备份、操作记录和脱敏的凭据管理状态。
-                    </Paragraph>
-                  </div>
-                </Flex>
-              ),
-            },
-            {
-              key: "preferences",
-              label: "常规偏好",
-              children: (
-                <Flex vertical gap={16}>
-                  <PreferencesPanel />
-                </Flex>
-              ),
-            },
-            {
-              key: "about",
-              label: "关于",
-              children: (
-                <Flex vertical gap={16}>
-                  <VersionsPanel />
-                </Flex>
-              ),
-            },
-          ]}
-        />
+        <SourceStatusBar sources={sources} />
+
+        <div className="settings-layout">
+          <SettingsCategoryNav active={activeTab} onSelect={setActiveTab} />
+          <div className="settings-content">
+            <Flex vertical gap={16}>{renderCategory(activeTab)}</Flex>
+          </div>
+        </div>
 
         {confirmAction !== null && (
           <DangerConfirmModal

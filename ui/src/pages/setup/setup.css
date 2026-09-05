@@ -1,0 +1,147 @@
+/* 连接设置页（/setup）：环境检查清单行、可选卡片网格、分层结果块与导航按钮条。
+   颜色一律引用 --butler-* 主题变量（真源见 theme/tokens.ts），不写死色值。 */
+
+/* 分类色图标底（实例/场景/检查项共用）。 */
+.setup-tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--butler-radius-control);
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.setup-tile.tone-info { background: var(--butler-accent-soft); color: var(--butler-accent); }
+.setup-tile.tone-ok { background: var(--butler-ok-soft); color: var(--butler-ok); }
+.setup-tile.tone-warn { background: var(--butler-warn-soft); color: var(--butler-warn); }
+.setup-tile.tone-teal { background: var(--butler-teal-soft); color: var(--butler-teal); }
+.setup-tile.tone-cinnabar { background: var(--butler-cinnabar-soft); color: var(--butler-cinnabar); }
+.setup-tile.tone-muted { background: var(--butler-surface-subtle); color: var(--butler-ink-faint); }
+
+/* 环境检查清单行：图标 + 名称/说明 + 状态标签。 */
+.setup-check-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.setup-check-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--butler-rule);
+}
+
+.setup-check-row:last-child {
+  border-bottom: none;
+}
+
+/* 可选卡片网格：实例/场景选择，Radio 语义 + 卡片外观。 */
+.setup-option-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 12px;
+}
+
+.setup-option-grid .ant-radio-wrapper {
+  margin-inline-end: 0;
+  padding: 0;
+}
+
+.setup-option-card {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--butler-rule);
+  border-radius: var(--butler-radius-card);
+  padding: 14px 36px 14px 16px;
+  background: var(--butler-surface);
+  cursor: pointer;
+  transition:
+    border-color var(--butler-dur-base) var(--butler-ease),
+    background var(--butler-dur-base) var(--butler-ease),
+    box-shadow var(--butler-dur-base) var(--butler-ease);
+}
+
+.setup-option-card:hover {
+  border-color: var(--butler-rule-strong);
+}
+
+.setup-option-card.ant-radio-wrapper-checked,
+.setup-option-card.is-selected {
+  border-color: var(--butler-accent);
+  background: var(--butler-accent-soft);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--butler-accent) 10%, transparent);
+}
+
+/* 隐藏 Radio 圆点（保留 input 的键盘可达性），选中态改由卡片边框 + 角标表达。 */
+.setup-option-card .ant-radio {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.setup-option-card:has(.ant-radio-input:focus-visible) {
+  outline: none;
+  box-shadow: var(--butler-focus-ring);
+}
+
+.setup-option-card .setup-option-check {
+  display: none;
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  color: var(--butler-accent);
+  font-size: 16px;
+}
+
+.setup-option-card.ant-radio-wrapper-checked .setup-option-check,
+.setup-option-card.is-selected .setup-option-check {
+  display: inline-block;
+}
+
+/* 分层结果块：成功绿块在前、失败红块在后。 */
+.setup-results {
+  display: flex;
+  flex-direction: column;
+}
+
+.setup-result {
+  border-radius: var(--butler-radius-control);
+  padding: 12px 14px;
+}
+
+.setup-result.is-ok {
+  background: var(--butler-ok-soft);
+  border: 1px solid color-mix(in srgb, var(--butler-ok) 35%, transparent);
+}
+
+.setup-result.is-ok .setup-result-icon {
+  color: var(--butler-ok);
+}
+
+.setup-result.is-fail {
+  background: var(--butler-error-soft);
+  border: 1px solid color-mix(in srgb, var(--butler-error) 35%, transparent);
+}
+
+.setup-result.is-fail .setup-result-icon {
+  color: var(--butler-error);
+}
+
+/* 步骤底部导航按钮条。 */
+.setup-nav-bar {
+  width: 100%;
+  border-top: 1px solid var(--butler-rule);
+  padding-top: 16px;
+  margin-top: 8px;
+}

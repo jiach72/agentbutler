@@ -1,6 +1,6 @@
 /**
- * 技能与记忆页主编排（单页连续仪表盘）：顶部全局概览带 + 技能库（安装 / 更新 / 删除 / 部署到 Hermes）/ 插件库 / 记忆库 分区。
- * 技能库（skills-manager 中央库）是主管理视图：安装 / 更新 / 删除 / 部署到 Hermes；
+ * 技能与记忆页主编排（单页连续仪表盘）：顶部全局概览带 + 技能市场（市场 / 本机已安装）/ 插件库 / 记忆库 分区。
+ * 技能库 Tab 由 SkillsMarketplace 承载：分类侧栏 + 瀑布流技能卡，市场与已安装一键切换；
  * 插件只读展示。记忆检索独立于技能库——搜索只更新记忆分区，失败不回滚列表。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -20,7 +20,7 @@ import {
 } from "./helpers.js";
 import { MemoryPanel } from "./MemoryPanel.js";
 import { PluginLibrary } from "./PluginLibrary.js";
-import { SkillsManagerPanel } from "./SkillsManagerPanel.js";
+import { SkillsMarketplace } from "./SkillsMarketplace.js";
 
 const { Text } = Typography;
 
@@ -226,8 +226,8 @@ export function SkillsPage() {
             key: "manager",
             label: "技能库",
             children: (
-              <div id="skills-manager-panel">
-                <SkillsManagerPanel />
+              <div id="skills-marketplace">
+                <SkillsMarketplace />
               </div>
             ),
           },

@@ -7,12 +7,19 @@
  * - 每 10 秒轮询一次（后台标签页自动暂停），事件流命中时节流补刷。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ReloadOutlined } from "@ant-design/icons";
+import {
+  BellOutlined,
+  ExclamationCircleOutlined,
+  ReloadOutlined,
+  SendOutlined,
+  StopOutlined,
+} from "@ant-design/icons";
 import { App, Badge, Button, Card, Flex, Spin, Typography } from "antd";
 import { AdvancedDetails } from "../../components/AdvancedDetails.js";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { PageHeader } from "../../components/PageHeader.js";
+import { StatStrip } from "../../components/StatStrip.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { useEventStream } from "../../hooks/useEventStream.js";
 import { usePolling } from "../../hooks/usePolling.js";
@@ -346,6 +353,7 @@ export function GatewayPage() {
     <section className="gateway-page">
       <Flex vertical gap={24}>
         <PageHeader
+          eyebrow="控制台"
           title="消息通知"
           description="记录消息发送结果，合并重复内容，并按免打扰规则调度；所有通知保留可追溯记录。"
           extra={
@@ -367,6 +375,47 @@ export function GatewayPage() {
               </Button>
             </Flex>
           }
+        />
+
+        {/* 概览统计条：全部来自页面已有真实数据（接管状态 / 限流画像 / 告警队列计数）。 */}
+        <StatStrip
+          items={[
+            {
+              key: "relay",
+              icon: BellOutlined,
+              label: "消息接管",
+              value:
+                messageData?.status?.relay === undefined || messageData.status.relay === null
+                  ? "读取中"
+                  : messageData.status.relay.enabled
+                    ? "已开启"
+                    : "已关闭",
+              tone: messageData?.status?.relay?.enabled ? "info" : undefined,
+            },
+            {
+              key: "sent24h",
+              icon: SendOutlined,
+              label: "近 24 小时发送",
+              value: rateLimit?.last24h ?? "—",
+              unit: "次",
+            },
+            {
+              key: "pendingAlerts",
+              icon: ExclamationCircleOutlined,
+              label: "待投递提醒",
+              value: pendingAlerts,
+              unit: "条",
+              tone: pendingAlerts > 0 ? "warn" : "ok",
+            },
+            {
+              key: "failedAlerts",
+              icon: StopOutlined,
+              label: "发送失败",
+              value: failedAlerts,
+              unit: "条",
+              tone: failedAlerts > 0 ? "error" : "ok",
+            },
+          ]}
         />
 
         {recoveryState !== null && (

@@ -1,4 +1,4 @@
-import { Button, Card, Col, Flex, Row, Select, Space, Typography } from "antd";
+import { Button, Card, Col, Flex, Row, Segmented, Space, Typography } from "antd";
 import { ReloadOutlined } from "@ant-design/icons";
 import { ConnectionChip } from "../../components/ConnectionChip.js";
 import type { EvolutionOverviewPayload } from "./types.js";
@@ -34,9 +34,9 @@ export function EvolutionOverview({ overview, range, onRangeChange, onRefresh, o
             onlineText={`实例 ${overview.instanceId ?? "未知"}`}
             offlineText="Watch 离线"
           />
-          <Select
+          <Segmented
             value={range}
-            onChange={onRangeChange}
+            onChange={(value) => onRangeChange(value as "24h" | "7d" | "30d")}
             options={[
               { value: "24h", label: "24 小时" },
               { value: "7d", label: "7 天" },

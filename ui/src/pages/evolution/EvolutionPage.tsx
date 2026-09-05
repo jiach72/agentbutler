@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import {
   Alert,
@@ -6,6 +6,7 @@ import {
   Button,
   Card,
   Col,
+  Collapse,
   Descriptions,
   Divider,
   Empty,
@@ -15,20 +16,28 @@ import {
   Select,
   Space,
   Steps,
-  Table,
   Typography,
 } from "antd";
-import { ReloadOutlined, SafetyCertificateOutlined, ThunderboltOutlined } from "@ant-design/icons";
+import {
+  BulbOutlined,
+  ExclamationCircleOutlined,
+  FileSearchOutlined,
+  ReloadOutlined,
+  SafetyCertificateOutlined,
+  ThunderboltOutlined,
+} from "@ant-design/icons";
 import { loadJson, postJson } from "../../lib/api.js";
 import { formatTime, isRecord } from "../../lib/format.js";
 import { ConnectionChip } from "../../components/ConnectionChip.js";
+import { StatStrip } from "../../components/StatStrip.js";
+import { SectionHeader } from "../../components/SectionHeader.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { PageHeader } from "../../components/PageHeader.js";
 import { Link } from "react-router-dom";
 import { EvolutionOverview } from "./EvolutionOverview.js";
 import type { EvolutionOverviewPayload } from "./types.js";
 
-const { Paragraph, Text, Title } = Typography;
+const { Paragraph, Text } = Typography;
 
 /** 日志示例 / 差异预览的共享代码块样式（走 antd Token 变量）。 */
 const CODE_STYLE: CSSProperties = {
@@ -47,12 +56,6 @@ const LIST_STYLE: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   gap: 4,
-};
-/** 中性分区块的共享边框样式。 */
-const NEUTRAL_BLOCK: CSSProperties = {
-  border: "1px solid var(--ant-color-border-secondary)",
-  borderRadius: 8,
-  padding: 16,
 };
 
 type Direction = {
@@ -336,61 +339,28 @@ export function EvolutionPage() {
       message.success("变更已应用");
     }
   };
-  const columns = useMemo(
-    () => [
-      {
-        title: "改进方向",
-        render: (_: unknown, item: Direction) => (
-          <Flex vertical gap={2}>
-            <Text strong>{item.title}</Text>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              {item.targetRef ?? "未能定位技能"} · {item.occurrences} 次
-            </Text>
-          </Flex>
-        ),
-      },
-      {
-        title: "影响",
-        width: 90,
-        render: (_: unknown, item: Direction) => (
-          <StatusBadge tone={impactTone[item.impact]} label={impactLabel[item.impact]} />
-        ),
-      },
-      {
-        title: "把握程度",
-        width: 100,
-        render: (_: unknown, item: Direction) => `${Math.round(item.confidence * 100)}%`,
-      },
-      {
-        title: "最近出现",
-        width: 150,
-        render: (_: unknown, item: Direction) =>
-          item.lastSeenAt ? formatTime(item.lastSeenAt) : "未知",
-      },
-      {
-        title: "状态",
-        width: 120,
-        render: (_: unknown, item: Direction) =>
-          item.execution ? (
-            <StatusBadge tone="ok" label="已启动" />
-          ) : item.blocked ? (
-            <StatusBadge tone="warn" label="需处理" />
-          ) : item.confirmedAt ? (
-            <StatusBadge tone="info" label="已确认" />
-          ) : (
-            <StatusBadge tone="muted" label="待确认" />
-          ),
-      },
-    ],
-    [],
-  );
+  /** 方向状态徽标：已启动 > 需处理 > 已确认 > 待确认（与旧表格列同一判定）。 */
+  const statusBadgeOf = (item: Direction) =>
+    item.execution ? (
+      <StatusBadge tone="ok" label="已启动" />
+    ) : item.blocked ? (
+      <StatusBadge tone="warn" label="需处理" />
+    ) : item.confirmedAt ? (
+      <StatusBadge tone="info" label="已确认" />
+    ) : (
+      <StatusBadge tone="muted" label="待确认" />
+    );
+  const startedCount = (data?.directions ?? []).filter((item) => item.execution).length;
+  const pendingCount = (data?.directions ?? []).filter(
+    (item) => !item.execution && !item.blocked && !item.confirmedAt,
+  ).length;
   return (
     <section className="evolution-page">
       <Flex vertical gap={24}>
         <PageHeader
-          eyebrow="日志分析与变更评估"
-          title="改进与优化"
-          description="根据运行日志整理重复问题，确认后生成变更建议。"
+          eyebrow="维护与升级"
+          title="自进化"
+          description="定期分析运行日志，归纳重复问题并生成可审计的优化方向；先试运行，再由你确认应用。"
           extra={
             <ConnectionChip
               reachable={error === null}
@@ -398,6 +368,42 @@ export function EvolutionPage() {
               offlineText="分析服务暂时不可用"
             />
           }
+        />
+        {/* 概览统计条：全部来自页面已有真实数据。 */}
+        <StatStrip
+          items={[
+            {
+              key: "coverage",
+              icon: FileSearchOutlined,
+              label: "日志覆盖",
+              value: data?.coverage ? data.coverage.lines.toLocaleString() : "—",
+              unit: "行",
+              sub: data?.coverage ? `${data.coverage.sources} 个来源文件` : "暂无分析数据",
+            },
+            {
+              key: "directions",
+              icon: BulbOutlined,
+              label: "改进方向",
+              value: data?.directions.length ?? 0,
+              unit: "项",
+            },
+            {
+              key: "pending",
+              icon: ExclamationCircleOutlined,
+              label: "待确认",
+              value: pendingCount,
+              unit: "项",
+              tone: pendingCount > 0 ? "warn" : "ok",
+            },
+            {
+              key: "started",
+              icon: ThunderboltOutlined,
+              label: "已启动执行",
+              value: startedCount,
+              unit: "项",
+              tone: startedCount > 0 ? "info" : undefined,
+            },
+          ]}
         />
         {error && (
           <Alert
@@ -422,18 +428,9 @@ export function EvolutionPage() {
           onRecheck={(id) => void recheckAction(id)}
         />
         <Card
-          title={
-            <Flex vertical gap={2}>
-              <Text type="secondary" style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.08em" }}>
-                分析范围
-              </Text>
-              <Title level={4} component="h2" style={{ marginBottom: 0 }}>
-                日志中的改进方向
-              </Title>
-            </Flex>
-          }
+          title={<SectionHeader kicker="分析范围" title="日志中的改进方向" />}
           extra={
-            <Space>
+            <Space wrap>
               <Select
                 value={instanceId || undefined}
                 placeholder="选择实例"
@@ -443,15 +440,6 @@ export function EvolutionPage() {
                   label: `${item.instanceId}${item.version ? ` · ${item.version}` : ""}`,
                 }))}
                 onChange={setInstanceId}
-              />
-              <Select
-                value={range}
-                options={[
-                  { value: "24h", label: "最近 24 小时" },
-                  { value: "7d", label: "最近 7 天" },
-                  { value: "30d", label: "最近 30 天" },
-                ]}
-                onChange={setRange}
               />
               <Button icon={<ReloadOutlined />} onClick={() => void refresh()}>
                 重新分析
@@ -479,187 +467,194 @@ export function EvolutionPage() {
         <Row gutter={[16, 16]}>
           <Col xs={24} lg={10}>
             <Card
-              title={
-                <Flex vertical gap={2}>
-                  <Text type="secondary" style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.08em" }}>
-                    改进方向
-                  </Text>
-                  <Title level={4} component="h2" style={{ marginBottom: 0 }}>
-                    {data?.directions.length ?? 0} 项
-                  </Title>
-                </Flex>
-              }
-              styles={{ body: { padding: 0 } }}
+              title={<SectionHeader kicker="改进方向" title={`${data?.directions.length ?? 0} 项`} />}
+              styles={{ body: { padding: 12, maxHeight: 640, overflow: "auto" } }}
             >
-              <Table
-                rowKey="id"
-                size="small"
-                pagination={{ pageSize: 8, hideOnSinglePage: true }}
-                dataSource={data?.directions ?? []}
-                columns={columns}
-                rowClassName={(item) => (item.id === selectedId ? "ant-table-row-selected" : "")}
-                onRow={(item) => ({
-                  onClick: () => {
-                    setSelectedId(item.id);
-                    setSelectedSkill(item.targetRef ?? "");
-                  },
-                  onKeyDown: (event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      setSelectedId(item.id);
-                      setSelectedSkill(item.targetRef ?? "");
-                    }
-                  },
-                  tabIndex: 0,
-                  role: "button",
-                  "aria-label": `查看改进方向：${item.title}`,
-                  "aria-pressed": item.id === selectedId,
-                })}
-                locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前窗口没有可归纳的问题" /> }}
-              />
+              {(data?.directions ?? []).length === 0 ? (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前窗口没有可归纳的问题" />
+              ) : (
+                <Flex vertical gap={8}>
+                  {data?.directions.map((item) => (
+                    <div
+                      key={item.id}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`查看改进方向：${item.title}`}
+                      aria-pressed={item.id === selectedId}
+                      onClick={() => {
+                        setSelectedId(item.id);
+                        setSelectedSkill(item.targetRef ?? "");
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setSelectedId(item.id);
+                          setSelectedSkill(item.targetRef ?? "");
+                        }
+                      }}
+                      style={{
+                        border: `1px solid ${item.id === selectedId ? "var(--ant-color-primary)" : "var(--ant-color-border-secondary)"}`,
+                        borderRadius: 10,
+                        padding: 12,
+                        cursor: "pointer",
+                        background: item.id === selectedId ? "var(--ant-color-primary-bg)" : "var(--ant-color-bg-container)",
+                      }}
+                    >
+                      <Flex vertical gap={4}>
+                        <Flex align="center" justify="space-between" gap={8}>
+                          <Text strong ellipsis style={{ minWidth: 0 }}>
+                            {item.title}
+                          </Text>
+                          {statusBadgeOf(item)}
+                        </Flex>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          {item.targetRef ?? "未能定位技能"} · {item.occurrences} 次 · 把握{" "}
+                          {Math.round(item.confidence * 100)}%
+                        </Text>
+                        <Flex align="center" gap={8} wrap="wrap">
+                          <StatusBadge tone={impactTone[item.impact]} label={`${impactLabel[item.impact]}影响`} />
+                          {item.lastSeenAt && (
+                            <Text type="secondary" style={{ fontSize: 12 }}>
+                              最近 {formatTime(item.lastSeenAt)}
+                            </Text>
+                          )}
+                        </Flex>
+                      </Flex>
+                    </div>
+                  ))}
+                </Flex>
+              )}
             </Card>
           </Col>
           <Col xs={24} lg={14}>
-            <Card
-              title={
-                <Flex vertical gap={2}>
-                  <Text type="secondary" style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.08em" }}>
-                    方向详情
-                  </Text>
-                  <Title level={4} component="h2" style={{ marginBottom: 0 }}>
-                    {selected?.title ?? "选择一个方向"}
-                  </Title>
-                </Flex>
-              }
-              extra={
-                selected && (
-                  <StatusBadge tone={impactTone[selected.impact]} label={`${impactLabel[selected.impact]}影响`} />
-                )
-              }
-            >
-              {!selected ? (
+            {!selected ? (
+              <Card title={<SectionHeader kicker="方向详情" title="选择一个方向" />}>
                 <Empty
                   image={Empty.PRESENTED_IMAGE_SIMPLE}
                   description="选择左侧方向查看问题总结、日志依据和处理方式。"
                 />
-              ) : (
-                <Flex vertical gap={16}>
-                  <div>
-                    <Title level={5} style={{ marginTop: 0 }}>问题总结</Title>
+              </Card>
+            ) : (
+              <Flex vertical gap={16}>
+                <Card
+                  title={<SectionHeader kicker="方向概览" title={selected.title} />}
+                  extra={
+                    <StatusBadge tone={impactTone[selected.impact]} label={`${impactLabel[selected.impact]}影响`} />
+                  }
+                >
+                  <Flex vertical gap={12}>
                     <Paragraph style={{ marginBottom: 0 }}>{selected.summary}</Paragraph>
-                  </div>
-                  <div>
-                    <Title level={5} style={{ marginTop: 0 }}>优化说明</Title>
-                    {selected.optimization ? (
+                    <Descriptions size="small" column={1}>
+                      <Descriptions.Item label="关联技能">
+                        {selected.targetRef ?? "未能定位"}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="证据">
+                        {selected.occurrences} 次 · {selected.sources.join("、") || "未知来源"}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="把握程度">
+                        {Math.round(selected.confidence * 100)}%
+                      </Descriptions.Item>
+                      <Descriptions.Item label="推荐动作">
+                        {selected.recommendedAction}
+                        {(selected.targetType === "config" || selected.targetType === "diagnostic") && (
+                          <Link to="/logs" style={{ color: "var(--ant-color-primary)" }}>
+                            打开日志并执行处理
+                          </Link>
+                        )}
+                      </Descriptions.Item>
+                    </Descriptions>
+                    {selected.examples.length > 0 && (
                       <Flex vertical gap={8}>
-                        <Paragraph style={{ marginBottom: 0 }}>{selected.optimization.goal}</Paragraph>
-                        <ul style={LIST_STYLE}>
-                          {selected.optimization.changes.map((item, index) => (
-                            <li key={index}>
-                              <Typography.Text>{item}</Typography.Text>
-                            </li>
-                          ))}
-                        </ul>
-                        <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                          预期结果：{selected.optimization.expectedResult}
-                        </Paragraph>
-                        <Text type="secondary">
-                          说明来源：
-                          {selected.optimization.generatedBy === "model" ? "已配置模型" : "本地规则"} ·{" "}
-                          {formatTime(selected.optimization.generatedAt)}
-                        </Text>
+                        <Text strong>日志示例（已脱敏）</Text>
+                        <pre style={CODE_STYLE}>{selected.examples.join("\n")}</pre>
                       </Flex>
-                    ) : (
+                    )}
+                    {selected.blockReason && (
                       <Alert
-                        type="info"
+                        type={selected.targetType === "config" ? "info" : "warning"}
                         showIcon
-                        title="尚未生成优化说明"
-                        description="点击“生成优化说明”查看建议改动和预期结果。"
+                        title={
+                          selected.targetType === "config" ? "需要先处理系统问题" : "需要选择关联技能"
+                        }
+                        description={selected.blockReason}
                       />
                     )}
-                  </div>
-                  <Descriptions size="small" column={1}>
-                    <Descriptions.Item label="关联技能">
-                      {selected.targetRef ?? "未能定位"}
-                    </Descriptions.Item>
-                    <Descriptions.Item label="证据">
-                      {selected.occurrences} 次 · {selected.sources.join("、") || "未知来源"}
-                    </Descriptions.Item>
-                    <Descriptions.Item label="把握程度">
-                      {Math.round(selected.confidence * 100)}%
-                    </Descriptions.Item>
-                    <Descriptions.Item label="推荐动作">
-                      {selected.recommendedAction}
-                      {(selected.targetType === "config" || selected.targetType === "diagnostic") && (
-                        <Link to="/logs" style={{ color: "var(--ant-color-primary)" }}>
-                          打开日志并执行处理
-                        </Link>
-                      )}
-                    </Descriptions.Item>
-                  </Descriptions>
-                  {selected.examples.length > 0 && (
-                    <Flex vertical gap={8}>
-                      <Text strong>日志示例（已脱敏）</Text>
-                      <pre style={CODE_STYLE}>{selected.examples.join("\n")}</pre>
-                    </Flex>
-                  )}
-                  {selected.blockReason && (
-                    <Alert
-                      type={selected.targetType === "config" ? "info" : "warning"}
-                      showIcon
-                      title={
-                        selected.targetType === "config" ? "需要先处理系统问题" : "需要选择关联技能"
-                      }
-                      description={selected.blockReason}
-                    />
-                  )}
-                  {selected.targetRef === null && selected.candidateSkills.length > 0 && (
-                    <Select
-                      showSearch
-                      style={{ width: "100%", marginTop: 12 }}
-                      placeholder="选择关联技能"
-                      value={selectedSkill || undefined}
-                      options={selected.candidateSkills.map((name) => ({ value: name, label: name }))}
-                      onChange={setSelectedSkill}
-                    />
-                  )}
-                  <Space wrap>
-                    <Button onClick={() => void summarize()} loading={busy === "summarize"}>
-                      {selected.optimization ? "重新生成优化说明" : "生成优化说明"}
-                    </Button>
-                    {(selected.targetType === "skill" || selected.targetType === "prompt") && (
-                      <Button
-                        type="primary"
-                        onClick={() => void confirm()}
-                        loading={busy === "confirm"}
-                        disabled={
-                          Boolean(selected.confirmedAt) ||
-                          (selected.targetRef === null && !selectedSkill)
-                        }
-                      >
-                        {selected.confirmedAt ? "方向已确认" : "确认这个方向"}
+                    {selected.targetRef === null && selected.candidateSkills.length > 0 && (
+                      <Select
+                        showSearch
+                        style={{ width: "100%" }}
+                        placeholder="选择关联技能"
+                        value={selectedSkill || undefined}
+                        options={selected.candidateSkills.map((name) => ({ value: name, label: name }))}
+                        onChange={setSelectedSkill}
+                      />
+                    )}
+                    <Space wrap>
+                      <Button onClick={() => void summarize()} loading={busy === "summarize"}>
+                        {selected.optimization ? "重新生成优化说明" : "生成优化说明"}
                       </Button>
-                    )}
-                    {selected.confirmedAt && (
-                      <>
+                      {(selected.targetType === "skill" || selected.targetType === "prompt") && (
                         <Button
-                          icon={<ThunderboltOutlined />}
-                          onClick={() => void start("hermes")}
-                          loading={busy === "start:hermes"}
+                          type="primary"
+                          onClick={() => void confirm()}
+                          loading={busy === "confirm"}
+                          disabled={
+                            Boolean(selected.confirmedAt) ||
+                            (selected.targetRef === null && !selectedSkill)
+                          }
                         >
-                          按 Hermes 流程执行
+                          {selected.confirmedAt ? "方向已确认" : "确认这个方向"}
                         </Button>
-                        <Button onClick={() => void start("manual")} loading={busy === "start:manual"}>
-                          生成可编辑方案
-                        </Button>
-                      </>
-                    )}
-                  </Space>
-                  {selectedProposal && (
-                    <Flex vertical gap={12} style={NEUTRAL_BLOCK}>
-                      <Title level={5} component="h3" style={{ marginBottom: 0 }}>
-                        候选差异与应用
-                      </Title>
+                      )}
+                      {selected.confirmedAt && (
+                        <>
+                          <Button
+                            icon={<ThunderboltOutlined />}
+                            onClick={() => void start("hermes")}
+                            loading={busy === "start:hermes"}
+                          >
+                            按 Hermes 流程执行
+                          </Button>
+                          <Button onClick={() => void start("manual")} loading={busy === "start:manual"}>
+                            生成可编辑方案
+                          </Button>
+                        </>
+                      )}
+                    </Space>
+                  </Flex>
+                </Card>
+                <Card title={<SectionHeader kicker="优化方案" title="优化说明" compact />}>
+                  {selected.optimization ? (
+                    <Flex vertical gap={8}>
+                      <Paragraph style={{ marginBottom: 0 }}>{selected.optimization.goal}</Paragraph>
+                      <ul style={LIST_STYLE}>
+                        {selected.optimization.changes.map((item, index) => (
+                          <li key={index}>
+                            <Typography.Text>{item}</Typography.Text>
+                          </li>
+                        ))}
+                      </ul>
+                      <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                        预期结果：{selected.optimization.expectedResult}
+                      </Paragraph>
+                      <Text type="secondary">
+                        说明来源：
+                        {selected.optimization.generatedBy === "model" ? "已配置模型" : "本地规则"} ·{" "}
+                        {formatTime(selected.optimization.generatedAt)}
+                      </Text>
+                    </Flex>
+                  ) : (
+                    <Alert
+                      type="info"
+                      showIcon
+                      title="尚未生成优化说明"
+                      description="点击“生成优化说明”查看建议改动和预期结果。"
+                    />
+                  )}
+                </Card>
+                {selectedProposal && (
+                  <Card title={<SectionHeader kicker="候选差异" title="候选差异与应用" compact />}>
+                    <Flex vertical gap={12}>
                       <Descriptions size="small" column={1}>
                         <Descriptions.Item label="当前版本标识">
                           <Typography.Text code>{selectedProposal.baselineHash}</Typography.Text>
@@ -695,151 +690,151 @@ export function EvolutionPage() {
                         </Button>
                       </Space>
                     </Flex>
-                  )}
-                  {selected.execution?.kind === "run" && (
-                    <Flex vertical gap={12} style={NEUTRAL_BLOCK}>
-                      <Title level={5} component="h3" style={{ marginBottom: 0 }}>
-                        Hermes 执行状态
-                      </Title>
-                      {run ? (
-                        <>
-                          <Steps
-                            size="small"
-                            current={runStepIndex(run.status)}
-                            items={[
-                              { title: "准备" },
-                              { title: "执行中" },
-                              { title: "生成候选" },
-                              { title: "等待验证" },
-                              { title: "完成" },
-                            ]}
-                          />
-                          <Divider />
-                          <Descriptions size="small" column={1}>
-                            <Descriptions.Item label="运行编号">
-                              <Typography.Text code>{run.runId}</Typography.Text>
-                            </Descriptions.Item>
-                            <Descriptions.Item label="当前状态">
-                              {runStatusLabel(run.status)}
-                            </Descriptions.Item>
-                            <Descriptions.Item label="更新时间">
-                              {formatTime(run.updatedAt)}
-                            </Descriptions.Item>
-                            <Descriptions.Item label="说明">{run.detail}</Descriptions.Item>
-                            {run.artifacts?.candidatePath && (
-                              <Descriptions.Item label="候选文件">
-                                {run.artifacts.candidatePath}
-                              </Descriptions.Item>
-                            )}
-                          </Descriptions>
-                          {run.status === "running" && (
-                            <Progress percent={60} status="active" showInfo={false} />
-                          )}
-                          {run.artifacts?.diff && (
-                            <Flex vertical gap={8}>
-                              <Text strong>候选差异</Text>
-                              <pre style={CODE_STYLE}>{run.artifacts.diff}</pre>
-                            </Flex>
-                          )}
-                          {run.status === "evaluating" && (
-                            <>
-                              <Alert
-                                type="info"
-                                showIcon
-                                title="候选已生成，下一步是隔离验证"
-                                description="完成评估后，验证通过才能应用到 Hermes。"
-                              />
-                              <Button
-                                icon={<SafetyCertificateOutlined />}
-                                loading={busy === "evaluate"}
-                                onClick={() => void evaluateRun(run.runId)}
-                              >
-                                隔离验证并评估
-                              </Button>
-                            </>
-                          )}
-                          {run.status === "accepted" && (
-                            <>
-                              <Alert
-                                type="success"
-                                showIcon
-                                title="候选通过评估，等待确认应用"
-                                description="请核对候选差异后，再确认应用。"
-                              />
-                              <Button
-                                type="primary"
-                                danger
-                                loading={busy === "promote"}
-                                onClick={() => void promoteRun(run)}
-                              >
-                                应用到 Hermes
-                              </Button>
-                            </>
-                          )}
-                          {run.status === "failed" && (
-                            <Alert
-                              type="error"
-                              showIcon
-                              title="Hermes 执行失败"
-                              description={run.detail}
-                            />
-                          )}
-                          <div>
-                            <Button
-                              icon={<ReloadOutlined />}
-                              onClick={() => void loadRun(run.runId)}
-                            >
-                              刷新执行状态
-                            </Button>
-                          </div>
-                        </>
-                      ) : (
-                        <Alert
-                          type="info"
-                          showIcon
-                          title="正在读取执行状态"
-                          description={`运行编号：${selected.execution.id}`}
+                  </Card>
+                )}
+                {selected.execution?.kind === "run" && (
+                  <Card title={<SectionHeader kicker="执行状态" title="Hermes 执行状态" compact />}>
+                    {run ? (
+                      <Flex vertical gap={12}>
+                        <Steps
+                          size="small"
+                          current={runStepIndex(run.status)}
+                          items={[
+                            { title: "准备" },
+                            { title: "执行中" },
+                            { title: "生成候选" },
+                            { title: "等待验证" },
+                            { title: "完成" },
+                          ]}
                         />
-                      )}
-                    </Flex>
-                  )}
-                </Flex>
-              )}
-            </Card>
+                        <Divider style={{ margin: 0 }} />
+                        <Descriptions size="small" column={1}>
+                          <Descriptions.Item label="运行编号">
+                            <Typography.Text code>{run.runId}</Typography.Text>
+                          </Descriptions.Item>
+                          <Descriptions.Item label="当前状态">
+                            {runStatusLabel(run.status)}
+                          </Descriptions.Item>
+                          <Descriptions.Item label="更新时间">
+                            {formatTime(run.updatedAt)}
+                          </Descriptions.Item>
+                          <Descriptions.Item label="说明">{run.detail}</Descriptions.Item>
+                          {run.artifacts?.candidatePath && (
+                            <Descriptions.Item label="候选文件">
+                              {run.artifacts.candidatePath}
+                            </Descriptions.Item>
+                          )}
+                        </Descriptions>
+                        {run.status === "running" && (
+                          <Progress percent={60} status="active" showInfo={false} />
+                        )}
+                        {run.artifacts?.diff && (
+                          <Flex vertical gap={8}>
+                            <Text strong>候选差异</Text>
+                            <pre style={CODE_STYLE}>{run.artifacts.diff}</pre>
+                          </Flex>
+                        )}
+                        {run.status === "evaluating" && (
+                          <>
+                            <Alert
+                              type="info"
+                              showIcon
+                              title="候选已生成，下一步是隔离验证"
+                              description="完成评估后，验证通过才能应用到 Hermes。"
+                            />
+                            <Button
+                              icon={<SafetyCertificateOutlined />}
+                              loading={busy === "evaluate"}
+                              onClick={() => void evaluateRun(run.runId)}
+                            >
+                              隔离验证并评估
+                            </Button>
+                          </>
+                        )}
+                        {run.status === "accepted" && (
+                          <>
+                            <Alert
+                              type="success"
+                              showIcon
+                              title="候选通过评估，等待确认应用"
+                              description="请核对候选差异后，再确认应用。"
+                            />
+                            <Button
+                              type="primary"
+                              danger
+                              loading={busy === "promote"}
+                              onClick={() => void promoteRun(run)}
+                            >
+                              应用到 Hermes
+                            </Button>
+                          </>
+                        )}
+                        {run.status === "failed" && (
+                          <Alert
+                            type="error"
+                            showIcon
+                            title="Hermes 执行失败"
+                            description={run.detail}
+                          />
+                        )}
+                        <div>
+                          <Button
+                            icon={<ReloadOutlined />}
+                            onClick={() => void loadRun(run.runId)}
+                          >
+                            刷新执行状态
+                          </Button>
+                        </div>
+                      </Flex>
+                    ) : (
+                      <Alert
+                        type="info"
+                        showIcon
+                        title="正在读取执行状态"
+                        description={`运行编号：${selected.execution.id}`}
+                      />
+                    )}
+                  </Card>
+                )}
+              </Flex>
+            )}
           </Col>
         </Row>
-        <Card
-          title={
-            <Flex vertical gap={2}>
-              <Text type="secondary" style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.08em" }}>
-                历史记录
-              </Text>
-              <Title level={4} component="h2" style={{ marginBottom: 0 }}>
-                已处理方向
-              </Title>
-            </Flex>
-          }
-        >
-          {(data?.directions.filter((item) => item.execution).length ?? 0) === 0 ? (
-            <Empty
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description="暂无处理记录；历史运行仍保留在记录中"
-            />
-          ) : (
-            <ul style={LIST_STYLE}>
-              {data?.directions
-                .filter((item) => item.execution)
-                .map((item) => (
-                  <li key={item.id}>
-                    <Typography.Text>
-                      {item.title} · {item.execution?.kind === "proposal" ? "变更建议" : "Hermes 流程"}{" "}
-                      · {item.execution?.status ?? "已提交"}
-                    </Typography.Text>
-                  </li>
-                ))}
-            </ul>
-          )}
-        </Card>
+        <Collapse
+          className="advanced-details"
+          size="small"
+          items={[
+            {
+              key: "history",
+              label: (
+                <span className="advanced-details-summary">
+                  <span>已处理方向</span>
+                  <span className="advanced-details-extra">历史执行记录</span>
+                </span>
+              ),
+              children:
+                (data?.directions.filter((item) => item.execution).length ?? 0) === 0 ? (
+                  <Empty
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    description="暂无处理记录；历史运行仍保留在记录中"
+                  />
+                ) : (
+                  <ul style={LIST_STYLE}>
+                    {data?.directions
+                      .filter((item) => item.execution)
+                      .map((item) => (
+                        <li key={item.id}>
+                          <Typography.Text>
+                            {item.title} · {item.execution?.kind === "proposal" ? "变更建议" : "Hermes 流程"}{" "}
+                            · {item.execution?.status ?? "已提交"}
+                          </Typography.Text>
+                        </li>
+                      ))}
+                  </ul>
+                ),
+            },
+          ]}
+        />
       </Flex>
     </section>
   );

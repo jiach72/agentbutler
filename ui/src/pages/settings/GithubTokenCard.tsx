@@ -77,6 +77,7 @@ export function GithubTokenCard() {
 
   return (
     <Card
+      size="small"
       title="GitHub 访问令牌"
       extra={
         configured === null ? (

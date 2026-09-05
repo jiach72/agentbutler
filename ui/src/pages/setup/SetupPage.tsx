@@ -1,12 +1,29 @@
-import { CheckCircleOutlined, ExclamationCircleOutlined, ReloadOutlined } from "@ant-design/icons";
+import {
+  ApiOutlined,
+  CheckCircleOutlined,
+  ClusterOutlined,
+  CodeOutlined,
+  DashboardOutlined,
+  HomeOutlined,
+  NotificationOutlined,
+  ReadOutlined,
+  RobotOutlined,
+  RocketOutlined,
+} from "@ant-design/icons";
 import { Alert, Button, Card, Flex, Form, Input, Radio, Select, Space, Spin, Steps, Typography } from "antd";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ComponentType } from "react";
 import { useNavigate } from "react-router-dom";
 import { PageHeader } from "../../components/PageHeader.js";
+import { SectionHeader } from "../../components/SectionHeader.js";
+import { StatusBadge } from "../../components/StatusBadge.js";
 import { loadJson, postJson } from "../../lib/api.js";
 import { isRecord } from "../../lib/format.js";
 import { markSetupDone } from "./state.js";
 import { SCENARIO_TEMPLATES, type ScenarioTemplate } from "./templates.js";
+import { SetupResults, type SetupResultItem } from "./SetupResults.js";
+import "./setup.css";
+
+const { Paragraph, Text } = Typography;
 
 interface SetupConnection {
   instanceId: string;
@@ -52,6 +69,15 @@ interface DiscoveredModel {
   importable: boolean;
   runtimeObserved: boolean;
 }
+
+/** 场景卡与实例卡的分类色图标底。 */
+const SCENARIO_META: Record<ScenarioTemplate["id"], { icon: ComponentType; tone: string }> = {
+  daily: { icon: HomeOutlined, tone: "tone-info" },
+  notify: { icon: NotificationOutlined, tone: "tone-warn" },
+  knowledge: { icon: ReadOutlined, tone: "tone-teal" },
+  coding: { icon: CodeOutlined, tone: "tone-cinnabar" },
+  watch: { icon: DashboardOutlined, tone: "tone-ok" },
+};
 
 function isActiveProfile(profile: LlmProfile): boolean {
   return profile.status === "active" && profile.probe?.status === "pass";
@@ -192,63 +218,151 @@ export function SetupPage() {
     navigate(selectedTemplate.destination, { replace: true });
   };
 
+  // 第 2 步的检查结论：成功块在前、失败块在后，失败项带修复入口。
+  const modelResults: SetupResultItem[] = [];
+  if (nativeModelDetected) {
+    modelResults.push({
+      key: "native",
+      tone: "ok",
+      title: "已发现 Hermes 原生模型配置",
+      detail: `发现 ${discoveredModels.filter((model) => !model.runtimeObserved).length} 项已有配置；不会被本向导覆盖。`,
+    });
+  } else if (runtimeModelObserved > 0) {
+    modelResults.push({
+      key: "runtime",
+      tone: "ok",
+      title: "已观察到 Hermes 正在使用模型",
+      detail: `从运行日志识别到 ${runtimeModelObserved} 个模型标识；这不会读取或导入凭据。`,
+    });
+  } else {
+    modelResults.push({
+      key: "native-missing",
+      tone: "fail",
+      title: "还没有发现 Hermes 原生模型配置",
+      detail: "如果智能体本身还不能对话，请先在 Hermes 的 config.yaml 或 .env 中完成运行模型配置。",
+    });
+  }
+  if (modelReady) {
+    modelResults.push({
+      key: "managed",
+      tone: "ok",
+      title: "当前智能体已有可用的受管任务模型",
+      detail: "模型探针通过且已绑定。后续可在设置中轮换 Key 或修改绑定范围。",
+    });
+  } else {
+    modelResults.push({
+      key: "managed-missing",
+      tone: "fail",
+      title: "还没有绑定受管任务模型",
+      detail: "这是推荐步骤：它让进化和诊断类任务能使用经过真实探针验证的模型。",
+    });
+  }
+  if (llmStatus?.vault.available === false) {
+    modelResults.push({
+      key: "vault",
+      tone: "fail",
+      title: "凭据库还不可用",
+      detail: "缺少 BUTLER_SECRET_MASTER_KEY 时，管家不会保存 API Key。请在设置中完成本机安全配置后再继续。",
+      action: { label: "打开设置", onClick: () => navigate("/settings") },
+    });
+  }
+  if (modelMessage !== null) {
+    modelResults.push({ key: "model-message", tone: modelReady ? "ok" : "fail", title: modelMessage });
+  }
+
   return (
     <section className="setup-page">
       <Flex vertical gap={24}>
-        <PageHeader eyebrow="首次使用" title="把智能体接好，就能放心交给管家" description="依次确认运行环境、模型和常用用途；每一步都可以复查，不会偷偷改动 Hermes 原有配置。" />
-        <Steps current={step} items={[{ title: "环境" }, { title: "智能体" }, { title: "模型" }, { title: "验证" }, { title: "用途" }]} />
-        {loading && <Card><Flex justify="center" style={{ padding: 32 }}><Space><Spin /><Typography.Text type="secondary">正在读取本机环境…</Typography.Text></Space></Flex></Card>}
+        <PageHeader
+          eyebrow="维护与升级"
+          title="连接设置"
+          description="五步完成管家与智能体的连接；随时可以回来重新检查。"
+        />
+        <Steps current={step} items={[{ title: "环境检查" }, { title: "选择智能体" }, { title: "绑定模型" }, { title: "连接验证" }, { title: "选择用途" }]} />
+        {loading && <Card size="small"><Flex justify="center" style={{ padding: 32 }}><Space><Spin /><Text type="secondary">正在读取本机环境…</Text></Space></Flex></Card>}
         {!loading && error !== null && (
-          <Card>
+          <Card size="small">
             <Flex vertical gap={16}>
-              <Alert type="warning" showIcon message="暂时读不到管家状态" description={error} />
-              <Button icon={<ReloadOutlined />} onClick={() => void loadStatus()}>重新检查</Button>
+              <Alert type="warning" showIcon title="暂时读不到管家状态" description={error} />
+              <Button icon={<RocketOutlined />} onClick={() => void loadStatus()}>重新检查</Button>
             </Flex>
           </Card>
         )}
         {!loading && error === null && status !== null && step === 0 && (
-          <Card>
+          <Card size="small">
             <Flex vertical gap={16}>
-              <Typography.Title level={4} style={{ marginBottom: 0 }}>先确认本机环境</Typography.Title>
-              <Flex vertical gap={8}>
-                <Typography.Text type="success"><CheckCircleOutlined /> 管家 Web 服务已启动</Typography.Text>
-                <Typography.Text type={status.reachable ? "success" : "warning"}>{status.reachable ? <CheckCircleOutlined /> : <ExclamationCircleOutlined />} 管家控制通道{status.reachable ? "可用" : "暂时不可用"}</Typography.Text>
-                <Typography.Text type={status.connections.length > 0 ? "success" : "warning"}>{status.connections.length > 0 ? <CheckCircleOutlined /> : <ExclamationCircleOutlined />} 已发现 {status.connections.length} 个可管理实例</Typography.Text>
-              </Flex>
-              {status.connections.length === 0 && <Alert type="info" showIcon message="还没有发现 Hermes 实例" description="请先在设置中补充 Hermes 路径，回到这里重新检查。" />}
-              <Space wrap><Button type="primary" disabled={status.connections.length === 0} onClick={() => setStep(1)}>继续</Button><Button onClick={() => navigate("/settings")}>打开设置</Button></Space>
+              <SectionHeader kicker="环境检查" title="先确认本机环境" />
+              <div className="setup-check-list">
+                <div className="setup-check-row">
+                  <span className="setup-tile tone-info"><RocketOutlined aria-hidden="true" /></span>
+                  <Flex vertical style={{ minWidth: 0, flex: 1 }}>
+                    <Text strong>管家 Web 服务</Text>
+                    <Text type="secondary">面板本体已在当前浏览器可达</Text>
+                  </Flex>
+                  <StatusBadge tone="ok" label="已启动" />
+                </div>
+                <div className="setup-check-row">
+                  <span className="setup-tile tone-info"><ApiOutlined aria-hidden="true" /></span>
+                  <Flex vertical style={{ minWidth: 0, flex: 1 }}>
+                    <Text strong>管家控制通道</Text>
+                    <Text type="secondary">与看护服务的通信链路</Text>
+                  </Flex>
+                  <StatusBadge tone={status.reachable ? "ok" : "warn"} label={status.reachable ? "可用" : "暂时不可用"} />
+                </div>
+                <div className="setup-check-row">
+                  <span className="setup-tile tone-info"><ClusterOutlined aria-hidden="true" /></span>
+                  <Flex vertical style={{ minWidth: 0, flex: 1 }}>
+                    <Text strong>可管理实例</Text>
+                    <Text type="secondary">自动发现的 Hermes 智能体</Text>
+                  </Flex>
+                  <StatusBadge
+                    tone={status.connections.length > 0 ? "ok" : "warn"}
+                    label={status.connections.length > 0 ? `已发现 ${status.connections.length} 个` : "暂未发现"}
+                  />
+                </div>
+              </div>
+              {status.connections.length === 0 && <Alert type="info" showIcon title="还没有发现 Hermes 实例" description="请先在设置中补充 Hermes 路径，回到这里重新检查。" />}
+              <Space wrap className="setup-nav-bar"><Button type="primary" disabled={status.connections.length === 0} onClick={() => setStep(1)}>继续</Button><Button onClick={() => navigate("/settings")}>打开设置</Button></Space>
             </Flex>
           </Card>
         )}
         {!loading && error === null && status !== null && step === 1 && (
-          <Card>
+          <Card size="small">
             <Flex vertical gap={16}>
-              <Typography.Title level={4} style={{ marginBottom: 0 }}>选择要管理的智能体</Typography.Title>
-              <Radio.Group value={selected} onChange={(event) => setSelected(event.target.value)} style={{ display: "grid", gap: 12 }}>
+              <SectionHeader kicker="选择智能体" title="选择要管理的智能体" extra={<Text type="secondary" style={{ fontSize: 12 }}>共 {status.connections.length} 个实例</Text>} />
+              <Radio.Group value={selected} onChange={(event) => setSelected(event.target.value)} className="setup-option-grid">
                 {status.connections.map((item) => (
-                  <Radio key={item.instanceId} value={item.instanceId}>
-                    <Flex vertical>
-                      <Typography.Text strong>{item.displayName ?? item.instanceId}</Typography.Text>
-                      <Typography.Text type="secondary">{item.version ?? "版本未知"} · {item.connected ? "当前已连接" : item.connectionState ?? "待检查"}</Typography.Text>
+                  <Radio key={item.instanceId} value={item.instanceId} className="setup-option-card">
+                    <Flex vertical gap={8} style={{ minWidth: 0 }}>
+                      <Flex align="center" gap={10} style={{ minWidth: 0 }}>
+                        <span className="setup-tile tone-info"><RobotOutlined aria-hidden="true" /></span>
+                        <Flex vertical style={{ minWidth: 0 }}>
+                          <Text strong ellipsis>{item.displayName ?? item.instanceId}</Text>
+                          <Text type="secondary" style={{ fontSize: 11 }}>{item.version ?? "版本未知"}</Text>
+                        </Flex>
+                      </Flex>
+                      <StatusBadge
+                        tone={item.connected ? "ok" : "muted"}
+                        label={item.connected ? "当前已连接" : item.connectionState ?? "待检查"}
+                      />
                     </Flex>
+                    <CheckCircleOutlined className="setup-option-check" aria-hidden="true" />
                   </Radio>
                 ))}
               </Radio.Group>
-              <Space wrap><Button onClick={() => setStep(0)}>上一步</Button><Button type="primary" disabled={selected === null} onClick={() => setStep(2)}>继续</Button></Space>
+              <Space wrap className="setup-nav-bar"><Button onClick={() => setStep(0)}>上一步</Button><Button type="primary" disabled={selected === null} onClick={() => setStep(2)}>继续</Button></Space>
             </Flex>
           </Card>
         )}
         {!loading && error === null && status !== null && step === 2 && (
-          <Card>
+          <Card size="small">
             <Flex vertical gap={16}>
-              <Typography.Title level={4} style={{ marginBottom: 0 }}>检查模型配置</Typography.Title>
-              <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>Hermes 的日常运行使用它自己的 `config.yaml` 或 `.env`；Butler 受管任务使用下方加密保存并绑定的模型。两者职责不同，页面会分别如实显示。</Typography.Paragraph>
-              {nativeModelDetected ? <Alert type="success" showIcon message="已发现 Hermes 原生模型配置" description={`发现 ${discoveredModels.filter((model) => !model.runtimeObserved).length} 项已有配置；不会被本向导覆盖。`} /> : runtimeModelObserved > 0 ? <Alert type="success" showIcon message="已观察到 Hermes 正在使用模型" description={`从运行日志识别到 ${runtimeModelObserved} 个模型标识；这不会读取或导入凭据。`} /> : <Alert type="warning" showIcon message="还没有发现 Hermes 原生模型配置" description="如果智能体本身还不能对话，请先在 Hermes 的 config.yaml 或 .env 中完成运行模型配置。" />}
-              {modelReady ? <Alert type="success" showIcon message="当前智能体已有可用的受管任务模型" description="模型探针通过且已绑定。后续可在设置中轮换 Key 或修改绑定范围。" /> : <Alert type="info" showIcon message="还没有绑定受管任务模型" description="这是推荐步骤：它让进化和诊断类任务能使用经过真实探针验证的模型。" />}
-              {llmStatus?.vault.available === false && <Alert type="warning" showIcon message="凭据库还不可用" description="缺少 BUTLER_SECRET_MASTER_KEY 时，管家不会保存 API Key。请在设置中完成本机安全配置后再继续。" />}
+              <SectionHeader kicker="绑定模型" title="检查模型配置" />
+              <Paragraph type="secondary" style={{ marginBottom: 0 }}>Hermes 的日常运行使用它自己的 `config.yaml` 或 `.env`；Butler 受管任务使用下方加密保存并绑定的模型。两者职责不同，页面会分别如实显示。</Paragraph>
+              <SetupResults items={modelResults} />
               {!modelReady && activeProfiles.length > 0 && (
                 <Flex vertical gap={12}>
-                  <Typography.Title level={5} style={{ marginBottom: 0 }}>使用已验证的模型</Typography.Title>
+                  <SectionHeader compact kicker="复用已有配置" title="使用已验证的模型" />
                   <Space wrap>
                     <Select value={selectedExistingProfile ?? undefined} onChange={setSelectedExistingProfile} options={activeProfiles.map((profile) => ({ value: profile.profileId, label: `${profile.provider} · ${profile.model}` }))} />
                     <Button onClick={() => void bindExistingProfile()} loading={savingModel} disabled={selectedExistingProfile === null}>绑定到当前智能体</Button>
@@ -257,7 +371,7 @@ export function SetupPage() {
               )}
               {!modelReady && llmStatus?.vault.available !== false && (
                 <Form form={modelForm} layout="vertical" style={{ maxWidth: 560 }} initialValues={{ provider: "OpenAI", protocol: "openai-compatible" }}>
-                  <Typography.Title level={5} style={{ marginBottom: 0 }}>添加一个模型</Typography.Title>
+                  <SectionHeader compact kicker="新增模型" title="添加一个模型" />
                   <Form.Item name="provider" label="提供商" rules={[{ required: true, message: "请选择提供商" }]}><Select options={[{ value: "OpenAI", label: "OpenAI" }, { value: "DeepSeek", label: "DeepSeek" }, { value: "通义", label: "通义" }, { value: "自定义 OpenAI-compatible", label: "自定义 OpenAI-compatible" }]} /></Form.Item>
                   <Form.Item name="protocol" label="协议" rules={[{ required: true }]}><Select options={[{ value: "openai-compatible", label: "OpenAI-compatible（推荐 Hermes）" }]} /></Form.Item>
                   <Form.Item name="endpoint" label="端点" rules={[{ required: true, type: "url", message: "请输入完整的 https 地址" }]}><Input placeholder="https://api.example.com/v1" autoComplete="url" /></Form.Item>
@@ -266,19 +380,31 @@ export function SetupPage() {
                   <Button type="primary" loading={savingModel} onClick={() => void createAndBindModel()}>验证并绑定</Button>
                 </Form>
               )}
-              {modelMessage !== null && <Alert type={modelReady ? "success" : "warning"} showIcon message={modelMessage} />}
-              <Space wrap><Button onClick={() => setStep(1)}>上一步</Button><Button type="primary" onClick={() => setStep(3)}>继续</Button><Button type="link" onClick={() => navigate("/settings")}>在设置中详细配置</Button></Space>
+              <Space wrap className="setup-nav-bar"><Button onClick={() => setStep(1)}>上一步</Button><Button type="primary" onClick={() => setStep(3)}>继续</Button><Button type="link" onClick={() => navigate("/settings")}>在设置中详细配置</Button></Space>
             </Flex>
           </Card>
         )}
         {!loading && error === null && status !== null && step === 3 && (
-          <Card>
+          <Card size="small">
             <Flex vertical gap={16}>
-              <Typography.Title level={4} style={{ marginBottom: 0 }}>做一次真实连接检查</Typography.Title>
-              <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>这一步只检测连接，不会修改你的智能体配置。</Typography.Paragraph>
-              {selectedConnection !== null && <Typography.Text>当前选择：<Typography.Text strong>{selectedConnection.displayName ?? selectedConnection.instanceId}</Typography.Text></Typography.Text>}
-              {checkResult !== null && <Alert type={checkResult.startsWith("连接检查完成") ? "success" : "warning"} showIcon message={checkResult} />}
-              <Space wrap>
+              <SectionHeader kicker="连接验证" title="做一次真实连接检查" />
+              <Paragraph type="secondary" style={{ marginBottom: 0 }}>这一步只检测连接，不会修改你的智能体配置。</Paragraph>
+              {selectedConnection !== null && <Text>当前选择：<Text strong>{selectedConnection.displayName ?? selectedConnection.instanceId}</Text></Text>}
+              {checkResult !== null && (
+                <SetupResults
+                  items={[
+                    {
+                      key: "check-result",
+                      tone: checkResult.startsWith("连接检查完成") ? "ok" : "fail",
+                      title: checkResult,
+                      action: checkResult.startsWith("连接检查完成")
+                        ? undefined
+                        : { label: "回到上一步", onClick: () => setStep(2) },
+                    },
+                  ]}
+                />
+              )}
+              <Space wrap className="setup-nav-bar">
                 <Button onClick={() => setStep(2)}>上一步</Button>
                 <Button type="primary" loading={checking} onClick={() => void runCheck()}>开始检查</Button>
               </Space>
@@ -286,21 +412,29 @@ export function SetupPage() {
           </Card>
         )}
         {!loading && error === null && status !== null && step === 4 && (
-          <Card>
+          <Card size="small">
             <Flex vertical gap={16}>
-              <Typography.Title level={4} style={{ marginBottom: 0 }}>最后，告诉我你最常用的场景</Typography.Title>
-              <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>这不会擅自安装技能或改写提示词；它只会替你记住最适合的下一个入口。</Typography.Paragraph>
-              <Radio.Group value={templateId} onChange={(event) => setTemplateId(event.target.value)} style={{ display: "grid", gap: 12 }}>
-                {SCENARIO_TEMPLATES.map((template) => (
-                  <Radio key={template.id} value={template.id}>
-                    <Flex vertical>
-                      <Typography.Text strong>{template.label}</Typography.Text>
-                      <Typography.Text type="secondary">{template.description}</Typography.Text>
-                    </Flex>
-                  </Radio>
-                ))}
+              <SectionHeader kicker="选择用途" title="最后，告诉我你最常用的场景" />
+              <Paragraph type="secondary" style={{ marginBottom: 0 }}>这不会擅自安装技能或改写提示词；它只会替你记住最适合的下一个入口。</Paragraph>
+              <Radio.Group value={templateId} onChange={(event) => setTemplateId(event.target.value)} className="setup-option-grid">
+                {SCENARIO_TEMPLATES.map((template) => {
+                  const meta = SCENARIO_META[template.id];
+                  const TileIcon = meta.icon;
+                  return (
+                    <Radio key={template.id} value={template.id} className="setup-option-card">
+                      <Flex vertical gap={8} style={{ minWidth: 0 }}>
+                        <Flex align="center" gap={10} style={{ minWidth: 0 }}>
+                          <span className={`setup-tile ${meta.tone}`}><TileIcon aria-hidden="true" /></span>
+                          <Text strong ellipsis>{template.label}</Text>
+                        </Flex>
+                        <Text type="secondary" style={{ fontSize: 13 }}>{template.description}</Text>
+                      </Flex>
+                      <CheckCircleOutlined className="setup-option-check" aria-hidden="true" />
+                    </Radio>
+                  );
+                })}
               </Radio.Group>
-              <Space wrap><Button onClick={() => setStep(3)}>上一步</Button><Button type="primary" onClick={complete}>{selectedTemplate.nextLabel}</Button></Space>
+              <Space wrap className="setup-nav-bar"><Button onClick={() => setStep(3)}>上一步</Button><Button type="primary" onClick={complete}>{selectedTemplate.nextLabel}</Button></Space>
             </Flex>
           </Card>
         )}

@@ -1,13 +1,20 @@
 /**
- * 状态总览条：把日常判断收进四项紧凑状态，并直达消息、待办或运行详情。
+ * 状态总览条：把日常判断收进四项市场风统计卡（StatStrip），并直达消息、待办或运行详情。
+ * 数值/副注/动作的判定逻辑与旧版完全一致，仅展示层迁移。
  */
-import { Badge, Button, Flex, Typography } from "antd";
+import { Button } from "antd";
 import { Link } from "react-router-dom";
+import {
+  ClusterOutlined,
+  ExclamationCircleOutlined,
+  NotificationOutlined,
+  SafetyCertificateOutlined,
+} from "@ant-design/icons";
+import { StatStrip } from "../../components/StatStrip.js";
+import type { StatStripItem } from "../../components/StatStrip.js";
 import { formatRelative } from "../../lib/format.js";
 import type { MessageStats } from "./conclusions.js";
 import type { InspectStatusView } from "./types.js";
-
-const { Text } = Typography;
 
 interface StatusRailProps {
   attentionCount: number;
@@ -24,11 +31,20 @@ interface StatusRailProps {
   onOpenIssues: () => void;
 }
 
-const toneBadgeStatus = {
-  ok: "success",
-  warn: "warning",
+type RailTone = "ok" | "warn" | "error" | "idle";
+
+const TONE_TO_STAT: Record<RailTone, StatStripItem["tone"]> = {
+  ok: "ok",
+  warn: "warn",
   error: "error",
-  idle: "default",
+  idle: undefined,
+};
+
+const RAIL_ICONS = {
+  watch: SafetyCertificateOutlined,
+  gateway: NotificationOutlined,
+  attention: ExclamationCircleOutlined,
+  assistant: ClusterOutlined,
 } as const;
 
 export function StatusRail({
@@ -45,7 +61,7 @@ export function StatusRail({
   onOpenRuntimeDetails,
   onOpenIssues,
 }: StatusRailProps) {
-  const assistantTone =
+  const assistantTone: RailTone =
     downInstanceCount > 0
       ? "error"
       : degradedInstanceCount > 0
@@ -54,7 +70,14 @@ export function StatusRail({
           ? "ok"
           : "idle";
 
-  const items = [
+  const items: Array<{
+    id: keyof typeof RAIL_ICONS;
+    tone: RailTone;
+    label: string;
+    value: string;
+    detail: string;
+    action?: React.ReactNode;
+  }> = [
     {
       id: "watch",
       tone: inspectStatus === null ? "idle" : inspectStatus.reachable ? "ok" : "warn",
@@ -66,7 +89,18 @@ export function StatusRail({
           : inspectStatus.reachable
             ? `上次检查 ${formatRelative(inspectStatus.lastAt)}`
             : "暂时连不上，稍后会自动重试",
-      action: { label: "查看运行详情", kind: "runtime" as const },
+      action: (
+        <Button
+          type="link"
+          size="small"
+          style={{ paddingInline: 0 }}
+          aria-controls="runtime-details"
+          aria-expanded={runtimeDetailsOpen}
+          onClick={onOpenRuntimeDetails}
+        >
+          查看运行详情
+        </Button>
+      ),
     },
     {
       id: "gateway",
@@ -92,7 +126,13 @@ export function StatusRail({
               : !messageStats.relayEnabled
                 ? "原通道直发中：消息由本机 AI 直接发送"
                 : "消息接管通道正常",
-      action: { label: "查看消息", kind: "link" as const, to: "/gateway" },
+      action: (
+        <Link to="/gateway">
+          <Button type="link" size="small" style={{ paddingInline: 0 }}>
+            查看消息
+          </Button>
+        </Link>
+      ),
     },
     {
       id: "attention",
@@ -104,7 +144,12 @@ export function StatusRail({
         : hasWarn
           ? "有需要留意的事"
           : "暂无待办",
-      action: attentionCount > 0 ? { label: "查看待办", kind: "issues" as const } : undefined,
+      action:
+        attentionCount > 0 ? (
+          <Button type="link" size="small" style={{ paddingInline: 0 }} onClick={onOpenIssues}>
+            查看待办
+          </Button>
+        ) : undefined,
     },
     {
       id: "assistant",
@@ -119,48 +164,33 @@ export function StatusRail({
             : instanceCount === 0
               ? "尚未发现可管理的实例"
               : "运行正常",
-      action: { label: "查看运行详情", kind: "runtime" as const },
+      action: (
+        <Button
+          type="link"
+          size="small"
+          style={{ paddingInline: 0, alignSelf: "flex-start" }}
+          aria-controls="runtime-details"
+          aria-expanded={runtimeDetailsOpen}
+          onClick={onOpenRuntimeDetails}
+        >
+          查看运行详情
+        </Button>
+      ),
     },
   ];
 
   return (
-    <section className="dashboard-status-rail" aria-label="当前状态总览">
-      {items.map((item) => (
-        <Flex className="dashboard-status-item" vertical gap={6} key={item.id}>
-          <Flex align="center" gap={8}>
-            <Badge status={toneBadgeStatus[item.tone as keyof typeof toneBadgeStatus]} />
-            <Text type="secondary">{item.label}</Text>
-          </Flex>
-          <Text strong className="dashboard-status-value">
-            {item.value}
-          </Text>
-          <Text type="secondary" className="dashboard-status-detail">{item.detail}</Text>
-          {item.action?.kind === "link" && (
-            <Link to={item.action.to}>
-              <Button type="link" size="small" style={{ paddingInline: 0 }}>
-                {item.action.label}
-              </Button>
-            </Link>
-          )}
-          {item.action?.kind === "runtime" && (
-            <Button
-              type="link"
-              size="small"
-              style={{ paddingInline: 0, alignSelf: "flex-start" }}
-              aria-controls="runtime-details"
-              aria-expanded={runtimeDetailsOpen}
-              onClick={onOpenRuntimeDetails}
-            >
-              {item.action.label}
-            </Button>
-          )}
-          {item.action?.kind === "issues" && (
-            <Button type="link" size="small" style={{ paddingInline: 0, alignSelf: "flex-start" }} onClick={onOpenIssues}>
-              {item.action.label}
-            </Button>
-          )}
-        </Flex>
-      ))}
-    </section>
+    <StatStrip
+      items={items.map((item) => ({
+        key: item.id,
+        className: "dashboard-status-item",
+        icon: RAIL_ICONS[item.id],
+        label: item.label,
+        value: item.value,
+        tone: TONE_TO_STAT[item.tone],
+        sub: item.detail,
+        action: item.action,
+      }))}
+    />
   );
 }

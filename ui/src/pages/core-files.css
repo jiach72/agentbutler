@@ -1,0 +1,122 @@
+/* 核心文件页「市场风」局部样式：顶部工具带 + 左栏分组文件卡 + 保存机制说明条。
+   颜色一律取 antd Token（--ant-*）；选中态蓝底蓝边与技能市场卡片的选中模式一致。 */
+
+/* 工具带：搜索框弹性占位，右侧动作按钮组；窄屏自动换行。 */
+.core-files-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.core-files-toolbar-search {
+  flex: 1 1 260px;
+  max-width: 360px;
+}
+
+.core-files-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 左栏文件清单：分组头 + 文件卡列表；卡片选中态蓝底蓝边。 */
+.core-files-group {
+  padding: 12px 16px;
+}
+
+.core-files-group + .core-files-group {
+  border-top: 1px solid var(--ant-color-border-secondary, #e5e6eb);
+}
+
+.core-files-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.core-files-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.core-file-card {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: var(--ant-color-bg-container, #fff);
+  border: 1px solid var(--ant-color-border-secondary, #e5e6eb);
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  transition:
+    border-color 0.2s cubic-bezier(0.2, 0, 0, 1),
+    background 0.2s cubic-bezier(0.2, 0, 0, 1);
+}
+
+.core-file-card:hover {
+  border-color: var(--ant-color-border, #c9cdd4);
+}
+
+.core-file-card.active {
+  background: var(--ant-color-primary-bg, #f0f5ff);
+  border-color: var(--ant-color-primary, #2f54eb);
+}
+
+.core-file-card-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--ant-color-text, #1d2129);
+}
+
+.core-file-card-path {
+  display: block;
+  font-family: var(--ant-font-family-code, Consolas, monospace);
+  font-size: 11px;
+  color: var(--ant-color-text-tertiary, #86909c);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.core-file-card-meta {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--ant-color-text-quaternary, #bfbfbf);
+}
+
+.core-file-card-icon {
+  font-size: 20px;
+  color: var(--ant-color-text-quaternary, #bfbfbf);
+  flex-shrink: 0;
+}
+
+.core-file-card.active .core-file-card-icon {
+  color: var(--ant-color-primary, #2f54eb);
+}
+
+/* 保存机制说明条：单条浅蓝文案（替代原多条 Alert 堆叠中的说明类内容）。 */
+.core-files-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: var(--ant-color-primary-bg, #f0f5ff);
+  border: 1px solid var(--ant-color-primary-border, #adc6ff);
+  color: var(--ant-color-text-secondary, #4e5969);
+  font-size: 12px;
+  line-height: 1.6;
+}

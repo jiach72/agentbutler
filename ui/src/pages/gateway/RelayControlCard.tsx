@@ -30,11 +30,13 @@ export function RelayControlCard({ relay, onChanged }: RelayControlCardProps) {
     }
   };
   return (
-    <Card>
+    <Card style={{ borderInlineStart: "3px solid var(--ant-color-primary, #2f54eb)" }}>
       <Flex align="center" justify="space-between" gap={16} wrap="wrap">
-        <Flex vertical gap={4}>
+        <Flex vertical gap={4} style={{ minWidth: 0 }}>
           <Flex align="center" gap={12}>
-            <Typography.Text strong>{copy.title}</Typography.Text>
+            <Typography.Text strong style={{ fontSize: 16 }}>
+              {copy.title}
+            </Typography.Text>
             <Switch
               checked={relay.enabled}
               loading={busy}

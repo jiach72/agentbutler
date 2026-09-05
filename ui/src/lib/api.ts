@@ -162,6 +162,8 @@ export async function loadJson<T>(url: string, timeoutMs = 5000): Promise<LoadRe
           if (typeof record.error === "string" && record.error.trim() !== "") reason = record.error;
           else if (typeof record.detail === "string" && record.detail.trim() !== "")
             reason = record.detail;
+          else if (typeof record.message === "string" && record.message.trim() !== "")
+            reason = record.message;
         }
       } catch {
         // 响应体不是 JSON 时保留默认文案

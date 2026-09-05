@@ -1,0 +1,170 @@
+/* 排查问题页（/troubleshoot）：现象卡网格与证据/处理/结果统一卡片语言。
+   颜色一律引用 --butler-* 主题变量（真源见 theme/tokens.ts），不写死色值。 */
+
+/* 分类色图标底。 */
+.ts-tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--butler-radius-control);
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.ts-tile.tone-info { background: var(--butler-accent-soft); color: var(--butler-accent); }
+.ts-tile.tone-ok { background: var(--butler-ok-soft); color: var(--butler-ok); }
+.ts-tile.tone-warn { background: var(--butler-warn-soft); color: var(--butler-warn); }
+.ts-tile.tone-error { background: var(--butler-error-soft); color: var(--butler-error); }
+.ts-tile.tone-cinnabar { background: var(--butler-cinnabar-soft); color: var(--butler-cinnabar); }
+.ts-tile.tone-muted { background: var(--butler-surface-subtle); color: var(--butler-ink-faint); }
+
+/* 现象选择：统一卡规格网格（宽屏 4 列）。 */
+.ts-symptom-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.ts-symptom-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--butler-rule);
+  border-radius: var(--butler-radius-card);
+  background: var(--butler-surface);
+  padding: 16px;
+  transition:
+    transform var(--butler-dur-fast) var(--butler-ease),
+    box-shadow var(--butler-dur-fast) var(--butler-ease),
+    border-color var(--butler-dur-fast) var(--butler-ease),
+    background var(--butler-dur-fast) var(--butler-ease);
+}
+
+.ts-symptom-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--butler-rule-strong);
+  box-shadow: var(--butler-shadow);
+}
+
+.ts-symptom-card:focus-visible {
+  outline: none;
+  box-shadow: var(--butler-focus-ring);
+}
+
+.ts-symptom-card.is-selected {
+  border-color: var(--butler-accent);
+  background: var(--butler-accent-soft);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--butler-accent) 10%, transparent);
+}
+
+.ts-symptom-hint {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+/* 证据检查行：状态标签 + 名称/说明。 */
+.ts-probe-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--butler-rule);
+  border-radius: var(--butler-radius-control);
+  background: var(--butler-surface);
+}
+
+/* 处理动作卡：Radio 语义 + 卡片外观。 */
+.ts-action-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.ts-action-grid .ant-radio-wrapper {
+  margin-inline-end: 0;
+  padding: 0;
+}
+
+.ts-action-card {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  width: 100%;
+  border: 1px solid var(--butler-rule);
+  border-radius: var(--butler-radius-card);
+  padding: 14px 16px;
+  background: var(--butler-surface);
+  cursor: pointer;
+  transition:
+    border-color var(--butler-dur-base) var(--butler-ease),
+    background var(--butler-dur-base) var(--butler-ease),
+    box-shadow var(--butler-dur-base) var(--butler-ease);
+}
+
+.ts-action-card.is-static {
+  cursor: default;
+}
+
+.ts-action-card:hover {
+  border-color: var(--butler-rule-strong);
+}
+
+.ts-action-card.ant-radio-wrapper-checked {
+  border-color: var(--butler-accent);
+  background: var(--butler-accent-soft);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--butler-accent) 10%, transparent);
+}
+
+.ts-action-card .ant-radio {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.ts-action-card:has(.ant-radio-input:focus-visible) {
+  outline: none;
+  box-shadow: var(--butler-focus-ring);
+}
+
+/* 结论块：成功绿 / 提醒黄 / 失败红 / 说明蓝。 */
+.ts-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border-radius: var(--butler-radius-control);
+  padding: 12px 14px;
+}
+
+.ts-result .ts-result-icon {
+  font-size: 16px;
+  margin-top: 2px;
+}
+
+.ts-result.is-ok { background: var(--butler-ok-soft); border: 1px solid color-mix(in srgb, var(--butler-ok) 35%, transparent); }
+.ts-result.is-ok .ts-result-icon { color: var(--butler-ok); }
+
+.ts-result.is-warn { background: var(--butler-warn-soft); border: 1px solid color-mix(in srgb, var(--butler-warn) 35%, transparent); }
+.ts-result.is-warn .ts-result-icon { color: var(--butler-warn); }
+
+.ts-result.is-fail { background: var(--butler-error-soft); border: 1px solid color-mix(in srgb, var(--butler-error) 35%, transparent); }
+.ts-result.is-fail .ts-result-icon { color: var(--butler-error); }
+
+.ts-result.is-info { background: var(--butler-accent-soft); border: 1px solid color-mix(in srgb, var(--butler-accent) 35%, transparent); }
+.ts-result.is-info .ts-result-icon { color: var(--butler-accent); }
+
+/* 步骤底部导航按钮条。 */
+.ts-nav {
+  width: 100%;
+  border-top: 1px solid var(--butler-rule);
+  padding-top: 16px;
+  margin-top: 8px;
+}

@@ -7,7 +7,7 @@
  */
 import { useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { App, Badge, Button, Collapse, Flex } from "antd";
+import { App, Badge, Button, Card, Col, Collapse, Flex, Row } from "antd";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { PageHeader } from "../../components/PageHeader.js";
@@ -199,6 +199,7 @@ export function DashboardPage() {
       <section className="dashboard-page">
         <Flex vertical gap={24}>
           <PageHeader
+            eyebrow="控制台"
             title="本地管家"
             description="正在汇总服务、检查结果和消息状态。"
           />
@@ -219,6 +220,7 @@ export function DashboardPage() {
     <section className="dashboard-page">
       <Flex vertical gap={24}>
         <PageHeader
+          eyebrow="控制台"
           title="本地管家"
           description="查看本机服务状态、连接情况和消息通知。"
           extra={
@@ -302,46 +304,27 @@ export function DashboardPage() {
               instances={instances}
               inspections={dashboard?.latestInspections ?? []}
             />
-            <Collapse
-              className="advanced-details"
-              size="small"
-              items={[
-                {
-                  key: "schedule",
-                  label: (
-                    <span className="advanced-details-summary">
-                      <span>检查安排</span>
-                    </span>
-                  ),
-                  children: (
-                    <InspectCard inspectStatus={inspectStatus} onInspect={() => void runInspect()} />
-                  ),
-                },
-                {
-                  key: "runbooks",
-                  label: (
-                    <span className="advanced-details-summary">
-                      <span>可用的处理方案</span>
-                    </span>
-                  ),
-                  children: <RunbooksPanel runbooks={runbooks} onRepair={setRunbookCandidate} />,
-                },
-                {
-                  key: "fingerprints",
-                  label: (
-                    <span className="advanced-details-summary">
-                      <span>经常出现的问题</span>
-                    </span>
-                  ),
-                  children: (
-                    <FingerprintsTable
-                      fingerprints={dashboard?.fingerprints ?? []}
-                      onOpenLogs={() => navigate("/logs")}
-                    />
-                  ),
-                },
-              ]}
-            />
+            {/* 高级面板：三张并排小卡（原来是再嵌一层的 Collapse，这里拍平成单层结构）。 */}
+            <Row gutter={[16, 16]}>
+              <Col xs={24} lg={8}>
+                <Card size="small" title="检查安排" id="dashboard-schedule">
+                  <InspectCard inspectStatus={inspectStatus} onInspect={() => void runInspect()} />
+                </Card>
+              </Col>
+              <Col xs={24} lg={8}>
+                <Card size="small" title="可用的处理方案">
+                  <RunbooksPanel runbooks={runbooks} onRepair={setRunbookCandidate} />
+                </Card>
+              </Col>
+              <Col xs={24} lg={8}>
+                <Card size="small" title="经常出现的问题">
+                  <FingerprintsTable
+                    fingerprints={dashboard?.fingerprints ?? []}
+                    onOpenLogs={() => navigate("/logs")}
+                  />
+                </Card>
+              </Col>
+            </Row>
           </Flex>
         </RuntimeDetails>
 

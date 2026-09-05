@@ -1,0 +1,24 @@
+/* 消息通知页局部样式：通道卡图标底（亮/暗成对，取自 theme/tokens.ts 语义色板）。 */
+
+.channel-tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  font-size: 22px;
+}
+
+.channel-tile.tone-teal { background: #e6fffb; color: #13c2c2; }
+.channel-tile.tone-blue { background: #f0f5ff; color: #2f54eb; }
+.channel-tile.tone-green { background: #f6ffed; color: #52c41a; }
+.channel-tile.tone-gold { background: #fffbe6; color: #faad14; }
+.channel-tile.tone-gray { background: #f7f8fa; color: #86909c; }
+
+html[data-theme="dark"] .channel-tile.tone-teal { background: #123a3f; color: #36cfc9; }
+html[data-theme="dark"] .channel-tile.tone-blue { background: #1c2748; color: #85a5ff; }
+html[data-theme="dark"] .channel-tile.tone-green { background: #1a2b1c; color: #95de64; }
+html[data-theme="dark"] .channel-tile.tone-gold { background: #2f2a12; color: #ffc53d; }
+html[data-theme="dark"] .channel-tile.tone-gray { background: #1b1e24; color: #7c8590; }

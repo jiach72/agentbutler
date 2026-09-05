@@ -131,6 +131,17 @@ export const SOURCE_KEYS: SettingsSourceKey[] = [
   "audit",
 ];
 
+/** 七路数据源 → 状态概览条中文名（与 SOURCE_KEYS 同序）。 */
+export const SOURCE_LABELS: Record<SettingsSourceKey, string> = {
+  baseline: "安全基线",
+  alerts: "异常告警",
+  runbooks: "自动修复",
+  security: "安全检查",
+  backups: "备份任务",
+  butlerSelf: "升级快照",
+  audit: "操作审计",
+};
+
 export function createInitialSources(): SourcesState {
   return {
     baseline: { status: "loading" },

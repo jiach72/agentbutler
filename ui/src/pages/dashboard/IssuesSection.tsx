@@ -7,11 +7,12 @@ import { App } from "antd";
 import { ArrowRightOutlined, CopyOutlined, RobotOutlined } from "@ant-design/icons";
 import { Badge, Button, Card, Flex, Typography } from "antd";
 import { useNavigate } from "react-router-dom";
+import { SectionHeader } from "../../components/SectionHeader.js";
 import { postJson } from "../../lib/api.js";
 import { buildAgentHelpPrompt } from "./helpers.js";
 import type { IssueView } from "./types.js";
 
-const { Text, Title } = Typography;
+const { Text } = Typography;
 
 interface IssuesSectionProps {
   issues: IssueView[];
@@ -73,14 +74,11 @@ export function IssuesSection({ issues, attentionCount, onInspect }: IssuesSecti
   return (
     <section>
       <Flex vertical gap={16}>
-        <Flex wrap="wrap" justify="space-between" align="flex-start" gap={16}>
-          <div style={{ minWidth: 0 }}>
-            <Title level={4} style={{ marginBottom: 0 }}>
-              {attentionCount > 0 ? `有 ${attentionCount} 件事需要处理` : "当前没有待处理事项"}
-            </Title>
-          </div>
-          <Text type="secondary">详细信息请查看诊断与修复</Text>
-        </Flex>
+        <SectionHeader
+          kicker="需要处理"
+          title={attentionCount > 0 ? `有 ${attentionCount} 件事需要处理` : "当前没有待处理事项"}
+          extra={<Text type="secondary">详细信息请查看诊断与修复</Text>}
+        />
         <Flex vertical gap={8}>
           {visibleIssues.map((issue) => {
             const action = issue.action;

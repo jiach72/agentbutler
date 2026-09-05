@@ -1,11 +1,22 @@
 /**
  * 通讯工具卡片组：当前接入的国内 IM、登录账号与健康状态；启停/扫码/配置入口。
+ * 卡片为市场风规格：分类色图标底 + 通道名 + 启停状态标签；启停/配置逻辑不变。
  */
-import { ReloadOutlined } from "@ant-design/icons";
-import { App, Badge, Button, Card, Flex, Tag, Typography } from "antd";
+import {
+  MailOutlined,
+  MessageOutlined,
+  MobileOutlined,
+  QqOutlined,
+  ReloadOutlined,
+  SendOutlined,
+  WechatOutlined,
+} from "@ant-design/icons";
+import type { ComponentType } from "react";
+import { App, Button, Card, Flex, Tag, Typography } from "antd";
 import { useCallback, useEffect, useState } from "react";
 import { usePolling } from "../../hooks/usePolling.js";
 import { fetchJson, postJson } from "../../lib/api.js";
+import { StatusBadge } from "../../components/StatusBadge.js";
 import { ChannelConfigModal } from "./ChannelConfigModal.js";
 import {
   REFRESH_INTERVAL_MS,
@@ -17,13 +28,19 @@ import {
 } from "./helpers.js";
 import type { ChannelDirectoryEntryView } from "./helpers.js";
 import { WeixinLoginModal } from "./WeixinLoginModal.js";
+import "./gateway.css";
 
-const LOGIN_BADGE: Record<ChannelDirectoryEntryView["loginState"], "success" | "error" | "warning" | "default"> = {
-  logged_in: "success",
-  logged_out: "error",
-  configuring: "warning",
-  unknown: "default",
-};
+/** 通道名关键词 → 图标与色调（不命中走通用消息图标）。 */
+function channelTileOf(label: string): { Icon: ComponentType; tone: string } {
+  const lowered = label.toLowerCase();
+  if (lowered.includes("微信") || lowered.includes("wechat")) return { Icon: WechatOutlined, tone: "green" };
+  if (lowered.includes("telegram")) return { Icon: SendOutlined, tone: "blue" };
+  if (lowered.includes("邮件") || lowered.includes("mail") || lowered.includes("smtp"))
+    return { Icon: MailOutlined, tone: "teal" };
+  if (lowered.includes("短信") || lowered.includes("sms")) return { Icon: MobileOutlined, tone: "gold" };
+  if (lowered.includes("qq")) return { Icon: QqOutlined, tone: "blue" };
+  return { Icon: MessageOutlined, tone: "gray" };
+}
 
 interface ChannelGridProps {
   /** 重新连接通道（复用 GatewayPage 的 reconnectMessages）。 */
@@ -140,14 +157,19 @@ export function ChannelGrid({ onReconnect }: ChannelGridProps) {
           <Typography.Text type="secondary">{unreachable ? "暂时读不到通道目录，稍后自动重试。" : "正在读取通道目录…"}</Typography.Text>
         ) : (
           <>
-          {channels.map((channel) => (
+          {channels.map((channel) => {
+            const { Icon, tone } = channelTileOf(channel.label);
+            return (
             <Card
               key={channel.id}
               size="small"
               title={
-                <Flex align="center" gap={8}>
+                <Flex align="center" gap={10}>
+                  <span className={`channel-tile tone-${tone}`} aria-hidden="true">
+                    <Icon />
+                  </span>
                   <span>{channel.label}</span>
-                  <Badge status={LOGIN_BADGE[channel.loginState]} text={loginStateCopy(channel.loginState)} />
+                  <StatusBadge tone={channel.enabled ? "ok" : "muted"} label={channel.enabled ? "已启用" : "已停用"} />
                 </Flex>
               }
             >
@@ -155,7 +177,7 @@ export function ChannelGrid({ onReconnect }: ChannelGridProps) {
                 <Typography.Text type="secondary">
                   {channelKindLabel(channel.kind)}
                   {channel.account !== undefined ? ` · ${channel.account}` : ""}
-                  {channel.enabled ? "" : " · 已停用"}
+                  {` · ${loginStateCopy(channel.loginState)}`}
                 </Typography.Text>
                 {channel.kind === "qr-login" ? (
                   <Button size="small" type="primary" onClick={() => setLoginOpen(true)}>
@@ -184,7 +206,8 @@ export function ChannelGrid({ onReconnect }: ChannelGridProps) {
                 ) : null}
               </Flex>
             </Card>
-          ))}
+            );
+          })}
           </>
         )}
       </div>

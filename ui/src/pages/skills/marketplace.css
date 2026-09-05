@@ -1,0 +1,78 @@
+/* 技能市场面板局部样式：瀑布流栅格、分类色图标底、两行截断。
+   色值与 theme/tokens.ts 的语义色板成对（暗色用 nightPalette 对应值）。 */
+
+/* 瀑布流：窄 1 列 → 中 2 列 → 宽 3 列，卡片高度随内容错落。 */
+.skills-waterfall {
+  column-count: 1;
+  column-gap: 16px;
+}
+
+@media (min-width: 900px) {
+  .skills-waterfall { column-count: 2; }
+}
+
+@media (min-width: 1280px) {
+  .skills-waterfall { column-count: 3; }
+}
+
+.skills-waterfall > * {
+  break-inside: avoid;
+  margin-bottom: 16px;
+}
+
+/* 分类色图标底（亮/暗成对取自 tokens.ts）。 */
+.skill-tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  font-size: 22px;
+}
+
+.skill-tile.tone-teal { background: #e6fffb; color: #13c2c2; }
+.skill-tile.tone-blue { background: #f0f5ff; color: #2f54eb; }
+.skill-tile.tone-purple { background: #f9f0ff; color: #722ed1; }
+.skill-tile.tone-cinnabar { background: #fff2e8; color: #fa541c; }
+.skill-tile.tone-green { background: #f6ffed; color: #52c41a; }
+.skill-tile.tone-gold { background: #fffbe6; color: #faad14; }
+.skill-tile.tone-gray { background: #f7f8fa; color: #86909c; }
+
+html[data-theme="dark"] .skill-tile.tone-teal { background: #123a3f; color: #36cfc9; }
+html[data-theme="dark"] .skill-tile.tone-blue { background: #1c2748; color: #85a5ff; }
+html[data-theme="dark"] .skill-tile.tone-purple { background: #241a44; color: #b37feb; }
+html[data-theme="dark"] .skill-tile.tone-cinnabar { background: #3d2417; color: #ff9a6e; }
+html[data-theme="dark"] .skill-tile.tone-green { background: #1a2b1c; color: #95de64; }
+html[data-theme="dark"] .skill-tile.tone-gold { background: #2f2a12; color: #ffc53d; }
+html[data-theme="dark"] .skill-tile.tone-gray { background: #1b1e24; color: #7c8590; }
+
+/* 卡片简介最多两行，溢出省略。 */
+.skill-card-desc {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+/* 左侧分类导航：粘性 + 选中态左蓝条；窄屏隐藏（工具带仍可搜索/筛选）。 */
+.skills-category-rail {
+  position: sticky;
+  top: 88px;
+}
+
+@media (max-width: 899px) {
+  .skills-category-rail { display: none; }
+}
+
+.skills-category-rail .rail-item:hover {
+  background: var(--ant-color-fill-tertiary, #f7f8fa);
+}
+
+.skills-category-rail .rail-item.active {
+  background: var(--ant-color-primary-bg, #f0f5ff);
+  color: var(--ant-color-primary, #2f54eb);
+  box-shadow: inset 3px 0 0 var(--ant-color-primary, #2f54eb);
+}

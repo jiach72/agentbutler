@@ -95,55 +95,6 @@
   font-size: var(--butler-text-xs);
 }
 
-/* ---- 首页状态带：正常态只保留四项可扫描的当前结论。 ---- */
-
-.dashboard-status-rail {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  overflow: hidden;
-  border: 1px solid var(--butler-rule);
-  border-radius: var(--butler-radius-card);
-  background: var(--butler-surface);
-}
-.dashboard-status-item {
-  min-width: 0;
-  padding: var(--butler-space-4);
-}
-.dashboard-status-item + .dashboard-status-item {
-  border-left: 1px solid var(--butler-rule);
-}
-.dashboard-status-value {
-  font-size: var(--butler-text-xl);
-  line-height: 1.25;
-  font-variant-numeric: tabular-nums;
-}
-.dashboard-status-detail {
-  min-height: 2.8em;
-  overflow-wrap: anywhere;
-}
-
-@media (max-width: 880px) {
-  .dashboard-status-rail {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .dashboard-status-item:nth-child(odd) {
-    border-left: 0;
-  }
-  .dashboard-status-item:nth-child(n + 3) {
-    border-top: 1px solid var(--butler-rule);
-  }
-}
-
-@media (max-width: 520px) {
-  .dashboard-status-rail {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .dashboard-status-item + .dashboard-status-item {
-    border-top: 1px solid var(--butler-rule);
-    border-left: 0;
-  }
-}
-
 /* ---- 紧凑描述列表（连接卡片 / 检查明细头部） ---- */
 
 .dense-descriptions .ant-descriptions-item-label,
