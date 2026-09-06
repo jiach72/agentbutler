@@ -1,5 +1,14 @@
 # Bug Fixes
 
+## 2026-09-06 - 前端轮询治理：告警去重与稳定状态模式
+
+- **问题：** 首页同时存在两路 `/api/alerts` 轮询（`useNotifications` 10s + `useDashboardData.refresh` 10s），同一接口每 10 秒被请求两次；更重的是所有轮询回调每次都用新对象 `setState`——5s 的连接探测与 10s 的主刷新即使数据毫无变化，也会让 Layout 顶栏、通知铃铛与首页整棵组件树以固定频率反复重渲染；`loading` 态每次轮询翻转 true→false 进一步放大。
+- **风险/影响：** 常驻打开的面板以 5-10 秒为周期做无意义的 DOM 协调与重渲染，页面元素多时（首页、消息页）产生可感知的卡顿与电量浪费；重复请求白白占用 Watch/Web。
+- **修复范围：** `useDashboardData` 告警数据改为消费 `NotificationsProvider` 的上下文（同一份数据、同一路轮询，对 `DashboardPage` 的接口不变）；`useNotifications` 与 `useDashboardData` 的轮询回调统一采用「内容不变则保留原引用」的稳定状态模式（JSON 等价性比较），`loading` 只在首次拉取时进入，后台轮询不再翻转；`vite.config.ts` 的 manualChunks 改为按包名函数式分组（react-dom 归入 vendor-react、antd 的 rc-* 内部依赖归入 vendor-antd，@ant-design/charts 及其拖带的 @antv/g2 保持懒加载 chunk）。经对照构建验证：改造前后首屏急加载均为 ~1.30MB（入口 29.5KB + vendor-react 232KB + vendor-antd 1.04MB，gzip ~415KB），图表库改造前即已懒加载——本次分包为结构归位与缓存粒度优化，非体积收益。
+- **回归测试：** UI 全部 79 项测试通过（组件静态渲染不触发 effects，行为兼容）；前后端全量 152 个测试文件通过；vite build 成功且入口/懒加载 chunk 边界经 dist/index.html 与静态导入图核验。
+- **验证命令：** `corepack pnpm --filter @butler/ui exec vitest run --config vitest.config.ts tests/ --reporter=dot`（79 passed）；`corepack pnpm test`；`corepack pnpm lint`；`corepack pnpm --filter @butler/ui exec vite build`。
+- **Runtime validation:** 未在真实浏览器中验证重渲染收敛幅度（可用 React Profiler 对照）；分包后的 chunk 加载顺序经 dist/index.html modulepreload 核验，首次真实浏览器打开仍需复验图表页的异步加载表现。
+
 ## 2026-09-06 - journald 读取异步化消除日志链路事件循环阻塞
 
 - **问题：** Watch 的 `readJournalTail` 用 `execFileSync` 执行 `journalctl`（15 秒超时）：日志面板读取 `butler:*` 源、日志分析器（`/api/logs/analyze`、`/api/evolution/insights`、诊断摘要、技能使用统计、进化分析）遍历日志源时都会同步执行，4 个管家自身 journald 源意味着一次分析请求最坏可把 Watch 事件循环阻塞约 1 分钟；期间 HTTP（含 healthz）、tail 轮询、巡检调度、告警转发全部停摆。

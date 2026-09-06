@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { fetchJson, postJson } from "../lib/api.js";
 import { useEventStream } from "./useEventStream.js";
 import { usePolling } from "./usePolling.js";
@@ -49,12 +49,23 @@ function important(item: NotificationItem): boolean {
 export function NotificationsProvider({ children }: { children: React.ReactNode }) {
   const [payload, setPayload] = useState<NotificationsPayload | null>(null);
   const [loading, setLoading] = useState(false);
+  const loadedRef = useRef(false);
 
   const refresh = useCallback(async () => {
-    setLoading(true);
+    // 首次拉取才进入 loading 态；后台轮询不翻转状态、内容不变不更新，
+    // 避免订阅方（顶栏铃铛、首页状态带等）每 10 秒无意义重渲染。
+    const isFirstLoad = !loadedRef.current;
+    if (isFirstLoad) setLoading(true);
     const next = await fetchJson<NotificationsPayload>("/api/alerts", 8_000);
-    if (next !== null) setPayload(next);
-    setLoading(false);
+    if (next !== null) {
+      setPayload((current) =>
+        JSON.stringify(current) === JSON.stringify(next) ? current : next,
+      );
+      loadedRef.current = true;
+      setLoading(false);
+    } else if (isFirstLoad) {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {

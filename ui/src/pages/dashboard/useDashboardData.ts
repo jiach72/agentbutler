@@ -5,10 +5,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchJson } from "../../lib/api.js";
 import { useEventStream } from "../../hooks/useEventStream.js";
+import { useNotifications } from "../../hooks/useNotifications.js";
 import { usePolling } from "../../hooks/usePolling.js";
 import { REFRESH_EVENT_PREFIXES, REFRESH_THROTTLE_MS } from "./helpers.js";
 import type {
-  AlertsPayload,
   ConnectionsPayload,
   DashboardPayload,
   DeliveryHistoryPayload,
@@ -23,11 +23,17 @@ import type {
   RuntimePayload,
 } from "./types.js";
 
+/** 轮询返回内容不变时保留原引用，让 React 跳过无意义的整树重渲染。 */
+function sameJson(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 export function useDashboardData() {
   const [dashboard, setDashboard] = useState<DashboardPayload | null>(null);
   const [connections, setConnections] = useState<ConnectionsPayload | null>(null);
   const [openClawStatus, setOpenClawStatus] = useState<OpenClawStatusView | null>(null);
-  const [alerts, setAlerts] = useState<AlertsPayload | null>(null);
+  // 告警数据复用通知中心（NotificationsProvider）的 10s 轮询，不再重复请求 /api/alerts。
+  const notifications = useNotifications();
   const [deliveryHistory, setDeliveryHistory] = useState<DeliveryHistoryPayload | null>(null);
   const [inspectionHistory, setInspectionHistory] = useState<InspectionHistoryPayload | null>(null);
   const [runbooks, setRunbooks] = useState<RunbooksPayload | null>(null);
@@ -37,36 +43,26 @@ export function useDashboardData() {
   const [serviceHealth, setServiceHealth] = useState<HealthPayload | null>(null);
   const [runtime, setRuntime] = useState<RuntimePayload | null>(null);
   const [readinessRefreshing, setReadinessRefreshing] = useState(false);
-  const [initialLoad, setInitialLoad] = useState({
-    dashboard: false,
-    alerts: false,
-    finished: false,
-  });
+  const [dashboardLoaded, setDashboardLoaded] = useState(false);
 
-  const refresh = useCallback(async (trackInitial = false) => {
-    const mark = (key: "dashboard" | "alerts") => {
-      if (trackInitial) setInitialLoad((current) => ({ ...current, [key]: true }));
-    };
+  const refresh = useCallback(async () => {
     await Promise.all([
       fetchJson<DashboardPayload>("/api/dashboard").then((dash) => {
-        if (dash !== null) setDashboard(dash);
-        mark("dashboard");
-      }),
-      fetchJson<AlertsPayload>("/api/alerts").then((nextAlerts) => {
-        if (nextAlerts !== null) setAlerts(nextAlerts);
-        mark("alerts");
+        if (dash !== null) {
+          setDashboard((current) => (sameJson(current, dash) ? current : dash));
+          setDashboardLoaded(true);
+        }
       }),
       fetchJson<DeliveryHistoryPayload>("/api/messages/delivery-history?days=7").then((history) => {
-        if (history !== null) setDeliveryHistory(history);
+        if (history !== null) setDeliveryHistory((current) => (sameJson(current, history) ? current : history));
       }),
       fetchJson<InspectionHistoryPayload>("/api/inspections/history?days=14").then((history) => {
-        if (history !== null) setInspectionHistory(history);
+        if (history !== null) setInspectionHistory((current) => (sameJson(current, history) ? current : history));
       }),
       fetchJson<RunbooksPayload>("/api/runbooks").then((nextRunbooks) => {
-        if (nextRunbooks !== null) setRunbooks(nextRunbooks);
+        if (nextRunbooks !== null) setRunbooks((current) => (sameJson(current, nextRunbooks) ? current : nextRunbooks));
       }),
     ]);
-    if (trackInitial) setInitialLoad((current) => ({ ...current, finished: true }));
   }, []);
 
   const refreshConnections = useCallback(async () => {
@@ -75,14 +71,16 @@ export function useDashboardData() {
       fetchJson<OpenClawStatusView>("/api/openclaw/status", 8_000),
       fetchJson<MessageStatusPayload>("/api/messages/status", 8_000),
     ]);
-    if (next !== null) setConnections(next);
+    if (next !== null) setConnections((current) => (sameJson(current, next) ? current : next));
     if (openclaw !== null) {
-      setOpenClawStatus(openclaw);
+      setOpenClawStatus((current) => (sameJson(current, openclaw) ? current : openclaw));
     }
     if (messageStatus !== null) {
-      setDashboard((current) =>
-        current === null ? current : { ...current, messageStatus },
-      );
+      setDashboard((current) => {
+        if (current === null) return current;
+        const merged = { ...current, messageStatus };
+        return sameJson(current, merged) ? current : merged;
+      });
     }
   }, []);
 
@@ -116,7 +114,7 @@ export function useDashboardData() {
 
   // 首屏：聚合端点一次取齐。
   useEffect(() => {
-    void refresh(true);
+    void refresh();
     void refreshConnections();
     void refreshReadiness();
     void refreshHostMetrics();
@@ -144,6 +142,12 @@ export function useDashboardData() {
   });
 
   // 首屏失败可见性：关键数据全部为 null/不可达时给出整体降级与重试入口。
+  const alerts = notifications.payload;
+  const initialLoad = {
+    dashboard: dashboardLoaded,
+    alerts: !notifications.loading,
+    finished: dashboardLoaded && !notifications.loading,
+  };
   const criticalLoadFailed = useMemo(
     () =>
       initialLoad.finished &&
