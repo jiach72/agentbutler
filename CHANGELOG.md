@@ -10,7 +10,7 @@
   - 新增本机技能清单（`/api/skills/local`，扫描 SKILL.md + source.json 合成名称/描述/版本/来源）；
   - 新增更新检查（`/api/skills/local/updates`）：SkillHub 来源比对平台最新版本号，Git 来源比对 GitHub 最新 commit；
   - 新增更新落位（`/api/skills/local/update`）与删除（`/api/skills/local/remove`，整目录移入备份区可手动恢复）；安装接口支持覆盖语义，更新时旧版本先备份；
-  - 新增 GitHub 仓库整包安装（`/api/skills/git/stage`）：支持 owner/repo、完整 URL 与 /tree/分支，tarball 下载后定位根目录 SKILL.md，走同一套安全检查与确认流程；
+  - 新增 GitHub 仓库整包安装（`/api/skills/git/stage`）：支持 owner/repo、完整 URL 与 /tree/分支；根目录含 SKILL.md 按单技能安装，合集仓库自动安装所有含 SKILL.md 的一级子目录（任一成员命中风险规则即整体拒绝）；
   - Watch 新增无依赖 tar.gz 读取器（与 ZIP 读取器同一套路径安全与解压上限约束）。
 
 ### Changed

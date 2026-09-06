@@ -222,6 +222,16 @@ function isRecordObj(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+/** 读取技能目录内的 source.json（缺失/损坏返回 null）。 */
+function readSourceJson(dir: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(readFileSync(join(dir, "source.json"), "utf8")) as unknown;
+    return isRecordObj(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 /** 剥掉包体唯一的顶层目录前缀（SkillHub zip 与 GitHub tarball 都可能整体包裹）。 */
 function stripCommonPrefix(files: ZipEntry[]): ZipEntry[] {
   const tops = new Set(files.map((file) => file.path.split("/")[0]!));
@@ -347,9 +357,11 @@ export function createSkillAssetService(deps: { core: Core; skills: SkillsMemory
     const skills = [...new Set([...known, ...counts.keys()])].map((name) => { const item = counts.get(name); const observed = (item?.successes ?? 0) + (item?.failures ?? 0); return { name, calls: item?.calls ?? 0, lastUsedAt: item?.last ?? null, successRate: observed > 0 ? (item?.successes ?? 0) / observed : null, avgDurationMs: item && item.durations.length > 0 ? item.durations.reduce((sum, value) => sum + value, 0) / item.durations.length : null, status: known.has(name) ? "known" as const : "unknown" as const }; }).sort((a, b) => b.calls - a.calls || (b.lastUsedAt ?? "").localeCompare(a.lastUsedAt ?? "") || a.name.localeCompare(b.name));
     return { rangeDays: days, granularity, coverage: { from, to, days: from && to ? Math.max(1, Math.ceil((Date.parse(to) - Date.parse(from)) / 86400000)) : 0, source: sources ? "Hermes 日志" : "未读取到 Hermes 日志", complete: sources > 0 }, series: [...series.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, calls]) => ({ date, calls })), skills, notice: "成功率和耗时只有在日志明确记录时展示，否则为未知。" };
   };
-  /** 把解压后的技能文件写入隔离区；meta 写入 source.json。返回 stageId（失败自动清理）。 */
-  const stageFromEntries = (files: ZipEntry[], sourceUrl: string, meta: Record<string, unknown>): { id: string; name: string | null; risk: SkillStaticRiskReport } => {
-    const skillEntry = files.find((item) => item.path === "SKILL.md");
+  /** 把解压后的技能文件写入隔离区；meta 写入 source.json。返回 stageId（失败自动清理）。
+   *  根目录 SKILL.md 存在 → 单技能；否则扫描一级子目录的 SKILL.md 作为合集（安装时逐个落位）。 */
+  const stageFromEntries = (files: ZipEntry[], sourceUrl: string, meta: Record<string, unknown>): { id: string; name: string | null; risk: SkillStaticRiskReport; collection: number } => {
+    const byDepth = (a: ZipEntry, b: ZipEntry) => a.path.split("/").length - b.path.split("/").length || a.path.localeCompare(b.path);
+    const skillEntry = files.find((item) => item.path === "SKILL.md") ?? [...files].filter((item) => item.path.endsWith("/SKILL.md") || item.path === "SKILL.md").sort(byDepth)[0];
     if (skillEntry === undefined) throw new Error("skill-md-missing");
     const skillText = new TextDecoder().decode(skillEntry.data);
     const risk = inspectSkillText(skillText);
@@ -363,8 +375,12 @@ export function createSkillAssetService(deps: { core: Core; skills: SkillsMemory
         mkdirSync(dirname(target), { recursive: true });
         writeFileSync(target, file.data, { mode: 0o600 });
       }
-      atomicWriteJson(join(path, "source.json"), { id: stageId, sourceUrl, stagedAt: iso(now), ...meta }, { mode: 0o600, description: "隔离技能来源" });
-      return { id: stageId, name: skillNameFromFrontmatter(skillText), risk };
+      // 合集规模：一级子目录中含 SKILL.md 的数量（根目录 SKILL.md 存在时为 1）。
+      const collectionCount = files.some((item) => item.path === "SKILL.md")
+        ? 1
+        : new Set(files.filter((item) => /^[^/]+\/SKILL\.md$/.test(item.path)).map((item) => item.path.split("/")[0])).size;
+      atomicWriteJson(join(path, "source.json"), { id: stageId, sourceUrl, stagedAt: iso(now), ...(collectionCount > 1 ? { collection: collectionCount } : {}), ...meta }, { mode: 0o600, description: "隔离技能来源" });
+      return { id: stageId, name: skillNameFromFrontmatter(skillText), risk, collection: collectionCount };
     } catch (error) {
       rmSync(path, { recursive: true, force: true });
       throw error;
@@ -468,33 +484,71 @@ export function createSkillAssetService(deps: { core: Core; skills: SkillsMemory
     async installStaged(id, confirmed, overwrite = false) {
       if (!confirmed) return { ok: false, error: "confirmation-required", fix: "确认安装前不要写入 Hermes" };
       if (!/^[0-9a-f-]{36}$/.test(id)) return { ok: false, error: "invalid-stage-id", fix: "无效的隔离安装标识" };
-      const path = join(stageRoot, id); const skillFile = join(path, "SKILL.md");
-      if (!inside(path, stageRoot) || !existsSync(skillFile)) return { ok: false, error: "invalid-stage", fix: "隔离区必须包含有效 SKILL.md" };
-      const raw = readFileSync(skillFile, "utf8");
-      const risk = inspectSkillText(raw);
-      if (risk.status === "blocked") {
-        return { ok: false, error: "skill-risk-blocked", risk, fix: risk.detail };
+      const path = join(stageRoot, id);
+      if (!inside(path, stageRoot) || !existsSync(path)) return { ok: false, error: "invalid-stage", fix: "隔离区必须包含有效 SKILL.md" };
+      // 单技能：隔离区根目录有 SKILL.md；合集：一级子目录各含 SKILL.md（全部安装）。
+      const members: Array<{ sourcePath: string; dirName: string; raw: string }> = [];
+      if (existsSync(join(path, "SKILL.md"))) {
+        members.push({ sourcePath: path, dirName: "", raw: readFileSync(join(path, "SKILL.md"), "utf8") });
+      } else {
+        let subEntries: import("node:fs").Dirent[];
+        try { subEntries = readdirSync(path, { withFileTypes: true }); } catch { subEntries = []; }
+        for (const entry of subEntries) {
+          if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+          const subSkill = join(path, entry.name, "SKILL.md");
+          if (existsSync(subSkill)) members.push({ sourcePath: join(path, entry.name), dirName: entry.name, raw: readFileSync(subSkill, "utf8") });
+        }
+        if (members.length === 0) return { ok: false, error: "invalid-stage", fix: "隔离区必须包含有效 SKILL.md（或含多个带 SKILL.md 的子目录）" };
       }
-      const targetName = safeName(skillNameFromFrontmatter(raw) ?? id);
-      if (!targetName) return { ok: false, error: "invalid-skill-name", fix: "SKILL.md 必须声明安全的技能名称" };
+      // 任一成员命中风险规则即整体拒绝（fail-closed），此时还没有任何目录被移动。
+      for (const member of members) {
+        const risk = inspectSkillText(member.raw);
+        if (risk.status === "blocked") return { ok: false, error: "skill-risk-blocked", risk, fix: risk.detail };
+      }
       const instance = instanceOf(deps.core); if (!instance) return { ok: false, error: "no-instance", fix: "先连接 Hermes 实例" };
-      const skillsRoot = join(instance.rootPath, "skills"); const target = join(skillsRoot, targetName);
-      if (!inside(target, skillsRoot)) return { ok: false, error: "path-not-allowed", fix: "拒绝路径穿越" };
-      if (existsSync(target) && !overwrite) return { ok: false, error: "target-exists", fix: "目标技能已存在；更新请走技能卡片的「更新」。" };
+      const skillsRoot = join(instance.rootPath, "skills");
+      const targets = members.map((member) => {
+        const rawName = member.dirName === "" ? skillNameFromFrontmatter(member.raw) ?? id : member.dirName;
+        return { ...member, targetName: safeName(rawName) };
+      });
+      if (targets.some((target) => target.targetName === null)) {
+        return { ok: false, error: "invalid-skill-name", fix: "技能名称不合法（仅允许字母数字与 . _ -）。" };
+      }
+      const seenNames = new Set<string>();
+      for (const target of targets) {
+        if (seenNames.has(target.targetName!)) return { ok: false, error: "duplicate-skill-name", fix: `合集中存在重名技能：${target.targetName}` };
+        seenNames.add(target.targetName!);
+      }
+      for (const target of targets) {
+        const dest = join(skillsRoot, target.targetName!);
+        if (!inside(dest, skillsRoot)) return { ok: false, error: "path-not-allowed", fix: "拒绝路径穿越" };
+        if (existsSync(dest) && !overwrite) return { ok: false, error: "target-exists", fix: "目标技能已存在；更新请走技能卡片的「更新」。" };
+      }
       if (deps.backup === undefined && deps.backupGate === undefined) return { ok: false, error: "backup-unavailable", fix: "先恢复 Butler 备份服务" };
+      const stageSource = readSourceJson(path);
       return guardedMutation(instance, async () => {
+        const installedNames: string[] = [];
         try {
-          if (!deps.backupGate && deps.backup) await deps.backup.run("event", (overwrite ? "更新技能 " : "安装技能 ") + targetName);
-          if (overwrite && existsSync(target)) {
-            // 旧版本整目录移入备份区，保留可手动恢复的副本。
-            const replacedAt = join(archiveRoot, `${targetName}-replaced-${now()}`);
-            moveDirSync(target, replacedAt, { verify: verifySkillDir });
-            atomicWriteJson(join(replacedAt, "meta.json"), { name: targetName, source: "replaced", originalPath: target, archivePath: replacedAt, archivedAt: iso(now), hash: sha(readFileSync(join(replacedAt, "SKILL.md"), "utf8")) } satisfies ArchivedMeta, { mode: 0o600, description: "被替换技能备份" });
+          if (!deps.backupGate && deps.backup) await deps.backup.run("event", (overwrite ? "更新技能 " : "安装技能 ") + targets.map((target) => target.targetName).join(", "));
+          for (const target of targets) {
+            const dest = join(skillsRoot, target.targetName!);
+            if (overwrite && existsSync(dest)) {
+              // 旧版本整目录移入备份区，保留可手动恢复的副本。
+              const replacedAt = join(archiveRoot, `${target.targetName}-replaced-${now()}`);
+              moveDirSync(dest, replacedAt, { verify: verifySkillDir });
+              atomicWriteJson(join(replacedAt, "meta.json"), { name: target.targetName!, source: "replaced", originalPath: dest, archivePath: replacedAt, archivedAt: iso(now), hash: sha(readFileSync(join(replacedAt, "SKILL.md"), "utf8")) } satisfies ArchivedMeta, { mode: 0o600, description: "被替换技能备份" });
+            }
+            mkdirSync(dirname(dest), { recursive: true });
+            // 合集安装：把来源元数据复制进各成员目录，供后续清单与更新检查识别。
+            if (target.dirName !== "" && stageSource !== null) {
+              writeFileSync(join(target.sourcePath, "source.json"), JSON.stringify({ ...stageSource, skillName: target.targetName }, null, 2), { mode: 0o600 });
+            }
+            moveDirSync(target.sourcePath, dest, { verify: verifySkillDir });
+            installedNames.push(target.targetName!);
+            deps.core.audit.append({ actor: "skills", action: overwrite ? "skill-updated" : "skill-installed", target: target.targetName!, detail: { target: dest, stageId: id } });
           }
-          mkdirSync(dirname(target), { recursive: true });
-          moveDirSync(path, target, { verify: verifySkillDir });
-          deps.core.audit.append({ actor: "skills", action: overwrite ? "skill-updated" : "skill-installed", target: targetName, detail: { target, stageId: id } });
-          return { ok: true, name: targetName, installedPath: target, ...(overwrite ? { replaced: true } : {}) };
+          const single = installedNames.length === 1;
+          return { ok: true, name: installedNames[0]!, names: installedNames, count: installedNames.length, installedPath: join(skillsRoot, installedNames[0]!), ...(overwrite ? { replaced: true } : {}), ...(single ? {} : { notice: `已安装 ${installedNames.length} 个技能（合集仓库）` }) };
         } catch (error) {
           return { ok: false, error: "install-failed", detail: error instanceof Error ? error.message : String(error), fix: "检查备份和 Hermes 技能目录权限" };
         }
@@ -546,8 +600,8 @@ export function createSkillAssetService(deps: { core: Core; skills: SkillsMemory
       } catch (error) {
         return { ok: false, error: "git-download-failed", detail: error instanceof Error ? error.message : String(error), fix: "确认仓库存在且根目录含 SKILL.md；目前支持 GitHub 仓库。" };
       }
-      if (!files.some((item) => item.path === "SKILL.md")) {
-        return { ok: false, error: "skill-md-missing", fix: "仓库根目录没有 SKILL.md；暂不支持安装子目录形态的技能合集。" };
+      if (files.length === 0) {
+        return { ok: false, error: "skill-md-missing", fix: "仓库里没有找到任何 SKILL.md，无法安装。" };
       }
       const sourceUrl = `https://github.com/${owner}/${repo}${parsed.ref === undefined ? "" : `/tree/${parsed.ref}`}`;
       let commit: string | null = null;
@@ -560,9 +614,17 @@ export function createSkillAssetService(deps: { core: Core; skills: SkillsMemory
       } catch { /* commit 获取失败不阻塞安装 */ }
       try {
         const staged = stageFromEntries(files, sourceUrl, { source: "git", gitUrl: `https://github.com/${owner}/${repo}`, ref, ...(commit === null ? {} : { commit }) });
-        return { ok: true, id: staged.id, status: "staged", name: staged.name ?? `${owner}/${repo}`, sourceUrl, risk: staged.risk, notice: "已完成安全检查，确认后写入本机技能目录" };
+        return {
+          ok: true,
+          id: staged.id,
+          status: "staged",
+          name: staged.name ?? `${owner}/${repo}`,
+          sourceUrl,
+          risk: staged.risk,
+          ...(staged.collection > 1 ? { collection: staged.collection, notice: `合集仓库：确认后将安装其中 ${staged.collection} 个技能` } : { notice: "已完成安全检查，确认后写入本机技能目录" }),
+        };
       } catch (error) {
-        if (error instanceof Error && error.message === "skill-md-missing") return { ok: false, error: "skill-md-missing", fix: "仓库根目录没有 SKILL.md，无法安装。" };
+        if (error instanceof Error && error.message === "skill-md-missing") return { ok: false, error: "skill-md-missing", fix: "仓库里没有找到任何 SKILL.md，无法安装。" };
         return { ok: false, error: "git-stage-failed", detail: error instanceof Error ? error.message : String(error), fix: "检查磁盘与权限后重试。" };
       }
     },
