@@ -388,6 +388,8 @@ const CHANNEL_LABELS: Record<string, string> = {
   sms: "短信",
   desktop: "桌面通知",
   webhook: "网页通知",
+  // 指标聚合对缺失通道字段的消息统一记为 unknown（见 gateway message/store metrics）。
+  unknown: "未知通道",
 };
 
 const MESSAGE_KIND_LABELS: Record<string, string> = {
