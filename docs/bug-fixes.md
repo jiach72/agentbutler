@@ -1,5 +1,14 @@
 # Bug Fixes
 
+## 2026-09-06 - 系统日志页：一键修复闭环与智能分析列表治理
+
+- **问题：** 用户反馈两点：① 智能分析列表 71 类问题全部平铺，页面无限往下拉；② 点「一键修复」后只看到模糊的「修复成功」，不知道是否真的修复，且修复完成后问题列表纹丝不动——分析器统计的是近 7 天历史日志行，修复本身不会抹掉旧日志，不做「修复后是否复发」的判定，列表永远原样。
+- **风险/影响：** 修复动作缺乏可验证的闭环反馈，用户只能靠猜；长列表把仍需关注的问题淹没在历史噪音里。
+- **修复范围：** `ui/src/pages/dashboard/LogPanel.tsx`：① 分析列表默认只展示前 6 类（已了结的沉底），其余折叠在「展开其余 N 类问题」之后，可收起；② 每张问题卡显示「最后出现 N 分钟前」（后端 `lastSeenAt` 原本就有、UI 未接）；③ 修复会话完成后自动重新分析并刷新日志流，toast 携带实际变更与复验结论；④ 以修复完成时间为分界，每张卡标记「修复后未再出现」（沉底、隐藏修复按钮）或「修复后仍出现」（保留按钮）——直接回答「是不是真的修复了」；⑤ 修复执行中的同动作问题按钮变为「修复执行中…」防重复发起；⑥ 分析卡新增「分析于 HH:mm」与手动「重新分析」入口。纯函数 `presentLogIssues` 导出并新增 3 项单测（修复中/复发/沉底/折叠展开）。
+- **回归测试：** `ui/tests/logs-panel-present.test.ts` 3 项通过；UI 79 项测试通过；前后端全量 153 个测试文件通过（并行负载下 watch http 端口夹具出现过一次既有文档记录的偶发 "bad port"，复跑全绿，与本轮改动无关）。
+- **验证命令：** `corepack pnpm --filter @butler/ui exec vitest run --config vitest.config.ts tests/ --reporter=dot`；`corepack pnpm test`；`corepack pnpm lint`；`corepack pnpm --filter @butler/ui exec vite build`；`git diff --check`。
+- **Runtime validation:** 未在真实浏览器操作修复会话；「修复后未再出现」的判定依赖日志分析窗口（7 天）内的 `lastSeenAt`，真实 Hermes 场景下建议发起一次 rb-restart 后观察列表标记是否符合预期。
+
 ## 2026-09-06 - 前端轮询治理：告警去重与稳定状态模式
 
 - **问题：** 首页同时存在两路 `/api/alerts` 轮询（`useNotifications` 10s + `useDashboardData.refresh` 10s），同一接口每 10 秒被请求两次；更重的是所有轮询回调每次都用新对象 `setState`——5s 的连接探测与 10s 的主刷新即使数据毫无变化，也会让 Layout 顶栏、通知铃铛与首页整棵组件树以固定频率反复重渲染；`loading` 态每次轮询翻转 true→false 进一步放大。

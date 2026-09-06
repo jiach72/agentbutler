@@ -361,6 +361,8 @@ export interface LogIssueView {
   examples: string[];
   suggestedAction: "rb-restart" | "rb-reconnect" | null;
   actionLabel: string | null;
+  /** 该类问题最后一次出现的 ISO 时间（来自日志分析器）；修复闭环用它判断是否复发。 */
+  lastSeenAt?: string | null;
 }
 
 export interface LogAnalyzeView {
