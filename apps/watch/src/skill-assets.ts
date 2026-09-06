@@ -148,6 +148,18 @@ export function moveDirSync(
 function verifySkillDir(target: string): void {
   if (!existsSync(join(target, "SKILL.md"))) throw new Error("落位后缺少 SKILL.md，已回滚");
 }
+
+/**
+ * 从 SKILL.md frontmatter 提取技能名：先取 `---` 围栏块，再在块内按行匹配 name。
+ * 此前直接对全文找「换行 + name:」，而标准 frontmatter 的 name 就在 `---` 下一行，
+ * 前置换行已被消费，导致永远匹配不上、安装名回退成暂存 UUID。
+ */
+export function skillNameFromFrontmatter(raw: string): string | null {
+  const block = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---/.exec(raw)?.[1];
+  if (block === undefined) return null;
+  const name = /^[ \t]*name:[ \t]*([A-Za-z0-9][A-Za-z0-9._-]{0,159})[ \t]*\r?$/im.exec(block)?.[1];
+  return name ?? null;
+}
 function usageBucket(timestamp: string, granularity: UsageGranularity): string {
   const date = new Date(timestamp);
   if (granularity === "month") return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-01`;
@@ -369,8 +381,7 @@ export function createSkillAssetService(deps: { core: Core; skills: SkillsMemory
       if (risk.status === "blocked") {
         return { ok: false, error: "skill-risk-blocked", risk, fix: risk.detail };
       }
-      const nameMatch = /^---\s*\r?\n[\s\S]*?\r?\nname:\s*([A-Za-z0-9][A-Za-z0-9._-]{0,159})\s*\r?\n[\s\S]*?\r?\n---/i.exec(raw);
-      const targetName = safeName(nameMatch?.[1] ?? id);
+      const targetName = safeName(skillNameFromFrontmatter(raw) ?? id);
       if (!targetName) return { ok: false, error: "invalid-skill-name", fix: "SKILL.md 必须声明安全的技能名称" };
       const instance = instanceOf(deps.core); if (!instance) return { ok: false, error: "no-instance", fix: "先连接 Hermes 实例" };
       const skillsRoot = join(instance.rootPath, "skills"); const target = join(skillsRoot, targetName);
@@ -425,7 +436,7 @@ export function createSkillAssetService(deps: { core: Core; skills: SkillsMemory
           writeFileSync(target, file.data, { mode: 0o600 });
         }
         const sourceUrl = "https://skillhub.cn/skills/" + slug;
-        const frontmatterName = /^---\s*\r?\n[\s\S]*?\r?\nname:\s*([A-Za-z0-9][A-Za-z0-9._-]{0,159})\s*\r?\n[\s\S]*?\r?\n---/i.exec(skillText)?.[1];
+        const frontmatterName = skillNameFromFrontmatter(skillText);
         atomicWriteJson(join(path, "source.json"), { id: stageId, sourceUrl, source: "skillhub", slug, stagedAt: iso(now) }, { mode: 0o600, description: "隔离技能来源" });
         return { ok: true, id: stageId, status: "staged", slug, name: frontmatterName ?? slug, sourceUrl, risk, notice: "已从 SkillHub 下载到 Butler 隔离区并完成初步风险扫描，尚未写入本机；请确认安装" };
       } catch (error) {

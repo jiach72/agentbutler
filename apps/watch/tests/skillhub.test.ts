@@ -4,8 +4,18 @@ import { afterEach, describe, expect, it } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createSkillAssetService, moveDirSync } from "../src/skill-assets.js";
+import { createSkillAssetService, moveDirSync, skillNameFromFrontmatter } from "../src/skill-assets.js";
 import { createSkillHubClient, readZipEntries } from "../src/skillhub.js";
+
+describe("skillNameFromFrontmatter", () => {
+  it("解析标准 frontmatter：name 位于 --- 下一行（含 CRLF 与 metadata 子块）", () => {
+    const raw = '---\nname: self-improvement\ndescription: "d"\nmetadata:\nslug: self-improving-agent\nversion: 3.0.24\n---\n\n正文';
+    expect(skillNameFromFrontmatter(raw)).toBe("self-improvement");
+    expect(skillNameFromFrontmatter('---\r\nname: weekly-report\r\ndescription: "d"\r\n---\r\nbody')).toBe("weekly-report");
+    expect(skillNameFromFrontmatter("---\ndescription: 没有 name\n---\nbody")).toBeNull();
+    expect(skillNameFromFrontmatter("没有 frontmatter")).toBeNull();
+  });
+});
 
 describe("moveDirSync 跨挂载回退", () => {
   const makeTempDirs = () => {
