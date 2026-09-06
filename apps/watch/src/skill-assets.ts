@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { atomicWriteJson, withManagedOperationLock, type Core, type InstanceRecord } from "@butler/core";
 import { resolveGithubToken } from "./github-token.js";
 import { createSkillHubClient, isNewerVersion, parseGitSource, readTarGzEntries, readZipEntries, type SkillHubCategoriesView, type SkillHubClient, type SkillHubListQuery, type SkillHubListView, type ZipEntry } from "./skillhub.js";
@@ -486,20 +486,25 @@ export function createSkillAssetService(deps: { core: Core; skills: SkillsMemory
       if (!/^[0-9a-f-]{36}$/.test(id)) return { ok: false, error: "invalid-stage-id", fix: "无效的隔离安装标识" };
       const path = join(stageRoot, id);
       if (!inside(path, stageRoot) || !existsSync(path)) return { ok: false, error: "invalid-stage", fix: "隔离区必须包含有效 SKILL.md" };
-      // 单技能：隔离区根目录有 SKILL.md；合集：一级子目录各含 SKILL.md（全部安装）。
-      const members: Array<{ sourcePath: string; dirName: string; raw: string }> = [];
-      if (existsSync(join(path, "SKILL.md"))) {
-        members.push({ sourcePath: path, dirName: "", raw: readFileSync(join(path, "SKILL.md"), "utf8") });
-      } else {
-        let subEntries: import("node:fs").Dirent[];
-        try { subEntries = readdirSync(path, { withFileTypes: true }); } catch { subEntries = []; }
-        for (const entry of subEntries) {
-          if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
-          const subSkill = join(path, entry.name, "SKILL.md");
-          if (existsSync(subSkill)) members.push({ sourcePath: join(path, entry.name), dirName: entry.name, raw: readFileSync(subSkill, "utf8") });
+      // 单技能：隔离区根目录有 SKILL.md；合集：递归（≤3 层）寻找含 SKILL.md 的子目录，全部安装。
+      const collectMembers = (dir: string, depth: number): Array<{ sourcePath: string; dirName: string; raw: string }> => {
+        if (depth > 3) return [];
+        if (existsSync(join(dir, "SKILL.md"))) {
+          return [{ sourcePath: dir, dirName: basename(dir), raw: readFileSync(join(dir, "SKILL.md"), "utf8") }];
         }
-        if (members.length === 0) return { ok: false, error: "invalid-stage", fix: "隔离区必须包含有效 SKILL.md（或含多个带 SKILL.md 的子目录）" };
-      }
+        const found: Array<{ sourcePath: string; dirName: string; raw: string }> = [];
+        let entries;
+        try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return found; }
+        for (const entry of entries) {
+          if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+          found.push(...collectMembers(join(dir, entry.name), depth + 1));
+        }
+        return found;
+      };
+      const members = existsSync(join(path, "SKILL.md"))
+        ? [{ sourcePath: path, dirName: "", raw: readFileSync(join(path, "SKILL.md"), "utf8") }]
+        : collectMembers(path, 0);
+      if (members.length === 0) return { ok: false, error: "invalid-stage", fix: "隔离区必须包含有效 SKILL.md（或含带 SKILL.md 的技能子目录）" };
       // 任一成员命中风险规则即整体拒绝（fail-closed），此时还没有任何目录被移动。
       for (const member of members) {
         const risk = inspectSkillText(member.raw);
@@ -548,6 +553,8 @@ export function createSkillAssetService(deps: { core: Core; skills: SkillsMemory
             deps.core.audit.append({ actor: "skills", action: overwrite ? "skill-updated" : "skill-installed", target: target.targetName!, detail: { target: dest, stageId: id } });
           }
           const single = installedNames.length === 1;
+          // 合集安装：成员已逐个移出，清掉隔离区残壳（空目录与 source.json）。
+          if (!single) rmSync(path, { recursive: true, force: true });
           return { ok: true, name: installedNames[0]!, names: installedNames, count: installedNames.length, installedPath: join(skillsRoot, installedNames[0]!), ...(overwrite ? { replaced: true } : {}), ...(single ? {} : { notice: `已安装 ${installedNames.length} 个技能（合集仓库）` }) };
         } catch (error) {
           return { ok: false, error: "install-failed", detail: error instanceof Error ? error.message : String(error), fix: "检查备份和 Hermes 技能目录权限" };
