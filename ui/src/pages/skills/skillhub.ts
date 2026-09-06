@@ -82,12 +82,34 @@ export function formatHubCount(count: number | undefined | null): string {
 
 /**
  * 判断 SkillHub 市场卡是否已安装：任一来源命中 slug 或显示名即视为已安装。
- * 来源：skills-manager 中央库、Hermes 技能目录（staged 安装直接落位于此）、
- * 本次会话里刚装完的记录（落位名与卡片名可能不同，用 slug 精确兜底）。
+ * 来源：Hermes 技能目录清单、本次会话里刚装完的记录（落位名与卡片名可能不同，用 slug 精确兜底）。
  */
 export function isSkillHubInstalled(
   item: { slug: string; name: string },
   sources: Array<Set<string>>,
 ): boolean {
   return sources.some((set) => set.has(item.slug) || set.has(item.name));
+}
+
+/** 本机已装技能（GET /api/skills/local，Hermes 技能目录扫描结果）。 */
+export interface LocalSkillItem {
+  name: string;
+  displayName: string;
+  description: string;
+  version: string | null;
+  origin: "skillhub" | "git" | "local";
+  slug: string | null;
+  gitUrl: string | null;
+  ref: string | null;
+  commit: string | null;
+  installedAt: string | null;
+}
+
+/** 单技能更新检查结果（GET /api/skills/local/updates）。 */
+export interface LocalUpdateItem {
+  name: string;
+  status: "up_to_date" | "available" | "unknown";
+  installedVersion: string | null;
+  latestVersion: string | null;
+  reason?: string;
 }

@@ -1,11 +1,69 @@
 import { createCore } from "@butler/core";
-import { deflateRawSync } from "node:zlib";
+import { gzipSync, deflateRawSync } from "node:zlib";
 import { afterEach, describe, expect, it } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSkillAssetService, moveDirSync, skillNameFromFrontmatter } from "../src/skill-assets.js";
-import { createSkillHubClient, readZipEntries } from "../src/skillhub.js";
+import { createSkillHubClient, isNewerVersion, parseGitSource, readTarGzEntries, readZipEntries } from "../src/skillhub.js";
+
+/** 组装最小 tar.gz（GitHub tarball 形态：唯一顶层目录 + 文件）。 */
+function buildTarGz(top: string, files: Array<{ name: string; data: string }>): Uint8Array {
+  const encoder = new TextEncoder();
+  const blocks: Uint8Array[] = [];
+  const pushEntry = (name: string, data: Uint8Array, typeflag: number) => {
+    const header = new Uint8Array(512);
+    header.set(encoder.encode(name).subarray(0, 100), 0);
+    const sizeText = data.length.toString(8).padStart(11, "0") + "\0";
+    header.set(encoder.encode(sizeText), 124);
+    header[156] = typeflag;
+    // 校验和：先全空格，再写入。
+    header.fill(0x20, 148, 156);
+    let checksum = 0;
+    for (const byte of header) checksum += byte;
+    header.set(encoder.encode(checksum.toString(8).padStart(6, "0") + "\0 "), 148);
+    blocks.push(header, data, new Uint8Array((512 - (data.length % 512)) % 512));
+  };
+  for (const file of files) pushEntry(`${top}/${file.name}`, encoder.encode(file.data), 0x30);
+  blocks.push(new Uint8Array(1024)); // 结束块
+  const total = blocks.reduce((sum, block) => sum + block.length, 0);
+  const tar = new Uint8Array(total);
+  let cursor = 0;
+  for (const block of blocks) { tar.set(block, cursor); cursor += block.length; }
+  return new Uint8Array(gzipSync(tar));
+}
+
+describe("tar.gz 读取器与 Git 来源解析", () => {
+  it("读取 GitHub 形态的 tar.gz 并剥前缀后可定位 SKILL.md", () => {
+    const bytes = buildTarGz("repo-main", [
+      { name: "SKILL.md", data: "---\nname: demo\n---\nhi" },
+      { name: "references/a.md", data: "a" },
+    ]);
+    const entries = readTarGzEntries(bytes);
+    expect(entries.map((entry) => entry.path)).toEqual(["repo-main/SKILL.md", "repo-main/references/a.md"]);
+    const stripped = entries.map((entry) => entry.path.replace(/^repo-main\//, ""));
+    expect(stripped).toContain("SKILL.md");
+  });
+
+  it("拒绝损坏的 gzip", () => {
+    expect(() => readTarGzEntries(new Uint8Array([1, 2, 3]))).toThrow(/tar\.gz/);
+  });
+
+  it("parseGitSource 覆盖 owner/repo、完整 URL、/tree/分支与 .git 后缀", () => {
+    expect(parseGitSource("anthropics/skills")).toEqual({ owner: "anthropics", repo: "skills" });
+    expect(parseGitSource("https://github.com/obra/superpowers.git")).toEqual({ owner: "obra", repo: "superpowers" });
+    expect(parseGitSource("https://github.com/obra/superpowers/tree/main")).toEqual({ owner: "obra", repo: "superpowers", ref: "main" });
+    expect(parseGitSource("https://gitlab.com/a/b")).toBeNull();
+    expect(parseGitSource("")).toBeNull();
+  });
+
+  it("isNewerVersion 按数值段比较", () => {
+    expect(isNewerVersion("3.1.0", "3.0.9")).toBe(true);
+    expect(isNewerVersion("1.0.2", "1.0.10")).toBe(false);
+    expect(isNewerVersion("1.0.2", "1.0.2")).toBe(false);
+    expect(isNewerVersion("v2.0", "1.9.9")).toBe(true);
+  });
+});
 
 describe("skillNameFromFrontmatter", () => {
   it("解析标准 frontmatter：name 位于 --- 下一行（含 CRLF 与 metadata 子块）", () => {

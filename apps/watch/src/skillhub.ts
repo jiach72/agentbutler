@@ -9,7 +9,7 @@
  * 另含无依赖 ZIP 读取器：SkillHub 下载包为 zip（SKILL.md 在根目录），
  * 与 diagnostics.ts 的 store 写入器互补，这里负责读取（store + deflate）。
  */
-import { inflateRawSync } from "node:zlib";
+import { gunzipSync, inflateRawSync } from "node:zlib";
 
 export const SKILLHUB_BASE_URL = "https://api.skillhub.cn";
 /** 分类内存缓存时长：分类表由平台调整，文档要求运行时拉取而非硬编码。 */
@@ -76,6 +76,10 @@ type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
 export interface SkillHubClient {
   categories(): Promise<SkillHubCategoriesView>;
   list(query?: SkillHubListQuery): Promise<SkillHubListView>;
+  /** 单技能详情（含 latestVersion）；失败返回 null（网络问题由调用方兜底）。 */
+  detail(slug: string): Promise<{ latestVersion: string | null } | null>;
+  /** 批量详情：slug → latestVersion 映射（用于已装技能的更新检查）。 */
+  latestVersions(slugs: string[]): Promise<Map<string, string>>;
   /** 下载技能 zip（已跟随 302）；网络/超限抛错，由调用方转义。 */
   download(slug: string): Promise<Uint8Array>;
 }
@@ -234,6 +238,42 @@ export function createSkillHubClient(deps: SkillHubClientDeps = {}): SkillHubCli
       if (buffer.byteLength < 100) throw new Error("下载内容不是有效的技能包");
       return buffer;
     },
+
+    async detail(slug) {
+      const clean = slug.trim();
+      try {
+        const body = await getJson(`/api/v1/skills/${encodeURIComponent(clean)}`, 15_000) as { latestVersion?: unknown };
+        const version = isRecord(body) && isRecord(body["latestVersion"]) ? asString(body["latestVersion"]["version"]) : "";
+        return { latestVersion: version === "" ? null : version };
+      } catch {
+        return null;
+      }
+    },
+
+    async latestVersions(slugs) {
+      const result = new Map<string, string>();
+      const clean = slugs.map((slug) => slug.trim()).filter((slug) => slug !== "").slice(0, 1000);
+      if (clean.length === 0) return result;
+      try {
+        const response = await fetchImpl(`${baseUrl}/api/v1/skills/batch`, {
+          method: "POST",
+          headers: { Accept: "application/json", "Content-Type": "application/json", "User-Agent": "agent-butler/1.0" },
+          body: JSON.stringify({ slugs: clean }),
+          signal: AbortSignal.timeout(20_000),
+        });
+        if (!response.ok) return result;
+        const body = await response.json() as { items?: unknown };
+        for (const item of Array.isArray(body.items) ? body.items : []) {
+          if (!isRecord(item) || !isRecord(item["skill"])) continue;
+          const slug = asString(item["skill"]["slug"]);
+          const version = isRecord(item["latestVersion"]) ? asString(item["latestVersion"]["version"]) : "";
+          if (slug !== "" && version !== "") result.set(slug, version);
+        }
+      } catch {
+        // 网络失败返回空映射，调用方按「检查失败」呈现
+      }
+      return result;
+    },
   };
 }
 
@@ -329,4 +369,126 @@ export function readZipEntries(bytes: Uint8Array, limits: ZipLimits = {}): ZipEn
     entries.push({ path: name, data });
   }
   return entries;
+}
+
+/** 解析 tar 头部 124 偏移的八进制长度（兼容 GNU base-256）。 */
+function tarSize(header: Uint8Array, offset: number): number {
+  if ((header[offset]! & 0x80) !== 0) {
+    // GNU base-256：最高位为 1，其余按大端无符号读。
+    let value = 0;
+    for (let index = 0; index < 12; index += 1) value = value * 256 + header[offset + index]!;
+    return value;
+  }
+  let value = 0;
+  for (let index = 0; index < 12; index += 1) {
+    const byte = header[offset + index]!;
+    if (byte === 0 || byte === 0x20) break;
+    value = value * 8 + (byte - 0x30);
+  }
+  return value;
+}
+
+function tarName(header: Uint8Array, length: number): string {
+  const decoder = new TextDecoder();
+  let end = Math.min(length, 100);
+  for (let index = 0; index < end; index += 1) {
+    if (header[index] === 0) { end = index; break; }
+  }
+  return decoder.decode(header.subarray(0, end));
+}
+
+/**
+ * 读取 tar.gz（GitHub 仓库 tarball 格式）为条目数组，跳过目录与 pax 元数据，
+ * 支持 GNU 长文件名（typeflag 'L'）与 pax path 覆盖。安全约束与 zip 读取器一致：
+ * 路径穿越/加密不涉及（tar 无加密），条目数与解压总量受同一上限约束。
+ */
+export function readTarGzEntries(bytes: Uint8Array, limits: ZipLimits = {}): ZipEntry[] {
+  const cap = { ...DEFAULT_ZIP_LIMITS, ...limits };
+  let tar: Uint8Array;
+  try {
+    tar = new Uint8Array(gunzipSync(bytes));
+  } catch {
+    throw new Error("不是有效的 tar.gz 包");
+  }
+  if (tar.byteLength % 512 !== 0 && tar.byteLength < 512) throw new Error("tar 包已损坏");
+  const entries: ZipEntry[] = [];
+  let totalBytes = 0;
+  let offset = 0;
+  let longName: string | null = null;
+  let paxPath: string | null = null;
+  while (offset + 512 <= tar.byteLength) {
+    const header = tar.subarray(offset, offset + 512);
+    if (header[0] === 0) break; // 结束块
+    const nameField = tarName(header, 100);
+    const size = tarSize(header, 124);
+    const typeflag = String.fromCharCode(header[156] ?? 0x30);
+    const dataStart = offset + 512;
+    const dataEnd = dataStart + size;
+    if (dataEnd > tar.byteLength) throw new Error("tar 包已损坏（长度越界）");
+    const data = () => tar.subarray(dataStart, dataEnd);
+    if (typeflag === "L") {
+      longName = new TextDecoder().decode(data()).replace(/\0+$/, "");
+    } else if (typeflag === "x") {
+      // pax 扩展头：记录里 "len path=..." 覆盖下一个条目名。
+      const text = new TextDecoder().decode(data());
+      const match = /(?:^|\n)[^=\n]*path=([^\n]+)/.exec(text);
+      paxPath = match?.[1] ?? null;
+    } else if (typeflag === "0" || typeflag === "\0") {
+      const rawName = longName ?? paxPath ?? nameField;
+      longName = null;
+      paxPath = null;
+      const name = safeZipPath(rawName);
+      if (name === null) throw new Error(`技能包含不安全路径：${rawName}`);
+      const fileData = new Uint8Array(data().buffer, data().byteOffset, size);
+      if (size > cap.maxFileBytes) throw new Error(`技能包单个文件超过 ${Math.floor(cap.maxFileBytes / 1024 / 1024)}MB 上限`);
+      totalBytes += size;
+      if (totalBytes > cap.maxTotalBytes) throw new Error(`技能包解压总量超过 ${Math.floor(cap.maxTotalBytes / 1024 / 1024)}MB 上限`);
+      entries.push({ path: name, data: fileData });
+    } else {
+      longName = null;
+      paxPath = null;
+    }
+    offset = dataStart + Math.ceil(size / 512) * 512;
+  }
+  if (entries.length === 0) throw new Error("tar 包中没有文件");
+  return entries;
+}
+
+export interface GitSource {
+  owner: string;
+  repo: string;
+  /** 分支/标签/commit；缺省为仓库默认分支（HEAD）。 */
+  ref?: string;
+}
+
+/** 解析用户输入的 GitHub 来源：owner/repo、完整 URL、/tree/branch、.git 后缀。 */
+export function parseGitSource(input: string): GitSource | null {
+  const raw = input.trim();
+  if (raw === "") return null;
+  const simplified = raw.replace(/\.git$/i, "");
+  const treeMatch = /^https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+)\/tree\/([^/]+)$/i.exec(simplified);
+  if (treeMatch) return { owner: treeMatch[1]!, repo: treeMatch[2]!, ref: treeMatch[3] };
+  const webMatch = /^https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+)$/i.exec(simplified);
+  if (webMatch) return { owner: webMatch[1]!, repo: webMatch[2]! };
+  const shorthand = /^([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+)$/.exec(simplified);
+  if (shorthand) return { owner: shorthand[1]!, repo: shorthand[2]! };
+  return null;
+}
+
+/** 语义化版本比较：candidate 更大时返回 true；无法解析时退化为字符串比较。 */
+export function isNewerVersion(candidate: string, current: string): boolean {
+  const parse = (value: string) =>
+    value.replace(/^v/, "").split(/[.+-]/).map((part) => ( /^\d+$/.test(part) ? Number(part) : part));
+  const left = parse(candidate);
+  const right = parse(current);
+  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+    const a = left[index];
+    const b = right[index];
+    if (a === undefined && b === undefined) return false;
+    const aNum = typeof a === "number" ? a : -1;
+    const bNum = typeof b === "number" ? b : -1;
+    if (aNum !== bNum) return aNum > bNum;
+    if (a !== b) return String(a) > String(b);
+  }
+  return false;
 }

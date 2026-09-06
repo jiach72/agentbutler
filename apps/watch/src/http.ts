@@ -1540,8 +1540,41 @@ async function handle(
       if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
       if (deps.skillAssets === undefined) return sendJson(res, 503, { error: "skill-assets-unavailable" });
       const body = await readJsonBody(req, res); if (body === null) return;
-      const result = await deps.skillAssets.installStaged(decodeURIComponent(installMatch[1]!), body["confirmed"] === true);
+      const result = await deps.skillAssets.installStaged(decodeURIComponent(installMatch[1]!), body["confirmed"] === true, body["overwrite"] === true);
       return sendJson(res, skillInstallStatus(result), result);
+    }
+
+    // 本机技能（Hermes 技能目录为唯一事实来源）：清单 / 删除 / 更新检查 / 更新落位。
+    if (path === "/api/skills/local") {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.skillAssets === undefined) return sendJson(res, 503, { error: "skill-assets-unavailable" });
+      return sendJson(res, 200, await deps.skillAssets.listLocal());
+    }
+    if (path === "/api/skills/local/updates") {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.skillAssets === undefined) return sendJson(res, 503, { error: "skill-assets-unavailable" });
+      return sendJson(res, 200, await deps.skillAssets.checkLocalUpdates());
+    }
+    const localActionMatch = /^\/api\/skills\/local\/([^/]+)\/(remove|update)$/.exec(path);
+    if (localActionMatch !== null) {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.skillAssets === undefined) return sendJson(res, 503, { error: "skill-assets-unavailable" });
+      const body = await readJsonBody(req, res); if (body === null) return;
+      const name = decodeURIComponent(localActionMatch[1]!);
+      const confirmed = body["confirmed"] === true;
+      const result = localActionMatch[2] === "remove"
+        ? await deps.skillAssets.removeLocal(name, confirmed)
+        : await deps.skillAssets.updateLocal(name, confirmed);
+      return sendJson(res, result.ok === true ? 200 : 409, result);
+    }
+    if (path === "/api/skills/git/stage") {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.skillAssets === undefined) return sendJson(res, 503, { error: "skill-assets-unavailable" });
+      const body = await readJsonBody(req, res); if (body === null) return;
+      const url = typeof body["url"] === "string" ? body["url"].trim() : "";
+      if (url === "") return sendJson(res, 400, { error: "missing-url" });
+      const result = await deps.skillAssets.stageGitSource(url);
+      return sendJson(res, result.ok === true ? 200 : 409, result);
     }
 
     // SkillHub（skillhub.cn Open API）：分类/列表只读透传（客户端失败返回 200+error 供 UI 重试）；

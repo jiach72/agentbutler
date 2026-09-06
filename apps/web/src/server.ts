@@ -3111,6 +3111,24 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   });
 
   // 技能资产中心代理：统计、生命周期、公开趋势和隔离安装均透传 Watch 语义。
+  // 注意：本机技能原生链路（local/git 字面路由）必须注册在下方
+  // POST /api/skills/:name/:action（archive/restore/purge）之前，否则会被参数路由截住。
+  app.get("/api/skills/local", async (_request, reply) =>
+    proxyWatchGet("/api/skills/local", reply, 15_000),
+  );
+  app.get("/api/skills/local/updates", async (_request, reply) =>
+    proxyWatchGet("/api/skills/local/updates", reply, 30_000),
+  );
+  app.post("/api/skills/local/:name/remove", async (request, reply) => {
+    const name = encodeURIComponent((request.params as { name?: string }).name ?? "");
+    return proxyWatchPost(`/api/skills/local/${name}/remove`, request.body, reply, 30_000);
+  });
+  app.post("/api/skills/local/update", async (request, reply) =>
+    proxyWatchPost("/api/skills/local/update", request.body, reply, 120_000),
+  );
+  app.post("/api/skills/git/stage", async (request, reply) =>
+    proxyWatchPost("/api/skills/git/stage", request.body, reply, 90_000),
+  );
   app.get("/api/skills/usage", async (request, reply) => {
     const query = request.query as Record<string, unknown>;
     const params = new URLSearchParams();

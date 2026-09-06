@@ -142,21 +142,6 @@ export function SkillsPage() {
     message.error("记忆自检失败；请稍后重试或查看管家日志。");
   };
 
-  const [managerCount, setManagerCount] = useState<number | null>(null);
-  useEffect(() => {
-    let active = true;
-    void loadJson<{ repo?: { skill_count?: number } }>("/api/skills-manager/status", 15_000).then(
-      (result) => {
-        if (!active) return;
-        const count = result.ok ? result.data.repo?.skill_count : undefined;
-        setManagerCount(typeof count === "number" ? count : null);
-      },
-    );
-    return () => {
-      active = false;
-    };
-  }, []);
-
   const libraryData = mainState.status === "ready" ? mainState.data : null;
   const refreshing = mainState.status === "loading" || searching;
   const memoryStats = libraryData?.memory.stats ?? null;
@@ -167,12 +152,7 @@ export function SkillsPage() {
       key: "skills",
       label: "技能（Hermes 全量）",
       value: libraryData === null ? "…" : formatNumber(libraryData.skills.total),
-      sub:
-        libraryData === null
-          ? "读取中"
-          : managerCount === null
-            ? "含内置/系统技能"
-            : `含内置/系统技能；中央库受管 ${managerCount} 个`,
+      sub: libraryData === null ? "读取中" : "含内置/系统技能",
     },
     {
       key: "plugins",
@@ -249,10 +229,7 @@ export function SkillsPage() {
             label: "技能库",
             children: (
               <div id="skills-marketplace">
-                <SkillsMarketplace
-                  hermesSkillNames={libraryData === null ? [] : libraryData.skills.items.map((item) => item.name)}
-                  onInstalled={() => void loadLibrary({ silent: true })}
-                />
+                <SkillsMarketplace onInstalled={() => void loadLibrary({ silent: true })} />
               </div>
             ),
           },
