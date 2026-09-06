@@ -2,6 +2,21 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/)；开发预览版本可能包含不兼容调整。
 
+## [1.0.0-beta.33] - 2026-09-06
+
+### Added
+
+- 技能管理收拢为「SkillHub + Git」两条原生链路，Hermes 技能目录成为唯一事实来源：
+  - 新增本机技能清单（`/api/skills/local`，扫描 SKILL.md + source.json 合成名称/描述/版本/来源）；
+  - 新增更新检查（`/api/skills/local/updates`）：SkillHub 来源比对平台最新版本号，Git 来源比对 GitHub 最新 commit；
+  - 新增更新落位（`/api/skills/local/update`）与删除（`/api/skills/local/remove`，整目录移入备份区可手动恢复）；安装接口支持覆盖语义，更新时旧版本先备份；
+  - 新增 GitHub 仓库整包安装（`/api/skills/git/stage`）：支持 owner/repo、完整 URL 与 /tree/分支，tarball 下载后定位根目录 SKILL.md，走同一套安全检查与确认流程；
+  - Watch 新增无依赖 tar.gz 读取器（与 ZIP 读取器同一套路径安全与解压上限约束）。
+
+### Changed
+
+- 技能页「我安装的」视图改用原生清单：卡片操作收敛为「更新 / 详情 / 删除」，一键更新全部按更新检查结果执行；安装状态合并 Hermes 目录与本会话记录，装完立即变已安装；「收编本机技能」「绑定源」「标签管理」等中央库概念随 skills-manager 一并从 UI 摘除（后端 `/api/skills-manager/*` 保留一个发布周期后移除）。
+
 ## [1.0.0-beta.32] - 2026-09-06
 
 ### Added
