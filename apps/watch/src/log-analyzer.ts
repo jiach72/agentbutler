@@ -58,7 +58,7 @@ export interface LogAnalyzeView {
 
 export interface LogAnalyzerDeps {
   listSources(instanceId?: string): LogSourceView[];
-  readTail(sourceId: string, instanceId?: string, limit?: number): LogTailView | null;
+  readTail(sourceId: string, instanceId?: string, limit?: number): Promise<LogTailView | null>;
 }
 
 interface Rule {
@@ -263,12 +263,17 @@ interface Bucket {
 }
 
 export interface LogAnalyzer {
-  analyze(instanceId?: string, range?: "24h" | "7d" | "30d"): LogAnalyzeView;
+  analyze(instanceId?: string, range?: "24h" | "7d" | "30d"): Promise<LogAnalyzeView>;
 }
 
 export function createLogAnalyzer(deps: LogAnalyzerDeps): LogAnalyzer {
-  function analyze(instanceId?: string, range: "24h" | "7d" | "30d" = "7d"): LogAnalyzeView {
+  async function analyze(instanceId?: string, range: "24h" | "7d" | "30d" = "7d"): Promise<LogAnalyzeView> {
     const sources = deps.listSources(instanceId);
+    // 日志尾部读取（journal 源为子进程）并行拉取；处理仍按源顺序进行，
+    // MAX_SCANNED_LINES 截断等语义与串行版本完全一致。
+    const tails = await Promise.all(
+      sources.map((source) => deps.readTail(source.id, instanceId, TAIL_LIMIT)),
+    );
     const buckets = new Map<string, Bucket>();
     let scannedLines = 0;
     const now = Date.now();
@@ -292,8 +297,9 @@ export function createLogAnalyzer(deps: LogAnalyzerDeps): LogAnalyzer {
     const extractSkill = (line: string): string | null => line.match(/(?:skills?[\\/]|--skill[= ]|skill(?:Name|Ref)?[=: ]+)([A-Za-z0-9._/-]+)/i)?.[1] ?? null;
     const extractTool = (line: string): string | null => line.match(/(?:tool|function)(?:\s+call|\s+invocation)?[=: ]+([A-Za-z0-9._/-]+)/i)?.[1] ?? null;
 
-    for (const source of sources) {
-      const tail = deps.readTail(source.id, instanceId, TAIL_LIMIT);
+    for (let sourceIndex = 0; sourceIndex < sources.length; sourceIndex += 1) {
+      const source = sources[sourceIndex]!;
+      const tail = tails[sourceIndex]!;
       if (tail === null || tail.error !== undefined) continue;
       if (/rotat|\.\d+(?:\.[A-Za-z0-9]+)*$|\.bak(?:\.gz)?$|\.gz$/i.test(source.path)) rotatedLogs = true;
       for (const line of tail.lines) {

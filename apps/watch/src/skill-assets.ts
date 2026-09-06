@@ -182,7 +182,7 @@ function describeRepository(name: string): string {
   return "公开技能项目，具体用途以仓库说明为准。";
 }
 
-export function createSkillAssetService(deps: { core: Core; skills: SkillsMemoryService; backup?: BackupService; backupGate?: BackupGate; logs?: { listSources(instanceId?: string): LogSource[]; readTail(sourceId: string, instanceId?: string, limit?: number): { lines: string[] } | null }; now?: () => number; fetch?: FetchLike; githubToken?: string }): SkillAssetService {
+export function createSkillAssetService(deps: { core: Core; skills: SkillsMemoryService; backup?: BackupService; backupGate?: BackupGate; logs?: { listSources(instanceId?: string): LogSource[]; readTail(sourceId: string, instanceId?: string, limit?: number): Promise<{ lines: string[] } | null> }; now?: () => number; fetch?: FetchLike; githubToken?: string }): SkillAssetService {
   const now = deps.now ?? Date.now;
   const fetchImpl = deps.fetch ?? globalThis.fetch.bind(globalThis);
   // GitHub 令牌优先级：env（部署显式配置）> 注入 dep（测试）> 设置页保存的
@@ -199,7 +199,7 @@ export function createSkillAssetService(deps: { core: Core; skills: SkillsMemory
     if (deps.logs && instance) {
       const cutoff = now() - Number(days) * 86400000;
       for (const source of deps.logs.listSources(instance.instanceId)) {
-        const tail = deps.logs.readTail(source.id, instance.instanceId, 2000);
+        const tail = await deps.logs.readTail(source.id, instance.instanceId, 2000);
         if (!tail) continue;
         sources += 1;
         for (const line of tail.lines) {

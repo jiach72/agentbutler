@@ -27,7 +27,8 @@
 import { randomUUID } from "node:crypto";
 import { join, posix } from "node:path";
 import { closeSync, openSync, readFileSync, readSync, statSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
+import { promisify } from "node:util";
 import type { ControlAdapter, DiscoveryHint, InstanceRef, Job, Result } from "@butler/contract";
 import { fail } from "@butler/contract";
 import {
@@ -314,10 +315,12 @@ const BUTLER_LOG_SERVICES = [
 ] as const;
 
 /** 读取 systemd --user 服务日志尾部；无 systemd 环境时返回错误说明。 */
-function readJournalTail(
+const execFileAsync = promisify(execFile);
+
+async function readJournalTail(
   service: string,
   limit: number,
-): { lines: string[]; truncated: boolean; totalLines: number; error?: string } {
+): Promise<{ lines: string[]; truncated: boolean; totalLines: number; error?: string }> {
   if (process.platform === "win32") {
     return {
       lines: [],
@@ -327,10 +330,12 @@ function readJournalTail(
     };
   }
   try {
-    const stdout = execFileSync(
+    // journalctl 冷缓存可慢达数秒：必须异步执行，否则会阻塞 Watch 事件循环，
+    // 拖住所有并发请求、tail 轮询与巡检调度。
+    const { stdout } = await execFileAsync(
       "journalctl",
       ["--user", "-u", service + ".service", "-n", String(limit), "--no-pager", "-o", "short-iso"],
-      { encoding: "utf8", timeout: 15_000, maxBuffer: 4 * 1024 * 1024 },
+      { encoding: "utf8", timeout: 15_000, maxBuffer: 4 * 1024 * 1024, windowsHide: true },
     );
     const lines = stdout.split(/\r?\n/).filter((line) => line !== "");
     return { lines: lines.slice(-limit), truncated: false, totalLines: lines.length };
@@ -1665,11 +1670,11 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       }));
       return [...managed, ...own];
     },
-    readTail(sourceId: string, instanceId?: string, limit = 200, before: number | null = null) {
+    async readTail(sourceId: string, instanceId?: string, limit = 200, before: number | null = null) {
       const bounded = Math.min(Math.max(1, limit), 2_000);
       const own = BUTLER_LOG_SERVICES.find((item) => item.id === sourceId);
       if (own !== undefined) {
-        const tail = readJournalTail(own.service, bounded);
+        const tail = await readJournalTail(own.service, bounded);
         return {
           sourceId,
           path: "journalctl --user -u " + own.service + ".service",

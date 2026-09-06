@@ -185,7 +185,7 @@ export interface EvolutionInsightsService {
 
 export function createEvolutionInsightsService(deps: {
   core: Core;
-  analyzeLogs: (instanceId?: string, range?: InsightRange) => LogAnalyzeView;
+  analyzeLogs: (instanceId?: string, range?: InsightRange) => Promise<LogAnalyzeView>;
   evolution: EvolutionService;
   externalEvolution: ExternalEvolutionService;
   skills: SkillsMemoryService;
@@ -208,7 +208,7 @@ export function createEvolutionInsightsService(deps: {
     instanceId?: string,
     range: InsightRange = "7d",
   ): Promise<EvolutionInsightsView> => {
-    const analyzed = deps.analyzeLogs(instanceId, range);
+    const analyzed = await deps.analyzeLogs(instanceId, range);
     const skillView = await deps.skills.status({ instanceId });
     const names = skillView.skills.items
       .map((item) => item.name)
@@ -256,7 +256,7 @@ export function createEvolutionInsightsService(deps: {
       if (!direction)
         return { error: "direction-not-found", detail: "改进方向不存在", fix: "重新扫描日志" };
       void profileId;
-      const analyzed = deps.analyzeLogs(undefined, "7d");
+      const analyzed = await deps.analyzeLogs(undefined, "7d");
       const issue =
         direction.issueIds.length > 0
           ? analyzed.issues.find((item) => item.id === direction.issueIds[0])

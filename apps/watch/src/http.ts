@@ -363,7 +363,7 @@ export interface WatchHttpDeps {
       instanceId?: string,
       limit?: number,
       before?: number | null,
-    ): {
+    ): Promise<{
       sourceId: string;
       path: string;
       format: string;
@@ -376,10 +376,10 @@ export interface WatchHttpDeps {
       hasOlder: boolean;
       hasNewer: boolean;
       error?: string;
-    } | null;
+    } | null>;
   };
   /** 系统日志智能体检（V1.7）：扫描日志尾部并按指纹聚合错误，给出可执行修复建议。 */
-  analyzeLogs?: (instanceId?: string, range?: InsightRange) => LogAnalyzeView;
+  analyzeLogs?: (instanceId?: string, range?: InsightRange) => LogAnalyzeView | Promise<LogAnalyzeView>;
   /** 管家自身版本信息（源码仓库 tag / 提交 / 分支）。 */
   butler?: {
     version(): {
@@ -645,7 +645,7 @@ async function diagnoseRecovery(deps: WatchHttpDeps, instanceId?: string): Promi
         ? connection["lastError"]
         : connection["connected"] === true ? "消息通道正常" : "消息通道未连接",
   });
-  const logView = deps.analyzeLogs?.(instanceId);
+  const logView = await deps.analyzeLogs?.(instanceId);
   const { findings, historicalCount } = buildRecoveryFindings(logView?.issues ?? []);
   probes.push({
     id: "logs",
@@ -1818,7 +1818,7 @@ async function handle(
       if (deps.analyzeLogs === undefined)
         return sendJson(res, 503, { error: "log-analyzer-unavailable" });
       const instanceId = url.searchParams.get("instanceId")?.trim() || undefined;
-      return sendJson(res, 200, deps.analyzeLogs(instanceId));
+      return sendJson(res, 200, await deps.analyzeLogs(instanceId));
     }
 
     if (path === "/api/logs/fix") {
@@ -1893,7 +1893,7 @@ async function handle(
           return sendJson(res, 400, { error: "invalid-before" });
         }
       }
-      const view = deps.logs.readTail(sourceId, instanceId, limit, before);
+      const view = await deps.logs.readTail(sourceId, instanceId, limit, before);
       if (view === null) return sendJson(res, 404, { error: "log-source-not-found" });
       return sendJson(res, 200, view);
     }
@@ -2568,7 +2568,7 @@ async function handle(
       if (body["instanceId"] !== undefined && typeof body["instanceId"] !== "string") {
         return sendJson(res, 400, { error: "invalid-instanceId" });
       }
-      const analyzed = deps.analyzeLogs?.(typeof body["instanceId"] === "string" ? body["instanceId"] : undefined);
+      const analyzed = await deps.analyzeLogs?.(typeof body["instanceId"] === "string" ? body["instanceId"] : undefined);
       return sendJson(res, 200, deps.evolution.diagnose(analyzed));
     }
 

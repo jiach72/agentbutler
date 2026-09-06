@@ -1,5 +1,14 @@
 # Bug Fixes
 
+## 2026-09-06 - journald 读取异步化消除日志链路事件循环阻塞
+
+- **问题：** Watch 的 `readJournalTail` 用 `execFileSync` 执行 `journalctl`（15 秒超时）：日志面板读取 `butler:*` 源、日志分析器（`/api/logs/analyze`、`/api/evolution/insights`、诊断摘要、技能使用统计、进化分析）遍历日志源时都会同步执行，4 个管家自身 journald 源意味着一次分析请求最坏可把 Watch 事件循环阻塞约 1 分钟；期间 HTTP（含 healthz）、tail 轮询、巡检调度、告警转发全部停摆。
+- **风险/影响：** systemd/dbus 变慢（WSL 冷启动、容器日志高压）时，单次页面操作可冻结整个 Watch 进程数十秒，健康检查与巡检 SLA 同时失真。
+- **修复范围：** `apps/watch/src/watch.ts` 的 journal 读取改为 `promisify(execFile)` 异步实现（超时/maxBuffer/win32 降级语义不变），`logs.readTail` 变为 async；`apps/watch/src/log-analyzer.ts` 的 `analyze` 改为 async 并用 `Promise.all` 并行拉取全部日志源尾部，处理仍按源顺序进行（`MAX_SCANNED_LINES` 截断等聚合语义不变）；`apps/watch/src/http.ts`（`readTail`/`analyzeLogs` 依赖类型与 4 处调用点）、`diagnostics.ts`、`evolution-insights.ts`、`evolution-analytics.ts`（`collectLogs` 异步化）、`skill-assets.ts` 全链适配 await。
+- **回归测试：** log-analyzer 测试改为 await 异步 analyze（7 项通过）；其余受影响测试文件的同步假实现经运行时验证保持兼容（`Promise.all` 接受非 Promise 值），诊断摘要/进化洞察/技能资产/HTTP 日志测试全部通过；watch.test.ts 两个缺预算的 createWatchApp 集成用例补齐 15 秒预算（与既有集成测试同惯例）。
+- **验证命令：** `corepack pnpm exec vitest run apps/watch/tests/log-analyzer.test.ts … apps/watch/tests/watch.test.ts --reporter=dot`（11 文件）；`corepack pnpm test`；`corepack pnpm lint`；`corepack pnpm build`；`git diff --check`。
+- **Runtime validation:** 未在真实 systemd/WSL 环境验证 journalctl 冷缓存场景；需在 Docker 部署后打开日志面板并触发一次日志分析确认无停顿。
+
 ## 2026-09-06 - 备份阻塞 IO 下沉 worker、巡检跨实例并行与语句缓存
 
 - **问题：** 备份的 `VACUUM INTO`、`cpSync`、`quick_check` 都是同步阻塞调用：每小时记忆备份与每日全量在文件增大后会把 Watch 事件循环冻结数秒到数十秒，期间 HTTP（含 healthz）、tail 轮询与巡检调度全部停摆；巡检 runner 跨实例严格串行，离线实例的探针超时逐个叠加，挤占巡检周期（防重叠直接跳过 tick）；core 与 gateway 两个 SQLite store 每次查询都重新 `prepare` 编译语句，秒级循环与小额固定开销叠加。

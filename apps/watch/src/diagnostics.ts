@@ -29,7 +29,7 @@ export interface ButlerVersionView {
 export interface DiagnosticReportDeps {
   core: Pick<Core, "store" | "instances">;
   butler: { version(): ButlerVersionView };
-  analyzeLogs(instanceId?: string): LogAnalyzeView;
+  analyzeLogs(instanceId?: string): Promise<LogAnalyzeView>;
   security: SecurityService;
   gateway: GatewayPanelService;
   evolution?: EvolutionService;
@@ -198,7 +198,7 @@ function formatTime(value: string): string {
 export async function buildDiagnosticSummary(deps: DiagnosticReportDeps): Promise<DiagnosticSummary> {
   const now = deps.now ?? Date.now;
   const instances = deps.core.instances.listInstances();
-  const logs = deps.analyzeLogs();
+  const logs = await deps.analyzeLogs();
   const security = await deps.security.status();
   const gateway = await deps.gateway.stats();
   return {
@@ -263,7 +263,7 @@ export async function renderDiagnosticReport(deps: DiagnosticReportDeps): Promis
   lines.push("");
 
   /* 3. 日志问题与错误指纹聚类（近 7 天；不含原始样本与聊天正文） */
-  const logView = deps.analyzeLogs();
+  const logView = await deps.analyzeLogs();
   lines.push("## 3. 日志问题与错误指纹", "");
   lines.push(`日志扫描：${logView.scannedSources} 个来源 · ${logView.scannedLines} 行 · ${formatTime(logView.analyzedAt)}`, "");
   if (logView.issues.length === 0) {

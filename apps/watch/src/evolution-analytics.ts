@@ -118,7 +118,7 @@ export interface EvolutionAnalyticsService {
 
 type LogDeps = {
   listSources(instanceId?: string): Array<{ id: string; path?: string }>;
-  readTail(sourceId: string, instanceId?: string, limit?: number): { lines: string[] } | null;
+  readTail(sourceId: string, instanceId?: string, limit?: number): Promise<{ lines: string[] } | null>;
 };
 
 const DATASET = "evolution-real";
@@ -199,7 +199,7 @@ function defaultInstance(core: Core, instanceId?: string): string | null {
 export function createEvolutionAnalyticsService(deps: {
   core: Core;
   evolution: EvolutionService;
-  analyzeLogs: (instanceId?: string, range?: "24h" | "7d" | "30d") => LogAnalyzeView;
+  analyzeLogs: (instanceId?: string, range?: "24h" | "7d" | "30d") => Promise<LogAnalyzeView>;
   logs?: LogDeps;
   skills?: SkillsMemoryService;
   now?: () => number;
@@ -231,12 +231,12 @@ export function createEvolutionAnalyticsService(deps: {
   const unsubscribe = deps.core.bus.onAny((event) => observeStructuredEvent(event));
   void unsubscribe;
 
-  function collectLogs(instanceId: string | null, range: "24h" | "7d" | "30d"): number {
+  async function collectLogs(instanceId: string | null, range: "24h" | "7d" | "30d"): Promise<number> {
     if (!deps.logs || !instanceId) return 0;
     const cutoff = now() - (range === "24h" ? 86_400_000 : range === "30d" ? 30 * 86_400_000 : 7 * 86_400_000);
     let count = 0;
     for (const source of deps.logs.listSources(instanceId)) {
-      const tail = deps.logs.readTail(source.id, instanceId, 2_000);
+      const tail = await deps.logs.readTail(source.id, instanceId, 2_000);
       for (const line of tail?.lines ?? []) {
         const occurredAt = parseTimestamp(line, new Date(now()).toISOString());
         if (Date.parse(occurredAt) < cutoff) continue;
@@ -340,11 +340,11 @@ export function createEvolutionAnalyticsService(deps: {
   async function build(instanceId?: string, range: "24h" | "7d" | "30d" = "7d"): Promise<EvolutionOverviewView> {
     const selected = defaultInstance(deps.core, instanceId);
     const cutoff = new Date(now() - (range === "24h" ? 86_400_000 : range === "30d" ? 30 * 86_400_000 : 7 * 86_400_000)).toISOString();
-    const logCount = collectLogs(selected, range);
+    const logCount = await collectLogs(selected, range);
     const observations = selected ? deps.core.store.listEvolutionObservations({ instanceId: selected, since: cutoff }) : [];
     const structuredCount = observations.filter((item) => item.source === "structured").length;
     const logObservationCount = observations.filter((item) => item.source === "logs").length;
-    const logs = deps.analyzeLogs(selected ?? undefined, range);
+    const logs = await deps.analyzeLogs(selected ?? undefined, range);
     const status = deps.evolution.status();
     const runs = runsOf(status);
     const tools = observations.filter((item) => item.kind === "tool");

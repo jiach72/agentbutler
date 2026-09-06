@@ -500,7 +500,7 @@ describe("管家自身日志源", () => {
     if (tail.error !== undefined) {
       expect(tail.lines).toHaveLength(0);
     }
-  });
+  }, 15_000);
 });
 
 describe("系统日志分页（PRD M1）", () => {
@@ -549,5 +549,5 @@ describe("系统日志分页（PRD M1）", () => {
     expect(older.lines[99]).toBe("paged-line-499");
     expect(older.hasOlder).toBe(true);
     expect(older.hasNewer).toBe(true);
-  });
+  }, 15_000);
 });
