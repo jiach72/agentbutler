@@ -249,7 +249,10 @@ export function SkillsPage() {
             label: "技能库",
             children: (
               <div id="skills-marketplace">
-                <SkillsMarketplace />
+                <SkillsMarketplace
+                  hermesSkillNames={libraryData === null ? [] : libraryData.skills.items.map((item) => item.name)}
+                  onInstalled={() => void loadLibrary({ silent: true })}
+                />
               </div>
             ),
           },

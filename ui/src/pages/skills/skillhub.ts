@@ -79,3 +79,15 @@ export function formatHubCount(count: number | undefined | null): string {
   if (count >= 1_000) return `${(count / 1_000).toFixed(1).replace(/\.0$/, "")}k`;
   return String(count);
 }
+
+/**
+ * 判断 SkillHub 市场卡是否已安装：任一来源命中 slug 或显示名即视为已安装。
+ * 来源：skills-manager 中央库、Hermes 技能目录（staged 安装直接落位于此）、
+ * 本次会话里刚装完的记录（落位名与卡片名可能不同，用 slug 精确兜底）。
+ */
+export function isSkillHubInstalled(
+  item: { slug: string; name: string },
+  sources: Array<Set<string>>,
+): boolean {
+  return sources.some((set) => set.has(item.slug) || set.has(item.name));
+}

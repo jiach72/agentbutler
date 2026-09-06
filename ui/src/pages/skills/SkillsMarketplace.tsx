@@ -45,7 +45,7 @@ import { loadJson, postJson } from "../../lib/api.js";
 import { formatTime } from "./helpers.js";
 import { SkillMarketCard } from "./SkillMarketCard.js";
 import { StagedRiskDetails } from "./StagedRiskDetails.js";
-import { buildSkillHubListUrl, SKILLHUB_SORT_OPTIONS, formatHubCount } from "./skillhub.js";
+import { buildSkillHubListUrl, SKILLHUB_SORT_OPTIONS, formatHubCount, isSkillHubInstalled } from "./skillhub.js";
 import type {
   SkillHubCategoriesResult,
   SkillHubListResult,
@@ -209,7 +209,13 @@ function CategoryChips(props: {
   );
 }
 
-export function SkillsMarketplace() {
+export function SkillsMarketplace(props: {
+  /** Hermes 技能目录的技能名（SkillsPage 的 /api/skills 全量清单），用于已安装判定。 */
+  hermesSkillNames?: string[];
+  /** staged 安装落位后回调（安装不经过中央库，父级需刷新 Hermes 技能清单）。 */
+  onInstalled?: () => void;
+} = {}) {
+  const { hermesSkillNames = [], onInstalled } = props;
   const { message } = App.useApp();
   const [state, setState] = useState<FetchState<SkillsManagerStatus>>({ status: "loading" });
   const [updates, setUpdates] = useState<Record<string, UpdateCheckItem>>({});
@@ -417,6 +423,23 @@ export function SkillsMarketplace() {
   const hermesSkillsDir = managerAvailable ? status.hermesSkillsDir : undefined;
   const cliVersion = managerAvailable ? status.cli?.version : undefined;
   const installedNames = useMemo(() => new Set(skills.map((item) => item.name)), [skills]);
+  // staged 安装直接写入 Hermes 技能目录（不经过中央库），安装判定要合并两边；
+  // installedSlugs 记录本会话刚装完的 slug（落位名与卡片名可能不同）。
+  const hermesNames = useMemo(() => new Set(hermesSkillNames), [hermesSkillNames]);
+  const [installedSlugs, setInstalledSlugs] = useState<Set<string>>(() => new Set());
+  const markInstalled = useCallback((slug: string) => {
+    setInstalledSlugs((current) => {
+      const next = new Set(current);
+      next.add(slug);
+      return next;
+    });
+  }, []);
+  const isInstalledHub = useCallback(
+    (item: SkillHubSkill) =>
+      installedSlugs.has(item.slug) ||
+      isSkillHubInstalled(item, [installedNames, hermesNames]),
+    [installedSlugs, installedNames, hermesNames],
+  );
 
   /** 已安装视图的卡片数据：名称/描述/标签 + 启发式中文分类 + 更新状态。 */
   const installedCards = useMemo(
@@ -430,9 +453,6 @@ export function SkillsMarketplace() {
       }),
     [skills, updates, hermesSkillsDir],
   );
-
-  const isInstalledHub = (item: SkillHubSkill) =>
-    installedNames.has(item.slug) || installedNames.has(item.name);
 
   /** 分类 key → 中文名（SkillHub 分类 chips 与卡片色调映射）。 */
   const hubCategoryName = useMemo(() => {
@@ -701,12 +721,26 @@ export function SkillsMarketplace() {
         message.warning("安装已过期，请重新点击安装再确认。");
         return;
       }
+      if (record?.["error"] === "target-exists") {
+        // 本机已有同名技能：视为已安装，卡片同步成对勾，避免再点再冲突。
+        const stagedItem = stagedRecommendation.item;
+        if (stagedItem.id.startsWith("skillhub:")) markInstalled(stagedItem.id.slice("skillhub:".length));
+        setStagedRecommendation(null);
+        message.info("本机已有同名技能，无需重复安装。");
+        onInstalled?.();
+        return;
+      }
       message.error(failure);
       return;
     }
+    // 落位名来自 SKILL.md frontmatter，可能与卡片名不同：用 slug 记入本会话已装，
+    // 并让父级刷新 Hermes 技能清单，卡片上的「+」立即变已安装。
+    const stagedItem = stagedRecommendation.item;
+    if (stagedItem.id.startsWith("skillhub:")) markInstalled(stagedItem.id.slice("skillhub:".length));
     message.success("技能已安装。");
     setStagedRecommendation(null);
     void loadAll({ silent: true });
+    onInstalled?.();
   };
 
   const updateOne = async (item: SkillsManagerSkill) => {
