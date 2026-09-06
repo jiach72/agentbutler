@@ -21,6 +21,13 @@ export interface SkillAssetService {
   stageRecommendation(id: string): Promise<Record<string, unknown>>;
   installStaged(id: string, confirmed: boolean): Promise<Record<string, unknown>>;
 }
+export interface SkillStaticRiskReport {
+  status: "clear" | "blocked";
+  externalDomains: string[];
+  sensitivePaths: string[];
+  dangerousCommands: string[];
+  detail: string;
+}
 type ArchivedMeta = { name: string; source: string; originalPath: string; archivePath: string; archivedAt: string; hash: string };
 type LogSource = { id: string; path?: string; format?: string };
 type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
@@ -120,6 +127,35 @@ function logTimestamp(line: string): string | null {
   const candidate = iso ?? (spaced ? `${spaced[1]}T${spaced[2]}Z` : null);
   if (candidate === null || !Number.isFinite(Date.parse(candidate))) return null;
   return new Date(candidate).toISOString();
+}
+
+function normalizeExternalDomain(value: string): string | null {
+  const normalized = value.toLowerCase().replace(/[`'"<>\]}),.;:!?]+$/g, "");
+  return normalized === "" || normalized === "..." ? null : normalized;
+}
+
+/** 对暂存的 SKILL.md 做轻量静态风险检查；它不是沙箱，也不宣称代码安全。 */
+export function inspectSkillText(text: string): SkillStaticRiskReport {
+  const externalDomains = [...new Set(
+    [...text.matchAll(/\bhttps?:\/\/([^/\s)"'<>，。；;,]+)/gi)]
+      .map((match) => normalizeExternalDomain(match[1] ?? ""))
+      .filter((domain): domain is string => domain !== null),
+  )].slice(0, 20);
+  const sensitivePaths = [...new Set(
+    [...text.matchAll(/(?:~\/\.ssh|~\/\.aws|\/etc\/[A-Za-z0-9_.-]+|\.env\b|memory_store\.db|\b[A-Za-z0-9][A-Za-z0-9_-]*(?:api[_ -]?key|access[_ -]?token|secret|credential)s?)\b/gi)]
+      .map((match) => match[0] ?? ""),
+  )].slice(0, 20);
+  const dangerousCommands = [...new Set(
+    [...text.matchAll(/(?:^|\s)((?:sudo\b|rm\s+-rf\b|curl\b|wget\b|Invoke-WebRequest\b|docker\s+(?:run|exec)\b|chmod\s+777\b)[^\n]*)/gim)]
+      .map((match) => match[1]?.trim() ?? ""),
+  )].slice(0, 20);
+  const blocked = sensitivePaths.length > 0 || dangerousCommands.length > 0;
+  const detail = blocked
+    ? "检测到敏感路径/凭据相关内容或高风险命令，已阻止安装；请先人工审阅来源。"
+    : externalDomains.length > 0
+      ? `未发现已知高风险命令，但包含 ${externalDomains.length} 个外联域名，安装前请确认来源。`
+      : "未发现已知高风险命令或敏感路径；这不是完整沙箱审计。";
+  return { status: blocked ? "blocked" : "clear", externalDomains, sensitivePaths, dangerousCommands, detail };
 }
 
 function usedSkillName(line: string): string | null {
@@ -283,13 +319,17 @@ export function createSkillAssetService(deps: { core: Core; skills: SkillsMemory
     async githubTrends(query = {}) { let cached: Record<string, unknown> = {}; try { cached = JSON.parse(readFileSync(trendPath, "utf8")) as Record<string, unknown>; } catch { /* empty cache */ } const items = Array.isArray(cached.items) ? cached.items.map((item) => { const row = item as Record<string, unknown>; const name = String(row["name"] ?? ""); return { ...row, description: describeRepository(name) }; }) : []; return { items, filter: query.filter ?? "all", sort: query.sort ?? "trend", syncedAt: cached.syncedAt ?? null, source: "GitHub public API cache", notice: "公开仓库趋势，不代表官方 Hermes 技能排名。" }; },
     async refreshGithubTrends() { try { const response = await fetchImpl("https://api.github.com/search/repositories?q=agent+skill+OR+hermes+skill+OR+openclaw+skill&sort=stars&order=desc&per_page=30", { headers, signal: AbortSignal.timeout(10000) }); if (!response.ok) throw await githubResponseError(response, "GitHub search"); const body = await response.json() as { items?: Array<Record<string, unknown>> }; const payload = { syncedAt: iso(now), items: (body.items ?? []).map((i) => { const name = String(i["full_name"] ?? ""); return { name, url: String(i["html_url"] ?? ""), stars: Number(i["stargazers_count"] ?? 0), forks: Number(i["forks_count"] ?? 0), updatedAt: String(i["updated_at"] ?? ""), description: describeRepository(name) }; }) }; atomicWriteJson(trendPath, payload, { mode: 0o600, description: "技能趋势缓存" }); return { ...payload, notice: "公开仓库趋势，不代表官方 Hermes 技能排名。" }; } catch (error) { const failure = githubFailure(error); return { ...(await this.githubTrends()), error: failure.code, detail: failure.detail, fix: failure.fix, ...(failure.retryAt === undefined ? {} : { retryAt: failure.retryAt }), notice: "同步失败，继续使用上次缓存（如有）。" }; } },
     async recommendations() { const stats = await usage(90); const trends = await this.githubTrends(); const installed = new Set(stats.skills.filter((i) => i.status === "known").map((i) => i.name)); const items = (Array.isArray(trends.items) ? trends.items : []).filter((i) => typeof i === "object" && i !== null).map((i) => { const row = i as Record<string, unknown>; const name = String(row["name"] ?? ""); const description = describeRepository(name); return { id: "github:" + name, name, description, reason: description, sourceUrl: row["url"] ?? "", installed: installed.has(name) }; }).filter((i) => !i.installed); return { items, generatedAt: iso(now), notice: "推荐结合本地使用情况和公开仓库信息，不自动安装。" }; },
-    async stageRecommendation(id) { if (!id.startsWith("github:")) return { ok: false, error: "invalid-recommendation", fix: "选择公开 GitHub 推荐" }; const source = id.slice("github:".length); if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(source)) return { ok: false, error: "invalid-recommendation", fix: "GitHub 仓库标识无效" }; const stageId = randomUUID(); const path = join(stageRoot, stageId); mkdirSync(path, { recursive: true }); try { const treeResponse = await fetchImpl("https://api.github.com/repos/" + source + "/git/trees/HEAD?recursive=1", { headers, signal: AbortSignal.timeout(15000) }); if (!treeResponse.ok) throw await githubResponseError(treeResponse, "GitHub tree"); const tree = await treeResponse.json() as { tree?: Array<{ path?: string; type?: string }> }; const skillPath = (tree.tree ?? []).find((item) => item.type === "blob" && typeof item.path === "string" && item.path.toLowerCase().endsWith("skill.md"))?.path; if (!skillPath || skillPath.includes("..") || skillPath.startsWith("/")) throw new Error("SKILL.md not found"); const fileResponse = await fetchImpl("https://api.github.com/repos/" + source + "/contents/" + skillPath.split("/").map(encodeURIComponent).join("/"), { headers, signal: AbortSignal.timeout(15000) }); if (!fileResponse.ok) throw await githubResponseError(fileResponse, "GitHub content"); const file = await fileResponse.json() as { content?: string; encoding?: string }; if (file.encoding !== "base64" || typeof file.content !== "string") throw new Error("SKILL.md content unavailable"); const skillText = Buffer.from(file.content.replace(/\\s/g, ""), "base64").toString("utf8"); if (!skillText.trim() || /(^|\\n)\\s*\\.\\.(?:[\\\\/]|$)/.test(skillText)) throw new Error("unsafe SKILL.md"); writeFileSync(join(path, "SKILL.md"), skillText, { mode: 0o600 }); atomicWriteJson(join(path, "source.json"), { id, sourceUrl: "https://github.com/" + source, sourcePath: skillPath, stagedAt: iso(now) }, { mode: 0o600, description: "隔离技能来源" }); return { ok: true, id: stageId, status: "staged", sourceUrl: "https://github.com/" + source, sourcePath: skillPath, notice: "已下载到 Butler 隔离区并通过基础结构检查，尚未写入 Hermes；请确认安装" }; } catch (error) { rmSync(path, { recursive: true, force: true }); const failure = error instanceof Error && "status" in error ? githubFailure(error) : { code: "stage-download-failed", detail: "技能文件下载或检查未完成。", fix: "检查仓库是否包含有效 SKILL.md，或稍后重试。" }; return { ok: false, error: failure.code, detail: failure.detail, fix: failure.fix, ...(failure.retryAt === undefined ? {} : { retryAt: failure.retryAt }) }; } },
+    async stageRecommendation(id) { if (!id.startsWith("github:")) return { ok: false, error: "invalid-recommendation", fix: "选择公开 GitHub 推荐" }; const source = id.slice("github:".length); if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(source)) return { ok: false, error: "invalid-recommendation", fix: "GitHub 仓库标识无效" }; const stageId = randomUUID(); const path = join(stageRoot, stageId); mkdirSync(path, { recursive: true }); try { const treeResponse = await fetchImpl("https://api.github.com/repos/" + source + "/git/trees/HEAD?recursive=1", { headers, signal: AbortSignal.timeout(15000) }); if (!treeResponse.ok) throw await githubResponseError(treeResponse, "GitHub tree"); const tree = await treeResponse.json() as { tree?: Array<{ path?: string; type?: string }> }; const skillPath = (tree.tree ?? []).find((item) => item.type === "blob" && typeof item.path === "string" && item.path.toLowerCase().endsWith("skill.md"))?.path; if (!skillPath || skillPath.includes("..") || skillPath.startsWith("/")) throw new Error("SKILL.md not found"); const fileResponse = await fetchImpl("https://api.github.com/repos/" + source + "/contents/" + skillPath.split("/").map(encodeURIComponent).join("/"), { headers, signal: AbortSignal.timeout(15000) }); if (!fileResponse.ok) throw await githubResponseError(fileResponse, "GitHub content"); const file = await fileResponse.json() as { content?: string; encoding?: string }; if (file.encoding !== "base64" || typeof file.content !== "string") throw new Error("SKILL.md content unavailable"); const skillText = Buffer.from(file.content.replace(/\\s/g, ""), "base64").toString("utf8"); if (!skillText.trim() || /(^|\\n)\\s*\\.\\.(?:[\\\\/]|$)/.test(skillText)) throw new Error("unsafe SKILL.md"); const risk = inspectSkillText(skillText); writeFileSync(join(path, "SKILL.md"), skillText, { mode: 0o600 }); atomicWriteJson(join(path, "source.json"), { id, sourceUrl: "https://github.com/" + source, sourcePath: skillPath, stagedAt: iso(now) }, { mode: 0o600, description: "隔离技能来源" }); return { ok: true, id: stageId, status: "staged", sourceUrl: "https://github.com/" + source, sourcePath: skillPath, risk, notice: "已下载到 Butler 隔离区并完成初步风险扫描，尚未写入 Hermes；请确认安装" }; } catch (error) { rmSync(path, { recursive: true, force: true }); const failure = error instanceof Error && "status" in error ? githubFailure(error) : { code: "stage-download-failed", detail: "技能文件下载或检查未完成。", fix: "检查仓库是否包含有效 SKILL.md，或稍后重试。" }; return { ok: false, error: failure.code, detail: failure.detail, fix: failure.fix, ...(failure.retryAt === undefined ? {} : { retryAt: failure.retryAt }) }; } },
     async installStaged(id, confirmed) {
       if (!confirmed) return { ok: false, error: "confirmation-required", fix: "确认安装前不要写入 Hermes" };
       if (!/^[0-9a-f-]{36}$/.test(id)) return { ok: false, error: "invalid-stage-id", fix: "无效的隔离安装标识" };
       const path = join(stageRoot, id); const skillFile = join(path, "SKILL.md");
       if (!inside(path, stageRoot) || !existsSync(skillFile)) return { ok: false, error: "invalid-stage", fix: "隔离区必须包含有效 SKILL.md" };
       const raw = readFileSync(skillFile, "utf8");
+      const risk = inspectSkillText(raw);
+      if (risk.status === "blocked") {
+        return { ok: false, error: "skill-risk-blocked", risk, fix: risk.detail };
+      }
       const nameMatch = /^---\s*\r?\n[\s\S]*?\r?\nname:\s*([A-Za-z0-9][A-Za-z0-9._-]{0,159})\s*\r?\n[\s\S]*?\r?\n---/i.exec(raw);
       const targetName = safeName(nameMatch?.[1] ?? id);
       if (!targetName) return { ok: false, error: "invalid-skill-name", fix: "SKILL.md 必须声明安全的技能名称" };

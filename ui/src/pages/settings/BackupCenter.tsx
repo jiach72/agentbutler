@@ -27,6 +27,7 @@ interface BackupCenterProps {
   busy: string | null;
   onRetry: (key: "backups" | "butlerSelf") => void;
   onRunBackup: (kind: "full" | "memory") => void;
+  onVerifyBackup: () => void;
   onRequestRestore: (item: BackupItem) => void;
 }
 
@@ -40,12 +41,15 @@ export function BackupCenter({
   busy,
   onRetry,
   onRunBackup,
+  onVerifyBackup,
   onRequestRestore,
 }: BackupCenterProps) {
   const backupRetention = backupRetentionOf(backups.status === "ready" ? backups.data : null);
   const snapshotRetention = snapshotRetentionOf(
     butlerSelf.status === "ready" ? butlerSelf.data : null,
   );
+  const fullVerification =
+    backups.status === "ready" ? backups.data.status?.lastFullVerification ?? null : null;
 
   return (
     <Flex vertical gap={16}>
@@ -75,6 +79,13 @@ export function BackupCenter({
           onClick={() => onRunBackup("memory")}
         >
           备份记忆
+        </Button>
+        <Button
+          disabled={busy !== null || backups.status !== "ready" || backups.data.items.length === 0}
+          loading={busy === "verify"}
+          onClick={onVerifyBackup}
+        >
+          验证最近备份
         </Button>
       </Space>
 
@@ -116,12 +127,32 @@ export function BackupCenter({
               <Text type="secondary">按类型轮转</Text>
             </Flex>
             <Paragraph type="secondary" style={{ marginBottom: 8 }}>
-              日常备份不会挤占升级快照；过期记录会自动标记并清理文件。
+              日常备份不会挤占升级快照；验证会在临时目录检查文件和数据库，不会覆盖正在使用的数据。
             </Paragraph>
             <Flex gap={16} wrap>
               <Text type="secondary">每日全量 · {backupRetention.full} 份</Text>
               <Text type="secondary">记忆增量 · {backupRetention.memory} 份</Text>
               <Text type="secondary">操作前 · {backupRetention.event} 份</Text>
+            </Flex>
+            <Flex justify="space-between" wrap gap={8} style={{ marginTop: 8 }}>
+              <Text type="secondary">最近全量验证</Text>
+              <Text
+                type={
+                  fullVerification?.status === "verification-failed"
+                    ? "danger"
+                    : fullVerification?.status === "verified"
+                      ? "success"
+                      : "secondary"
+                }
+              >
+                {fullVerification === null
+                  ? "尚无全量备份"
+                  : fullVerification.status === "verified"
+                    ? `已验证 · ${formatTime(fullVerification.at)}`
+                    : fullVerification.status === "verification-failed"
+                      ? `验证失败 · ${formatTime(fullVerification.at)}`
+                      : "尚未验证"}
+              </Text>
             </Flex>
           </div>
         </Flex>

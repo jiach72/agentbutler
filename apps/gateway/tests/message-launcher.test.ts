@@ -11,7 +11,7 @@ import { withHostHermesDefaults } from "../src/main.js";
 import { MESSAGE_RUNTIME_ENV } from "../src/message/runtime.js";
 
 describe("Hermes message launcher boundary", () => {
-  it("rejects startup when the experimental feature flag is absent", async () => {
+  it("拒绝未显式授权的直接 launcher 启动", async () => {
     await expect(launchHermesGateway({ env: {} })).rejects.toThrow(
       new RegExp(HERMES_MESSAGE_RUNTIME_FEATURE_FLAG),
     );

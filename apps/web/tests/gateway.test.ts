@@ -532,6 +532,33 @@ describe("butler-web 消息网关聚合与补丁代理（Task 15.2，fastify inj
     expect(res.json()).toEqual({ reachable: false, items: [] });
   });
 
+  it("消息指标缺少重试字段时保持未知，不把旧 Gateway 误报为零重试", async () => {
+    const transport = makeFetch({
+      [`GET ${GATEWAY_URL}/api/messages/metrics?days=30`]: {
+        status: 200,
+        body: {
+          days: 30,
+          retentionDays: 365,
+          channels: [
+            { channel: "weixin", delivered: 3, failed: 1, uncertain: 0, total: 4, successRate: 0.75 },
+          ],
+          daily: [],
+          latency: { p50Ms: 120, p95Ms: 900, samples: 4, unknown: 0 },
+        },
+      },
+    });
+    const app = build(transport.fetch);
+
+    const res = await app.inject({ method: "GET", url: "/api/messages/metrics?days=30" });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      reachable: true,
+      retries: null,
+      channels: [{ channel: "weixin" }],
+    });
+  });
+
   it("watch 不可达时补丁动作返回 502", async () => {
     const transport = makeFetch({
       [`POST ${WATCH_URL}/api/gateway/patches/wx-send-throttle/apply`]: "throw",

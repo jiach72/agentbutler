@@ -13,7 +13,11 @@ import {
   type HermesMessageRuntimeOptions,
 } from "./runtime.js";
 
-/** The message data-plane is an explicitly gated experiment, never a default entrypoint. */
+/**
+ * Direct launch bypasses main.ts auto-configuration, so it remains explicitly
+ * gated for isolated diagnostics and integration validation. Production services
+ * must use main.ts, which starts the controlled observe runtime when configured.
+ */
 export const HERMES_MESSAGE_RUNTIME_FEATURE_FLAG = "BUTLER_ENABLE_HERMES_MESSAGE_RUNTIME";
 
 export interface HermesGatewayLauncherOptions {
@@ -33,7 +37,7 @@ export async function launchHermesGateway(
   options: HermesGatewayLauncherOptions = {},
 ): Promise<RunningHermesGateway> {
   const env = options.env ?? process.env;
-  assertExperimentalFlag(env);
+  assertExplicitFlag(env);
   const host = options.host?.trim() || env["BUTLER_GATEWAY_HOST"]?.trim() || "127.0.0.1";
   const port = options.port ?? parsePort(env["BUTLER_GATEWAY_PORT"]);
   const runtime = createHermesMessageRuntime({
@@ -86,11 +90,11 @@ function parsePort(raw: string | undefined): number {
   return port;
 }
 
-function assertExperimentalFlag(env: NodeJS.ProcessEnv): void {
+function assertExplicitFlag(env: NodeJS.ProcessEnv): void {
   const value = env[HERMES_MESSAGE_RUNTIME_FEATURE_FLAG]?.trim().toLowerCase();
   if (value !== "1" && value !== "true") {
     throw new Error(
-      `Hermes message runtime is experimental and disabled by default; set ${HERMES_MESSAGE_RUNTIME_FEATURE_FLAG}=true only for an explicit non-production launch`,
+      `Direct Hermes runtime launcher is disabled by default; set ${HERMES_MESSAGE_RUNTIME_FEATURE_FLAG}=true only for an explicit isolated launch`,
     );
   }
 }
@@ -102,7 +106,7 @@ if (isDirectRun) {
     .then((running) => {
       const address = running.app.server.address();
       console.log(
-        `[gateway] Hermes message runtime experimental flag ${HERMES_MESSAGE_RUNTIME_FEATURE_FLAG}=true; listening at ${JSON.stringify(address)}`,
+        `[gateway] direct Hermes runtime launcher enabled by ${HERMES_MESSAGE_RUNTIME_FEATURE_FLAG}=true; listening at ${JSON.stringify(address)}`,
       );
       let closing = false;
       const shutdown = (signal: string): void => {

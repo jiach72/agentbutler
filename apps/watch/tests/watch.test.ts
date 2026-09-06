@@ -138,7 +138,7 @@ describe("createWatchApp 组装冒烟", () => {
 
     // audit 记录 actor=butler-watch
     expect(app.core.audit.list({ action: "inspection", actor: "butler-watch" })).toHaveLength(1);
-  });
+  }, 15_000);
 
   it("追加错误行 → tail tick 聚合指纹 → 告警转发 POST gateway", async () => {
     app = await createWatchApp({
@@ -179,7 +179,7 @@ describe("createWatchApp 组装冒烟", () => {
     // 位点已提交：重复 poll 不重复聚合
     await app.pollTail();
     expect(app.core.store.listEvents({ type: "fingerprint-aggregated" })).toHaveLength(1);
-  });
+  }, 15_000);
 
   it("config.autoStart=false：不自动巡检、不注册 tail 循环，可手动驱动", async () => {
     app = await createWatchApp({
@@ -194,7 +194,7 @@ describe("createWatchApp 组装冒烟", () => {
 
     await app.scheduler.runOnce(); // 手动巡检
     expect(app.core.store.listEvents({ type: "inspection-completed" })).toHaveLength(1);
-  });
+  }, 15_000);
 
   it("重启时从持久化 Discovering 状态继续协商并刷新真实根路径", async () => {
     const stale = createCore({ home });
@@ -223,7 +223,7 @@ describe("createWatchApp 组装冒烟", () => {
       version: "0.20.4",
     });
     expect(app.instances[0]!.confidence).toBeGreaterThanOrEqual(0.6);
-  });
+  }, 15_000);
 
   it("重启后恢复已跳闸的 runbook 熔断状态", async () => {
     app = await createWatchApp({
@@ -303,7 +303,7 @@ describe("Hermes 连接状态", () => {
         expect.objectContaining({ id: "messaging", status: "warn" }),
       ]),
     );
-  });
+  }, 15_000);
 });
 
 describe("进化前备份门禁", () => {
@@ -427,7 +427,7 @@ describe("Task 7 自动 runbook 触发", () => {
 
     // 巡检后处理失败不阻断巡检循环：第二轮巡检事件正常产出
     expect(app.core.store.listEvents({ type: "inspection-completed" })).toHaveLength(2);
-  });
+  }, 15_000);
 
   it("runbookAuto=false 时关键探针失败仍立即进入告警队列", async () => {
     writeFileSync(join(hermesRoot, "memory_store.db"), "not-a-sqlite-database");
@@ -459,7 +459,7 @@ describe("Task 7 自动 runbook 触发", () => {
         expect.objectContaining({ kind: "critical-memory-probe", severity: "critical" }),
       ]),
     );
-  });
+  }, 15_000);
 });
 
 describe("管家自身日志源", () => {

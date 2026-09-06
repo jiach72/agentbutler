@@ -13,7 +13,8 @@
  *   数据库运行中不回写，避免覆盖打开中的句柄），全部动作落审计。
  */
 import fs from "node:fs";
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { BackupRow, Core } from "@butler/core";
@@ -57,10 +58,22 @@ export interface BackupService {
     | { ok: true; backupId: number; preRestoreBackupId: number; restored: number; skipped: number }
     | { ok: false; error: string }
   >;
+  /** 在临时目录验证备份可读取；绝不回写 Hermes 或 Butler 的真实数据。 */
+  verify(
+    id?: number,
+  ): Promise<
+    | { ok: true; backupId: number; checkedFiles: number; checkedDatabases: number; checkedAt: string }
+    | { ok: false; backupId: number | null; error: string; checkedFiles: number; checkedDatabases: number }
+  >;
   status(): {
     enabled: boolean;
     lastFullAt: string | null;
     lastMemoryAt: string | null;
+    lastFullVerification: {
+      backupId: number;
+      at: string;
+      status: "verified" | "verification-failed" | "not-verified";
+    } | null;
     hourlyTickMs: number;
     retention: BackupRetentionLimits;
   };
@@ -109,6 +122,12 @@ function isAllowedRoot(from: string, roots: string[]): boolean {
     const r = resolve(root);
     return resolved === r || resolved.startsWith(r + sep);
   });
+}
+
+function isWithin(parent: string, candidate: string): boolean {
+  const resolvedParent = resolve(parent);
+  const resolvedCandidate = resolve(candidate);
+  return resolvedCandidate === resolvedParent || resolvedCandidate.startsWith(resolvedParent + sep);
 }
 
 /** 单文件一致性备份：db → VACUUM INTO；其他 → 复制；保留 0600。 */
@@ -331,13 +350,117 @@ export function createBackupService(options: BackupServiceOptions): BackupServic
     return { ok: true, backupId: id, preRestoreBackupId: pre.id, restored, skipped };
   }
 
+  async function verify(
+    requestedId?: number,
+  ): Promise<
+    | { ok: true; backupId: number; checkedFiles: number; checkedDatabases: number; checkedAt: string }
+    | { ok: false; backupId: number | null; error: string; checkedFiles: number; checkedDatabases: number }
+  > {
+    const row = requestedId === undefined
+      ? core.store.listBackups().find((item) => item.status !== "expired")
+      : core.store.getBackup(requestedId);
+    if (row === undefined || !existsSync(row.path) || !isWithin(backupsDir, row.path)) {
+      return { ok: false, backupId: row?.id ?? null, error: "backup-not-found", checkedFiles: 0, checkedDatabases: 0 };
+    }
+
+    let manifest: { files: Array<{ rel: string; size: number }> };
+    try {
+      manifest = JSON.parse(readFileSync(join(row.path, "manifest.json"), "utf8")) as {
+        files: Array<{ rel: string; size: number }>;
+      };
+    } catch {
+      core.store.updateBackupStatus(row.id, "verification-failed");
+      core.audit.append({ actor: "backup", action: "backup-verify-failed", target: row.path, detail: { backupId: row.id, error: "backup-manifest-corrupt" } });
+      return { ok: false, backupId: row.id, error: "backup-manifest-corrupt", checkedFiles: 0, checkedDatabases: 0 };
+    }
+    if (!Array.isArray(manifest.files) || manifest.files.length === 0) {
+      core.store.updateBackupStatus(row.id, "verification-failed");
+      core.audit.append({ actor: "backup", action: "backup-verify-failed", target: row.path, detail: { backupId: row.id, error: "backup-manifest-corrupt" } });
+      return { ok: false, backupId: row.id, error: "backup-manifest-corrupt", checkedFiles: 0, checkedDatabases: 0 };
+    }
+
+    const stagingDir = fs.mkdtempSync(join(tmpdir(), "butler-backup-verify-"));
+    let checkedFiles = 0;
+    let checkedDatabases = 0;
+    try {
+      for (const entry of manifest.files) {
+        if (
+          typeof entry.rel !== "string" ||
+          entry.rel.trim() === "" ||
+          !Number.isSafeInteger(entry.size) ||
+          entry.size < 0
+        ) {
+          throw new Error("backup-manifest-corrupt");
+        }
+        const source = resolve(row.path, entry.rel);
+        if (!isWithin(row.path, source) || !existsSync(source)) throw new Error("backup-file-missing");
+        const sourceStat = lstatSync(source);
+        if (!sourceStat.isFile() || sourceStat.size !== entry.size) throw new Error("backup-file-invalid");
+
+        const staged = resolve(stagingDir, entry.rel);
+        if (!isWithin(stagingDir, staged)) throw new Error("backup-manifest-corrupt");
+        mkdirSync(dirname(staged), { recursive: true });
+        cpSync(source, staged, { force: true, errorOnExist: false });
+        if (statSync(staged).size !== entry.size) throw new Error("backup-file-invalid");
+        checkedFiles += 1;
+
+        if (staged.endsWith(".db")) {
+          const db = new DatabaseSync(staged, { readOnly: true });
+          try {
+            const result = db.prepare("PRAGMA quick_check(1)").get() as Record<string, unknown> | undefined;
+            if (result === undefined || Object.values(result)[0] !== "ok") throw new Error("backup-database-invalid");
+          } finally {
+            db.close();
+          }
+          checkedDatabases += 1;
+        }
+      }
+    } catch (error) {
+      const code = error instanceof Error && error.message.startsWith("backup-")
+        ? error.message
+        : "backup-verification-failed";
+      core.store.updateBackupStatus(row.id, "verification-failed");
+      core.audit.append({
+        actor: "backup",
+        action: "backup-verify-failed",
+        target: row.path,
+        detail: { backupId: row.id, error: code, checkedFiles, checkedDatabases },
+      });
+      return { ok: false, backupId: row.id, error: code, checkedFiles, checkedDatabases };
+    } finally {
+      rmSync(stagingDir, { recursive: true, force: true });
+    }
+
+    const checkedAt = isoNow(now);
+    core.store.updateBackupStatus(row.id, "verified");
+    core.audit.append({
+      actor: "backup",
+      action: "backup-verify",
+      target: row.path,
+      detail: { backupId: row.id, checkedFiles, checkedDatabases, checkedAt },
+    });
+    return { ok: true, backupId: row.id, checkedFiles, checkedDatabases, checkedAt };
+  }
+
   function status() {
-    const full = core.store.listBackups("full")[0];
-    const memory = core.store.listBackups("memory")[0];
+    const full = core.store.listBackups("full").find((item) => item.status !== "expired");
+    const memory = core.store.listBackups("memory").find((item) => item.status !== "expired");
     return {
       enabled: true,
       lastFullAt: full?.createdAt ?? null,
       lastMemoryAt: memory?.createdAt ?? null,
+      lastFullVerification: full === undefined
+        ? null
+        : {
+            backupId: full.id,
+            at: full.createdAt,
+            status:
+              full.status === "verified"
+                ? "verified" as const
+                : full.status === "verification-failed"
+                  ? "verification-failed" as const
+                  : "not-verified" as const,
+          },
       hourlyTickMs,
       retention: { ...BACKUP_RETENTION_LIMITS },
     };
@@ -345,14 +468,16 @@ export function createBackupService(options: BackupServiceOptions): BackupServic
 
   async function tick(): Promise<void> {
     try {
-      const memory = core.store.listBackups("memory")[0];
-      if (memory === undefined || Date.now() - Date.parse(memory.createdAt) > 55 * 60 * 1000) {
+      const memory = core.store.listBackups("memory").find((item) => item.status !== "expired");
+      if (memory === undefined || now() - Date.parse(memory.createdAt) > 55 * 60 * 1000) {
         await run("memory", "每小时记忆增量备份");
       }
-      const full = core.store.listBackups("full")[0];
+      const full = core.store.listBackups("full").find((item) => item.status !== "expired");
       const today = isoNow(now).slice(0, 10);
       if (full === undefined || full.createdAt.slice(0, 10) !== today) {
-        await run("full", "每日全量备份");
+        const created = await run("full", "每日全量备份");
+        // 每日新建的全量备份立刻在临时目录验读；失败只影响该备份状态，绝不回写运行数据。
+        await verify(created.id);
       }
     } catch (error) {
       console.warn("[butler-watch] 自动备份执行异常（下个周期重试）:", error);
@@ -371,5 +496,5 @@ export function createBackupService(options: BackupServiceOptions): BackupServic
     }
   }
 
-  return { list: (kind?: BackupKind) => core.store.listBackups(kind), run, restore, status, start, stop };
+  return { list: (kind?: BackupKind) => core.store.listBackups(kind), run, restore, verify, status, start, stop };
 }

@@ -118,6 +118,46 @@ describe("AlertQueue", () => {
     expect(queue.claimNext()).toBeUndefined(); // 全部在投，无 pending 可领
   });
 
+  it("critical 告警优先认领，同一严重度仍按入队顺序", () => {
+    queue.enqueue({ kind: "k", severity: "warn", title: "普通提醒", body: "b", source: "s" });
+    queue.enqueue({ kind: "k", severity: "critical", title: "消息链路离线", body: "b", source: "s" });
+    queue.enqueue({ kind: "k", severity: "critical", title: "升级已回滚", body: "b", source: "s" });
+
+    expect(queue.claimNext()?.title).toBe("消息链路离线");
+    expect(queue.claimNext()?.title).toBe("升级已回滚");
+    expect(queue.claimNext()?.title).toBe("普通提醒");
+  });
+
+  it("同一指纹从提醒升级为 critical 时提升未投递告警，而不是继续按普通提醒处理", () => {
+    const first = queue.enqueue({
+      kind: "fingerprint",
+      severity: "warn",
+      title: "请求过于频繁",
+      body: "上一窗口 3 条",
+      source: "watch",
+      dedupeKey: "signature-1",
+    });
+
+    const escalated = queue.enqueue({
+      kind: "fingerprint",
+      severity: "critical",
+      title: "请求过于频繁（正在加剧）",
+      body: "当前窗口 18 条",
+      source: "watch",
+      dedupeKey: "signature-1",
+    });
+
+    expect(escalated.id).toBe(first.id);
+    expect(queue.get(first.id)).toMatchObject({
+      severity: "critical",
+      title: "请求过于频繁（正在加剧）",
+      body: "当前窗口 18 条",
+      mergedCount: 2,
+      status: "pending",
+    });
+    expect(queue.claimNext()?.id).toBe(first.id);
+  });
+
   it("markFailed：attempts 递增、指数退避 next_attempt_at、达到上限转 failed", () => {
     const now = "2026-01-01T00:00:00.000Z";
     const row = queue.enqueue({

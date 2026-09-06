@@ -117,14 +117,18 @@ describe("startWatchHttp /api/skills-manager 端点", () => {
   let base: string;
 
   async function boot(overrides: Partial<SkillsManagerCli> = {}): Promise<{ service: SkillsManagerCli; calls: RecordedCall[] }> {
+    http?.close();
     const fake = makeService(overrides);
     http = startWatchHttp(makeDeps(fake.service), { port: 0 });
     const address = await http.start();
+    if (!Number.isInteger(address.port) || address.port <= 0) {
+      throw new Error(`watch HTTP test server did not receive a usable port: ${address.port}`);
+    }
     base = `http://127.0.0.1:${address.port}`;
     return fake;
   }
 
-  afterEach(() => http.close());
+  afterEach(() => http?.close());
 
   it("GET status 返回服务视图；服务返回 unavailable 形态时仍 200", async () => {
     const fake = await boot();

@@ -45,11 +45,132 @@ export interface DiagnosticSummary {
   security: { totalSecretFiles: number; insecureSecretFiles: number; failedInvariants: number };
   gateway: { overall: string; last24h: number; totalEvents: number };
   evolutionRuns: number;
+  localOutcomes: LocalOutcomeSummary;
+}
+
+/** 只依赖审计日志的本地结果摘要，避免把巡检次数或日志条数误当成功率。 */
+export interface LocalOutcomeSummary {
+  schemaVersion: "local-outcome-summary-v1";
+  generatedAt: string;
+  windowDays: number;
+  auditRecordLimit: number;
+  evidenceNote: string;
+  outcomes: Array<{
+    id: "backup" | "repair" | "upgrade" | "rollback";
+    label: string;
+    completed: number;
+    knownFailures: number;
+    lastCompletedAt: string | null;
+    lastFailureAt: string | null;
+  }>;
+}
+
+interface AuditOutcomeRecord {
+  ts: string;
+  action: string;
+  detail: unknown;
 }
 
 const FINGERPRINT_WINDOW_DAYS = 7;
 const TOP_FINGERPRINTS = 20;
 const DAY_MS = 24 * 60 * 60 * 1000;
+export const LOCAL_OUTCOME_WINDOW_DAYS = 30;
+export const LOCAL_OUTCOME_AUDIT_LIMIT = 500;
+
+const LOCAL_OUTCOME_DEFINITIONS = [
+  { id: "backup", label: "备份与还原" },
+  { id: "repair", label: "自动修复" },
+  { id: "upgrade", label: "版本升级" },
+  { id: "rollback", label: "自动回滚" },
+] as const;
+
+function isSuccessDetail(value: unknown): boolean | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  return typeof (value as Record<string, unknown>).success === "boolean"
+    ? (value as Record<string, unknown>).success as boolean
+    : null;
+}
+
+/**
+ * 汇总最近本机审计中具有明确终态的操作。completed 不是成功率：审计没有完整的
+ * 尝试分母，也不能证明所有失败都会落盘，因此单独暴露 knownFailures。
+ */
+export function summarizeLocalOutcomes(
+  rows: AuditOutcomeRecord[],
+  nowMs: number,
+): LocalOutcomeSummary {
+  const generatedAt = new Date(nowMs).toISOString();
+  const cutoff = nowMs - LOCAL_OUTCOME_WINDOW_DAYS * DAY_MS;
+  const outcomes = new Map(
+    LOCAL_OUTCOME_DEFINITIONS.map((definition) => [
+      definition.id,
+      {
+        ...definition,
+        completed: 0,
+        knownFailures: 0,
+        lastCompletedAt: null as string | null,
+        lastFailureAt: null as string | null,
+      },
+    ]),
+  );
+  const record = (
+    id: (typeof LOCAL_OUTCOME_DEFINITIONS)[number]["id"],
+    status: "completed" | "failed",
+    at: string,
+  ): void => {
+    const item = outcomes.get(id);
+    if (item === undefined) return;
+    if (status === "completed") {
+      item.completed += 1;
+      if (item.lastCompletedAt === null || at > item.lastCompletedAt) item.lastCompletedAt = at;
+    } else {
+      item.knownFailures += 1;
+      if (item.lastFailureAt === null || at > item.lastFailureAt) item.lastFailureAt = at;
+    }
+  };
+
+  for (const row of rows.slice(0, LOCAL_OUTCOME_AUDIT_LIMIT)) {
+    const atMs = Date.parse(row.ts);
+    if (!Number.isFinite(atMs) || atMs < cutoff || atMs > nowMs) continue;
+    if (["backup-full", "backup-memory", "backup-event", "backup-restore"].includes(row.action)) {
+      record("backup", "completed", row.ts);
+      continue;
+    }
+    if (row.action === "runbook") {
+      const success = isSuccessDetail(row.detail);
+      if (success !== null) record("repair", success ? "completed" : "failed", row.ts);
+      continue;
+    }
+    if (row.action === "repair-session-done") {
+      record("repair", "completed", row.ts);
+      continue;
+    }
+    if (row.action === "repair-session-failed") {
+      record("repair", "failed", row.ts);
+      continue;
+    }
+    if (["upgrade-done", "self-upgrade-done"].includes(row.action)) {
+      record("upgrade", "completed", row.ts);
+      continue;
+    }
+    if (["upgrade-failed", "self-upgrade-failed", "self-upgrade-backup-failed"].includes(row.action)) {
+      record("upgrade", "failed", row.ts);
+      continue;
+    }
+    if (["upgrade-rollback", "self-upgrade-rollback"].includes(row.action)) {
+      record("rollback", "completed", row.ts);
+    }
+  }
+
+  return {
+    schemaVersion: "local-outcome-summary-v1",
+    generatedAt,
+    windowDays: LOCAL_OUTCOME_WINDOW_DAYS,
+    auditRecordLimit: LOCAL_OUTCOME_AUDIT_LIMIT,
+    evidenceNote: `仅统计近 ${LOCAL_OUTCOME_WINDOW_DAYS} 天、最近最多 ${LOCAL_OUTCOME_AUDIT_LIMIT} 条本机操作审计中具有明确终态的记录；不代表成功率，也不会上传。`,
+    outcomes: LOCAL_OUTCOME_DEFINITIONS.map((definition) => outcomes.get(definition.id)!),
+  };
+}
 
 /** 脱敏：用户名路径替换为 ~，压缩空白，截断长度。 */
 function redact(value: string, max = 240): string {
@@ -89,6 +210,10 @@ export async function buildDiagnosticSummary(deps: DiagnosticReportDeps): Promis
     security: { totalSecretFiles: security.totalSecretFiles, insecureSecretFiles: security.insecureSecretFiles, failedInvariants: security.invariants.filter((item) => item.status === "fail").length },
     gateway: { overall: gateway.overall, last24h: gateway.last24h, totalEvents: gateway.totalEvents },
     evolutionRuns: deps.evolution?.status().ledger.length ?? 0,
+    localOutcomes: summarizeLocalOutcomes(
+      deps.core.store.listAudit?.({ limit: LOCAL_OUTCOME_AUDIT_LIMIT }) ?? [],
+      now(),
+    ),
   };
 }
 

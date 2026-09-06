@@ -78,6 +78,7 @@ export function DashboardPage() {
     refreshReadiness,
     hostMetrics,
     serviceHealth,
+    runtime,
   } = useDashboardData();
 
   const [inspectionRequested, setInspectionRequested] = useState(false);
@@ -288,6 +289,7 @@ export function DashboardPage() {
               onRefresh={() => void refreshReadiness()}
               hostMetrics={hostMetrics}
               serviceHealth={serviceHealth}
+              runtime={runtime}
               inspectStatus={inspectStatus}
               inspectionHistory={inspectionHistory}
               latestInspections={dashboard?.latestInspections ?? []}

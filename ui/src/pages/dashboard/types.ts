@@ -460,3 +460,22 @@ export interface HealthPayload {
   ok: boolean;
   services: { gateway: ServiceHealthView; watch: ServiceHealthView };
 }
+
+export interface RuntimePortProxyStatus {
+  status: "healthy" | "stale" | "missing" | "unknown";
+  listenAddress: string;
+  listenPort: number;
+  connectAddress: string | null;
+  connectPort: number | null;
+  expectedAddress: string | null;
+  detail: string;
+  fixCommand: string;
+}
+
+export interface RuntimePayload {
+  kind: "wsl" | "windows-wsl" | "linux" | "unknown" | string;
+  distro?: string | null;
+  user?: string | null;
+  detail: string;
+  portProxy?: RuntimePortProxyStatus;
+}

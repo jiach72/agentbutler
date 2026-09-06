@@ -12,9 +12,10 @@ import type {
 } from "../src/pages/dashboard/types.js";
 import { ActionStep } from "../src/pages/troubleshoot/steps/ActionStep.js";
 import { SymptomStep } from "../src/pages/troubleshoot/steps/SymptomStep.js";
+import { DiagnosticsCenter } from "../src/pages/settings/DiagnosticsCenter.js";
 
 describe("关键页面组件渲染", () => {
-  it("侧栏直接显示运营入口并提供排查入口", () => {
+  it("侧栏保留高频入口，并把维护功能收进维护与升级分组", () => {
     const html = renderToStaticMarkup(
       React.createElement(
         ThemeProvider,
@@ -27,20 +28,20 @@ describe("关键页面组件渲染", () => {
       ),
     );
 
+    expect(html).toContain('href="/dashboard"');
+    expect(html).toContain('href="/skills"');
+    expect(html).toContain('href="/gateway"');
+    expect(html).toContain('href="/core-files"');
     expect(html).toContain('href="/evolution"');
+    expect(html).toContain('href="/troubleshoot"');
+    expect(html).toContain('href="/logs"');
+    expect(html).toContain('href="/setup"');
+    expect(html).toContain('href="/settings"');
     expect(html).not.toContain('href="/assets"');
     expect(html).not.toContain('href="/versions"');
-    expect(html).not.toContain("nav-advanced");
-    expect(html).not.toContain("<details");
-    expect(html).toContain("自进化");
-    expect(html).not.toContain("发现技能");
-    expect(html).not.toContain("高级工具");
-    expect(html).toContain("智能体与记忆");
-    expect(html).toContain("核心文件");
-    expect(html).toContain('href="/troubleshoot"');
+    expect(html).toContain('aria-label="开始排查问题"');
     expect(html).toContain("排查问题");
     expect(html).toContain('class="topbar-title">自进化</strong>');
-    expect(html).toContain('href="/settings"');
   });
 
   it("首页实例详情能输出状态、版本和检查结果", () => {
@@ -121,5 +122,14 @@ describe("关键页面组件渲染", () => {
     expect(html).toContain("推荐");
     expect(html).toContain("不影响使用");
     expect(html).toContain("执行「重新连接消息通道」");
+  });
+
+  it("诊断区明确本机结果摘要的证据边界", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(DiagnosticsCenter, { actionBusy: false }),
+    );
+
+    expect(html).toContain("最近本机结果");
+    expect(html).toContain("正在读取本机操作记录");
   });
 });

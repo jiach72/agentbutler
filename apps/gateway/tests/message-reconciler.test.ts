@@ -936,6 +936,41 @@ describe("MessageGatewayService", () => {
     expect(clear).toHaveBeenCalledTimes(1);
   });
 
+  it("历史清理按固定周期节流，不随每秒 reconcile 重复执行", async () => {
+    let scheduled: (() => void) | undefined;
+    const clear = vi.fn();
+    let nowMs = Date.parse(NOW);
+    const service = new MessageGatewayService({
+      adapter,
+      instance: INSTANCE,
+      store,
+      config: DEFAULT_MESSAGE_POLICY,
+      clock: () => new Date(nowMs),
+      scheduler: {
+        setInterval: (fn) => {
+          scheduled = fn;
+          return 1;
+        },
+        clearInterval: clear,
+      },
+      randomUUID: () => "attempt-1",
+    });
+    const prune = vi.spyOn(store, "pruneMessageHistory");
+    await service.start();
+    expect(prune).toHaveBeenCalledTimes(1); // 首轮立即清理
+
+    nowMs += 30_000;
+    scheduled?.();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(prune).toHaveBeenCalledTimes(1); // 周期内不重复
+
+    nowMs += 31_000;
+    scheduled?.();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(prune).toHaveBeenCalledTimes(2); // 超过周期后再次清理
+    await service.stop();
+  });
+
   it("wakes reconciliation on demand and detaches its live config from caller mutations", async () => {
     let scheduled: (() => void) | undefined;
     const mutable = structuredClone(DEFAULT_MESSAGE_POLICY);

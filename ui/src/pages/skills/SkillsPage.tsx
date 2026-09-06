@@ -32,6 +32,7 @@ export function SkillsPage() {
   const [activeKeyword, setActiveKeyword] = useState("");
   const [memoryPreview, setMemoryPreview] = useState<MemoryPreview>({ status: "default" });
   const [backupBusy, setBackupBusy] = useState(false);
+  const [memoryWritesEnabled, setMemoryWritesEnabled] = useState<boolean | null>(null);
   const [selfCheck, setSelfCheck] = useState<{
     busy: boolean;
     result: MemorySelfCheckView | null;
@@ -55,6 +56,17 @@ export function SkillsPage() {
   useEffect(() => {
     void loadLibrary();
   }, [loadLibrary]);
+
+  useEffect(() => {
+    let active = true;
+    void loadJson<{ memoryWritesEnabled?: boolean }>("/api/security", 8_000).then((result) => {
+      if (!active) return;
+      setMemoryWritesEnabled(result.ok && typeof result.data.memoryWritesEnabled === "boolean" ? result.data.memoryWritesEnabled : null);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   /** 记忆检索：只写 memoryPreview，技能/插件保持上次数据不动。 */
   const runMemorySearch = useCallback(
@@ -256,6 +268,7 @@ export function SkillsPage() {
                   onRefresh={refreshMemoryView}
                   onSelfCheck={() => void runSelfCheck()}
                   onBackup={() => void runMemoryBackup()}
+                  memoryWritesEnabled={memoryWritesEnabled}
                 />
               </div>
             ),

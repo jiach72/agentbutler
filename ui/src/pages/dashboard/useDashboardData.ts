@@ -20,6 +20,7 @@ import type {
   MessageStatusPayload,
   OpenClawStatusView,
   RunbooksPayload,
+  RuntimePayload,
 } from "./types.js";
 
 export function useDashboardData() {
@@ -34,6 +35,7 @@ export function useDashboardData() {
   const [discoveredModels, setDiscoveredModels] = useState<DiscoveredLlmPayload["configs"] | null>(null);
   const [hostMetrics, setHostMetrics] = useState<HostMetricsPayload | null>(null);
   const [serviceHealth, setServiceHealth] = useState<HealthPayload | null>(null);
+  const [runtime, setRuntime] = useState<RuntimePayload | null>(null);
   const [readinessRefreshing, setReadinessRefreshing] = useState(false);
   const [initialLoad, setInitialLoad] = useState({
     dashboard: false,
@@ -102,12 +104,14 @@ export function useDashboardData() {
   // 主机指标（watch 快照含 CPU 双采样与 GPU 探测）+ 各服务健康检查延迟：
   // 就绪度信息卡数据，非操作入口，低频 30s 轮询即可。
   const refreshHostMetrics = useCallback(async () => {
-    const [metrics, health] = await Promise.all([
+    const [metrics, health, runtime] = await Promise.all([
       fetchJson<HostMetricsPayload>("/api/host/metrics", 10_000),
       fetchJson<HealthPayload>("/api/health", 10_000),
+      fetchJson<RuntimePayload>("/api/runtime", 10_000),
     ]);
     if (metrics !== null) setHostMetrics(metrics);
     if (health !== null) setServiceHealth(health);
+    if (runtime !== null) setRuntime(runtime);
   }, []);
 
   // 首屏：聚合端点一次取齐。
@@ -166,5 +170,6 @@ export function useDashboardData() {
     refreshReadiness,
     hostMetrics,
     serviceHealth,
+    runtime,
   };
 }

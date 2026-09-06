@@ -4,6 +4,7 @@
  * 参照技能页 CategoryRail 的模式独立实现，不与其共享代码。
  */
 import {
+  AppstoreOutlined,
   ControlOutlined,
   HistoryOutlined,
   InfoCircleOutlined,
@@ -31,6 +32,7 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
   { key: "diagnostics", label: "诊断报告", icon: ReconciliationOutlined },
   { key: "preferences", label: "常规偏好", icon: ControlOutlined },
   { key: "about", label: "关于", icon: InfoCircleOutlined },
+  { key: "advanced", label: "进阶工具", icon: AppstoreOutlined },
 ];
 
 /** 旧 ?tab= 值 → 分类 key 映射（历史六签 key 与分类 key 一致；成表保证未来重命名不破坏旧链接）。 */

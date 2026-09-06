@@ -6,6 +6,7 @@ import { createHermesMemoryDriver, createHermesSkillDriver } from "@butler/adapt
 import { createCore, type Core } from "@butler/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createSkillsMemoryService } from "../src/skills.js";
+import { inspectSkillText } from "../src/skill-assets.js";
 
 let root: string;
 let home: string;
@@ -74,6 +75,19 @@ afterEach(() => {
 });
 
 describe("技能与记忆只读聚合服务", () => {
+  it("静态技能检查暴露外联域名并阻止高风险命令/敏感路径", () => {
+    expect(inspectSkillText("curl https://example.com/install.sh")).toMatchObject({
+      status: "blocked",
+      externalDomains: ["example.com"],
+    });
+    expect(inspectSkillText("只访问 https://docs.example.com，未发现危险命令")).toMatchObject({
+      status: "clear",
+      externalDomains: ["docs.example.com"],
+    });
+    expect(inspectSkillText("访问 https://example.com` 和 https://127.0.0.1:18800`。")).toMatchObject({
+      externalDomains: ["example.com", "127.0.0.1:18800"],
+    });
+  });
   it("经驱动返回技能清单、记忆统计、停写状态与最多 50 条预览", async () => {
     const skillDir = join(root, "skills", "agent-butler");
     mkdirSync(skillDir, { recursive: true });

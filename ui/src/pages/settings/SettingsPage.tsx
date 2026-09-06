@@ -4,8 +4,9 @@
  * 展示层为「市场风」：PageHeader + 数据源状态概览条 + 左侧分类导航 + 右侧内容区。
  */
 import { useCallback, useEffect, useState } from "react";
-import { Alert, App, Flex, Typography } from "antd";
-import { useSearchParams } from "react-router-dom";
+import { BugOutlined, FileMarkdownOutlined, FileSearchOutlined, ThunderboltOutlined } from "@ant-design/icons";
+import { Alert, App, Button, Card, Flex, Typography } from "antd";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { ConnectionChip } from "../../components/ConnectionChip.js";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
 import { PageHeader } from "../../components/PageHeader.js";
@@ -49,6 +50,7 @@ export function SettingsPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<SettingsConfirmAction | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const activeTab = resolveCategoryKey(searchParams.get("tab"));
   const setActiveTab = (key: string) => {
     setSearchParams(key === "security" ? {} : { tab: key }, { replace: true });
@@ -166,6 +168,29 @@ export function SettingsPage() {
     }
   }
 
+  function onVerifyBackup() {
+    if (busy !== null) return;
+    void executeVerifyBackup();
+  }
+
+  async function executeVerifyBackup() {
+    setBusy("verify");
+    try {
+      const result = await postJson("/api/backups/verify", {}, 35_000);
+      if (result.ok) {
+        const data = (result.data ?? {}) as { checkedFiles?: number; checkedDatabases?: number };
+        message.success(`验证完成：检查 ${data.checkedFiles ?? 0} 个文件、${data.checkedDatabases ?? 0} 个数据库。`);
+      } else {
+        message.error("备份未通过验证；不会影响当前运行数据，请查看备份记录后重试。");
+      }
+      refreshAll();
+    } catch {
+      message.error("验证备份失败，请稍后再试。");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   function onRequestRestore(item: BackupItem) {
     if (busy !== null) return;
     setConfirmAction({ kind: "restore", backup: item });
@@ -211,6 +236,7 @@ export function SettingsPage() {
             busy={busy}
             onRetry={retrySource}
             onRunBackup={onRunBackup}
+            onVerifyBackup={onVerifyBackup}
             onRequestRestore={onRequestRestore}
           />
         );
@@ -238,6 +264,49 @@ export function SettingsPage() {
         return <PreferencesPanel />;
       case "about":
         return <VersionsPanel />;
+      case "advanced":
+        return (
+          <Flex vertical gap={12}>
+            <Typography.Title level={4} style={{ margin: 0 }}>
+              进阶工具
+            </Typography.Title>
+            <Paragraph type="secondary" style={{ marginBottom: 4 }}>
+              这些功能用于分析、配置或恢复；日常使用从首页、消息通知和排查问题开始即可。
+            </Paragraph>
+            <Card size="small" title="自进化">
+              <Flex justify="space-between" align="center" gap={16} wrap="wrap">
+                <Text type="secondary">根据真实日志生成候选方案，并经验证后再应用。</Text>
+                <Button icon={<ThunderboltOutlined />} onClick={() => navigate("/evolution")}>
+                  打开自进化
+                </Button>
+              </Flex>
+            </Card>
+            <Card size="small" title="核心文件">
+              <Flex justify="space-between" align="center" gap={16} wrap="wrap">
+                <Text type="secondary">查看、预览修改并恢复 Agent 的受管 Markdown 文件。</Text>
+                <Button icon={<FileMarkdownOutlined />} onClick={() => navigate("/core-files")}>
+                  管理核心文件
+                </Button>
+              </Flex>
+            </Card>
+            <Card size="small" title="系统日志">
+              <Flex justify="space-between" align="center" gap={16} wrap="wrap">
+                <Text type="secondary">在排查建议不足时查看原始记录和历史问题。</Text>
+                <Button icon={<FileSearchOutlined />} onClick={() => navigate("/logs")}>
+                  查看系统日志
+                </Button>
+              </Flex>
+            </Card>
+            <Card size="small" title="重新设置连接">
+              <Flex justify="space-between" align="center" gap={16} wrap="wrap">
+                <Text type="secondary">重新检测本机实例、模型配置和常用使用场景。</Text>
+                <Button icon={<BugOutlined />} onClick={() => navigate("/setup")}>
+                  打开连接设置
+                </Button>
+              </Flex>
+            </Card>
+          </Flex>
+        );
       case "security":
       default:
         return (

@@ -12,6 +12,8 @@ import {
   Col,
   Empty,
   Flex,
+  Form,
+  Input,
   Pagination,
   Row,
   Select,
@@ -19,6 +21,7 @@ import {
   Table,
   Tag,
   Typography,
+  Modal,
 } from "antd";
 import type { TableColumnsType } from "antd";
 import { ArrowRightOutlined, DownOutlined, UpOutlined } from "@ant-design/icons";
@@ -96,6 +99,16 @@ interface PromptCandidate {
 interface PromptCandidatePayload {
   watchReachable: boolean;
   candidates: PromptCandidate[];
+}
+
+interface CandidateFormValues {
+  targetId: string;
+  description?: string;
+  content: string;
+}
+
+interface EvaluationFormValues {
+  cases: string;
 }
 
 type OptimizeMode = "pass-through" | "quick" | "rule" | "llm";
@@ -317,6 +330,11 @@ export function PromptOptimizationPanel() {
   const [historyDay, setHistoryDay] = useState<string | null>(null);
   const [historyPage, setHistoryPage] = useState(1);
   const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(new Set());
+  const [candidateModalOpen, setCandidateModalOpen] = useState(false);
+  const [evaluationCandidate, setEvaluationCandidate] = useState<PromptCandidate | null>(null);
+  const [candidateForm] = Form.useForm<CandidateFormValues>();
+  const [evaluationForm] = Form.useForm<EvaluationFormValues>();
+  const [candidateBusy, setCandidateBusy] = useState(false);
 
   const refresh = useCallback(async () => {
     const payload = await fetchJson<PromptPayload>("/api/prompt-optimization");
@@ -363,6 +381,62 @@ export function PromptOptimizationPanel() {
     },
     [refresh, refreshCandidates],
   );
+
+  const createCandidate = useCallback(async (values: CandidateFormValues) => {
+    const target = data?.targets.find((item) => item.targetId === values.targetId);
+    if (target === undefined) return;
+    setCandidateBusy(true);
+    const result = await postJson(
+      "/api/prompt-optimization/candidates",
+      {
+        targetId: values.targetId,
+        content: values.content,
+        baseSha256: target.activeSha256,
+        source: "manual",
+        description: values.description?.trim() || "手动候选",
+      },
+      15_000,
+    );
+    setCandidateBusy(false);
+    if (!result.ok) {
+      setPromotionNotice("候选没有创建成功，请检查内容、目标文件状态和保护段。" );
+      return;
+    }
+    setCandidateModalOpen(false);
+    candidateForm.resetFields();
+    setPromotionNotice("候选已创建；请使用至少 10 条成对样本进行评估。" );
+    await refreshCandidates();
+  }, [candidateForm, data?.targets, refreshCandidates]);
+
+  const evaluateCandidate = useCallback(async (values: EvaluationFormValues) => {
+    if (evaluationCandidate === null) return;
+    let cases: unknown;
+    try {
+      cases = JSON.parse(values.cases);
+    } catch {
+      setPromotionNotice("评估样本不是合法 JSON 数组。" );
+      return;
+    }
+    if (!Array.isArray(cases)) {
+      setPromotionNotice("评估样本必须是 JSON 数组。" );
+      return;
+    }
+    setCandidateBusy(true);
+    const result = await postJson(
+      `/api/prompt-optimization/candidates/${encodeURIComponent(evaluationCandidate.candidateId)}/evaluate`,
+      { cases },
+      70_000,
+    );
+    setCandidateBusy(false);
+    if (!result.ok) {
+      setPromotionNotice("评估没有完成；请检查样本数量、字段和当前候选状态。" );
+      return;
+    }
+    setEvaluationCandidate(null);
+    evaluationForm.resetFields();
+    setPromotionNotice("评估完成；只有正式样本、受信评估和安全门禁同时通过时才可采用。" );
+    await refreshCandidates();
+  }, [evaluationCandidate, evaluationForm, refreshCandidates]);
 
   const refreshAll = useCallback(() => {
     void refresh();
@@ -690,6 +764,19 @@ export function PromptOptimizationPanel() {
         }
       >
         <Flex vertical gap={16}>
+          <Flex justify="space-between" align="center" gap={12} wrap="wrap">
+            <Text type="secondary">候选必须基于当前 active hash 创建，并经过成对评估后才能采用。</Text>
+            <Button
+              type="primary"
+              disabled={data?.targets.length === 0 || data === null}
+              onClick={() => {
+                candidateForm.setFieldsValue({ targetId: data?.targets[0]?.targetId ?? "" });
+                setCandidateModalOpen(true);
+              }}
+            >
+              新建候选
+            </Button>
+          </Flex>
           {data !== null && data.targets.length === 0 && (
             <Empty
               image={Empty.PRESENTED_IMAGE_SIMPLE}
@@ -848,6 +935,26 @@ export function PromptOptimizationPanel() {
                     ),
                   },
                   {
+                    title: "评估",
+                    width: 110,
+                    render: (_, candidate) => (
+                      <Button
+                        size="small"
+                        disabled={candidate.status === "promoted"}
+                        onClick={() => {
+                          setEvaluationCandidate(candidate);
+                          evaluationForm.setFieldsValue({
+                            cases: JSON.stringify([
+                              { caseId: "case-1", baselineScore: 0, candidateScore: 0 },
+                            ], null, 2),
+                          });
+                        }}
+                      >
+                        运行评估
+                      </Button>
+                    ),
+                  },
+                  {
                     title: "采用",
                     width: 120,
                     render: (_, candidate) => {
@@ -877,6 +984,64 @@ export function PromptOptimizationPanel() {
           )}
         </Flex>
       </AdvancedDetails>
+      <Modal
+        open={candidateModalOpen}
+        title="新建提示词候选"
+        okText="创建候选"
+        cancelText="取消"
+        confirmLoading={candidateBusy}
+        onCancel={() => setCandidateModalOpen(false)}
+        onOk={() => void candidateForm.submit()}
+      >
+        <Form<CandidateFormValues>
+          form={candidateForm}
+          layout="vertical"
+          onFinish={(values) => void createCandidate(values)}
+        >
+          <Form.Item name="targetId" label="目标" rules={[{ required: true, message: "请选择目标" }]}>
+            <Select
+              options={(data?.targets ?? []).map((target) => ({
+                value: target.targetId,
+                label: `${promptTargetLabel(target.targetId)} · ${target.activeSha256.slice(0, 8)}`,
+              }))}
+            />
+          </Form.Item>
+          <Form.Item name="description" label="候选说明">
+            <Input placeholder="例如：收紧任务完成条件" />
+          </Form.Item>
+          <Form.Item
+            name="content"
+            label="候选完整内容"
+            rules={[{ required: true, message: "请粘贴候选完整内容" }]}
+          >
+            <Input.TextArea rows={12} placeholder="粘贴完整内容，并保留系统要求的保护段。" />
+          </Form.Item>
+        </Form>
+      </Modal>
+      <Modal
+        open={evaluationCandidate !== null}
+        title={`评估候选：${evaluationCandidate?.description || "改进版本"}`}
+        okText="开始评估"
+        cancelText="取消"
+        confirmLoading={candidateBusy}
+        onCancel={() => setEvaluationCandidate(null)}
+        onOk={() => void evaluationForm.submit()}
+      >
+        <Form<EvaluationFormValues>
+          form={evaluationForm}
+          layout="vertical"
+          onFinish={(values) => void evaluateCandidate(values)}
+        >
+          <Form.Item
+            name="cases"
+            label="成对样本 JSON"
+            extra="每项至少包含 caseId、baselineScore、candidateScore；正式采用至少需要 30 条样本。"
+            rules={[{ required: true, message: "请提供成对样本" }]}
+          >
+            <Input.TextArea rows={14} />
+          </Form.Item>
+        </Form>
+      </Modal>
     </Flex>
   );
 }

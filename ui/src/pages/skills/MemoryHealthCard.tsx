@@ -12,6 +12,7 @@ interface MemoryHealthCardProps {
   onSelfCheck: () => void;
   onBackup: () => void;
   backupBusy: boolean;
+  memoryWritesEnabled?: boolean | null;
 }
 
 /** 信号状态 → 语义 token 色（避免散落硬编码颜色）。 */
@@ -31,6 +32,7 @@ export function MemoryHealthCard({
   onSelfCheck,
   onBackup,
   backupBusy,
+  memoryWritesEnabled = null,
 }: MemoryHealthCardProps) {
   const { token } = theme.useToken();
   if (health === null) {
@@ -103,6 +105,25 @@ export function MemoryHealthCard({
             {selfCheck.busy ? "自检中…" : "立即自检记忆"}
           </Button>
         </Flex>
+
+        <Alert
+          type={memoryWritesEnabled === null ? "warning" : memoryWritesEnabled ? "warning" : "info"}
+          showIcon
+          message={
+            memoryWritesEnabled === null
+              ? "记忆写操作状态暂不可知"
+              : memoryWritesEnabled
+                ? "记忆写操作已开启"
+                : "记忆写操作默认关闭"
+          }
+          description={
+            memoryWritesEnabled === null
+              ? "无法确认当前部署是否允许记忆写操作；在状态明确前，按只读处理。"
+              : memoryWritesEnabled
+                ? "归档、恢复、清理和重建索引入口已可用；每次写操作前会先备份并写入本机审计记录。"
+                : "当前只提供查看、检索、自检和备份。需要归档、恢复、清理或重建索引时，请在本机部署配置中设置 BUTLER_MEMORY_WRITES_ENABLED=true 后重启 Watch；网页不会代你修改 .env 或执行宿主命令。"
+          }
+        />
 
         <List
           size="small"

@@ -13,6 +13,7 @@ import type {
   InspectionView,
   InspectStatusView,
   LlmStatusView,
+  RuntimePayload,
 } from "./types.js";
 import { buildLocalReadiness, type ReadinessTone } from "./readiness.js";
 import {
@@ -42,6 +43,8 @@ interface ReadinessSectionProps {
   inspectionHistory?: InspectionHistoryPayload | null;
   /** 最近巡检列表（探针耗时缺省时回退计算均值）。 */
   latestInspections?: InspectionView[];
+  /** Windows 原生运行时的只读 portproxy 状态。 */
+  runtime?: RuntimePayload | null;
 }
 
 const toneBadgeStatus = {
@@ -184,12 +187,14 @@ function ButlerMetricsCardBody({
   connections,
   serviceHealth,
   inspectionHistory,
+  runtime,
 }: {
   inspectStatus: InspectStatusView | null;
   latestInspections: InspectionView[];
   connections: ConnectionsPayload | null;
   serviceHealth: HealthPayload | null;
   inspectionHistory: InspectionHistoryPayload | null;
+  runtime: RuntimePayload | null;
 }) {
   const durationMs = recentInspectionDurationMs(inspectStatus, latestInspections);
   const connectionRows = connections?.connections ?? [];
@@ -198,7 +203,7 @@ function ButlerMetricsCardBody({
     .map((day) => day.avgDurationMs)
     .filter((ms): ms is number => typeof ms === "number" && Number.isFinite(ms));
   const hasAnything =
-    durationMs !== null || connectionRows.length > 0 || services !== null || trendValues.length > 0;
+    durationMs !== null || connectionRows.length > 0 || services !== null || trendValues.length > 0 || runtime !== null;
   if (!hasAnything) {
     return <Text type="secondary">运行指标暂不可用（管家服务离线或尚未产生数据）。</Text>;
   }
@@ -245,6 +250,21 @@ function ButlerMetricsCardBody({
           </>
         )}
       </Flex>
+      {runtime?.portProxy !== undefined && (
+        <Flex vertical gap={4}>
+          <Text type="secondary">Windows 访问转发</Text>
+          <MetricRow label={`${runtime.portProxy.listenAddress}:${runtime.portProxy.listenPort}`}>
+            <Badge
+              status={runtime.portProxy.status === "healthy" ? "success" : runtime.portProxy.status === "unknown" ? "default" : "warning"}
+              text={runtime.portProxy.status === "healthy" ? "正常" : runtime.portProxy.status === "stale" ? "地址已过期" : runtime.portProxy.status === "missing" ? "规则缺失" : "未核验"}
+            />
+          </MetricRow>
+          <Text type="secondary">{runtime.portProxy.detail}</Text>
+          {runtime.portProxy.status !== "healthy" && (
+            <Text code>{runtime.portProxy.fixCommand}</Text>
+          )}
+        </Flex>
+      )}
     </Flex>
   );
 }
@@ -260,6 +280,7 @@ export function ReadinessSection({
   inspectStatus = null,
   inspectionHistory = null,
   latestInspections = [],
+  runtime = null,
 }: ReadinessSectionProps) {
   const readiness = useMemo(
     () => buildLocalReadiness(connections, llmStatus, discoveredModels),
@@ -332,6 +353,7 @@ export function ReadinessSection({
                   connections={connections}
                   serviceHealth={serviceHealth}
                   inspectionHistory={inspectionHistory}
+                  runtime={runtime}
                 />
               </Flex>
             </Card>

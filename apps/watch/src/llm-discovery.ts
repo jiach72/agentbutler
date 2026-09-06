@@ -62,7 +62,12 @@ function readLogObservedModel(logText: string): string {
 }
 
 /** 文本已可读时的发现逻辑，与原 python 脚本保持一致的字段与优先级。 */
-function discoverFromSources(rootPath: string, cfgText: string | null, envText: string | null): DiscoveredLlmItem[] {
+function discoverFromSources(
+  rootPath: string,
+  cfgText: string | null,
+  envText: string | null,
+  processEnv: NodeJS.ProcessEnv = process.env,
+): DiscoveredLlmItem[] {
   const fileEnv: EnvFileEntries = envText === null ? {} : parseEnvFile(envText);
   let cfg: Record<string, unknown> = {};
   if (cfgText !== null) {
@@ -95,7 +100,7 @@ function discoverFromSources(rootPath: string, cfgText: string | null, envText: 
   }
 
   const prefix = provider.replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "").toUpperCase();
-  const merged: EnvFileEntries = { ...fileEnv, ...selectProcessEnv() };
+  const merged: EnvFileEntries = { ...fileEnv, ...selectProcessEnv(processEnv) };
   const pick = (...keys: string[]): string => {
     for (const key of keys) {
       const value = merged[key];
@@ -135,9 +140,9 @@ function discoverFromSources(rootPath: string, cfgText: string | null, envText: 
 }
 
 /** process.env 快照：与原脚本 os.environ 同口径（进程环境优先于 .env 文件）。 */
-function selectProcessEnv(): EnvFileEntries {
+function selectProcessEnv(source: NodeJS.ProcessEnv = process.env): EnvFileEntries {
   const entries: EnvFileEntries = {};
-  for (const [key, value] of Object.entries(process.env)) {
+  for (const [key, value] of Object.entries(source)) {
     if (/^[A-Z][A-Z0-9_]*$/.test(key) && typeof value === "string") entries[key] = value;
   }
   return entries;
@@ -246,7 +251,7 @@ async function readRuntimeObserved(rootPath: string): Promise<DiscoveredLlmItem[
 
 export async function discoverHermesLlm(
   rootPath: string,
-  options: { exec?: CommandExecutor } = {},
+  options: { exec?: CommandExecutor; processEnv?: NodeJS.ProcessEnv } = {},
 ): Promise<DiscoveredLlmItem[]> {
   let envText: string | null = null;
   let cfgText: string | null = null;
@@ -261,7 +266,7 @@ export async function discoverHermesLlm(
     // config.yaml 不存在或不可读。
   }
   if (envText !== null || cfgText !== null) {
-    const discovered = discoverFromSources(rootPath, cfgText, envText);
+    const discovered = discoverFromSources(rootPath, cfgText, envText, options.processEnv);
     if (discovered.length > 0) return discovered;
     return readRuntimeObserved(rootPath);
   }

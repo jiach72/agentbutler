@@ -502,6 +502,7 @@ describe("createSkillsManagerCli", () => {
         cliHome: join(tmp, "home"),
         execFile: exec,
         fs: { existsSync: () => false } as unknown as SkillsManagerFs,
+        autoDownload: false,
       });
       const view = await cli.status();
       expect(view).toEqual({ available: false, installHint: SKILLS_MANAGER_INSTALL_HINT });
@@ -517,6 +518,7 @@ describe("createSkillsManagerCli", () => {
           cliHome: join(tmp, "home"),
           execFile: exec,
           fs: { existsSync: () => false } as unknown as SkillsManagerFs,
+          autoDownload: false,
         });
         const view = await cli.status();
         expect(view.available).toBe(false);

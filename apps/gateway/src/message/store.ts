@@ -34,6 +34,12 @@ CREATE TABLE IF NOT EXISTS message_projection (
   last_policy_error TEXT,
   updated_at TEXT NOT NULL
 );
+-- 秒级 reconcile 每轮都按 state 过滤候选、按 updated_at 清理终态行；
+-- 没有这两个索引时上述路径都是全表扫描。
+CREATE INDEX IF NOT EXISTS idx_message_projection_state
+  ON message_projection(state, available_at);
+CREATE INDEX IF NOT EXISTS idx_message_projection_updated_at
+  ON message_projection(updated_at);
 CREATE TABLE IF NOT EXISTS message_outcome_history (
   message_id TEXT PRIMARY KEY,
   outcome TEXT NOT NULL CHECK (outcome IN ('delivered', 'failed', 'uncertain')),
@@ -314,29 +320,39 @@ export class MessagePolicyStore {
   /**
    * Returns the earliest still-active progress record in a digest group. It deliberately
    * includes future held rows: aggregation must update that holder before it is due.
+   * SQL 端先用 json_extract 预过滤分组键（instance/channel/chatId/runId/messageKind），
+   * JS 端保留完整判据兜底，因此 SQL 只会多选、不会改变结果。
    */
   earliestActiveProgressHolder(message: OutboxMessageView): ProjectedMessageView | undefined {
     if (typeof message.runId !== "string" || message.runId === "") return undefined;
+    const channelMatch = jsonColumnMatch("json_extract(payload_json, '$.channel')", message.channel);
+    const chatIdMatch = jsonColumnMatch("json_extract(payload_json, '$.chatId')", message.chatId);
     const rows = this.db
       .prepare(
         `SELECT * FROM message_projection
          WHERE state IN ('captured', 'policy_pending', 'held_dnd', 'held_pacing', 'ready', 'retry_wait')
+           AND json_extract(payload_json, '$.messageKind') = 'task-progress'
+           AND instance_id = ?
+           AND ${channelMatch.sql}
+           AND ${chatIdMatch.sql}
+           AND json_extract(payload_json, '$.runId') = ?
          ORDER BY bridge_sequence ASC, instance_id ASC, message_id ASC`,
       )
-      .all() as Record<string, unknown>[];
-    return rows
-      .map((row) => this.mapMessage(row))
-      .find(
-        (candidate) =>
-          candidate.messageId !== message.messageId &&
-          candidate.messageKind === "task-progress" &&
-          candidate.instanceId === message.instanceId &&
-          candidate.channel === message.channel &&
-          candidate.chatId === message.chatId &&
-          candidate.runId === message.runId &&
-          (candidate.sequence < message.sequence ||
-            (candidate.sequence === message.sequence && candidate.messageId < message.messageId)),
-      );
+      .all(message.instanceId, ...channelMatch.params, ...chatIdMatch.params, message.runId) as Record<
+      string,
+      unknown
+    >[];
+    return rows.map((row) => this.mapMessage(row)).find(
+      (candidate) =>
+        candidate.messageId !== message.messageId &&
+        candidate.messageKind === "task-progress" &&
+        candidate.instanceId === message.instanceId &&
+        candidate.channel === message.channel &&
+        candidate.chatId === message.chatId &&
+        candidate.runId === message.runId &&
+        (candidate.sequence < message.sequence ||
+          (candidate.sequence === message.sequence && candidate.messageId < message.messageId)),
+    );
   }
 
   /**
@@ -346,6 +362,8 @@ export class MessagePolicyStore {
    */
   latestActiveRunResult(message: OutboxMessageView): ProjectedMessageView | undefined {
     if (typeof message.runId !== "string" || message.runId === "") return undefined;
+    const channelMatch = jsonColumnMatch("json_extract(payload_json, '$.channel')", message.channel);
+    const chatIdMatch = jsonColumnMatch("json_extract(payload_json, '$.chatId')", message.chatId);
     const rows = this.db
       .prepare(
         `SELECT * FROM message_projection
@@ -354,26 +372,32 @@ export class MessagePolicyStore {
            OR (state IN ('delivered', 'absorbed', 'dead_letter', 'delivery_unknown')
                AND json_extract(payload_json, '$.metadata.taskCanonical') = 1)
          )
+           AND json_extract(payload_json, '$.messageKind') IN ('final', 'failure')
+           AND instance_id = ?
+           AND ${channelMatch.sql}
+           AND ${chatIdMatch.sql}
+           AND json_extract(payload_json, '$.runId') = ?
          ORDER BY bridge_sequence DESC, instance_id DESC, message_id DESC`,
       )
-      .all() as Record<string, unknown>[];
-    return rows
-      .map((row) => this.mapMessage(row))
-      .find(
-        (candidate) =>
-          candidate.messageId !== message.messageId &&
-          (candidate.messageKind === "final" || candidate.messageKind === "failure") &&
-          candidate.instanceId === message.instanceId &&
-          candidate.channel === message.channel &&
-          candidate.chatId === message.chatId &&
-          candidate.runId === message.runId &&
-          ((candidate.inboundMessageId !== undefined &&
-            candidate.inboundMessageId !== null &&
-            message.inboundMessageId !== undefined &&
-            message.inboundMessageId !== null &&
-            candidate.inboundMessageId === message.inboundMessageId) ||
-            candidate.metadata.taskCanonical === true),
-      );
+      .all(message.instanceId, ...channelMatch.params, ...chatIdMatch.params, message.runId) as Record<
+      string,
+      unknown
+    >[];
+    return rows.map((row) => this.mapMessage(row)).find(
+      (candidate) =>
+        candidate.messageId !== message.messageId &&
+        (candidate.messageKind === "final" || candidate.messageKind === "failure") &&
+        candidate.instanceId === message.instanceId &&
+        candidate.channel === message.channel &&
+        candidate.chatId === message.chatId &&
+        candidate.runId === message.runId &&
+        ((candidate.inboundMessageId !== undefined &&
+          candidate.inboundMessageId !== null &&
+          message.inboundMessageId !== undefined &&
+          message.inboundMessageId !== null &&
+          candidate.inboundMessageId === message.inboundMessageId) ||
+          candidate.metadata.taskCanonical === true),
+    );
   }
 
   /** @deprecated Use latestActiveRunResult; retained for Bridge v1 callers. */
@@ -388,30 +412,37 @@ export class MessagePolicyStore {
   ): ProjectedMessageView | undefined {
     if (message.channel !== "weixin" || (message.runId !== undefined && message.runId !== null))
       return undefined;
+    const chatIdMatch = jsonColumnMatch("json_extract(payload_json, '$.chatId')", message.chatId);
     const rows = this.db
       .prepare(
         `SELECT * FROM message_projection
          WHERE state IN ('captured', 'policy_pending', 'held_dnd', 'held_pacing', 'ready', 'retry_wait')
+           AND instance_id = ?
+           AND json_extract(payload_json, '$.channel') = 'weixin'
+           AND ${chatIdMatch.sql}
+           AND json_extract(payload_json, '$.runId') IS NULL
+           AND (
+             json_extract(payload_json, '$.messageKind') IN ('system', 'alert')
+             OR json_extract(payload_json, '$.metadata.proactive') = 1
+           )
          ORDER BY bridge_sequence ASC, instance_id ASC, message_id ASC`,
       )
-      .all() as Record<string, unknown>[];
-    return rows
-      .map((row) => this.mapMessage(row))
-      .find(
-        (candidate) =>
-          candidate.messageId !== message.messageId &&
-          candidate.instanceId === message.instanceId &&
-          candidate.channel === message.channel &&
-          candidate.chatId === message.chatId &&
-          (candidate.runId === undefined || candidate.runId === null) &&
-          (candidate.messageKind === "system" ||
-            candidate.messageKind === "alert" ||
-            candidate.metadata.proactive === true) &&
-          Math.abs(Date.parse(message.capturedAt) - Date.parse(candidate.capturedAt)) <=
-            Math.max(0, windowSec) * 1_000 &&
-          (candidate.sequence < message.sequence ||
-            (candidate.sequence === message.sequence && candidate.messageId < message.messageId)),
-      );
+      .all(message.instanceId, ...chatIdMatch.params) as Record<string, unknown>[];
+    return rows.map((row) => this.mapMessage(row)).find(
+      (candidate) =>
+        candidate.messageId !== message.messageId &&
+        candidate.instanceId === message.instanceId &&
+        candidate.channel === message.channel &&
+        candidate.chatId === message.chatId &&
+        (candidate.runId === undefined || candidate.runId === null) &&
+        (candidate.messageKind === "system" ||
+          candidate.messageKind === "alert" ||
+          candidate.metadata.proactive === true) &&
+        Math.abs(Date.parse(message.capturedAt) - Date.parse(candidate.capturedAt)) <=
+          Math.max(0, windowSec) * 1_000 &&
+        (candidate.sequence < message.sequence ||
+          (candidate.sequence === message.sequence && candidate.messageId < message.messageId)),
+    );
   }
 
   /** Records one Bridge response and its replay identifier atomically. */
@@ -715,10 +746,7 @@ export class MessagePolicyStore {
 
   /** Small operational summary used by health/status pages without exposing message bodies. */
   messageStatusSummary(now = new Date()): MessageStatusSummary {
-    const cutoff = now.getTime() - 24 * 60 * 60 * 1_000;
-    const rows = this.db
-      .prepare("SELECT payload_json, state, updated_at FROM message_projection")
-      .all() as Record<string, unknown>[];
+    const cutoffIso = new Date(now.getTime() - 24 * 60 * 60 * 1_000).toISOString();
     const pendingStates = new Set([
       "captured",
       "policy_pending",
@@ -728,24 +756,51 @@ export class MessagePolicyStore {
       "delivering",
       "retry_wait",
     ]);
+    // 状态/类别计数下推 SQL：json_extract 只作用于 absorbed 与待投递行，
+    // 不再把整张投影表逐行 JSON.parse 成 JS 对象（dashboard 高频路径）。
+    const kindRows = this.db
+      .prepare(
+        `SELECT state, json_extract(payload_json, '$.messageKind') AS kind, COUNT(*) AS count
+         FROM message_projection
+         WHERE state IN ('absorbed', 'captured', 'policy_pending', 'held_dnd', 'held_pacing', 'ready', 'delivering', 'retry_wait')
+         GROUP BY state, kind`,
+      )
+      .all() as Record<string, unknown>[];
     let absorbedProgress = 0;
     let pendingFinalResults = 0;
+    for (const row of kindRows) {
+      const state = String(row["state"]);
+      const kind = row["kind"] === null ? null : String(row["kind"]);
+      if (state === "absorbed" && kind === "task-progress")
+        absorbedProgress += Number(row["count"]);
+      if (pendingStates.has(state) && kind === "final") pendingFinalResults += Number(row["count"]);
+    }
+    const unknownRow = this.db
+      .prepare("SELECT COUNT(*) AS count FROM message_projection WHERE state = 'delivery_unknown'")
+      .get() as Record<string, unknown>;
+    const deliveryUnknown = Number(unknownRow["count"]);
+
+    // 限速/连接失败只统计最近 24h（命中 idx_message_projection_updated_at 的范围
+    // 扫描），且只抽取 lastError 字段；updated_at 均为本存储写入的规范 UTC ISO，
+    // 字典序与时间序一致。
+    const errorRows = this.db
+      .prepare(
+        `SELECT json_extract(payload_json, '$.lastError') AS last_error, updated_at
+         FROM message_projection
+         WHERE updated_at >= ?`,
+      )
+      .all(cutoffIso) as Record<string, unknown>[];
     let rateLimited = 0;
     let connectionFailures = 0;
-    let deliveryUnknown = 0;
     let lastRateLimitedAt: string | null = null;
     let lastConnectionFailureAt: string | null = null;
-
-    for (const row of rows) {
-      const state = String(row["state"]);
-      const payload = JSON.parse(String(row["payload_json"])) as OutboxMessageView;
-      if (state === "absorbed" && payload.messageKind === "task-progress") absorbedProgress += 1;
-      if (pendingStates.has(state) && payload.messageKind === "final") pendingFinalResults += 1;
-      if (state === "delivery_unknown") deliveryUnknown += 1;
-      const error = typeof payload.lastError === "string" ? payload.lastError : "";
+    for (const row of errorRows) {
+      const error =
+        row["last_error"] === null || row["last_error"] === undefined
+          ? ""
+          : String(row["last_error"]);
+      if (error === "") continue;
       const updatedAt = String(row["updated_at"]);
-      const isRecent = Date.parse(updatedAt) >= cutoff;
-      if (!isRecent) continue;
       if (/\b429\b|rate[- ]?limit/i.test(error)) {
         rateLimited += 1;
         if (lastRateLimitedAt === null || updatedAt > lastRateLimitedAt)
@@ -816,8 +871,21 @@ export class MessagePolicyStore {
     days: number,
     now = new Date(),
   ): {
-    channels: Array<{ channel: string; delivered: number; failed: number; uncertain: number; total: number; successRate: number }>;
+    channels: Array<{
+      channel: string;
+      delivered: number;
+      failed: number;
+      uncertain: number;
+      total: number;
+      successRate: number;
+      p50LatencyMs: number | null;
+      p95LatencyMs: number | null;
+      latencySamples: number;
+      retries: number;
+    }>;
     daily: Array<{ date: string; channel: string; delivered: number; failed: number; uncertain: number }>;
+    latency: { p50Ms: number | null; p95Ms: number | null; samples: number; unknown: number };
+    retries: number;
   } {
     if (!Number.isInteger(days) || days < 1 || days > MESSAGE_OUTCOME_HISTORY_RETENTION_DAYS) {
       throw new Error(
@@ -833,16 +901,21 @@ export class MessagePolicyStore {
         `SELECT date(h.occurred_at, 'localtime') AS day,
                 COALESCE(json_extract(p.payload_json, '$.channel'), 'unknown') AS channel,
                 h.outcome AS outcome,
-                COUNT(*) AS count
+                COUNT(*) AS count,
+                h.occurred_at AS occurred_at,
+                p.payload_json AS payload_json
          FROM message_outcome_history h
          LEFT JOIN message_projection p ON p.message_id = h.message_id
          WHERE h.occurred_at >= ?
-         GROUP BY day, channel, h.outcome
+         GROUP BY h.message_id, day, channel, h.outcome, h.occurred_at, p.payload_json
          ORDER BY day ASC`,
       )
       .all(start.toISOString()) as Array<Record<string, unknown>>;
 
-    const totals = new Map<string, { delivered: number; failed: number; uncertain: number }>();
+    const totals = new Map<string, { delivered: number; failed: number; uncertain: number; retries: number }>();
+    const latencies = new Map<string, number[]>();
+    let unknownLatency = 0;
+    let retries = 0;
     const daily: Array<{ date: string; channel: string; delivered: number; failed: number; uncertain: number }> = [];
     const dailyBuckets = new Map<string, { delivered: number; failed: number; uncertain: number }>();
     for (const row of rows) {
@@ -850,31 +923,77 @@ export class MessagePolicyStore {
       const date = String(row["day"]);
       const outcome = String(row["outcome"]) as "delivered" | "failed" | "uncertain";
       const count = Number(row["count"]);
-      const total = totals.get(channel) ?? { delivered: 0, failed: 0, uncertain: 0 };
+      const total = totals.get(channel) ?? { delivered: 0, failed: 0, uncertain: 0, retries: 0 };
       total[outcome] += count;
       totals.set(channel, total);
       const bucketKey = `${date}::${channel}`;
       const bucket = dailyBuckets.get(bucketKey) ?? { delivered: 0, failed: 0, uncertain: 0 };
       bucket[outcome] += count;
       dailyBuckets.set(bucketKey, bucket);
+
+      let payload: Record<string, unknown> | null = null;
+      try {
+        const parsed = JSON.parse(String(row["payload_json"] ?? "null")) as unknown;
+        payload = parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+          ? parsed as Record<string, unknown>
+          : null;
+      } catch {
+        payload = null;
+      }
+      const attempts = payload !== null && typeof payload["attemptCount"] === "number" && Number.isFinite(payload["attemptCount"])
+        ? Math.max(0, Math.floor(payload["attemptCount"] as number))
+        : null;
+      if (attempts !== null) {
+        const retryCount = Math.max(0, attempts - 1);
+        retries += retryCount;
+        total.retries += retryCount;
+      }
+      const capturedAt = payload !== null && typeof payload["capturedAt"] === "string" ? payload["capturedAt"] : null;
+      const occurredAt = typeof row["occurred_at"] === "string" ? row["occurred_at"] : null;
+      const capturedMs = capturedAt === null ? Number.NaN : Date.parse(capturedAt);
+      const occurredMs = occurredAt === null ? Number.NaN : Date.parse(occurredAt);
+      if (Number.isFinite(capturedMs) && Number.isFinite(occurredMs) && occurredMs >= capturedMs) {
+        const values = latencies.get(channel) ?? [];
+        values.push(occurredMs - capturedMs);
+        latencies.set(channel, values);
+      } else {
+        unknownLatency += 1;
+      }
     }
     for (const [bucketKey, value] of dailyBuckets) {
       const separator = bucketKey.indexOf("::");
       daily.push({ date: bucketKey.slice(0, separator), channel: bucketKey.slice(separator + 2), ...value });
     }
     daily.sort((left, right) => left.date.localeCompare(right.date) || left.channel.localeCompare(right.channel));
+    const percentile = (values: number[], fraction: number): number | null => {
+      if (values.length === 0) return null;
+      const sorted = [...values].sort((a, b) => a - b);
+      const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * fraction) - 1));
+      return sorted[index] ?? null;
+    };
     const channels = [...totals.entries()]
       .map(([channel, value]) => {
         const total = value.delivered + value.failed + value.uncertain;
+        const samples = latencies.get(channel) ?? [];
         return {
           channel,
           ...value,
           total,
           successRate: total === 0 ? 0 : Math.round((value.delivered / total) * 1000) / 1000,
+          p50LatencyMs: percentile(samples, 0.5),
+          p95LatencyMs: percentile(samples, 0.95),
+          latencySamples: samples.length,
+          retries: value.retries,
         };
       })
       .sort((left, right) => right.total - left.total);
-    return { channels, daily };
+    const allLatencies = [...latencies.values()].flat();
+    return {
+      channels,
+      daily,
+      latency: { p50Ms: percentile(allLatencies, 0.5), p95Ms: percentile(allLatencies, 0.95), samples: allLatencies.length, unknown: unknownLatency },
+      retries,
+    };
   }
 
   dailyOutcomeHistory(
@@ -1457,4 +1576,17 @@ function validateMinutePair(startMinute: unknown, endMinute: unknown): void {
       throw new Error(`${field} must be an integer from 0 through 1439`);
     }
   }
+}
+
+/**
+ * json_extract 列与 JS 值的相等匹配。payload 里被 JSON.stringify 省略的
+ * undefined 键与 JSON null 在 json_extract 下都返回 SQL NULL，与 JS 端
+ * `undefined === undefined` / `null === null` 的分组判据保持一致。
+ */
+function jsonColumnMatch(
+  column: string,
+  value: string | number | null | undefined,
+): { sql: string; params: Array<string | number | null> } {
+  if (value === undefined || value === null) return { sql: `(${column} IS NULL)`, params: [] };
+  return { sql: `${column} = ?`, params: [value] };
 }

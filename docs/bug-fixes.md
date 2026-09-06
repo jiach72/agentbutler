@@ -1,5 +1,68 @@
 # Bug Fixes
 
+## 2026-09-06 - 常驻链路性能与内存治理
+
+- **问题：** Gateway 每秒 reconcile 对 `message_projection` 反复全表扫描：表没有 `state`/`updated_at` 二级索引，三个分组查询（progress holder / run result / chat batch holder）把整表逐行 JSON.parse 后再用 JS 过滤，`messageStatusSummary`（dashboard 高频路径）同样整表解析；终态历史清理每秒执行一次。Web `/ws` 每个连接每 2 秒全量拉取 1000 条事件再在 JS 里丢弃旧行。`events`/`audit` 只增不删，长期常驻数据库无限膨胀。Watch 的终态恢复任务永驻内存（Map 只增不删），Runbook 执行监控 interval 在任务经其它路径终态后永久空转。`/api/butler/version` 每次请求执行 5 次同步 git 子进程，最坏阻塞事件循环十余秒。进化页首次加载因 refresh 依赖 `instanceId`/`selectedId` 的自动初始化写入而连锁发起 2-3 轮全量请求（后端 insights 每轮重新扫描日志文件）。
+- **风险/影响：** 消息积压或面板多开时，秒级循环与高频读路径的 CPU/IO 成本随 7 天投影行数线性放大；数据库膨胀拖慢事件流、诊断报告等全部依赖读取路径；长时间常驻的 Watch 出现内存与定时器慢性泄漏；版本接口阻塞期间 Watch 的 HTTP、tail 轮询与巡检调度全部停摆。
+- **修复范围：** `apps/gateway/src/message/store.ts` 为 `message_projection` 增加 `(state, available_at)` 与 `(updated_at)` 索引（老库启动时 `CREATE INDEX IF NOT EXISTS` 自动补建）；三个分组查询改为 SQL 端 `json_extract` 预过滤分组键、JS 保留完整判据兜底（SQL 只会多选、不改变结果）；`messageStatusSummary` 状态计数下推 SQL 聚合、错误扫描只取最近 24h 的 `lastError` 字段，不再整表解析。`apps/gateway/src/message/service.ts` 历史清理节流为每 60 秒一次（首轮立即清理）。`packages/core/src/store.ts` 的 `listEvents` 支持 `afterId` 增量过滤，新增 `pruneEvents`/`pruneAudit`。`apps/web/src/server.ts` 的 `/ws` 增量轮询下推为 SQL 端 `id > lastId`。新增 `apps/watch/src/retention.ts`：events 保留 45 天、audit 保留 90 天，每 6 小时清理一轮，异常不中断调度，挂入 Watch 生命周期。新增 `apps/watch/src/recovery-jobs.ts`（自 http.ts 抽出）：终态恢复任务 30 分钟后从内存清除，Runbook 执行监控 15 分钟兜底收敛为 unknown，监控循环在任务提前终态后自行退出。`apps/watch/src/watch.ts` 的 `butler.version()` 增加 30 秒 TTL 缓存。`ui/src/pages/evolution/EvolutionPage.tsx` 实例选择改走 ref + 显式 override，首次加载只发一轮请求。
+- **回归测试：** core store 覆盖 `afterId` 增量（含空值/非法值）与 `pruneEvents`/`pruneAudit` 保留期删除；watch 新增 recovery-jobs 生命周期（保留期清除、监控兜底收敛、监控循环自退）与 retention pruner（启动即清、周期重复、异常不中断、start/stop 幂等）测试；gateway 覆盖历史清理节流（首轮立即、周期内不重复、超期再清）；既有 holder 分组、summary、重启恢复、/ws 纯函数等测试全部保持通过。
+- **验证命令：** `corepack pnpm exec vitest run packages/core/tests/store.test.ts apps/watch/tests/recovery-jobs.test.ts apps/watch/tests/retention.test.ts apps/gateway/tests/message-reconciler.test.ts --reporter=dot`（39 passed）；`corepack pnpm test`；`corepack pnpm lint`；`corepack pnpm build`；`git diff --check`。
+- **Runtime validation:** 未在真实 Docker/Hermes 环境复验本轮性能收益；索引对既有数据库无需手工迁移，随下次 Gateway 重建自动生效。备份同步 IO 与巡检跨实例并行化两事项本轮未处理，留待后续（见 git 未提交说明）。
+
+## 2026-09-05 - 审计摘要、备份可恢复性与消息 SLO 收口
+
+- **Problem:** 设置页只有按需诊断报告，无法快速回答最近备份、修复、升级是否有明确完成结果；备份有 manifest 但没有在隔离环境验证文件/SQLite 是否可读取；消息页只有终态计数，没有等待时延分位数和可证明的重试数。
+- **Impact:** Hermes 用户遇到恢复或消息延迟问题时，容易把“有记录”误解为“成功”，或在备份损坏后才发现无法恢复；运营判断缺少 P50/P95 和重试证据。
+- **Changed scope:** `apps/watch/src/diagnostics.ts` 新增近 30 天本机结果摘要，明确窗口、记录上限和“不是成功率”的证据边界；`apps/watch/src/backup.ts` 新增临时目录文件校验与 SQLite `quick_check`，每日新全量备份自动验证，状态和审计记录 `verified`/`verification-failed`；Watch/Web/UI 新增验证入口与最近验证状态。`apps/gateway/src/message/store.ts`、Web 代理和消息页新增端到端等待 P50/P95、可证明重试数及缺失时间戳计数；费用/Token 无可靠来源时保持未知。
+- **Regression coverage:** 诊断摘要、备份成功/损坏验证、备份 HTTP、消息终态聚合、Web/UI 渲染聚焦测试覆盖；本轮聚焦测试合计 42 项通过，随后追加技能安全测试 22 项通过。
+- **Verification:** `corepack pnpm exec vitest run apps/gateway/tests/message-store.test.ts apps/gateway/tests/message-http.test.ts apps/watch/tests/backup.test.ts apps/watch/tests/http-diagnostics.test.ts apps/web/tests/diagnostics.test.ts ui/tests/component-render.test.ts --reporter=dot`；`corepack pnpm exec tsc -b apps/gateway/tsconfig.json apps/watch/tsconfig.json apps/web/tsconfig.json ui/tsconfig.json --pretty false`；`git diff --check`。
+- **Runtime validation:** 尚未启动当前 Docker Compose，也未执行真实 Hermes Bridge、微信外发或 Windows portproxy 浏览器验证；本地结果摘要只读本机审计，不默认上传。
+
+## 2026-09-05 - 推荐技能安装增加隔离确认与静态风险门禁
+
+- **Problem:** 推荐技能流程在下载到隔离目录后立即以 `confirmed=true` 安装，用户看不到独立确认步骤；后端此前只做路径和 `SKILL.md` 存在性检查，未向安装门禁提供外联域名、敏感路径或危险命令证据。
+- **Impact:** 外部技能来源可能在用户未充分确认时写入 Hermes；即使技能本身是说明文档，也可能诱导访问凭据、敏感路径或执行高风险命令，削弱技能管理的信任边界。
+- **Changed scope:** `ui/src/pages/skills/SkillsMarketplace.tsx` 改为“暂存 → 人工确认 → 安装”；`apps/watch/src/skill-assets.ts` 增加轻量静态检查，识别外联域名、敏感路径和高风险命令，安装时二次复核，命中高风险内容则 fail-closed，不写入 Hermes。检查明确声明不是完整沙箱。
+- **Regression coverage:** `apps/watch/tests/skills.test.ts` 覆盖外联域名提取、危险命令阻断和安全文本保留；技能市场前端保留原有安装/失败/隔离流程测试。
+- **Verification:** `corepack pnpm exec vitest run apps/watch/tests/skills.test.ts apps/watch/tests/skill-assets.test.ts apps/watch/tests/http-skills.test.ts ui/tests/component-render.test.ts --reporter=dot`（22 passed）；`corepack pnpm exec tsc -b apps/watch/tsconfig.json apps/web/tsconfig.json apps/gateway/tsconfig.json ui/tsconfig.json --pretty false`；`git diff --check`。
+- **Runtime validation:** 未从真实 GitHub 仓库下载或安装技能；未执行任何外部系统写操作。
+
+## 2026-09-05 - 关键告警不再被普通提醒排队阻塞
+
+- **Problem:** Gateway 告警队列按全局创建顺序认领，普通提醒可能在 30 秒节流周期内先于“消息链路离线”“升级已回滚”等 critical 告警被处理，造成关键事件延迟数分钟。
+- **Impact:** 用户不在面板前时，最需要立即知道的故障会被低优先级通知拖慢，削弱外发通知作为故障兜底的价值。
+- **Changed scope:** `apps/gateway/src/queue.ts` 改为按 critical、warn、info 的优先级认领到期行，同一严重度继续按创建时间 FIFO；增加 pending 优先级索引。相同去重指纹从 warn 升级为 critical 时，尚未投递的行同步提升摘要和严重度；已进入 delivering 的行保持不变。重启恢复流程同步采用该排序。
+- **Regression coverage:** `apps/gateway/tests/queue.test.ts` 覆盖 critical 抢占、同级 FIFO 和未投递告警升级；`loop.test.ts` 和 `restart.test.ts` 覆盖投递与崩溃恢复不回退。
+- **Verification:** `corepack pnpm exec vitest run apps/gateway/tests/queue.test.ts apps/gateway/tests/loop.test.ts apps/gateway/tests/restart.test.ts --reporter=dot`（19 passed）；`corepack pnpm exec tsc -b --pretty false`；`git diff --check`。
+- **Runtime validation:** 未配置外发通知凭据，也未启动 Docker；需在真实 Telegram/Bark/Server酱/SMTP 场景确认渠道级限速与告警聚合表现。
+
+## 2026-09-05 - Watch 到 Gateway 的瞬时告警转发失败增加有限重试
+
+- **Problem:** Watch 的告警转发器向 Gateway POST 失败时只记录审计并立即放弃；“Gateway 侧可持久化补发”无法覆盖请求尚未到达 Gateway 的场景，Watch 与 Gateway 间的短暂重启、网络抖动可能直接丢失关键告警。
+- **Impact:** Hermes 用户在最需要知道消息链路离线、升级回滚或记忆探针失败时，可能只看到本机审计而收不到面板外的提醒；瞬时故障会放大为不可恢复的信息缺口。
+- **Changed scope:** `apps/watch/src/alert-forward.ts` 对网络异常及 HTTP 408/425/429/5xx 进行最多 3 次指数等待重试，400 等永久客户端错误不重试；最终失败仍写 `alert-forward-failed` 审计，记录真实尝试次数，不打印凭据。`apps/web/src/server.ts` 对旧 Gateway 缺失重试字段保持 `null`，避免误报为零；相关 Watch/Web 测试已补齐。
+- **Regression coverage:** `apps/watch/tests/alert-forward.test.ts` 覆盖瞬时 503 恢复、永久 400 单次请求与实际尝试次数；`apps/web/tests/gateway.test.ts` 覆盖旧指标字段缺失时返回未知。
+- **Verification:** `corepack pnpm exec vitest run apps/watch/tests/alert-forward.test.ts apps/web/tests/gateway.test.ts --reporter=dot`；随后执行类型检查与 `git diff --check`。
+- **Runtime validation:** 尚未配置真实外发渠道或启动 Docker；需在真实 Watch/Gateway 重启与 Telegram/Bark/Server酱/SMTP 环境验证重复投递、限速和最终失败告警。
+
+## 2026-09-05 - 合并提示词改进工作流并补齐候选评估入口
+
+- **Problem:** 日志洞察会生成 `prompt` 类型改进方向，但页面仍显示只适用于技能的 Hermes CLI/可编辑方案动作；提示词优化面板只能查看已有候选，用户无法从面板创建候选或发起成对评估，工作流在“发现问题”后断裂。
+- **Impact:** Hermes 用户确认提示词质量问题后无法完成候选创建与评估，只能绕过 UI 调 API；误显示的执行按钮还会把用户带入当前明确不支持的 Hermes prompt CLI 路径。
+- **Changed scope:** `ui/src/pages/evolution/EvolutionPage.tsx` 对 prompt 目标只提供同页提示词工作台入口，并隐藏技能专用的可编辑方案动作；`ui/src/pages/evolution/PromptOptimizationPanel.tsx` 新增基于当前 active hash 的候选创建表单与成对样本评估表单，采用按钮继续受正式样本、受信 evaluator、保护段和 hash 门禁约束。
+- **Regression coverage:** `corepack pnpm exec vitest run ui/tests/component-render.test.ts ui/tests/dashboard-product-ui.test.ts apps/watch/tests/evolution-insights.test.ts apps/watch/tests/http-evolution.test.ts apps/web/tests/evolution.test.ts apps/web/tests/prompt-optimization.test.ts --reporter=dot`（27 passed）；UI/Watch/Web 类型检查通过。
+- **Verification:** `corepack pnpm exec tsc -b ui/tsconfig.json apps/watch/tsconfig.json apps/web/tsconfig.json --pretty false`；`git diff --check`。
+- **Runtime validation:** 尚未在真实浏览器中操作候选创建和评估；当前 Docker/WSL 运行实例仍需重建到本轮 bundle 后再验证。
+
+## 2026-09-05 - 收敛一级导航并保留进阶能力入口
+
+- **Problem:** 侧栏同时暴露首页、智能体、核心文件、消息、自进化、排查、日志和连接设置；对只想确认 Hermes 是否正常的用户，常用任务与专业工具混在同一层级，增加从异常到修复的判断成本。
+- **Impact:** 用户遇到消息未送达、连接异常或升级问题时，需要先猜测应该进入哪个页面；收起专业入口又容易造成能力“消失”的误解。
+- **Changed scope:** `ui/src/components/Layout.tsx` 将一级导航收敛为首页、智能体与记忆、消息通知、设置；新增顶栏“排查问题”全局动作；设置页增加“进阶工具”分类，承接自进化、核心文件、系统日志和连接设置，并保留旧路由兼容。
+- **Regression coverage:** `ui/tests/component-render.test.ts` 覆盖四个高频入口、进阶路由不再出现在侧栏、排查全局动作可发现性；UI 全测试通过。
+- **Verification:** `corepack pnpm --filter @butler/ui test -- --run`；`corepack pnpm exec tsc -b --pretty false`；`corepack pnpm --filter @butler/ui exec vite build`；`corepack pnpm lint`；`git diff --check`。
+- **Runtime validation:** 未启动 Docker/浏览器；需在后续 UI 主流程验证中确认移动端抽屉与设置进阶入口可操作。
+
 ## 2026-09-04 - 审查报告问题收口：告警可读性、导航与高风险操作反馈
 
 - **Problem:** Watch 通知标题直接暴露内部指纹模板，402/鉴权/限流/超时等错误缺少可执行摘要；余额不足会被日志分析器建议为重启；排障入口不易发现；暗色主题的主色与弱文本对比度不足；清除 GitHub Token 没有二次确认；进化运行历史和技能安装步骤仍混用内部英文或假百分比进度。
@@ -551,3 +614,46 @@
 - **修复范围：** `apps/web/src/server.ts` 新增恢复会话创建、详情和审批的 Web→Watch 代理，保持 Watch 的状态码、响应体和会话 ID 编码语义；`apps/web/tests/dashboard.test.ts` 增加三条代理路径、请求体和状态码透传回归覆盖。
 - **回归测试：** Web dashboard 代理测试 7/7 通过，新增用例验证 `POST /api/recovery/sessions`、`GET /api/recovery/sessions/:id` 和 `POST /api/recovery/sessions/:id/approve`。
 - **验证命令：** `corepack pnpm exec vitest run apps/web/tests/dashboard.test.ts`；`git diff --check`；随后在 WSL Docker 重建后通过真实 `7531` 端口验证创建会话。
+
+## 2026-09-05 - 并行测试共享 SQLite 与 Windows 日志源阻塞
+
+- **问题：** Gateway 通道路由测试未隔离默认 `gateway.db`，并行运行时可能与其他测试争用 SQLite；测试部分用例关闭 Fastify 而未关闭由 Gateway 自建的队列。Windows Watch 日志接口仍同步尝试执行 `journalctl`，在无 systemd 的宿主上会长时间等待并触发测试超时。日期分组测试还使用相对当前时间的样本，跨本地午夜时会产生不稳定断言。
+- **风险/影响：** 并行 CI 会出现与业务无关的 `database is locked` 或临时目录 `EPERM`；Windows 用户打开日志页面可能等待十几秒后才看到不可用；日期筛选回归无法稳定复现。
+- **修复范围：** `createGatewayServer` 现在真正消费注入的 `dbFile`；Gateway 通道路由与死信路由测试使用独立临时 Home，并统一通过 `app.gateway.close()` 释放队列。LLM 发现器增加可注入的进程环境快照，测试不再受宿主 `OPENAI_*` 污染，生产默认仍保持进程环境优先。Watch 在 Windows 直接返回“无 systemd 用户日志”的可读降级，不启动 `journalctl`；日期测试固定系统时钟。Gateway 直接 Hermes launcher 的文案同步区分生产 `main.ts` 的受控 `auto/observe` 与隔离诊断入口。
+- **回归测试：** `apps/gateway/tests/message-channels.test.ts`、`apps/gateway/tests/message-redeliver.test.ts`、`apps/watch/tests/llm-discovery.test.ts`、`apps/watch/tests/watch.test.ts`、`ui/src/pages/gateway/helpers.test.ts` 共 36 项通过。
+- **验证命令：** `corepack pnpm exec vitest run apps/gateway/tests/message-redeliver.test.ts apps/watch/tests/watch.test.ts ui/src/pages/gateway/helpers.test.ts --reporter=dot`；`corepack pnpm exec vitest run apps/gateway/tests/message-channels.test.ts apps/watch/tests/llm-discovery.test.ts apps/watch/tests/watch.test.ts --reporter=dot`；`corepack pnpm exec tsc -b apps/gateway/tsconfig.json apps/watch/tsconfig.json ui/tsconfig.json --pretty false`；`git diff --check`。
+- **部署/runtime：** 尚未因本轮文档与测试隔离变更重建 Docker；现有容器健康状态仍需最终全量验证确认。
+
+## 2026-09-05 - 集成测试预算与测试 HTTP 生命周期收口
+
+- **问题：** Windows/WSL 并行负载下，Watch/Installer 集成用例的默认 5 秒预算不足；技能管理 HTTP 测试重复启动服务时未先关闭旧实例，可能造成端口夹具不稳定。
+- **风险/影响：** 全量测试可能出现与业务无关的超时或 `bad port`，降低 CI 对真实回归的信任度。
+- **修复范围：** 为涉及服务启动、巡检、控制和健康等待的集成用例设置有界 15 秒预算；技能管理 HTTP 测试在重复启动前关闭旧实例，校验动态端口为正数，并在清理阶段使用可选句柄。未修改生产超时或业务行为。
+- **回归测试：** `apps/watch/tests/http-skills-manager.test.ts`、`apps/watch/tests/watch.test.ts`、`packages/installer/tests/install.test.ts` 共 66 项通过。
+- **验证命令：** `corepack pnpm exec vitest run apps/watch/tests/http-skills-manager.test.ts apps/watch/tests/watch.test.ts packages/installer/tests/install.test.ts --reporter=dot`；`corepack pnpm exec tsc -b packages/installer/tsconfig.json apps/watch/tsconfig.json --pretty false`；`git diff --check`。
+- **部署/runtime：** 无生产代码行为变更；Docker 健康状态已通过独立 `docker compose ps` 与 Web `/api/health` 核验。
+
+## 2026-09-05 - 缺失技能 CLI 测试误触发自动下载
+
+- **问题：** `skills-manager` 缺失二进制的单测未显式关闭默认自动下载，`status()` 会尝试访问 GitHub，网络等待可超过 Vitest 默认 5 秒。
+- **风险/影响：** 离线单测变成网络依赖，可能产生超时并掩盖真实回归。
+- **修复范围：** 缺失 CLI 与版本覆盖测试显式使用 `autoDownload: false`，保持生产默认自动下载行为不变。
+- **回归测试：** `apps/watch/tests/skills-manager.test.ts` 30/30 通过；单 worker 全量 149 个测试文件、1261 个测试通过，4 个真实 smoke 跳过。
+- **验证命令：** `corepack pnpm exec vitest run apps/watch/tests/skills-manager.test.ts --reporter=dot`；`corepack pnpm exec vitest run --maxWorkers=1 --minWorkers=1 --reporter=dot`。
+
+## 2026-09-06 - 推荐技能安装 409 未形成安全反馈闭环
+
+- **问题：** 用户从技能市场安装 `mvanhorn/last30days-skill` 时，浏览器只看到 `POST /api/skills/staged/:id/install` 返回 409；该暂存技能实际命中了多个完整 API Key 名称、`.env` 和外联地址，属于预期的安全阻断，但原流程直到点击确认后才扫描并只给出失败提示。
+- **风险/影响：** 用户难以区分安全拦截、暂存过期、目标冲突和服务不可用；可能重复点击同一暂存标识，或误以为 Butler 的安装链路损坏。安全门禁本身保持 fail-closed，不因改善体验而放宽。
+- **修复范围：** 阶段化下载完成即返回风险扫描报告，扫描结果保留完整环境变量名；确认弹窗展示敏感配置/路径、高风险命令和外联域名，命中阻断规则时禁用确认按钮；旧 Watch 或并发安装在确认阶段才返回 `skill-risk-blocked` 时，前端回填报告并保留阻断状态；失效暂存、缺少确认、备份不可用和内部安装失败分别映射为 410、400、503 和 500，风险冲突继续返回 409。
+- **回归测试：** Watch 技能资产测试覆盖暂存阶段返回阻断报告；Watch HTTP 测试覆盖阶段安装状态码语义；UI 测试覆盖风险报告解析及阻断证据渲染。
+- **验证命令：** `corepack pnpm exec vitest run apps/watch/tests/skill-assets.test.ts apps/watch/tests/http-skills.test.ts ui/tests/skill-marketplace-risk.test.ts --reporter=dot`（16 passed）；`corepack pnpm exec tsc -b apps/watch/tsconfig.json ui/tsconfig.json --pretty false`；`corepack pnpm lint`；`corepack pnpm build`；`git diff --check`。
+- **部署/runtime：** WSL ext4 使用 `docker compose up -d --build --force-recreate` 重建；gateway、watch、web、updater 均 healthy，`/api/health` 返回 `ok=true`、`db=true`、`gateway=true`、`watch=true`；实际 Watch 安装接口返回 409 且载荷包含 `skill-risk-blocked` 与风险证据；Chrome 技能市场实测在确认前展示风险项并禁用安装按钮，未执行外部技能写入。
+
+## 2026-09-06 - 维护功能从侧边栏误收敛
+
+- **问题：** 导航优化把 `核心文件`、`自进化`、`排查问题`、`系统日志`、`连接设置` 从侧边栏移除，虽然路由仍在，但普通用户失去稳定入口。
+- **风险/影响：** 用户会误以为这些功能已被删除；系统日志、连接排查和核心文件回滚等高价值维护能力的可发现性下降。
+- **修复范围：** 恢复“维护与升级”侧栏分组及五个原有入口；保留顶栏“排查问题”快捷入口；未改变页面实现、路由或权限边界。
+- **回归测试：** `ui/tests/component-render.test.ts` 重新覆盖高频入口、维护分组入口和历史重定向入口。
+- **验证命令：** `corepack pnpm --filter @butler/ui exec vitest run --config vitest.config.ts tests/component-render.test.ts --reporter=dot`（5 passed）；`corepack pnpm exec vitest run --maxWorkers=1 --minWorkers=1 --reporter=dot`（150 files passed, 1 skipped；1264 tests passed, 4 skipped）；Web runtime 重建与浏览器复验待本次导航修复部署完成后补充。

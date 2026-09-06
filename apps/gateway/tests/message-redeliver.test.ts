@@ -1,8 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { fail, ok, type OutboxMessageView, type Result } from "@butler/contract";
 
 import { createGatewayServer } from "../src/server.js";
+import { makeTempDir, rmTempDir } from "./helpers.js";
+
+let tmp: string;
+
+beforeEach(() => {
+  tmp = makeTempDir();
+});
+
+afterEach(() => {
+  rmTempDir(tmp);
+});
 
 function requeuedView(): OutboxMessageView {
   return {
@@ -32,18 +43,19 @@ function requeuedView(): OutboxMessageView {
 
 describe("gateway 死信重投路由", () => {
   it("未注入 redeliver 能力时返回 503", async () => {
-    const app = createGatewayServer({ startLoop: false });
+    const app = createGatewayServer({ home: tmp, startLoop: false });
     try {
       const res = await app.inject({ method: "POST", url: "/api/messages/m-dead-1/redeliver" });
       expect(res.statusCode).toBe(503);
     } finally {
-      await app.close();
+      await app.gateway.close();
     }
   });
 
   it("重投成功返回投影并提示下一步", async () => {
     const requested: string[] = [];
     const app = createGatewayServer({
+      home: tmp,
       startLoop: false,
       redeliver: async (messageId): Promise<Result<OutboxMessageView>> => {
         requested.push(messageId);
@@ -57,12 +69,13 @@ describe("gateway 死信重投路由", () => {
       expect(res.json().nextStep).toContain("重新排队");
       expect(requested).toEqual(["m-dead-1"]);
     } finally {
-      await app.close();
+      await app.gateway.close();
     }
   });
 
   it("Bridge 拒绝（非 dead_letter 等）时透传为 502 与原因", async () => {
     const app = createGatewayServer({
+      home: tmp,
       startLoop: false,
       redeliver: async (): Promise<Result<OutboxMessageView>> =>
         fail("E002", "Hermes Bridge 409 conflict: message is not in dead_letter state"),
@@ -73,7 +86,7 @@ describe("gateway 死信重投路由", () => {
       expect(res.json().error).toBe("redeliver-failed");
       expect(res.json().detail).toContain("not in dead_letter");
     } finally {
-      await app.close();
+      await app.gateway.close();
     }
   });
 });

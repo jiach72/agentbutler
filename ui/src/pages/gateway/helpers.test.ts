@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   channelActionError,
@@ -153,13 +153,23 @@ describe("deriveRecoveryState", () => {
 });
 
 describe("对照历史日期分组与摘要", () => {
-  const iso = (offsetMs: number) => new Date(Date.now() + offsetMs).toISOString();
+  const now = new Date("2026-09-06T12:00:00.000Z");
+  const iso = (offsetMs: number) => new Date(now.getTime() + offsetMs).toISOString();
   const items = [
     { inbound: { receivedAt: iso(0) } },
     { inbound: { receivedAt: iso(-3_600_000) } },
     { inbound: { receivedAt: iso(-86_400_000) } },
     { inbound: { receivedAt: "not-a-date" } },
   ];
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
   it("historyDayOptions 按天聚合并把最近一天标为今天", () => {
     const options = historyDayOptions(items);

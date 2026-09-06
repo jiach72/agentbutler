@@ -16,6 +16,25 @@ export interface ButlerRuntimeInfo {
   npmGlobalRoot: string | null;
   packageManager: "npm" | "unknown";
   detail: string;
+  portProxy?: PortProxyStatus;
+}
+
+export interface PortProxyStatus {
+  status: "healthy" | "stale" | "missing" | "unknown";
+  listenAddress: string;
+  listenPort: number;
+  connectAddress: string | null;
+  connectPort: number | null;
+  expectedAddress: string | null;
+  detail: string;
+  fixCommand: string;
+}
+
+export interface PortProxyRule {
+  listenAddress: string;
+  listenPort: number;
+  connectAddress: string;
+  connectPort: number;
 }
 
 function decodeWslOutput(value: string | Buffer): string {
@@ -71,6 +90,97 @@ function wslPathOf(distro: string, pathValue: string): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * 解析 `netsh interface portproxy show v4tov4` 的数据行。
+ * netsh 的表头会随 Windows 语言变化，因此只依赖四列 IPv4/端口数据。
+ */
+export function parsePortProxyOutput(output: string): PortProxyRule[] {
+  const ipv4 = String.raw`(?:\d{1,3}\.){3}\d{1,3}`;
+  const rule = new RegExp(
+    String.raw`^\s*(${ipv4})\s+(\d+)\s+(${ipv4})\s+(\d+)\s*$`,
+  );
+  const rules: PortProxyRule[] = [];
+  for (const line of output.split(/\r?\n/)) {
+    const match = rule.exec(line);
+    if (match === null) continue;
+    rules.push({
+      listenAddress: match[1]!,
+      listenPort: Number(match[2]),
+      connectAddress: match[3]!,
+      connectPort: Number(match[4]),
+    });
+  }
+  return rules;
+}
+
+function inspectWindowsPortProxy(
+  listenAddress: string,
+  listenPort: number,
+  expectedAddress: string | null,
+): PortProxyStatus {
+  const fixCommand = "管理员 PowerShell：.\\scripts\\fix-portproxy.ps1";
+  if (expectedAddress === null) {
+    return {
+      status: "unknown",
+      listenAddress,
+      listenPort,
+      connectAddress: null,
+      connectPort: null,
+      expectedAddress: null,
+      detail: "无法读取当前 WSL 地址，暂时不能判断 Windows 端口转发是否过期。",
+      fixCommand,
+    };
+  }
+  let output: string;
+  try {
+    output = execFileSync("netsh.exe", ["interface", "portproxy", "show", "v4tov4"], {
+      encoding: "utf8",
+      timeout: 5_000,
+      windowsHide: true,
+    });
+  } catch {
+    return {
+      status: "unknown",
+      listenAddress,
+      listenPort,
+      connectAddress: null,
+      connectPort: null,
+      expectedAddress,
+      detail: "无法读取 Windows portproxy 状态；可能需要在 Windows 主机上检查。",
+      fixCommand,
+    };
+  }
+  const rules = parsePortProxyOutput(output).filter(
+    (item) => item.listenPort === listenPort && item.listenAddress === listenAddress,
+  );
+  const current = rules[0] ?? null;
+  if (current === null) {
+    return {
+      status: "missing",
+      listenAddress,
+      listenPort,
+      connectAddress: null,
+      connectPort: null,
+      expectedAddress,
+      detail: `没有找到 ${listenAddress}:${listenPort} 的 Windows 端口转发规则。`,
+      fixCommand,
+    };
+  }
+  const healthy = current.connectAddress === expectedAddress && current.connectPort === listenPort;
+  return {
+    status: healthy ? "healthy" : "stale",
+    listenAddress,
+    listenPort,
+    connectAddress: current.connectAddress,
+    connectPort: current.connectPort,
+    expectedAddress,
+    detail: healthy
+      ? `Windows 端口转发正常，当前指向 WSL ${expectedAddress}:${listenPort}。`
+      : `Windows 端口转发仍指向 ${current.connectAddress}:${current.connectPort}，当前 WSL 地址是 ${expectedAddress}。`,
+    fixCommand,
+  };
 }
 
 function isWslLinux(): boolean {
@@ -131,6 +241,8 @@ export function detectButlerRuntime(input: {
     const distro = configured || wslDistros()[0] || null;
     const wslUser = distro === null ? null : wslCommandOutput(distro, "id -un");
     const wslHome = distro === null ? null : wslCommandOutput(distro, "printf %s \"$HOME\"");
+    const wslIpOutput = distro === null ? null : wslCommandOutput(distro, "hostname -I");
+    const wslIp = wslIpOutput?.split(/\s+/).find((value) => /^(?:\d{1,3}\.){3}\d{1,3}$/.test(value)) ?? null;
     const wslNpmRoot = distro === null ? null : wslCommandOutput(distro, "npm root -g");
     const home = wslHome ?? homedir();
     const configuredSource = process.env["BUTLER_SRC"]?.trim() || input.sourceDir;
@@ -148,6 +260,8 @@ export function detectButlerRuntime(input: {
       ? wslPathOf(distro, configuredOpenClawRoot) ?? configuredOpenClawRoot
       : configuredOpenClawRoot || join(home, ".openclaw");
     const butlerDataDir = mappedButlerData ?? (wslHome === null ? configuredButlerData : join(wslHome, ".agent-butler"));
+    const webPort = Number(process.env["BUTLER_WEB_PORT"] ?? "7531");
+    const webPublishHost = process.env["BUTLER_WEB_PUBLISH_HOST"]?.trim() || "127.0.0.1";
     return {
       kind: distro === null ? "unknown" : "windows-wsl",
       distro,
@@ -160,6 +274,9 @@ export function detectButlerRuntime(input: {
       npmGlobalRoot: wslNpmRoot,
       packageManager: wslNpmRoot === null ? "unknown" : "npm",
       detail: distro === null ? "未检测到可用 WSL 发行版" : `WSL / ${distro}${wslUser ? ` / ${wslUser}` : ""}`,
+      ...(distro !== null && Number.isInteger(webPort) && webPort > 0
+        ? { portProxy: inspectWindowsPortProxy(webPublishHost, webPort, wslIp) }
+        : {}),
     };
   }
   return {

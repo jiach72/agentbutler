@@ -2,9 +2,9 @@
  * 设置页右栏诊断面板：一键生成脱敏诊断报告。
  * 保留文本响应处理；超时与失败文案走固定文案，成败均有 message 提示。
  */
-import { useState, type CSSProperties } from "react";
-import { App, Button, Flex, Space, Typography } from "antd";
-import { fetchBlob, fetchText } from "../../lib/api.js";
+import { useEffect, useState, type CSSProperties } from "react";
+import { App, Button, Flex, List, Space, Spin, Typography } from "antd";
+import { fetchBlob, fetchText, loadJson, type FetchState } from "../../lib/api.js";
 import { AdvancedDetails } from "../../components/AdvancedDetails.js";
 import { SectionHeader } from "../../components/SectionHeader.js";
 
@@ -38,6 +38,27 @@ interface DiagnosticState {
   error: string | null;
 }
 
+interface LocalOutcomeSummary {
+  schemaVersion: "local-outcome-summary-v1";
+  windowDays: number;
+  auditRecordLimit: number;
+  evidenceNote: string;
+  outcomes: Array<{
+    id: "backup" | "repair" | "upgrade" | "rollback";
+    label: string;
+    completed: number;
+    knownFailures: number;
+    lastCompletedAt: string | null;
+    lastFailureAt: string | null;
+  }>;
+}
+
+function outcomeText(item: LocalOutcomeSummary["outcomes"][number]): string {
+  const completed = item.completed === 0 ? "没有可验证的完成记录" : `已记录完成 ${item.completed} 次`;
+  const failures = item.knownFailures === 0 ? "未记录明确失败" : `已记录明确失败 ${item.knownFailures} 次`;
+  return `${completed}；${failures}`;
+}
+
 export function DiagnosticsCenter({ actionBusy }: DiagnosticsCenterProps) {
   const { message } = App.useApp();
   const [diagnostic, setDiagnostic] = useState<DiagnosticState>({
@@ -45,6 +66,18 @@ export function DiagnosticsCenter({ actionBusy }: DiagnosticsCenterProps) {
     text: null,
     error: null,
   });
+  const [outcomes, setOutcomes] = useState<FetchState<LocalOutcomeSummary>>({ status: "loading" });
+
+  useEffect(() => {
+    let active = true;
+    void loadJson<LocalOutcomeSummary>("/api/diagnostics/summary", 8_000).then((result) => {
+      if (!active) return;
+      setOutcomes(result.ok ? { status: "ready", data: result.data } : { status: "failed", reason: result.reason });
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const runDiagnostic = async () => {
     if (diagnostic.busy) return;
@@ -107,6 +140,36 @@ export function DiagnosticsCenter({ actionBusy }: DiagnosticsCenterProps) {
             生成诊断报告
           </Button>
         </Space>
+        <section aria-label="本机结果摘要">
+          <Text strong>最近本机结果</Text>
+          {outcomes.status === "loading" && (
+            <Flex align="center" gap={8} style={{ marginTop: 8 }}>
+              <Spin size="small" />
+              <Text type="secondary">正在读取本机操作记录…</Text>
+            </Flex>
+          )}
+          {outcomes.status === "failed" && (
+            <Text type="secondary" role="status" style={{ display: "block", marginTop: 8 }}>
+              结果摘要暂时读不到：{outcomes.reason}
+            </Text>
+          )}
+          {outcomes.status === "ready" && (
+            <>
+              <List
+                size="small"
+                dataSource={outcomes.data.outcomes}
+                renderItem={(item) => (
+                  <List.Item>
+                    <List.Item.Meta title={item.label} description={outcomeText(item)} />
+                  </List.Item>
+                )}
+              />
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {outcomes.data.evidenceNote}
+              </Text>
+            </>
+          )}
+        </section>
         {diagnostic.error !== null && (
           <Text role="status" type="danger">
             {diagnostic.error}

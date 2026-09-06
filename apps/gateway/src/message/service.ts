@@ -11,6 +11,9 @@ export interface Scheduler {
   clearInterval(handle: unknown): void;
 }
 
+/** 历史清理的执行周期：清理本身有界，无需跟随 1s 的 reconcile 节奏。 */
+export const MESSAGE_PRUNE_INTERVAL_MS = 60_000;
+
 export interface MessageGatewayServiceOptions {
   adapter: MessagingAdapter;
   instance: InstanceRef;
@@ -74,6 +77,8 @@ export class MessageGatewayService {
   private lastError: string | null = null;
   /** 串行化所有策略安装的 promise 链（HTTP 更新、接管开关、周期重装共用）。 */
   private policyChain: Promise<unknown> = Promise.resolve();
+  /** 上次历史清理时间（epoch ms）；-Infinity 保证首轮立即清理。 */
+  private lastPruneAtMs = Number.NEGATIVE_INFINITY;
 
   constructor(private readonly options: MessageGatewayServiceOptions) {
     this.intervalMs = options.intervalMs ?? 1_000;
@@ -280,9 +285,15 @@ export class MessageGatewayService {
         randomUUID: this.options.randomUUID,
       });
       await reconciler.reconcileOnce();
-      this.options.store.pruneMessageHistory(
-        new Date(this.clock().getTime() - this.historyRetentionMs).toISOString(),
-      );
+      // 历史清理是有界 DELETE，但不必每秒执行；按固定周期节流，
+      // 首轮立即清理一次保证重启后不积压。
+      const nowMs = this.clock().getTime();
+      if (nowMs - this.lastPruneAtMs >= MESSAGE_PRUNE_INTERVAL_MS) {
+        this.lastPruneAtMs = nowMs;
+        this.options.store.pruneMessageHistory(
+          new Date(nowMs - this.historyRetentionMs).toISOString(),
+        );
+      }
       this.bridgeConnected = true;
       this.lastError = null;
     } catch (error) {

@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS alerts (
   read_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_alerts_status_next ON alerts(status, next_attempt_at);
+CREATE INDEX IF NOT EXISTS idx_alerts_pending_priority ON alerts(status, severity, next_attempt_at, created_at, id);
 CREATE INDEX IF NOT EXISTS idx_alerts_dedupe ON alerts(dedupe_key);
 `;
 
@@ -113,6 +114,8 @@ export class AlertQueue {
   /**
    * 入队（持久化）。同 dedupeKey 且存在未终结（pending/delivering）行时不新增：
    * 已有行 merged_count+1、updated_at 刷新，返回已有行（消息合并缓释）。
+   * 若同一 pending 指纹升级为更高严重度，则用最新摘要提升该行；已经
+   * delivering 的行不改写，以免发送中的内容与持久化记录发生竞态。
    */
   enqueue(input: AlertInput): AlertRow {
     const now = new Date().toISOString();
@@ -120,9 +123,19 @@ export class AlertQueue {
     if (dedupeKey !== null) {
       const open = this.findOpenByDedupeKey(dedupeKey);
       if (open !== undefined) {
-        this.db
-          .prepare("UPDATE alerts SET merged_count = merged_count + 1, updated_at = ? WHERE id = ?")
-          .run(now, open.id);
+        if (open.status === "pending" && severityRank(input.severity) < severityRank(open.severity)) {
+          this.db
+            .prepare(
+              `UPDATE alerts
+               SET severity = ?, title = ?, body = ?, source = ?, merged_count = merged_count + 1, updated_at = ?
+               WHERE id = ?`,
+            )
+            .run(input.severity, input.title, input.body, input.source, now, open.id);
+        } else {
+          this.db
+            .prepare("UPDATE alerts SET merged_count = merged_count + 1, updated_at = ? WHERE id = ?")
+            .run(now, open.id);
+        }
         const merged = this.get(open.id);
         if (merged !== undefined) return merged;
       }
@@ -141,13 +154,14 @@ export class AlertQueue {
     return row;
   }
 
-  /** 认领下一条到期 pending（created_at 升序，id 平局决胜），置为 delivering。 */
+  /** 认领下一条到期 pending（critical 优先，同级按 created_at FIFO），置为 delivering。 */
   claimNext(now: string = new Date().toISOString()): AlertRow | undefined {
     const row = this.db
       .prepare(
         `SELECT id FROM alerts
          WHERE status = 'pending' AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
-         ORDER BY created_at ASC, id ASC LIMIT 1`,
+         ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'warn' THEN 1 ELSE 2 END,
+                  created_at ASC, id ASC LIMIT 1`,
       )
       .get(now) as Record<string, unknown> | undefined;
     if (row === undefined) return undefined;
@@ -274,4 +288,10 @@ export class AlertQueue {
       readAt: (r["read_at"] as string | null) ?? null,
     };
   }
+}
+
+function severityRank(severity: AlertSeverity): number {
+  if (severity === "critical") return 0;
+  if (severity === "warn") return 1;
+  return 2;
 }

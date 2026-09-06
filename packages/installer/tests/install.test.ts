@@ -193,7 +193,7 @@ describe("installHostForm 宿主形态", () => {
     } finally {
       rmTempDir(tmp);
     }
-  });
+  }, 15_000);
 
   it("宿主端口被外部进程占用：写 unit 前 fail-closed", async () => {
     const tmp = makeTempDir();

@@ -56,6 +56,7 @@ interface MemoryPanelProps {
   onRefresh: () => void;
   onSelfCheck: () => void;
   onBackup: () => void;
+  memoryWritesEnabled?: boolean | null;
 }
 
 export function MemoryPanel({
@@ -70,6 +71,7 @@ export function MemoryPanel({
   onRefresh,
   onSelfCheck,
   onBackup,
+  memoryWritesEnabled,
 }: MemoryPanelProps) {
   const [memoryInput, setMemoryInput] = useState("");
 
@@ -159,6 +161,7 @@ export function MemoryPanel({
         onSelfCheck={onSelfCheck}
         onBackup={onBackup}
         backupBusy={backupBusy}
+        memoryWritesEnabled={memoryWritesEnabled}
       />
 
       <Alert

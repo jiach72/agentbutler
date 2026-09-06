@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SqliteStore, deriveJobStatus } from "../src/store";
 import { makeTempDir, rmTempDir } from "./helpers";
 
@@ -219,5 +219,40 @@ describe("SqliteStore", () => {
     expect(reopened.listEvents({ type: "persist-check" })[0]!.payload).toBe(42);
     expect(reopened.listAudit()).toHaveLength(1);
     reopened.close();
+  });
+
+  it("listEvents 支持 afterId 增量查询（/ws 轮询路径）", () => {
+    const first = store.insertEvent({ type: "alpha", payload: 1 });
+    store.insertEvent({ type: "beta", payload: 2 });
+    const third = store.insertEvent({ type: "alpha", payload: 3 });
+
+    const fresh = store.listEvents({ afterId: first.id });
+    expect(fresh.map((event) => event.id)).toEqual([third.id, first.id + 1]); // 最新在前
+    expect(store.listEvents({ afterId: third.id })).toHaveLength(0);
+    expect(store.listEvents({ afterId: 0 })).toHaveLength(3);
+    expect(() => store.listEvents({ afterId: -1 })).toThrow();
+    expect(() => store.listEvents({ afterId: 1.5 })).toThrow();
+  });
+
+  it("pruneEvents / pruneAudit 按保留期删除旧行并返回行数", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+      store.insertEvent({ type: "old" });
+      store.appendAudit({ actor: "a", action: "old-action" });
+      vi.setSystemTime(new Date("2026-05-01T00:00:00.000Z"));
+      const freshEvent = store.insertEvent({ type: "fresh" });
+      store.appendAudit({ actor: "a", action: "fresh-action" });
+
+      expect(store.pruneEvents("2026-03-01T00:00:00.000Z")).toBe(1);
+      expect(store.listEvents().map((event) => event.id)).toEqual([freshEvent.id]);
+      expect(store.pruneAudit("2026-03-01T00:00:00.000Z")).toBe(1);
+      expect(store.listAudit({ limit: 10 }).map((row) => row.action)).toEqual(["fresh-action"]);
+
+      expect(() => store.pruneEvents("not-a-date")).toThrow();
+      expect(() => store.pruneAudit("not-a-date")).toThrow();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

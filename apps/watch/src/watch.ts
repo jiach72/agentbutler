@@ -122,6 +122,7 @@ import { createBackupGate, type BackupGate } from "./backup-gate.js";
 import { createSecurityService, type SecurityService } from "./invariants.js";
 import { createRuntimeCommandExecutor, detectButlerRuntime, type ButlerRuntimeInfo } from "./runtime.js";
 import { createMarkdownFileService, type MarkdownFileService } from "./markdown-files.js";
+import { createRetentionPruner, type RetentionPruner } from "./retention.js";
 
 const DEFAULT_BUTLER_REPOSITORY = "https://github.com/jiach72/agentbutler";
 
@@ -317,6 +318,14 @@ function readJournalTail(
   service: string,
   limit: number,
 ): { lines: string[]; truncated: boolean; totalLines: number; error?: string } {
+  if (process.platform === "win32") {
+    return {
+      lines: [],
+      truncated: false,
+      totalLines: 0,
+      error: "当前 Windows 宿主不提供 systemd 用户日志；请在 WSL 或 Docker 日志中查看。",
+    };
+  }
   try {
     const stdout = execFileSync(
       "journalctl",
@@ -870,6 +879,14 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
   const backupGate = createBackupGate({ core, backup });
   const markdownFiles: MarkdownFileService = createMarkdownFileService({ core, backupGate });
   const externalEvolution = createExternalEvolutionService({ core, skills, backup, llm, now: options.now });
+
+  // events/audit 追加式表的保留期清理，防止长期常驻时数据库无限膨胀。
+  const retentionPruner: RetentionPruner = createRetentionPruner({
+    pruneEvents: (cutoff) => core.store.pruneEvents(cutoff),
+    pruneAudit: (cutoff) => core.store.pruneAudit(cutoff),
+    now: options.now,
+    driver,
+  });
 
   // Task 18：安全基线（三条配置不变式 + 密钥文件 0600 扫描）。
   const security = createSecurityService({
@@ -1534,39 +1551,57 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     }
   }
 
+  // /api/butler/version 含 5 次同步 git 子进程与 package.json 读取，最坏可阻塞
+  // 事件循环十余秒；面板会轮询该接口，故用短 TTL 缓存吸收重复请求。
+  const BUTLER_VERSION_CACHE_MS = 30_000;
+  let butlerVersionCache: { at: number; value: ReturnType<typeof computeButlerVersion> } | null =
+    null;
+  function computeButlerVersion() {
+    const source = resolveButlerSourceDir(process.env["BUTLER_SRC"]?.trim() || process.cwd());
+    let version = "0.0.0-dev";
+    try {
+      const pkg = JSON.parse(readFileSync(join(source, "package.json"), "utf8")) as Record<
+        string,
+        unknown
+      >;
+      if (typeof pkg["version"] === "string" && pkg["version"].trim() !== "") {
+        version = pkg["version"].trim();
+      }
+    } catch {
+      // 源码目录没有 package.json（打包/安装形态）时保留 dev 版本
+    }
+    const remote = gitDescribe(["-C", source, "remote", "get-url", "origin"]);
+    const configuredRepository =
+      process.env["BUTLER_REPOSITORY_URL"]?.trim().replace(/\.git$/, "") ||
+      DEFAULT_BUTLER_REPOSITORY;
+    const repository = remote?.replace(/\.git$/, "") ?? configuredRepository;
+    return {
+      version,
+      source,
+      runtime,
+      branch: gitDescribe(["-C", source, "branch", "--show-current"]),
+      commit: gitDescribe(["-C", source, "rev-parse", "--short", "HEAD"]),
+      tag: gitDescribe(["-C", source, "describe", "--tags", "--exact-match", "--always"]),
+      repository,
+      repositoryConfigured: repository !== "",
+      repositorySource: remote !== null ? ("git-origin" as const) : ("configured-default" as const),
+      changelog: gitLog(source),
+      checkedAt: new Date().toISOString(),
+    };
+  }
+
   const butler = {
     version() {
-      const source = resolveButlerSourceDir(process.env["BUTLER_SRC"]?.trim() || process.cwd());
-      let version = "0.0.0-dev";
-      try {
-        const pkg = JSON.parse(readFileSync(join(source, "package.json"), "utf8")) as Record<
-          string,
-          unknown
-        >;
-        if (typeof pkg["version"] === "string" && pkg["version"].trim() !== "") {
-          version = pkg["version"].trim();
-        }
-      } catch {
-        // 源码目录没有 package.json（打包/安装形态）时保留 dev 版本
+      const now = Date.now();
+      if (
+        butlerVersionCache !== null &&
+        now - butlerVersionCache.at < BUTLER_VERSION_CACHE_MS
+      ) {
+        return butlerVersionCache.value;
       }
-      const remote = gitDescribe(["-C", source, "remote", "get-url", "origin"]);
-      const configuredRepository =
-        process.env["BUTLER_REPOSITORY_URL"]?.trim().replace(/\.git$/, "") ||
-        DEFAULT_BUTLER_REPOSITORY;
-      const repository = remote?.replace(/\.git$/, "") ?? configuredRepository;
-      return {
-        version,
-        source,
-        runtime,
-        branch: gitDescribe(["-C", source, "branch", "--show-current"]),
-        commit: gitDescribe(["-C", source, "rev-parse", "--short", "HEAD"]),
-        tag: gitDescribe(["-C", source, "describe", "--tags", "--exact-match", "--always"]),
-        repository,
-        repositoryConfigured: repository !== "",
-        repositorySource: remote !== null ? ("git-origin" as const) : ("configured-default" as const),
-        changelog: gitLog(source),
-        checkedAt: new Date().toISOString(),
-      };
+      const value = computeButlerVersion();
+      butlerVersionCache = { at: now, value };
+      return value;
     },
   };
 
@@ -1819,9 +1854,11 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     tailHandle = driver.setInterval(() => void tailTick(), config.tailPollSec * 1000);
     backup.start(); // 每小时检查：记忆增量 + 每日全量
     security.start(); // 每 30 秒复验配置不变式，捕获面板外文件修改
+    retentionPruner.start(); // 每 6 小时清理超出保留期的 events/audit
   }
 
   const stop = (): void => {
+    retentionPruner.stop();
     backup.stop();
     security.stop();
     criticalScheduler.stop();

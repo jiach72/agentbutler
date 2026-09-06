@@ -77,6 +77,11 @@ export interface BackupsPayload {
     enabled: boolean;
     lastFullAt: string | null;
     lastMemoryAt: string | null;
+    lastFullVerification?: {
+      backupId: number;
+      at: string;
+      status: "verified" | "verification-failed" | "not-verified";
+    } | null;
     hourlyTickMs: number;
     retention?: { full: number; memory: number; event: number };
   };
@@ -210,6 +215,8 @@ export function snapshotStatusLabel(status: string): string {
     created: "已创建",
     completed: "已完成",
     restored: "已还原",
+    verified: "已验证",
+    "verification-failed": "验证失败",
     reverted: "已回滚",
     pending: "等待中",
     failed: "失败",

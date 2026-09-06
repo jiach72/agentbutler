@@ -2538,7 +2538,7 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     const days = Number.isFinite(parsed) ? Math.max(1, Math.min(365, Math.floor(parsed))) : 30;
     const response = await fetchGateway(`/api/messages/metrics?days=${String(days)}`);
     if (response === null || !response.ok) {
-      return { reachable: false, days, retentionDays: 365, channels: [], daily: [] };
+      return { reachable: false, days, retentionDays: 365, channels: [], daily: [], latency: { p50Ms: null, p95Ms: null, samples: 0, unknown: 0 }, retries: null };
     }
     try {
       const body = (await response.json()) as Record<string, unknown>;
@@ -2549,18 +2549,33 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
           typeof row["channel"] === "string" &&
           typeof row["delivered"] === "number" &&
           typeof row["failed"] === "number" &&
-          typeof row["uncertain"] === "number"
+          typeof row["uncertain"] === "number" &&
+          (row["p50LatencyMs"] === undefined || row["p50LatencyMs"] === null || typeof row["p50LatencyMs"] === "number") &&
+          (row["p95LatencyMs"] === undefined || row["p95LatencyMs"] === null || typeof row["p95LatencyMs"] === "number") &&
+          (row["latencySamples"] === undefined || typeof row["latencySamples"] === "number") &&
+          (row["retries"] === undefined || typeof row["retries"] === "number")
         );
       };
+      const latency = body["latency"];
       return {
         reachable: true,
         days: typeof body["days"] === "number" ? body["days"] : days,
         retentionDays: typeof body["retentionDays"] === "number" ? body["retentionDays"] : 365,
         channels: Array.isArray(body["channels"]) ? body["channels"].filter(isValidChannelRow) : [],
         daily: Array.isArray(body["daily"]) ? body["daily"].filter(isValidChannelRow) : [],
+        latency:
+          isRecord(latency) &&
+          (latency["p50Ms"] === null || typeof latency["p50Ms"] === "number") &&
+          (latency["p95Ms"] === null || typeof latency["p95Ms"] === "number") &&
+          typeof latency["samples"] === "number" &&
+          typeof latency["unknown"] === "number"
+            ? latency
+            : { p50Ms: null, p95Ms: null, samples: 0, unknown: 0 },
+        // 旧 Gateway 没有重试计数时必须保持未知，不能把缺字段当成 0。
+        retries: typeof body["retries"] === "number" ? body["retries"] : null,
       };
     } catch {
-      return { reachable: false, days, retentionDays: 365, channels: [], daily: [] };
+      return { reachable: false, days, retentionDays: 365, channels: [], daily: [], latency: { p50Ms: null, p95Ms: null, samples: 0, unknown: 0 }, retries: null };
     }
   });
 
@@ -2757,6 +2772,11 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   // 还原备份（先做当前态快照；确认词由前端二次确认承载）。
   app.post("/api/backups/:id/restore", async (request, reply) =>
     proxyWatchPost(`/api/backups/${(request.params as Record<string, string>)["id"]}/restore`, request.body, reply),
+  );
+
+  // 备份可恢复性验证：Watch 在临时目录检查，不会回写 Hermes 实际数据。
+  app.post("/api/backups/verify", async (request, reply) =>
+    proxyWatchPost("/api/backups/verify", request.body, reply, 30_000),
   );
 
   // 安全基线：三条配置不变式 + 密钥文件权限扫描。
@@ -3489,11 +3509,12 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
         }
       }
 
-      // 每 2s 轮询共享 events 表的增量（id > lastId）；db 缺失时静默等待。
+      // 每 2s 轮询共享 events 表的增量（id > lastId，SQL 端过滤，避免每连接
+      // 每 2s 全量拉取 1000 行再在 JS 里丢弃）；db 缺失时静默等待。
       const timer = setInterval(() => {
         const s = getStore();
         if (s === null) return;
-        const fresh = selectNewEvents(s.listEvents({ limit: 1000 }), lastId);
+        const fresh = selectNewEvents(s.listEvents({ limit: 1000, afterId: lastId }), lastId);
         if (fresh.length === 0) return;
         lastId = fresh[fresh.length - 1]!.id;
         socket.send(JSON.stringify({ type: "events", items: fresh }));

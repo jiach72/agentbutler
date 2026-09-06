@@ -21,6 +21,8 @@ afterAll(async () => {
 });
 
 describe("discoverHermesLlm（纯 Node 直读）", () => {
+  const isolatedEnv = { processEnv: {} };
+
   it("识别 config.yaml 的 model 段（deepseek 场景）", async () => {
     const root = await makeRoot({
       "config.yaml": [
@@ -32,7 +34,7 @@ describe("discoverHermesLlm（纯 Node 直读）", () => {
       ].join("\n"),
       ".env": "DEEPSEEK_API_KEY=sk-test-123\n",
     });
-    const items = await discoverHermesLlm(root);
+    const items = await discoverHermesLlm(root, isolatedEnv);
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({
       id: "hermes-default",
@@ -49,7 +51,7 @@ describe("discoverHermesLlm（纯 Node 直读）", () => {
     const root = await makeRoot({
       ".env": "OPENAI_MODEL=gpt-5\nOPENAI_BASE_URL=https://api.openai.com/v1\nOPENAI_API_KEY=sk-abc\n",
     });
-    const items = await discoverHermesLlm(root);
+    const items = await discoverHermesLlm(root, isolatedEnv);
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({ model: "gpt-5", endpoint: "https://api.openai.com/v1", apiKey: "sk-abc" });
   });
@@ -66,7 +68,7 @@ describe("discoverHermesLlm（纯 Node 直读）", () => {
         "    model: my-model",
       ].join("\n"),
     });
-    const items = await discoverHermesLlm(root);
+    const items = await discoverHermesLlm(root, isolatedEnv);
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({ endpoint: "https://relay.example.com/v1", model: "my-model" });
   });
@@ -76,7 +78,7 @@ describe("discoverHermesLlm（纯 Node 直读）", () => {
       "config.yaml": "agent:\n  max_turns: 90\n",
       "logs/agent.log": "2026-08-31 init model=deepseek-v4-flash-vision-exp turn=1\n",
     });
-    const items = await discoverHermesLlm(root);
+    const items = await discoverHermesLlm(root, isolatedEnv);
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({
       id: "hermes-runtime-log",
@@ -87,7 +89,7 @@ describe("discoverHermesLlm（纯 Node 直读）", () => {
   });
 
   it("目录不可达且未提供 exec 时返回空列表（不抛错）", async () => {
-    const items = await discoverHermesLlm(join(tmpdir(), "butler-definitely-missing-root"));
+    const items = await discoverHermesLlm(join(tmpdir(), "butler-definitely-missing-root"), isolatedEnv);
     expect(items).toEqual([]);
   });
 

@@ -40,6 +40,7 @@ import { loadJson, postJson } from "../../lib/api.js";
 import { formatTime } from "./helpers.js";
 import { CategoryRail } from "./CategoryRail.js";
 import { SkillMarketCard } from "./SkillMarketCard.js";
+import { StagedRiskDetails } from "./StagedRiskDetails.js";
 import {
   ACTION_TIMEOUT_MS,
   ALL_CATEGORY_LABEL,
@@ -48,6 +49,7 @@ import {
   extractError,
   formatInstalls,
   hasAvailableUpdate,
+  parseStagedRisk,
   previewEntries,
   stringArray,
   updateStatusLabel,
@@ -57,6 +59,7 @@ import type {
   Recommendation,
   SkillsManagerSkill,
   SkillsManagerStatus,
+  StagedSkillRisk,
   TrendItem,
   UpdateCheckItem,
 } from "./marketplace.js";
@@ -78,6 +81,13 @@ interface SourceDraft {
   subpath: string;
   branch: string;
   force: boolean;
+}
+
+interface StagedRecommendation {
+  item: Recommendation;
+  stageId: string;
+  risk: StagedSkillRisk | null;
+  installError: string | null;
 }
 
 const MARKET_SEARCH_TIMEOUT_MS = 120_000;
@@ -136,6 +146,8 @@ export function SkillsMarketplace() {
   const [searchResults, setSearchResults] = useState<MarketSearchResult[] | null>(null);
   const [searchBusy, setSearchBusy] = useState(false);
   const [recommendBusy, setRecommendBusy] = useState<string | null>(null);
+  const [stagedRecommendation, setStagedRecommendation] = useState<StagedRecommendation | null>(null);
+  const [stagedInstallBusy, setStagedInstallBusy] = useState(false);
 
   const [gitInstallOpen, setGitInstallOpen] = useState(false);
   const [gitSource, setGitSource] = useState("");
@@ -421,17 +433,47 @@ export function SkillsMarketplace() {
       message.error(staged.ok ? "服务未返回安装标识。" : friendlyError(staged.data, "技能下载或检查未完成。"));
       return;
     }
+    const risk = staged.data !== null && typeof staged.data === "object"
+      ? parseStagedRisk((staged.data as Record<string, unknown>)["risk"])
+      : null;
+    setRecommendBusy(null);
+    setStagedRecommendation({ item, stageId, risk, installError: null });
+  };
+
+  const confirmStagedRecommendation = async () => {
+    if (stagedRecommendation === null || stagedInstallBusy) return;
+    setStagedInstallBusy(true);
     const installed = await postJson(
-      `/api/skills/staged/${encodeURIComponent(stageId)}/install`,
+      `/api/skills/staged/${encodeURIComponent(stagedRecommendation.stageId)}/install`,
       { confirmed: true },
       30_000,
     );
-    setRecommendBusy(null);
+    setStagedInstallBusy(false);
     if (!installed.ok) {
-      message.error(friendlyError(installed.data, "备份或安装未完成。"));
+      const record = installed.data !== null && typeof installed.data === "object"
+        ? installed.data as Record<string, unknown>
+        : null;
+      const failure = friendlyError(installed.data, "备份或安装未完成；高风险内容会被后端拒绝。");
+      if (record?.["error"] === "skill-risk-blocked") {
+        const risk = parseStagedRisk(record["risk"]);
+        setStagedRecommendation((current) => current === null ? null : {
+          ...current,
+          risk: risk ?? current.risk,
+          installError: failure,
+        });
+        message.warning("安装已被安全检查阻止，请查看风险项。");
+        return;
+      }
+      if (record?.["error"] === "invalid-stage") {
+        setStagedRecommendation(null);
+        message.warning("隔离暂存已失效，请重新下载后再安装。");
+        return;
+      }
+      message.error(failure);
       return;
     }
     message.success("技能已安装到中央库。");
+    setStagedRecommendation(null);
     void loadAll({ silent: true });
     void loadMarket();
   };
@@ -639,6 +681,7 @@ export function SkillsMarketplace() {
   };
 
   // ---- 渲染 ----
+  const stagedBlocked = stagedRecommendation?.risk?.status === "blocked" || stagedRecommendation?.installError != null;
 
   if (state.status === "failed")
     return (
@@ -973,6 +1016,34 @@ export function SkillsMarketplace() {
       </Flex>
 
       {/* Git 安装弹窗 */}
+      <Modal
+        open={stagedRecommendation !== null}
+        title={stagedBlocked ? "隔离技能已被阻止" : "确认安装隔离技能"}
+        okText={stagedBlocked ? "已阻止安装" : "确认安装"}
+        cancelText="暂不安装"
+        confirmLoading={stagedInstallBusy}
+        okButtonProps={{ disabled: stagedBlocked }}
+        onCancel={() => {
+          if (!stagedInstallBusy) setStagedRecommendation(null);
+        }}
+        onOk={() => void confirmStagedRecommendation()}
+      >
+        {stagedRecommendation !== null && (
+          <Flex vertical gap={10}>
+            <Typography.Paragraph>
+              「{stagedRecommendation.item.name}」已下载到 Butler 隔离区，尚未写入 Hermes。
+            </Typography.Paragraph>
+            <Typography.Paragraph type="secondary">
+              来源：{stagedRecommendation.item.sourceUrl}
+            </Typography.Paragraph>
+            <StagedRiskDetails
+              risk={stagedRecommendation.risk}
+              installError={stagedRecommendation.installError}
+            />
+          </Flex>
+        )}
+      </Modal>
+
       <Modal
         open={gitInstallOpen}
         title="从 Git 安装技能"

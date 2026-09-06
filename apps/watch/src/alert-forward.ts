@@ -5,8 +5,8 @@
  * - aggregated（新指纹待告警）：severity "warn"；escalated（突发升级）：severity "critical"；
  * - body { kind: "fingerprint", severity, title: 模板前 80 字符, body: 含
  *   signature/count/窗口信息, source: "butler-watch", dedupeKey: signature }；
- * - 失败 → console.warn + audit 记录（action "alert-forward-failed"），
- *   不重试不崩溃（gateway 侧有持久化与补发）。
+ * - 网关不可达时对网络错误、408/425/429/5xx 做有限指数重试；
+ *   最终失败 → console.warn + audit 记录（action "alert-forward-failed"），不崩溃。
  *
  * 公共 POST 网关能力抽为 createAlertPoster（Task 7 runbook 升级告警 /
  * 熔断告警复用，行为与指纹转发一致）。
@@ -44,6 +44,10 @@ export interface AlertPosterDeps {
   gatewayUrl: string;
   fetchFn?: FetchLike;
   timeoutMs?: number;
+  /** 单条告警的最大 HTTP 尝试次数（含首次；默认 3）。 */
+  maxAttempts?: number;
+  /** 重试基础等待毫秒数（默认 250；测试可注入 0）。 */
+  retryBaseDelayMs?: number;
   /** 失败审计（可选；指纹转发与 runbook 告警共用同一动作名）。 */
   audit?: AuditLog;
 }
@@ -72,15 +76,17 @@ export function describeFingerprint(template: string, sample?: string): { title:
   return { title: "智能体任务执行失败", advice: "请打开完整通知或日志查看详情；先确认原因，再决定是否重试。" };
 }
 
-/** 公共告警 POST 器：超时保护 + 失败 warn/audit 不重试（gateway 侧有持久化与补发）。 */
+/** 公共告警 POST 器：超时保护 + 瞬时故障有限重试 + 最终失败审计。 */
 export function createAlertPoster(deps: AlertPosterDeps): AlertPoster {
   const doFetch = deps.fetchFn ?? ((url, init) => fetch(url, init));
   const timeoutMs = deps.timeoutMs ?? 5000;
+  const maxAttempts = Math.max(1, Math.min(5, Math.floor(deps.maxAttempts ?? 3)));
+  const retryBaseDelayMs = Math.max(0, Math.min(30_000, Math.floor(deps.retryBaseDelayMs ?? 250)));
   const endpoint = `${deps.gatewayUrl.replace(/\/+$/, "")}/api/alerts`;
   const inFlight = new Set<Promise<void>>();
 
   function recordFailure(body: GatewayAlertBody, message: string): void {
-    console.warn(`[butler-watch] 告警转发失败（不重试，gateway 侧有补发）: ${message}`);
+    console.warn(`[butler-watch] 告警转发失败（有限重试后仍未送达）: ${message}`);
     deps.audit?.append({
       actor: ALERT_SOURCE,
       action: ALERT_FORWARD_FAILED_ACTION,
@@ -90,23 +96,33 @@ export function createAlertPoster(deps: AlertPosterDeps): AlertPoster {
   }
 
   async function post(body: GatewayAlertBody): Promise<void> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const response = await doFetch(endpoint, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-      if (!response.ok) {
-        recordFailure(body, `gateway 响应 HTTP ${response.status}`);
+    let lastError = "未知错误";
+    let attempted = 0;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      attempted = attempt;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const response = await doFetch(endpoint, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+        if (response.ok) return;
+        lastError = `gateway 响应 HTTP ${response.status}`;
+        if (!isRetryableAlertStatus(response.status)) break;
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error);
+      } finally {
+        clearTimeout(timer);
       }
-    } catch (error) {
-      recordFailure(body, error instanceof Error ? error.message : String(error));
-    } finally {
-      clearTimeout(timer);
+      if (attempt < maxAttempts) {
+        const delayMs = retryBaseDelayMs * 2 ** (attempt - 1);
+        await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+      }
     }
+    recordFailure(body, `${lastError}；已尝试 ${attempted} 次`);
   }
 
   return {
@@ -122,6 +138,10 @@ export function createAlertPoster(deps: AlertPosterDeps): AlertPoster {
       }
     },
   };
+}
+
+function isRetryableAlertStatus(status: number): boolean {
+  return status === 408 || status === 425 || status === 429 || status >= 500;
 }
 
 export interface AlertForwarder {

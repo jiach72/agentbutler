@@ -16,12 +16,24 @@ interface ChannelMetricRow {
   uncertain: number;
   total: number;
   successRate: number;
+  p50LatencyMs?: number | null;
+  p95LatencyMs?: number | null;
+  latencySamples?: number;
+  retries?: number | null;
 }
 
 interface MetricsPayload {
   reachable: boolean;
   days: number;
   channels: ChannelMetricRow[];
+  latency?: { p50Ms: number | null; p95Ms: number | null; samples: number; unknown: number };
+  retries?: number | null;
+}
+
+function latencyText(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "未知";
+  if (value < 1_000) return `${Math.round(value)}ms`;
+  return `${(value / 1_000).toFixed(value < 10_000 ? 1 : 0)}s`;
 }
 
 const COLUMNS: TableColumnsType<ChannelMetricRow> = [
@@ -43,6 +55,22 @@ const COLUMNS: TableColumnsType<ChannelMetricRow> = [
         {`${Math.round(rate * 100)}%`}
       </Typography.Text>
     ),
+  },
+  {
+    title: "P95 等待",
+    dataIndex: "p95LatencyMs",
+    key: "p95LatencyMs",
+    width: 104,
+    align: "right",
+    render: (value: number | null | undefined) => <Typography.Text type="secondary">{latencyText(value)}</Typography.Text>,
+  },
+  {
+    title: "重试",
+    dataIndex: "retries",
+    key: "retries",
+    width: 72,
+    align: "right",
+    render: (value: number | undefined) => <Typography.Text type={value !== undefined && value > 0 ? "warning" : "secondary"}>{value ?? "未知"}</Typography.Text>,
   },
   {
     title: "需关注",
@@ -82,10 +110,17 @@ export function ChannelMetricsCard() {
 
   const rows = metrics.status === "ready" ? metrics.data.channels : [];
   const attention = rows.filter((row) => row.failed + row.uncertain > 0);
+  const latency = metrics.status === "ready" ? metrics.data.latency : undefined;
 
   return (
     <Flex vertical gap={8}>
       <Typography.Text strong>通道健康（近 30 天）</Typography.Text>
+      {metrics.status === "ready" && (
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          端到端等待 P50 {latencyText(latency?.p50Ms)} · P95 {latencyText(latency?.p95Ms)} · 已记录重试 {metrics.data.retries ?? "未知"} 次
+          {latency !== undefined && latency.unknown > 0 ? ` · ${latency.unknown} 条缺少可用时间戳` : ""}；费用/Token 当前无可靠来源，显示未知。
+        </Typography.Text>
+      )}
       {rows.length === 0 ? (
         <Typography.Text type="secondary">
           还没有足够的送达记录；消息经过网关后会按通道汇总送达率。

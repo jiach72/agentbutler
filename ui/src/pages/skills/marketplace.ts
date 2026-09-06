@@ -66,6 +66,14 @@ export interface Recommendation {
   description?: string;
   sourceUrl: string;
 }
+/** Watch 在推荐技能暂存阶段返回的轻量风险扫描结果。 */
+export interface StagedSkillRisk {
+  status: "clear" | "blocked";
+  externalDomains: string[];
+  sensitivePaths: string[];
+  dangerousCommands: string[];
+  detail: string;
+}
 
 export const DEPLOY_AGENT = "claude_code";
 export const ACTION_TIMEOUT_MS = 120_000;
@@ -129,6 +137,21 @@ export function categoryDefOf(label: string): { icon: ComponentType; tone: Categ
 
 export function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+/** 容忍旧 Watch 不返回风险字段，避免升级期间把合法暂存误判为风险通过。 */
+export function parseStagedRisk(value: unknown): StagedSkillRisk | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const status = record["status"];
+  if (status !== "clear" && status !== "blocked") return null;
+  return {
+    status,
+    externalDomains: stringArray(record["externalDomains"]),
+    sensitivePaths: stringArray(record["sensitivePaths"]),
+    dangerousCommands: stringArray(record["dangerousCommands"]),
+    detail: typeof record["detail"] === "string" ? record["detail"] : "",
+  };
 }
 
 export function deployedToTarget(item: SkillsManagerSkill): boolean {

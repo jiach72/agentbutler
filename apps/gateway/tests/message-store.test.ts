@@ -320,6 +320,9 @@ describe("MessagePolicyStore", () => {
     const telegram = metrics.channels.find((row) => row.channel === "telegram");
     expect(weixin).toMatchObject({ delivered: 1, failed: 1, uncertain: 0, total: 2, successRate: 0.5 });
     expect(telegram).toMatchObject({ delivered: 1, failed: 0, uncertain: 0, total: 1, successRate: 1 });
+    expect(metrics.latency.samples).toBe(3);
+    expect(metrics.latency.p50Ms).not.toBeNull();
+    expect(metrics.retries).toBe(0);
     // 总量大的通道排在前面，便于面板直接看到问题通道
     expect(metrics.channels[0].channel).toBe("weixin");
     expect(metrics.daily.every((row) => row.delivered + row.failed + row.uncertain > 0)).toBe(true);

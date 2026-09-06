@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import {
   Alert,
@@ -150,34 +150,54 @@ export function EvolutionPage() {
     { kind: "apply-proposal"; id: string } | { kind: "promote-run"; run: Run } | null
   >(null);
 
-  const refresh = useCallback(async () => {
-    const query = new URLSearchParams({ range });
-    if (instanceId) query.set("instanceId", instanceId);
-    const [insightResult, overviewResult, instanceResult, proposalResult] = await Promise.all([
-      loadJson<Insights>(`/api/evolution/insights?${query.toString()}`, 30_000),
-      loadJson<EvolutionOverviewPayload>(`/api/evolution/overview?${query.toString()}`, 30_000),
-      loadJson<{ instances: Array<{ instanceId: string; version?: string; state?: string }> }>(
-        "/api/instances",
-        10_000,
-      ),
-      loadJson<{ proposals: Proposal[] }>("/api/evolution/proposals", 10_000),
-    ]);
-    if (!insightResult.ok && !overviewResult.ok) setError(insightResult.reason);
-    else setError(null);
-    if (insightResult.ok) setData(insightResult.data);
-    if (overviewResult.ok) setOverview(overviewResult.data);
-    setProposals(proposalResult.ok ? (proposalResult.data.proposals ?? []) : []);
-    if (instanceResult.ok) {
-      const next = instanceResult.data.instances ?? [];
-      setInstances(next);
-      if (!instanceId && next[0]) setInstanceId(next[0].instanceId);
-    }
-    if (selectedId === null && insightResult.ok && insightResult.data.directions[0])
-      setSelectedId(insightResult.data.directions[0].id);
-  }, [instanceId, range, selectedId]);
+  // 实例读取走 ref：自动初始化选中实例不会重建 refresh，首次加载只发一轮
+  // 请求（此前 refresh 依赖 instanceId/selectedId，初始化写入会连锁触发
+  // 2-3 轮全量刷新，后端 insights 每轮都要重新扫描日志文件）。
+  const instanceRef = useRef("");
+  const refresh = useCallback(
+    async (overrideInstanceId?: string) => {
+      const activeInstanceId = overrideInstanceId ?? instanceRef.current;
+      const query = new URLSearchParams({ range });
+      if (activeInstanceId) query.set("instanceId", activeInstanceId);
+      const [insightResult, overviewResult, instanceResult, proposalResult] = await Promise.all([
+        loadJson<Insights>(`/api/evolution/insights?${query.toString()}`, 30_000),
+        loadJson<EvolutionOverviewPayload>(`/api/evolution/overview?${query.toString()}`, 30_000),
+        loadJson<{ instances: Array<{ instanceId: string; version?: string; state?: string }> }>(
+          "/api/instances",
+          10_000,
+        ),
+        loadJson<{ proposals: Proposal[] }>("/api/evolution/proposals", 10_000),
+      ]);
+      if (!insightResult.ok && !overviewResult.ok) setError(insightResult.reason);
+      else setError(null);
+      if (insightResult.ok) setData(insightResult.data);
+      if (overviewResult.ok) setOverview(overviewResult.data);
+      setProposals(proposalResult.ok ? (proposalResult.data.proposals ?? []) : []);
+      if (instanceResult.ok) {
+        const next = instanceResult.data.instances ?? [];
+        setInstances(next);
+        if (!activeInstanceId && next[0]) {
+          instanceRef.current = next[0].instanceId;
+          setInstanceId(next[0].instanceId);
+        }
+      }
+      setSelectedId((prev) => {
+        if (prev !== null) return prev;
+        return insightResult.ok && insightResult.data.directions[0]
+          ? insightResult.data.directions[0].id
+          : prev;
+      });
+    },
+    [range],
+  );
   useEffect(() => {
     void refresh();
   }, [refresh]);
+  const selectInstance = (value: string) => {
+    instanceRef.current = value;
+    setInstanceId(value);
+    void refresh(value);
+  };
   const selected = data?.directions.find((item) => item.id === selectedId) ?? null;
   const selectedProposal =
     selected?.execution?.kind === "proposal"
@@ -444,7 +464,7 @@ export function EvolutionPage() {
                   value: item.instanceId,
                   label: `${item.instanceId}${item.version ? ` · ${item.version}` : ""}`,
                 }))}
-                onChange={setInstanceId}
+                onChange={selectInstance}
               />
               <Button icon={<ReloadOutlined />} onClick={() => void refresh()}>
                 重新分析
@@ -613,16 +633,27 @@ export function EvolutionPage() {
                       )}
                       {selected.confirmedAt && (
                         <>
-                          <Button
-                            icon={<ThunderboltOutlined />}
-                            onClick={() => void start("hermes")}
-                            loading={busy === "start:hermes"}
-                          >
-                            按 Hermes 流程执行
-                          </Button>
-                          <Button onClick={() => void start("manual")} loading={busy === "start:manual"}>
-                            生成可编辑方案
-                          </Button>
+                          {selected.targetType === "prompt" ? (
+                            <Button
+                              icon={<FileSearchOutlined />}
+                              onClick={() => document.getElementById("prompt-optimization-panel")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                            >
+                              在提示词工作台处理
+                            </Button>
+                          ) : (
+                            <Button
+                              icon={<ThunderboltOutlined />}
+                              onClick={() => void start("hermes")}
+                              loading={busy === "start:hermes"}
+                            >
+                              按 Hermes 流程执行
+                            </Button>
+                          )}
+                          {selected.targetType === "skill" && (
+                            <Button onClick={() => void start("manual")} loading={busy === "start:manual"}>
+                              生成可编辑方案
+                            </Button>
+                          )}
                         </>
                       )}
                     </Space>
@@ -805,7 +836,7 @@ export function EvolutionPage() {
             )}
           </Col>
         </Row>
-        <Card title={<SectionHeader kicker="越改越坏防线" title="提示词优化" compact />}>
+        <Card id="prompt-optimization-panel" title={<SectionHeader kicker="越改越坏防线" title="提示词优化" compact />}>
           <PromptOptimizationPanel />
         </Card>
         <Collapse

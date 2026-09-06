@@ -737,11 +737,17 @@ export class SqliteStore {
     };
   }
 
-  listEvents(filter: { type?: string; limit?: number } = {}): StoredEvent[] {
+  listEvents(filter: { type?: string; limit?: number; afterId?: number } = {}): StoredEvent[] {
     const limit = filter.limit ?? 100;
+    const afterId = filter.afterId;
+    if (afterId !== undefined && (!Number.isInteger(afterId) || afterId < 0)) {
+      throw new Error("events afterId must be a non-negative integer");
+    }
     const rows = this.db
-      .prepare("SELECT * FROM events WHERE type = COALESCE(?, type) ORDER BY id DESC LIMIT ?")
-      .all(filter.type ?? null, limit) as Record<string, unknown>[];
+      .prepare(
+        "SELECT * FROM events WHERE type = COALESCE(?, type) AND id > COALESCE(?, 0) ORDER BY id DESC LIMIT ?",
+      )
+      .all(filter.type ?? null, afterId ?? null, limit) as Record<string, unknown>[];
     return rows.map((r) => ({
       id: Number(r["id"]),
       ts: String(r["ts"]),
@@ -750,6 +756,24 @@ export class SqliteStore {
       source: String(r["source"]),
       payload: fromJson<unknown>(r["payload_json"] as string | null, null),
     }));
+  }
+
+  /** Removes events older than the cutoff（ISO 时间戳）；供保留期清理低频调用。 */
+  pruneEvents(cutoff: string): number {
+    if (typeof cutoff !== "string" || Number.isNaN(Date.parse(cutoff))) {
+      throw new Error("events cutoff must be a valid timestamp");
+    }
+    const result = this.db.prepare("DELETE FROM events WHERE ts < ?").run(cutoff);
+    return Number(result.changes);
+  }
+
+  /** Removes audit rows older than the cutoff（ISO 时间戳）；供保留期清理低频调用。 */
+  pruneAudit(cutoff: string): number {
+    if (typeof cutoff !== "string" || Number.isNaN(Date.parse(cutoff))) {
+      throw new Error("audit cutoff must be a valid timestamp");
+    }
+    const result = this.db.prepare("DELETE FROM audit WHERE ts < ?").run(cutoff);
+    return Number(result.changes);
   }
 
   /**

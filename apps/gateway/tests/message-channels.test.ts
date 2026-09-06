@@ -1,8 +1,32 @@
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 
 import type { ChannelControlPort, ChannelDirectoryView } from "@butler/contract";
 
 import { createGatewayServer } from "../src/server.js";
+
+const testHomes: string[] = [];
+
+function isolatedHome(): string {
+  const home = mkdtempSync(join(tmpdir(), "butler-gateway-channels-"));
+  testHomes.push(home);
+  return home;
+}
+
+afterEach(() => {
+  for (const home of testHomes.splice(0)) {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      try {
+        rmSync(home, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
+        break;
+      } catch (error) {
+        if (attempt === 4) throw error;
+      }
+    }
+  }
+});
 
 class FakeChannelControl implements ChannelControlPort {
   async listChannels(): Promise<ChannelDirectoryView> {
@@ -45,7 +69,7 @@ class FakeChannelControl implements ChannelControlPort {
 }
 
 function buildApp() {
-  return createGatewayServer({ startLoop: false, channelControl: new FakeChannelControl() });
+  return createGatewayServer({ home: isolatedHome(), startLoop: false, channelControl: new FakeChannelControl() });
 }
 
 describe("gateway channel routes", () => {
@@ -57,17 +81,17 @@ describe("gateway channel routes", () => {
       expect(res.json().channels).toHaveLength(2);
       expect(res.json().channels[0].account).toBe("wx_01");
     } finally {
-      await app.close();
+      await app.gateway.close();
     }
   });
 
   it("未注入 channelControl 时返回 503", async () => {
-    const app = createGatewayServer({ startLoop: false });
+    const app = createGatewayServer({ home: isolatedHome(), startLoop: false });
     try {
       const res = await app.inject({ method: "GET", url: "/api/messages/channels" });
       expect(res.statusCode).toBe(503);
     } finally {
-      await app.close();
+      await app.gateway.close();
     }
   });
 });
@@ -85,7 +109,7 @@ describe("gateway weixin login routes", () => {
       const after = await app.inject({ method: "GET", url: `/api/messages/channels/weixin/login/status?sessionId=${sessionId}` });
       expect(after.json().state).toBe("failed");
     } finally {
-      await app.close();
+      await app.gateway.close();
     }
   });
 
@@ -95,7 +119,7 @@ describe("gateway weixin login routes", () => {
       const res = await app.inject({ method: "GET", url: "/api/messages/channels/weixin/login/status" });
       expect(res.statusCode).toBe(400);
     } finally {
-      await app.close();
+      await app.gateway.close();
     }
   });
 
@@ -105,7 +129,7 @@ describe("gateway weixin login routes", () => {
       const res = await app.inject({ method: "POST", url: "/api/messages/channels/weixin/login/cancel", payload: {} });
       expect(res.statusCode).toBe(400);
     } finally {
-      await app.close();
+      await app.gateway.close();
     }
   });
 });
@@ -113,7 +137,7 @@ describe("gateway weixin login routes", () => {
 describe("gateway channel lifecycle routes", () => {
   it("PUT config → enable 链路", async () => {
     const control = new FakeChannelControl();
-    const app = createGatewayServer({ startLoop: false, channelControl: control });
+    const app = createGatewayServer({ home: isolatedHome(), startLoop: false, channelControl: control });
     try {
       const put = await app.inject({
         method: "PUT",
@@ -127,34 +151,34 @@ describe("gateway channel lifecycle routes", () => {
       expect(enable.json()).toEqual({ restarting: true });
       expect(control.enabledChannels).toEqual(["feishu"]);
     } finally {
-      await app.close();
+      await app.gateway.close();
     }
   });
 
   it("未知通道返回 400", async () => {
-    const app = createGatewayServer({ startLoop: false, channelControl: new FakeChannelControl() });
+    const app = createGatewayServer({ home: isolatedHome(), startLoop: false, channelControl: new FakeChannelControl() });
     try {
       const res = await app.inject({ method: "PUT", url: "/api/messages/channels/telegram/config", payload: { app_id: "x" } });
       expect(res.statusCode).toBe(400);
     } finally {
-      await app.close();
+      await app.gateway.close();
     }
   });
 
   it("disable 透传 restarting 标记", async () => {
     const control = new FakeChannelControl();
-    const app = createGatewayServer({ startLoop: false, channelControl: control });
+    const app = createGatewayServer({ home: isolatedHome(), startLoop: false, channelControl: control });
     try {
       const res = await app.inject({ method: "POST", url: "/api/messages/channels/feishu/disable" });
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ restarting: false });
     } finally {
-      await app.close();
+      await app.gateway.close();
     }
   });
 
   it("config 值必须为字符串", async () => {
-    const app = createGatewayServer({ startLoop: false, channelControl: new FakeChannelControl() });
+    const app = createGatewayServer({ home: isolatedHome(), startLoop: false, channelControl: new FakeChannelControl() });
     try {
       const res = await app.inject({
         method: "PUT",
@@ -163,7 +187,7 @@ describe("gateway channel lifecycle routes", () => {
       });
       expect(res.statusCode).toBe(400);
     } finally {
-      await app.close();
+      await app.gateway.close();
     }
   });
 });

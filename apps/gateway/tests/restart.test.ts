@@ -30,8 +30,8 @@ describe("重启补发", () => {
       source: "s",
     });
     queue.enqueue({ kind: "k", severity: "warn", title: "t3", body: "b", source: "s" });
-    expect(queue.claimNext()?.title).toBe("t1"); // 先领走 t1
-    expect(queue.claimNext()?.id).toBe(critical.id); // t2 卡在 delivering
+    expect(queue.claimNext()?.id).toBe(critical.id); // critical 先领走，模拟投递中崩溃
+    expect(queue.claimNext()?.title).toBe("t1");
     queue.markDelivered(queue.list().find((r) => r.title === "t1")!.id, "panel"); // t1 正常完结
     expect(queue.counts()).toMatchObject({ pending: 1, delivering: 1, delivered: 1 });
     queue.close();

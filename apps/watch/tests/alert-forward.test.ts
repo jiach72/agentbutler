@@ -70,7 +70,7 @@ describe("startAlertForwarder", () => {
   });
 
   it("alert=false（已知模式复现）→ 不转发", async () => {
-    const forwarder = startAlertForwarder({ bus: core.bus, audit: core.audit, gatewayUrl: "http://gw", fetchFn: fetchImpl });
+    const forwarder = startAlertForwarder({ bus: core.bus, audit: core.audit, gatewayUrl: "http://gw", fetchFn: fetchImpl, timeoutMs: 50, maxAttempts: 1 });
     core.bus.emit("fingerprint-aggregated", aggregatedPayload({ alert: false, isFirstEver: false }));
     await forwarder.flush();
     expect(posts).toHaveLength(0);
@@ -129,11 +129,60 @@ describe("startAlertForwarder", () => {
       audit: core.audit,
       gatewayUrl: "http://gw",
       fetchFn: async () => ({ ok: false, status: 503, json: async () => ({}) }),
+      maxAttempts: 1,
     });
     core.bus.emit("fingerprint-aggregated", aggregatedPayload());
     await forwarder.flush();
-    expect(core.audit.list({ action: ALERT_FORWARD_FAILED_ACTION })).toHaveLength(1);
+    const failure = core.audit.list({ action: ALERT_FORWARD_FAILED_ACTION });
+    expect(failure).toHaveLength(1);
+    expect(JSON.stringify(failure[0]?.detail)).toContain("已尝试 3 次");
     expect(warn).toHaveBeenCalled();
+    forwarder.stop();
+  });
+
+  it("瞬时网关故障有限重试，恢复后只产生一条成功转发", async () => {
+    let attempts = 0;
+    const forwarder = startAlertForwarder({
+      bus: core.bus,
+      audit: core.audit,
+      gatewayUrl: "http://gw",
+      retryBaseDelayMs: 0,
+      maxAttempts: 3,
+      fetchFn: async () => {
+        attempts += 1;
+        return attempts < 3
+          ? { ok: false, status: 503, json: async () => ({}) }
+          : { ok: true, status: 202, json: async () => ({}) };
+      },
+    });
+    core.bus.emit("fingerprint-aggregated", aggregatedPayload());
+    await forwarder.flush();
+
+    expect(attempts).toBe(3);
+    expect(core.audit.list({ action: ALERT_FORWARD_FAILED_ACTION })).toHaveLength(0);
+    forwarder.stop();
+  });
+
+  it("客户端错误不重试，避免把永久拒绝放大成重复通知", async () => {
+    let attempts = 0;
+    const forwarder = startAlertForwarder({
+      bus: core.bus,
+      audit: core.audit,
+      gatewayUrl: "http://gw",
+      retryBaseDelayMs: 0,
+      maxAttempts: 3,
+      fetchFn: async () => {
+        attempts += 1;
+        return { ok: false, status: 400, json: async () => ({}) };
+      },
+    });
+    core.bus.emit("fingerprint-aggregated", aggregatedPayload());
+    await forwarder.flush();
+
+    expect(attempts).toBe(1);
+    const failure = core.audit.list({ action: ALERT_FORWARD_FAILED_ACTION });
+    expect(failure).toHaveLength(1);
+    expect(JSON.stringify(failure[0]?.detail)).toContain("已尝试 1 次");
     forwarder.stop();
   });
 

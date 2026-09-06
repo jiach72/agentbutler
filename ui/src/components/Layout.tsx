@@ -12,16 +12,13 @@ import {
   SettingOutlined,
   SunOutlined,
   ApiOutlined,
-  ThunderboltOutlined,
-  FileMarkdownOutlined,
-  BugOutlined,
   FileSearchOutlined,
   ToolOutlined,
 } from "@ant-design/icons";
 import { Button, Drawer, Layout as AntLayout, Menu } from "antd";
 import type { MenuProps } from "antd";
 import { Suspense, useEffect, useState } from "react";
-import { Link, Outlet, useLocation } from "react-router-dom";
+import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { NotificationCenter } from "./NotificationCenter.js";
 import { PageProgress } from "./PageProgress.js";
 import { NotificationsProvider } from "../hooks/useNotifications.js";
@@ -32,18 +29,16 @@ import type { SecurityBaselinePayload } from "../pages/settings/helpers.js";
 const NAV_ITEMS = [
   { to: "/dashboard", icon: <DashboardOutlined />, label: "首页", note: "运行总览与一键检查" },
   { to: "/skills", icon: <ApiOutlined />, label: "智能体与记忆", note: "技能、插件与记忆" },
-  { to: "/core-files", icon: <FileMarkdownOutlined />, label: "核心文件", note: "查看、编辑与回滚 Markdown" },
   { to: "/gateway", icon: <NotificationOutlined />, label: "消息通知", note: "频率控制与送达记录" },
 ];
 
-const MANAGEMENT_ITEMS = [
-  { to: "/evolution", icon: <ThunderboltOutlined />, label: "自进化", note: "分析日志与优化方案" },
+const SECONDARY_ROUTE_ITEMS = [
+  { to: "/core-files", icon: <FileSearchOutlined />, label: "核心文件", note: "查看、编辑与回滚 Markdown" },
+  { to: "/evolution", icon: <ToolOutlined />, label: "自进化", note: "分析日志与优化方案" },
   { to: "/troubleshoot", icon: <ToolOutlined />, label: "排查问题", note: "按现象一步步处理" },
   { to: "/logs", icon: <FileSearchOutlined />, label: "系统日志", note: "查看记录与修复建议" },
-  { to: "/setup", icon: <BugOutlined />, label: "连接设置", note: "检查本机实例连接" },
+  { to: "/setup", icon: <SettingOutlined />, label: "连接设置", note: "检查本机实例连接" },
 ];
-
-const ALL_NAV_ITEMS = [...NAV_ITEMS, ...MANAGEMENT_ITEMS];
 
 const SETTINGS_ITEM = {
   to: "/settings",
@@ -111,7 +106,7 @@ function SidebarContent({
   const location = useLocation();
   const settingsActive =
     location.pathname.startsWith(SETTINGS_ITEM.to) || location.pathname.startsWith("/preferences");
-  const currentEntry = ALL_NAV_ITEMS.find((item) => location.pathname.startsWith(item.to));
+  const currentEntry = [...NAV_ITEMS, ...SECONDARY_ROUTE_ITEMS].find((item) => location.pathname.startsWith(item.to));
   const selectedKey = settingsActive ? SETTINGS_ITEM.to : (currentEntry?.to ?? "");
 
   const menuItems: MenuProps["items"] = [
@@ -125,7 +120,7 @@ function SidebarContent({
       key: "group-management",
       type: "group",
       label: "维护与升级",
-      children: MANAGEMENT_ITEMS.map((item) => navEntry(item, onNavigate)),
+      children: SECONDARY_ROUTE_ITEMS.map((item) => navEntry(item, onNavigate)),
     },
   ];
 
@@ -172,6 +167,7 @@ export function Layout() {
   const [baseline, setBaseline] = useState<SecurityBaselinePayload | null>(null);
   const { mode, toggleMode } = useTheme();
   const location = useLocation();
+  const navigate = useNavigate();
 
   useEffect(() => {
     let alive = true;
@@ -185,7 +181,7 @@ export function Layout() {
   const currentPage = location.pathname.startsWith(SETTINGS_ITEM.to) ||
       location.pathname.startsWith("/preferences")
     ? SETTINGS_ITEM
-    : ALL_NAV_ITEMS.find((item) => location.pathname.startsWith(item.to)) ?? {
+    : [...NAV_ITEMS, ...SECONDARY_ROUTE_ITEMS].find((item) => location.pathname.startsWith(item.to)) ?? {
       to: location.pathname,
       icon: null,
       label: "当前页面",
@@ -231,6 +227,15 @@ export function Layout() {
               <span className={`topbar-note${baselineTone(baseline) !== "ok" ? ` is-${baselineTone(baseline)}` : ""}`}>
                 {baselineTitle(baseline)}
               </span>
+              <Button
+                type="text"
+                size="small"
+                icon={<ToolOutlined />}
+                aria-label="开始排查问题"
+                onClick={() => navigate("/troubleshoot")}
+              >
+                排查问题
+              </Button>
               <NotificationCenter />
               <Button
                 type="text"

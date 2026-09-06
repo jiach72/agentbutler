@@ -127,7 +127,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
   let ownsQueue = false;
   if (queue === undefined) {
     const paths = ensureButlerHome(options.home);
-    queue = new AlertQueue(path.join(paths.dataDir, "gateway.db"));
+    queue = new AlertQueue(options.dbFile ?? path.join(paths.dataDir, "gateway.db"));
     ownsQueue = true;
   }
 
