@@ -2,6 +2,22 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/)；开发预览版本可能包含不兼容调整。
 
+## [1.0.0-beta.32] - 2026-09-06
+
+### Added
+
+- 技能市场接入 SkillHub（skillhub.cn）开放目录：新增分类 chips / 关键词搜索 / 排序 / 分页浏览与「精选技能 · 换一换」，卡片右上「+」即可安装；安装走「下载 zip → Butler 隔离区 → 静态风险扫描 → 确认」既有安全链路。Watch 新增 SkillHub Open API 客户端（分类 6h 缓存、失败降级为可重试提示）与无依赖 ZIP 读取器（拒绝路径穿越、加密条目，防解压炸弹）。
+
+### Changed
+
+- 技能页按 WorkBuddy 布局重构：顶部「SkillHub / 推荐」内容 Tab + 搜索 + 「我安装的」胶囊 + 「添加技能」下拉，分类侧栏改为 chips 行，瀑布流改为自适应等高卡片网格；原有部署/升级/删除（两段式确认）/标签/Git 源绑定等管理能力保持不变。
+- GitHub 令牌解析抽取为 `resolveGithubToken`（env > 注入 > 设置页保存文件），供趋势与推荐链路复用。
+
+### Fixed
+
+- 隔离技能安装、归档、恢复在跨挂载场景（Butler 数据卷 → Hermes 目录，rename 抛 EXDEV）不再以 500 失败：自动回退「复制 → 校验 SKILL.md → 删源」，校验失败保留源目录可重试；修复后 SkillHub / GitHub 推荐安装可正常落位。
+- 技能页概览带「中央库受管」计数因取值错误恒显示 null：已修正为读取 skills-manager 状态，读不到时显示「含内置/系统技能」。
+
 ## [1.0.0-beta.31] - 2026-09-06
 
 ### Added
