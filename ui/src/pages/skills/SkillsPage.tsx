@@ -1,7 +1,7 @@
 /**
- * 技能与记忆页主编排（单页连续仪表盘）：顶部全局概览带 + 技能市场（市场 / 本机已安装）/ 记忆库 分区。
- * 技能库 Tab 由 SkillsMarketplace 承载：分类侧栏 + 瀑布流技能卡，市场与已安装一键切换；
- * 插件为只读盘点，降级为折叠区（无任何操作入口，不占一级 Tab）。记忆检索独立于技能库。
+ * 技能与记忆页主编排：顶部全局概览带 + 技能市场（WorkBuddy 风格：SkillHub 目录 /
+ * 推荐精选 / 本机已安装）/ 记忆库 分区。市场浏览与安装由 SkillsMarketplace 承载；
+ * 插件为只读盘点，降级为折叠区。记忆检索独立于技能库。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { App, Button, Card, Col, Flex, Row, Statistic, Tabs, Typography } from "antd";
@@ -146,12 +146,9 @@ export function SkillsPage() {
   useEffect(() => {
     let active = true;
     void loadJson<{ repo?: { skill_count?: number } }>("/api/skills-manager/status", 15_000).then(
-      (payload) => {
+      (result) => {
         if (!active) return;
-        const count =
-          payload !== null && typeof payload === "object" && "repo" in payload
-            ? (payload as { repo?: { skill_count?: number } }).repo?.skill_count
-            : undefined;
+        const count = result.ok ? result.data.repo?.skill_count : undefined;
         setManagerCount(typeof count === "number" ? count : null);
       },
     );
@@ -170,7 +167,12 @@ export function SkillsPage() {
       key: "skills",
       label: "技能（Hermes 全量）",
       value: libraryData === null ? "…" : formatNumber(libraryData.skills.total),
-      sub: libraryData === null ? "读取中" : `含内置/系统技能；中央库受管 ${managerCount} 个`,
+      sub:
+        libraryData === null
+          ? "读取中"
+          : managerCount === null
+            ? "含内置/系统技能"
+            : `含内置/系统技能；中央库受管 ${managerCount} 个`,
     },
     {
       key: "plugins",

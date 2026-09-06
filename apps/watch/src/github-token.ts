@@ -36,3 +36,17 @@ export function writeGithubToken(dataDir: string, token: string | null): void {
   }
   atomicWriteJson(file, { token }, { mode: 0o600, description: "GitHub 访问令牌" });
 }
+
+/** 依优先级解析当前生效的 GitHub 访问令牌：env > 注入值（测试）> 设置页保存的文件。 */
+export function resolveGithubToken(
+  dataDir: string,
+  injected?: string | null,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const fromEnv = [env["GITHUB_TOKEN"], env["GH_TOKEN"]].find(
+    (value) => typeof value === "string" && value.trim() !== "",
+  );
+  if (fromEnv !== undefined) return fromEnv.trim();
+  if (typeof injected === "string" && injected.trim() !== "") return injected.trim();
+  return readGithubToken(dataDir) ?? "";
+}

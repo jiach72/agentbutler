@@ -143,6 +143,7 @@ import type { GatewayPanelService } from "./gateway-stats.js";
 import { createRecoveryJobTracker } from "./recovery-jobs.js";
 import type { SkillsMemoryService } from "./skills.js";
 import type { SkillAssetService } from "./skill-assets.js";
+import type { SkillHubSortBy } from "./skillhub.js";
 import type { UpgradeService } from "./upgrade.js";
 import type { ButlerSelfService } from "./self-upgrade.js";
 import type { PromptOptimizationService } from "./prompt-optimization.js";
@@ -1541,6 +1542,38 @@ async function handle(
       const body = await readJsonBody(req, res); if (body === null) return;
       const result = await deps.skillAssets.installStaged(decodeURIComponent(installMatch[1]!), body["confirmed"] === true);
       return sendJson(res, skillInstallStatus(result), result);
+    }
+
+    // SkillHub（skillhub.cn Open API）：分类/列表只读透传（客户端失败返回 200+error 供 UI 重试）；
+    // stage 下载 zip 并做隔离风险扫描（同推荐暂存，确认安装复用 /api/skills/staged/:id/install）。
+    if (path === "/api/skillhub/categories") {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.skillAssets === undefined) return sendJson(res, 503, { error: "skill-assets-unavailable" });
+      return sendJson(res, 200, await deps.skillAssets.skillHubCategories());
+    }
+    if (path === "/api/skillhub/skills") {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.skillAssets === undefined) return sendJson(res, 503, { error: "skill-assets-unavailable" });
+      const sortByRaw = url.searchParams.get("sortBy") ?? "";
+      const sortBy: SkillHubSortBy = (["updated_at", "downloads", "stars", "installs", "score"] as const).includes(sortByRaw as SkillHubSortBy)
+        ? sortByRaw as SkillHubSortBy
+        : "downloads";
+      const pageRaw = Number(url.searchParams.get("page") ?? "1");
+      const pageSizeRaw = Number(url.searchParams.get("pageSize") ?? "24");
+      return sendJson(res, 200, await deps.skillAssets.skillHubList({
+        keyword: url.searchParams.get("keyword") ?? undefined,
+        category: url.searchParams.get("category") ?? undefined,
+        sortBy,
+        page: Number.isInteger(pageRaw) && pageRaw > 0 ? pageRaw : 1,
+        pageSize: Number.isInteger(pageSizeRaw) && pageSizeRaw > 0 ? Math.min(pageSizeRaw, 50) : 24,
+      }));
+    }
+    const skillHubStageMatch = /^\/api\/skillhub\/skills\/([^/]+)\/stage$/.exec(path);
+    if (skillHubStageMatch !== null) {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.skillAssets === undefined) return sendJson(res, 503, { error: "skill-assets-unavailable" });
+      const result = await deps.skillAssets.stageSkillHub(decodeURIComponent(skillHubStageMatch[1]!));
+      return sendJson(res, result.ok === true ? 200 : 409, result);
     }
 
     // 技能库管理器（skills-manager CLI 集成）：status/updates 只读直连；

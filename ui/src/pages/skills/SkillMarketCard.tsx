@@ -1,9 +1,9 @@
 /**
- * 技能卡：市场 / 已安装两个视图共用的瀑布流卡片。
- * 头部 = 分类色图标 + 名称 + 等宽 id·来源 + 右上状态标签；
- * 体部 = 两行简介 + 标签；底部 = 左 meta / 右操作（由父级组装）。
+ * 技能卡（WorkBuddy 市场风格）：头部 = 图标 + 名称 + 副标题 + 右上操作/状态；
+ * 体部 = 两行简介；底部 = 左 meta / 右操作（均可选）。
+ * 市场卡（SkillHub/精选/推荐）右上放「+」安装位，已安装卡右上放状态标签。
  */
-import { Card, Flex, Tag, Typography } from "antd";
+import { Avatar, Card, Flex, Tag, Typography } from "antd";
 import { categoryDefOf } from "./marketplace.js";
 import "./marketplace.css";
 
@@ -16,17 +16,21 @@ export interface CardStatusTag {
 
 interface SkillMarketCardProps {
   name: string;
-  /** 等宽副标题：技能 id · 来源。 */
-  subtitle: string;
+  /** 等宽副标题：来源 · 版本 / 作者等。 */
+  subtitle?: string;
   description: string;
-  /** 中文分类标签（决定图标与色调）。 */
+  /** 中文分类标签（决定图标与色调；无图标 URL 时的底色）。 */
   category: string;
-  tags: string[];
-  /** 右上角状态标签（已部署/未部署/本机运行中/有可用更新/已安装…）。 */
+  tags?: string[];
+  /** 远程图标（SkillHub iconUrl）；缺失或加载失败回退分类色块字母。 */
+  avatarUrl?: string | null;
+  /** 右上角操作位（安装「+」按钮等）；优先于状态标签。 */
+  action?: React.ReactNode;
+  /** 右上角状态标签（已部署/未部署/有可用更新…）；action 缺省时展示。 */
   statusTag?: CardStatusTag;
-  /** 底部左侧 meta（作者/安装量/更新状态/最近使用）。 */
+  /** 底部左侧 meta（下载量/作者/更新状态）。 */
   footerLeft?: React.ReactNode;
-  /** 底部右侧操作（安装/部署/详情/更多）。 */
+  /** 底部右侧操作（详情/部署/更多）。 */
   footerRight?: React.ReactNode;
 }
 
@@ -35,34 +39,49 @@ export function SkillMarketCard({
   subtitle,
   description,
   category,
-  tags,
+  tags = [],
+  avatarUrl,
+  action,
   statusTag,
   footerLeft,
   footerRight,
 }: SkillMarketCardProps) {
   const { icon: TileIcon, tone } = categoryDefOf(category);
+  const corner = action !== undefined
+    ? action
+    : statusTag !== undefined && (
+      <Tag color={statusTag.color} style={{ marginInlineEnd: 0, flexShrink: 0 }}>
+        {statusTag.text}
+      </Tag>
+    );
   return (
-    <Card size="small" className="skill-card" hoverable>
-      <Flex vertical gap={10}>
+    <Card size="small" className="skill-card wb-card" hoverable>
+      <Flex vertical gap={8} style={{ height: "100%" }}>
         <Flex justify="space-between" align="flex-start" gap={8}>
           <Flex gap={10} style={{ minWidth: 0 }}>
-            <span className={`skill-tile tone-${tone}`} aria-hidden="true">
-              <TileIcon />
-            </span>
-            <Flex vertical gap={1} style={{ minWidth: 0 }}>
-              <Text strong ellipsis style={{ fontSize: 15 }}>
+            <Avatar
+              size={38}
+              shape="square"
+              src={avatarUrl ?? undefined}
+              className="wb-card-avatar"
+              alt={name}
+            >
+              <span className={`skill-tile tone-${tone}`} aria-hidden="true">
+                <TileIcon />
+              </span>
+            </Avatar>
+            <Flex vertical gap={2} style={{ minWidth: 0 }}>
+              <Text strong ellipsis style={{ fontSize: 15 }} title={name}>
                 {name}
               </Text>
-              <Text type="secondary" className="mono" ellipsis style={{ fontSize: 11 }}>
-                {subtitle}
-              </Text>
+              {subtitle !== undefined && subtitle !== "" && (
+                <Text type="secondary" className="mono" ellipsis style={{ fontSize: 11 }}>
+                  {subtitle}
+                </Text>
+              )}
             </Flex>
           </Flex>
-          {statusTag !== undefined && (
-            <Tag color={statusTag.color} style={{ marginInlineEnd: 0, flexShrink: 0 }}>
-              {statusTag.text}
-            </Tag>
-          )}
+          {corner}
         </Flex>
         <Text type="secondary" className="skill-card-desc" style={{ fontSize: 13 }}>
           {description}
@@ -82,7 +101,7 @@ export function SkillMarketCard({
             align="center"
             gap={8}
             wrap="wrap"
-            style={{ borderTop: "1px solid var(--ant-color-border-secondary, #e5e6eb)", paddingTop: 10, marginTop: "auto" }}
+            style={{ marginTop: "auto", paddingTop: 4 }}
           >
             <div style={{ minWidth: 0 }}>{footerLeft}</div>
             <Flex align="center" gap={6} wrap="wrap" style={{ flexShrink: 0 }}>

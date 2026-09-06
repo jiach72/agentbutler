@@ -1,14 +1,16 @@
 /**
- * 技能市场面板（技能库 Tab 的市场式重构）：
- * 顶部「技能市场 / 本机已安装」分段切换 + 搜索/收编/Git 安装工具带；
- * 左侧粘性中文分类导航（完整分类 + 计数），右侧瀑布流技能卡。
+ * 技能市场面板（WorkBuddy 风格重构）：
+ * 顶部工具行 = 内容 Tab（推荐 | SkillHub）+ 搜索 + 「我安装的」胶囊 + 「添加技能」下拉；
+ * 市场态顶部为「精选技能」横滑行（SkillHub 高分技能，可换一换），
+ * Tab 下是分类 chips + 自适应卡片网格；已安装态保留完整管理能力
+ * （部署/取消部署/更新/删除/详情/标签/Git 源绑定），危险操作保持两段式。
  *
- * 数据：市场 = skills.sh 搜索 + 公开趋势（github-trends）+ 使用推荐（recommendations）；
+ * 数据：SkillHub = skillhub.cn Open API（分类/列表/搜索/暂存安装）；
+ * 推荐 = 使用推荐（recommendations）+ 公开趋势（github-trends）；
  * 已安装 = skills-manager 中央库（status + updates）。
- * 操作：安装 / 部署 / 取消部署 / 更新（单个与全部）/ 删除 / 收编 / 标签 / Git 源绑定，
- * 危险操作保持「先试运行、后确认」两段式；能力与旧表格面板一一对应（批量多选除外）。
+ * SkillHub 安装走「暂存 → 风险扫描 → 确认」隔离链路，与推荐安装共用确认弹窗。
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   App,
@@ -30,32 +32,40 @@ import {
   Typography,
 } from "antd";
 import {
+  CheckOutlined,
   CloudDownloadOutlined,
   FolderOpenOutlined,
   MoreOutlined,
+  PlusOutlined,
+  ReloadOutlined,
   SearchOutlined,
 } from "@ant-design/icons";
 import type { FetchState } from "../../lib/api.js";
 import { loadJson, postJson } from "../../lib/api.js";
 import { formatTime } from "./helpers.js";
-import { CategoryRail } from "./CategoryRail.js";
 import { SkillMarketCard } from "./SkillMarketCard.js";
 import { StagedRiskDetails } from "./StagedRiskDetails.js";
+import { buildSkillHubListUrl, SKILLHUB_SORT_OPTIONS, formatHubCount } from "./skillhub.js";
+import type {
+  SkillHubCategoriesResult,
+  SkillHubListResult,
+  SkillHubSkill,
+  SkillHubSortBy,
+} from "./skillhub.js";
 import {
   ACTION_TIMEOUT_MS,
   ALL_CATEGORY_LABEL,
   categorize,
   deployedToTarget,
   extractError,
-  formatInstalls,
   hasAvailableUpdate,
   parseStagedRisk,
   previewEntries,
+  SKILL_CATEGORIES,
   stringArray,
   updateStatusLabel,
 } from "./marketplace.js";
 import type {
-  MarketSearchResult,
   Recommendation,
   SkillsManagerSkill,
   SkillsManagerStatus,
@@ -63,10 +73,12 @@ import type {
   TrendItem,
   UpdateCheckItem,
 } from "./marketplace.js";
+import "./marketplace.css";
 
 const { Text } = Typography;
 
-type MarketView = "market" | "installed";
+type ContentTab = "recommended" | "skillhub";
+type MarketMode = "market" | "installed";
 
 interface PendingAction {
   title: string;
@@ -90,7 +102,20 @@ interface StagedRecommendation {
   installError: string | null;
 }
 
-const MARKET_SEARCH_TIMEOUT_MS = 120_000;
+interface HubListState {
+  items: SkillHubSkill[];
+  total: number;
+  page: number;
+  loading: boolean;
+  appending: boolean;
+  error?: string;
+  detail?: string;
+  fix?: string;
+}
+
+const HUB_PAGE_SIZE = 24;
+const FEATURED_PAGE_SIZE = 8;
+const HUB_SEARCH_DEBOUNCE_MS = 500;
 
 /** 后端失败载荷转人话：优先中文 detail/fix（stage/安装失败的真实原因），否则走通用提取。 */
 function friendlyError(data: unknown, fallback: string): string {
@@ -128,34 +153,103 @@ function installedStatusTag(
   return { text: "未部署", color: "default" };
 }
 
+/** 安装「+」圆钮：已安装显示对勾，暂存中转圈。 */
+function InstallPlus(props: { installed: boolean; busy: boolean; label: string; onClick: () => void }) {
+  if (props.installed) {
+    return (
+      <span className="wb-plus installed" role="img" aria-label={`${props.label} 已安装`}>
+        <CheckOutlined />
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className="wb-plus"
+      aria-label={`安装 ${props.label}`}
+      disabled={props.busy}
+      onClick={props.onClick}
+    >
+      {props.busy ? <Spin size="small" /> : <PlusOutlined />}
+    </button>
+  );
+}
+
+/** 分类 chips 行（含「全部」）。 */
+function CategoryChips(props: {
+  items: Array<{ key: string; label: string; count?: number }>;
+  active: string;
+  onSelect: (key: string) => void;
+}) {
+  return (
+    <div className="wb-chips" role="tablist" aria-label="技能分类筛选">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={props.active === ""}
+        className={`wb-chip${props.active === "" ? " active" : ""}`}
+        onClick={() => props.onSelect("")}
+      >
+        全部
+      </button>
+      {props.items.map((item) => (
+        <button
+          key={item.key}
+          type="button"
+          role="tab"
+          aria-selected={props.active === item.key}
+          className={`wb-chip${props.active === item.key ? " active" : ""}`}
+          onClick={() => props.onSelect(item.key)}
+        >
+          {item.label}
+          {item.count !== undefined && <span className="count">{item.count}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function SkillsMarketplace() {
   const { message } = App.useApp();
   const [state, setState] = useState<FetchState<SkillsManagerStatus>>({ status: "loading" });
   const [updates, setUpdates] = useState<Record<string, UpdateCheckItem>>({});
 
-  const [view, setView] = useState<MarketView>("market");
-  const [activeCategory, setActiveCategory] = useState(ALL_CATEGORY_LABEL);
+  const [mode, setMode] = useState<MarketMode>("market");
+  const [tab, setTab] = useState<ContentTab>("skillhub");
   const [keyword, setKeyword] = useState("");
 
+  // ---- SkillHub 目录 ----
+  const [hubCategories, setHubCategories] = useState<SkillHubCategoriesResult | null>(null);
+  const [hubCategory, setHubCategory] = useState("");
+  const [hubSort, setHubSort] = useState<SkillHubSortBy>("downloads");
+  const [hubSearchInput, setHubSearchInput] = useState("");
+  const [hubSearch, setHubSearch] = useState("");
+  const [hub, setHub] = useState<HubListState>({ items: [], total: 0, page: 1, loading: true, appending: false });
+  const [featured, setFeatured] = useState<{ items: SkillHubSkill[]; page: number; loading: boolean }>({
+    items: [],
+    page: 1,
+    loading: true,
+  });
+  const [hubBusySlug, setHubBusySlug] = useState<string | null>(null);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ---- 推荐与趋势 ----
   const [trends, setTrends] = useState<TrendItem[]>([]);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [marketSyncedAt, setMarketSyncedAt] = useState<string | null>(null);
   const [marketNotice, setMarketNotice] = useState("");
   const [marketLoading, setMarketLoading] = useState(false);
-  const [marketQuery, setMarketQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<MarketSearchResult[] | null>(null);
-  const [searchBusy, setSearchBusy] = useState(false);
   const [recommendBusy, setRecommendBusy] = useState<string | null>(null);
   const [stagedRecommendation, setStagedRecommendation] = useState<StagedRecommendation | null>(null);
   const [stagedInstallBusy, setStagedInstallBusy] = useState(false);
 
+  // ---- 安装与管理 ----
   const [gitInstallOpen, setGitInstallOpen] = useState(false);
   const [gitSource, setGitSource] = useState("");
   const [gitName, setGitName] = useState("");
   const [installBusy, setInstallBusy] = useState(false);
   const [adoptBusy, setAdoptBusy] = useState(false);
   const [updateAllBusy, setUpdateAllBusy] = useState(false);
-
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [detailName, setDetailName] = useState<string | null>(null);
@@ -188,7 +282,7 @@ export function SkillsMarketplace() {
     setUpdates(map);
   }, []);
 
-  /** 市场数据：公开趋势 + 使用推荐；趋势为空且从未同步时自动触发一次同步。 */
+  /** 推荐市场数据：公开趋势 + 使用推荐；趋势为空且从未同步时自动触发一次同步。 */
   const loadMarket = useCallback(async () => {
     setMarketLoading(true);
     const [trendResult, recommendResult] = await Promise.all([
@@ -223,18 +317,105 @@ export function SkillsMarketplace() {
     setMarketLoading(false);
   }, []);
 
+  const loadHubCategories = useCallback(async () => {
+    const result = await loadJson<SkillHubCategoriesResult>("/api/skillhub/categories", 15_000);
+    if (result.ok) setHubCategories(result.data);
+    else setHubCategories({ items: [], syncedAt: null, error: result.reason });
+  }, []);
+
+  /** SkillHub 列表：reset 替换第一页，否则追加下一页。 */
+  const loadHubList = useCallback(
+    async (next: { category?: string; sortBy?: SkillHubSortBy; search?: string; page: number; reset: boolean }) => {
+      const category = next.category ?? hubCategory;
+      const sortBy = next.sortBy ?? hubSort;
+      const search = next.search ?? hubSearch;
+      const page = Math.max(1, next.page);
+      setHub((current) => ({
+        ...current,
+        loading: next.reset,
+        appending: !next.reset,
+        error: next.reset ? undefined : current.error,
+        detail: next.reset ? undefined : current.detail,
+        fix: next.reset ? undefined : current.fix,
+      }));
+      const result = await loadJson<SkillHubListResult>(
+        buildSkillHubListUrl({ category, sortBy, keyword: search, page, pageSize: HUB_PAGE_SIZE }),
+        20_000,
+      );
+      if (!result.ok || !Array.isArray(result.data.items)) {
+        setHub((current) => ({
+          ...current,
+          loading: false,
+          appending: false,
+          ...(next.reset ? { items: [], total: 0 } : {}),
+          error: result.ok ? "skillhub-bad-payload" : result.reason,
+        }));
+        return;
+      }
+      if (result.data.error !== undefined) {
+        // watch 端把网络失败归一为 200 + error 字段：这里转成面板可重试的错误态。
+        setHub((current) => ({
+          ...current,
+          loading: false,
+          appending: false,
+          error: result.data.error,
+          detail: result.data.detail,
+          fix: result.data.fix,
+        }));
+        return;
+      }
+      setHub((current) => ({
+        items: next.reset ? result.data.items : [...current.items, ...result.data.items],
+        total: typeof result.data.total === "number" ? result.data.total : 0,
+        page,
+        loading: false,
+        appending: false,
+      }));
+    },
+    [hubCategory, hubSort, hubSearch],
+  );
+
+  const loadFeatured = useCallback(async (page: number) => {
+    setFeatured((current) => ({ ...current, loading: true }));
+    const result = await loadJson<{ items: SkillHubSkill[]; total: number }>(
+      buildSkillHubListUrl({ sortBy: "score", page, pageSize: FEATURED_PAGE_SIZE }),
+      20_000,
+    );
+    const items = result.ok && Array.isArray(result.data.items) ? result.data.items : [];
+    // 翻到没有数据的页码就回到第 1 页（换一换的循环语义）。
+    if (page > 1 && items.length === 0) {
+      const first = await loadJson<{ items: SkillHubSkill[] }>(
+        buildSkillHubListUrl({ sortBy: "score", page: 1, pageSize: FEATURED_PAGE_SIZE }),
+        20_000,
+      );
+      const firstItems = first.ok && Array.isArray(first.data.items) ? first.data.items : [];
+      setFeatured({ items: firstItems, page: 1, loading: false });
+      return;
+    }
+    setFeatured({ items, page, loading: false });
+  }, []);
+
   useEffect(() => {
     void loadAll();
     void loadMarket();
-  }, [loadAll, loadMarket]);
+    void loadHubCategories();
+    void loadFeatured(1);
+  }, [loadAll, loadMarket, loadHubCategories, loadFeatured]);
+
+  useEffect(() => {
+    void loadHubList({ page: 1, reset: true });
+    // hubCategory/hubSort/hubSearch 变化都回到第一页。
+  }, [hubCategory, hubSort, hubSearch, loadHubList]);
+
+  useEffect(() => () => {
+    if (searchTimer.current !== null) clearTimeout(searchTimer.current);
+  }, []);
 
   const status = state.status === "ready" ? state.data : null;
-  const skills = useMemo(
-    () => (status?.available === true ? status.skills ?? [] : []),
-    [status],
-  );
-  const hermesSkillsDir = status?.available === true ? status.hermesSkillsDir : undefined;
-  const cliVersion = status?.available === true ? status.cli?.version : undefined;
+  const managerAvailable = status?.available === true;
+  const skills = useMemo(() => (managerAvailable ? status.skills ?? [] : []), [status, managerAvailable]);
+  const hermesSkillsDir = managerAvailable ? status.hermesSkillsDir : undefined;
+  const cliVersion = managerAvailable ? status.cli?.version : undefined;
   const installedNames = useMemo(() => new Set(skills.map((item) => item.name)), [skills]);
 
   /** 已安装视图的卡片数据：名称/描述/标签 + 启发式中文分类 + 更新状态。 */
@@ -242,11 +423,7 @@ export function SkillsMarketplace() {
     () =>
       skills.map((item) => {
         const tags = stringArray(item.tags);
-        const category = categorize({
-          name: item.name,
-          description: item.description,
-          tags,
-        });
+        const category = categorize({ name: item.name, description: item.description, tags });
         const updatable = hasAvailableUpdate(updates[item.name]);
         const localRunning = isLocalAdopted(item, hermesSkillsDir);
         return { item, tags, category, updatable, localRunning };
@@ -254,39 +431,73 @@ export function SkillsMarketplace() {
     [skills, updates, hermesSkillsDir],
   );
 
-  /** 分类计数（含「全部技能」）；按当前视图的数据源统计。 */
-  const countByCategory = useMemo(() => {
-    const source =
-      view === "installed"
-        ? installedCards.map((card) => ({ name: card.item.name, description: card.item.description, tags: card.tags }))
-        : searchResults !== null
-          ? searchResults.map((item) => ({
-              name: item.name ?? item.skill_id ?? "",
-              description: item.source ?? "",
-              tags: [] as string[],
-            }))
-          : [
-              ...recommendations.map((item) => ({
-                name: item.name,
-                description: item.description ?? item.reason,
-                tags: [] as string[],
-              })),
-              ...trends.map((item) => ({
-                name: item.name,
-                description: item.description,
-                tags: [] as string[],
-              })),
-            ];
-    const counts: Record<string, number> = { [ALL_CATEGORY_LABEL]: source.length };
-    for (const item of source) {
+  const isInstalledHub = (item: SkillHubSkill) =>
+    installedNames.has(item.slug) || installedNames.has(item.name);
+
+  /** 分类 key → 中文名（SkillHub 分类 chips 与卡片色调映射）。 */
+  const hubCategoryName = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const item of hubCategories?.items ?? []) map.set(item.key, item.name);
+    return map;
+  }, [hubCategories]);
+
+  const hubTagOf = (item: SkillHubSkill): string[] => {
+    const tags: string[] = [];
+    if (item.source === "official") tags.push("官方");
+    if (item.requiresApiKey) tags.push("需 API Key");
+    const sub = item.subCategories[0]?.name;
+    if (sub !== undefined && sub !== "") tags.push(sub);
+    return tags.slice(0, 3);
+  };
+
+  const hubMeta = (item: SkillHubSkill) => (
+    <Text type="secondary" className="wb-card-meta">
+      {`${formatHubCount(item.downloads)} 下载 · ⭐ ${formatHubCount(item.stars)}`}
+      {item.ownerName !== "" ? ` · ${item.ownerName}` : ""}
+    </Text>
+  );
+
+  // ---- 分类计数（推荐/已安装的启发式分类） ----
+  const heuristicSource = useMemo(() => {
+    if (mode === "installed") {
+      return installedCards.map((card) => ({ name: card.item.name, description: card.item.description, tags: card.tags }));
+    }
+    const needle = keyword.trim().toLowerCase();
+    const filtered = (items: Array<{ name: string; description?: string }>) =>
+      needle === ""
+        ? items
+        : items.filter((item) => `${item.name} ${item.description ?? ""}`.toLowerCase().includes(needle));
+    return [
+      ...filtered(recommendations.map((item) => ({ name: item.name, description: item.description ?? item.reason }))),
+      ...filtered(trends.map((item) => ({ name: item.name, description: item.description }))),
+    ];
+  }, [mode, installedCards, recommendations, trends, keyword]);
+
+  const heuristicCounts = useMemo(() => {
+    const counts: Record<string, number> = { [ALL_CATEGORY_LABEL]: heuristicSource.length };
+    for (const item of heuristicSource) {
       const category = categorize(item);
       counts[category] = (counts[category] ?? 0) + 1;
     }
     return counts;
-  }, [view, installedCards, recommendations, trends, searchResults]);
+  }, [heuristicSource]);
+
+  const heuristicChips = useMemo(
+    () =>
+      SKILL_CATEGORIES.filter((category) => (heuristicCounts[category.label] ?? 0) > 0).map((category) => ({
+        key: category.label,
+        label: category.label,
+        count: heuristicCounts[category.label] ?? 0,
+      })),
+    [heuristicCounts],
+  );
+
+  const [activeHeuristic, setActiveHeuristic] = useState(ALL_CATEGORY_LABEL);
+  // 视图切换时启发式分类回到「全部」，避免残留筛选。
+  useEffect(() => setActiveHeuristic(ALL_CATEGORY_LABEL), [mode, tab]);
 
   const categoryMatches = (category: string) =>
-    activeCategory === ALL_CATEGORY_LABEL || category === activeCategory;
+    activeHeuristic === ALL_CATEGORY_LABEL || category === activeHeuristic;
 
   const visibleInstalled = useMemo(() => {
     const needle = keyword.trim().toLowerCase();
@@ -296,64 +507,50 @@ export function SkillsMarketplace() {
       const text = `${card.item.name} ${card.item.description ?? ""} ${card.tags.join(" ")}`;
       return text.toLowerCase().includes(needle);
     });
-  }, [installedCards, keyword, activeCategory]);
+  }, [installedCards, keyword, activeHeuristic]);
 
-  const marketCards = useMemo(() => {
-    if (searchResults !== null) {
-      return searchResults.map((item, index) => {
-        const name = item.name ?? item.skill_id ?? "未命名技能";
-        const installRef = item.install_ref ?? item.source ?? "";
-        const category = categorize({ name, description: item.source });
-        return {
-          key: `search-${installRef}-${index}`,
-          name,
-          subtitle: `${item.skill_id ?? item.source ?? "skills"} · skills 市场`,
-          description: item.source ?? "skills.sh 市场技能",
-          category,
-          tags: ["skills 市场"],
-          installRef,
-          installName: name,
-          installed: installedNames.has(name),
-          installs: item.installs,
-        };
-      });
-    }
-    return [
-      ...recommendations.map((item) => {
+  /** 推荐视图卡片（本地筛选 + 启发式分类过滤）。 */
+  const recommendedCards = useMemo(() => {
+    const needle = keyword.trim().toLowerCase();
+    const matchNeedle = (text: string) => needle === "" || text.toLowerCase().includes(needle);
+    const recs = recommendations
+      .map((item) => {
         const description = item.description ?? item.reason;
         return {
           key: `rec-${item.id}`,
           name: item.name,
-          subtitle: `${item.id} · 管家推荐`,
+          subtitle: "管家推荐",
           description,
           category: categorize({ name: item.name, description }),
-          tags: ["推荐"],
+          avatarUrl: null as string | null,
+          tags: ["推荐"] as string[],
+          kind: "recommendation" as const,
           recommendation: item,
           installed: installedNames.has(item.name),
         };
-      }),
-      ...trends.map((item) => ({
+      })
+      .filter((card) => categoryMatches(card.category) && matchNeedle(`${card.name} ${card.description}`));
+    const trendCards = trends
+      .map((item) => ({
         key: `trend-${item.name}`,
         name: item.name,
-        subtitle: `${item.name} · 公开项目`,
+        subtitle: "GitHub 公开项目",
         description: item.description ?? "公开技能项目，具体用途以仓库说明为准。",
         category: categorize({ name: item.name, description: item.description }),
-        tags: ["GitHub 公开项目"],
+        avatarUrl: `https://avatars.githubusercontent.com/${encodeURIComponent(ownerOf(item.name))}?s=80`,
+        tags: ["GitHub"] as string[],
+        kind: "trend" as const,
         trend: item,
         installed: installedNames.has(item.name),
-      })),
-    ];
-  }, [searchResults, recommendations, trends, installedNames]);
-
-  const visibleMarket = useMemo(
-    () => marketCards.filter((card) => categoryMatches(card.category)),
-    [marketCards, activeCategory],
-  );
+      }))
+      .filter((card) => categoryMatches(card.category) && matchNeedle(`${card.name} ${card.description}`));
+    return [...recs, ...trendCards];
+  }, [recommendations, trends, installedNames, keyword, activeHeuristic]);
 
   const deployedCount = installedCards.filter((card) => deployedToTarget(card.item)).length;
   const updatableCount = installedCards.filter((card) => card.updatable).length;
 
-  // ---- 操作流（与旧面板一一对应） ----
+  // ---- 操作流（保持既有能力） ----
 
   const beginAction = async (
     op: PendingAction["op"],
@@ -440,6 +637,41 @@ export function SkillsMarketplace() {
     setStagedRecommendation({ item, stageId, risk, installError: null });
   };
 
+  /** SkillHub 技能：下载 zip → 隔离暂存 + 风险扫描；确认安装共用 staged 链路。 */
+  const stageSkillHub = async (item: SkillHubSkill) => {
+    if (hubBusySlug !== null) return;
+    setHubBusySlug(item.slug);
+    const staged = await postJson(
+      `/api/skillhub/skills/${encodeURIComponent(item.slug)}/stage`,
+      {},
+      60_000,
+    );
+    setHubBusySlug(null);
+    const stageId =
+      staged.ok && staged.data !== null && typeof staged.data === "object" && "id" in staged.data
+        ? String((staged.data as { id: unknown }).id)
+        : "";
+    if (!staged.ok || stageId === "") {
+      message.error(staged.ok ? "服务未返回安装标识。" : friendlyError(staged.data, "SkillHub 下载或检查未完成。"));
+      return;
+    }
+    const risk = staged.data !== null && typeof staged.data === "object"
+      ? parseStagedRisk((staged.data as Record<string, unknown>)["risk"])
+      : null;
+    setStagedRecommendation({
+      item: {
+        id: `skillhub:${item.slug}`,
+        name: item.name,
+        reason: item.description,
+        description: item.description,
+        sourceUrl: item.homepage !== "" ? item.homepage : `https://skillhub.cn/skills/${item.slug}`,
+      },
+      stageId,
+      risk,
+      installError: null,
+    });
+  };
+
   const confirmStagedRecommendation = async () => {
     if (stagedRecommendation === null || stagedInstallBusy) return;
     setStagedInstallBusy(true);
@@ -472,32 +704,9 @@ export function SkillsMarketplace() {
       message.error(failure);
       return;
     }
-    message.success("技能已安装到中央库。");
+    message.success("技能已安装。");
     setStagedRecommendation(null);
     void loadAll({ silent: true });
-    void loadMarket();
-  };
-
-  const searchMarket = async () => {
-    const query = marketQuery.trim();
-    if (query === "") {
-      message.warning("请输入市场搜索关键词。");
-      return;
-    }
-    setSearchBusy(true);
-    const result = await loadJson<MarketSearchResult[]>(
-      `/api/skills-manager/search?query=${encodeURIComponent(query)}`,
-      MARKET_SEARCH_TIMEOUT_MS,
-    );
-    setSearchBusy(false);
-    if (!result.ok) {
-      message.error(
-        `${result.reason}。市场数据来自 skills.sh 在线源，网络波动可能导致失败；可稍后重试，或改用「从 Git 安装」。`,
-      );
-      return;
-    }
-    setActiveCategory(ALL_CATEGORY_LABEL);
-    setSearchResults(Array.isArray(result.data) ? result.data : []);
   };
 
   const updateOne = async (item: SkillsManagerSkill) => {
@@ -680,342 +889,519 @@ export function SkillsMarketplace() {
     void loadAll({ silent: true });
   };
 
-  // ---- 渲染 ----
-  const stagedBlocked = stagedRecommendation?.risk?.status === "blocked" || stagedRecommendation?.installError != null;
+  /** 搜索框统一入口：安装态=本地筛选；SkillHub=防抖关键词；推荐=本地筛选。 */
+  const onSearchChange = (value: string) => {
+    if (mode === "installed" || tab === "recommended") {
+      setKeyword(value);
+      return;
+    }
+    setHubSearchInput(value);
+    if (searchTimer.current !== null) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => setHubSearch(value.trim()), HUB_SEARCH_DEBOUNCE_MS);
+  };
 
-  if (state.status === "failed")
+  const searchValue = mode === "installed" || tab === "recommended" ? keyword : hubSearchInput;
+  const searchPlaceholder =
+    mode === "installed"
+      ? "筛选已安装技能"
+      : tab === "skillhub"
+        ? "搜索 SkillHub 技能"
+        : "筛选推荐与公开趋势";
+
+  const hubSearching = hubSearch.trim() !== "";
+  const hubCategoryChips = useMemo(
+    () =>
+      (hubCategories?.items ?? []).map((item) => ({ key: item.key, label: item.name })),
+    [hubCategories],
+  );
+
+  const hasMore = hub.items.length > 0 && hub.items.length < hub.total;
+
+  const renderMarketCard = (
+    card:
+      | { kind: "recommendation"; key: string; name: string; subtitle: string; description: string; category: string; avatarUrl: string | null; tags: string[]; recommendation: Recommendation; installed: boolean }
+      | { kind: "trend"; key: string; name: string; subtitle: string; description: string; category: string; avatarUrl: string | null; tags: string[]; trend: TrendItem; installed: boolean },
+  ) => (
+    <SkillMarketCard
+      key={card.key}
+      name={card.name}
+      subtitle={card.subtitle}
+      description={card.description}
+      category={card.category}
+      tags={card.tags}
+      avatarUrl={card.avatarUrl}
+      statusTag={card.installed ? { text: "已安装", color: "success" } : undefined}
+      footerLeft={
+        card.kind === "trend" ? (
+          <Flex align="center" gap={6}>
+            <Avatar size={18} src={`https://avatars.githubusercontent.com/${encodeURIComponent(ownerOf(card.trend.name))}?s=40`}>
+              {ownerOf(card.trend.name).charAt(0).toUpperCase()}
+            </Avatar>
+            <Text type="secondary" className="wb-card-meta">
+              {`⭐ ${card.trend.stars.toLocaleString()}`}
+            </Text>
+          </Flex>
+        ) : (
+          <Text type="secondary" className="wb-card-meta">
+            结合本机使用情况推荐
+          </Text>
+        )
+      }
+      footerRight={
+        card.installed ? undefined : card.kind === "recommendation" ? (
+          <Button
+            size="small"
+            type="primary"
+            loading={recommendBusy === card.recommendation.id}
+            onClick={() => void installRecommendation(card.recommendation)}
+          >
+            安装
+          </Button>
+        ) : (
+          <Button
+            size="small"
+            type="primary"
+            loading={installBusy}
+            onClick={() => void beginInstall(card.trend.name)}
+          >
+            安装
+          </Button>
+        )
+      }
+    />
+  );
+
+  const renderHubCard = (item: SkillHubSkill) => {
+    const installed = isInstalledHub(item);
+    const categoryLabel = hubCategoryName.get(item.category) ?? "实用小工具";
     return (
-      <Alert
-        type="warning"
-        showIcon
-        message="技能库管理器暂时连不上"
-        description={state.reason}
-        action={<Button onClick={() => void loadAll()}>重试</Button>}
+      <SkillMarketCard
+        key={item.slug}
+        name={item.name}
+        subtitle={item.version !== "" ? `${item.ownerName} · v${item.version}` : item.ownerName}
+        description={item.description !== "" ? item.description : "暂无描述，安装前请到 SkillHub 查看说明。"}
+        category={categoryLabel}
+        tags={hubTagOf(item)}
+        avatarUrl={item.iconUrl}
+        action={
+          <InstallPlus
+            installed={installed}
+            busy={hubBusySlug === item.slug}
+            label={item.name}
+            onClick={() => void stageSkillHub(item)}
+          />
+        }
+        footerLeft={hubMeta(item)}
       />
     );
-  if (state.status === "loading")
-    return (
-      <Flex justify="center" align="center" style={{ padding: "48px 0" }}>
-        <Spin />
-        <Text type="secondary" style={{ marginLeft: 12 }}>
-          正在读取技能库状态…
-        </Text>
-      </Flex>
-    );
-  if (status === null || status.available !== true)
-    return (
-      <Card>
-        <Empty description="技能库管理器未安装" style={{ padding: "24px 0" }} />
-        <Typography.Paragraph type="secondary" style={{ textAlign: "center" }}>
-          {status !== null && "installHint" in status
-            ? status.installHint ?? "当前 watch 镜像未包含 skills-manager CLI。"
-            : "当前 watch 镜像未包含 skills-manager CLI。"}
-        </Typography.Paragraph>
-      </Card>
-    );
+  };
 
-  const railFooterNote =
-    view === "installed"
-      ? `共 ${skills.length} 个技能${cliVersion === undefined ? "" : ` · 管理器 ${cliVersion}`}`
-      : `共 ${countByCategory[ALL_CATEGORY_LABEL] ?? 0} 个市场项目${
-          marketSyncedAt === null ? "" : ` · 同步于 ${formatTime(marketSyncedAt)}`
-        }`;
+  const renderFeaturedCard = (item: SkillHubSkill) => {
+    const installed = isInstalledHub(item);
+    const categoryLabel = hubCategoryName.get(item.category) ?? "实用小工具";
+    return (
+      <SkillMarketCard
+        key={`featured-${item.slug}`}
+        name={item.name}
+        description={item.description !== "" ? item.description : "暂无描述。"}
+        category={categoryLabel}
+        avatarUrl={item.iconUrl}
+        action={
+          <InstallPlus
+            installed={installed}
+            busy={hubBusySlug === item.slug}
+            label={item.name}
+            onClick={() => void stageSkillHub(item)}
+          />
+        }
+        footerLeft={
+          <Text type="secondary" className="wb-card-meta">
+            {`${formatHubCount(item.downloads)} 下载`}
+          </Text>
+        }
+      />
+    );
+  };
 
-  const marketBody = (
+  const renderInstalledCard = (card: (typeof installedCards)[number]) => {
+    const primaryAction = card.localRunning ? (
+      <Button
+        key="bind"
+        size="small"
+        onClick={() =>
+          setSourceDraft({
+            name: card.item.name,
+            gitUrl: "",
+            subpath: "",
+            branch: "",
+            force: false,
+          })
+        }
+      >
+        绑定源
+      </Button>
+    ) : deployedToTarget(card.item) ? (
+      <Button
+        key="undeploy"
+        size="small"
+        danger
+        onClick={() =>
+          void beginAction("undeploy", `取消部署 ${card.item.name}`, { name: card.item.name })
+        }
+      >
+        取消部署
+      </Button>
+    ) : (
+      <Button
+        key="deploy"
+        size="small"
+        type="primary"
+        ghost
+        onClick={() =>
+          void beginAction("deploy", `部署 ${card.item.name}`, { name: card.item.name })
+        }
+      >
+        部署
+      </Button>
+    );
+    const menuItems = [
+      ...(card.updatable
+        ? [
+            {
+              key: "update",
+              label: "更新技能",
+              onClick: () => void updateOne(card.item),
+            },
+          ]
+        : []),
+      {
+        key: "remove",
+        label: "删除技能",
+        danger: true,
+        onClick: () =>
+          void beginAction("remove", `删除 ${card.item.name}`, { name: card.item.name }),
+      },
+    ];
+    return (
+      <SkillMarketCard
+        key={card.item.name}
+        name={card.item.name}
+        subtitle={`${card.item.skill_id ?? "中央库技能"} · ${card.item.source_type ?? "local"}`}
+        description={card.item.description ?? "中央库技能，详情见技能文件。"}
+        category={card.category}
+        tags={card.tags}
+        statusTag={installedStatusTag(card.item, {
+          updatable: card.updatable,
+          localRunning: card.localRunning,
+        })}
+        footerLeft={
+          <Text type="secondary" className="wb-card-meta">
+            {updateStatusLabel(updates[card.item.name]?.update_status).text}
+          </Text>
+        }
+        footerRight={
+          <>
+            {card.updatable && (
+              <Button size="small" type="primary" onClick={() => void updateOne(card.item)}>
+                升级
+              </Button>
+            )}
+            <Button size="small" onClick={() => void openDetail(card.item.name)}>
+              详情
+            </Button>
+            {primaryAction}
+            <Dropdown
+              key="more"
+              menu={{ items: menuItems }}
+              trigger={["click"]}
+              placement="bottomRight"
+            >
+              <Button
+                size="small"
+                aria-label={`更多操作：${card.item.name}`}
+                icon={<MoreOutlined />}
+              />
+            </Dropdown>
+          </>
+        }
+      />
+    );
+  };
+
+  const stagedBlocked = stagedRecommendation?.risk?.status === "blocked" || stagedRecommendation?.installError != null;
+
+  /** 网格骨架：加载中转圈 + 空态 + 卡片。 */
+  const gridBody = (nodes: React.ReactNode[], emptyText: string) => {
+    if (nodes.length === 0)
+      return (
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyText} style={{ padding: "32px 0" }} />
+      );
+    return (
+      <div className="wb-grid">
+        {nodes}
+      </div>
+    );
+  };
+
+  // ---- 各视图主体 ----
+
+  const skillHubBody = (
     <>
-      {searchResults !== null && (
+      {hubCategories !== null && hubCategories.error !== undefined && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="SkillHub 分类暂时读不到"
+          description={hubCategories.detail ?? hubCategories.error}
+          action={<Button size="small" onClick={() => void loadHubCategories()}>重试</Button>}
+        />
+      )}
+      {hubSearching ? (
         <Flex align="center" gap={8} style={{ marginBottom: 12 }}>
-          <Tag closable onClose={() => { setSearchResults(null); setMarketQuery(""); }}>
-            搜索结果：{searchResults.length} 项
+          <Tag closable onClose={() => { setHubSearchInput(""); setHubSearch(""); }}>
+            搜索：{hubSearch.trim()}
           </Tag>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            关键词「{marketQuery.trim()}」；清除后回到推荐与公开趋势。
+            {`共 ${hub.total} 项结果；清除后回到分类浏览。`}
           </Text>
         </Flex>
+      ) : (
+        <CategoryChips items={hubCategoryChips} active={hubCategory} onSelect={setHubCategory} />
       )}
-      {marketLoading ? (
+      {hub.error !== undefined && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="SkillHub 目录暂时读不到"
+          description={[hub.detail, hub.fix].filter((item) => item !== undefined).join(" ") || hub.error}
+          action={<Button size="small" onClick={() => void loadHubList({ page: 1, reset: true })}>重试</Button>}
+        />
+      )}
+      {hub.loading ? (
         <Flex justify="center" align="center" gap={8} style={{ padding: "48px 0" }}>
           <Spin />
-          <Text type="secondary">正在读取市场数据…</Text>
+          <Text type="secondary">正在读取 SkillHub 目录…</Text>
         </Flex>
-      ) : visibleMarket.length === 0 ? (
-        <Empty
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description={
-            searchResults !== null
-              ? "市场里没有匹配的技能，换个关键词试试"
-              : "暂无市场项目；点击右上角「同步公开数据」或直接从 Git 安装"
-          }
-        />
-      ) : (
-        <div className="skills-waterfall">
-          {visibleMarket.map((card) => (
-            <SkillMarketCard
-              key={card.key}
-              name={card.name}
-              subtitle={card.subtitle}
-              description={card.description}
-              category={card.category}
-              tags={card.tags}
-              statusTag={card.installed ? { text: "已安装", color: "success" } : undefined}
-              footerLeft={
-                "installs" in card && card.installs !== undefined ? (
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    {formatInstalls(card.installs)}
-                  </Text>
-                ) : "trend" in card ? (
-                  <Flex align="center" gap={8}>
-                    <Avatar
-                      size={20}
-                      src={`https://avatars.githubusercontent.com/${encodeURIComponent(ownerOf(card.name))}?s=40`}
-                      alt={ownerOf(card.name)}
-                    >
-                      {ownerOf(card.name).charAt(0).toUpperCase()}
-                    </Avatar>
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      {`⭐ ${card.trend.stars.toLocaleString()}`}
-                    </Text>
-                  </Flex>
-                ) : (
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    结合本机使用情况推荐
-                  </Text>
-                )
-              }
-              footerRight={
-                card.installed ? undefined : "recommendation" in card ? (
-                  <Button
-                    key="install"
-                    type="primary"
-                    size="small"
-                    loading={recommendBusy === card.recommendation.id}
-                    onClick={() => void installRecommendation(card.recommendation)}
-                  >
-                    立即安装
-                  </Button>
-                ) : "installRef" in card ? (
-                  <Button
-                    key="install"
-                    type="primary"
-                    size="small"
-                    loading={installBusy}
-                    onClick={() => void beginInstall(card.installRef, card.installName, "skills")}
-                  >
-                    立即安装
-                  </Button>
-                ) : (
-                  <Button
-                    key="install"
-                    type="primary"
-                    size="small"
-                    loading={installBusy}
-                    onClick={() => void beginInstall(card.trend.name)}
-                  >
-                    立即安装
-                  </Button>
-                )
-              }
-            />
-          ))}
+      ) : gridBody(
+          hub.items.map(renderHubCard),
+          hubSearching
+            ? "SkillHub 里没有匹配的技能，换个关键词试试"
+            : "该分类下暂时没有技能，换个分类或搜索试试",
+        )}
+      {hasMore && (
+        <div className="wb-load-more">
+          <Button
+            loading={hub.appending}
+            onClick={() => void loadHubList({ page: hub.page + 1, reset: false })}
+          >
+            加载更多（已展示 {hub.items.length}/{hub.total}）
+          </Button>
         </div>
       )}
     </>
   );
 
+  const recommendedBody = marketLoading ? (
+    <Flex justify="center" align="center" gap={8} style={{ padding: "48px 0" }}>
+      <Spin />
+      <Text type="secondary">正在读取推荐与公开趋势…</Text>
+    </Flex>
+  ) : gridBody(
+      recommendedCards.map(renderMarketCard),
+      "暂无推荐项目；点击右上角搜索或直接从 Git 安装",
+    );
+
   const installedBody = (
     <>
-      <Flex gap={24} wrap="wrap" style={{ marginBottom: 12 }}>
-        <Statistic title="本机已安装" value={skills.length} />
-        <Statistic title="已部署到智能体" value={deployedCount} />
-        <Statistic title="有可用更新" value={updatableCount} />
+      <Flex justify="space-between" align="center" gap={12} wrap="wrap" style={{ marginBottom: 12 }}>
+        <Flex gap={24} wrap="wrap">
+          <Statistic title="本机已安装" value={skills.length} />
+          <Statistic title="已部署到智能体" value={deployedCount} />
+          <Statistic title="有可用更新" value={updatableCount} />
+        </Flex>
+        <Button type="primary" loading={updateAllBusy} onClick={() => void updateAll()}>
+          一键更新全部
+        </Button>
       </Flex>
-      {visibleInstalled.length === 0 ? (
-        <Empty
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description={
-            skills.length === 0
-              ? "中央库还是空的；去市场安装或从 Git 导入第一个技能"
-              : "没有匹配当前分类和筛选的技能"
-          }
-        />
+      {!managerAvailable ? (
+        <Card>
+          <Empty description="技能库管理器未安装" style={{ padding: "24px 0" }} />
+          <Typography.Paragraph type="secondary" style={{ textAlign: "center" }}>
+            {status !== null && "installHint" in status
+              ? status.installHint ?? "当前 watch 镜像未包含 skills-manager CLI。"
+              : "当前 watch 镜像未包含 skills-manager CLI。"}
+          </Typography.Paragraph>
+        </Card>
       ) : (
-        <div className="skills-waterfall">
-          {visibleInstalled.map((card) => {
-            const primaryAction = card.localRunning ? (
-              <Button
-                key="bind"
-                size="small"
-                onClick={() =>
-                  setSourceDraft({
-                    name: card.item.name,
-                    gitUrl: "",
-                    subpath: "",
-                    branch: "",
-                    force: false,
-                  })
-                }
-              >
-                绑定源
-              </Button>
-            ) : deployedToTarget(card.item) ? (
-              <Button
-                key="undeploy"
-                size="small"
-                danger
-                onClick={() =>
-                  void beginAction("undeploy", `取消部署 ${card.item.name}`, { name: card.item.name })
-                }
-              >
-                取消部署
-              </Button>
-            ) : (
-              <Button
-                key="deploy"
-                size="small"
-                type="primary"
-                ghost
-                onClick={() =>
-                  void beginAction("deploy", `部署 ${card.item.name}`, { name: card.item.name })
-                }
-              >
-                部署
-              </Button>
-            );
-            const menuItems = [
-              ...(card.updatable
-                ? [
-                    {
-                      key: "update",
-                      label: "更新技能",
-                      onClick: () => void updateOne(card.item),
-                    },
-                  ]
-                : []),
-              {
-                key: "remove",
-                label: "删除技能",
-                danger: true,
-                onClick: () =>
-                  void beginAction("remove", `删除 ${card.item.name}`, { name: card.item.name }),
-              },
-            ];
-            return (
-              <SkillMarketCard
-                key={card.item.name}
-                name={card.item.name}
-                subtitle={`${card.item.skill_id ?? "中央库技能"} · ${card.item.source_type ?? "local"}`}
-                description={card.item.description ?? "中央库技能，详情见技能文件。"}
-                category={card.category}
-                tags={card.tags}
-                statusTag={installedStatusTag(card.item, {
-                  updatable: card.updatable,
-                  localRunning: card.localRunning,
-                })}
-                footerLeft={
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    {updateStatusLabel(updates[card.item.name]?.update_status).text}
-                  </Text>
-                }
-                footerRight={
-                  <>
-                    {card.updatable && (
-                      <Button size="small" type="primary" onClick={() => void updateOne(card.item)}>
-                        立即升级
-                      </Button>
-                    )}
-                    <Button size="small" onClick={() => void openDetail(card.item.name)}>
-                      详情
-                    </Button>
-                    {primaryAction}
-                    <Dropdown
-                      key="more"
-                      menu={{ items: menuItems }}
-                      trigger={["click"]}
-                      placement="bottomRight"
-                    >
-                      <Button
-                        size="small"
-                        aria-label={`更多操作：${card.item.name}`}
-                        icon={<MoreOutlined />}
-                      />
-                    </Dropdown>
-                  </>
-                }
-              />
-            );
-          })}
-        </div>
+        <>
+          <CategoryChips
+            items={heuristicChips}
+            active={activeHeuristic}
+            onSelect={setActiveHeuristic}
+          />
+          {state.status === "loading" ? (
+            <Flex justify="center" align="center" gap={8} style={{ padding: "48px 0" }}>
+              <Spin />
+              <Text type="secondary">正在读取本机技能…</Text>
+            </Flex>
+          ) : gridBody(
+              visibleInstalled.map(renderInstalledCard),
+              skills.length === 0
+                ? "中央库还是空的；去市场安装或从 Git 导入第一个技能"
+                : "没有匹配当前分类和筛选的技能",
+            )}
+          {cliVersion !== undefined && (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {`共 ${skills.length} 个技能 · 管理器 ${cliVersion}`}
+            </Text>
+          )}
+        </>
       )}
     </>
   );
 
   return (
-    <Flex vertical gap={16} className="skills-marketplace-panel">
-      {/* 工具带：视图切换 + 搜索 + 安装入口 */}
-      <Flex justify="space-between" align="center" gap={12} wrap="wrap">
-        <Segmented<MarketView>
-          value={view}
-          onChange={(value) => {
-            setView(value);
-            setActiveCategory(ALL_CATEGORY_LABEL);
-          }}
-          options={[
-            { label: "技能市场", value: "market" },
-            { label: "本机已安装", value: "installed" },
-          ]}
-        />
+    <Flex vertical gap={14} className="skills-marketplace-panel">
+      {/* 工具行：内容 Tab + 搜索 + 我安装的 + 添加技能 */}
+      <div className="wb-toolbar">
+        <nav className="wb-tabs" role="tablist" aria-label="市场内容切换">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === "market" && tab === "skillhub"}
+            className={`wb-tab${mode === "market" && tab === "skillhub" ? " active" : ""}`}
+            onClick={() => { setMode("market"); setTab("skillhub"); }}
+          >
+            SkillHub
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === "market" && tab === "recommended"}
+            className={`wb-tab${mode === "market" && tab === "recommended" ? " active" : ""}`}
+            onClick={() => { setMode("market"); setTab("recommended"); }}
+          >
+            推荐
+          </button>
+        </nav>
         <Flex gap={8} wrap="wrap" align="center">
           <Input
             allowClear
             style={{ width: 260 }}
             prefix={<SearchOutlined />}
-            placeholder={view === "market" ? "搜索 skills 市场技能" : "按名称、描述或标签筛选"}
-            value={view === "market" ? marketQuery : keyword}
-            onChange={(event) =>
-              view === "market" ? setMarketQuery(event.target.value) : setKeyword(event.target.value)
-            }
-            onPressEnter={() => {
-              if (view === "market") void searchMarket();
-            }}
+            placeholder={searchPlaceholder}
+            value={searchValue}
+            onChange={(event) => onSearchChange(event.target.value)}
           />
-          {view === "market" && (
-            <Button loading={searchBusy} onClick={() => void searchMarket()}>
-              搜索市场
-            </Button>
-          )}
-          <Button icon={<FolderOpenOutlined />} loading={adoptBusy} onClick={() => void adoptLocalSkills()}>
-            收编本机技能
-          </Button>
-          <Button
-            icon={<CloudDownloadOutlined />}
-            type={view === "market" ? "primary" : "default"}
-            loading={installBusy}
-            onClick={() => setGitInstallOpen(true)}
+          <button
+            type="button"
+            className={`wb-installed-chip${mode === "installed" ? " active" : ""}`}
+            aria-pressed={mode === "installed"}
+            onClick={() => setMode(mode === "installed" ? "market" : "installed")}
           >
-            从 Git 安装
-          </Button>
-          {view === "installed" && (
-            <Button type="primary" loading={updateAllBusy} onClick={() => void updateAll()}>
-              一键更新全部
+            我安装的
+            <span className="count">{skills.length}</span>
+          </button>
+          <Dropdown
+            trigger={["click"]}
+            menu={{
+              items: [
+                { key: "git", icon: <CloudDownloadOutlined />, label: "从 Git 安装", onClick: () => setGitInstallOpen(true) },
+                {
+                  key: "adopt",
+                  icon: <FolderOpenOutlined />,
+                  label: "收编本机技能",
+                  disabled: !managerAvailable || hermesSkillsDir === undefined,
+                  onClick: () => void adoptLocalSkills(),
+                },
+              ],
+            }}
+            placement="bottomRight"
+          >
+            <Button type="primary" icon={<PlusOutlined />}>
+              添加技能
             </Button>
-          )}
+          </Dropdown>
         </Flex>
-      </Flex>
+      </div>
 
-      {/* 主体：左侧分类导航 + 右侧瀑布流 */}
-      <Flex gap={16} align="flex-start">
-        <CategoryRail
-          counts={countByCategory}
-          active={activeCategory}
-          onSelect={setActiveCategory}
-          footerNote={railFooterNote}
+      {state.status === "failed" && (
+        <Alert
+          type="warning"
+          showIcon
+          message="本机技能库状态暂时读不到（已安装数量与安装管理暂不可用）"
+          description={state.reason}
+          action={<Button onClick={() => void loadAll()}>重试</Button>}
         />
-        <div style={{ flex: "1 1 auto", minWidth: 0 }}>
-          {view === "market" ? marketBody : installedBody}
-        </div>
-      </Flex>
+      )}
 
-      {/* Git 安装弹窗 */}
+      {mode === "market" && (
+        <>
+          {/* 精选技能：SkillHub 高分技能横滑行；搜索时隐藏聚焦结果。 */}
+          {!hubSearching && tab === "skillhub" && (
+            <section className="wb-featured" aria-label="精选技能">
+              <div className="wb-section-head">
+                <Text strong style={{ fontSize: 15 }}>
+                  精选技能
+                </Text>
+                <Button
+                  size="small"
+                  type="text"
+                  icon={<ReloadOutlined />}
+                  loading={featured.loading}
+                  onClick={() => void loadFeatured(featured.page + 1)}
+                >
+                  换一换
+                </Button>
+              </div>
+              {featured.loading && featured.items.length === 0 ? (
+                <Flex justify="center" align="center" gap={8} style={{ padding: "24px 0" }}>
+                  <Spin size="small" />
+                  <Text type="secondary">正在获取精选技能…</Text>
+                </Flex>
+              ) : (
+                <div className="wb-featured-row">
+                  {featured.items.map(renderFeaturedCard)}
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* 分类排序行（SkillHub） */}
+          {tab === "skillhub" && !hubSearching && (
+            <Flex justify="space-between" align="center" gap={12} wrap="wrap">
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {hubCategories === null
+                  ? "分类读取中…"
+                  : `数据来自 SkillHub（skillhub.cn）${hubCategories.syncedAt === null ? "" : ` · 同步于 ${formatTime(hubCategories.syncedAt)}`}`}
+              </Text>
+              <Segmented<SkillHubSortBy>
+                size="small"
+                value={hubSort}
+                onChange={setHubSort}
+                options={SKILLHUB_SORT_OPTIONS}
+              />
+            </Flex>
+          )}
+
+          {tab === "skillhub" ? skillHubBody : recommendedBody}
+
+          {tab === "recommended" && (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {[
+                marketNotice,
+                marketSyncedAt === null ? "" : `公开趋势同步于 ${formatTime(marketSyncedAt)}`,
+              ].filter((item) => item !== "").join(" · ")}
+            </Text>
+          )}
+        </>
+      )}
+
+      {mode === "installed" && installedBody}
+
+      {/* 暂存确认弹窗（推荐 + SkillHub 共用） */}
       <Modal
         open={stagedRecommendation !== null}
         title={stagedBlocked ? "隔离技能已被阻止" : "确认安装隔离技能"}
@@ -1031,7 +1417,7 @@ export function SkillsMarketplace() {
         {stagedRecommendation !== null && (
           <Flex vertical gap={10}>
             <Typography.Paragraph>
-              「{stagedRecommendation.item.name}」已下载到 Butler 隔离区，尚未写入 Hermes。
+              「{stagedRecommendation.item.name}」已下载到 Butler 隔离区，尚未写入本机技能目录。
             </Typography.Paragraph>
             <Typography.Paragraph type="secondary">
               来源：{stagedRecommendation.item.sourceUrl}
@@ -1106,7 +1492,7 @@ export function SkillsMarketplace() {
         )}
       </Modal>
 
-      {/* 详情抽屉：基础信息 + 标签管理 + Git 源绑定 */}
+      {/* 详情抽屉：基础信息 + 标签管理 */}
       <Drawer
         title={detailName !== null ? `技能详情：${detailName}` : "技能详情"}
         width={560}
@@ -1143,11 +1529,7 @@ export function SkillsMarketplace() {
                 );
               })()}
             </Descriptions>
-            <Card
-              size="small"
-              title="标签"
-              style={{ marginTop: 16 }}
-            >
+            <Card size="small" title="标签" style={{ marginTop: 16 }}>
               <Flex gap={8} wrap="wrap">
                 <Input
                   placeholder="标签，多个用逗号分隔"
@@ -1229,12 +1611,6 @@ export function SkillsMarketplace() {
           {JSON.stringify(sourcePreview, null, 2)}
         </pre>
       </Modal>
-
-      {marketNotice !== "" && (
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          {marketNotice}
-        </Text>
-      )}
     </Flex>
   );
 }

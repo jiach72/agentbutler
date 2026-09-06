@@ -1,8 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { atomicWriteJson, withManagedOperationLock, type Core, type InstanceRecord } from "@butler/core";
-import { readGithubToken } from "./github-token.js";
+import { resolveGithubToken } from "./github-token.js";
+import { createSkillHubClient, readZipEntries, type SkillHubCategoriesView, type SkillHubClient, type SkillHubListQuery, type SkillHubListView } from "./skillhub.js";
 import type { BackupService } from "./backup.js";
 import type { BackupGate } from "./backup-gate.js";
 import type { SkillsMemoryService } from "./skills.js";
@@ -20,6 +21,12 @@ export interface SkillAssetService {
   recommendations(): Promise<Record<string, unknown>>;
   stageRecommendation(id: string): Promise<Record<string, unknown>>;
   installStaged(id: string, confirmed: boolean): Promise<Record<string, unknown>>;
+  /** SkillHub（skillhub.cn）目录：一级分类（带短缓存）。 */
+  skillHubCategories(): Promise<SkillHubCategoriesView>;
+  /** SkillHub 列表/搜索：关键词 + 分类 + 排序 + 分页。 */
+  skillHubList(query: SkillHubListQuery): Promise<SkillHubListView>;
+  /** SkillHub 技能暂存：下载 zip → 解压校验 → 风险扫描 → 写入隔离区（复用 installStaged 确认安装）。 */
+  stageSkillHub(slug: string): Promise<Record<string, unknown>>;
 }
 export interface SkillStaticRiskReport {
   status: "clear" | "blocked";
@@ -110,6 +117,37 @@ function findSkill(root: string, name: string): string | null {
   return existsSync(base) ? visit(base, 0) : null;
 }
 function inside(path: string, root: string): boolean { const rel = relative(resolve(root), resolve(path)); return rel === "" || (!rel.startsWith(".." + sep) && rel !== ".." && !rel.includes(".." + sep)); }
+
+/**
+ * 目录落位：优先原子 rename；跨挂载（EXDEV，如 Butler 数据卷 → Hermes 挂载目录）
+ * 退化为「复制 → 校验 → 删源」，其余错误原样抛出。verify 在删源前对目标做校验，
+ * 失败时清理目标副本，保持源目录完好可重试。
+ */
+export function moveDirSync(
+  from: string,
+  to: string,
+  options: { verify?: (target: string) => void; rename?: typeof renameSync } = {},
+): void {
+  const rename = options.rename ?? renameSync;
+  try {
+    rename(from, to);
+    return;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code !== "EXDEV") throw error;
+  }
+  cpSync(from, to, { recursive: true });
+  try {
+    options.verify?.(to);
+  } catch (error) {
+    rmSync(to, { recursive: true, force: true });
+    throw error;
+  }
+  rmSync(from, { recursive: true, force: true });
+}
+
+function verifySkillDir(target: string): void {
+  if (!existsSync(join(target, "SKILL.md"))) throw new Error("落位后缺少 SKILL.md，已回滚");
+}
 function usageBucket(timestamp: string, granularity: UsageGranularity): string {
   const date = new Date(timestamp);
   if (granularity === "month") return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-01`;
@@ -182,12 +220,13 @@ function describeRepository(name: string): string {
   return "公开技能项目，具体用途以仓库说明为准。";
 }
 
-export function createSkillAssetService(deps: { core: Core; skills: SkillsMemoryService; backup?: BackupService; backupGate?: BackupGate; logs?: { listSources(instanceId?: string): LogSource[]; readTail(sourceId: string, instanceId?: string, limit?: number): Promise<{ lines: string[] } | null> }; now?: () => number; fetch?: FetchLike; githubToken?: string }): SkillAssetService {
+export function createSkillAssetService(deps: { core: Core; skills: SkillsMemoryService; backup?: BackupService; backupGate?: BackupGate; logs?: { listSources(instanceId?: string): LogSource[]; readTail(sourceId: string, instanceId?: string, limit?: number): Promise<{ lines: string[] } | null> }; now?: () => number; fetch?: FetchLike; githubToken?: string; skillHub?: SkillHubClient }): SkillAssetService {
   const now = deps.now ?? Date.now;
   const fetchImpl = deps.fetch ?? globalThis.fetch.bind(globalThis);
+  const skillHub = deps.skillHub ?? createSkillHubClient({ fetchImpl, now });
   // GitHub 令牌优先级：env（部署显式配置）> 注入 dep（测试）> 设置页保存的
   // <home>/github-token.json（与本体目录同源解析）；都没有则匿名访问（受限流）。
-  const githubToken = (process.env["GITHUB_TOKEN"] ?? process.env["GH_TOKEN"] ?? deps.githubToken ?? readGithubToken(deps.core.paths.home) ?? "").trim();
+  const githubToken = resolveGithubToken(deps.core.paths.home, deps.githubToken).trim();
   const headers = githubHeaders(githubToken);
   const root = join(deps.core.paths.home, "skill-assets"); const archiveRoot = join(root, "archive"); const stageRoot = join(root, "staged"); const trendPath = join(root, "github-trends.json");
   mkdirSync(archiveRoot, { recursive: true }); mkdirSync(stageRoot, { recursive: true });
@@ -267,7 +306,7 @@ export function createSkillAssetService(deps: { core: Core; skills: SkillsMemory
         try {
           if (!deps.backupGate && deps.backup) await deps.backup.run("event", "归档技能 " + safe);
           const archivePath = join(archiveRoot, safe + "-" + now());
-          renameSync(dir, archivePath);
+          moveDirSync(dir, archivePath, { verify: verifySkillDir });
           const meta: ArchivedMeta = { name: safe, source: item.source, originalPath: dir, archivePath, archivedAt: iso(now), hash: sha(readFileSync(join(archivePath, "SKILL.md"), "utf8")) };
           atomicWriteJson(join(archivePath, "meta.json"), meta, { mode: 0o600, description: "技能归档元数据" });
           archived.set(safe, meta);
@@ -290,7 +329,7 @@ export function createSkillAssetService(deps: { core: Core; skills: SkillsMemory
           const hash = sha(readFileSync(join(meta.archivePath, "SKILL.md"), "utf8"));
           if (hash !== meta.hash) return { ok: false, error: "hash-conflict", fix: "归档内容已变化，禁止恢复" };
           mkdirSync(dirname(meta.originalPath), { recursive: true });
-          renameSync(meta.archivePath, meta.originalPath);
+          moveDirSync(meta.archivePath, meta.originalPath, { verify: verifySkillDir });
           archived.delete(name);
           return { ok: true, name };
         } catch (error) {
@@ -342,13 +381,57 @@ export function createSkillAssetService(deps: { core: Core; skills: SkillsMemory
         try {
           if (!deps.backupGate && deps.backup) await deps.backup.run("event", "安装技能 " + targetName);
           mkdirSync(dirname(target), { recursive: true });
-          renameSync(path, target);
+          moveDirSync(path, target, { verify: verifySkillDir });
           deps.core.audit.append({ actor: "skills", action: "skill-installed", target: targetName, detail: { target, stageId: id } });
           return { ok: true, name: targetName, installedPath: target };
         } catch (error) {
           return { ok: false, error: "install-failed", detail: error instanceof Error ? error.message : String(error), fix: "检查备份和 Hermes 技能目录权限" };
         }
       });
+    },
+    async skillHubCategories() { return skillHub.categories(); },
+    async skillHubList(query) { return skillHub.list(query); },
+    /** SkillHub 暂存与 stageRecommendation 同约定：下载到隔离区 + 风险扫描，确认安装走 installStaged。 */
+    async stageSkillHub(slugRaw) {
+      const slug = slugRaw.trim();
+      if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/.test(slug)) return { ok: false, error: "invalid-slug", fix: "SkillHub 技能标识不合法，请从市场卡片重新发起安装。" };
+      let files: Array<{ path: string; data: Uint8Array }>;
+      try {
+        files = readZipEntries(await skillHub.download(slug));
+        if (!files.some((item) => item.path === "SKILL.md")) {
+          // 部分包把技能嵌在唯一顶层目录里：剥掉该前缀后再找 SKILL.md。
+          const topDirs = new Set(files.map((item) => item.path.split("/")[0]!));
+          if (topDirs.size === 1) {
+            const prefix = `${[...topDirs][0]!}/`;
+            const stripped = files.filter((item) => item.path.startsWith(prefix)).map((item) => ({ path: item.path.slice(prefix.length), data: item.data }));
+            if (stripped.some((item) => item.path === "SKILL.md")) files = stripped;
+          }
+        }
+      } catch (error) {
+        return { ok: false, error: "skillhub-download-failed", detail: error instanceof Error ? error.message : String(error), fix: "检查网络后重试；SkillHub 下载走 api.skillhub.cn。" };
+      }
+      const skillEntry = files.find((item) => item.path === "SKILL.md");
+      if (skillEntry === undefined) return { ok: false, error: "skill-md-missing", fix: "该技能包缺少 SKILL.md，无法安装。" };
+      const skillText = new TextDecoder().decode(skillEntry.data);
+      const risk = inspectSkillText(skillText);
+      const stageId = randomUUID();
+      const path = join(stageRoot, stageId);
+      try {
+        mkdirSync(path, { recursive: true });
+        for (const file of files) {
+          const target = join(path, ...file.path.split("/"));
+          if (!inside(target, path)) throw new Error("unsafe zip path: " + file.path);
+          mkdirSync(dirname(target), { recursive: true });
+          writeFileSync(target, file.data, { mode: 0o600 });
+        }
+        const sourceUrl = "https://skillhub.cn/skills/" + slug;
+        const frontmatterName = /^---\s*\r?\n[\s\S]*?\r?\nname:\s*([A-Za-z0-9][A-Za-z0-9._-]{0,159})\s*\r?\n[\s\S]*?\r?\n---/i.exec(skillText)?.[1];
+        atomicWriteJson(join(path, "source.json"), { id: stageId, sourceUrl, source: "skillhub", slug, stagedAt: iso(now) }, { mode: 0o600, description: "隔离技能来源" });
+        return { ok: true, id: stageId, status: "staged", slug, name: frontmatterName ?? slug, sourceUrl, risk, notice: "已从 SkillHub 下载到 Butler 隔离区并完成初步风险扫描，尚未写入本机；请确认安装" };
+      } catch (error) {
+        rmSync(path, { recursive: true, force: true });
+        return { ok: false, error: "skillhub-stage-failed", detail: error instanceof Error ? error.message : String(error), fix: "检查隔离区磁盘与权限后重试。" };
+      }
     },
   };
 }

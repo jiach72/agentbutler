@@ -3139,6 +3139,24 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     return proxyWatchPost("/api/skills/staged/" + id + "/install", request.body, reply, 30_000);
   });
 
+  // SkillHub（skillhub.cn Open API）代理：分类/列表只读（watch 侧失败已归一为 200+error）；
+  // stage 需下载 zip 并风险扫描，60s 超时；确认安装复用上面的 staged install 链路。
+  app.get("/api/skillhub/categories", async (_request, reply) =>
+    proxyWatchGet("/api/skillhub/categories", reply, 15_000),
+  );
+  app.get("/api/skillhub/skills", async (request, reply) => {
+    const query = request.query as Record<string, unknown>;
+    const params = new URLSearchParams();
+    for (const key of ["keyword", "category", "sortBy", "order", "page", "pageSize"] as const) {
+      if (typeof query[key] === "string") params.set(key, query[key] as string);
+    }
+    return proxyWatchGet("/api/skillhub/skills" + (params.size > 0 ? "?" + params.toString() : ""), reply, 20_000);
+  });
+  app.post("/api/skillhub/skills/:slug/stage", async (request, reply) => {
+    const slug = encodeURIComponent((request.params as { slug?: string }).slug ?? "");
+    return proxyWatchPost(`/api/skillhub/skills/${slug}/stage`, request.body, reply, 60_000);
+  });
+
   // 技能库管理器（skills-manager CLI）代理：status/updates 读取 10s（watch 不可达
   // → 503 { available:false }，面板按「管理器未安装/离线」渲染）；install/update 等
   // CLI 动作可能拉取远端 git 源，超时放宽 120s，全部透传 watch 语义。

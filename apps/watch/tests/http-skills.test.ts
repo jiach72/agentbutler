@@ -203,6 +203,9 @@ describe("startWatchHttp 技能与记忆端点", () => {
       recommendations: async () => ({ items: [] }),
       stageRecommendation: async () => ({ ok: true }),
       installStaged: async () => ({ ok: true }),
+      skillHubCategories: async () => ({ items: [] }),
+      skillHubList: async () => ({ total: 0, items: [] }),
+      stageSkillHub: async () => ({ ok: true }),
     };
     http = startWatchHttp({ ...fake.deps, skillAssets: assets }, { port: 0 });
     const address = await http.start();
@@ -231,6 +234,9 @@ describe("startWatchHttp 技能与记忆端点", () => {
       recommendations: async () => ({ items: [] }),
       stageRecommendation: async () => ({ ok: true }),
       installStaged: async (id: string) => outcomes[id] ?? { ok: true },
+      skillHubCategories: async () => ({ items: [] }),
+      skillHubList: async () => ({ total: 0, items: [] }),
+      stageSkillHub: async () => ({ ok: true }),
     };
     http = startWatchHttp({ ...fake.deps, skillAssets: assets }, { port: 0 });
     const address = await http.start();
