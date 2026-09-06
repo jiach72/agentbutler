@@ -96,9 +96,20 @@ describe("M7 备份服务", () => {
     const interval = intervals.at(-1);
     expect(interval?.ms).toBe(60 * 60 * 1000);
     await interval?.fn();
+    // 周期回调是 void tick()（不回传 promise）；文件操作已下沉 worker。
+    // 本 tick 判定记忆备份仍新鲜后会在后台补做全量备份并立即验证，这里
+    // 轮询等待其收敛（验证状态落库即代表全部文件写入完成），避免 afterEach
+    // 清理目录时备份仍在写入。
+    for (let i = 0; i < 300; i += 1) {
+      const full = core.store.listBackups("full")[0];
+      if (full !== undefined && (full.status === "verified" || full.status === "verification-failed")) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
     expect(core.store.listBackups("memory")).toHaveLength(1);
     service.stop();
-  });
+  }, 15_000);
 
   it("状态明确返回日常备份的分类型保留上限", () => {
     expect(service.status().retention).toEqual({ full: 14, memory: 24, event: 10 });

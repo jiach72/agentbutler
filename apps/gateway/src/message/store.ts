@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync, type StatementSync } from "node:sqlite";
 
 import { isOutboxState, MESSAGE_KINDS, TASK_EVENT_KINDS } from "@butler/contract";
 import type {
@@ -222,6 +222,8 @@ export class MessagePolicyStore {
   readonly dbFile: string;
   private readonly db: DatabaseSync;
   private closed = false;
+  /** 预编译语句缓存：同一 SQL 文本只编译一次（node:sqlite 每次都重新 prepare）。 */
+  private readonly statements = new Map<string, StatementSync>();
 
   constructor(dbFile: string) {
     this.dbFile = dbFile;
@@ -237,12 +239,21 @@ export class MessagePolicyStore {
   close(): void {
     if (this.closed) return;
     this.closed = true;
+    this.statements.clear();
     this.db.close();
   }
 
+  private prepare(sql: string): StatementSync {
+    let statement = this.statements.get(sql);
+    if (statement === undefined) {
+      statement = this.db.prepare(sql);
+      this.statements.set(sql, statement);
+    }
+    return statement;
+  }
+
   cursor(instanceId: string): number {
-    const row = this.db
-      .prepare("SELECT sequence FROM bridge_cursors WHERE instance_id = ?")
+    const row = this.prepare("SELECT sequence FROM bridge_cursors WHERE instance_id = ?")
       .get(instanceId) as Record<string, unknown> | undefined;
     return row === undefined ? 0 : Number(row["sequence"]);
   }
@@ -276,7 +287,7 @@ export class MessagePolicyStore {
       }
 
       const affectedRuns = new Set<string>();
-      const insertTaskEvent = this.db.prepare(
+      const insertTaskEvent = this.prepare(
         `INSERT OR IGNORE INTO task_events_projection (run_id, event_sequence, payload_json)
          VALUES (?, ?, ?)`,
       );
@@ -288,8 +299,7 @@ export class MessagePolicyStore {
         this.rebuildTaskProjection(runId, now);
       }
 
-      this.db
-        .prepare(
+      this.prepare(
           `INSERT INTO bridge_cursors (instance_id, sequence) VALUES (?, ?)
            ON CONFLICT(instance_id) DO UPDATE SET sequence = excluded.sequence`,
         )
@@ -302,7 +312,7 @@ export class MessagePolicyStore {
     instanceId?: string,
   ): ProjectedMessageView[] {
     if (instanceId !== undefined) requireNonEmptyString(instanceId, "instanceId");
-    const statement = this.db.prepare(
+    const statement = this.prepare(
       `SELECT * FROM message_projection
        WHERE (
          state IN ('captured', 'policy_pending', 'ready')
@@ -327,8 +337,7 @@ export class MessagePolicyStore {
     if (typeof message.runId !== "string" || message.runId === "") return undefined;
     const channelMatch = jsonColumnMatch("json_extract(payload_json, '$.channel')", message.channel);
     const chatIdMatch = jsonColumnMatch("json_extract(payload_json, '$.chatId')", message.chatId);
-    const rows = this.db
-      .prepare(
+    const rows = this.prepare(
         `SELECT * FROM message_projection
          WHERE state IN ('captured', 'policy_pending', 'held_dnd', 'held_pacing', 'ready', 'retry_wait')
            AND json_extract(payload_json, '$.messageKind') = 'task-progress'
@@ -364,8 +373,7 @@ export class MessagePolicyStore {
     if (typeof message.runId !== "string" || message.runId === "") return undefined;
     const channelMatch = jsonColumnMatch("json_extract(payload_json, '$.channel')", message.channel);
     const chatIdMatch = jsonColumnMatch("json_extract(payload_json, '$.chatId')", message.chatId);
-    const rows = this.db
-      .prepare(
+    const rows = this.prepare(
         `SELECT * FROM message_projection
          WHERE (
            state IN ('captured', 'policy_pending', 'held_dnd', 'held_pacing', 'ready', 'retry_wait')
@@ -413,8 +421,7 @@ export class MessagePolicyStore {
     if (message.channel !== "weixin" || (message.runId !== undefined && message.runId !== null))
       return undefined;
     const chatIdMatch = jsonColumnMatch("json_extract(payload_json, '$.chatId')", message.chatId);
-    const rows = this.db
-      .prepare(
+    const rows = this.prepare(
         `SELECT * FROM message_projection
          WHERE state IN ('captured', 'policy_pending', 'held_dnd', 'held_pacing', 'ready', 'retry_wait')
            AND instance_id = ?
@@ -475,8 +482,7 @@ export class MessagePolicyStore {
       if (pending !== undefined && JSON.stringify(canonicalize(pending)) !== serialized) {
         throw new Error(`message ${messageId} already has a different pending decision`);
       }
-      const result = this.db
-        .prepare(
+      const result = this.prepare(
           `UPDATE message_projection
            SET decision_id = ?, pending_decision_json = ?, updated_at = ?
            WHERE message_id = ?`,
@@ -489,8 +495,7 @@ export class MessagePolicyStore {
   }
 
   pendingDecision(messageId: string): MessageDecision | undefined {
-    const row = this.db
-      .prepare("SELECT pending_decision_json FROM message_projection WHERE message_id = ?")
+    const row = this.prepare("SELECT pending_decision_json FROM message_projection WHERE message_id = ?")
       .get(messageId) as Record<string, unknown> | undefined;
     const payload = row?.["pending_decision_json"] as string | null | undefined;
     return payload === null || payload === undefined
@@ -500,8 +505,7 @@ export class MessagePolicyStore {
 
   clearPendingDecision(messageId: string): void {
     this.withImmediateTransaction(() => {
-      this.db
-        .prepare(
+      this.prepare(
           "UPDATE message_projection SET pending_decision_json = NULL, updated_at = ? WHERE message_id = ?",
         )
         .run(new Date().toISOString(), messageId);
@@ -511,8 +515,7 @@ export class MessagePolicyStore {
   savePolicy(policy: MessagePolicyConfig | PolicySnapshot): PolicySnapshot {
     const snapshot = this.canonicalPolicySnapshot(policy);
     const now = new Date().toISOString();
-    this.db
-      .prepare(
+    this.prepare(
         `INSERT INTO message_policy (singleton, version, sha256, payload_json, updated_at)
          VALUES (1, ?, ?, ?, ?)
          ON CONFLICT(singleton) DO UPDATE SET
@@ -526,8 +529,7 @@ export class MessagePolicyStore {
   }
 
   loadPolicy(): PolicySnapshot | undefined {
-    const row = this.db
-      .prepare("SELECT version, sha256, payload_json FROM message_policy WHERE singleton = 1")
+    const row = this.prepare("SELECT version, sha256, payload_json FROM message_policy WHERE singleton = 1")
       .get() as Record<string, unknown> | undefined;
     if (row === undefined) return undefined;
 
@@ -541,8 +543,7 @@ export class MessagePolicyStore {
   }
 
   getRelayControl(): RelayControlView {
-    const row = this.db
-      .prepare("SELECT enabled, pending, updated_at FROM relay_control WHERE singleton = 1")
+    const row = this.prepare("SELECT enabled, pending, updated_at FROM relay_control WHERE singleton = 1")
       .get() as { enabled: number; pending: number; updated_at: string | null } | undefined;
     if (row === undefined) return { ...DEFAULT_RELAY_CONTROL };
     return {
@@ -553,8 +554,7 @@ export class MessagePolicyStore {
   }
 
   setRelayControl(enabled: boolean, pending: boolean, updatedAt: string): void {
-    this.db
-      .prepare(
+    this.prepare(
         `INSERT INTO relay_control (singleton, enabled, pending, updated_at)
          VALUES (1, ?, ?, ?)
          ON CONFLICT(singleton) DO UPDATE SET enabled = excluded.enabled,
@@ -566,8 +566,7 @@ export class MessagePolicyStore {
   upsertDndRule(rule: DndRuleInput): DndRule {
     validateDndRule(rule);
     const saved: DndRule = { ...rule, updatedAt: rule.updatedAt ?? new Date().toISOString() };
-    this.db
-      .prepare(
+    this.prepare(
         `INSERT INTO dnd_rules (
            rule_id, scope, scope_key, time_zone, start_minute, end_minute, paused_until, enabled, source, updated_at
          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -598,8 +597,7 @@ export class MessagePolicyStore {
   }
 
   resolveDndRules(): DndRule[] {
-    const rows = this.db
-      .prepare(
+    const rows = this.prepare(
         `SELECT * FROM dnd_rules
          WHERE enabled = 1
          ORDER BY CASE scope WHEN 'global' THEN 0 WHEN 'channel' THEN 1 WHEN 'session' THEN 2 ELSE 3 END, rule_id ASC`,
@@ -609,8 +607,7 @@ export class MessagePolicyStore {
   }
 
   listDndRules(): DndRule[] {
-    const rows = this.db
-      .prepare(
+    const rows = this.prepare(
         `SELECT * FROM dnd_rules
          ORDER BY CASE scope WHEN 'global' THEN 0 WHEN 'channel' THEN 1 WHEN 'session' THEN 2 ELSE 3 END, rule_id ASC`,
       )
@@ -621,12 +618,12 @@ export class MessagePolicyStore {
   deleteDndRule(ruleId: string): boolean {
     requireNonEmptyString(ruleId, "ruleId");
     return (
-      Number(this.db.prepare("DELETE FROM dnd_rules WHERE rule_id = ?").run(ruleId).changes) === 1
+      Number(this.prepare("DELETE FROM dnd_rules WHERE rule_id = ?").run(ruleId).changes) === 1
     );
   }
 
   getPacingLane(laneKey: string): PacingLane | undefined {
-    const row = this.db.prepare("SELECT * FROM pacing_lanes WHERE lane_key = ?").get(laneKey) as
+    const row = this.prepare("SELECT * FROM pacing_lanes WHERE lane_key = ?").get(laneKey) as
       Record<string, unknown> | undefined;
     return row === undefined ? undefined : this.mapPacingLane(row);
   }
@@ -634,8 +631,7 @@ export class MessagePolicyStore {
   savePacingLane(lane: PacingLaneInput): PacingLane {
     validatePacingLane(lane);
     const saved: PacingLane = { ...lane, updatedAt: lane.updatedAt ?? new Date().toISOString() };
-    this.db
-      .prepare(
+    this.prepare(
         `INSERT INTO pacing_lanes (
            lane_key, channel, chat_id, rate_per_min, success_count, cooldown_until,
            last_sent_at, last_congestion_reason, updated_at
@@ -665,15 +661,14 @@ export class MessagePolicyStore {
   }
 
   getPrewarm(channel: string): PrewarmCacheEntry | undefined {
-    const row = this.db.prepare("SELECT * FROM prewarm_cache WHERE channel = ?").get(channel) as
+    const row = this.prepare("SELECT * FROM prewarm_cache WHERE channel = ?").get(channel) as
       Record<string, unknown> | undefined;
     return row === undefined ? undefined : this.mapPrewarm(row);
   }
 
   savePrewarm(entry: PrewarmCacheEntry): PrewarmCacheEntry {
     validatePrewarmCacheEntry(entry);
-    this.db
-      .prepare(
+    this.prepare(
         `INSERT INTO prewarm_cache (channel, warmed, checked_at, expires_at, detail)
          VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(channel) DO UPDATE SET
@@ -687,11 +682,10 @@ export class MessagePolicyStore {
   }
 
   taskView(runId: string): TaskProjectionView | undefined {
-    const row = this.db.prepare("SELECT * FROM task_projection WHERE run_id = ?").get(runId) as
+    const row = this.prepare("SELECT * FROM task_projection WHERE run_id = ?").get(runId) as
       Record<string, unknown> | undefined;
     if (row === undefined) return undefined;
-    const eventRows = this.db
-      .prepare(
+    const eventRows = this.prepare(
         `SELECT payload_json FROM task_events_projection
          WHERE run_id = ? ORDER BY event_sequence ASC`,
       )
@@ -707,8 +701,7 @@ export class MessagePolicyStore {
   }
 
   messageView(messageId: string): ProjectedMessageView | undefined {
-    const row = this.db
-      .prepare("SELECT * FROM message_projection WHERE message_id = ?")
+    const row = this.prepare("SELECT * FROM message_projection WHERE message_id = ?")
       .get(messageId) as Record<string, unknown> | undefined;
     return row === undefined ? undefined : this.mapMessage(row);
   }
@@ -717,7 +710,7 @@ export class MessagePolicyStore {
     if (!Number.isInteger(limit) || limit < 1 || limit > 200) {
       throw new Error("message limit must be an integer from 1 through 200");
     }
-    const statement = this.db.prepare(
+    const statement = this.prepare(
       `SELECT * FROM message_projection
        ${state === undefined ? "" : "WHERE state = ?"}
        ORDER BY bridge_sequence DESC, instance_id ASC, message_id ASC
@@ -734,8 +727,7 @@ export class MessagePolicyStore {
       OutboxState,
       number
     >;
-    const rows = this.db
-      .prepare("SELECT state, COUNT(*) AS count FROM message_projection GROUP BY state")
+    const rows = this.prepare("SELECT state, COUNT(*) AS count FROM message_projection GROUP BY state")
       .all() as Record<string, unknown>[];
     for (const row of rows) {
       const state = String(row["state"]) as OutboxState;
@@ -758,8 +750,7 @@ export class MessagePolicyStore {
     ]);
     // 状态/类别计数下推 SQL：json_extract 只作用于 absorbed 与待投递行，
     // 不再把整张投影表逐行 JSON.parse 成 JS 对象（dashboard 高频路径）。
-    const kindRows = this.db
-      .prepare(
+    const kindRows = this.prepare(
         `SELECT state, json_extract(payload_json, '$.messageKind') AS kind, COUNT(*) AS count
          FROM message_projection
          WHERE state IN ('absorbed', 'captured', 'policy_pending', 'held_dnd', 'held_pacing', 'ready', 'delivering', 'retry_wait')
@@ -775,16 +766,14 @@ export class MessagePolicyStore {
         absorbedProgress += Number(row["count"]);
       if (pendingStates.has(state) && kind === "final") pendingFinalResults += Number(row["count"]);
     }
-    const unknownRow = this.db
-      .prepare("SELECT COUNT(*) AS count FROM message_projection WHERE state = 'delivery_unknown'")
+    const unknownRow = this.prepare("SELECT COUNT(*) AS count FROM message_projection WHERE state = 'delivery_unknown'")
       .get() as Record<string, unknown>;
     const deliveryUnknown = Number(unknownRow["count"]);
 
     // 限速/连接失败只统计最近 24h（命中 idx_message_projection_updated_at 的范围
     // 扫描），且只抽取 lastError 字段；updated_at 均为本存储写入的规范 UTC ISO，
     // 字典序与时间序一致。
-    const errorRows = this.db
-      .prepare(
+    const errorRows = this.prepare(
         `SELECT json_extract(payload_json, '$.lastError') AS last_error, updated_at
          FROM message_projection
          WHERE updated_at >= ?`,
@@ -832,14 +821,13 @@ export class MessagePolicyStore {
   absorbPendingProgress(now = new Date().toISOString()): number {
     requireIsoTimestamp(now, "now");
     return this.withImmediateTransaction(() => {
-      const rows = this.db
-        .prepare(
+      const rows = this.prepare(
           `SELECT message_id, payload_json FROM message_projection
            WHERE state IN ('captured', 'policy_pending', 'held_dnd', 'held_pacing', 'ready', 'retry_wait')`,
         )
         .all() as Record<string, unknown>[];
       let changed = 0;
-      const update = this.db.prepare(
+      const update = this.prepare(
         `UPDATE message_projection
          SET payload_json = ?, state = 'absorbed', available_at = NULL,
              pending_decision_json = NULL, last_policy_error = NULL, updated_at = ?
@@ -896,8 +884,7 @@ export class MessagePolicyStore {
     today.setHours(0, 0, 0, 0);
     const start = new Date(today);
     start.setDate(start.getDate() - (days - 1));
-    const rows = this.db
-      .prepare(
+    const rows = this.prepare(
         `SELECT date(h.occurred_at, 'localtime') AS day,
                 COALESCE(json_extract(p.payload_json, '$.channel'), 'unknown') AS channel,
                 h.outcome AS outcome,
@@ -1018,8 +1005,7 @@ export class MessagePolicyStore {
       ).padStart(2, "0")}`;
       buckets.set(key, { delivered: 0, failed: 0, uncertain: 0 });
     }
-    const rows = this.db
-      .prepare(
+    const rows = this.prepare(
         `SELECT date(occurred_at, 'localtime') AS day,
                 outcome,
                 COUNT(*) AS count
@@ -1047,8 +1033,7 @@ export class MessagePolicyStore {
   ): number {
     requireIsoTimestamp(cutoff, "cutoff");
     return this.withImmediateTransaction(() => {
-      const result = this.db
-        .prepare(
+      const result = this.prepare(
           `DELETE FROM message_projection
            WHERE updated_at < ?
              AND pending_decision_json IS NULL
@@ -1087,8 +1072,7 @@ export class MessagePolicyStore {
       return undefined;
     }
 
-    const candidates = this.db
-      .prepare("SELECT instance_id FROM bridge_cursors WHERE sequence = ?")
+    const candidates = this.prepare("SELECT instance_id FROM bridge_cursors WHERE sequence = ?")
       .all(batch.afterSequence) as Record<string, unknown>[];
     if (candidates.length === 1) return String(candidates[0]["instance_id"]);
     throw new Error(
@@ -1102,8 +1086,7 @@ export class MessagePolicyStore {
     updatedAt: string,
     clearPendingDecision = false,
   ): void {
-    this.db
-      .prepare(
+    this.prepare(
         `INSERT INTO message_projection (
            message_id, instance_id, bridge_sequence, payload_json, state, available_at,
            content_sha256, decision_id, pending_decision_json, last_policy_error, updated_at
@@ -1156,8 +1139,7 @@ export class MessagePolicyStore {
             : null;
     if (outcome === null) return;
 
-    const existing = this.db
-      .prepare("SELECT outcome FROM message_outcome_history WHERE message_id = ?")
+    const existing = this.prepare("SELECT outcome FROM message_outcome_history WHERE message_id = ?")
       .get(messageId) as Record<string, unknown> | undefined;
     if (existing !== undefined && String(existing["outcome"]) === outcome) return;
 
@@ -1166,8 +1148,7 @@ export class MessagePolicyStore {
       : isCanonicalUtcIso(observedAt)
         ? observedAt
         : new Date().toISOString();
-    this.db
-      .prepare(
+    this.prepare(
         `INSERT INTO message_outcome_history (message_id, outcome, occurred_at)
          VALUES (?, ?, ?)
          ON CONFLICT(message_id) DO UPDATE SET
@@ -1179,8 +1160,7 @@ export class MessagePolicyStore {
 
   /** Backfills the durable history table when opening a store created before it existed. */
   private backfillOutcomeHistory(): void {
-    const rows = this.db
-      .prepare(
+    const rows = this.prepare(
         `SELECT p.message_id, p.state, p.payload_json, p.updated_at
          FROM message_projection AS p
          LEFT JOIN message_outcome_history AS h ON h.message_id = p.message_id
@@ -1209,8 +1189,7 @@ export class MessagePolicyStore {
   }
 
   private upsertInbound(inbound: InboundEnvelope): void {
-    this.db
-      .prepare(
+    this.prepare(
         `INSERT INTO inbound_projection (inbound_message_id, payload_json) VALUES (?, ?)
          ON CONFLICT(inbound_message_id) DO UPDATE SET payload_json = excluded.payload_json`,
       )
@@ -1218,16 +1197,14 @@ export class MessagePolicyStore {
   }
 
   private rebuildTaskProjection(runId: string, updatedAt: string): void {
-    const rows = this.db
-      .prepare(
+    const rows = this.prepare(
         `SELECT event_sequence, payload_json FROM task_events_projection
          WHERE run_id = ? ORDER BY event_sequence ASC`,
       )
       .all(runId) as Record<string, unknown>[];
     if (rows.length === 0) return;
     const latest = JSON.parse(String(rows[rows.length - 1]["payload_json"])) as TaskEvent;
-    this.db
-      .prepare(
+    this.prepare(
         `INSERT INTO task_projection (run_id, session_id, state, last_event_sequence, payload_json, updated_at)
          VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT(run_id) DO UPDATE SET

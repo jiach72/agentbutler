@@ -1,5 +1,14 @@
 # Bug Fixes
 
+## 2026-09-06 - 备份阻塞 IO 下沉 worker、巡检跨实例并行与语句缓存
+
+- **问题：** 备份的 `VACUUM INTO`、`cpSync`、`quick_check` 都是同步阻塞调用：每小时记忆备份与每日全量在文件增大后会把 Watch 事件循环冻结数秒到数十秒，期间 HTTP（含 healthz）、tail 轮询与巡检调度全部停摆；巡检 runner 跨实例严格串行，离线实例的探针超时逐个叠加，挤占巡检周期（防重叠直接跳过 tick）；core 与 gateway 两个 SQLite store 每次查询都重新 `prepare` 编译语句，秒级循环与小额固定开销叠加。
+- **风险/影响：** 备份窗口内 Watch 整体无响应，健康检查可能误报；多实例场景下一轮巡检耗时 = Σ(实例探针超时)，故障时越长越容易跳过下一轮；语句重复编译在 24/7 常驻进程里是持续的额外 CPU 开销。
+- **修复范围：** `apps/watch/src/backup.ts` 新增 `BackupFileOps` 抽象与默认 worker 实现（eval 模式常驻 worker，逐行等价下沉原同步实现，失败语义不变：VACUUM 失败回退复制、quick_check 失败即验证失败），`run`/`restore`/`verify` 的文件操作全部经 worker 执行，主线程不再阻塞；worker 异常时拒绝在途任务并在下次操作自动重拉。`apps/watch/src/scheduler.ts` 巡检 runner 改为跨实例并行执行慢 IO（阶段探针 + dashboard 信号，单实例失败不再中断其它实例），事件落库/审计/自动 runbook 后处理仍按目标顺序串行，下游顺序语义不变。`packages/core/src/store.ts` 与 `apps/gateway/src/message/store.ts` 增加预编译语句缓存（同一 SQL 文本只编译一次，close 时清空）。
+- **回归测试：** 备份测试经真实 worker 路径覆盖 VACUUM INTO 成功、失败回退复制与 quick_check 验证；周期回调用例改为轮询等待后台全量备份验证状态收敛（worker 化后 `void tick()` 不再隐式同步完成）；createWatchApp 集成用例补齐 15 秒有界预算（与既有集成测试同惯例，全量并行负载下组装+首轮巡检可超默认 5 秒）；巡检组装测试覆盖单实例与多实例事件/审计落库；core/gateway 存储层全部既有测试在语句缓存下通过。
+- **验证命令：** `corepack pnpm exec vitest run apps/watch/tests/backup.test.ts apps/watch/tests/scheduler.test.ts --reporter=dot`（16 passed）；`corepack pnpm exec vitest run packages/core/tests/store.test.ts apps/gateway/tests/message-store.test.ts apps/gateway/tests/message-reconciler.test.ts apps/gateway/tests/message-channels.test.ts --reporter=dot`（59 passed）；`corepack pnpm test`；`corepack pnpm lint`；`corepack pnpm build`；`git diff --check`。
+- **Runtime validation:** 未在真实 Docker/Hermes 环境复验；worker 线程在容器内的资源隔离表现（尤其大库 VACUUM 期间的内存峰值）需后续部署观察。
+
 ## 2026-09-06 - 常驻链路性能与内存治理
 
 - **问题：** Gateway 每秒 reconcile 对 `message_projection` 反复全表扫描：表没有 `state`/`updated_at` 二级索引，三个分组查询（progress holder / run result / chat batch holder）把整表逐行 JSON.parse 后再用 JS 过滤，`messageStatusSummary`（dashboard 高频路径）同样整表解析；终态历史清理每秒执行一次。Web `/ws` 每个连接每 2 秒全量拉取 1000 条事件再在 JS 里丢弃旧行。`events`/`audit` 只增不删，长期常驻数据库无限膨胀。Watch 的终态恢复任务永驻内存（Map 只增不删），Runbook 执行监控 interval 在任务经其它路径终态后永久空转。`/api/butler/version` 每次请求执行 5 次同步 git 子进程，最坏阻塞事件循环十余秒。进化页首次加载因 refresh 依赖 `instanceId`/`selectedId` 的自动初始化写入而连锁发起 2-3 轮全量请求（后端 insights 每轮重新扫描日志文件）。

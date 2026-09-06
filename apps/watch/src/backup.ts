@@ -7,22 +7,154 @@
  * - 记忆增量备份：只备份 Hermes memory_store.db。
  * - 数据库文件用 node:sqlite VACUUM INTO 做一致性快照（失败回退文件复制）；
  *   普通文件直接复制，保留 0600 权限位。
+ * - 文件操作（VACUUM INTO / 复制 / quick_check）是同步阻塞调用，全部放入
+ *   常驻 worker 线程执行：大文件备份/验证期间 Watch 的 HTTP、tail 轮询与
+ *   巡检调度保持响应。可通过 fileOps 注入替身（默认即 worker 实现）。
  * - 每次备份写 backups 登记表 + 审计；自动轮转（full 保留 14 份、memory 24 份、
  *   event 10 份）。
  * - 还原：先做当前态事件备份，再按 manifest 回写 Hermes 侧文件（Butler 自身
  *   数据库运行中不回写，避免覆盖打开中的句柄），全部动作落审计。
  */
 import fs from "node:fs";
-import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { Worker } from "node:worker_threads";
 import type { BackupRow, Core } from "@butler/core";
 
 export type BackupKind = "full" | "memory" | "event";
 
 export const BACKUP_RETENTION_LIMITS = { full: 14, memory: 24, event: 10 } as const;
 export type BackupRetentionLimits = typeof BACKUP_RETENTION_LIMITS;
+
+/** 备份的文件级操作（阻塞型 IO 统一走 worker，测试可注入替身）。 */
+export interface BackupFileOps {
+  /** 一致性复制单个文件：.db → VACUUM INTO（失败回退复制），返回字节数。 */
+  backupFile(from: string, to: string): Promise<number>;
+  /** 普通文件复制（还原与验证暂存用）。 */
+  copyFile(from: string, to: string): Promise<void>;
+  /** 只读打开 SQLite 做 quick_check；文件缺失、损坏或非 SQLite 库时抛错。 */
+  quickCheck(path: string): Promise<void>;
+}
+
+/**
+ * worker 引导脚本（eval 模式，无独立构建产物）：接收 {id, op, ...} 任务，
+ * 在线程内执行同步 IO 后回传结果。逻辑与原备份实现逐行等价。
+ */
+const BACKUP_WORKER_SOURCE = `
+const { parentPort } = require("node:worker_threads");
+const fs = require("node:fs");
+const { DatabaseSync } = require("node:sqlite");
+const { basename, dirname } = require("node:path");
+
+function backupFile(from, to) {
+  fs.mkdirSync(dirname(to), { recursive: true });
+  const base = basename(from);
+  if (base.endsWith(".db")) {
+    try {
+      const q = String.fromCharCode(39);
+      if (fs.existsSync(to)) fs.rmSync(to, { force: true });
+      const db = new DatabaseSync(from, { readOnly: true });
+      try {
+        db.exec("VACUUM INTO " + q + to + q);
+      } finally {
+        db.close();
+      }
+      return fs.statSync(to).size;
+    } catch {
+      // VACUUM 失败（加密库/权限等）→ 回退普通复制，尽力而为
+    }
+  }
+  fs.cpSync(from, to, { force: true, errorOnExist: false });
+  const st = fs.statSync(from);
+  if (process.platform !== "win32") {
+    try {
+      fs.chmodSync(to, st.mode & 0o777);
+    } catch {
+      // 权限位设置失败不阻断备份
+    }
+  }
+  return st.size;
+}
+
+parentPort.on("message", (job) => {
+  try {
+    let result = null;
+    if (job.op === "backupFile") {
+      result = backupFile(job.from, job.to);
+    } else if (job.op === "copyFile") {
+      fs.mkdirSync(dirname(job.to), { recursive: true });
+      fs.cpSync(job.from, job.to, { force: true, errorOnExist: false });
+    } else if (job.op === "quickCheck") {
+      const db = new DatabaseSync(job.path, { readOnly: true });
+      try {
+        const row = db.prepare("PRAGMA quick_check(1)").get();
+        if (row === undefined || Object.values(row)[0] !== "ok") {
+          throw new Error("backup-database-invalid");
+        }
+      } finally {
+        db.close();
+      }
+    } else {
+      throw new Error("unknown-op: " + String(job.op));
+    }
+    parentPort.postMessage({ id: job.id, ok: true, result });
+  } catch (error) {
+    parentPort.postMessage({
+      id: job.id,
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+`;
+
+/** 默认文件操作：单个常驻 worker 串行执行所有阻塞 IO。 */
+export function createWorkerFileOps(): BackupFileOps {
+  let worker: Worker | null = null;
+  let seq = 0;
+  const pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
+
+  function spawn(): Worker {
+    const instance = new Worker(BACKUP_WORKER_SOURCE, { eval: true });
+    instance.unref();
+    instance.on("message", (message: { id: number; ok: boolean; result?: unknown; error?: string }) => {
+      const entry = pending.get(message.id);
+      if (entry === undefined) return;
+      pending.delete(message.id);
+      if (message.ok) entry.resolve(message.result);
+      else entry.reject(new Error(message.error ?? "backup worker task failed"));
+    });
+    const failAll = (error: Error): void => {
+      for (const entry of pending.values()) entry.reject(error);
+      pending.clear();
+      if (worker === instance) worker = null; // 下次操作重新拉起
+    };
+    instance.on("error", failAll);
+    instance.on("exit", (code) => {
+      if (code !== 0) failAll(new Error(`backup worker exited with code ${String(code)}`));
+      else if (worker === instance) worker = null;
+    });
+    return instance;
+  }
+
+  function post<T>(op: string, payload: Record<string, string>): Promise<T> {
+    const id = ++seq;
+    return new Promise<T>((resolve, reject) => {
+      pending.set(id, {
+        resolve: resolve as (value: unknown) => void,
+        reject,
+      });
+      (worker ?? spawn()).postMessage({ id, op, ...payload });
+    });
+  }
+
+  return {
+    backupFile: (from, to) => post<number>("backupFile", { from, to }),
+    copyFile: (from, to) => post<void>("copyFile", { from, to }),
+    quickCheck: (path) => post<void>("quickCheck", { path }),
+  };
+}
 
 export interface BackupEntry {
   /** 源文件绝对路径。 */
@@ -46,6 +178,8 @@ export interface BackupServiceOptions {
   autoStart?: boolean;
   /** 覆盖备份目录（缺省 core.paths.home/backups）。 */
   backupsDir?: string;
+  /** 文件级操作实现（缺省常驻 worker；测试可注入同步替身）。 */
+  fileOps?: BackupFileOps;
 }
 
 export interface BackupService {
@@ -130,38 +264,7 @@ function isWithin(parent: string, candidate: string): boolean {
   return resolvedCandidate === resolvedParent || resolvedCandidate.startsWith(resolvedParent + sep);
 }
 
-/** 单文件一致性备份：db → VACUUM INTO；其他 → 复制；保留 0600。 */
-function backupFile(from: string, to: string): number {
-  mkdirSync(dirname(to), { recursive: true });
-  const base = basename(from);
-  if (base.endsWith(".db")) {
-    try {
-      const q = String.fromCharCode(39);
-      if (existsSync(to)) rmSync(to, { force: true });
-      const db = new DatabaseSync(from, { readOnly: true });
-      try {
-        db.exec("VACUUM INTO " + q + to + q);
-      } finally {
-        db.close();
-      }
-      const st = statSync(to);
-      return st.size;
-    } catch {
-      // VACUUM 失败（加密库/权限等）→ 回退普通复制，尽力而为
-    }
-  }
-  cpSync(from, to, { force: true, errorOnExist: false });
-  const st = statSync(from);
-  if (process.platform !== "win32") {
-    try {
-      const mode = st.mode & 0o777;
-      fs.chmodSync(to, mode);
-    } catch {
-      // 权限位设置失败不阻断备份
-    }
-  }
-  return st.size;
-}
+/** 单文件一致性备份的同步实现已下沉到 worker（见 BACKUP_WORKER_SOURCE）。 */
 
 function listDirs(dir: string): string[] {
   if (!existsSync(dir)) return [];
@@ -185,6 +288,7 @@ export function createBackupService(options: BackupServiceOptions): BackupServic
       clearInterval: (handle: unknown) => clearInterval(handle as ReturnType<typeof setInterval>),
     };
   const hourlyTickMs = 60 * 60 * 1000;
+  const fileOps = options.fileOps ?? createWorkerFileOps();
   let handle: unknown;
 
   function collectScope(kind: BackupKind): BackupEntry[] {
@@ -261,7 +365,7 @@ export function createBackupService(options: BackupServiceOptions): BackupServic
     const manifest: Array<{ from: string; rel: string; size: number }> = [];
     for (const entry of entries) {
       const target = join(destDir, entry.rel);
-      const size = backupFile(entry.from, target);
+      const size = await fileOps.backupFile(entry.from, target);
       totalBytes += size;
       manifest.push({ from: entry.from, rel: entry.rel, size });
     }
@@ -337,7 +441,7 @@ export function createBackupService(options: BackupServiceOptions): BackupServic
         continue;
       }
       mkdirSync(dirname(fromResolved), { recursive: true });
-      cpSync(source, fromResolved, { force: true, errorOnExist: false });
+      await fileOps.copyFile(source, fromResolved);
       restored += 1;
     }
     core.audit.append({
@@ -399,19 +503,12 @@ export function createBackupService(options: BackupServiceOptions): BackupServic
 
         const staged = resolve(stagingDir, entry.rel);
         if (!isWithin(stagingDir, staged)) throw new Error("backup-manifest-corrupt");
-        mkdirSync(dirname(staged), { recursive: true });
-        cpSync(source, staged, { force: true, errorOnExist: false });
+        await fileOps.copyFile(source, staged);
         if (statSync(staged).size !== entry.size) throw new Error("backup-file-invalid");
         checkedFiles += 1;
 
         if (staged.endsWith(".db")) {
-          const db = new DatabaseSync(staged, { readOnly: true });
-          try {
-            const result = db.prepare("PRAGMA quick_check(1)").get() as Record<string, unknown> | undefined;
-            if (result === undefined || Object.values(result)[0] !== "ok") throw new Error("backup-database-invalid");
-          } finally {
-            db.close();
-          }
+          await fileOps.quickCheck(staged);
           checkedDatabases += 1;
         }
       }

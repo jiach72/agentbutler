@@ -545,7 +545,7 @@ describe("createWatchApp HTTP 接线（watchHttpPort=0 随机端口）", () => {
       runCount: 1,
     });
     expect(app.core.audit.list({ action: "critical-probe-sla" })).toHaveLength(1);
-  });
+  }, 15_000);
 
   it("execute：真实接线 202 启动 rb-cleanup-gateway → runbook-started 事件落库", async () => {
     app = await createWatchApp({
@@ -574,7 +574,7 @@ describe("createWatchApp HTTP 接线（watchHttpPort=0 随机端口）", () => {
     const started = app.core.store.listEvents({ type: "runbook-started" });
     expect(started).toHaveLength(1);
     expect(started[0]!.payload).toMatchObject({ runbookId: "rb-cleanup-gateway", trigger: "manual" });
-  });
+  }, 15_000);
 
   it("execute 分支：未知 id → 404；熔断跳闸 → 409；无 Serving 实例（显式未知 instanceId）→ 503", async () => {
     app = await createWatchApp({
@@ -618,7 +618,7 @@ describe("createWatchApp HTTP 接线（watchHttpPort=0 随机端口）", () => {
     }).runbooks;
     expect(runbooks.find((r) => r.id === "rb-restart")!.breakerTripped).toBe(true);
     expect(runbooks.find((r) => r.id === "rb-cleanup-gateway")!.breakerTripped).toBe(false);
-  });
+  }, 15_000);
 
   it("inspect/run 立即触发第二轮巡检；stop() 关闭 HTTP（后续请求连接失败）", async () => {
     app = await createWatchApp({

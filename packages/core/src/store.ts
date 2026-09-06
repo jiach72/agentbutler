@@ -19,7 +19,7 @@
  * 数据库文件不存在时自动建目录建表；所有列均为 SQLite 原生类型，
  * JSON 字段以 *_json 命名并在读写时序列化/反序列化。
  */
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync, type StatementSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
 import type { JobStep } from "@butler/contract";
@@ -693,6 +693,8 @@ export class SqliteStore {
   readonly dbFile: string;
   private db: DatabaseSync;
   private closed = false;
+  /** 预编译语句缓存：同一 SQL 文本只编译一次（node:sqlite 每次都重新 prepare）。 */
+  private readonly statements = new Map<string, StatementSync>();
 
   constructor(dbFile: string) {
     this.dbFile = dbFile;
@@ -701,7 +703,7 @@ export class SqliteStore {
     this.db.exec("PRAGMA journal_mode=WAL;");
     this.db.exec(DDL);
     // 老库兼容：fingerprints.instance 列（错误指纹归属实例/影响组件）。
-    const fpColumns = this.db.prepare("PRAGMA table_info(fingerprints)").all() as Array<{
+    const fpColumns = this.prepare("PRAGMA table_info(fingerprints)").all() as Array<{
       name?: unknown;
     }>;
     if (!fpColumns.some((column) => String(column["name"] ?? "") === "instance")) {
@@ -712,7 +714,17 @@ export class SqliteStore {
   close(): void {
     if (this.closed) return;
     this.closed = true;
+    this.statements.clear();
     this.db.close();
+  }
+
+  private prepare(sql: string): StatementSync {
+    let statement = this.statements.get(sql);
+    if (statement === undefined) {
+      statement = this.db.prepare(sql);
+      this.statements.set(sql, statement);
+    }
+    return statement;
   }
 
   /* --------------------------------- events --------------------------------- */
@@ -722,8 +734,7 @@ export class SqliteStore {
     const severity = input.severity ?? "info";
     const source = input.source ?? "";
     const payloadJson = JSON.stringify(input.payload ?? null);
-    const result = this.db
-      .prepare(
+    const result = this.prepare(
         "INSERT INTO events (ts, type, severity, source, payload_json) VALUES (?, ?, ?, ?, ?)",
       )
       .run(ts, input.type, severity, source, payloadJson);
@@ -743,8 +754,7 @@ export class SqliteStore {
     if (afterId !== undefined && (!Number.isInteger(afterId) || afterId < 0)) {
       throw new Error("events afterId must be a non-negative integer");
     }
-    const rows = this.db
-      .prepare(
+    const rows = this.prepare(
         "SELECT * FROM events WHERE type = COALESCE(?, type) AND id > COALESCE(?, 0) ORDER BY id DESC LIMIT ?",
       )
       .all(filter.type ?? null, afterId ?? null, limit) as Record<string, unknown>[];
@@ -763,7 +773,7 @@ export class SqliteStore {
     if (typeof cutoff !== "string" || Number.isNaN(Date.parse(cutoff))) {
       throw new Error("events cutoff must be a valid timestamp");
     }
-    const result = this.db.prepare("DELETE FROM events WHERE ts < ?").run(cutoff);
+    const result = this.prepare("DELETE FROM events WHERE ts < ?").run(cutoff);
     return Number(result.changes);
   }
 
@@ -772,7 +782,7 @@ export class SqliteStore {
     if (typeof cutoff !== "string" || Number.isNaN(Date.parse(cutoff))) {
       throw new Error("audit cutoff must be a valid timestamp");
     }
-    const result = this.db.prepare("DELETE FROM audit WHERE ts < ?").run(cutoff);
+    const result = this.prepare("DELETE FROM audit WHERE ts < ?").run(cutoff);
     return Number(result.changes);
   }
 
@@ -790,8 +800,7 @@ export class SqliteStore {
     if (typeof since !== "string" || Number.isNaN(Date.parse(since))) {
       throw new Error("inspection metrics since must be a valid timestamp");
     }
-    const rows = this.db
-      .prepare(
+    const rows = this.prepare(
         `WITH inspection_rows AS (
            SELECT
              date(e.ts, 'localtime') AS day,
@@ -835,8 +844,7 @@ export class SqliteStore {
 
   upsertFingerprint(signature: string, sample?: string, instanceId?: string): FingerprintRow {
     const ts = nowIso();
-    this.db
-      .prepare(
+    this.prepare(
         `INSERT INTO fingerprints (signature, first_seen, last_seen, count, status, last_sample, instance)
          VALUES (?, ?, ?, 1, 'open', ?, ?)
          ON CONFLICT(signature) DO UPDATE SET
@@ -846,15 +854,13 @@ export class SqliteStore {
            instance = CASE WHEN excluded.instance <> '' THEN excluded.instance ELSE fingerprints.instance END`,
       )
       .run(signature, ts, ts, sample ?? null, instanceId ?? "");
-    const row = this.db
-      .prepare("SELECT * FROM fingerprints WHERE signature = ?")
+    const row = this.prepare("SELECT * FROM fingerprints WHERE signature = ?")
       .get(signature) as Record<string, unknown>;
     return this.mapFingerprint(row);
   }
 
   listFingerprints(limit = 100, since?: string): FingerprintRow[] {
-    const rows = this.db
-      .prepare(
+    const rows = this.prepare(
         "SELECT * FROM fingerprints WHERE (? IS NULL OR last_seen >= ?) ORDER BY last_seen DESC LIMIT ?",
       )
       .all(since ?? null, since ?? null, limit) as Record<string, unknown>[];
@@ -862,14 +868,13 @@ export class SqliteStore {
   }
 
   findFingerprint(signature: string): FingerprintRow | undefined {
-    const row = this.db.prepare("SELECT * FROM fingerprints WHERE signature = ?").get(signature) as
+    const row = this.prepare("SELECT * FROM fingerprints WHERE signature = ?").get(signature) as
       Record<string, unknown> | undefined;
     return row === undefined ? undefined : this.mapFingerprint(row);
   }
 
   updateFingerprintStatus(signature: string, status: string): boolean {
-    const result = this.db
-      .prepare("UPDATE fingerprints SET status = ? WHERE signature = ?")
+    const result = this.prepare("UPDATE fingerprints SET status = ? WHERE signature = ?")
       .run(status, signature);
     return result.changes > 0;
   }
@@ -892,8 +897,7 @@ export class SqliteStore {
   insertJob(input: JobInput): JobRow {
     const ts = nowIso();
     const status = input.status ?? deriveJobStatus(input.steps ?? []);
-    this.db
-      .prepare(
+    this.prepare(
         `INSERT INTO jobs (job_id, kind, instance, status, idempotency_key, steps_json, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(job_id) DO UPDATE SET
@@ -921,34 +925,31 @@ export class SqliteStore {
   updateJob(jobId: string, patch: { status?: string; steps?: JobStep[] }): boolean {
     const ts = nowIso();
     if (patch.steps !== undefined) {
-      const result = this.db
-        .prepare(
+      const result = this.prepare(
           "UPDATE jobs SET status = COALESCE(?, status), steps_json = ?, updated_at = ? WHERE job_id = ?",
         )
         .run(patch.status ?? null, JSON.stringify(patch.steps), ts, jobId);
       return result.changes > 0;
     }
-    const result = this.db
-      .prepare("UPDATE jobs SET status = ?, updated_at = ? WHERE job_id = ?")
+    const result = this.prepare("UPDATE jobs SET status = ?, updated_at = ? WHERE job_id = ?")
       .run(patch.status ?? "running", ts, jobId);
     return result.changes > 0;
   }
 
   findJobById(jobId: string): JobRow | undefined {
-    const row = this.db.prepare("SELECT * FROM jobs WHERE job_id = ?").get(jobId) as
+    const row = this.prepare("SELECT * FROM jobs WHERE job_id = ?").get(jobId) as
       Record<string, unknown> | undefined;
     return row === undefined ? undefined : this.mapJob(row);
   }
 
   findJobByIdempotencyKey(key: string): JobRow | undefined {
-    const row = this.db.prepare("SELECT * FROM jobs WHERE idempotency_key = ?").get(key) as
+    const row = this.prepare("SELECT * FROM jobs WHERE idempotency_key = ?").get(key) as
       Record<string, unknown> | undefined;
     return row === undefined ? undefined : this.mapJob(row);
   }
 
   listJobs(filter: { instance?: string; status?: string } = {}): JobRow[] {
-    const rows = this.db
-      .prepare(
+    const rows = this.prepare(
         "SELECT * FROM jobs WHERE instance = COALESCE(?, instance) AND status = COALESCE(?, status) ORDER BY created_at DESC",
       )
       .all(filter.instance ?? null, filter.status ?? null) as Record<string, unknown>[];
@@ -977,8 +978,7 @@ export class SqliteStore {
     status?: string;
   }): SnapshotRow {
     const ts = nowIso();
-    const result = this.db
-      .prepare(
+    const result = this.prepare(
         "INSERT INTO snapshots (instance, scope_json, label, created_at, status) VALUES (?, ?, ?, ?, ?)",
       )
       .run(input.instance, toJson(input.scope), input.label ?? null, ts, input.status ?? "ok");
@@ -993,8 +993,7 @@ export class SqliteStore {
   }
 
   listSnapshots(instance?: string): SnapshotRow[] {
-    const rows = this.db
-      .prepare("SELECT * FROM snapshots WHERE instance = COALESCE(?, instance) ORDER BY id DESC")
+    const rows = this.prepare("SELECT * FROM snapshots WHERE instance = COALESCE(?, instance) ORDER BY id DESC")
       .all(instance ?? null) as Record<string, unknown>[];
     return rows.map((r) => ({
       id: Number(r["id"]),
@@ -1007,7 +1006,7 @@ export class SqliteStore {
   }
 
   updateSnapshotStatus(id: number, status: string): boolean {
-    const result = this.db.prepare("UPDATE snapshots SET status = ? WHERE id = ?").run(status, id);
+    const result = this.prepare("UPDATE snapshots SET status = ? WHERE id = ?").run(status, id);
     return result.changes > 0;
   }
 
@@ -1016,8 +1015,7 @@ export class SqliteStore {
 
   insertBackup(input: BackupInput): BackupRow {
     const ts = nowIso();
-    const result = this.db
-      .prepare(
+    const result = this.prepare(
         "INSERT INTO backups (kind, label, target, path, size_bytes, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
       )
       .run(
@@ -1042,8 +1040,7 @@ export class SqliteStore {
   }
 
   listBackups(kind?: string): BackupRow[] {
-    const rows = this.db
-      .prepare("SELECT * FROM backups WHERE kind = COALESCE(?, kind) ORDER BY id DESC")
+    const rows = this.prepare("SELECT * FROM backups WHERE kind = COALESCE(?, kind) ORDER BY id DESC")
       .all(kind ?? null) as Record<string, unknown>[];
     return rows.map((r) => ({
       id: Number(r["id"]),
@@ -1058,7 +1055,7 @@ export class SqliteStore {
   }
 
   getBackup(id: number): BackupRow | undefined {
-    const row = this.db.prepare("SELECT * FROM backups WHERE id = ?").get(id) as
+    const row = this.prepare("SELECT * FROM backups WHERE id = ?").get(id) as
       | Record<string, unknown>
       | undefined;
     if (row === undefined) return undefined;
@@ -1075,7 +1072,7 @@ export class SqliteStore {
   }
 
   updateBackupStatus(id: number, status: string): boolean {
-    const result = this.db.prepare("UPDATE backups SET status = ? WHERE id = ?").run(status, id);
+    const result = this.prepare("UPDATE backups SET status = ? WHERE id = ?").run(status, id);
     return result.changes > 0;
   }
 
@@ -1085,8 +1082,7 @@ export class SqliteStore {
     const ts = nowIso();
     const target = input.target ?? "";
     const detailJson = input.detail === undefined ? null : JSON.stringify(input.detail);
-    const result = this.db
-      .prepare("INSERT INTO audit (ts, actor, action, target, detail_json) VALUES (?, ?, ?, ?, ?)")
+    const result = this.prepare("INSERT INTO audit (ts, actor, action, target, detail_json) VALUES (?, ?, ?, ?, ?)")
       .run(ts, input.actor, input.action, target, detailJson);
     return {
       id: Number(result.lastInsertRowid),
@@ -1100,8 +1096,7 @@ export class SqliteStore {
 
   listAudit(filter: { action?: string; target?: string; limit?: number } = {}): AuditRow[] {
     const limit = filter.limit ?? 100;
-    const rows = this.db
-      .prepare(
+    const rows = this.prepare(
         "SELECT * FROM audit WHERE action = COALESCE(?, action) AND target = COALESCE(?, target) ORDER BY id DESC LIMIT ?",
       )
       .all(filter.action ?? null, filter.target ?? null, limit) as Record<string, unknown>[];
@@ -1118,8 +1113,7 @@ export class SqliteStore {
   /* --------------------------- prompt optimization -------------------------- */
 
   savePromptTarget(row: PromptTargetRow): void {
-    this.db
-      .prepare(
+    this.prepare(
         `INSERT INTO prompt_targets (target_id, instance_id, framework_id, source_path, format,
                                      editable_sections_json, protected_clauses_json, protected_sha256,
                                      reload_mode, active_version, active_sha256, created_at, updated_at)
@@ -1155,14 +1149,13 @@ export class SqliteStore {
   }
 
   getPromptTarget(targetId: string): PromptTargetRow | undefined {
-    const row = this.db
-      .prepare("SELECT * FROM prompt_targets WHERE target_id = ?")
+    const row = this.prepare("SELECT * FROM prompt_targets WHERE target_id = ?")
       .get(targetId) as Record<string, unknown> | undefined;
     return row === undefined ? undefined : this.mapPromptTarget(row);
   }
 
   listPromptTargets(): PromptTargetRow[] {
-    const rows = this.db.prepare("SELECT * FROM prompt_targets ORDER BY target_id").all() as Record<
+    const rows = this.prepare("SELECT * FROM prompt_targets ORDER BY target_id").all() as Record<
       string,
       unknown
     >[];
@@ -1170,8 +1163,7 @@ export class SqliteStore {
   }
 
   insertPromptVersion(input: PromptVersionInput): PromptVersionRow {
-    this.db
-      .prepare(
+    this.prepare(
         `INSERT INTO prompt_versions (target_id, version, source_path, content_sha256,
                                       snapshot_path, kind, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -1197,22 +1189,19 @@ export class SqliteStore {
   }
 
   getPromptVersion(targetId: string, version: string): PromptVersionRow | undefined {
-    const row = this.db
-      .prepare("SELECT * FROM prompt_versions WHERE target_id = ? AND version = ?")
+    const row = this.prepare("SELECT * FROM prompt_versions WHERE target_id = ? AND version = ?")
       .get(targetId, version) as Record<string, unknown> | undefined;
     return row === undefined ? undefined : this.mapPromptVersion(row);
   }
 
   listPromptVersions(targetId: string): PromptVersionRow[] {
-    const rows = this.db
-      .prepare("SELECT * FROM prompt_versions WHERE target_id = ? ORDER BY id DESC")
+    const rows = this.prepare("SELECT * FROM prompt_versions WHERE target_id = ? ORDER BY id DESC")
       .all(targetId) as Record<string, unknown>[];
     return rows.map((row) => this.mapPromptVersion(row));
   }
 
   updatePromptTargetActive(targetId: string, version: string, sha256: string): boolean {
-    const result = this.db
-      .prepare(
+    const result = this.prepare(
         "UPDATE prompt_targets SET active_version = ?, active_sha256 = ?, updated_at = ? WHERE target_id = ?",
       )
       .run(version, sha256, nowIso(), targetId);
@@ -1265,8 +1254,7 @@ export class SqliteStore {
   savePromptCandidate(input: PromptCandidateInput): PromptCandidateRow {
     const createdAt = input.createdAt ?? nowIso();
     const updatedAt = input.updatedAt ?? nowIso();
-    this.db
-      .prepare(
+    this.prepare(
         `INSERT INTO prompt_candidates
            (candidate_id, target_id, content_sha256, base_sha256, snapshot_path, source,
             description, status, gate_errors_json, created_at, updated_at)
@@ -1302,15 +1290,13 @@ export class SqliteStore {
   }
 
   getPromptCandidate(candidateId: string): PromptCandidateRow | undefined {
-    const row = this.db
-      .prepare("SELECT * FROM prompt_candidates WHERE candidate_id = ?")
+    const row = this.prepare("SELECT * FROM prompt_candidates WHERE candidate_id = ?")
       .get(candidateId) as Record<string, unknown> | undefined;
     return row === undefined ? undefined : this.mapPromptCandidate(row);
   }
 
   listPromptCandidates(targetId?: string): PromptCandidateRow[] {
-    const rows = this.db
-      .prepare(
+    const rows = this.prepare(
         "SELECT * FROM prompt_candidates WHERE target_id = COALESCE(?, target_id) ORDER BY updated_at DESC",
       )
       .all(targetId ?? null) as Record<string, unknown>[];
@@ -1320,8 +1306,7 @@ export class SqliteStore {
   /* --------------------------- M5 prompt evaluations --------------------------- */
 
   savePromptEvaluation(input: PromptEvaluationInput): PromptEvaluationRow {
-    this.db
-      .prepare(
+    this.prepare(
         `INSERT INTO prompt_evaluations
            (evaluation_id, candidate_id, target_id, status, tier, holdout_count,
             dataset_path, dataset_hash, baseline_sha256, candidate_sha256, cases_path,
@@ -1368,15 +1353,13 @@ export class SqliteStore {
   }
 
   getPromptEvaluation(evaluationId: string): PromptEvaluationRow | undefined {
-    const row = this.db
-      .prepare("SELECT * FROM prompt_evaluations WHERE evaluation_id = ?")
+    const row = this.prepare("SELECT * FROM prompt_evaluations WHERE evaluation_id = ?")
       .get(evaluationId) as Record<string, unknown> | undefined;
     return row === undefined ? undefined : this.mapPromptEvaluation(row);
   }
 
   getLatestPromptEvaluation(candidateId: string): PromptEvaluationRow | undefined {
-    const row = this.db
-      .prepare(
+    const row = this.prepare(
         "SELECT * FROM prompt_evaluations WHERE candidate_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1",
       )
       .get(candidateId) as Record<string, unknown> | undefined;
@@ -1384,8 +1367,7 @@ export class SqliteStore {
   }
 
   listPromptEvaluations(candidateId?: string): PromptEvaluationRow[] {
-    const rows = this.db
-      .prepare(
+    const rows = this.prepare(
         "SELECT * FROM prompt_evaluations WHERE candidate_id = COALESCE(?, candidate_id) ORDER BY created_at DESC",
       )
       .all(candidateId ?? null) as Record<string, unknown>[];
@@ -1393,8 +1375,7 @@ export class SqliteStore {
   }
 
   savePromptEvaluationCase(input: PromptEvaluationCaseInput): PromptEvaluationCaseRow {
-    this.db
-      .prepare(
+    this.prepare(
         `INSERT INTO prompt_evaluation_cases (evaluation_id, case_id, raw_json)
          VALUES (?, ?, ?)
          ON CONFLICT(evaluation_id, case_id) DO UPDATE SET
@@ -1427,15 +1408,13 @@ export class SqliteStore {
     evaluationId: string,
     caseId: string,
   ): PromptEvaluationCaseRow | undefined {
-    const row = this.db
-      .prepare("SELECT * FROM prompt_evaluation_cases WHERE evaluation_id = ? AND case_id = ?")
+    const row = this.prepare("SELECT * FROM prompt_evaluation_cases WHERE evaluation_id = ? AND case_id = ?")
       .get(evaluationId, caseId) as Record<string, unknown> | undefined;
     return row === undefined ? undefined : this.mapPromptEvaluationCase(row);
   }
 
   listPromptEvaluationCases(evaluationId?: string): PromptEvaluationCaseRow[] {
-    const rows = this.db
-      .prepare(
+    const rows = this.prepare(
         "SELECT * FROM prompt_evaluation_cases WHERE evaluation_id = COALESCE(?, evaluation_id) ORDER BY id ASC",
       )
       .all(evaluationId ?? null) as Record<string, unknown>[];
@@ -1526,16 +1505,14 @@ export class SqliteStore {
 
   /** 读取日志源的已提交字节位点；从未读过返回 undefined。 */
   getTailPosition(sourceId: string): number | undefined {
-    const row = this.db
-      .prepare("SELECT byte_offset FROM tail_positions WHERE source_id = ?")
+    const row = this.prepare("SELECT byte_offset FROM tail_positions WHERE source_id = ?")
       .get(sourceId) as Record<string, unknown> | undefined;
     return row === undefined ? undefined : Number(row["byte_offset"]);
   }
 
   /** 提交日志源位点（仅在调用方成功处理完一批行后由 LogTailer 调用）。 */
   setTailPosition(sourceId: string, byteOffset: number): void {
-    this.db
-      .prepare(
+    this.prepare(
         `INSERT INTO tail_positions (source_id, byte_offset, updated_at) VALUES (?, ?, ?)
          ON CONFLICT(source_id) DO UPDATE SET
            byte_offset = excluded.byte_offset,
@@ -1547,8 +1524,7 @@ export class SqliteStore {
   /* --------------------------- fingerprint_windows -------------------------- */
 
   insertFingerprintWindow(input: FingerprintWindowInput): FingerprintWindowRow {
-    const result = this.db
-      .prepare(
+    const result = this.prepare(
         "INSERT INTO fingerprint_windows (signature, started_at, ended_at, count) VALUES (?, ?, ?, ?)",
       )
       .run(input.signature, input.startedAt, input.endedAt ?? null, input.count);
@@ -1565,8 +1541,7 @@ export class SqliteStore {
     filter: { signature?: string; limit?: number } = {},
   ): FingerprintWindowRow[] {
     const limit = filter.limit ?? 100;
-    const rows = this.db
-      .prepare(
+    const rows = this.prepare(
         "SELECT * FROM fingerprint_windows WHERE signature = COALESCE(?, signature) ORDER BY id DESC LIMIT ?",
       )
       .all(filter.signature ?? null, limit) as Record<string, unknown>[];
@@ -1582,8 +1557,7 @@ export class SqliteStore {
   /* -------------------------------- instances ------------------------------- */
 
   saveInstance(row: InstanceRow): void {
-    this.db
-      .prepare(
+    this.prepare(
         `INSERT INTO instances (instance_id, framework_id, state, runtime, root_path, version,
                                 confidence, capability_json, detail_json, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1614,13 +1588,13 @@ export class SqliteStore {
   }
 
   getInstance(instanceId: string): InstanceRow | undefined {
-    const row = this.db.prepare("SELECT * FROM instances WHERE instance_id = ?").get(instanceId) as
+    const row = this.prepare("SELECT * FROM instances WHERE instance_id = ?").get(instanceId) as
       Record<string, unknown> | undefined;
     return row === undefined ? undefined : this.mapInstance(row);
   }
 
   listInstances(): InstanceRow[] {
-    const rows = this.db.prepare("SELECT * FROM instances ORDER BY instance_id").all() as Record<
+    const rows = this.prepare("SELECT * FROM instances ORDER BY instance_id").all() as Record<
       string,
       unknown
     >[];
@@ -1629,7 +1603,7 @@ export class SqliteStore {
 
   insertLlmProfile(input: LlmProfileInput): LlmProfileRow {
     const ts = nowIso();
-    this.db.prepare(`INSERT INTO llm_profiles (profile_id, instance_id, provider, protocol, endpoint, model, status, current_version, created_at, updated_at)
+    this.prepare(`INSERT INTO llm_profiles (profile_id, instance_id, provider, protocol, endpoint, model, status, current_version, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       input.profileId, input.instanceId ?? null, input.provider, input.protocol, input.endpoint, input.model,
       input.status ?? "disabled", input.currentVersion ?? 0, ts, ts,
@@ -1638,19 +1612,19 @@ export class SqliteStore {
   }
 
   getLlmProfile(profileId: string): LlmProfileRow | undefined {
-    const row = this.db.prepare("SELECT * FROM llm_profiles WHERE profile_id = ?").get(profileId) as Record<string, unknown> | undefined;
+    const row = this.prepare("SELECT * FROM llm_profiles WHERE profile_id = ?").get(profileId) as Record<string, unknown> | undefined;
     return row === undefined ? undefined : this.mapLlmProfile(row);
   }
 
   listLlmProfiles(): LlmProfileRow[] {
-    const rows = this.db.prepare("SELECT * FROM llm_profiles ORDER BY updated_at DESC").all() as Record<string, unknown>[];
+    const rows = this.prepare("SELECT * FROM llm_profiles ORDER BY updated_at DESC").all() as Record<string, unknown>[];
     return rows.map((row) => this.mapLlmProfile(row));
   }
 
   updateLlmProfile(profileId: string, patch: Partial<Pick<LlmProfileInput, "status" | "currentVersion" | "endpoint" | "model" | "provider" | "protocol" | "instanceId">>): LlmProfileRow | undefined {
     const current = this.getLlmProfile(profileId);
     if (!current) return undefined;
-    this.db.prepare(`UPDATE llm_profiles SET instance_id = ?, provider = ?, protocol = ?, endpoint = ?, model = ?, status = ?, current_version = ?, updated_at = ? WHERE profile_id = ?`).run(
+    this.prepare(`UPDATE llm_profiles SET instance_id = ?, provider = ?, protocol = ?, endpoint = ?, model = ?, status = ?, current_version = ?, updated_at = ? WHERE profile_id = ?`).run(
       patch.instanceId ?? current.instanceId, patch.provider ?? current.provider, patch.protocol ?? current.protocol,
       patch.endpoint ?? current.endpoint, patch.model ?? current.model, patch.status ?? current.status,
       patch.currentVersion ?? current.currentVersion, nowIso(), profileId,
@@ -1660,7 +1634,7 @@ export class SqliteStore {
 
   insertLlmProfileVersion(input: LlmProfileVersionInput): LlmProfileVersionRow {
     const ts = nowIso();
-    this.db.prepare(`INSERT INTO llm_profile_versions (profile_id, version, ciphertext, nonce, auth_tag, key_version, status, probe_status, probe_category, probe_detail, probed_at, created_at)
+    this.prepare(`INSERT INTO llm_profile_versions (profile_id, version, ciphertext, nonce, auth_tag, key_version, status, probe_status, probe_category, probe_detail, probed_at, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       input.profileId, input.version, input.ciphertext, input.nonce, input.authTag, input.keyVersion,
       input.status ?? "pending", input.probeStatus ?? "unknown", input.probeCategory ?? "unknown",
@@ -1671,20 +1645,20 @@ export class SqliteStore {
 
   getLlmProfileVersion(profileId: string, version?: number): LlmProfileVersionRow | undefined {
     const row = version === undefined
-      ? this.db.prepare("SELECT * FROM llm_profile_versions WHERE profile_id = ? ORDER BY version DESC LIMIT 1").get(profileId)
-      : this.db.prepare("SELECT * FROM llm_profile_versions WHERE profile_id = ? AND version = ?").get(profileId, version);
+      ? this.prepare("SELECT * FROM llm_profile_versions WHERE profile_id = ? ORDER BY version DESC LIMIT 1").get(profileId)
+      : this.prepare("SELECT * FROM llm_profile_versions WHERE profile_id = ? AND version = ?").get(profileId, version);
     return row === undefined ? undefined : this.mapLlmProfileVersion(row as Record<string, unknown>);
   }
 
   listLlmProfileVersions(profileId: string): LlmProfileVersionRow[] {
-    const rows = this.db.prepare("SELECT * FROM llm_profile_versions WHERE profile_id = ? ORDER BY version DESC").all(profileId) as Record<string, unknown>[];
+    const rows = this.prepare("SELECT * FROM llm_profile_versions WHERE profile_id = ? ORDER BY version DESC").all(profileId) as Record<string, unknown>[];
     return rows.map((row) => this.mapLlmProfileVersion(row));
   }
 
   updateLlmProfileVersion(profileId: string, version: number, patch: Partial<Pick<LlmProfileVersionInput, "status" | "probeStatus" | "probeCategory" | "probeDetail" | "probedAt">>): LlmProfileVersionRow | undefined {
     const current = this.getLlmProfileVersion(profileId, version);
     if (!current) return undefined;
-    this.db.prepare(`UPDATE llm_profile_versions SET status = ?, probe_status = ?, probe_category = ?, probe_detail = ?, probed_at = ? WHERE profile_id = ? AND version = ?`).run(
+    this.prepare(`UPDATE llm_profile_versions SET status = ?, probe_status = ?, probe_category = ?, probe_detail = ?, probed_at = ? WHERE profile_id = ? AND version = ?`).run(
       patch.status ?? current.status, patch.probeStatus ?? current.probeStatus, patch.probeCategory ?? current.probeCategory,
       patch.probeDetail ?? current.probeDetail, patch.probedAt === undefined ? current.probedAt : patch.probedAt,
       profileId, version,
@@ -1694,27 +1668,27 @@ export class SqliteStore {
 
   insertLlmBinding(input: LlmBindingInput): LlmBindingRow {
     const ts = nowIso();
-    this.db.prepare(`INSERT INTO llm_bindings (binding_id, scope, instance_id, framework_id, target_ref, profile_id, created_at)
+    this.prepare(`INSERT INTO llm_bindings (binding_id, scope, instance_id, framework_id, target_ref, profile_id, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)`).run(input.bindingId, input.scope, input.instanceId ?? null, input.frameworkId ?? null, input.targetRef ?? null, input.profileId, ts);
     return this.getLlmBinding(input.bindingId)!;
   }
 
   getLlmBinding(bindingId: string): LlmBindingRow | undefined {
-    const row = this.db.prepare("SELECT * FROM llm_bindings WHERE binding_id = ?").get(bindingId) as Record<string, unknown> | undefined;
+    const row = this.prepare("SELECT * FROM llm_bindings WHERE binding_id = ?").get(bindingId) as Record<string, unknown> | undefined;
     return row === undefined ? undefined : this.mapLlmBinding(row);
   }
 
   listLlmBindings(filter: { profileId?: string; instanceId?: string } = {}): LlmBindingRow[] {
-    const rows = this.db.prepare("SELECT * FROM llm_bindings WHERE (? IS NULL OR profile_id = ?) AND (? IS NULL OR instance_id = ?) ORDER BY created_at DESC").all(filter.profileId ?? null, filter.profileId ?? null, filter.instanceId ?? null, filter.instanceId ?? null) as Record<string, unknown>[];
+    const rows = this.prepare("SELECT * FROM llm_bindings WHERE (? IS NULL OR profile_id = ?) AND (? IS NULL OR instance_id = ?) ORDER BY created_at DESC").all(filter.profileId ?? null, filter.profileId ?? null, filter.instanceId ?? null, filter.instanceId ?? null) as Record<string, unknown>[];
     return rows.map((row) => this.mapLlmBinding(row));
   }
 
   deleteLlmBinding(bindingId: string): boolean {
-    return this.db.prepare("DELETE FROM llm_bindings WHERE binding_id = ?").run(bindingId).changes > 0;
+    return this.prepare("DELETE FROM llm_bindings WHERE binding_id = ?").run(bindingId).changes > 0;
   }
 
   saveEvolutionObservation(input: EvolutionObservationRow): void {
-    this.db.prepare(`INSERT OR IGNORE INTO evolution_observations
+    this.prepare(`INSERT OR IGNORE INTO evolution_observations
       (observation_id, instance_id, session_id, run_id, kind, name, outcome, failure_category,
        duration_ms, occurred_at, source, detail_json, content_hash)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
@@ -1725,7 +1699,7 @@ export class SqliteStore {
   }
 
   listEvolutionObservations(filter: { instanceId?: string; since?: string; limit?: number } = {}): EvolutionObservationRow[] {
-    const rows = this.db.prepare(`SELECT * FROM evolution_observations
+    const rows = this.prepare(`SELECT * FROM evolution_observations
       WHERE (? IS NULL OR instance_id = ?) AND (? IS NULL OR occurred_at >= ?)
       ORDER BY occurred_at ASC LIMIT ?`).all(
       filter.instanceId ?? null, filter.instanceId ?? null, filter.since ?? null, filter.since ?? null,
@@ -1745,7 +1719,7 @@ export class SqliteStore {
 
   upsertEvolutionDailyMetric(input: { instanceId: string; date: string; snapshot: unknown; createdAt?: string }): EvolutionDailyMetricRow {
     const createdAt = input.createdAt ?? nowIso();
-    this.db.prepare(`INSERT INTO evolution_daily_metrics (instance_id, date, snapshot_json, created_at)
+    this.prepare(`INSERT INTO evolution_daily_metrics (instance_id, date, snapshot_json, created_at)
       VALUES (?, ?, ?, ?) ON CONFLICT(instance_id, date) DO UPDATE SET snapshot_json = excluded.snapshot_json, created_at = excluded.created_at`).run(
       input.instanceId, input.date, toJson(input.snapshot), createdAt,
     );
@@ -1753,7 +1727,7 @@ export class SqliteStore {
   }
 
   listEvolutionDailyMetrics(filter: { instanceId?: string; since?: string; limit?: number } = {}): EvolutionDailyMetricRow[] {
-    const rows = this.db.prepare(`SELECT * FROM evolution_daily_metrics
+    const rows = this.prepare(`SELECT * FROM evolution_daily_metrics
       WHERE (? IS NULL OR instance_id = ?) AND (? IS NULL OR date >= ?)
       ORDER BY date ASC LIMIT ?`).all(
       filter.instanceId ?? null, filter.instanceId ?? null, filter.since ?? null, filter.since ?? null,
@@ -1763,7 +1737,7 @@ export class SqliteStore {
   }
 
   saveEvolutionSample(input: EvolutionSampleRow): void {
-    this.db.prepare(`INSERT OR IGNORE INTO evolution_samples
+    this.prepare(`INSERT OR IGNORE INTO evolution_samples
       (sample_id, instance_id, dataset, outcome, label, content_hash, dataset_version, synthetic, source, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       input.sampleId, input.instanceId, input.dataset, input.outcome, input.label, input.contentHash,
@@ -1772,7 +1746,7 @@ export class SqliteStore {
   }
 
   listEvolutionSamples(filter: { instanceId?: string; dataset?: string; limit?: number } = {}): EvolutionSampleRow[] {
-    const rows = this.db.prepare(`SELECT * FROM evolution_samples
+    const rows = this.prepare(`SELECT * FROM evolution_samples
       WHERE (? IS NULL OR instance_id = ?) AND (? IS NULL OR dataset = ?)
       ORDER BY created_at DESC LIMIT ?`).all(
       filter.instanceId ?? null, filter.instanceId ?? null, filter.dataset ?? null, filter.dataset ?? null,
@@ -1782,7 +1756,7 @@ export class SqliteStore {
   }
 
   upsertEvolutionActionItem(input: EvolutionActionItemRow): EvolutionActionItemRow {
-    this.db.prepare(`INSERT INTO evolution_action_items
+    this.prepare(`INSERT INTO evolution_action_items
       (action_id, instance_id, category, title, impact, first_seen_at, last_seen_at, occurrences,
        related_runs_json, evidence, next_action, status, resolved_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1801,12 +1775,12 @@ export class SqliteStore {
   }
 
   getEvolutionActionItem(actionId: string): EvolutionActionItemRow | undefined {
-    const row = this.db.prepare("SELECT * FROM evolution_action_items WHERE action_id = ?").get(actionId) as Record<string, unknown> | undefined;
+    const row = this.prepare("SELECT * FROM evolution_action_items WHERE action_id = ?").get(actionId) as Record<string, unknown> | undefined;
     return row === undefined ? undefined : this.mapEvolutionActionItem(row);
   }
 
   listEvolutionActionItems(filter: { instanceId?: string; status?: EvolutionActionStatus; limit?: number } = {}): EvolutionActionItemRow[] {
-    const rows = this.db.prepare(`SELECT * FROM evolution_action_items
+    const rows = this.prepare(`SELECT * FROM evolution_action_items
       WHERE (? IS NULL OR instance_id = ?) AND (? IS NULL OR status = ?)
       ORDER BY CASE impact WHEN 'blocking' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, last_seen_at DESC LIMIT ?`).all(
       filter.instanceId ?? null, filter.instanceId ?? null, filter.status ?? null, filter.status ?? null,
@@ -1819,7 +1793,7 @@ export class SqliteStore {
     const current = this.getEvolutionActionItem(actionId);
     if (current === undefined) return undefined;
     const nextResolvedAt = status === "resolved" ? (resolvedAt ?? nowIso()) : null;
-    this.db.prepare("UPDATE evolution_action_items SET status = ?, resolved_at = ?, updated_at = ? WHERE action_id = ?").run(status, nextResolvedAt, nowIso(), actionId);
+    this.prepare("UPDATE evolution_action_items SET status = ?, resolved_at = ?, updated_at = ? WHERE action_id = ?").run(status, nextResolvedAt, nowIso(), actionId);
     return this.getEvolutionActionItem(actionId);
   }
 

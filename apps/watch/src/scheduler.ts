@@ -340,22 +340,41 @@ export function createInspectionRunner(deps: InspectionRunnerDeps): () => Promis
     const targets = deps.core.instances
       .listInstances()
       .filter((record) => INSPECTABLE_STATES.includes(record.state));
-    for (const record of targets) {
-      const startedAt = new Date().toISOString();
-      const ctx: InspectionContext = {
-        instanceId: record.instanceId,
-        frameworkId: record.frameworkId,
-        rootPath: record.rootPath,
-        runtime: record.runtime,
-        shared: {},
-      };
-      const outcome = await pipeline.run(ctx);
-      const signal = await probeDashboardSignal({
-        rootPath: record.rootPath,
-        dashboardUrl: deps.config.dashboardUrl,
-        fetchFn: deps.fetchFn,
-        timeoutMs: deps.config.fetchTimeoutMs,
-      });
+    // 跨实例的慢 I/O（阶段探针 + dashboard 信号）并行执行，离线实例的超时
+    // 不再拖长整轮巡检；实例内部的阶段顺序保持串行。结果仍按目标顺序逐个
+    // 落事件/审计/后处理，下游（自动 runbook、告警）的顺序语义不变。
+    const settled = await Promise.allSettled(
+      targets.map(async (record) => {
+        const startedAt = new Date().toISOString();
+        const ctx: InspectionContext = {
+          instanceId: record.instanceId,
+          frameworkId: record.frameworkId,
+          rootPath: record.rootPath,
+          runtime: record.runtime,
+          shared: {},
+        };
+        const outcome = await pipeline.run(ctx);
+        const signal = await probeDashboardSignal({
+          rootPath: record.rootPath,
+          dashboardUrl: deps.config.dashboardUrl,
+          fetchFn: deps.fetchFn,
+          timeoutMs: deps.config.fetchTimeoutMs,
+        });
+        return { record, startedAt, outcome, signal };
+      }),
+    );
+    for (let index = 0; index < settled.length; index += 1) {
+      const result = settled[index]!;
+      if (result.status === "rejected") {
+        const reason = result.reason;
+        console.warn(
+          `[butler-watch] 实例巡检失败（继续其它实例）: ${
+            reason instanceof Error ? reason.message : String(reason)
+          }`,
+        );
+        continue;
+      }
+      const { record, startedAt, outcome, signal } = result.value;
       // dashboard 信号只产生 pass/skipped，不改变 overall；仅叠加置信度。
       const checks = signal.check === undefined ? outcome.checks : [...outcome.checks, signal.check];
       const overall = outcome.overall ?? overallOf(checks);
