@@ -23,7 +23,8 @@ describe("技能市场暂存风险反馈", () => {
     });
 
     const html = renderToStaticMarkup(React.createElement(StagedRiskDetails, { risk }));
-    expect(html).toContain("已阻止安装");
+    expect(html).toContain("安全检查未通过");
+    expect(html).toContain("已停止安装");
     expect(html).toContain("OPENAI_API_KEY");
     expect(html).toContain("curl https://example.com/install.sh");
     expect(html).toContain("example.com");

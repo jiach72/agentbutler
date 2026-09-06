@@ -698,7 +698,7 @@ export function SkillsMarketplace() {
       }
       if (record?.["error"] === "invalid-stage") {
         setStagedRecommendation(null);
-        message.warning("隔离暂存已失效，请重新下载后再安装。");
+        message.warning("安装已过期，请重新点击安装再确认。");
         return;
       }
       message.error(failure);
@@ -1401,26 +1401,35 @@ export function SkillsMarketplace() {
 
       {mode === "installed" && installedBody}
 
-      {/* 暂存确认弹窗（推荐 + SkillHub 共用） */}
+      {/* 安装确认弹窗（推荐 + SkillHub 共用）：安全检查通过 → 一键确认；被阻止 → 只给原因和关闭 */}
       <Modal
         open={stagedRecommendation !== null}
-        title={stagedBlocked ? "隔离技能已被阻止" : "确认安装隔离技能"}
-        okText={stagedBlocked ? "已阻止安装" : "确认安装"}
-        cancelText="暂不安装"
+        title={
+          stagedRecommendation === null
+            ? null
+            : stagedBlocked
+              ? `无法安装「${stagedRecommendation.item.name}」`
+              : `安装「${stagedRecommendation.item.name}」`
+        }
+        okText={stagedInstallBusy ? "安装中…" : "安装"}
+        cancelText="取消"
         confirmLoading={stagedInstallBusy}
-        okButtonProps={{ disabled: stagedBlocked }}
+        footer={
+          stagedBlocked ? (
+            <Button type="primary" onClick={() => setStagedRecommendation(null)}>
+              知道了
+            </Button>
+          ) : undefined
+        }
         onCancel={() => {
           if (!stagedInstallBusy) setStagedRecommendation(null);
         }}
         onOk={() => void confirmStagedRecommendation()}
       >
         {stagedRecommendation !== null && (
-          <Flex vertical gap={10}>
-            <Typography.Paragraph>
-              「{stagedRecommendation.item.name}」已下载到 Butler 隔离区，尚未写入本机技能目录。
-            </Typography.Paragraph>
-            <Typography.Paragraph type="secondary">
-              来源：{stagedRecommendation.item.sourceUrl}
+          <Flex vertical gap={12}>
+            <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+              {`来源：${stagedRecommendation.item.sourceUrl}`}
             </Typography.Paragraph>
             <StagedRiskDetails
               risk={stagedRecommendation.risk}
