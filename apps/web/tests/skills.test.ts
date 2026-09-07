@@ -73,7 +73,8 @@ const WATCH_VIEW = {
   memory: {
     mode: "driver",
     driverId: "sqlite-fts5",
-    backend: { id: "hindsight", source: "marker", detail: "检测到 hindsight/config.json（hindsight 记忆服务）" },
+    // watch 原始形状：MemoryBackendDetection（字段名 backend，非 id）。
+    backend: { backend: "hindsight", source: "marker", detail: "检测到 hindsight/config.json（hindsight 记忆服务）" },
     stats: {
       totalEntries: 1,
       byMonth: [{ month: "2026-08", count: 1 }],
@@ -148,10 +149,42 @@ describe("butler-web 技能与记忆代理", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ watchReachable: true, ...WATCH_VIEW });
+    expect(response.json()).toEqual({
+      watchReachable: true,
+      ...WATCH_VIEW,
+      // watch 的 {backend,...} 形状被归一为 {id,...} 后透传 UI。
+      memory: {
+        ...WATCH_VIEW.memory,
+        backend: { id: "hindsight", source: "marker", detail: "检测到 hindsight/config.json（hindsight 记忆服务）" },
+      },
+    });
     expect(transport.calls).toEqual([
       `${WATCH_URL}/api/skills?instanceId=hermes-main&keyword=agent&limit=50`,
     ]);
+  });
+
+  it("GET /api/skills：id 形状的 backend（防御性兼容）与畸形形状分别处理", async () => {
+    const idShaped = makeFetch({
+      ...WATCH_VIEW,
+      memory: { ...WATCH_VIEW.memory, backend: { id: "mem0", source: "env", detail: "BUTLER_MEMORY_BACKEND 显式指定 mem0" } },
+    });
+    const idApp = build(idShaped.fetch);
+    const idResponse = await idApp.inject({ method: "GET", url: "/api/skills" });
+    expect(idResponse.statusCode).toBe(200);
+    expect(idResponse.json().memory.backend).toEqual({
+      id: "mem0",
+      source: "env",
+      detail: "BUTLER_MEMORY_BACKEND 显式指定 mem0",
+    });
+
+    const malformed = makeFetch({
+      ...WATCH_VIEW,
+      memory: { ...WATCH_VIEW.memory, backend: { id: "not-a-backend", source: "marker", detail: "x" } },
+    });
+    const malformedApp = build(malformed.fetch);
+    const malformedResponse = await malformedApp.inject({ method: "GET", url: "/api/skills" });
+    expect(malformedResponse.statusCode).toBe(200);
+    expect(malformedResponse.json().watchReachable).toBe(false);
   });
 
   it("POST /api/memory/self-check 透传 watch 探针结果", async () => {

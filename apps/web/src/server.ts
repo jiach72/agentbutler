@@ -954,22 +954,28 @@ function parseSkillsStatus(value: unknown): Omit<SkillsApiView, "watchReachable"
   if (preview.length !== Math.min(memory["preview"].length, MEMORY_PREVIEW_LIMIT)) return null;
 
   // 记忆后端：新 watch 才上报；缺失（滚动升级中的旧版 watch）回落默认值，不判降级。
+  // watch 的原始形状是 MemoryBackendDetection（{backend, source, detail}），此处
+  // 统一归一为 {id, source, detail}；同时兼容直接携带 id 的形状。
   let backend: SkillsApiView["memory"]["backend"] = {
     id: "hermes",
     source: "default",
     detail: "watch 版本较旧，未上报记忆后端检测",
   };
   if (memory["backend"] !== undefined) {
+    if (!isRecord(memory["backend"])) return null;
+    const rawId =
+      typeof memory["backend"]["backend"] === "string"
+        ? memory["backend"]["backend"]
+        : memory["backend"]["id"];
     if (
-      !isRecord(memory["backend"]) ||
-      !isMemoryBackendId(memory["backend"]["id"]) ||
+      !isMemoryBackendId(rawId) ||
       !isMemoryBackendSource(memory["backend"]["source"]) ||
       typeof memory["backend"]["detail"] !== "string"
     ) {
       return null;
     }
     backend = {
-      id: memory["backend"]["id"],
+      id: rawId,
       source: memory["backend"]["source"],
       detail: memory["backend"]["detail"],
     };
