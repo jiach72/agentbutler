@@ -100,6 +100,8 @@ services:
       BUTLER_HINDSIGHT_TOKEN: ${BUTLER_HINDSIGHT_TOKEN:-}
       BUTLER_MEM0_BASE_URL: ${BUTLER_MEM0_BASE_URL:-}
       BUTLER_MEM0_API_KEY: ${BUTLER_MEM0_API_KEY:-}
+      # 外部后端探针含真实 LLM 抽取（hindsight retain），可通过该值降频（最大 5）。
+      BUTLER_CRITICAL_PROBE_INTERVAL_MIN: ${BUTLER_CRITICAL_PROBE_INTERVAL_MIN:-1}
       # Optional GitHub token for higher API limits when staging recommended skills.
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
     depends_on:
