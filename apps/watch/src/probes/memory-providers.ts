@@ -21,7 +21,11 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { detectMemoryBackend, type MemoryBackendConfig } from "@butler/adapter-hermes";
+import {
+  detectMemoryBackend,
+  resolveHindsightService,
+  type MemoryBackendConfig,
+} from "@butler/adapter-hermes";
 import { defaultFetchLike, type FetchLike } from "../dashboard-signal.js";
 import {
   MEMORY_PROBE_PREFIX,
@@ -160,18 +164,19 @@ export function resolveHindsightBaseUrl(
   options: HindsightProbeOptions,
   readTextFile: (path: string) => string | null,
 ): { baseUrl: string } | { error: string } {
-  if (options.baseUrl !== undefined && options.baseUrl !== "") {
-    return { baseUrl: options.baseUrl.replace(/\/+$/, "") };
+  // 与记忆驱动共用同一解析实现（adapter-hermes hindsight-client），避免两处漂移。
+  const resolved = resolveHindsightService(
+    rootPath,
+    { baseUrl: options.baseUrl },
+    readTextFile,
+  );
+  if ("error" in resolved) {
+    return {
+      error:
+        "无法确定 hindsight 服务地址（<root>/hindsight/config.json 缺少 api_url，或未设置 BUTLER_HINDSIGHT_BASE_URL），记忆探针降级跳过",
+    };
   }
-  const config = readConfigJson(rootPath, "hindsight/config.json", readTextFile);
-  const apiUrl = config?.["api_url"];
-  if (typeof apiUrl === "string" && /^https?:\/\//.test(apiUrl)) {
-    return { baseUrl: apiUrl.replace(/\/+$/, "") };
-  }
-  return {
-    error:
-      "无法确定 hindsight 服务地址（<root>/hindsight/config.json 缺少 api_url，或未设置 BUTLER_HINDSIGHT_BASE_URL），记忆探针降级跳过",
-  };
+  return { baseUrl: resolved.baseUrl };
 }
 
 /**

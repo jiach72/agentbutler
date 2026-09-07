@@ -6,3 +6,4 @@ export {
   type ReadonlySqliteOpener,
   type WritableSqliteOpener,
 } from "./memory.js";
+export { createHindsightMemoryDriver, type HindsightMemoryDriverOptions } from "./hindsight-memory.js";

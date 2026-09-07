@@ -33,6 +33,7 @@ import type { ControlAdapter, DiscoveryHint, InstanceRef, Job, Result } from "@b
 import { fail } from "@butler/contract";
 import {
   createHermesAdapter,
+  createHindsightMemoryDriver,
   HermesControlBridgeClient,
   createPatchManager,
   type CommandExecutor,
@@ -882,6 +883,13 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     skillDriver: adapter.drivers?.skill,
     pluginDriver: adapter.drivers?.plugin,
     memoryDriver: adapter.drivers?.memory,
+    // hindsight 接管记忆时，统计/预览/健康改读 hindsight 服务（按实例检测自动切换）。
+    hindsightMemoryDriver: createHindsightMemoryDriver({
+      baseUrl: config.memoryProbe.hindsightBaseUrl,
+      token: config.memoryProbe.hindsightToken,
+      fetchFn: options.fetchFn,
+      now: options.now,
+    }),
     memoryBackend: config.memoryBackend,
     stallThresholdMin: Math.max(1, Math.round(config.stallWriteThresholdMs / 60_000)),
     now: options.now,

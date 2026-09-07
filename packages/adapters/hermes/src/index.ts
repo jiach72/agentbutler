@@ -128,9 +128,24 @@ export {
   createHermesMemoryDriver,
   createHermesPluginDriver,
   createHermesSkillDriver,
+  createHindsightMemoryDriver,
+  type HindsightMemoryDriverOptions,
   type HermesMemoryDriverOptions,
   type ReadonlySqliteOpener,
 } from "./drivers/index.js";
+export {
+  hindsightBankStats,
+  hindsightListMemories,
+  resolveHindsightService,
+  type HindsightBankStats,
+  type HindsightFetch,
+  type HindsightListResult,
+  type HindsightMemoryUnit,
+  type HindsightReadTextFile,
+  type HindsightRequestInit,
+  type HindsightServiceEndpoint,
+  type ResolveHindsightServiceOptions,
+} from "./hindsight-client.js";
 export { createHermesControl, type HermesControlInvoker, type HermesControlOptions } from "./control/index.js";
 export {
   HermesControlBridgeClient,

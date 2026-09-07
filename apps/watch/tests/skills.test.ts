@@ -2,7 +2,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { createHermesMemoryDriver, createHermesSkillDriver } from "@butler/adapter-hermes";
+import {
+  createHermesMemoryDriver,
+  createHermesSkillDriver,
+  createHindsightMemoryDriver,
+} from "@butler/adapter-hermes";
 import { createCore, type Core } from "@butler/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createSkillsMemoryService } from "../src/skills.js";
@@ -314,4 +318,76 @@ describe("技能与记忆只读聚合服务", () => {
     expect(purgeCalls).toBe(0);
   });
 
+});
+
+describe("hindsight 后端的记忆读取切换", () => {
+  it("检测到 hindsight 时统计/预览改读 hindsight 驱动，本地旧库不再作为数据源", async () => {
+    createMemoryDb();
+    mkdirSync(join(root, "hindsight"), { recursive: true });
+    writeFileSync(
+      join(root, "hindsight", "config.json"),
+      JSON.stringify({ api_url: "http://127.0.0.1:9177", bank_id: "hermes" }),
+      "utf8",
+    );
+    const hindsightDriver = createHindsightMemoryDriver({
+      fetchFn: (async (url: string | URL) => {
+        const u = String(url);
+        if (u.includes("/memories/list")) {
+          const keyword = new URL(u).searchParams.get("q");
+          const item = keyword
+            ? { id: "hm-q1", text: `命中 ${keyword}`, mentioned_at: "2026-09-07T01:00:00+00:00", state: "valid" }
+            : { id: "hm-1", text: "最新记忆", mentioned_at: "2026-09-07T02:50:00+00:00", state: "valid" };
+          return new Response(JSON.stringify({ items: [item], total: 3620 }), { status: 200 });
+        }
+        if (u.endsWith("/stats")) {
+          return new Response(JSON.stringify({ total_nodes: 3620, total_documents: 177, failed_operations: 0 }), { status: 200 });
+        }
+        return new Response("{}", { status: 404 });
+      }) as never,
+      now: () => Date.parse("2026-09-07T03:00:00Z"),
+    });
+    const service = createSkillsMemoryService({
+      core,
+      memoryDriver: createHermesMemoryDriver({ now: () => Date.parse("2026-09-07T03:00:00Z") }),
+      hindsightMemoryDriver: hindsightDriver,
+      now: () => Date.parse("2026-09-07T03:00:00Z"),
+      stallThresholdMin: 30,
+    });
+
+    const view = await service.status({});
+    expect(view.memory).toMatchObject({
+      mode: "driver",
+      driverId: "hindsight-rest-readonly",
+      stats: { totalEntries: 3620 },
+    });
+    expect(view.memory.backend).toMatchObject({ backend: "hindsight", source: "marker" });
+    expect(view.memory.preview).toHaveLength(1);
+    expect(view.memory.preview[0]).toMatchObject({ entryId: "hm-1", content: "最新记忆" });
+    // 真实 hindsight 统计接进来后，停写按常规口径判定（最近有写入 → active）。
+    expect(view.memory.writeActivity.status).toBe("active");
+
+    const searched = await service.status({ keyword: "微信" });
+    expect(searched.memory.preview[0]).toMatchObject({ entryId: "hm-q1", content: "命中 微信" });
+  });
+
+  it("hindsight 服务不可达时优雅降级为目录统计，不误报停写", async () => {
+    createMemoryDb();
+    mkdirSync(join(root, "hindsight"), { recursive: true });
+    writeFileSync(join(root, "hindsight", "config.json"), "{}", "utf8");
+    const hindsightDriver = createHindsightMemoryDriver({
+      fetchFn: (async () => new Response("{}", { status: 503 })) as never,
+      now: () => Date.parse("2026-09-07T03:00:00Z"),
+    });
+    const service = createSkillsMemoryService({
+      core,
+      memoryDriver: createHermesMemoryDriver({ now: () => Date.parse("2026-09-07T03:00:00Z") }),
+      hindsightMemoryDriver: hindsightDriver,
+      now: () => Date.parse("2026-09-07T03:00:00Z"),
+      stallThresholdMin: 30,
+    });
+
+    const view = await service.status({});
+    expect(view.memory.mode).toBe("directory-fallback");
+    expect(view.memory.stats).toBeNull();
+  });
 });

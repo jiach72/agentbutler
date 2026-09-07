@@ -164,6 +164,8 @@ export interface SkillsMemoryServiceDeps {
   skillDriver?: SkillDriver;
   pluginDriver?: PluginDriver;
   memoryDriver?: MemoryDriver;
+  /** hindsight 只读记忆驱动：检测到 hindsight 后端时，统计/预览/健康改走该驱动。 */
+  hindsightMemoryDriver?: MemoryDriver;
   /** 记忆后端声明（BUTLER_MEMORY_BACKEND 归一化值；缺省 auto 按目录标记检测）。 */
   memoryBackend?: MemoryBackendConfig;
   now?: () => number;
@@ -329,6 +331,17 @@ export function createSkillsMemoryService(deps: SkillsMemoryServiceDeps): Skills
     };
   };
 
+  /** 按实例检测的记忆后端选驱动：外部后端且有对应只读驱动时优先外部，本地 SQLite 兜底。 */
+  function driverFor(instance: InstanceRecord): MemoryDriver | undefined {
+    const backend = detectMemoryBackend(instance.rootPath, {
+      configured: deps.memoryBackend ?? "auto",
+    });
+    if (backend.backend !== "hermes" && deps.hindsightMemoryDriver !== undefined) {
+      return deps.hindsightMemoryDriver;
+    }
+    return deps.memoryDriver;
+  }
+
   async function runSnapshotBeforeWrite(label: string): Promise<MemoryActionResult | null> {
     if (deps.snapshotBeforeWrite === undefined) {
       return {
@@ -369,7 +382,8 @@ export function createSkillsMemoryService(deps: SkillsMemoryServiceDeps): Skills
     if ("error" in resolved) {
       return { ok: false, instanceId: null, error: resolved.error, userHint: resolved.error };
     }
-    if (deps.memoryDriver === undefined) {
+    const driver = driverFor(resolved.instance);
+    if (driver === undefined) {
       return {
         ok: false,
         instanceId: resolved.instance.instanceId,
@@ -377,7 +391,7 @@ export function createSkillsMemoryService(deps: SkillsMemoryServiceDeps): Skills
         userHint: "该实例的此格式暂不支持记忆写操作",
       };
     }
-    const fn = deps.memoryDriver[method] as (
+    const fn = driver[method] as (
       scope: DriverScope,
       policy: ArchivePolicy | RestorePolicy | PurgePolicy,
     ) => Promise<import("@butler/contract").Result<
@@ -413,6 +427,15 @@ export function createSkillsMemoryService(deps: SkillsMemoryServiceDeps): Skills
         },
         rootPath: instance.rootPath,
       };
+      // 按检测到的记忆后端选驱动：hindsight（auto 标记或显式声明）且有对应只读
+      // 驱动时，统计/预览/健康直接读 hindsight 服务，本地 SQLite 只作降级兜底。
+      const backend = detectMemoryBackend(instance.rootPath, {
+        configured: deps.memoryBackend ?? "auto",
+      });
+      const activeMemoryDriver =
+        backend.backend !== "hermes" && deps.hindsightMemoryDriver !== undefined
+          ? deps.hindsightMemoryDriver
+          : deps.memoryDriver;
       const skillsDirectory = scanDirectoryTargets(instance.rootPath, [
         join(instance.rootPath, "skills"),
       ]);
@@ -443,28 +466,28 @@ export function createSkillsMemoryService(deps: SkillsMemoryServiceDeps): Skills
               capability: "skill-driver",
             });
       const statsPromise =
-        deps.memoryDriver === undefined
+        activeMemoryDriver === undefined
           ? Promise.resolve(null)
-          : deps.core.invoke(() => deps.memoryDriver!.stats(scope), {
+          : deps.core.invoke(() => activeMemoryDriver.stats(scope), {
               method: "stats",
               instance: instance.instanceId,
               capability: "memory-driver",
             });
       const previewPromise =
-        deps.memoryDriver === undefined
+        activeMemoryDriver === undefined
           ? Promise.resolve(null)
           : deps.core.invoke(
               () =>
-                deps.memoryDriver!.preview(scope, {
+                activeMemoryDriver.preview(scope, {
                   ...(query.keyword === undefined ? {} : { keyword: query.keyword }),
                   limit: Math.min(MEMORY_PREVIEW_LIMIT, query.limit ?? 20),
                 }),
               { method: "preview", instance: instance.instanceId, capability: "memory-driver" },
             );
       const healthPromise =
-        deps.memoryDriver === undefined
+        activeMemoryDriver === undefined
           ? Promise.resolve(null)
-          : deps.core.invoke(() => deps.memoryDriver!.analyze(scope), {
+          : deps.core.invoke(() => activeMemoryDriver.analyze(scope), {
               method: "analyze",
               instance: instance.instanceId,
               capability: "memory-driver",
@@ -487,11 +510,6 @@ export function createSkillsMemoryService(deps: SkillsMemoryServiceDeps): Skills
       );
       const pluginDriverCovered =
         pluginResult?.ok === true && (pluginItems.length > 0 || pluginsDirectory.fileCount === 0);
-      // 记忆后端检测一次并复用：写入活跃度的 hindsight 判定与 backend 字段同源，
-      // 避免「面板显示外部接管、检测逻辑仍看本地标记」的分叉。
-      const backend = detectMemoryBackend(instance.rootPath, {
-        configured: deps.memoryBackend ?? "auto",
-      });
       const memoryStats =
         statsResult?.ok === true && statsResult.data !== undefined ? statsResult.data : null;
       const memoryPreview =
@@ -516,13 +534,17 @@ export function createSkillsMemoryService(deps: SkillsMemoryServiceDeps): Skills
             ? "driver"
             : "directory-fallback";
       const memoryMode: InventoryMode =
-        deps.memoryDriver === undefined
+        activeMemoryDriver === undefined
           ? memoryDirectory.fileCount > 0
             ? "directory-fallback"
             : "unavailable"
           : memoryStats !== null
             ? "driver"
             : "directory-fallback";
+      // 统计来自外部驱动（真实 hindsight 数据）时，停写按常规口径判定；
+      // 只有"检测到 hindsight 但仍在读本地旧库"才需要 suppress 停写告警。
+      const readingLocalStoreWhileExternal =
+        backend.backend === "hindsight" && activeMemoryDriver === deps.memoryDriver;
 
       return {
         instance: {
@@ -555,23 +577,18 @@ export function createSkillsMemoryService(deps: SkillsMemoryServiceDeps): Skills
         },
         memory: {
           mode: memoryMode,
-          driverId: deps.memoryDriver?.id ?? null,
+          driverId: activeMemoryDriver?.id ?? null,
           backend,
           stats: memoryStats,
           health: memoryHealth,
           preview: memoryPreview,
           previewLimit: MEMORY_PREVIEW_LIMIT,
-          writeActivity: writeActivity(
-            memoryStats,
-            now,
-            stallThresholdMin,
-            backend.backend === "hindsight",
-          ),
+          writeActivity: writeActivity(memoryStats, now, stallThresholdMin, readingLocalStoreWhileExternal),
           directory: memoryDirectory,
           notice:
             memoryMode === "driver"
               ? previewResult?.ok === true
-                ? "经 sqlite-fts5 驱动只读统计与检索；预览硬上限 50 条"
+                ? `经 ${activeMemoryDriver?.id ?? "memory"} 驱动只读统计与检索；预览硬上限 50 条`
                 : "统计可读，但该实例的检索格式暂不支持解析；V1 不支持写入"
               : "该实例的此格式暂不支持解析；V1 不支持写入，已降级为目录统计",
         },
@@ -583,7 +600,8 @@ export function createSkillsMemoryService(deps: SkillsMemoryServiceDeps): Skills
       if ("error" in resolved) {
         return { ok: false, instanceId: null, error: resolved.error, userHint: resolved.error };
       }
-      if (deps.memoryDriver === undefined) {
+      const driver = driverFor(resolved.instance);
+      if (driver === undefined) {
         return {
           ok: false,
           instanceId: resolved.instance.instanceId,
@@ -592,7 +610,7 @@ export function createSkillsMemoryService(deps: SkillsMemoryServiceDeps): Skills
         };
       }
       const result = await deps.core.invoke(
-        () => deps.memoryDriver!.analyze(resolved.scope),
+        () => driver.analyze(resolved.scope),
         { method: "analyze", instance: resolved.instance.instanceId, capability: "memory-driver" },
       );
       if (result.ok && result.data !== undefined) {
@@ -640,7 +658,8 @@ export function createSkillsMemoryService(deps: SkillsMemoryServiceDeps): Skills
       if ("error" in resolved) {
         return { ok: false, instanceId: null, error: resolved.error, userHint: resolved.error };
       }
-      if (deps.memoryDriver === undefined) {
+      const driver = driverFor(resolved.instance);
+      if (driver === undefined) {
         return {
           ok: false,
           instanceId: resolved.instance.instanceId,
@@ -649,7 +668,7 @@ export function createSkillsMemoryService(deps: SkillsMemoryServiceDeps): Skills
         };
       }
       const result = await deps.core.invoke(
-        () => deps.memoryDriver!.rebuildIndex(resolved.scope),
+        () => driver.rebuildIndex(resolved.scope),
         { method: "rebuildIndex", instance: resolved.instance.instanceId, capability: "memory-driver" },
       );
       if (result.ok && result.data !== undefined) {
@@ -685,6 +704,20 @@ export function createSkillsMemoryService(deps: SkillsMemoryServiceDeps): Skills
           code: "memory-store-not-found",
           error: "memory-store-not-found",
           userHint: "未找到记忆库文件，无法导出",
+        };
+      }
+      // 外部后端（hindsight/mem0）接管后，本地 memory_store.db 是陈旧数据，
+      // 导出它会误导用户以为导出了当前记忆——明示不支持。
+      const backendForExport = detectMemoryBackend(resolved.instance.rootPath, {
+        configured: deps.memoryBackend ?? "auto",
+      });
+      if (backendForExport.backend !== "hermes") {
+        return {
+          ok: false,
+          instanceId: resolved.instance.instanceId,
+          code: "external-memory-unsupported",
+          error: "external-memory-unsupported",
+          userHint: `记忆由 ${backendForExport.backend} 管理，加密导出请使用其自带能力；本地 memory_store.db 已非当前记忆`,
         };
       }
       try {
