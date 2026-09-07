@@ -79,6 +79,17 @@ if [[ "$bridge_url" == *":8755" ]]; then
   fi
 fi
 
+# hindsight 记忆探针经宿主 loopback 转发（9178 → 127.0.0.1:${BUTLER_HINDSIGHT_PORT:-9177}）；
+# 配置了探针地址且 9178 尚无监听时由 Compose 托管该 profile。
+hindsight_url="${BUTLER_HINDSIGHT_BASE_URL:-$(env_value BUTLER_HINDSIGHT_BASE_URL)}"
+if [[ -n "$hindsight_url" ]]; then
+  if command -v ss >/dev/null 2>&1 && ss -ltn 2>/dev/null | grep -q ':9178 '; then
+    echo "Using an existing listener on :9178; Compose hindsight-forward profile is skipped."
+  else
+    compose_args+=(--profile hindsight-forward)
+  fi
+fi
+
 compose() { docker compose "${compose_args[@]}" "$@"; }
 
 # Docker Desktop's Buildx plugin can be unavailable in WSL when its mounted
