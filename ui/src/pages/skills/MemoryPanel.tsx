@@ -23,7 +23,7 @@ import { ChartEmpty, TrendColumn } from "../../components/charts/index.js";
 import { chartThemeFor, primaryFill, quietAxes } from "../../components/charts/chartTheme.js";
 import { useTheme } from "../../theme/ThemeProvider.js";
 import type { MemorySelfCheckView, SkillsPayload } from "./helpers.js";
-import { channelLabel, formatNumber, formatTime, PREVIEW_LIMIT } from "./helpers.js";
+import { channelLabel, formatNumber, formatTime, memoryBackendLabel, PREVIEW_LIMIT } from "./helpers.js";
 import { DirectoryFallback } from "./DirectoryFallback.js";
 import { MemoryHealthCard } from "./MemoryHealthCard.js";
 
@@ -109,6 +109,11 @@ export function MemoryPanel({
             </Title>
           </Flex>
           <Text type="secondary">先确认记忆是否健康，再查看写入趋势或检索内容。</Text>
+          {data?.memory.backend !== undefined && (
+            <Text type="secondary" title={data.memory.backend.detail}>
+              记忆后端：{memoryBackendLabel(data.memory.backend)}
+            </Text>
+          )}
         </Flex>
         <Button type="default" onClick={onRefresh} disabled={refreshing}>
           {refreshing ? "刷新中" : "刷新"}

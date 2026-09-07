@@ -18,6 +18,16 @@
  *                            LLM 端点探针（Task 6.3，可选；未配置探针 skipped）
  * - BUTLER_CHANNEL_DRYRUN_ENDPOINT / BUTLER_CHANNEL_DRYRUN_PAYLOAD
  *                            通道 dry-run 探针（Task 6.2，可选；未配置走静态检查）
+ * - BUTLER_MEMORY_BACKEND   记忆后端声明：auto（按实例目录标记自动检测，默认）/
+ *                            hermes / hindsight / mem0。显式值优先于文件标记。
+ * - BUTLER_HINDSIGHT_BASE_URL / BUTLER_HINDSIGHT_TOKEN
+ *                            hindsight 记忆探针覆盖项；缺省读
+ *                            <实例root>/hindsight/config.json 的 api_url。
+ *                            容器部署且 hindsight 在宿主机时必须显式指定
+ *                            （容器内 localhost 指向容器自身）。
+ * - BUTLER_MEM0_BASE_URL / BUTLER_MEM0_API_KEY
+ *                            mem0 记忆探针参数；BASE_URL 默认官方 API，
+ *                            API_KEY 缺省读 <实例root>/mem0/config.json。
  * - BUTLER_STALL_WRITE_THRESHOLD_MIN  停写静默阈值（分钟，默认 360 = 6h）
  * - BUTLER_RUNBOOK_AUTO     自动 runbook 触发（默认开；"0"/"false" 关闭）
  * - BUTLER_AUTO_START      自动启动巡检与日志尾随（默认开；开发只读联调可关闭）
@@ -35,7 +45,20 @@
  *                            窗口内多条完成通知合并为一条投递，Task 13.2）
  */
 import { resolveButlerHome } from "@butler/core";
+import { normalizeMemoryBackendConfig, type MemoryBackendConfig } from "@butler/adapter-hermes";
 import type { ChannelDryRunConfig, LlmProbeEnv } from "./probes/index.js";
+
+/** 外部记忆系统探针参数（hindsight/mem0 API 地址与凭据；未配置项回退实例标记文件）。 */
+export interface MemoryProbeEnv {
+  /** hindsight 服务地址（BUTLER_HINDSIGHT_BASE_URL）。 */
+  hindsightBaseUrl?: string;
+  /** hindsight 可选 Bearer Token（BUTLER_HINDSIGHT_TOKEN）。 */
+  hindsightToken?: string;
+  /** mem0 API 网关地址（BUTLER_MEM0_BASE_URL）。 */
+  mem0BaseUrl?: string;
+  /** mem0 API Key（BUTLER_MEM0_API_KEY）。 */
+  mem0ApiKey?: string;
+}
 
 export interface WatchConfig {
   /** 被管家管理的框架。 */
@@ -82,6 +105,10 @@ export interface WatchConfig {
   credentialWritesAllowed: boolean;
   /** M6 记忆写操作开关（归档/恢复/清理/重建索引/加密导出）；默认关闭，开启后写动作仍走备份门禁与审计。 */
   m6WritesEnabled: boolean;
+  /** 记忆后端声明（BUTLER_MEMORY_BACKEND；auto 按实例目录标记检测）。 */
+  memoryBackend: MemoryBackendConfig;
+  /** 外部记忆系统探针参数（hindsight/mem0；缺省项回退实例标记文件）。 */
+  memoryProbe: MemoryProbeEnv;
   /** GitHub API 镜像前缀（版本源逐源探测插入镜像源；未配置则无镜像源）。 */
   versionMirrorHost?: string;
   /** 版本源 GitHub 仓库（默认 hermes-agent/hermes）。 */
@@ -240,6 +267,15 @@ export function loadWatchConfig(overrides: Partial<WatchConfig> = {}): WatchConf
         isLoopbackHost(watchHttpHost),
       ),
     m6WritesEnabled: overrides.m6WritesEnabled ?? readBoolEnv("BUTLER_MEMORY_WRITES_ENABLED", false),
+    memoryBackend:
+      overrides.memoryBackend ??
+      normalizeMemoryBackendConfig(readStrEnv("BUTLER_MEMORY_BACKEND")),
+    memoryProbe: {
+      hindsightBaseUrl: overrides.memoryProbe?.hindsightBaseUrl ?? readStrEnv("BUTLER_HINDSIGHT_BASE_URL"),
+      hindsightToken: overrides.memoryProbe?.hindsightToken ?? readStrEnv("BUTLER_HINDSIGHT_TOKEN"),
+      mem0BaseUrl: overrides.memoryProbe?.mem0BaseUrl ?? readStrEnv("BUTLER_MEM0_BASE_URL"),
+      mem0ApiKey: overrides.memoryProbe?.mem0ApiKey ?? readStrEnv("BUTLER_MEM0_API_KEY"),
+    },
     versionMirrorHost: overrides.versionMirrorHost ?? readStrEnv("BUTLER_VERSION_MIRROR_HOST"),
     versionRepo: overrides.versionRepo ?? readStrEnv("BUTLER_VERSION_REPO") ?? DEFAULT_VERSION_REPO,
     versionDockerImage:

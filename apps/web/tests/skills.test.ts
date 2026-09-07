@@ -73,6 +73,7 @@ const WATCH_VIEW = {
   memory: {
     mode: "driver",
     driverId: "sqlite-fts5",
+    backend: { id: "hindsight", source: "marker", detail: "检测到 hindsight/config.json（hindsight 记忆服务）" },
     stats: {
       totalEntries: 1,
       byMonth: [{ month: "2026-08", count: 1 }],

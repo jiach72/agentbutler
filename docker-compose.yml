@@ -93,6 +93,13 @@ services:
       BUTLER_UPDATER_URL: http://butler-updater:7540
       # 与 updater 共享同一份访问口令；Watch 转发自更新请求时需要带上。
       BUTLER_ACCESS_TOKEN: ${BUTLER_ACCESS_TOKEN:-}
+      # 记忆后端：auto 按实例目录标记自动识别 hindsight/mem0，探针改走对应 API。
+      # hindsight 在宿主机时必须显式给 BASE_URL（容器内 localhost 指向容器自身）。
+      BUTLER_MEMORY_BACKEND: ${BUTLER_MEMORY_BACKEND:-auto}
+      BUTLER_HINDSIGHT_BASE_URL: ${BUTLER_HINDSIGHT_BASE_URL:-}
+      BUTLER_HINDSIGHT_TOKEN: ${BUTLER_HINDSIGHT_TOKEN:-}
+      BUTLER_MEM0_BASE_URL: ${BUTLER_MEM0_BASE_URL:-}
+      BUTLER_MEM0_API_KEY: ${BUTLER_MEM0_API_KEY:-}
       # Optional GitHub token for higher API limits when staging recommended skills.
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
     depends_on:

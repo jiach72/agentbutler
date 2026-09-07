@@ -600,6 +600,8 @@ export interface SkillsApiView {
   memory: {
     mode: SkillsInventoryMode;
     driverId: string | null;
+    /** watch 检测到的记忆后端（hermes|hindsight|mem0；env 声明 > 目录标记 > 默认）。 */
+    backend: { id: string; source: string; detail: string };
     stats: null | {
       totalEntries: number;
       byMonth: Array<{ month: string; count: number }>;
@@ -666,6 +668,7 @@ function degradedSkills(): SkillsApiView {
     memory: {
       mode: "unavailable",
       driverId: null,
+      backend: { id: "hermes", source: "default", detail: "watch 不可达，按默认记忆库处理" },
       stats: null,
       health: null,
       preview: [],
@@ -679,6 +682,14 @@ function degradedSkills(): SkillsApiView {
 
 function isNonNegativeNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function isMemoryBackendId(value: unknown): value is string {
+  return value === "hermes" || value === "hindsight" || value === "mem0";
+}
+
+function isMemoryBackendSource(value: unknown): value is string {
+  return value === "env" || value === "marker" || value === "default";
 }
 
 function parseDirectoryInventory(value: unknown): DirectoryInventoryView | null {
@@ -942,6 +953,28 @@ function parseSkillsStatus(value: unknown): Omit<SkillsApiView, "watchReachable"
     .slice(0, MEMORY_PREVIEW_LIMIT) as SkillsApiView["memory"]["preview"];
   if (preview.length !== Math.min(memory["preview"].length, MEMORY_PREVIEW_LIMIT)) return null;
 
+  // 记忆后端：新 watch 才上报；缺失（滚动升级中的旧版 watch）回落默认值，不判降级。
+  let backend: SkillsApiView["memory"]["backend"] = {
+    id: "hermes",
+    source: "default",
+    detail: "watch 版本较旧，未上报记忆后端检测",
+  };
+  if (memory["backend"] !== undefined) {
+    if (
+      !isRecord(memory["backend"]) ||
+      !isMemoryBackendId(memory["backend"]["id"]) ||
+      !isMemoryBackendSource(memory["backend"]["source"]) ||
+      typeof memory["backend"]["detail"] !== "string"
+    ) {
+      return null;
+    }
+    backend = {
+      id: memory["backend"]["id"],
+      source: memory["backend"]["source"],
+      detail: memory["backend"]["detail"],
+    };
+  }
+
   return {
     instance,
     skills: {
@@ -963,6 +996,7 @@ function parseSkillsStatus(value: unknown): Omit<SkillsApiView, "watchReachable"
     memory: {
       mode: memory["mode"],
       driverId: memory["driverId"],
+      backend,
       stats,
       health: memory["health"] === null ? null : parseMemoryHealth(memory["health"]),
       preview,

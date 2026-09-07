@@ -22,6 +22,11 @@ import {
   type SkillMeta,
 } from "@butler/contract";
 import type { Core, InstanceRecord } from "@butler/core";
+import {
+  detectMemoryBackend,
+  type MemoryBackendConfig,
+  type MemoryBackendDetection,
+} from "@butler/adapter-hermes";
 
 const MEMORY_EXPORT_MAGIC = "ABMEM01";
 const MEMORY_EXPORT_MIN_PASSPHRASE = 8;
@@ -100,6 +105,8 @@ export interface SkillsMemoryView {
   memory: {
     mode: InventoryMode;
     driverId: string | null;
+    /** 检测到的记忆后端（env 声明 > 目录标记 > 默认 SQLite）。 */
+    backend: MemoryBackendDetection;
     stats: MemoryStats | null;
     health: MemoryHealth | null;
     preview: MemoryEntry[];
@@ -157,6 +164,8 @@ export interface SkillsMemoryServiceDeps {
   skillDriver?: SkillDriver;
   pluginDriver?: PluginDriver;
   memoryDriver?: MemoryDriver;
+  /** 记忆后端声明（BUTLER_MEMORY_BACKEND 归一化值；缺省 auto 按目录标记检测）。 */
+  memoryBackend?: MemoryBackendConfig;
   now?: () => number;
   stallThresholdMin?: number;
   /** 记忆写动作执行前快照（PRD M6：所有写动作默认执行前快照）；缺失或失败时写动作必须中止。 */
@@ -282,6 +291,11 @@ function unavailableView(): SkillsMemoryView {
     memory: {
       mode: "unavailable",
       driverId: null,
+      backend: {
+        backend: "hermes",
+        source: "default",
+        detail: "未发现可读取的实例，按默认记忆库处理",
+      },
       stats: null,
       health: null,
       preview: [],
@@ -473,6 +487,11 @@ export function createSkillsMemoryService(deps: SkillsMemoryServiceDeps): Skills
       );
       const pluginDriverCovered =
         pluginResult?.ok === true && (pluginItems.length > 0 || pluginsDirectory.fileCount === 0);
+      // 记忆后端检测一次并复用：写入活跃度的 hindsight 判定与 backend 字段同源，
+      // 避免「面板显示外部接管、检测逻辑仍看本地标记」的分叉。
+      const backend = detectMemoryBackend(instance.rootPath, {
+        configured: deps.memoryBackend ?? "auto",
+      });
       const memoryStats =
         statsResult?.ok === true && statsResult.data !== undefined ? statsResult.data : null;
       const memoryPreview =
@@ -537,6 +556,7 @@ export function createSkillsMemoryService(deps: SkillsMemoryServiceDeps): Skills
         memory: {
           mode: memoryMode,
           driverId: deps.memoryDriver?.id ?? null,
+          backend,
           stats: memoryStats,
           health: memoryHealth,
           preview: memoryPreview,
@@ -545,7 +565,7 @@ export function createSkillsMemoryService(deps: SkillsMemoryServiceDeps): Skills
             memoryStats,
             now,
             stallThresholdMin,
-            existsSync(join(instance.rootPath, "hindsight", "config.json")),
+            backend.backend === "hindsight",
           ),
           directory: memoryDirectory,
           notice:

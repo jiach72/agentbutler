@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -141,5 +141,65 @@ describe("M7 备份服务", () => {
     expect(result).toMatchObject({ ok: true, backupId: row.id, checkedFiles: 1, checkedDatabases: 1 });
     expect(core.store.getBackup(row.id)?.status).toBe("verified");
     expect(core.store.listAudit({ action: "backup-verify" })).toHaveLength(1);
+  });
+
+  describe("外部记忆后端（hindsight/mem0）的记忆增量备份", () => {
+    function externalService(): BackupService {
+      return createBackupService({
+        core,
+        hermesRoot,
+        now: () => Date.parse("2026-08-23T04:00:00Z"),
+        driver: {
+          setInterval: (fn, ms) => {
+            const handle = { fn, ms };
+            intervals.push(handle);
+            return handle;
+          },
+          clearInterval: () => undefined,
+        },
+      });
+    }
+
+    function migrateToHindsight(): void {
+      rmSync(join(hermesRoot, "memory_store.db"), { force: true });
+      mkdirSync(join(hermesRoot, "hindsight"), { recursive: true });
+      writeFileSync(join(hermesRoot, "hindsight", "config.json"), "{}", "utf8");
+    }
+
+    it("hindsight 接管且本地无库：run 明确报错并记审计，不产生备份登记", async () => {
+      migrateToHindsight();
+      const external = externalService();
+
+      await expect(external.run("memory", "测试")).rejects.toThrow(/hindsight/);
+      expect(core.store.listBackups("memory")).toHaveLength(0);
+      expect(core.store.listAudit({ action: "memory-backup-skipped" })).toHaveLength(1);
+      external.stop();
+    });
+
+    it("每小时 tick 静默跳过：不抛错、审计只在原因变化时记一条", async () => {
+      migrateToHindsight();
+      const external = externalService();
+      external.start();
+      const interval = intervals.at(-1);
+      await interval?.fn();
+      await interval?.fn();
+      // 周期回调是 void tick()；轮询等待审计落库（与既有调度用例同一手法）。
+      for (let i = 0; i < 100; i += 1) {
+        if (core.store.listAudit({ action: "memory-backup-skipped" }).length > 0) break;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      // 两个 tick 同一原因：只记一条 skip 审计（逐小时跳过不刷屏）。
+      expect(core.store.listAudit({ action: "memory-backup-skipped" })).toHaveLength(1);
+      // tick 还会补做当日全量备份；等它收敛（落库+验证完成）再结束，避免
+      // afterEach 清理目录时 worker 仍在写入（Windows 上表现为 EPERM）。
+      for (let i = 0; i < 300; i += 1) {
+        const full = core.store.listBackups("full")[0];
+        if (full !== undefined && (full.status === "verified" || full.status === "verification-failed")) {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      external.stop();
+    });
   });
 });

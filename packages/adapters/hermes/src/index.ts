@@ -101,6 +101,16 @@ export {
   type PortProber,
 } from "./detect.js";
 export { capabilityScan, parseRootPath, type ScanOptions } from "./capability-scan.js";
+export {
+  detectMemoryBackend,
+  normalizeMemoryBackendConfig,
+  HINDSIGHT_CONFIG_FILE,
+  MEM0_CONFIG_FILES,
+  type DetectMemoryBackendOptions,
+  type MemoryBackendConfig,
+  type MemoryBackendDetection,
+  type MemoryBackendId,
+} from "./memory-backend.js";
 export { logSources } from "./log-sources.js";
 export {
   BridgeHttpError,

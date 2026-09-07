@@ -238,6 +238,16 @@ describe("capabilityScan", () => {
     expect(r.data!.effectiveLevel).toBe(2);
   });
 
+  it("迁移到 hindsight：本地无 memory_store.db 不再记 anomaly，memory-driver 视为 ok", async () => {
+    rmSync(join(root, "memory_store.db"));
+    mkdirSync(join(root, "hindsight"), { recursive: true });
+    writeFileSync(join(root, "hindsight", "config.json"), "{}");
+    const r = await capabilityScan(root, { prober: fakeProber });
+    expect(r.ok).toBe(true);
+    expect(r.data!.capabilities["memory-driver"]).toBe("ok");
+    expect(r.data!.anomalies).toEqual([]);
+  });
+
   it("venv 缺失：仅 control 降级，probe ok 时 effectiveLevel=1", async () => {
     rmSync(join(root, "venv"), { recursive: true, force: true });
     const r = await capabilityScan(root, { prober: fakeProber });

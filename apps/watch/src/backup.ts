@@ -4,7 +4,8 @@
  * - 全量/事件备份：Hermes 核心数据文件（memory/state/response/kanban/projects/
  *   verification/lcm/cron）与 config.yaml，以及 Butler 自身数据（butler.db、
  *   gateway.db）；不备份 .env 等密钥明文文件。
- * - 记忆增量备份：只备份 Hermes memory_store.db。
+ * - 记忆增量备份：只备份 Hermes memory_store.db；检测到外部记忆后端
+ *   （hindsight/mem0）且本地无库时明示跳过（审计 memory-backup-skipped）。
  * - 数据库文件用 node:sqlite VACUUM INTO 做一致性快照（失败回退文件复制）；
  *   普通文件直接复制，保留 0600 权限位。
  * - 文件操作（VACUUM INTO / 复制 / quick_check）是同步阻塞调用，全部放入
@@ -21,6 +22,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { Worker } from "node:worker_threads";
 import type { BackupRow, Core } from "@butler/core";
+import { detectMemoryBackend, type MemoryBackendConfig } from "@butler/adapter-hermes";
 
 export type BackupKind = "full" | "memory" | "event";
 
@@ -167,6 +169,8 @@ export interface BackupServiceOptions {
   core: Core;
   /** Hermes 主目录（~/.hermes）。 */
   hermesRoot: string;
+  /** 记忆后端声明（BUTLER_MEMORY_BACKEND 归一化值；用于外部后端跳过记忆增量备份）。 */
+  memoryBackend?: MemoryBackendConfig;
   /** 可注入时钟（毫秒时间戳；缺省 Date.now）。 */
   now?: () => number;
   /** 自动备份定时器（测试注入 fake timer；缺省真实 setInterval）。 */
@@ -354,7 +358,32 @@ export function createBackupService(options: BackupServiceOptions): BackupServic
     }
   }
 
+  /**
+   * 外部记忆后端且本地无 memory_store.db → 返回跳过原因（记忆增量明示不进行）。
+   * 返回 null 表示按原逻辑继续：本地库存在；或默认后端缺库（沿用原「无文件可备份」报错）。
+   */
+  function externalMemorySkipReason(): string | null {
+    if (existsSync(join(hermesRoot, "memory_store.db"))) return null;
+    const detection = detectMemoryBackend(hermesRoot, {
+      configured: options.memoryBackend ?? "auto",
+    });
+    if (detection.backend === "hermes") return null;
+    return `记忆由 ${detection.backend} 接管，本地无 memory_store.db 可备份（${detection.detail}）`;
+  }
+
   async function run(kind: BackupKind, label?: string): Promise<BackupRow> {
+    if (kind === "memory") {
+      const skipReason = externalMemorySkipReason();
+      if (skipReason !== null) {
+        core.audit.append({
+          actor: "backup",
+          action: "memory-backup-skipped",
+          target: hermesRoot,
+          detail: { reason: skipReason },
+        });
+        throw new Error(skipReason);
+      }
+    }
     const entries = collectScope(kind);
     if (entries.length === 0) {
       throw new Error("没有找到可备份的文件（Hermes 数据目录为空？）");
@@ -563,11 +592,27 @@ export function createBackupService(options: BackupServiceOptions): BackupServic
     };
   }
 
+  // 每小时 tick 的外部后端跳过：审计只在原因变化时记一条，避免逐小时刷屏。
+  let lastMemorySkipDetail: string | null = null;
+
   async function tick(): Promise<void> {
     try {
       const memory = core.store.listBackups("memory").find((item) => item.status !== "expired");
       if (memory === undefined || now() - Date.parse(memory.createdAt) > 55 * 60 * 1000) {
-        await run("memory", "每小时记忆增量备份");
+        const skipReason = externalMemorySkipReason();
+        if (skipReason !== null) {
+          if (skipReason !== lastMemorySkipDetail) {
+            core.audit.append({
+              actor: "backup",
+              action: "memory-backup-skipped",
+              target: hermesRoot,
+              detail: { reason: skipReason },
+            });
+            lastMemorySkipDetail = skipReason;
+          }
+        } else {
+          await run("memory", "每小时记忆增量备份");
+        }
       }
       const full = core.store.listBackups("full").find((item) => item.status !== "expired");
       const today = isoNow(now).slice(0, 10);

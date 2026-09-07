@@ -15,6 +15,9 @@
  * 校验 → pass。任一步失败 → fail（detail 含错误）。
  * schema 不匹配（内容表/FTS 表缺失）或库文件不存在 → skipped（降级明示，不误报故障）。
  * 全部 SQLite 操作经可注入 opener，测试用临时 fixture 库建真实 FTS5 表。
+ *
+ * 外部记忆系统（hindsight/mem0）经 provider 注入接管本探针（见 memory-providers.ts）；
+ * SQLite 实现抽为 runSqliteMemoryProbe，供路由 provider 在 auto 检测到默认后端时复用。
  */
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -128,6 +131,115 @@ function recordProbeOp(
   }
 }
 
+/**
+ * 默认 SQLite 记忆探针（写标记行 → FTS 召回 → 24h 清理）。
+ * 独立导出：路由 provider（memory-providers.ts）在检测到默认后端时复用，
+ * 与 createMemoryProbeStage 的无 provider 路径共用同一实现。
+ */
+export async function runSqliteMemoryProbe(
+  ctx: InspectionContext,
+  deps: {
+    open: SqliteOpener;
+    now: () => number;
+    removeOwn: boolean;
+    contentTable: string;
+    ftsTable: string;
+  },
+): Promise<MemoryProbeProviderResult> {
+  const dbPath = join(ctx.rootPath, "memory_store.db");
+  if (!existsSync(dbPath)) {
+    return { status: "skipped", detail: "memory_store.db 不存在，记忆探针无对象" };
+  }
+  let db: SqliteDbLike;
+  try {
+    db = deps.open(dbPath);
+  } catch (error) {
+    return { status: "fail", detail: `DB 打不开: ${describe(error)}` };
+  }
+  try {
+    // schema 勘察：内容表与 FTS 虚表必须同时存在（FTS 虚表在 sqlite_master 中 type 同为 'table'）。
+    const rows = db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+      .all() as Array<{ name?: unknown }>;
+    const names = new Set(rows.map((r) => String(r["name"] ?? "")));
+    const tContent = ident(deps.contentTable);
+    const tFts = ident(deps.ftsTable);
+    if (!names.has(tContent) || !names.has(tFts)) {
+      const missing = [tContent, tFts].filter((n) => !names.has(n)).join(", ");
+      return {
+        status: "skipped",
+        detail: `schema 不匹配（缺少表 ${missing}），记忆探针降级跳过（默认 schema: facts + facts_fts）`,
+      };
+    }
+
+    // 24h 自动清理：删除标记 category 且 tags（epoch ms）早于阈值的旧测试行。
+    // 真实库的 facts_ad 触发器会同步删除 FTS 索引行，不进用户统计。
+    const cutoff = deps.now() - MEMORY_PROBE_RETENTION_MS;
+    let cleaned = 0;
+    try {
+      const del = db
+        .prepare(`DELETE FROM ${tContent} WHERE category = ? AND CAST(tags AS INTEGER) < ?`)
+        .run(MEMORY_PROBE_CATEGORY, cutoff);
+      cleaned = Number(del.changes ?? 0);
+    } catch (error) {
+      return { status: "fail", detail: `旧测试行清理失败: ${describe(error)}` };
+    }
+
+    // 写入带标记测试记忆：content 含唯一标记词；category/tags 供识别与清理。
+    const marker = `${MEMORY_PROBE_PREFIX}${randomUUID()}`;
+    const writtenAt = deps.now();
+    try {
+      db.prepare(`INSERT INTO ${tContent} (content, category, tags) VALUES (?, ?, ?)`).run(
+        `${marker} 写入召回测试 ts=${writtenAt}`,
+        MEMORY_PROBE_CATEGORY,
+        String(writtenAt),
+      );
+      recordProbeOp(db, "probe-write", true, `marker=${marker}`);
+    } catch (error) {
+      recordProbeOp(db, "probe-write", false, describe(error));
+      return { status: "fail", detail: `测试记忆写入失败: ${describe(error)}` };
+    }
+
+    // FTS MATCH 召回校验：trigram 短语查询必须能召回刚写入的标记词。
+    let recalled = 0;
+    try {
+      const found = db.prepare(`SELECT rowid FROM ${tFts} WHERE ${tFts} MATCH ? LIMIT 1`).all(`"${marker}"`);
+      recalled = found.length;
+      recordProbeOp(db, "probe-recall", recalled > 0, `marker=${marker}`);
+    } catch (error) {
+      recordProbeOp(db, "probe-recall", false, describe(error));
+      return { status: "fail", detail: `FTS 召回查询失败: ${describe(error)}` };
+    }
+    if (recalled === 0) {
+      recordProbeOp(db, "probe-recall", false, "FTS MATCH 未召回刚写入的标记");
+      return { status: "fail", detail: `FTS 未能召回刚写入的标记 ${marker}（索引同步失效）` };
+    }
+    let ownCleaned = 0;
+    if (deps.removeOwn) {
+      try {
+        const del = db
+          .prepare(`DELETE FROM ${tContent} WHERE content = ?`)
+          .run(`${marker} 写入召回测试 ts=${writtenAt}`);
+        ownCleaned = Number(del.changes ?? 0);
+      } catch (error) {
+        return { status: "fail", detail: `本次测试行清理失败: ${describe(error)}` };
+      }
+    }
+    return {
+      status: "pass",
+      detail:
+        `写入并召回成功（${marker}），清理 ${cleaned} 条 >24h 旧测试行` +
+        (ownCleaned > 0 ? "，本次测试行已清理" : ""),
+    };
+  } finally {
+    try {
+      db.close();
+    } catch {
+      // 关闭失败不影响结论。
+    }
+  }
+}
+
 export function createMemoryProbeStage(deps: MemoryProbeDeps = {}): InspectionStage {
   const open = deps.open ?? defaultSqliteOpener();
   const now = deps.now ?? Date.now;
@@ -161,100 +273,8 @@ export function createMemoryProbeStage(deps: MemoryProbeDeps = {}): InspectionSt
           detail: "Hermes 数据目录以只读方式挂载，跳过写入型记忆探针",
         };
       }
-      const dbPath = join(ctx.rootPath, "memory_store.db");
-      if (!existsSync(dbPath)) {
-        return { id: MEMORY_PROBE_CHECK_ID, status: "skipped", detail: "memory_store.db 不存在，记忆探针无对象" };
-      }
-      let db: SqliteDbLike;
-      try {
-        db = open(dbPath);
-      } catch (error) {
-        return { id: MEMORY_PROBE_CHECK_ID, status: "fail", detail: `DB 打不开: ${describe(error)}` };
-      }
-      try {
-        // schema 勘察：内容表与 FTS 虚表必须同时存在（FTS 虚表在 sqlite_master 中 type 同为 'table'）。
-        const rows = db
-          .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
-          .all() as Array<{ name?: unknown }>;
-        const names = new Set(rows.map((r) => String(r["name"] ?? "")));
-        const tContent = ident(contentTable);
-        const tFts = ident(ftsTable);
-        if (!names.has(tContent) || !names.has(tFts)) {
-          const missing = [tContent, tFts].filter((n) => !names.has(n)).join(", ");
-          return {
-            id: MEMORY_PROBE_CHECK_ID,
-            status: "skipped",
-            detail: `schema 不匹配（缺少表 ${missing}），记忆探针降级跳过（默认 schema: facts + facts_fts）`,
-          };
-        }
-
-        // 24h 自动清理：删除标记 category 且 tags（epoch ms）早于阈值的旧测试行。
-        // 真实库的 facts_ad 触发器会同步删除 FTS 索引行，不进用户统计。
-        const cutoff = now() - MEMORY_PROBE_RETENTION_MS;
-        let cleaned = 0;
-        try {
-          const del = db
-            .prepare(`DELETE FROM ${tContent} WHERE category = ? AND CAST(tags AS INTEGER) < ?`)
-            .run(MEMORY_PROBE_CATEGORY, cutoff);
-          cleaned = Number(del.changes ?? 0);
-        } catch (error) {
-          return { id: MEMORY_PROBE_CHECK_ID, status: "fail", detail: `旧测试行清理失败: ${describe(error)}` };
-        }
-
-        // 写入带标记测试记忆：content 含唯一标记词；category/tags 供识别与清理。
-        const marker = `${MEMORY_PROBE_PREFIX}${randomUUID()}`;
-        const writtenAt = now();
-        try {
-          db.prepare(`INSERT INTO ${tContent} (content, category, tags) VALUES (?, ?, ?)`).run(
-            `${marker} 写入召回测试 ts=${writtenAt}`,
-            MEMORY_PROBE_CATEGORY,
-            String(writtenAt),
-          );
-          recordProbeOp(db, "probe-write", true, `marker=${marker}`);
-        } catch (error) {
-          recordProbeOp(db, "probe-write", false, describe(error));
-          return { id: MEMORY_PROBE_CHECK_ID, status: "fail", detail: `测试记忆写入失败: ${describe(error)}` };
-        }
-
-        // FTS MATCH 召回校验：trigram 短语查询必须能召回刚写入的标记词。
-        let recalled = 0;
-        try {
-          const found = db.prepare(`SELECT rowid FROM ${tFts} WHERE ${tFts} MATCH ? LIMIT 1`).all(`"${marker}"`);
-          recalled = found.length;
-          recordProbeOp(db, "probe-recall", recalled > 0, `marker=${marker}`);
-        } catch (error) {
-          recordProbeOp(db, "probe-recall", false, describe(error));
-          return { id: MEMORY_PROBE_CHECK_ID, status: "fail", detail: `FTS 召回查询失败: ${describe(error)}` };
-        }
-        if (recalled === 0) {
-          recordProbeOp(db, "probe-recall", false, "FTS MATCH 未召回刚写入的标记");
-          return { id: MEMORY_PROBE_CHECK_ID, status: "fail", detail: `FTS 未能召回刚写入的标记 ${marker}（索引同步失效）` };
-        }
-        let ownCleaned = 0;
-        if (removeOwn) {
-          try {
-            const del = db
-              .prepare(`DELETE FROM ${tContent} WHERE content = ?`)
-              .run(`${marker} 写入召回测试 ts=${writtenAt}`);
-            ownCleaned = Number(del.changes ?? 0);
-          } catch (error) {
-            return { id: MEMORY_PROBE_CHECK_ID, status: "fail", detail: `本次测试行清理失败: ${describe(error)}` };
-          }
-        }
-        return {
-          id: MEMORY_PROBE_CHECK_ID,
-          status: "pass",
-          detail:
-            `写入并召回成功（${marker}），清理 ${cleaned} 条 >24h 旧测试行` +
-            (ownCleaned > 0 ? "，本次测试行已清理" : ""),
-        };
-      } finally {
-        try {
-          db.close();
-        } catch {
-          // 关闭失败不影响结论。
-        }
-      }
+      const result = await runSqliteMemoryProbe(ctx, { open, now, removeOwn, contentTable, ftsTable });
+      return { id: MEMORY_PROBE_CHECK_ID, ...result };
     },
   };
 }

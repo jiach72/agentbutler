@@ -79,6 +79,7 @@ import {
 import { createDefaultStages, defaultResourceSampler, type InspectionStage, type ResourceSampler } from "./pipeline.js";
 import { createHostMetricsService, type HostMetricsService } from "./host-metrics.js";
 import { createMemoryProbeStage } from "./probes/memory-probe.js";
+import { createRoutedMemoryProbeProvider } from "./probes/memory-providers.js";
 import { buildDiagnosticSummary, renderDiagnosticReport } from "./diagnostics.js";
 import type { LogMtimeSampler } from "./probes/stall-write.js";
 import type { MemoryProbeProvider, SqliteOpener } from "./probes/memory-probe.js";
@@ -143,6 +144,8 @@ export interface WatchAppOptions {
   sqlite?: SqliteOpener;
   /** 外部记忆系统 provider（按实例上下文选择用户后端）。 */
   memoryProvider?: MemoryProbeProvider;
+  /** 文件存在性探测（记忆后端检测用；测试注入，默认 existsSync）。 */
+  exists?: (path: string) => boolean;
   /** Task 6 探针注入：日志 mtime 采集器（stall-write）。 */
   logMtimeSampler?: LogMtimeSampler;
   /** Task 6 探针注入：可注入时钟（memory-probe 清理 / stall-write 静默判定）。 */
@@ -657,10 +660,31 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     }
   }
 
+  // 记忆探针 provider 路由：显式注入（测试）优先；否则按 BUTLER_MEMORY_BACKEND /
+  // 实例目录标记逐实例检测——hindsight/mem0 走各自 API 探针，默认后端回落 SQLite 探针。
+  const routedMemoryProvider =
+    options.memoryProvider ??
+    createRoutedMemoryProbeProvider({
+      configured: config.memoryBackend,
+      hindsight: {
+        baseUrl: config.memoryProbe.hindsightBaseUrl,
+        token: config.memoryProbe.hindsightToken,
+      },
+      mem0: {
+        baseUrl: config.memoryProbe.mem0BaseUrl,
+        apiKey: config.memoryProbe.mem0ApiKey,
+      },
+      sqlite: options.sqlite,
+      fetchFn: options.fetchFn,
+      exists: options.exists,
+      now: options.now,
+    });
+
   // 按需记忆自检专用探针：召回通过后立即删除本次测试行，不污染记忆库统计。
+  // （removeOwn 经 providerOptions 透传：SQLite 回落路径即时清理，
+  // hindsight/mem0 路径天然整 bank / 单条删除，本就无残留。）
   const memorySelfCheckStage = createMemoryProbeStage({
-    open: options.sqlite,
-    provider: options.memoryProvider,
+    provider: routedMemoryProvider,
     now: options.now,
     removeOwn: true,
   });
@@ -675,7 +699,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       memoryWarnBytes: config.memoryWarnBytes,
       cpuWarnPercent: config.cpuWarnPercent,
       sqlite: options.sqlite,
-      memoryProvider: options.memoryProvider,
+      memoryProvider: routedMemoryProvider,
       fetchFn: options.fetchFn,
       channelDryRun: config.channelDryRun,
       llmEnv: config.llm,
@@ -858,6 +882,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     skillDriver: adapter.drivers?.skill,
     pluginDriver: adapter.drivers?.plugin,
     memoryDriver: adapter.drivers?.memory,
+    memoryBackend: config.memoryBackend,
     stallThresholdMin: Math.max(1, Math.round(config.stallWriteThresholdMs / 60_000)),
     now: options.now,
     snapshotBeforeWrite: async (label: string) => {
@@ -878,6 +903,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
   const backup = createBackupService({
     core,
     hermesRoot: managedRoot,
+    memoryBackend: config.memoryBackend,
     now: options.now,
     driver,
   });

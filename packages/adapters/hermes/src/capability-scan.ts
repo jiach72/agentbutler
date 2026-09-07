@@ -15,6 +15,7 @@ import {
   resolveApiEndpoint,
   type PortProber,
 } from "./detect.js";
+import { detectMemoryBackend, normalizeMemoryBackendConfig } from "./memory-backend.js";
 
 export interface ScanOptions {
   /** 端口探活实现，默认 net.connect；测试可注入 fakeProber。 */
@@ -80,7 +81,16 @@ export async function capabilityScan(
   if (existsSync(join(rootPath, "memory_store.db"))) {
     capabilities["memory-driver"] = "ok";
   } else {
-    anomalies.push("未找到 memory_store.db（记忆后端非默认）");
+    // 用户可能已迁移到 hindsight/mem0 等外部记忆系统：这不是故障，
+    // 不再记 anomaly（真实事故：hindsight 接管后被误报「记忆后端非默认」）。
+    const backend = detectMemoryBackend(rootPath, {
+      configured: normalizeMemoryBackendConfig(process.env["BUTLER_MEMORY_BACKEND"]),
+    });
+    if (backend.backend !== "hermes") {
+      capabilities["memory-driver"] = "ok";
+    } else {
+      anomalies.push("未找到 memory_store.db（记忆后端非默认）");
+    }
   }
 
   if (config) {
