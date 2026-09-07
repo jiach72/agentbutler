@@ -28,8 +28,10 @@ import {
 } from "@butler/contract";
 import {
   hindsightBankStats,
+  hindsightListFailedOperations,
   hindsightListMemories,
   hindsightMemoriesTimeseries,
+  hindsightRetryOperation,
   resolveHindsightService,
   type HindsightReadTextFile,
   type HindsightFetch,
@@ -47,6 +49,8 @@ export interface HindsightMemoryDriverOptions {
   now?: () => number;
   /** 单请求超时（毫秒，默认 8s）。 */
   timeoutMs?: number;
+  /** rebuildIndex 每次最多重试的失败操作条数（默认 20，防止单击触发大量 LLM 调用）。 */
+  retryBatchSize?: number;
 }
 
 function readonlyWrite<T>(): Result<T> {
@@ -64,6 +68,7 @@ function toIso(value: string | null): string | null {
 
 export function createHindsightMemoryDriver(options: HindsightMemoryDriverOptions = {}): MemoryDriver {
   const now = options.now ?? Date.now;
+  const retryBatchSize = Math.max(1, options.retryBatchSize ?? 20);
   const requestInit = {
     token: options.token,
     timeoutMs: options.timeoutMs,
@@ -173,6 +178,18 @@ export function createHindsightMemoryDriver(options: HindsightMemoryDriverOption
       try {
         const bankStats = await hindsightBankStats(endpoint, requestInit);
         const healthy = bankStats.failedOperations === 0;
+        const suggestions: MemoryHealth["suggestions"] = [];
+        if (!healthy) {
+          suggestions.push({
+            id: "hindsight-retry-failed",
+            kind: "rebuild-index",
+            title: `一键重试 ${bankStats.failedOperations} 次失败的后台操作`,
+            detail:
+              "把失败的记忆写入/整理操作重新排队处理（每次最多 " +
+              `${retryBatchSize} 条，重试会消耗 hindsight 配置的 LLM 调用）`,
+            action: "rebuild-index",
+          });
+        }
         const data: MemoryHealth = {
           score: healthy ? 90 : 70,
           checkedAt: new Date().toISOString(),
@@ -189,10 +206,10 @@ export function createHindsightMemoryDriver(options: HindsightMemoryDriverOption
               status: healthy ? "ok" : "warn",
               detail: healthy
                 ? "无失败的后台操作"
-                : `有 ${bankStats.failedOperations} 次失败的后台操作（嵌入/整理），建议检查 hindsight 日志`,
+                : `有 ${bankStats.failedOperations} 次失败的后台操作（嵌入/整理），可用下方一键重试修复`,
             },
           ],
-          suggestions: [],
+          suggestions,
         };
         return ok(data, startedAt);
       } catch (error) {
@@ -211,8 +228,61 @@ export function createHindsightMemoryDriver(options: HindsightMemoryDriverOption
     async purge(): Promise<Result<PurgeReport>> {
       return readonlyWrite();
     },
-    async rebuildIndex(): Promise<Result<RebuildIndexReport>> {
-      return readonlyWrite();
+    /**
+     * 修复动作（契约的 rebuildIndex 槽位）：把 hindsight 失败的后台操作
+     * （嵌入/整理失败的 retain 等）重新排队。限额批次执行，避免一次单击
+     * 触发大量 LLM 调用；重试由 hindsight 异步完成，报告反映重新排队数。
+     */
+    async rebuildIndex(scope: DriverScope): Promise<Result<RebuildIndexReport>> {
+      const endpoint = resolve(scope);
+      if ("error" in endpoint) return fail("E402", endpoint.error, { userHint: "未配置 hindsight 服务地址" });
+      try {
+        const [bankStats, failed] = await Promise.all([
+          hindsightBankStats(endpoint, requestInit),
+          hindsightListFailedOperations(endpoint, { limit: retryBatchSize }, requestInit),
+        ]);
+        if (failed.length === 0) {
+          return ok(
+            {
+              rebuilt: false,
+              rowsBefore: bankStats.failedOperations,
+              rowsAfter: bankStats.failedOperations,
+              errors: [],
+            },
+            Date.now(),
+          );
+        }
+        const errors: string[] = [];
+        let requeued = 0;
+        for (const operation of failed) {
+          try {
+            if (await hindsightRetryOperation(endpoint, operation.id, requestInit)) {
+              requeued += 1;
+            } else {
+              errors.push(`重试被拒绝：${operation.taskType ?? "operation"} ${operation.id.slice(0, 8)}`);
+            }
+          } catch (error) {
+            errors.push(
+              `重试失败：${operation.taskType ?? "operation"} ${operation.id.slice(0, 8)} — ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            );
+          }
+        }
+        return ok(
+          {
+            rebuilt: requeued > 0,
+            rowsBefore: bankStats.failedOperations,
+            rowsAfter: Math.max(0, bankStats.failedOperations - requeued),
+            errors,
+          },
+          Date.now(),
+        );
+      } catch (error) {
+        return fail("E302", `hindsight 服务不可达：${error instanceof Error ? error.message : String(error)}`, {
+          userHint: "修复操作需要 hindsight 服务在线",
+        });
+      }
     },
   };
 }

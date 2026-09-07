@@ -34,6 +34,7 @@ import { fail } from "@butler/contract";
 import {
   createHermesAdapter,
   createHindsightMemoryDriver,
+  detectMemoryBackend,
   HermesControlBridgeClient,
   createPatchManager,
   type CommandExecutor,
@@ -908,6 +909,12 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       .find((item) => item !== "") ??
       (config.framework === "openclaw" ? config.openclawRoot : config.hermesRoot) ??
       "";
+  // 外部记忆后端（hindsight/mem0）时，"重建索引"等记忆动作作用于外部服务的
+  // 后台队列（如重试失败的嵌入操作），不触碰本地库——M6 本地写门禁不适用；
+  // 驱动层各自的能力声明决定动作是否可执行。
+  const externalMemoryManaged =
+    detectMemoryBackend(managedRoot, { configured: config.memoryBackend }).backend !== "hermes";
+  const memoryWritesUnlocked = config.m6WritesEnabled || externalMemoryManaged;
   const backup = createBackupService({
     core,
     hermesRoot: managedRoot,
@@ -1820,7 +1827,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     upgrade: upgradeWithBackup,
     gateway,
     skills,
-    m6WritesEnabled: config.m6WritesEnabled,
+    m6WritesEnabled: memoryWritesUnlocked,
     audit: core.audit,
   });
 
@@ -1850,7 +1857,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       dataDir: core.paths.home,
       llm,
       skills,
-      m6WritesEnabled: config.m6WritesEnabled,
+      m6WritesEnabled: memoryWritesUnlocked,
       memorySelfCheck: runMemorySelfCheck,
       renderDiagnostics: () =>
         renderDiagnosticReport({

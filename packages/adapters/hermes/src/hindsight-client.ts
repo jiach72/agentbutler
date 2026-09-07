@@ -92,6 +92,13 @@ export interface HindsightBankStats {
   lastConsolidatedAt: string | null;
 }
 
+export interface HindsightOperation {
+  id: string;
+  taskType: string | null;
+  errorMessage: string | null;
+  retryCount: number;
+}
+
 export interface HindsightTimeseriesBucket {
   /** 桶起始时间（ISO-8601，trunc=day 时为当日 0 点 UTC）。 */
   time: string;
@@ -228,4 +235,59 @@ export async function hindsightMemoriesTimeseries(
     trunc: typeof data?.["trunc"] === "string" ? data["trunc"] : "",
     buckets,
   };
+}
+
+/** 列出失败的后台操作（如嵌入/整理失败，按创建时间序）。 */
+export async function hindsightListFailedOperations(
+  endpoint: HindsightServiceEndpoint,
+  query: { limit?: number } = {},
+  init: HindsightRequestInit = {},
+): Promise<HindsightOperation[]> {
+  const params = new URLSearchParams();
+  params.set("status", "failed");
+  params.set("limit", String(Math.max(1, Math.min(200, query.limit ?? 50))));
+  const data = asRecord(
+    await hindsightRequest(
+      endpoint,
+      `/v1/default/banks/${encodeURIComponent(endpoint.bankId)}/operations?${params.toString()}`,
+      init,
+    ),
+  );
+  const rawItems = Array.isArray(data?.["operations"]) ? data["operations"] : [];
+  const operations: HindsightOperation[] = [];
+  for (const raw of rawItems) {
+    const record = asRecord(raw);
+    if (record === null) continue;
+    const id = typeof record["id"] === "string" ? record["id"] : "";
+    if (id === "") continue;
+    operations.push({
+      id,
+      taskType: typeof record["task_type"] === "string" ? record["task_type"] : null,
+      errorMessage: typeof record["error_message"] === "string" ? record["error_message"] : null,
+      retryCount: typeof record["retry_count"] === "number" ? record["retry_count"] : 0,
+    });
+  }
+  return operations;
+}
+
+/** 重试一条失败的后台操作；2xx 视为已重新排队。 */
+export async function hindsightRetryOperation(
+  endpoint: HindsightServiceEndpoint,
+  operationId: string,
+  init: HindsightRequestInit = {},
+): Promise<boolean> {
+  const fetchFn = init.fetchFn ?? fetch;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), init.timeoutMs ?? 8_000);
+  try {
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    if (init.token !== undefined && init.token !== "") headers["authorization"] = `Bearer ${init.token}`;
+    const response = await fetchFn(
+      `${endpoint.baseUrl}/v1/default/banks/${encodeURIComponent(endpoint.bankId)}/operations/${encodeURIComponent(operationId)}/retry`,
+      { method: "POST", headers, signal: controller.signal },
+    );
+    return response.ok;
+  } finally {
+    clearTimeout(timer);
+  }
 }

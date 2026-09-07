@@ -119,6 +119,35 @@ export function SkillsPage() {
     }
   };
 
+  // 一键修复：重试外部记忆后端（如 hindsight）失败的后台操作（限额批次）。
+  const [rebuildBusy, setRebuildBusy] = useState(false);
+  const runRebuildIndex = async () => {
+    if (rebuildBusy) return;
+    setRebuildBusy(true);
+    const result = await postJson("/api/memory/rebuild-index", {}, 60_000);
+    setRebuildBusy(false);
+    if (result.ok && result.data !== null && typeof result.data === "object") {
+      const report = (
+        result.data as {
+          report?: { rebuilt?: boolean; rowsBefore?: number; rowsAfter?: number; errors?: string[] };
+        }
+      ).report;
+      const fixed = Math.max(0, (report?.rowsBefore ?? 0) - (report?.rowsAfter ?? 0));
+      if (fixed > 0) {
+        message.success(
+          `已重新排队 ${fixed} 条失败操作，hindsight 将异步处理；剩余失败约 ${report?.rowsAfter ?? 0} 条。`,
+        );
+      } else if ((report?.errors?.length ?? 0) > 0) {
+        message.warning("没有操作被重新排队；请稍后重试或查看管家日志。");
+      } else {
+        message.info("当前没有失败的后台操作，无需修复。");
+      }
+      refreshMemoryView();
+    } else {
+      message.error("修复请求失败；请确认管家服务在线后重试。");
+    }
+  };
+
   const runSelfCheck = async () => {
     if (selfCheck.busy) return;
     setSelfCheck({ busy: true, result: null });
@@ -250,6 +279,8 @@ export function SkillsPage() {
                   onRefresh={refreshMemoryView}
                   onSelfCheck={() => void runSelfCheck()}
                   onBackup={() => void runMemoryBackup()}
+                  onRebuildIndex={() => void runRebuildIndex()}
+                  rebuildBusy={rebuildBusy}
                   memoryWritesEnabled={memoryWritesEnabled}
                 />
               </div>

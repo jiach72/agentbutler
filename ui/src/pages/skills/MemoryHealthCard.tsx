@@ -1,5 +1,6 @@
 /**
  * 记忆健康卡片：健康分、信号明细、管家建议与自检/备份操作。
+ * 建议项携带 action（如 rebuild-index）时渲染一键修复按钮。
  */
 import { Alert, Button, Card, Flex, List, Progress, Typography } from "antd";
 import { theme } from "antd";
@@ -11,6 +12,9 @@ interface MemoryHealthCardProps {
   selfCheck: { busy: boolean; result: MemorySelfCheckView | null };
   onSelfCheck: () => void;
   onBackup: () => void;
+  /** 一键修复（重试外部记忆后端失败的后台操作）。 */
+  onRebuildIndex?: () => void;
+  rebuildBusy?: boolean;
   backupBusy: boolean;
   memoryWritesEnabled?: boolean | null;
 }
@@ -31,6 +35,8 @@ export function MemoryHealthCard({
   selfCheck,
   onSelfCheck,
   onBackup,
+  onRebuildIndex,
+  rebuildBusy = false,
   backupBusy,
   memoryWritesEnabled = null,
 }: MemoryHealthCardProps) {
@@ -81,7 +87,24 @@ export function MemoryHealthCard({
               size="small"
               dataSource={health.suggestions}
               renderItem={(suggestion) => (
-                <List.Item style={{ padding: "6px 0" }}>
+                <List.Item
+                  style={{ padding: "6px 0" }}
+                  actions={
+                    suggestion.action === "rebuild-index" && onRebuildIndex !== undefined
+                      ? [
+                          <Button
+                            key="fix"
+                            size="small"
+                            type="primary"
+                            disabled={rebuildBusy}
+                            onClick={onRebuildIndex}
+                          >
+                            {rebuildBusy ? "修复中…" : "一键修复"}
+                          </Button>,
+                        ]
+                      : undefined
+                  }
+                >
                   <List.Item.Meta title={suggestion.title} description={suggestion.detail} />
                 </List.Item>
               )}

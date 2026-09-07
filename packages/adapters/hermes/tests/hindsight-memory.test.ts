@@ -122,14 +122,13 @@ describe("hindsight 只读记忆驱动", () => {
     expect(result.ok === false && result.error!.code).toBe("E402");
   });
 
-  it("写操作（归档/恢复/清理/重建索引）→ E403 只读语义", async () => {
+  it("写操作（归档/恢复/清理）→ E403 只读语义（rebuildIndex 是修复动作，另行测试）", async () => {
     const { fetch } = fetchMock(() => undefined);
     const driver = driverOf(fetch);
     const results = [
-      await driver.archiveCold(scope, { dryRun: true }),
-      await driver.restoreCold(scope, {}),
-      await driver.purge(scope, { confirmed: true }),
-      await driver.rebuildIndex(scope),
+      await driver.archiveCold(scope(), { dryRun: true }),
+      await driver.restoreCold(scope(), {}),
+      await driver.purge(scope(), { confirmed: true }),
     ];
     for (const result of results) {
       expect(result.ok).toBe(false);
@@ -195,5 +194,61 @@ describe("hindsight 按月趋势", () => {
     expect(result.ok).toBe(true);
     expect(result.ok && result.data!.byMonth).toEqual([]);
     expect(result.ok && result.data!.totalEntries).toBe(5);
+  });
+});
+
+describe("hindsight 失败操作修复（rebuildIndex）", () => {
+  it("把失败操作重新排队（限额批次），报告重排队数与剩余失败", async () => {
+    const retried: string[] = [];
+    const { fetch } = fetchMock((call) => {
+      if (call.url.includes("/operations?status=failed")) {
+        return {
+          data: {
+            operations: [
+              { id: "op-1", task_type: "batch_retain", error_message: "Fact extraction failed", retry_count: 0 },
+              { id: "op-2", task_type: "batch_retain", error_message: "Fact extraction failed", retry_count: 0 },
+            ],
+          },
+        };
+      }
+      if (call.url.includes("/operations/") && call.url.endsWith("/retry") && call.method === "POST") {
+        retried.push(call.url);
+        return { data: { success: true } };
+      }
+      if (call.url.endsWith("/stats")) return { data: { total_nodes: 10, failed_operations: 63 } };
+      return undefined;
+    });
+    const result = await driverOf(fetch).rebuildIndex(scope());
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.data).toMatchObject({
+      rebuilt: true,
+      rowsBefore: 63,
+      rowsAfter: 61,
+    });
+    expect(retried).toHaveLength(2);
+    expect(retried[0]).toContain("/operations/op-1/retry");
+  });
+
+  it("没有失败操作时返回零修复报告", async () => {
+    const { fetch } = fetchMock((call) => {
+      if (call.url.includes("/operations?status=failed")) return { data: { operations: [] } };
+      if (call.url.endsWith("/stats")) return { data: { total_nodes: 10, failed_operations: 0 } };
+      return undefined;
+    });
+    const result = await driverOf(fetch).rebuildIndex(scope());
+    expect(result.ok && result.data).toMatchObject({ rebuilt: false, rowsBefore: 0, rowsAfter: 0 });
+  });
+
+  it("analyze：有失败操作时给出带一键修复动作的建议", async () => {
+    const { fetch } = fetchMock((call) => {
+      if (call.url.endsWith("/stats")) return { data: { total_nodes: 10, failed_operations: 63 } };
+      return { data: { items: [], total: 0 } };
+    });
+    const result = await driverOf(fetch).analyze(scope());
+    expect(result.ok).toBe(true);
+    const suggestions = result.ok && result.data ? result.data.suggestions : [];
+    expect(suggestions).toHaveLength(1);
+    expect(suggestions[0]).toMatchObject({ kind: "rebuild-index", action: "rebuild-index" });
+    expect(suggestions[0]!.title).toContain("63");
   });
 });

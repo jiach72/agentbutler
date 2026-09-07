@@ -56,6 +56,9 @@ interface MemoryPanelProps {
   onRefresh: () => void;
   onSelfCheck: () => void;
   onBackup: () => void;
+  /** 一键修复（重试外部记忆后端失败的后台操作）。 */
+  onRebuildIndex?: () => void;
+  rebuildBusy?: boolean;
   memoryWritesEnabled?: boolean | null;
 }
 
@@ -71,6 +74,8 @@ export function MemoryPanel({
   onRefresh,
   onSelfCheck,
   onBackup,
+  onRebuildIndex,
+  rebuildBusy,
   memoryWritesEnabled,
 }: MemoryPanelProps) {
   const [memoryInput, setMemoryInput] = useState("");
@@ -165,6 +170,8 @@ export function MemoryPanel({
         selfCheck={selfCheck}
         onSelfCheck={onSelfCheck}
         onBackup={onBackup}
+        onRebuildIndex={onRebuildIndex}
+        rebuildBusy={rebuildBusy}
         backupBusy={backupBusy}
         memoryWritesEnabled={memoryWritesEnabled}
       />
