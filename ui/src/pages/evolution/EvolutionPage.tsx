@@ -34,9 +34,8 @@ import { SectionHeader } from "../../components/SectionHeader.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { PageHeader } from "../../components/PageHeader.js";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { EvolutionOverview } from "./EvolutionOverview.js";
-import { PromptOptimizationPanel } from "./PromptOptimizationPanel.js";
 import type { EvolutionOverviewPayload } from "./types.js";
 
 const { Paragraph, Text } = Typography;
@@ -133,6 +132,7 @@ const impactTone = { high: "error", medium: "warn", low: "info" } as const;
 
 export function EvolutionPage() {
   const { message } = App.useApp();
+  const navigate = useNavigate();
   const [instanceId, setInstanceId] = useState("");
   const [instances, setInstances] = useState<
     Array<{ instanceId: string; version?: string; state?: string }>
@@ -636,7 +636,7 @@ export function EvolutionPage() {
                           {selected.targetType === "prompt" ? (
                             <Button
                               icon={<FileSearchOutlined />}
-                              onClick={() => document.getElementById("prompt-optimization-panel")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                              onClick={() => void navigate("/gateway#prompt-optimization-panel")}
                             >
                               在提示词工作台处理
                             </Button>
@@ -836,9 +836,6 @@ export function EvolutionPage() {
             )}
           </Col>
         </Row>
-        <Card id="prompt-optimization-panel" title={<SectionHeader kicker="越改越坏防线" title="提示词优化" compact />}>
-          <PromptOptimizationPanel />
-        </Card>
         <Collapse
           className="advanced-details"
           size="small"

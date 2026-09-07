@@ -148,3 +148,52 @@ describe("hindsight 只读记忆驱动", () => {
     expect(result.ok && result.data!.signals.some((s) => s.status === "warn")).toBe(true);
   });
 });
+
+describe("hindsight 按月趋势", () => {
+  it("stats：90d 时间序列聚合为 byMonth（三类计数求和，按月升序）", async () => {
+    const { fetch, calls } = fetchMock((call) => {
+      if (call.url.includes("memories-timeseries")) {
+        return {
+          data: {
+            period: "90d",
+            trunc: "day",
+            buckets: [
+              { time: "2026-07-15T00:00:00+00:00", world: 2, experience: 3, observation: 4 },
+              { time: "2026-08-02T00:00:00+00:00", world: 1, experience: 1, observation: 1 },
+              { time: "2026-08-20T00:00:00+00:00", world: 5, experience: 5, observation: 5 },
+              { time: "2026-09-01T00:00:00+00:00", world: 7, experience: 7, observation: 7 },
+            ],
+          },
+        };
+      }
+      if (call.url.endsWith("/memories/list?limit=1")) {
+        return { data: { items: [{ id: "m1", text: "x", mentioned_at: "2026-09-07T01:00:00+00:00", state: "valid" }], total: 3620 } };
+      }
+      if (call.url.endsWith("/stats")) return { data: { total_nodes: 3620 } };
+      return undefined;
+    });
+    const result = await driverOf(fetch).stats(scope());
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.data!.byMonth).toEqual([
+      { month: "2026-07", count: 9 },
+      { month: "2026-08", count: 18 },
+      { month: "2026-09", count: 21 },
+    ]);
+    const ts = calls.find((c) => c.url.includes("memories-timeseries"));
+    expect(ts).toBeDefined();
+    expect(new URL(ts!.url).searchParams.get("period")).toBe("90d");
+  });
+
+  it("stats：时间序列失败不拖累统计本身（byMonth 置空）", async () => {
+    const { fetch } = fetchMock((call) => {
+      if (call.url.includes("memories-timeseries")) return { status: 500 };
+      if (call.url.endsWith("/memories/list?limit=1")) return { data: { items: [], total: 0 } };
+      if (call.url.endsWith("/stats")) return { data: { total_nodes: 5 } };
+      return undefined;
+    });
+    const result = await driverOf(fetch).stats(scope());
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.data!.byMonth).toEqual([]);
+    expect(result.ok && result.data!.totalEntries).toBe(5);
+  });
+});

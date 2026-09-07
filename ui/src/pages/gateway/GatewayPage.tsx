@@ -7,6 +7,7 @@
  * - 每 10 秒轮询一次（后台标签页自动暂停），事件流命中时节流补刷。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import {
   BellOutlined,
   ExclamationCircleOutlined,
@@ -19,8 +20,10 @@ import { AdvancedDetails } from "../../components/AdvancedDetails.js";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { PageHeader } from "../../components/PageHeader.js";
+import { SectionHeader } from "../../components/SectionHeader.js";
 import { StatStrip } from "../../components/StatStrip.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
+import { PromptOptimizationPanel } from "./PromptOptimizationPanel.js";
 import { useEventStream } from "../../hooks/useEventStream.js";
 import { usePolling } from "../../hooks/usePolling.js";
 import { fetchJson, postJson } from "../../lib/api.js";
@@ -66,6 +69,7 @@ function paramLabel(key: string): string {
 
 export function GatewayPage() {
   const { message } = App.useApp();
+  const location = useLocation();
   const [data, setData] = useState<GatewayPayload | null>(null);
   const [messageData, setMessageData] = useState<MessageOverviewPayload | null>(null);
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
@@ -85,6 +89,12 @@ export function GatewayPage() {
   // 上一次 refresh 是否失败；初始视为失败，保证首次加载有 loading 遮罩。
   // 成功轮询不再置 loading，避免「正在同步」每 10 秒跳动。
   const prevRefreshFailedRef = useRef(true);
+
+  // 自进化页「在提示词工作台处理」会带 hash 跳转到提示词优化卡片。
+  useEffect(() => {
+    if (location.hash === "") return;
+    document.getElementById(location.hash.slice(1))?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [location.hash]);
 
   const acquireBusy = useCallback((key: string) => {
     setBusyKeys((prev) => new Set(prev).add(key));
@@ -477,6 +487,10 @@ export function GatewayPage() {
         <DeliveryTrendCard />
 
         <ChannelMetricsCard />
+
+        <Card id="prompt-optimization-panel" title={<SectionHeader kicker="回复质量" title="提示词优化" compact />}>
+          <PromptOptimizationPanel />
+        </Card>
 
         <AdvancedDetails
           summary={

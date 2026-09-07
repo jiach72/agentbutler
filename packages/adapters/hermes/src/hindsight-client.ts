@@ -92,6 +92,20 @@ export interface HindsightBankStats {
   lastConsolidatedAt: string | null;
 }
 
+export interface HindsightTimeseriesBucket {
+  /** 桶起始时间（ISO-8601，trunc=day 时为当日 0 点 UTC）。 */
+  time: string;
+  world: number;
+  experience: number;
+  observation: number;
+}
+
+export interface HindsightTimeseriesResult {
+  period: string;
+  trunc: string;
+  buckets: HindsightTimeseriesBucket[];
+}
+
 export interface HindsightRequestInit {
   fetchFn?: HindsightFetch;
   token?: string;
@@ -173,5 +187,45 @@ export async function hindsightBankStats(
     totalDocuments: numberOf(data?.["total_documents"]),
     failedOperations: numberOf(data?.["failed_operations"]),
     lastConsolidatedAt: typeof data?.["last_consolidated_at"] === "string" ? data["last_consolidated_at"] : null,
+  };
+}
+
+/**
+ * 拉取记忆写入时间序列（按 fact_type 分桶）。period 上限实测 90d（更大值回落
+ * 默认 7d）；time_field=created_at 为入库时间，适合"按月写入"趋势。
+ */
+export async function hindsightMemoriesTimeseries(
+  endpoint: HindsightServiceEndpoint,
+  query: { period?: string; timeField?: string } = {},
+  init: HindsightRequestInit = {},
+): Promise<HindsightTimeseriesResult> {
+  const params = new URLSearchParams();
+  if (query.period !== undefined && query.period !== "") params.set("period", query.period);
+  if (query.timeField !== undefined && query.timeField !== "") params.set("time_field", query.timeField);
+  const data = asRecord(
+    await hindsightRequest(
+      endpoint,
+      `/v1/default/banks/${encodeURIComponent(endpoint.bankId)}/stats/memories-timeseries?${params.toString()}`,
+      init,
+    ),
+  );
+  const numberOf = (value: unknown): number => (typeof value === "number" && Number.isFinite(value) ? value : 0);
+  const buckets: HindsightTimeseriesBucket[] = [];
+  if (Array.isArray(data?.["buckets"])) {
+    for (const raw of data["buckets"]) {
+      const record = asRecord(raw);
+      if (record === null || typeof record["time"] !== "string") continue;
+      buckets.push({
+        time: record["time"],
+        world: numberOf(record["world"]),
+        experience: numberOf(record["experience"]),
+        observation: numberOf(record["observation"]),
+      });
+    }
+  }
+  return {
+    period: typeof data?.["period"] === "string" ? data["period"] : "",
+    trunc: typeof data?.["trunc"] === "string" ? data["trunc"] : "",
+    buckets,
   };
 }

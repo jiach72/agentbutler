@@ -29,6 +29,7 @@ import {
 import {
   hindsightBankStats,
   hindsightListMemories,
+  hindsightMemoriesTimeseries,
   resolveHindsightService,
   type HindsightReadTextFile,
   type HindsightFetch,
@@ -79,14 +80,28 @@ export function createHindsightMemoryDriver(options: HindsightMemoryDriverOption
       const endpoint = resolve(scope);
       if ("error" in endpoint) return fail("E402", endpoint.error, { userHint: "未配置 hindsight 服务地址" });
       try {
-        const [list, bankStats] = await Promise.all([
+        // timeseries 实测上限 90d；只用于按月趋势，失败不拖累 stats 本身。
+        const [list, bankStats, timeseries] = await Promise.all([
           hindsightListMemories(endpoint, { limit: 1 }, requestInit),
           hindsightBankStats(endpoint, requestInit),
+          hindsightMemoriesTimeseries(endpoint, { period: "90d", timeField: "created_at" }, requestInit).catch(
+            () => null,
+          ),
         ]);
         const lastWriteAt = toIso(list.items[0]?.mentionedAt ?? null);
+        const byMonth = new Map<string, number>();
+        if (timeseries !== null) {
+          for (const bucket of timeseries.buckets) {
+            const month = bucket.time.slice(0, 7);
+            if (!/^\d{4}-\d{2}$/.test(month)) continue;
+            byMonth.set(month, (byMonth.get(month) ?? 0) + bucket.world + bucket.experience + bucket.observation);
+          }
+        }
         const data: MemoryStats = {
           totalEntries: bankStats.totalNodes,
-          byMonth: [],
+          byMonth: [...byMonth.entries()]
+            .map(([month, count]) => ({ month, count }))
+            .sort((a, b) => a.month.localeCompare(b.month)),
           coldCandidates: 0,
           lastWriteAt,
           archivedEntries: 0,

@@ -136,6 +136,7 @@ export {
 export {
   hindsightBankStats,
   hindsightListMemories,
+  hindsightMemoriesTimeseries,
   resolveHindsightService,
   type HindsightBankStats,
   type HindsightFetch,
@@ -144,6 +145,8 @@ export {
   type HindsightReadTextFile,
   type HindsightRequestInit,
   type HindsightServiceEndpoint,
+  type HindsightTimeseriesBucket,
+  type HindsightTimeseriesResult,
   type ResolveHindsightServiceOptions,
 } from "./hindsight-client.js";
 export { createHermesControl, type HermesControlInvoker, type HermesControlOptions } from "./control/index.js";
