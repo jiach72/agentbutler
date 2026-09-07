@@ -209,6 +209,20 @@ services:
     profiles:
       - hermes-control-forward
 
+  # 可选：hindsight 记忆服务只监听宿主 loopback（api_url 形如 127.0.0.1:9177）时，
+  # 用它把 9178 转发到宿主 loopback，供容器内记忆探针访问。.env 需同时设置
+  # BUTLER_HINDSIGHT_BASE_URL=http://host.docker.internal:9178（目标端口可用
+  # BUTLER_HINDSIGHT_PORT 覆盖）。9178 是未鉴权的 TCP 转发入口，应由宿主防火墙
+  # 限制为本机/Docker 网段。
+  butler-hindsight-forwarder:
+    image: alpine/socat:latest
+    network_mode: host
+    command: tcp-listen:9178,fork,reuseaddr tcp:127.0.0.1:${BUTLER_HINDSIGHT_PORT:-9177}
+    logging: *default-logging
+    restart: unless-stopped
+    profiles:
+      - hindsight-forward
+
 volumes:
   butler-data:
     name: ${BUTLER_DATA_VOLUME:-agent-butler-data}
