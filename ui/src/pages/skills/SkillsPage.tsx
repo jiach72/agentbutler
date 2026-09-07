@@ -124,7 +124,7 @@ export function SkillsPage() {
   const runRebuildIndex = async () => {
     if (rebuildBusy) return;
     setRebuildBusy(true);
-    const result = await postJson("/api/memory/rebuild-index", {}, 60_000);
+    const result = await postJson("/api/memory/rebuild-index", {}, 95_000);
     setRebuildBusy(false);
     if (result.ok && result.data !== null && typeof result.data === "object") {
       const report = (

@@ -3004,8 +3004,9 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   );
 
   // 记忆 FTS 索引重建（V1.7 优化动作；body 透传，watch 的 200/400/409/500 原样透传）。
+  // 外部后端时该动作是对失败后台操作的限额批次重试（每条一次 HTTP），放宽代理超时。
   app.post("/api/memory/rebuild-index", async (request, reply) =>
-    proxyWatchPost("/api/memory/rebuild-index", request.body, reply),
+    proxyWatchPost("/api/memory/rebuild-index", request.body, reply, 90_000),
   );
 
   // 记忆加密导出（PRD M6）：watch 返回 application/octet-stream，原样透传附件头。
