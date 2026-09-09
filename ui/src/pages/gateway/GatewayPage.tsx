@@ -33,6 +33,7 @@ import { ChannelGrid } from "./ChannelGrid.js";
 import { ChannelMetricsCard } from "./ChannelMetricsCard.js";
 import { ConnectionHealth } from "./ConnectionHealth.js";
 import { DeliveryTrendCard } from "./DeliveryTrendCard.js";
+import { DndRulesCard } from "./DndRulesCard.js";
 import { MessageInspector } from "./MessageInspector.js";
 import { PatchBoard } from "./PatchBoard.js";
 import { RateLimitsTable } from "./RateLimitsTable.js";
@@ -505,6 +506,8 @@ export function GatewayPage() {
         />
 
         <DeliveryTrendCard />
+
+        <DndRulesCard />
 
         <ChannelMetricsCard />
 

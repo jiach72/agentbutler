@@ -2041,6 +2041,34 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
       reply,
     ),
   );
+  // 免打扰规则代理：DND 规则的增删查透传 gateway，状态码原样透传。
+  app.get("/api/messages/dnd", async (_request, reply) => {
+    const res = await fetchGateway("/api/messages/dnd");
+    if (res === null || !res.ok) return reply.status(502).send({ error: "gateway-unreachable" });
+    return reply.status(res.status).send(await res.json().catch(() => ({ items: [] })));
+  });
+  app.put("/api/messages/dnd/:scope/:scopeKey", async (request, reply) => {
+    const params = request.params as Record<string, string>;
+    return proxyGatewayPut(
+      `/api/messages/dnd/${encodeURIComponent(params["scope"] ?? "")}/${encodeURIComponent(params["scopeKey"] ?? "")}`,
+      request.body,
+      reply,
+    );
+  });
+  app.delete("/api/messages/dnd/:ruleId", async (request, reply) => {
+    const rawRuleId = String((request.params as Record<string, string>)["ruleId"] ?? "");
+    let res: Response;
+    try {
+      res = await doFetch(`${gatewayUrl}/api/messages/dnd/${encodeURIComponent(rawRuleId)}`, {
+        method: "DELETE",
+        headers: gatewayAuthHeaders(),
+        signal: AbortSignal.timeout(5_000),
+      });
+    } catch {
+      return reply.status(502).send({ error: "gateway-unreachable" });
+    }
+    return reply.status(res.status).send(await res.json().catch(() => ({})));
+  });
   // 求助提示词转发给智能体：gateway 侧调 Hermes api_server 聊天接口（LLM 回合可能
   // 需要数十秒到数分钟），代理超时放宽到 200s。
   app.post("/api/agent-message", async (request, reply) => {
