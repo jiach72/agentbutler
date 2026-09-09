@@ -214,7 +214,12 @@ export function createEvolutionAnalyticsService(deps: {
     const sessionId = stringValue(payload["sessionId"], payload["session_id"]);
     const runId = stringValue(payload["runId"], payload["run_id"]);
     const tool = stringValue(payload["tool"], payload["toolName"], payload["function"], payload["skill"], payload["method"]);
-    const kind: EvolutionObservationRow["kind"] = tool || /tool|function|skill/i.test(event.type) ? "tool" : sessionId ? "session" : "tool";
+    // 巡检完成事件是一次有始有终的"检查会话"（overall 给出 success/failure），
+    // 应归入 session 而非 tool，否则 completedSessions 恒 0，健康分永远 insufficient。
+    const isInspection = event.type === "inspection-completed";
+    const kind: EvolutionObservationRow["kind"] = isInspection
+      ? "session"
+      : tool || /tool|function|skill/i.test(event.type) ? "tool" : sessionId ? "session" : "tool";
     const outcome = outcomeOf(payload, event.type);
     const detail = stringValue(payload["detail"], payload["error"], payload["summary"]) ?? "";
     const key = `structured:${event.type}:${event.at}:${sessionId ?? ""}:${runId ?? ""}:${tool ?? ""}:${outcome}`;

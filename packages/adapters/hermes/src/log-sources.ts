@@ -15,7 +15,14 @@ export function logSources(rootPath: string): LogSource[] {
     return [];
   }
   return entries
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".log"))
+    .filter(
+      (entry) =>
+        entry.isFile() &&
+        entry.name.endsWith(".log") &&
+        // gateway-exit-diag.log 只记 start/exit 行，每次 systemd 重启追加一条，
+        // 与 tui_gateway_crash.log 同类常驻假告警源，指纹引擎持续误报，直接排除。
+        !entry.name.endsWith("-diag.log")
+    )
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((entry) => ({
       id: `hermes:logs:${entry.name}`,

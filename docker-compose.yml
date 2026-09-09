@@ -215,7 +215,10 @@ services:
   # 用它把 9178 转发到宿主 loopback，供容器内记忆探针访问。.env 需同时设置
   # BUTLER_HINDSIGHT_BASE_URL=http://host.docker.internal:9178（目标端口可用
   # BUTLER_HINDSIGHT_PORT 覆盖）。9178 是未鉴权的 TCP 转发入口，应由宿主防火墙
-  # 限制为本机/Docker 网段。
+  # 限制为本机/Docker 网段。鉴权由 hindsight 自身校验 BUTLER_HINDSIGHT_TOKEN
+  # （watch 容器会将其作为 Authorization: Bearer 发给 hindsight API）；socat 本身
+  # 是纯 TCP 转发不拦截 HTTP 头，因此网络暴露面应由防火墙/网段限制兜底，
+  # 而非在 socat 层做 HTTP 鉴权。
   butler-hindsight-forwarder:
     image: alpine/socat:latest
     network_mode: host
