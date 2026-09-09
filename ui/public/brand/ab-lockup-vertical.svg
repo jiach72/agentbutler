@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 372" width="400" height="372" role="img" aria-label="Agent Butler">
+  <title>Agent Butler · 竖版标志组合</title>
+  <g transform="translate(100 20) scale(0.390625)">
+    <rect width="512" height="512" rx="112" fill="#0E1B2A"/>
+    <g transform="rotate(-15 159 256)">
+      <rect x="86" y="200" width="146" height="112" rx="32" fill="#C8A15A"/>
+      <circle cx="118" cy="256" r="13" fill="#0E1B2A" fill-opacity=".82"/>
+      <rect x="164" y="228" width="48" height="12" rx="6" fill="#0E1B2A" fill-opacity=".82"/>
+      <rect x="164" y="250" width="30" height="12" rx="6" fill="#0E1B2A" fill-opacity=".5"/>
+    </g>
+    <g transform="translate(512,0) scale(-1,1)">
+      <g transform="rotate(-15 159 256)">
+        <rect x="86" y="200" width="146" height="112" rx="32" fill="#C8A15A"/>
+        <circle cx="118" cy="256" r="13" fill="#0E1B2A" fill-opacity=".82"/>
+        <rect x="164" y="228" width="48" height="12" rx="6" fill="#0E1B2A" fill-opacity=".82"/>
+        <rect x="164" y="250" width="30" height="12" rx="6" fill="#0E1B2A" fill-opacity=".5"/>
+      </g>
+    </g>
+    <rect x="224" y="224" width="64" height="64" rx="20" fill="#35D0BA"/>
+  </g>
+  <text x="200" y="286" text-anchor="middle" font-family="Inter, 'SF Pro Display', 'Segoe UI', 'PingFang SC', 'Helvetica Neue', Arial, sans-serif" font-size="54" font-weight="700" fill="#0E1B2A" letter-spacing="-1"><tspan>Agent</tspan><tspan dx="12" fill="#C8A15A" font-weight="500" letter-spacing="0">Butler</tspan></text>
+  <text x="200" y="320" text-anchor="middle" font-family="Inter, 'SF Pro Display', 'Segoe UI', 'PingFang SC', 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="500" fill="#5A6B7C" letter-spacing="4">本地优先 · 智能体运维控制台</text>
+</svg>

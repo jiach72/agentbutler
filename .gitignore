@@ -63,3 +63,4 @@ venv/
 .impeccable/
 .zcode/
 spark-output/
+.playwright-mcp/
