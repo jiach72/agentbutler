@@ -50,6 +50,8 @@ export interface AlertPosterDeps {
   retryBaseDelayMs?: number;
   /** 失败审计（可选；指纹转发与 runbook 告警共用同一动作名）。 */
   audit?: AuditLog;
+  /** gateway Bearer 鉴权令牌（缺省读 BUTLER_ACCESS_TOKEN 环境变量）。 */
+  accessToken?: string;
 }
 
 export const ALERT_FORWARD_FAILED_ACTION = "alert-forward-failed";
@@ -83,6 +85,11 @@ export function createAlertPoster(deps: AlertPosterDeps): AlertPoster {
   const maxAttempts = Math.max(1, Math.min(5, Math.floor(deps.maxAttempts ?? 3)));
   const retryBaseDelayMs = Math.max(0, Math.min(30_000, Math.floor(deps.retryBaseDelayMs ?? 250)));
   const endpoint = `${deps.gatewayUrl.replace(/\/+$/, "")}/api/alerts`;
+  const accessToken = (deps.accessToken ?? process.env["BUTLER_ACCESS_TOKEN"] ?? "").trim();
+  const alertHeaders = (): Record<string, string> => ({
+    "content-type": "application/json",
+    ...(accessToken !== "" ? { "x-butler-token": accessToken } : {}),
+  });
   const inFlight = new Set<Promise<void>>();
 
   function recordFailure(body: GatewayAlertBody, message: string): void {
@@ -105,7 +112,7 @@ export function createAlertPoster(deps: AlertPosterDeps): AlertPoster {
       try {
         const response = await doFetch(endpoint, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: alertHeaders(),
           body: JSON.stringify(body),
           signal: controller.signal,
         });
@@ -157,6 +164,8 @@ export interface AlertForwarderDeps {
   gatewayUrl: string;
   fetchFn?: FetchLike;
   timeoutMs?: number;
+  /** gateway Bearer 鉴权令牌（缺省读 BUTLER_ACCESS_TOKEN 环境变量）。 */
+  accessToken?: string;
 }
 
 /** 启动告警转发订阅，返回控制句柄。 */
@@ -166,6 +175,7 @@ export function startAlertForwarder(deps: AlertForwarderDeps): AlertForwarder {
     fetchFn: deps.fetchFn,
     timeoutMs: deps.timeoutMs,
     audit: deps.audit,
+    accessToken: deps.accessToken,
   });
 
   function dispatch(body: AlertForwardBody): void {
