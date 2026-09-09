@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass
-from typing import Iterable
+from dataclasses import dataclass, field
+from typing import Callable, Iterable
 
 
 @dataclass(frozen=True)
@@ -16,6 +16,9 @@ class PatchSpec:
     tail_suffix: str
     install_function: str
     install_arguments: str
+    #: (file_path, mixin_class_name) 对：v0.21.0 起官方把网关生命周期拆进 mixin 文件，
+    #: 目标类的方法可能定义在这些相关文件的同名 mixin 类里，方法查找需一并纳入。
+    method_sources: tuple[tuple[str, str], ...] = field(default_factory=tuple)
 
     @property
     def begin_marker(self) -> str:
@@ -39,7 +42,7 @@ class PatchSpec:
             )
         )
 
-    def validate_base(self, text: str) -> None:
+    def validate_base(self, text: str, read_file: Callable[[str], str] | None = None) -> None:
         if not text.rstrip().endswith(self.tail_suffix.rstrip()):
             raise PatchDriftError(f"{self.path}: expected file-tail suffix is absent")
         try:
@@ -61,6 +64,39 @@ class PatchSpec:
             for node in class_node.body
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         }
+        if self.method_sources:
+            if read_file is None:
+                raise PatchDriftError(
+                    f"{self.path}: spec declares method_sources but no file reader was provided"
+                )
+            for source_path, source_class in self.method_sources:
+                try:
+                    source_text = read_file(source_path)
+                except OSError as exc:
+                    raise PatchDriftError(
+                        f"{source_path}: cannot read mixin source: {exc}"
+                    ) from exc
+                try:
+                    source_tree = ast.parse(source_text, filename=source_path)
+                except SyntaxError as exc:
+                    raise PatchDriftError(
+                        f"{source_path}: Python syntax is invalid: {exc}"
+                    ) from exc
+                source_node = next(
+                    (
+                        node
+                        for node in source_tree.body
+                        if isinstance(node, ast.ClassDef) and node.name == source_class
+                    ),
+                    None,
+                )
+                if source_node is None:
+                    raise PatchDriftError(f"{source_path}: class {source_class} is absent")
+                available |= {
+                    node.name
+                    for node in source_node.body
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                }
         missing = sorted(set(self.methods) - available)
         if missing:
             raise PatchDriftError(
@@ -87,9 +123,17 @@ PATCH_SPECS: tuple[PatchSpec, ...] = (
         patch_id="gateway-runtime",
         class_name="GatewayRunner",
         methods=("start", "stop", "_connect_adapter_with_timeout", "_run_agent_inner"),
-        tail_suffix='if __name__ == "__main__":\n    main()',
+        # v0.21.0 把 run.py 的尾部换成了 plugin-compat 兼容层，且生命周期方法
+        # 拆进 run_startup/run_shutdown/run_adapters/run_turn 四个 mixin 文件。
+        tail_suffix="# ---- END PLUGIN-COMPAT ----",
+        method_sources=(
+            ("gateway/run_startup.py", "GatewayStartupMixin"),
+            ("gateway/run_shutdown.py", "GatewayShutdownMixin"),
+            ("gateway/run_adapters.py", "GatewayAdapterLifecycleMixin"),
+            ("gateway/run_turn.py", "GatewayTurnMixin"),
+        ),
         install_function="install_gateway_runtime_hooks",
-        install_arguments="GatewayRunner, TurnRunner",
+        install_arguments="GatewayRunner",
     ),
     PatchSpec(
         path="gateway/platforms/api_server.py",
@@ -97,12 +141,8 @@ PATCH_SPECS: tuple[PatchSpec, ...] = (
         class_name="APIServerAdapter",
         methods=("_run_agent", "send"),
         tail_suffix=(
-            '        return {\n'
-            '            "name": "API Server",\n'
-            '            "type": "api",\n'
-            '            "host": self._host,\n'
-            '            "port": self._port,\n'
-            '        }'
+            '        return {"name": "API Server", "type": "api", '
+            '"host": self._host, "port": self._port}'
         ),
         install_function="install_api_server_hooks",
         install_arguments="APIServerAdapter",
@@ -112,17 +152,18 @@ PATCH_SPECS: tuple[PatchSpec, ...] = (
         patch_id="a2a",
         class_name="A2AAdapter",
         methods=("send", "_send_push_notification"),
-        tail_suffix=(
-            '    async def get_chat_info(self, chat_id: str) -> Dict[str, Any]:\n'
-            '        return {"name": f"a2a:{chat_id}", "type": "dm"}'
-        ),
+        tail_suffix='            }.get(outcome, (protocol.STATE_COMPLETED, "")))',
         install_function="install_a2a_hooks",
         install_arguments="A2AAdapter",
     ),
 )
 
 
-def analyze_patch(text: str, spec: PatchSpec) -> str:
+def analyze_patch(
+    text: str,
+    spec: PatchSpec,
+    read_file: Callable[[str], str] | None = None,
+) -> str:
     """Return ``missing`` or ``installed``; raise on partial/ambiguous drift."""
 
     has_begin = spec.begin_marker in text
@@ -135,11 +176,11 @@ def analyze_patch(text: str, spec: PatchSpec) -> str:
         expected = render_patch(base, spec)
         if text != expected:
             raise PatchDriftError(f"{spec.path}: managed hook block has drifted")
-        spec.validate_base(base)
+        spec.validate_base(base, read_file)
         _compile(expected, spec.path)
         return "installed"
 
-    spec.validate_base(text)
+    spec.validate_base(text, read_file)
     _compile(render_patch(text, spec), spec.path)
     return "missing"
 

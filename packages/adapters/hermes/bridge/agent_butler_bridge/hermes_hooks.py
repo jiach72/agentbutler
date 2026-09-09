@@ -136,13 +136,21 @@ def install_base_platform_hooks(
 
 def install_gateway_runtime_hooks(
     gateway_runner_class: type,
-    turn_runner_class: type,
+    turn_runner_class: type | None = None,
     *,
     runtime_provider=get_process_runtime,
     runtime_starter=start_process_runtime,
     runtime_stopper=stop_process_runtime,
 ) -> None:
     """Install Bridge lifecycle, adapter attach, turn failure, and progress hooks."""
+
+    if turn_runner_class is None:
+        # v0.21.0 起 run.py 用 plugin-compat 懒加载表暴露 TurnRunner，
+        # 托管钩子块在模块顶层引用裸名会 NameError；这里经模块
+        # __getattr__ 惰性解析（PEP 562），与官方自身的懒加载同一路径。
+        from gateway import run as _gateway_run
+
+        turn_runner_class = _gateway_run.TurnRunner
 
     if not getattr(gateway_runner_class, "_agent_butler_gateway_hooks_v1", False):
         original_start = gateway_runner_class.start

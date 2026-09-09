@@ -43,7 +43,8 @@ CREATE INDEX IF NOT EXISTS idx_message_projection_updated_at
 CREATE TABLE IF NOT EXISTS message_outcome_history (
   message_id TEXT PRIMARY KEY,
   outcome TEXT NOT NULL CHECK (outcome IN ('delivered', 'failed', 'uncertain')),
-  occurred_at TEXT NOT NULL
+  occurred_at TEXT NOT NULL,
+  channel TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_message_outcome_history_occurred_at
   ON message_outcome_history(occurred_at);
@@ -233,6 +234,7 @@ export class MessagePolicyStore {
     this.db.exec("PRAGMA foreign_keys=ON;");
     this.db.exec("PRAGMA busy_timeout=5000;");
     this.db.exec(DDL);
+    this.migrateOutcomeHistoryChannel();
     this.backfillOutcomeHistory();
   }
 
@@ -280,7 +282,7 @@ export class MessagePolicyStore {
       const now = new Date().toISOString();
       for (const item of batch.items) {
         this.upsertMessage(item, undefined, now);
-        this.recordOutcome(item.messageId, item.state, item.deliveredAt ?? now, now);
+        this.recordOutcome(item.messageId, item.state, item.deliveredAt ?? now, now, item.channel);
       }
       for (const inbound of batch.inbound) {
         this.upsertInbound(inbound);
@@ -461,7 +463,7 @@ export class MessagePolicyStore {
       const clearsPending = decisionId !== undefined && pending?.decisionId === decisionId;
       const now = new Date().toISOString();
       this.upsertMessage(row, decisionId, now, clearsPending);
-      this.recordOutcome(row.messageId, row.state, row.deliveredAt ?? now, now);
+      this.recordOutcome(row.messageId, row.state, row.deliveredAt ?? now, now, row.channel);
     });
   }
 
@@ -853,7 +855,8 @@ export class MessagePolicyStore {
   /** 近 N 天送达结果按日聚合（本地时区；独立历史表不受 7 天投影清理影响）。 */
   /**
    * 按通道聚合的每日送达结果（结构化指标，替代对 lastError 文本的正则猜测）。
-   * 通道取自消息投影 payload；投影缺失的历史行归入 "unknown"。
+   * 通道优先取消息投影 payload，投影被保留期清理后回退到送达历史里归档的
+   * channel 列；两处都缺失（归档列上线前的旧行）才归入 "unknown"。
    */
   channelMetrics(
     days: number,
@@ -886,7 +889,7 @@ export class MessagePolicyStore {
     start.setDate(start.getDate() - (days - 1));
     const rows = this.prepare(
         `SELECT date(h.occurred_at, 'localtime') AS day,
-                COALESCE(json_extract(p.payload_json, '$.channel'), 'unknown') AS channel,
+                COALESCE(json_extract(p.payload_json, '$.channel'), h.channel, 'unknown') AS channel,
                 h.outcome AS outcome,
                 COUNT(*) AS count,
                 h.occurred_at AS occurred_at,
@@ -1120,6 +1123,29 @@ export class MessagePolicyStore {
   }
 
   /**
+   * 旧库补列：message_outcome_history.channel。
+   * 通道在送达结果落库时冗余归档，投影按 7 天保留期清理后，
+   * 长周期（30 天以上）通道指标仍可归因；投影仍在的存量行在此一次性回填，
+   * 更早的历史无从恢复，保持 NULL 由指标查询归入 unknown。
+   */
+  private migrateOutcomeHistoryChannel(): void {
+    const columns = this.prepare("PRAGMA table_info(message_outcome_history)").all() as Array<
+      Record<string, unknown>
+    >;
+    if (columns.some((column) => String(column["name"]) === "channel")) return;
+    this.db.exec("ALTER TABLE message_outcome_history ADD COLUMN channel TEXT");
+    this.db.exec(`
+      UPDATE message_outcome_history
+      SET channel = (
+        SELECT json_extract(p.payload_json, '$.channel')
+        FROM message_projection p
+        WHERE p.message_id = message_outcome_history.message_id
+      )
+      WHERE channel IS NULL
+    `);
+  }
+
+  /**
    * Persists only terminal delivery outcomes. Replaying the same terminal state
    * keeps its original occurrence time; a category change replaces the row.
    */
@@ -1128,6 +1154,7 @@ export class MessagePolicyStore {
     state: OutboxState,
     occurredAt: string,
     observedAt: string,
+    channel?: string,
   ): void {
     const outcome =
       state === "delivered"
@@ -1148,14 +1175,17 @@ export class MessagePolicyStore {
       : isCanonicalUtcIso(observedAt)
         ? observedAt
         : new Date().toISOString();
+    const archivedChannel =
+      typeof channel === "string" && channel.trim() !== "" ? channel : null;
     this.prepare(
-        `INSERT INTO message_outcome_history (message_id, outcome, occurred_at)
-         VALUES (?, ?, ?)
+        `INSERT INTO message_outcome_history (message_id, outcome, occurred_at, channel)
+         VALUES (?, ?, ?, ?)
          ON CONFLICT(message_id) DO UPDATE SET
            outcome = excluded.outcome,
-           occurred_at = excluded.occurred_at`,
+           occurred_at = excluded.occurred_at,
+           channel = COALESCE(excluded.channel, message_outcome_history.channel)`,
       )
-      .run(messageId, outcome, timestamp);
+      .run(messageId, outcome, timestamp, archivedChannel);
   }
 
   /** Backfills the durable history table when opening a store created before it existed. */
@@ -1170,12 +1200,16 @@ export class MessagePolicyStore {
       .all() as Record<string, unknown>[];
     for (const row of rows) {
       let deliveredAt: string | undefined;
+      let channel: string | undefined;
       try {
         const payload = JSON.parse(String(row["payload_json"] ?? "null")) as Record<
           string,
           unknown
         >;
         if (typeof payload.deliveredAt === "string") deliveredAt = payload.deliveredAt;
+        if (typeof payload.channel === "string" && payload.channel.trim() !== "") {
+          channel = payload.channel;
+        }
       } catch {
         // Ignore malformed legacy payloads; updated_at remains a usable observation time.
       }
@@ -1184,6 +1218,7 @@ export class MessagePolicyStore {
         String(row["state"]) as OutboxState,
         deliveredAt ?? String(row["updated_at"]),
         String(row["updated_at"]),
+        channel,
       );
     }
   }

@@ -54,7 +54,10 @@ function NotificationContent({ onClose }: { onClose: () => void }) {
       {loading && visibleItems.length === 0 ? (
         <div className="notification-panel-loading"><Spin size="small" /></div>
       ) : visibleItems.length === 0 ? (
-        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有需要留意的通知" />
+        <Empty
+          image={<img src="/brand/mascot/bart-default.svg" alt="" width={84} height={84} />}
+          description="没有需要留意的通知"
+        />
       ) : (
         <NotificationTitleList items={visibleItems} onRead={(id) => void markRead(id)} />
       )}

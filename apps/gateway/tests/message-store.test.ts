@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { MessageDecision, OutboxChangeBatch } from "@butler/contract";
@@ -359,6 +361,76 @@ describe("MessagePolicyStore", () => {
     // dailyOutcomeHistory 按本地日期聚合，不能把 UTC 日期字符串当作桶键。
     expect(history.some((row) => row.delivered === 1)).toBe(true);
     expect(history.reduce((total, row) => total + row.delivered, 0)).toBe(1);
+
+    // 通道在送达结果落库时冗余归档：投影被清理后，30 天通道指标仍归因到
+    // weixin，不会把正常渠道误报成"未知通道"。
+    const metrics = store.channelMetrics(30, now);
+    expect(metrics.channels.find((row) => row.channel === "weixin")).toMatchObject({
+      delivered: 1,
+      total: 1,
+    });
+    expect(metrics.channels.find((row) => row.channel === "unknown")).toBeUndefined();
+    store.close();
+  });
+
+  it("backfills archived channels from live projections when upgrading a legacy database", () => {
+    // 模拟 channel 列上线前的旧库：送达历史不带通道，投影仍在。
+    fs.mkdirSync(path.dirname(dbFile), { recursive: true });
+    const legacy = new DatabaseSync(dbFile);
+    legacy.exec(`
+      CREATE TABLE message_projection (
+        message_id TEXT PRIMARY KEY,
+        instance_id TEXT NOT NULL,
+        bridge_sequence INTEGER NOT NULL,
+        payload_json TEXT NOT NULL,
+        state TEXT NOT NULL,
+        available_at TEXT,
+        content_sha256 TEXT NOT NULL,
+        decision_id TEXT,
+        pending_decision_json TEXT,
+        last_policy_error TEXT,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE message_outcome_history (
+        message_id TEXT PRIMARY KEY,
+        outcome TEXT NOT NULL CHECK (outcome IN ('delivered', 'failed', 'uncertain')),
+        occurred_at TEXT NOT NULL
+      );
+    `);
+    const payload = JSON.stringify({ ...BATCH.items[0], state: "delivered" });
+    legacy
+      .prepare(
+        `INSERT INTO message_projection (
+           message_id, instance_id, bridge_sequence, payload_json, state, available_at,
+           content_sha256, decision_id, pending_decision_json, last_policy_error, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        "legacy-1",
+        "hermes-main",
+        1,
+        payload,
+        "delivered",
+        null,
+        "sha",
+        null,
+        null,
+        null,
+        "2026-09-01T00:00:00.000Z",
+      );
+    legacy
+      .prepare("INSERT INTO message_outcome_history (message_id, outcome, occurred_at) VALUES (?, ?, ?)")
+      .run("legacy-1", "delivered", "2026-09-01T00:00:00.000Z");
+    legacy.close();
+
+    // 打开旧库触发补列迁移：存量行从仍在的投影回填通道。
+    const store = new MessagePolicyStore(dbFile);
+    const check = new DatabaseSync(dbFile);
+    const row = check
+      .prepare("SELECT channel FROM message_outcome_history WHERE message_id = ?")
+      .get("legacy-1") as Record<string, unknown>;
+    expect(String(row["channel"])).toBe("weixin");
+    check.close();
     store.close();
   });
 

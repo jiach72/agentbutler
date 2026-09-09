@@ -128,7 +128,9 @@ function SidebarContent({
     <>
       <div className="brand">
         <span className="brand-mark" aria-hidden="true">
-          管
+          {/* 品牌标志（docs/agent-butler-brand）：浅色主题用主标志，深色主题用反白版。 */}
+          <img className="brand-logo is-light" src="/brand/ab-icon.svg" alt="" />
+          <img className="brand-logo is-dark" src="/brand/ab-icon-inverse.svg" alt="" />
         </span>
         <span className="brand-copy">
           Agent Butler

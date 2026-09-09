@@ -41,6 +41,9 @@ interface MessageInspectorProps {
   /** 死信重投入口；提供后 dead_letter 详情会显示「重新投递」。 */
   onRedeliver?: (messageId: string) => void;
   redeliverBusy?: boolean;
+  /** 立即发送入口；提供后等待中的消息详情会显示「立即发送」。 */
+  onExpedite?: (messageId: string) => void;
+  expediteBusy?: boolean;
 }
 
 /** 列表与详情两栏的固定高度：超出部分卡片内部滚动，避免长列表把页面拉长。 */
@@ -74,6 +77,8 @@ export function MessageInspector({
   onStateFilterChange,
   onRedeliver,
   redeliverBusy = false,
+  onExpedite,
+  expediteBusy = false,
 }: MessageInspectorProps) {
   return (
     <>
@@ -399,6 +404,27 @@ export function MessageInspector({
                     description={selectedMessage.lastPolicyError ?? selectedMessage.lastError}
                   />
                 )}
+
+                {(selectedMessage.state === "held_dnd" ||
+                  selectedMessage.state === "held_pacing" ||
+                  selectedMessage.state === "ready") &&
+                  onExpedite !== undefined && (
+                    <Alert
+                      type="info"
+                      showIcon
+                      title="这条消息正在按发送节奏排队"
+                      description="为避免刷屏，消息会按频率控制逐步发出。点「立即发送」可跳过这条消息的剩余等待，按当前队列顺序尽快投递。"
+                      action={
+                        <Button
+                          size="small"
+                          loading={expediteBusy}
+                          onClick={() => onExpedite(selectedMessage.messageId)}
+                        >
+                          立即发送
+                        </Button>
+                      }
+                    />
+                  )}
 
                 {selectedMessage.state === "dead_letter" && onRedeliver !== undefined && (
                   <Alert

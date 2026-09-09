@@ -1,4 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect x="4" y="4" width="56" height="56" rx="14" fill="#0e7683"/>
-  <text x="32" y="44" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="34" fill="#ffffff" text-anchor="middle">管</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Agent Butler">
+  <title>Agent Butler · Favicon（简化版，小尺寸专用）</title>
+  <rect width="512" height="512" rx="112" fill="#0E1B2A"/>
+  <g transform="rotate(-15 159 256)">
+    <rect x="86" y="200" width="146" height="112" rx="32" fill="#C8A15A"/>
+  </g>
+  <g transform="translate(512,0) scale(-1,1)">
+    <g transform="rotate(-15 159 256)">
+      <rect x="86" y="200" width="146" height="112" rx="32" fill="#C8A15A"/>
+    </g>
+  </g>
+  <rect x="224" y="224" width="64" height="64" rx="20" fill="#35D0BA"/>
 </svg>

@@ -39,11 +39,15 @@ def check(
 
     patch_statuses: dict[str, str] = {}
     patch_reports: list[dict[str, str]] = []
+
+    def _read_hermes_file(relative_path: str) -> str:
+        return _target(root, relative_path).read_text(encoding="utf-8")
+
     for spec in PATCH_SPECS:
         target = _target(root, spec.path)
         if not target.is_file():
             raise FileNotFoundError(f"Hermes patch target not found: {target}")
-        state = analyze_patch(target.read_text(encoding="utf-8"), spec)
+        state = analyze_patch(target.read_text(encoding="utf-8"), spec, _read_hermes_file)
         patch_statuses[spec.path] = state
         patch_reports.append({"path": spec.path, "status": state})
 

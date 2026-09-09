@@ -76,6 +76,7 @@ export function GatewayPage() {
   const [messageStateFilter, setMessageStateFilter] = useState<MessageStateFilter>("all");
   const [confirmRedeliverId, setConfirmRedeliverId] = useState<string | null>(null);
   const [redeliverBusy, setRedeliverBusy] = useState(false);
+  const [expediteBusy, setExpediteBusy] = useState(false);
   const [taskData, setTaskData] = useState<MessageTaskView | null>(null);
   const [taskLoading, setTaskLoading] = useState(false);
   const [drafts, setDrafts] = useState<PatchDrafts>({});
@@ -369,6 +370,25 @@ export function GatewayPage() {
     }
   };
 
+  /** 立即发送：等待中的消息跳过剩余的节奏等待，按当前队列顺序尽快投递。 */
+  const expediteMessage = async (messageId: string) => {
+    setExpediteBusy(true);
+    const result = await postJson(
+      `/api/messages/${encodeURIComponent(messageId)}/expedite`,
+      {},
+      15_000,
+    );
+    setExpediteBusy(false);
+    if (result.status === 200) {
+      message.success("已跳过剩余等待，将按当前队列顺序尽快投递");
+      await refresh();
+    } else {
+      const data = result.data as { detail?: unknown } | null;
+      const detail = typeof data?.detail === "string" ? data.detail : undefined;
+      message.error(detail !== undefined ? `立即发送失败：${detail}` : "立即发送失败，请稍后重试");
+    }
+  };
+
   return (
     <section className="gateway-page">
       <Flex vertical gap={24}>
@@ -515,6 +535,8 @@ export function GatewayPage() {
               onStateFilterChange={setMessageStateFilter}
               onRedeliver={(messageId) => setConfirmRedeliverId(messageId)}
               redeliverBusy={redeliverBusy}
+              onExpedite={(messageId) => void expediteMessage(messageId)}
+              expediteBusy={expediteBusy}
             />
           </Flex>
         </AdvancedDetails>

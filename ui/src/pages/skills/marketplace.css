@@ -223,7 +223,7 @@
   padding: 16px 0 4px;
 }
 
-/* ---- 分类色图标底（亮/暗成对取自 tokens.ts；无图标技能的回退底） ---- */
+/* ---- 分类色图标底（走语义变量，真源见 tokens.ts；无图标技能的回退底） ---- */
 .skill-tile {
   display: inline-flex;
   align-items: center;
@@ -235,18 +235,10 @@
   font-size: 20px;
 }
 
-.skill-tile.tone-teal { background: #e6fffb; color: #13c2c2; }
-.skill-tile.tone-blue { background: #f0f5ff; color: #2f54eb; }
-.skill-tile.tone-purple { background: #f9f0ff; color: #722ed1; }
-.skill-tile.tone-cinnabar { background: #fff2e8; color: #fa541c; }
-.skill-tile.tone-green { background: #f6ffed; color: #52c41a; }
-.skill-tile.tone-gold { background: #fffbe6; color: #faad14; }
-.skill-tile.tone-gray { background: #f7f8fa; color: #86909c; }
-
-html[data-theme="dark"] .skill-tile.tone-teal { background: #123a3f; color: #36cfc9; }
-html[data-theme="dark"] .skill-tile.tone-blue { background: #1c2748; color: #85a5ff; }
-html[data-theme="dark"] .skill-tile.tone-purple { background: #241a44; color: #b37feb; }
-html[data-theme="dark"] .skill-tile.tone-cinnabar { background: #3d2417; color: #ff9a6e; }
-html[data-theme="dark"] .skill-tile.tone-green { background: #1a2b1c; color: #95de64; }
-html[data-theme="dark"] .skill-tile.tone-gold { background: #2f2a12; color: #ffc53d; }
-html[data-theme="dark"] .skill-tile.tone-gray { background: #1b1e24; color: #7c8590; }
+.skill-tile.tone-teal { background: var(--butler-teal-soft); color: var(--butler-teal); }
+.skill-tile.tone-blue { background: var(--butler-accent-soft); color: var(--butler-accent); }
+.skill-tile.tone-purple { background: color-mix(in srgb, var(--butler-ink) 9%, var(--butler-surface)); color: var(--butler-ink-soft); }
+.skill-tile.tone-cinnabar { background: var(--butler-cinnabar-soft); color: var(--butler-cinnabar); }
+.skill-tile.tone-green { background: var(--butler-ok-soft); color: var(--butler-ok); }
+.skill-tile.tone-gold { background: var(--butler-warn-soft); color: var(--butler-warn); }
+.skill-tile.tone-gray { background: var(--butler-sunken); color: var(--butler-ink-faint); }

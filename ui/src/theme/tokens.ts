@@ -1,6 +1,10 @@
 /**
  * 主题真源（antd v6 原生重构版）：
- * 以 antd v6 设计语言为唯一基准 —— 钴蓝品牌色、中性面板、扁平发丝线，
+ * 以品牌视觉规范 v1.2（docs/agent-butler-brand）为唯一基准 ——
+ * 午夜蓝承担专业与"本地/私有化"的重量感，黄铜金是唯一品牌记忆色，
+ * 信号青只用于状态。规范红线：金与青在白底上对比度不足，
+ * 浅色主题一律使用各自的"深墨"变体（黄铜深 #8A6A2A / 信号青深 #0B7F6F），
+ * 纯金 #C8A15A 与纯青 #35D0BA 只出现在深色主题或图形填充中。
  * 亮色走 defaultAlgorithm、暗色走 darkAlgorithm 派生，cssVar 显式开启。
  * 本文件是唯一允许出现具体色值的地方；界面样式只允许引用变量。
  *
@@ -97,74 +101,77 @@ export interface SemanticPalette {
   cardHighlight: string;
 }
 
-/** 亮色：冷灰白底 + 近黑文字 + 钴蓝交互，发丝线优先于投影。 */
+/** 亮色：雪白底 + 午夜蓝正文 + 黄铜深交互，信号青深只做状态；发丝线优先于投影。 */
 export const lightPalette: SemanticPalette = {
-  primary: "#2f54eb",
-  primarySoft: "#f0f5ff",
-  bg: "#f5f6f8",
+  primary: "#8a6a2a",
+  primarySoft: "#f6eedc",
+  bg: "#f5f7fa",
   surface: "#ffffff",
-  surfaceSubtle: "#f7f8fa",
-  sunken: "#eef1f4",
+  surfaceSubtle: "#f8fafc",
+  sunken: "#edf2f8",
   raised: "#ffffff",
-  ink: "#1d2129",
-  inkSoft: "#4e5969",
-  inkFaint: "#86909c",
-  muted: "#6b7280",
-  rule: "#e5e6eb",
-  ruleStrong: "#c9cdd4",
-  ok: "#52c41a",
-  okSoft: "#f6ffed",
-  warn: "#faad14",
-  warnSoft: "#fffbe6",
-  error: "#ff4d4f",
-  errorSoft: "#fff1f0",
+  ink: "#0e1b2a",
+  inkSoft: "#3e5468",
+  inkFaint: "#8296aa",
+  muted: "#5a6b7c",
+  rule: "#e4e9f0",
+  ruleStrong: "#c9d4e0",
+  ok: "#0b7f6f",
+  okSoft: "#e7f4f1",
+  warn: "#9a6b0b",
+  warnSoft: "#faf3db",
+  error: "#b4342a",
+  errorSoft: "#f9e9e6",
   notificationBadge: "#b42318",
   notificationBadgeOn: "#ffffff",
   onPrimary: "#ffffff",
-  teal: "#13c2c2",
-  tealSoft: "#e6fffb",
-  cinnabar: "#fa541c",
-  cinnabarSoft: "#fff2e8",
-  onPrimaryEmphasis: "#1d2129",
-  shadow: "0 1px 2px rgb(15 23 42 / 5%), 0 4px 12px rgb(15 23 42 / 6%)",
-  shadowStrong: "0 18px 44px rgb(15 23 42 / 16%), 0 6px 16px rgb(15 23 42 / 8%)",
-  focusRing: "0 0 0 3px rgb(47 84 235 / 25%)",
+  teal: "#129483",
+  tealSoft: "#e4f4f0",
+  cinnabar: "#b85c2e",
+  cinnabarSoft: "#f9ede3",
+  onPrimaryEmphasis: "#0e1b2a",
+  shadow: "0 1px 2px rgb(14 27 42 / 5%), 0 4px 12px rgb(14 27 42 / 7%)",
+  shadowStrong: "0 18px 44px rgb(14 27 42 / 16%), 0 6px 16px rgb(14 27 42 / 8%)",
+  focusRing: "0 0 0 3px rgb(138 106 42 / 30%)",
   cardHighlight: "inset 0 1px 0 rgb(255 255 255 / 0.65)",
 };
 
-/** 暗色：石墨蓝黑底 + 柔白文字 + 提亮钴蓝；语义色整体提亮保证对比度。 */
+/**
+ * 暗色：午夜蓝底 + 黄铜金交互 + 信号青状态（规范推荐组合，
+ * 金 on 午夜蓝 7.2:1、青 on 午夜蓝 9.0:1）。
+ */
 export const nightPalette: SemanticPalette = {
-  primary: "#85a5ff",
-  primarySoft: "#1c2748",
-  bg: "#0f1115",
-  surface: "#16181d",
-  surfaceSubtle: "#1b1e24",
-  sunken: "#0c0e11",
-  raised: "#1f2229",
-  ink: "#e8eaed",
-  inkSoft: "#b8bfc9",
-  inkFaint: "#7c8590",
-  muted: "#b8bfc9",
-  rule: "#262a32",
-  ruleStrong: "#363c46",
-  ok: "#95de64",
-  okSoft: "#1a2b1c",
+  primary: "#c8a15a",
+  primarySoft: "#2c3e58",
+  bg: "#0e1b2a",
+  surface: "#16293e",
+  surfaceSubtle: "#1a2e46",
+  sunken: "#0a1521",
+  raised: "#1e3852",
+  ink: "#eaf1f8",
+  inkSoft: "#b5c4d4",
+  inkFaint: "#7e92a6",
+  muted: "#8fa2b4",
+  rule: "#23384f",
+  ruleStrong: "#33506e",
+  ok: "#35d0ba",
+  okSoft: "#123531",
   warn: "#ffc53d",
-  warnSoft: "#2f2a12",
+  warnSoft: "#3a3014",
   error: "#ff7875",
-  errorSoft: "#3a221f",
-  notificationBadge: "#b42318",
+  errorSoft: "#3c2426",
+  notificationBadge: "#dc4a3a",
   notificationBadgeOn: "#ffffff",
-  onPrimary: "#0d1b4d",
-  teal: "#36cfc9",
-  tealSoft: "#123a3f",
+  onPrimary: "#0d1b2a",
+  teal: "#35d0ba",
+  tealSoft: "#143c42",
   cinnabar: "#ff9a6e",
-  cinnabarSoft: "#3d2417",
-  onPrimaryEmphasis: "#e8eaed",
-  shadow: "0 1px 2px rgb(0 0 0 / 45%), 0 4px 14px rgb(0 0 0 / 30%)",
-  shadowStrong: "0 18px 44px rgb(0 0 0 / 55%), 0 6px 16px rgb(0 0 0 / 35%)",
-  focusRing: "0 0 0 3px rgb(133 165 255 / 35%)",
-  cardHighlight: "inset 0 1px 0 rgb(255 255 255 / 0.04)",
+  cinnabarSoft: "#3e2a1b",
+  onPrimaryEmphasis: "#eaf1f8",
+  shadow: "0 1px 2px rgb(0 0 0 / 45%), 0 4px 14px rgb(0 0 0 / 32%)",
+  shadowStrong: "0 18px 44px rgb(0 0 0 / 55%), 0 6px 16px rgb(0 0 0 / 38%)",
+  focusRing: "0 0 0 3px rgb(200 161 90 / 35%)",
+  cardHighlight: "inset 0 1px 0 rgb(255 255 255 / 0.05)",
 };
 
 export function paletteFor(mode: ThemeMode): SemanticPalette {
@@ -172,20 +179,21 @@ export function paletteFor(mode: ThemeMode): SemanticPalette {
 }
 
 export const radius = {
-  card: 10,
+  card: 14,
   control: 8,
 } as const;
 
+/** 品牌字体栈：Inter/SF Pro 优先，中文回退苹方/雅黑（规范 05 / 字体）。 */
 const fontStack =
-  '"Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif';
+  '"Inter", "SF Pro Display", "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif';
 
 export const fontFamily = fontStack;
 
 /** 等宽栈：日志、ID、指标等数据型文本。 */
 export const monoFontFamily =
-  '"Cascadia Mono", Consolas, "SF Mono", Menlo, "Courier New", monospace';
+  '"Cascadia Mono", ui-monospace, "SF Mono", Menlo, Consolas, "Courier New", monospace';
 
-/** ConfigProvider 主题：antd v6 原生观感，组件层零覆盖。 */
+/** ConfigProvider 主题：antd v6 原生观感 + 品牌色板，组件层零覆盖。 */
 export function themeConfigFor(mode: ThemeMode): ThemeConfig {
   const palette = paletteFor(mode);
   return {
@@ -195,8 +203,15 @@ export function themeConfigFor(mode: ThemeMode): ThemeConfig {
     token: {
       colorPrimary: palette.primary,
       colorInfo: palette.primary,
+      // 状态色同样以品牌语义板为真源：浅底状态文字必须可读
+      // （信号青深/黄铜深系），深底用信号青/琥珀。antd 由此派生浅色底与描边。
+      colorSuccess: palette.ok,
+      colorWarning: palette.warn,
+      colorError: palette.error,
       colorBgLayout: palette.bg,
-      ...(mode === "dark" ? { colorBgBase: "#13151a" } : {}),
+      ...(mode === "dark" ? { colorBgBase: "#0e1b2a" } : {}),
+      // 深色主题的主按钮是黄铜金底，实底文字改用午夜蓝而不是白（白 on 金仅 2.2:1）。
+      colorTextLightSolid: mode === "dark" ? "#0d1b2a" : "#ffffff",
       colorText: palette.ink,
       colorTextSecondary: palette.inkSoft,
       colorTextTertiary: palette.muted,
@@ -205,7 +220,7 @@ export function themeConfigFor(mode: ThemeMode): ThemeConfig {
       colorBorderSecondary: palette.rule,
       borderRadius: radius.control,
       borderRadiusLG: radius.card,
-      borderRadiusSM: 5,
+      borderRadiusSM: 6,
       boxShadowTertiary: paletteFor(mode).shadow,
       fontFamily,
       fontSize: 14,

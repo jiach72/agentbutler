@@ -403,4 +403,90 @@ describe("createHermesMessageRuntime", () => {
     queue.close();
     await second.stop();
   }, 15_000);
+
+  it("expedite re-issues a waiting message as ready with availableAt now", async () => {
+    const tmp = tempDir();
+    const adapter = new RuntimeAdapter();
+    const decisions: Array<{
+      messageId: string;
+      state?: string;
+      availableAt?: string;
+      expectedContentSha256?: string;
+    }> = [];
+    const waiting = {
+      messageId: "exp-ready",
+      instanceId: "hermes-main",
+      adapterId: "hermes",
+      channel: "weixin",
+      chatId: "chat-1",
+      sessionId: "session-1",
+      messageKind: "final" as const,
+      transport: "queued-push" as const,
+      priority: "normal" as const,
+      content: "done",
+      contentSha256: "content-sha-1",
+      metadata: {},
+      capturedAt: NOW,
+      sequence: 1,
+      state: "held_pacing" as const,
+      availableAt: "2026-08-22T10:05:00.000Z" as string | null,
+      attemptCount: 0,
+      providerMessageId: null,
+      deliveredAt: null,
+      lastError: null,
+      transformTrace: [] as string[],
+    };
+    adapter.decideOutbound = async (_instance, decision) => {
+      decisions.push(decision);
+      return ok({ ...waiting, state: "ready", availableAt: decision.availableAt ?? null });
+    };
+    const runtime = createHermesMessageRuntime(
+      runtimeOptions(tmp, adapter, { pollIntervalMs: 60_000 }),
+    );
+    try {
+      runtime.store.ingestBatch({
+        afterSequence: 0,
+        nextSequence: 1,
+        items: [waiting],
+        taskEvents: [],
+        inbound: [],
+      });
+
+      const result = await runtime.expediteMessage("exp-ready");
+      expect(result.ok).toBe(true);
+      expect(decisions).toHaveLength(1);
+      const decision = decisions[0]!;
+      expect(decision.messageId).toBe("exp-ready");
+      expect(decision.state).toBe("ready");
+      expect(decision.expectedContentSha256).toBe("content-sha-1");
+      expect(decision.transformTrace).toContain("policy:manual-expedite");
+      expect(decision.availableAt).toBeDefined();
+      expect(Math.abs(Date.parse(decision.availableAt!) - Date.now())).toBeLessThan(10_000);
+
+      // 已终态/不存在的消息不能触发立即发送。
+      runtime.store.ingestBatch({
+        afterSequence: 1,
+        nextSequence: 2,
+        items: [
+          {
+            ...waiting,
+            messageId: "exp-done",
+            state: "delivered",
+            deliveredAt: NOW,
+            availableAt: null,
+            sequence: 2,
+          },
+        ],
+        taskEvents: [],
+        inbound: [],
+      });
+      const delivered = await runtime.expediteMessage("exp-done");
+      expect(delivered.ok).toBe(false);
+      const missing = await runtime.expediteMessage("exp-missing");
+      expect(missing.ok).toBe(false);
+      expect(decisions).toHaveLength(1);
+    } finally {
+      await runtime.stop();
+    }
+  });
 });

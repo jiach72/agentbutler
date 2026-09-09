@@ -692,7 +692,7 @@ export function PromptOptimizationPanel() {
                             你发的原文
                           </Text>
                           <Paragraph style={{ marginBottom: 0 }}>
-                            {original || "（图片或语音消息，没有文字）"}
+                            {original || "这条消息没有文字内容（比如图片、语音或表情），管家直接按原样处理。"}
                           </Paragraph>
                         </div>
                         <ArrowRightOutlined
@@ -714,11 +714,11 @@ export function PromptOptimizationPanel() {
                             整理后的内容
                           </Text>
                           <Paragraph style={{ marginBottom: 0 }}>
-                            {optimized || "（无文字内容）"}
+                            {optimized || "没有需要整理的文字，转交的内容和你发来的完全一致。"}
                           </Paragraph>
                           {!changed && hasDecision && (
                             <Text type="secondary" style={{ fontSize: 12 }}>
-                              没有改动，原样发送
+                              没有改动，原样转交
                             </Text>
                           )}
                         </div>

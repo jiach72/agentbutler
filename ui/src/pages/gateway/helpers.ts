@@ -389,7 +389,8 @@ const CHANNEL_LABELS: Record<string, string> = {
   desktop: "桌面通知",
   webhook: "网页通知",
   // 指标聚合对缺失通道字段的消息统一记为 unknown（见 gateway message/store metrics）。
-  unknown: "未知通道",
+  // 多为早期历史记录：通道归档功能上线前，投递记录超过保留期后通道信息无法追溯。
+  unknown: "通道未记录",
 };
 
 const MESSAGE_KIND_LABELS: Record<string, string> = {

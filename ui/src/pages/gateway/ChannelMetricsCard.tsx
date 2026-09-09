@@ -142,6 +142,12 @@ export function ChannelMetricsCard() {
             pagination={false}
             loading={metrics.status === "loading"}
           />
+          {rows.some((row) => row.channel === "unknown") && (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              「通道未记录」不是发给了陌生渠道：这些是较早的历史投递，当时的记录里没有保存通道信息，
+              无法归类；现在的消息会永久记录通道，不会再出现这一行。
+            </Typography.Text>
+          )}
         </>
       )}
     </Flex>

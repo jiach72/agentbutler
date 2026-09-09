@@ -125,5 +125,10 @@ export function TrendCard({
 
 /** 空数据占位：新装用户没有历史时给出期望，而不是空白坐标系。 */
 export function ChartEmpty({ hint }: { hint: string }) {
-  return <div className="empty-state chart-state" role="status">{hint}</div>;
+  return (
+    <div className="empty-state chart-state" role="status">
+      <img className="empty-state-mascot" src="/brand/mascot/bart-default.svg" alt="" width={72} height={72} />
+      {hint}
+    </div>
+  );
 }

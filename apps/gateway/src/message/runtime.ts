@@ -6,18 +6,25 @@ import {
   createHermesMessaging,
   type HermesMessagingOptions,
 } from "@butler/adapter-hermes";
-import type {
-  ChannelControlPort,
-  InboundHistoryView,
-  MessagingAdapter,
-  OutboxMessageView,
-  Result,
+import {
+  fail,
+  type ChannelControlPort,
+  type InboundHistoryView,
+  type MessagingAdapter,
+  type OutboxMessageView,
+  type Result,
 } from "@butler/contract";
 
 import { DEFAULT_MESSAGE_POLICY } from "./config.js";
+import { buildMessageDecision } from "./policy.js";
 import { MessageGatewayService, type Scheduler } from "./service.js";
 import { MessagePolicyStore } from "./store.js";
 import type { MessagePolicyConfig } from "./types.js";
+
+/** 这些状态下的消息在"等待发送"，允许用户手动提前放行。 */
+const EXPEDITABLE_STATES = new Set(["held_dnd", "held_pacing", "ready"]);
+/** 手动放行不算策略演进，用独立版本号标记来源，便于审计区分。 */
+const MANUAL_EXPEDITE_POLICY_VERSION = "manual-expedite-v1";
 
 export const MESSAGE_RUNTIME_ENV = {
   bridgeUrl: "BUTLER_HERMES_BRIDGE_URL",
@@ -61,6 +68,12 @@ export interface HermesMessageRuntime {
   inboundHistory(limit?: number): Promise<Result<InboundHistoryView>>;
   /** 死信重投（dead_letter → policy_pending），由面板显式触发。 */
   requeueMessage(messageId: string): Promise<Result<OutboxMessageView>>;
+  /**
+   * 立即发送：把等待中的消息（held_dnd / held_pacing / ready 且未到期）重新决策为
+   * ready + availableAt=now，跳过剩余的频率控制/免打扰/汇总窗口等待。
+   * 队列本身仍按序逐条投递，不插队。
+   */
+  expediteMessage(messageId: string): Promise<Result<OutboxMessageView>>;
 }
 
 interface ResolvedRuntimeConfig {
@@ -205,6 +218,28 @@ export function createHermesMessageRuntime(
     stop,
     inboundHistory: (limit?: number) => adapter.inboundHistory(instance, limit),
     requeueMessage: (messageId: string) => adapter.requeueOutbound(instance, messageId),
+    expediteMessage: (messageId: string) => {
+      const message = store.messageView(messageId);
+      if (message === undefined) {
+        return Promise.resolve(fail("E203", "message not found"));
+      }
+      if (!EXPEDITABLE_STATES.has(message.state)) {
+        return Promise.resolve(
+          fail("E203", `message is not waiting for send: ${message.state}`),
+        );
+      }
+      // 决策语义只改"何时发"：内容、处理轨迹保持不变，Bridge 按当前内容哈希校验。
+      const decision = buildMessageDecision(
+        message,
+        MANUAL_EXPEDITE_POLICY_VERSION,
+        "ready",
+        [...message.transformTrace, "policy:manual-expedite"],
+        "面板手动立即发送",
+        undefined,
+        new Date().toISOString(),
+      );
+      return adapter.decideOutbound(instance, decision);
+    },
   };
 }
 

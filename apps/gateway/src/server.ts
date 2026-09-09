@@ -99,6 +99,8 @@ export interface GatewayServerOptions {
   inboundHistory?: (limit?: number) => Promise<Result<InboundHistoryView>>;
   /** 死信重投（dead_letter → policy_pending；由 Hermes 消息运行时注入）。 */
   redeliver?: (messageId: string) => Promise<Result<OutboxMessageView>>;
+  /** 立即发送（held_dnd/held_pacing/ready → ready + availableAt=now；由 Hermes 消息运行时注入）。 */
+  expedite?: (messageId: string) => Promise<Result<OutboxMessageView>>;
   /** Bridge 通道控制面端口（目录/启停/微信扫码；仅 Hermes 消息运行时注入）。 */
   channelControl?: ChannelControlPort;
   /** Hermes native is authoritative by default; the Butler runtime is observe-only when enabled. */
@@ -386,6 +388,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
     options.nativeMinIntervalSec,
     options.channelControl,
     options.redeliver,
+    options.expedite,
   );
 
   if (options.startLoop !== false) loop.start();
@@ -401,6 +404,7 @@ function registerMessageRoutes(
   nativeMinIntervalSec?: number,
   channelControl?: ChannelControlPort,
   redeliver?: (messageId: string) => Promise<Result<OutboxMessageView>>,
+  expedite?: (messageId: string) => Promise<Result<OutboxMessageView>>,
 ): void {
   const hints = new BoundedHintDeduper(10_000);
 
@@ -538,6 +542,27 @@ function registerMessageRoutes(
     return {
       message: result.data,
       nextStep: "已重新排队进入策略管线，稍后可在消息明细中查看投递结果。",
+    };
+  });
+
+  /** 立即发送：等待中的消息跳过剩余的节奏/免打扰等待，按当前队列顺序尽快投递。 */
+  app.post("/api/messages/:messageId/expedite", async (request, reply) => {
+    if (expedite === undefined) return bridgeUnavailable(reply, "E302");
+    const messageId = readString((request.params as Record<string, unknown>)["messageId"]);
+    if (messageId === null)
+      return reply.code(400).send({ error: "messageId must be a non-empty string" });
+    const result = await expedite(messageId);
+    if (!result.ok || result.data === undefined) {
+      return reply.code(502).send({
+        error: "expedite-failed",
+        detail: result.ok ? undefined : result.error?.userHint ?? result.error?.message,
+      });
+    }
+    // 立即触发一轮 reconcile，让放行的消息不用等下一个轮询周期。
+    messageService?.wake();
+    return {
+      message: result.data,
+      nextStep: "已跳过剩余等待，将按当前队列顺序尽快投递。",
     };
   });
 

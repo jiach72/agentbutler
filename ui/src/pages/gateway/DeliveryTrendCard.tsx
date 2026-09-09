@@ -115,7 +115,9 @@ export function DeliveryTrendCard() {
             tooltip={{
             items: [
               {
-                channel: "y",
+                // 堆叠变换后的 y 通道是累计终点，各系列会显示同一个总数；
+                // 必须读原始数据字段，才能拿到每个状态的分段值。
+                field: "count",
                 name: "条数",
                 valueFormatter: (value: number) => formatNumber(value),
               },

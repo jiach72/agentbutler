@@ -41,7 +41,7 @@
   line-height: 1.5;
 }
 
-/* ---- 空态 ---- */
+/* ---- 空态（图表空态配 IP 形象「巴特」，自带月白底盘、深浅底通用） ---- */
 
 .empty-state {
   min-height: 168px;
@@ -55,6 +55,12 @@
   background: var(--butler-surface-subtle);
   color: var(--butler-muted);
   line-height: 1.6;
+}
+
+.empty-state-mascot {
+  width: 72px;
+  height: 72px;
+  user-select: none;
 }
 
 /* ---- 键值对 / 数据行 ---- */

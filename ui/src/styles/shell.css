@@ -48,18 +48,25 @@
 }
 
 .brand-mark {
-  display: grid;
-  place-items: center;
   width: 34px;
   height: 34px;
   flex-shrink: 0;
-  border-radius: var(--butler-radius-card);
-  background: var(--butler-accent);
-  color: var(--butler-on-accent);
-  font-size: 18px;
-  font-weight: 700;
-  line-height: 1;
+}
+
+.brand-logo {
+  display: block;
+  width: 100%;
+  height: 100%;
   user-select: none;
+}
+.brand-logo.is-dark {
+  display: none;
+}
+html[data-theme="dark"] .brand-logo.is-light {
+  display: none;
+}
+html[data-theme="dark"] .brand-logo.is-dark {
+  display: block;
 }
 
 .brand-copy {
