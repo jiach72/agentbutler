@@ -1846,7 +1846,10 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
 
   const staticReady = fs.existsSync(uiDist);
   if (staticReady) {
-    app.register(fastifyStatic, { root: uiDist });
+    // 显式 no-cache 语义：index.html 与带 hash 的资源都要求浏览器每次重验证，
+    // 防止启发式缓存/会话恢复的旧标签页长期滞留过期 bundle（症状：UI 与当前
+    // 版本行为不一致，刷新后消失）。hashed 资源的重验证只花一个 304 往返。
+    app.register(fastifyStatic, { root: uiDist, cacheControl: true, maxAge: 0 });
   }
 
   // SPA 回退：非 /api 前缀的未匹配路由回 index.html；/api 未知路由返回 404 JSON。
