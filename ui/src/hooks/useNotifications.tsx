@@ -38,7 +38,13 @@ interface NotificationsContextValue {
   refresh: () => Promise<void>;
   markRead: (id: number) => Promise<boolean>;
   markAllRead: () => Promise<boolean>;
+  /** 未配置的可选外发通道（telegram/bark/serverchan/smtp），UI 用折叠区展示而非告警。 */
+  optionalChannels: string[];
+  /** 真正的 degraded 通道（未识别的 / critical 级），仍作为告警显示。 */
+  criticalDegraded: string[];
 }
+
+const OPTIONAL_CHANNELS = new Set(["telegram", "bark", "serverchan", "smtp"]);
 
 const NotificationsContext = createContext<NotificationsContextValue | null>(null);
 
@@ -99,7 +105,10 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
       typeof payload?.unreadCount === "number"
         ? payload.unreadCount
         : items.filter((item) => item.readAt === null).length;
-    return { payload, items, unreadCount, loading, refresh, markRead, markAllRead };
+    const degraded = payload?.degradedChannels ?? [];
+    const optionalChannels = degraded.filter((ch) => OPTIONAL_CHANNELS.has(ch.split(":")[0]));
+    const criticalDegraded = degraded.filter((ch) => !OPTIONAL_CHANNELS.has(ch.split(":")[0]));
+    return { payload, items, unreadCount, loading, refresh, markRead, markAllRead, optionalChannels, criticalDegraded };
   }, [loading, markAllRead, markRead, payload, refresh]);
 
   return <NotificationsContext.Provider value={value}>{children}</NotificationsContext.Provider>;

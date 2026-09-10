@@ -32,7 +32,7 @@ export function NotificationTitleList({
 }
 
 function NotificationContent({ onClose }: { onClose: () => void }) {
-  const { items, unreadCount, loading, markAllRead, markRead, refresh } = useNotifications();
+  const { items, unreadCount, loading, markAllRead, markRead, refresh, optionalChannels } = useNotifications();
   const [preferences] = usePreferences();
   const visibleItems = useMemo(
     () => items.filter((item) => visibleForPreference(item, preferences.notificationMinSeverity)).slice(0, 12),
@@ -60,6 +60,16 @@ function NotificationContent({ onClose }: { onClose: () => void }) {
         />
       ) : (
         <NotificationTitleList items={visibleItems} onRead={(id) => void markRead(id)} />
+      )}
+      {optionalChannels.length > 0 && (
+        <details className="notification-panel-optional">
+          <summary>可选通知通道（{optionalChannels.length} 个未配置）</summary>
+          <ul className="notification-list">
+            {optionalChannels.map((ch) => (
+              <li key={ch} className="notification-item"><span>{ch.replace(":missing-credentials", "（未配置凭据）")}</span></li>
+            ))}
+          </ul>
+        </details>
       )}
       <footer className="notification-panel-foot">
         <Link to="/gateway" onClick={onClose}>查看完整通知队列</Link>

@@ -292,6 +292,8 @@ export function inspectSkillText(text: string): SkillStaticRiskReport {
 function usedSkillName(line: string): string | null {
   const activity = /\b(?:invoked|started|completed|succeeded|success|failed|failure|executing|executed|running)\b|调用|执行|开始|完成|失败/i;
   if (!activity.test(line)) return null;
+  const structured = /\bskill=([A-Za-z0-9][A-Za-z0-9._/-]{1,159})/i.exec(line)?.[1];
+  if (structured) return structured.split("@")[0] ?? null;
   const assignment = /\b(?:skill_name|skill\s+name|skill)\s*[:=]\s*["']?([A-Za-z0-9][A-Za-z0-9._/-]{1,159})/i.exec(line)?.[1];
   const quoted = /\bskill\s+["']([A-Za-z0-9][A-Za-z0-9._/-]{1,159})["']\s+(?:was\s+)?(?:invoked|started|completed|succeeded|failed)\b/i.exec(line)?.[1];
   return (assignment ?? quoted)?.split("@")[0] ?? null;

@@ -237,6 +237,7 @@ def install_gateway_runtime_hooks(
                     event_key=event_key,
                 )
                 runtime.record_coverage("progress", "ok")
+                _emit_skill_usage_log(runtime, tool_name, event_type)
             except (KeyError, ValueError):
                 # A callback racing the terminal boundary is stale, not a new
                 # task failure. The durable lifecycle remains authoritative.
@@ -847,6 +848,22 @@ def _next_progress_key(lifecycle: RunLifecycleState) -> str:
         return f"progress:{lifecycle.progress_sequence}"
 
 
+def _emit_skill_usage_log(runtime, tool_name, event_type):
+    """给 watch 的 skill-assets.ts 写结构化技能调用行（skill=xxx 格式）。"""
+    if not tool_name:
+        return
+    try:
+        hermes_root = getattr(runtime, "hermes_root", None) or str(Path.home() / ".hermes")
+        log_dir = Path(hermes_root) / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / "skill_usage.log"
+        ts = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(f"{ts} skill={tool_name} event={event_type}\n")
+    except Exception:
+        pass
+
+
 def _progress_summary(
     event_type: Any,
     tool_name: Any,
@@ -890,6 +907,7 @@ def _api_progress_callback(
                 event_key=event_key,
             )
             runtime.record_coverage("progress", "ok")
+            _emit_skill_usage_log(runtime, tool_name, event_type)
         except (KeyError, ValueError):
             pass
         if callable(original):
