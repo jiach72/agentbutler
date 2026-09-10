@@ -862,7 +862,10 @@ def _emit_skill_usage_log(runtime, tool_name, args, event_type):
     if isinstance(args, dict):
         skill_name = args.get("name") or args.get("skill_name")
     if not skill_name:
-        skill_name = tool_name
+        # tool.completed / tool.failed 等后续事件 Hermes 传 args=None，
+        # 回退把入口函数名 skill_view 写进日志是垃圾数据；
+        # 真实技能名只随 tool.started 的 args 到达，拿不到就不记。
+        return
     try:
         hermes_root = getattr(runtime, "hermes_root", None) or str(Path.home() / ".hermes")
         log_dir = Path(hermes_root) / "logs"
