@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createCore, type Core, type FingerprintAggregatedPayload, type FingerprintEscalatedPayload } from "@butler/core";
-import { ALERT_FORWARD_FAILED_ACTION, describeFingerprint, startAlertForwarder, type AlertForwardBody } from "../src/alert-forward.js";
+import { ALERT_FORWARD_FAILED_ACTION, createAlertPoster, describeFingerprint, isExternalDependencyFailure, startAlertForwarder, type AlertForwardBody } from "../src/alert-forward.js";
 import type { FetchInitLike, FetchLike } from "../src/dashboard-signal.js";
 
 let tmp: string;
@@ -192,5 +192,65 @@ describe("startAlertForwarder", () => {
     core.bus.emit("fingerprint-aggregated", aggregatedPayload());
     await forwarder.flush();
     expect(posts).toHaveLength(0);
+  });
+});
+
+describe("isExternalDependencyFailure（智能降级①）", () => {
+  it("账户/计费类：402、InsufficientBalance 连写、payment required", () => {
+    expect(isExternalDependencyFailure("HTTP 402")).toBe(true);
+    expect(isExternalDependencyFailure("hindsight retain 失败：InsufficientBalance")).toBe(true);
+    expect(isExternalDependencyFailure("Error: insufficient balance for API call")).toBe(true);
+    expect(isExternalDependencyFailure("Payment Required")).toBe(true);
+  });
+
+  it("凭据/配额类：401/403、invalid key、quota exceeded", () => {
+    expect(isExternalDependencyFailure("HTTP 401 Unauthorized")).toBe(true);
+    expect(isExternalDependencyFailure("invalid api key")).toBe(true);
+    expect(isExternalDependencyFailure("You exceeded your current quota")).toBe(true);
+    expect(isExternalDependencyFailure("credit balance is too low")).toBe(true);
+  });
+
+  it("实例自身故障不误判：连接拒绝、超时、普通断言", () => {
+    expect(isExternalDependencyFailure("hindsight 服务不可达（http://127.0.0.1:9177）：ECONNREFUSED")).toBe(false);
+    expect(isExternalDependencyFailure("请求超时 timeout after 60s")).toBe(false);
+    expect(isExternalDependencyFailure("FTS 未能召回刚写入的标记 butler-probe-4021abcd")).toBe(false);
+    expect(isExternalDependencyFailure("")).toBe(false);
+  });
+});
+
+describe("createAlertPoster.resolve（智能降级③）", () => {
+  it("POST /api/alerts/resolve 携带 dedupeKey 与鉴权头，成功不抛异常", async () => {
+    const poster = createAlertPoster({
+      gatewayUrl: "http://127.0.0.1:7532",
+      fetchFn: fetchImpl,
+      accessToken: "secret-token",
+    });
+    await poster.resolve("external-dependency:memory:hermes-main");
+    await poster.flush();
+
+    expect(posts).toHaveLength(1);
+    expect(posts[0]!.url).toBe("http://127.0.0.1:7532/api/alerts/resolve");
+    expect(posts[0]!.init?.method).toBe("POST");
+    expect(JSON.parse(posts[0]!.init!.body!)).toEqual({ dedupeKey: "external-dependency:memory:hermes-main" });
+    const headers = posts[0]!.init?.headers as Record<string, string>;
+    expect(headers["x-butler-token"]).toBe("secret-token");
+  });
+
+  it("归档失败只记 audit，不抛异常", async () => {
+    failFetch = true;
+    const poster = createAlertPoster({
+      gatewayUrl: "http://127.0.0.1:7532",
+      fetchFn: fetchImpl,
+      audit: core.audit,
+    });
+    await poster.resolve("ext-1");
+    await poster.flush();
+    expect(core.audit.list({ action: ALERT_FORWARD_FAILED_ACTION })).toHaveLength(1);
+  });
+});
+
+describe("describeFingerprint 计费文案（与分类器同源后补匹配）", () => {
+  it("InsufficientBalance 连写也归类为余额不足", () => {
+    expect(describeFingerprint("hindsight retain 失败：InsufficientBalance").title).toBe("模型账户余额不足");
   });
 });

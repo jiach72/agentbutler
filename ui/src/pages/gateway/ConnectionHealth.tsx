@@ -72,7 +72,11 @@ export function ConnectionHealth({ messageBridge, bridgeReady, messageCounts }: 
       <Col xs={24} sm={12} xl={6}>
         <Card size="small">
           <Statistic title="送达结果" value={messageCounts["delivered"] ?? 0} formatter={(value) => formatNumber(Number(value))} suffix="条" />
-          <Typography.Text type="secondary">已送达 · {exceptionMessages} 条需关注</Typography.Text>
+          <Typography.Text type="secondary">
+            {/* 结果未知 = 外发后未确认（可重投）；失败执行 = run 终态 failed（内容/上游问题，重投无用）。 */}
+            需关注 {exceptionMessages} 条
+            {messageBridge?.runs !== undefined ? ` · 失败执行 ${formatNumber(messageBridge.runs.failed)} 次` : ""}
+          </Typography.Text>
         </Card>
       </Col>
     </Row>

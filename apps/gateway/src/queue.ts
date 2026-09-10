@@ -8,6 +8,12 @@
  * - 构造时把遗留 delivering 行回置 pending（进程重启不存在真正投递中的行，
  *   即"重启补发"）；
  * - claimNext 按 created_at 升序认领到期（next_attempt_at ≤ now）的 pending 行；
+ * - 冷却窗（默认 2h，BUTLER_ALERT_COOLDOWN_MS 可配）：同 dedupeKey 上一条已
+ *   投递/已失败未超窗时，同严重度或更轻的重复告警只在该行 merged_count+1，
+ *   不再产生新行——高频探针类故障（如计费类每 5min 一报）不再刷屏；
+ *   升级为更严重则照常新建行；
+ * - resolveByDedupeKey：故障恢复后归档（未投递行置 resolved 不再投递，
+ *   已投递行补已读）；
  * - 所有时间戳均为 ISO 字符串（字典序即时间序）。
  */
 import { DatabaseSync } from "node:sqlite";
@@ -15,7 +21,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 export type AlertSeverity = "info" | "warn" | "critical";
-export type AlertStatus = "pending" | "delivering" | "delivered" | "failed";
+export type AlertStatus = "pending" | "delivering" | "delivered" | "failed" | "resolved";
 
 /** alerts 表行（camelCase 视图，不含任何凭据，可直接外发 API）。 */
 export interface AlertRow {
@@ -52,6 +58,17 @@ export interface AlertInput {
 /** 连续失败上限：达到即 failed（保留可见）。 */
 export const MAX_ATTEMPTS = 5;
 
+/** 同 dedupeKey 冷却窗默认 2h：比探针周期大两个量级，小于典型计费故障恢复周期。 */
+export const DEFAULT_ALERT_COOLDOWN_MS = 2 * 60 * 60 * 1000;
+/** 冷却窗允许的配置区间：0（关闭）到 24h。 */
+export const MAX_ALERT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+
+/** 归一化冷却窗：非法/越界值回落默认或边界。 */
+export function normalizeCooldownMs(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value) || value < 0) return DEFAULT_ALERT_COOLDOWN_MS;
+  return Math.min(Math.floor(value), MAX_ALERT_COOLDOWN_MS);
+}
+
 /** 指数退避：min(2^attempts × 60s, 30min)，attempts 为自增后的新值。 */
 export function backoffSeconds(attempts: number): number {
   return Math.min(2 ** attempts * 60, 30 * 60);
@@ -86,9 +103,11 @@ export class AlertQueue {
   readonly dbFile: string;
   private db: DatabaseSync;
   private closed = false;
+  private readonly cooldownMs: number;
 
-  constructor(dbFile: string) {
+  constructor(dbFile: string, options: { cooldownMs?: number } = {}) {
     this.dbFile = dbFile;
+    this.cooldownMs = normalizeCooldownMs(options.cooldownMs);
     fs.mkdirSync(path.dirname(dbFile), { recursive: true });
     this.db = new DatabaseSync(dbFile);
     this.db.exec("PRAGMA journal_mode=WAL;");
@@ -116,6 +135,10 @@ export class AlertQueue {
    * 已有行 merged_count+1、updated_at 刷新，返回已有行（消息合并缓释）。
    * 若同一 pending 指纹升级为更高严重度，则用最新摘要提升该行；已经
    * delivering 的行不改写，以免发送中的内容与持久化记录发生竞态。
+   *
+   * 冷却窗：同 dedupeKey 在上一条 delivered/failed 行的冷却窗内重复入队时，
+   * 同严重度或更轻只合并计数（merged_count+1），不再打扰；只有升级为更严重
+   * 才新建行。解决的是"投递完成后 dedupe 失效"导致的告警风暴。
    */
   enqueue(input: AlertInput): AlertRow {
     const now = new Date().toISOString();
@@ -138,6 +161,16 @@ export class AlertQueue {
         }
         const merged = this.get(open.id);
         if (merged !== undefined) return merged;
+      }
+      if (this.cooldownMs > 0) {
+        const recent = this.findRecentlyTerminatedByDedupeKey(dedupeKey, now);
+        if (recent !== undefined && severityRank(input.severity) >= severityRank(recent.severity)) {
+          this.db
+            .prepare("UPDATE alerts SET merged_count = merged_count + 1, updated_at = ? WHERE id = ?")
+            .run(now, recent.id);
+          const merged = this.get(recent.id);
+          if (merged !== undefined) return merged;
+        }
       }
     }
     const result = this.db
@@ -217,14 +250,20 @@ export class AlertQueue {
     return rows.map((r) => this.mapRow(r));
   }
 
-  counts(): { pending: number; delivering: number; delivered: number; failed: number } {
+  counts(): { pending: number; delivering: number; delivered: number; failed: number; resolved: number } {
     const rows = this.db
       .prepare("SELECT status, COUNT(*) AS n FROM alerts GROUP BY status")
       .all() as Record<string, unknown>[];
-    const counts = { pending: 0, delivering: 0, delivered: 0, failed: 0 };
+    const counts = { pending: 0, delivering: 0, delivered: 0, failed: 0, resolved: 0 };
     for (const row of rows) {
       const status = String(row["status"]);
-      if (status === "pending" || status === "delivering" || status === "delivered" || status === "failed") {
+      if (
+        status === "pending" ||
+        status === "delivering" ||
+        status === "delivered" ||
+        status === "failed" ||
+        status === "resolved"
+      ) {
         counts[status] = Number(row["n"]);
       }
     }
@@ -257,6 +296,30 @@ export class AlertQueue {
     return Number(result.changes);
   }
 
+  /**
+   * 故障恢复归档：按 dedupeKey 把该故障的告警移出活跃/未读视野。
+   * 未投递行（pending/delivering）置 resolved（问题已恢复，不再投递也不计未读）；
+   * 已投递/已失败行只补已读（保留投递历史可见）。
+   */
+  resolveByDedupeKey(
+    dedupeKey: string,
+    now: string = new Date().toISOString(),
+  ): { resolved: number; readMarked: number } {
+    const first = this.db
+      .prepare(
+        `UPDATE alerts SET status = 'resolved', read_at = COALESCE(read_at, ?), next_attempt_at = NULL, updated_at = ?
+         WHERE dedupe_key = ? AND status IN ('pending', 'delivering')`,
+      )
+      .run(now, now, dedupeKey);
+    const second = this.db
+      .prepare(
+        `UPDATE alerts SET read_at = COALESCE(read_at, ?), updated_at = ?
+         WHERE dedupe_key = ? AND status IN ('delivered', 'failed') AND read_at IS NULL`,
+      )
+      .run(now, now, dedupeKey);
+    return { resolved: Number(first.changes), readMarked: Number(second.changes) };
+  }
+
   private findOpenByDedupeKey(dedupeKey: string): AlertRow | undefined {
     const row = this.db
       .prepare(
@@ -264,6 +327,19 @@ export class AlertQueue {
          ORDER BY id DESC LIMIT 1`,
       )
       .get(dedupeKey) as Record<string, unknown> | undefined;
+    return row === undefined ? undefined : this.mapRow(row);
+  }
+
+  /** 冷却窗内最近一条已终结（delivered/failed）的同行告警：delivered 看 delivered_at，failed 看最后更新。 */
+  private findRecentlyTerminatedByDedupeKey(dedupeKey: string, now: string): AlertRow | undefined {
+    const cutoff = new Date(new Date(now).getTime() - this.cooldownMs).toISOString();
+    const row = this.db
+      .prepare(
+        `SELECT * FROM alerts WHERE dedupe_key = ? AND status IN ('delivered', 'failed')
+         AND COALESCE(delivered_at, updated_at) >= ?
+         ORDER BY id DESC LIMIT 1`,
+      )
+      .get(dedupeKey, cutoff) as Record<string, unknown> | undefined;
     return row === undefined ? undefined : this.mapRow(row);
   }
 

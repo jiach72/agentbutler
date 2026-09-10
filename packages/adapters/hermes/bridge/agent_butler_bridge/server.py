@@ -96,6 +96,7 @@ def create_app(
                 "coverage": coverage,
                 "startedAt": None if started_at_provider is None else started_at_provider(),
                 "channelStatus": None if channel_status_provider is None else channel_status_provider(),
+                "runs": outbox.runs_summary(),
             }
         )
 

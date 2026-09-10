@@ -6,6 +6,7 @@ import asyncio
 import ipaddress
 import os
 import stat
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,15 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8754
 RETENTION_SWEEP_INTERVAL_SECONDS = 60 * 60
 MAX_TOKEN_BYTES = 4096
+
+# Hermes 取证日志（gateway-exit-diag / gateway-shutdown-diag）由 Hermes 侧
+# 每次启动/关停追加且无轮转，长期常驻只增不减。写入方是 Hermes 文件，
+# 直接改动会被 Hermes 更新覆盖；本函数由 Butler 管理的 bridge 包在
+# retention 清扫里调用，随 bridge 安装/同步存在，天然抗更新覆盖。
+# 这些写入方每次追加都按路径重新 open，replace 截断不会让 fd 写丢。
+DIAG_LOG_CAP_BYTES = 4 * 1024 * 1024
+DIAG_LOG_KEEP_BYTES = 1024 * 1024
+DIAG_LOG_FILES = ("gateway-exit-diag.log", "gateway-shutdown-diag.log")
 TRUE_VALUES = {"1", "true", "yes", "on"}
 REQUIRED_RUNTIME_COVERAGE = (
     "runtime",
@@ -214,6 +224,12 @@ class BridgeRuntime:
                 # Retention must not take the Bridge down; health exposes the degraded
                 # housekeeping state so operators can inspect the private SQLite file.
                 self.record_coverage("retention", "degraded")
+            try:
+                hermes_home = Path(os.environ.get("HOME") or Path.home()) / ".hermes"
+                cap_diag_logs(hermes_home)
+            except Exception as exc:
+                # 诊断日志封顶是纯收益动作：失败只留一行告警，不影响 retention 状态。
+                print(f"[butler-bridge] diag log cap failed: {exc}", file=sys.stderr, flush=True)
 
     def attach_adapter(
         self,
@@ -303,6 +319,48 @@ _process_runtime: BridgeRuntime | None = None
 
 def get_process_runtime() -> BridgeRuntime | None:
     return _process_runtime
+
+
+def cap_diag_logs(
+    hermes_home: Path,
+    *,
+    cap_bytes: int = DIAG_LOG_CAP_BYTES,
+    keep_bytes: int = DIAG_LOG_KEEP_BYTES,
+    files: tuple[str, ...] = DIAG_LOG_FILES,
+) -> list[str]:
+    """把 Hermes 取证日志封顶在 ``cap_bytes`` 内（保留尾部 ``keep_bytes``）。
+
+    返回实际被截断的文件名列表。日志不存在/未超限/截断失败都静默跳过——
+    这是从属收益动作，绝不影响 Bridge 本身。先写临时文件再原子替换，
+    与写入方"每次追加按路径重新 open"的访问方式兼容。
+    """
+    if keep_bytes >= cap_bytes:
+        raise ValueError("keep_bytes must be smaller than cap_bytes")
+    capped: list[str] = []
+    logs_dir = hermes_home / "logs"
+    for name in files:
+        path = logs_dir / name
+        try:
+            size = path.stat().st_size
+        except OSError:
+            continue
+        if size <= cap_bytes:
+            continue
+        tmp = path.with_name(path.name + ".cap-tmp")
+        try:
+            with open(path, "rb") as src, open(tmp, "wb") as dst:
+                src.seek(size - keep_bytes)
+                dst.write(src.read())
+                dst.flush()
+                os.fsync(dst.fileno())
+            os.replace(tmp, path)
+            capped.append(name)
+        except OSError:
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+    return capped
 
 
 async def start_process_runtime(config: RuntimeConfig | None = None) -> BridgeRuntime:

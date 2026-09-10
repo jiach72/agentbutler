@@ -127,7 +127,7 @@ describe("gateway HTTP API", () => {
     const res = await app.inject({ method: "GET", url: "/api/alerts" });
     expect(res.statusCode).toBe(200);
     const payload = res.json();
-    expect(payload.counts).toEqual({ pending: 2, delivering: 0, delivered: 0, failed: 0 });
+    expect(payload.counts).toEqual({ pending: 2, delivering: 0, delivered: 0, failed: 0, resolved: 0 });
     expect(payload.unreadCount).toBe(2);
     expect(payload.degradedChannels).toEqual(["telegram:missing-credentials", "smtp:missing-credentials"]);
     expect(payload.items).toHaveLength(2);
@@ -161,6 +161,32 @@ describe("gateway HTTP API", () => {
     const all = await app.inject({ method: "POST", url: "/api/alerts/read-all" });
     expect(all.statusCode).toBe(200);
     expect(all.json().marked).toBe(1);
+    expect((await app.inject({ method: "GET", url: "/api/alerts" })).json().unreadCount).toBe(0);
+  });
+
+  it("POST /api/alerts/resolve：按 dedupeKey 归档，缺 dedupeKey 返回 400", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/alerts",
+      payload: { kind: "external-dependency", severity: "critical", title: "t", body: "b", source: "watch", dedupeKey: "ext-1" },
+    });
+    const id = created.json<{ id: number }>().id;
+
+    const missing = await app.inject({
+      method: "POST",
+      url: "/api/alerts/resolve",
+      payload: {},
+    });
+    expect(missing.statusCode).toBe(400);
+
+    const resolved = await app.inject({
+      method: "POST",
+      url: "/api/alerts/resolve",
+      payload: { dedupeKey: "ext-1" },
+    });
+    expect(resolved.statusCode).toBe(200);
+    expect(resolved.json()).toEqual({ resolved: 1, readMarked: 0 });
+    expect(queue.get(id)!.status).toBe("resolved");
     expect((await app.inject({ method: "GET", url: "/api/alerts" })).json().unreadCount).toBe(0);
   });
 

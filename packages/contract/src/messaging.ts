@@ -104,6 +104,8 @@ export interface BridgeHealth {
   startedAt?: string | null;
   /** 每通道运行态（可选，向后兼容旧 Bridge）。 */
   channelStatus?: Record<ChannelId, ChannelRuntimeStatus>;
+  /** 任务执行汇总（可选，向后兼容旧 Bridge）：面板区分「外发结果未知」与「执行失败」。 */
+  runs?: { total: number; failed: number; active: number };
 }
 
 export interface PolicySnapshot {

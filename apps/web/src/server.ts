@@ -376,6 +376,8 @@ export interface MessageBridgeView {
   startedAt: string | null;
   lastCycleAt: string | null;
   lastError: string | null;
+  /** 任务执行汇总（旧 Bridge 无此字段时缺省）：failed = 执行失败的 run 数。 */
+  runs?: { total: number; failed: number; active: number };
 }
 
 export interface MessageStatusView {
@@ -1334,6 +1336,19 @@ function parseMessageStatus(value: unknown): MessageStatusView | null {
     }
   }
   const coverage = bridge["coverage"] === undefined ? {} : parseStringRecord(bridge["coverage"]);
+  let runs: MessageBridgeView["runs"] | undefined;
+  const runsRaw = bridge["runs"];
+  if (runsRaw !== undefined) {
+    if (
+      !isRecord(runsRaw) ||
+      !isNonNegativeNumber(runsRaw["total"]) ||
+      !isNonNegativeNumber(runsRaw["failed"]) ||
+      !isNonNegativeNumber(runsRaw["active"])
+    ) {
+      return null;
+    }
+    runs = { total: runsRaw["total"], failed: runsRaw["failed"], active: runsRaw["active"] };
+  }
   if (
     !["connected", "running", "inFlight", "attached", "outboxWritable"].every((name) => bridge[name] === undefined || typeof bridge[name] === "boolean") ||
     !(protocolVersion === null || typeof protocolVersion === "number") ||
@@ -1357,6 +1372,7 @@ function parseMessageStatus(value: unknown): MessageStatusView | null {
       channels,
       ...(Object.keys(channelDetails).length > 0 ? { channelDetails } : {}),
       coverage,
+      ...(runs === undefined ? {} : { runs }),
       startedAt: nullableString("startedAt"),
       lastCycleAt: nullableString("lastCycleAt"),
       lastError: nullableString("lastError"),

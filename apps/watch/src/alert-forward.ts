@@ -36,6 +36,8 @@ export interface AlertForwardBody {
 export interface AlertPoster {
   /** POST 一条告警到 gateway（失败只 warn + audit，不抛异常）。 */
   post(body: GatewayAlertBody): Promise<void>;
+  /** 通知 gateway 归档指定 dedupeKey 的告警（探针恢复时调用；失败只 warn + audit）。 */
+  resolve(dedupeKey: string): Promise<void>;
   /** 等待在途 POST 全部落定（测试观测用）。 */
   flush(): Promise<void>;
 }
@@ -57,13 +59,32 @@ export interface AlertPosterDeps {
 export const ALERT_FORWARD_FAILED_ACTION = "alert-forward-failed";
 export const ALERT_SOURCE = "butler-watch";
 
+/** 账户/计费类故障特征（与 describeFingerprint 余额不足分支共用，含 InsufficientBalance 连写）。 */
+const BILLING_FAILURE_PATTERN = /\b402\b|insufficient[_\s]*balance|payment\s+required|billing/i;
+/** 凭据/权限类故障特征（401/403、无效 Key）。 */
+const CREDENTIAL_FAILURE_PATTERN = /\b401\b|\b403\b|unauthori[sz]ed|forbidden|invalid\s+(?:api[ _-]?)?key/i;
+/** 配额/信用类故障特征（厂商文案变体）。 */
+const QUOTA_FAILURE_PATTERN = /quota\s*(?:exceeded|exhausted)|exceeded\s+(?:your\s+)?(?:current\s+)?(?:quota|rate)|credit\s+balance/i;
+
+/**
+ * 外部依赖故障（账户/凭据/配额类）：故障在服务提供方侧，重启实例修不了。
+ * 命中时自动修复（rb-restart）必须让路，改发 external-dependency 告警。
+ */
+export function isExternalDependencyFailure(detail: string): boolean {
+  return (
+    BILLING_FAILURE_PATTERN.test(detail) ||
+    CREDENTIAL_FAILURE_PATTERN.test(detail) ||
+    QUOTA_FAILURE_PATTERN.test(detail)
+  );
+}
+
 /** 将内部归一化模板转换成通知中心可直接理解的短摘要。模板只用于去重，不能直接上屏。 */
 export function describeFingerprint(template: string, sample?: string): { title: string; advice: string } {
   const text = `${sample ?? ""} ${template}`;
-  if (/\b402\b|insufficient\s+balance|payment\s+required|billing/i.test(text)) {
+  if (BILLING_FAILURE_PATTERN.test(text)) {
     return { title: "模型账户余额不足", advice: "请充值或切换到可用的备用模型；重启服务无法解决余额问题。" };
   }
-  if (/\b401\b|\b403\b|unauthori[sz]ed|forbidden|invalid\s+(?:api[ _-]?)?key/i.test(text)) {
+  if (CREDENTIAL_FAILURE_PATTERN.test(text)) {
     return { title: "模型凭据无效或权限不足", advice: "请检查 API Key、端点和账户权限。" };
   }
   if (/\b429\b|rate\s*limit|too\s+many\s+requests|限流/i.test(text)) {
@@ -92,13 +113,18 @@ export function createAlertPoster(deps: AlertPosterDeps): AlertPoster {
   });
   const inFlight = new Set<Promise<void>>();
 
-  function recordFailure(body: GatewayAlertBody, message: string): void {
+  function recordFailure(
+    body: GatewayAlertBody | { dedupeKey: string },
+    message: string,
+    severity?: GatewayAlertBody["severity"],
+    title?: string,
+  ): void {
     console.warn(`[butler-watch] 告警转发失败（有限重试后仍未送达）: ${message}`);
     deps.audit?.append({
       actor: ALERT_SOURCE,
       action: ALERT_FORWARD_FAILED_ACTION,
       target: body.dedupeKey,
-      detail: { message, severity: body.severity, title: body.title },
+      detail: { message, severity, title },
     });
   }
 
@@ -129,12 +155,40 @@ export function createAlertPoster(deps: AlertPosterDeps): AlertPoster {
         await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
       }
     }
-    recordFailure(body, `${lastError}；已尝试 ${attempted} 次`);
+    recordFailure(body, `${lastError}；已尝试 ${attempted} 次`, body.severity, body.title);
+  }
+
+  async function resolve(dedupeKey: string): Promise<void> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await doFetch(`${endpoint}/resolve`, {
+        method: "POST",
+        headers: alertHeaders(),
+        body: JSON.stringify({ dedupeKey }),
+        signal: controller.signal,
+      });
+      if (response.ok) return;
+      recordFailure({ dedupeKey }, `gateway 归档响应 HTTP ${response.status}`);
+    } catch (error) {
+      recordFailure(
+        { dedupeKey },
+        error instanceof Error ? error.message : String(error),
+      );
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   return {
     post: (body) => {
       const task = post(body);
+      inFlight.add(task);
+      void task.finally(() => inFlight.delete(task));
+      return task;
+    },
+    resolve: (dedupeKey) => {
+      const task = resolve(dedupeKey);
       inFlight.add(task);
       void task.finally(() => inFlight.delete(task));
       return task;

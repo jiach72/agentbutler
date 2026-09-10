@@ -914,6 +914,32 @@ class Outbox:
         except (RuntimeError, sqlite3.Error):
             return False
 
+    def runs_summary(self) -> dict[str, int]:
+        """任务执行汇总（health 载荷）：total / failed（终态 failed）/ active（未到终态）。
+
+        面板「送达结果」用它区分「消息外发结果未知」与「执行本身失败」——
+        前者可重投，后者通常是内容/上游问题，重启修不了。只读查询，
+        任何失败都返回零值，绝不影响 health 本身。
+        """
+        try:
+            with self._lock:
+                self._ensure_open()
+                row = self._conn.execute(
+                    """SELECT COUNT(*) AS total,
+                              COALESCE(SUM(CASE WHEN state = 'failed' THEN 1 ELSE 0 END), 0) AS failed,
+                              COALESCE(SUM(CASE WHEN state NOT IN ('done', 'failed') THEN 1 ELSE 0 END), 0) AS active
+                       FROM task_runs"""
+                ).fetchone()
+        except (RuntimeError, sqlite3.Error):
+            return {"total": 0, "failed": 0, "active": 0}
+        if row is None:
+            return {"total": 0, "failed": 0, "active": 0}
+        return {
+            "total": int(row["total"] or 0),
+            "failed": int(row["failed"] or 0),
+            "active": int(row["active"] or 0),
+        }
+
     def prune_history(self, cutoff: str | None = None) -> int:
         """Delete only old terminal outbound traces and their dependent rows."""
         cutoff_value = cutoff or (

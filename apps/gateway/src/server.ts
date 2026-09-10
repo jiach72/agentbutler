@@ -26,7 +26,12 @@ import type { MessageGatewayStatus } from "./message/service.js";
 import type { DndRuleInput, MessagePolicyStore, RelayControlView } from "./message/store.js";
 import { MESSAGE_OUTCOME_HISTORY_RETENTION_DAYS } from "./message/store.js";
 import type { MessagePolicyConfig } from "./message/types.js";
-import { AlertQueue, type AlertRow, type AlertSeverity } from "./queue.js";
+import {
+  AlertQueue,
+  normalizeCooldownMs,
+  type AlertRow,
+  type AlertSeverity,
+} from "./queue.js";
 
 const SEVERITIES: readonly AlertSeverity[] = ["info", "warn", "critical"];
 const DEFAULT_PACE_SEC = 30;
@@ -87,6 +92,8 @@ export interface GatewayServerOptions {
   channels?: AlertChannel[];
   /** 配速间隔秒（默认 env BUTLER_GATEWAY_PACE_SEC 或 30）。 */
   paceSec?: number;
+  /** 同 dedupeKey 告警冷却窗毫秒（默认 env BUTLER_ALERT_COOLDOWN_MS 或 2h；测试显式注入用）。 */
+  alertCooldownMs?: number;
   clock?: Clock;
   scheduler?: LoopScheduler;
   /** 是否自动启动投递循环（默认 true，测试可关）。 */
@@ -129,7 +136,9 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
   let ownsQueue = false;
   if (queue === undefined) {
     const paths = ensureButlerHome(options.home);
-    queue = new AlertQueue(options.dbFile ?? path.join(paths.dataDir, "gateway.db"));
+    queue = new AlertQueue(options.dbFile ?? path.join(paths.dataDir, "gateway.db"), {
+      cooldownMs: options.alertCooldownMs ?? alertCooldownMsFromEnv(),
+    });
     ownsQueue = true;
   }
 
@@ -266,6 +275,16 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
 
   app.post("/api/alerts/read-all", async () => {
     return { marked: queueRef.markAllRead() };
+  });
+
+  // 故障恢复归档（探针恢复时由 watch 调用）：未投递行置 resolved，已投递行补已读。
+  app.post("/api/alerts/resolve", async (request, reply) => {
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const dedupeKey = typeof body["dedupeKey"] === "string" ? body["dedupeKey"].trim() : "";
+    if (dedupeKey === "") {
+      return await reply.code(400).send({ error: "dedupeKey 为必填字符串" });
+    }
+    return queueRef.resolveByDedupeKey(dedupeKey);
   });
 
   app.post("/api/alerts/:id/read", async (request, reply) => {
@@ -480,6 +499,7 @@ function registerMessageRoutes(
           channels: health?.channels ?? {},
           channelDetails,
           coverage: health?.coverage ?? {},
+          ...(health?.runs === undefined ? {} : { runs: health.runs }),
           startedAt: health?.startedAt ?? null,
           lastCycleAt: status.lastCycleAt,
           lastError: status.lastError === null ? null : "Hermes Bridge unavailable",
@@ -1004,6 +1024,13 @@ function paceSecFromEnv(): number {
   const raw = process.env["BUTLER_GATEWAY_PACE_SEC"];
   const parsed = raw === undefined ? NaN : Number(raw.trim());
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : DEFAULT_PACE_SEC;
+}
+
+/** 同 dedupeKey 告警冷却窗（默认 2h；env BUTLER_ALERT_COOLDOWN_MS，0 关闭）。 */
+function alertCooldownMsFromEnv(): number {
+  const raw = process.env["BUTLER_ALERT_COOLDOWN_MS"];
+  const parsed = raw === undefined || raw.trim() === "" ? NaN : Number(raw.trim());
+  return normalizeCooldownMs(Number.isFinite(parsed) ? parsed : undefined);
 }
 
 function readString(value: unknown): string | null {

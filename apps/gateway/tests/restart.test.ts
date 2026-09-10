@@ -38,14 +38,14 @@ describe("重启补发", () => {
 
     // 第二次"进程"：同 db 重开队列 + 新投递循环
     const reopened = new AlertQueue(dbFile);
-    expect(reopened.counts()).toEqual({ pending: 2, delivering: 0, failed: 0, delivered: 1 }); // delivering 回置 pending
+    expect(reopened.counts()).toEqual({ pending: 2, delivering: 0, failed: 0, delivered: 1, resolved: 0 }); // delivering 回置 pending
 
     const telegram = new FakeChannel("telegram");
     const loop = new DeliveryLoop({ queue: reopened, outbound: [telegram] });
     await loop.tick(); // t2（critical）→ telegram
     await loop.tick(); // t3 → panel
 
-    expect(reopened.counts()).toEqual({ pending: 0, delivering: 0, delivered: 3, failed: 0 });
+    expect(reopened.counts()).toEqual({ pending: 0, delivering: 0, delivered: 3, failed: 0, resolved: 0 });
     expect(reopened.get(critical.id)).toMatchObject({ status: "delivered", channel: "telegram" });
     expect(telegram.sends.map((m) => m.title)).toEqual(["t2"]);
     reopened.close();

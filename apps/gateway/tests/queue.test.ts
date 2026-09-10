@@ -82,7 +82,7 @@ describe("AlertQueue", () => {
     expect(queue.get(first.id)).toMatchObject({ mergedCount: 2, status: "pending" });
   });
 
-  it("dedupeKey 终结后（delivered）再次入队会新增行", () => {
+  it("冷却窗内（默认）delivered 后同 key 同严重度入队只合并计数，不新增行", () => {
     const first = queue.enqueue({
       kind: "k",
       severity: "info",
@@ -101,9 +101,117 @@ describe("AlertQueue", () => {
       source: "s",
       dedupeKey: "dk",
     });
-    expect(again.id).not.toBe(first.id);
-    expect(again.mergedCount).toBe(1);
+    expect(again.id).toBe(first.id);
+    expect(again.mergedCount).toBe(2);
+    expect(again.status).toBe("delivered");
+    expect(queue.list()).toHaveLength(1);
+  });
+
+  it("冷却窗内同 key 升级为更高严重度时仍新建行", () => {
+    const first = queue.enqueue({
+      kind: "k",
+      severity: "warn",
+      title: "普通提醒",
+      body: "b",
+      source: "s",
+      dedupeKey: "dk",
+    });
+    queue.markDelivered(first.id, "panel");
+
+    const escalated = queue.enqueue({
+      kind: "k",
+      severity: "critical",
+      title: "正在加剧",
+      body: "b",
+      source: "s",
+      dedupeKey: "dk",
+    });
+    expect(escalated.id).not.toBe(first.id);
+    expect(escalated.severity).toBe("critical");
     expect(queue.list()).toHaveLength(2);
+  });
+
+  it("冷却窗关闭（cooldownMs: 0）时 delivered 后再次入队照常新增行", () => {
+    const dbFile = gatewayDbFile(tmp);
+    const legacy = new AlertQueue(dbFile, { cooldownMs: 0 });
+    const first = legacy.enqueue({
+      kind: "k",
+      severity: "info",
+      title: "t",
+      body: "b",
+      source: "s",
+      dedupeKey: "dk",
+    });
+    legacy.markDelivered(first.id, "panel");
+    const again = legacy.enqueue({
+      kind: "k",
+      severity: "info",
+      title: "t",
+      body: "b",
+      source: "s",
+      dedupeKey: "dk",
+    });
+    expect(again.id).not.toBe(first.id);
+    expect(legacy.list()).toHaveLength(2);
+    legacy.close();
+  });
+
+  it("冷却窗过期后同 key 入队照常新增行", async () => {
+    const brief = new AlertQueue(gatewayDbFile(tmp), { cooldownMs: 25 });
+    const first = brief.enqueue({
+      kind: "k",
+      severity: "critical",
+      title: "t",
+      body: "b",
+      source: "s",
+      dedupeKey: "dk",
+    });
+    brief.markDelivered(first.id, "panel");
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    const again = brief.enqueue({
+      kind: "k",
+      severity: "critical",
+      title: "t",
+      body: "b",
+      source: "s",
+      dedupeKey: "dk",
+    });
+    expect(again.id).not.toBe(first.id);
+    expect(brief.list()).toHaveLength(2);
+    brief.close();
+  });
+
+  it("resolveByDedupeKey：未投递行置 resolved 不再投递，已投递行补已读", () => {
+    const pending = queue.enqueue({
+      kind: "external-dependency",
+      severity: "critical",
+      title: "t1",
+      body: "b",
+      source: "watch",
+      dedupeKey: "ext-1",
+    });
+    const delivered = queue.enqueue({
+      kind: "external-dependency",
+      severity: "critical",
+      title: "t2",
+      body: "b",
+      source: "watch",
+      dedupeKey: "ext-2",
+    });
+    queue.markDelivered(delivered.id, "panel");
+
+    const result = queue.resolveByDedupeKey("ext-1");
+    expect(result).toEqual({ resolved: 1, readMarked: 0 });
+    const resolvedRow = queue.get(pending.id)!;
+    expect(resolvedRow.status).toBe("resolved");
+    expect(resolvedRow.readAt).not.toBeNull();
+    // resolved 行不再可被认领（claimNext 只认 pending）。
+    expect(queue.claimNext()).toBeUndefined();
+
+    const archived = queue.resolveByDedupeKey("ext-2");
+    expect(archived).toEqual({ resolved: 0, readMarked: 1 });
+    expect(queue.get(delivered.id)!.readAt).not.toBeNull();
+    expect(queue.get(delivered.id)!.status).toBe("delivered");
   });
 
   it("claimNext 按 created_at 升序认领（入队顺序）", () => {
@@ -203,7 +311,7 @@ describe("AlertQueue", () => {
     queue.enqueue({ kind: "k", severity: "warn", title: "b", body: "b", source: "s" });
     queue.markDelivered(a.id, "panel");
 
-    expect(queue.counts()).toEqual({ pending: 1, delivering: 0, delivered: 1, failed: 0 });
+    expect(queue.counts()).toEqual({ pending: 1, delivering: 0, delivered: 1, failed: 0, resolved: 0 });
     expect(queue.list().map((r) => r.title)).toEqual(["b", "a"]); // id DESC = 最新在前
     expect(queue.list(1).map((r) => r.title)).toEqual(["b"]);
   });

@@ -113,6 +113,8 @@ export interface MessageBridgeView {
   startedAt: string | null;
   lastCycleAt: string | null;
   lastError: string | null;
+  /** 任务执行汇总（旧 Bridge 无此字段时缺省）：failed = 执行失败的 run 数。 */
+  runs?: { total: number; failed: number; active: number };
 }
 
 export interface MessageItemView {

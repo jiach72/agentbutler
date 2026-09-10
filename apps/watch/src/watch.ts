@@ -55,6 +55,7 @@ import {
 } from "@butler/core";
 import {
   createAlertPoster,
+  isExternalDependencyFailure,
   startAlertForwarder,
   type AlertForwarder,
   type AlertPoster,
@@ -1031,24 +1032,55 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
         target: record.instanceId,
         detail: { status: result.status, detail, observedAt, source: "independent-sla-scheduler" },
       });
+      // 外部依赖分类（智能降级①）：账户/凭据/配额类失败在服务提供方侧，
+      // 重启实例修不了——改发 external-dependency 告警并跳过自动重启（rb-restart）。
+      const externalDependency = result.status === "fail" && isExternalDependencyFailure(detail);
       if (result.status === "fail") {
         const alertQueuedAt = new Date((options.now ?? Date.now)()).toISOString();
-        void alertPoster.post({
-          kind: "critical-memory-probe",
-          severity: "critical",
-          title: "记忆系统关键探针失败",
-          body: `实例 ${record.instanceId} 的记忆写入/召回探针失败：${detail || "无详情"}。管家将尝试自动修复。`,
-          source: "butler-watch",
-          dedupeKey: `critical-memory-probe:${record.instanceId}`,
-        });
+        void alertPoster.post(
+          externalDependency
+            ? {
+                kind: "external-dependency",
+                severity: "critical",
+                title: "记忆系统外部依赖故障（重启无法修复）",
+                body:
+                  `实例 ${record.instanceId} 的记忆探针因账户/凭据/配额类错误失败：${detail || "无详情"}。` +
+                  "该故障需在模型/记忆服务提供方侧恢复，管家已暂停对它的自动重启修复。",
+                source: "butler-watch",
+                dedupeKey: `external-dependency:memory:${record.instanceId}`,
+              }
+            : {
+                kind: "critical-memory-probe",
+                severity: "critical",
+                title: "记忆系统关键探针失败",
+                body: `实例 ${record.instanceId} 的记忆写入/召回探针失败：${detail || "无详情"}。管家将尝试自动修复。`,
+                source: "butler-watch",
+                dedupeKey: `critical-memory-probe:${record.instanceId}`,
+              },
+        );
         core.audit.append({
           actor: "butler-watch",
           action: "critical-memory-alert-queued",
           target: record.instanceId,
-          detail: { observedAt, alertQueuedAt, source: "independent-sla-scheduler" },
+          detail: {
+            observedAt,
+            alertQueuedAt,
+            externalDependency,
+            source: "independent-sla-scheduler",
+          },
         });
       }
-      if (result.status === "fail" && config.runbookAuto && record.rootPath !== "") {
+      if (result.status === "pass") {
+        // 恢复归档（智能降级③）：探针通过即归档该实例的探针类未结告警。
+        void alertPoster.resolve(`critical-memory-probe:${record.instanceId}`);
+        void alertPoster.resolve(`external-dependency:memory:${record.instanceId}`);
+      }
+      if (
+        result.status === "fail" &&
+        !externalDependency &&
+        config.runbookAuto &&
+        record.rootPath !== ""
+      ) {
         try {
           const remediationStartedAt = new Date((options.now ?? Date.now)()).toISOString();
           const trigger = await runbookExecutor.autoTrigger(
@@ -1138,8 +1170,15 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     };
     const failed = (checkId: string): boolean =>
       payload.checks.some((c) => c.id === checkId && c.status === "fail");
+    // 外部依赖类（账户/凭据/配额）的 memory-probe 失败重启修不了：不触发 rb-restart
+    // （process-alive 仍照常触发——实例自身死亡与外部依赖故障可并存）。
+    const memoryCheck = payload.checks.find((c) => c.id === "memory-probe" && c.status === "fail");
+    const memoryExternalDependency =
+      memoryCheck !== undefined && isExternalDependencyFailure(memoryCheck.detail ?? "");
     const targets = new Set<string>();
-    if (failed("memory-probe") || failed("process-alive")) targets.add(RB_RESTART);
+    if (failed("process-alive") || (failed("memory-probe") && !memoryExternalDependency)) {
+      targets.add(RB_RESTART);
+    }
     if (failed("channel-probe")) targets.add(RB_RECONNECT);
     for (const runbookId of targets) {
       const trigger = [...payload.checks].find(
