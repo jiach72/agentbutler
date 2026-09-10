@@ -78,7 +78,7 @@ function degradedAlerts(): AlertsView {
 function parseAlertsView(value: unknown): AlertsView | null {
   if (!isRecord(value) || !isRecord(value["counts"])) return null;
   const counts: Record<string, number> = {};
-  for (const key of ["pending", "delivering", "delivered", "failed"] as const) {
+  for (const key of ["pending", "delivering", "delivered", "failed", "resolved"] as const) {
     const count = value["counts"][key];
     if (typeof count !== "number" || !Number.isFinite(count) || count < 0) return null;
     counts[key] = count;
