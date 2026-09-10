@@ -10,6 +10,7 @@ from .message_optimizer import optimize_inbound
 from .llm_optimizer import optimize_with_llm, summarize_task_with_llm
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Mapping
 
 from .context import (
@@ -237,7 +238,7 @@ def install_gateway_runtime_hooks(
                     event_key=event_key,
                 )
                 runtime.record_coverage("progress", "ok")
-                _emit_skill_usage_log(runtime, tool_name, event_type)
+                _emit_skill_usage_log(runtime, tool_name, args, event_type)
             except (KeyError, ValueError):
                 # A callback racing the terminal boundary is stale, not a new
                 # task failure. The durable lifecycle remains authoritative.
@@ -848,10 +849,20 @@ def _next_progress_key(lifecycle: RunLifecycleState) -> str:
         return f"progress:{lifecycle.progress_sequence}"
 
 
-def _emit_skill_usage_log(runtime, tool_name, event_type):
-    """给 watch 的 skill-assets.ts 写结构化技能调用行（skill=xxx 格式）。"""
-    if not tool_name:
+def _emit_skill_usage_log(runtime, tool_name, args, event_type):
+    """给 watch 的 skill-assets.ts 写结构化技能调用行（skill=xxx 格式）。
+
+    只有 skill_view / skill_manage 是真正的技能调用；工具名从 args["name"]
+    取实际技能名（tool_name 本身是 skill_view/skill_manage 这两个入口函数名）。
+    写入失败时通过 runtime.record_coverage 记录 degraded，不静默吞掉。
+    """
+    if tool_name not in ("skill_view", "skill_manage"):
         return
+    skill_name = None
+    if isinstance(args, dict):
+        skill_name = args.get("name") or args.get("skill_name")
+    if not skill_name:
+        skill_name = tool_name
     try:
         hermes_root = getattr(runtime, "hermes_root", None) or str(Path.home() / ".hermes")
         log_dir = Path(hermes_root) / "logs"
@@ -859,9 +870,13 @@ def _emit_skill_usage_log(runtime, tool_name, event_type):
         log_file = log_dir / "skill_usage.log"
         ts = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
         with open(log_file, "a", encoding="utf-8") as f:
-            f.write(f"{ts} skill={tool_name} event={event_type}\n")
-    except Exception:
-        pass
+            f.write(f"{ts} skill={skill_name} event={event_type}\n")
+        runtime.record_coverage("skillUsageLog", "ok")
+    except Exception as exc:
+        try:
+            runtime.record_coverage("skillUsageLog", "degraded", str(exc))
+        except Exception:
+            pass
 
 
 def _progress_summary(
@@ -907,7 +922,7 @@ def _api_progress_callback(
                 event_key=event_key,
             )
             runtime.record_coverage("progress", "ok")
-            _emit_skill_usage_log(runtime, tool_name, event_type)
+            _emit_skill_usage_log(runtime, tool_name, args, event_type)
         except (KeyError, ValueError):
             pass
         if callable(original):
