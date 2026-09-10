@@ -874,7 +874,7 @@ def _emit_skill_usage_log(runtime, tool_name, args, event_type):
         runtime.record_coverage("skillUsageLog", "ok")
     except Exception as exc:
         try:
-            runtime.record_coverage("skillUsageLog", "degraded", str(exc))
+            runtime.record_coverage("skillUsageLog", "degraded")
         except Exception:
             pass
 
