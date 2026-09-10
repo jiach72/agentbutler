@@ -83,6 +83,42 @@ describe("butler-web 服务（fastify inject）", () => {
     });
   });
 
+  it("/api/status：与 /api/health 同一聚合的鉴权读取位", async () => {
+    seedStore();
+    const app = build(tmp);
+    const res = await app.inject({ method: "GET", url: "/api/status" });
+    const health = await app.inject({ method: "GET", url: "/api/health" });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual(health.json());
+  });
+
+  it("/api/memory：GET 透传 watch（instanceId 查询参数跟随）", async () => {
+    const app = createWebServer({
+      home: tmp,
+      gatewayUrl: DEAD_GATEWAY,
+      watchUrl: "http://watch.test:7533",
+      uiDist,
+      fetchImpl: (async (input) => {
+        expect(String(input)).toBe("http://watch.test:7533/api/memory?instanceId=hermes-main");
+        return new Response(
+          JSON.stringify({
+            instance: { instanceId: "hermes-main", state: "Degraded" },
+            memory: { mode: "hindsight", entries: 3 },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }) as typeof fetch,
+    });
+    apps.push(app);
+    const res = await app.inject({ method: "GET", url: "/api/memory?instanceId=hermes-main" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      instance: { instanceId: "hermes-main", state: "Degraded" },
+      memory: { mode: "hindsight", entries: 3 },
+    });
+  });
+
   it("/api/instances：返回实例列表与 capability 摘要", async () => {
     seedStore();
     const app = build(tmp);

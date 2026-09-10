@@ -1849,7 +1849,7 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
 
   /* -------------------------------- API 路由 -------------------------------- */
 
-  app.get("/api/health", async () => {
+  const serviceStatus = async () => {
     const [gatewayHealth, watchHealth] = await Promise.all([
       probeServiceHealth(doFetch, gatewayUrl),
       probeServiceHealth(doFetch, watchUrl),
@@ -1868,7 +1868,13 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
         watch: watchHealth,
       },
     };
-  });
+  };
+
+  // /api/health 是容器 healthcheck 与免鉴权探测位（AUTH_EXEMPT_PATHS）；
+  // /api/status 是同一份聚合的鉴权读取位，供统一入口的运维探测使用。
+  app.get("/api/health", async () => serviceStatus());
+
+  app.get("/api/status", async () => serviceStatus());
 
   app.get("/api/instances", async () => {
     if (store === null) return { instances: [], degraded: ["db:unreachable"] };
@@ -3018,6 +3024,12 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   });
 
   /* ---------------------- 记忆观察与管理动作代理（V1.7） ---------------------- */
+
+  // 记忆面板读取：GET /api/memory 透传给 watch（instanceId 查询参数原样跟随）。
+  app.get("/api/memory", async (request, reply) => {
+    const query = (request.raw.url ?? "").split("?")[1] ?? "";
+    return proxyWatchGet(`/api/memory${query ? `?${query}` : ""}`, reply);
+  });
 
   app.post("/api/memory/archive", async (request, reply) =>
     proxyWatchPost("/api/memory/archive", request.body, reply),
