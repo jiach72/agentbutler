@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<link rel="stylesheet" href="../colors_and_type.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>导航</title>
+<style>
+/* Page scaffold — NOT extracted */
+body { margin: 0; padding: var(--space-3); background: var(--background); font-family: var(--font-body); color: var(--foreground); }
+.row { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3); flex-wrap: wrap; }
+.label { width: 92px; flex-shrink: 0; font-size: var(--font-size-caption); font-weight: var(--font-weight-caption); color: var(--muted-foreground); white-space: nowrap; }
+.divider { border: 0; border-top: 1px solid var(--border); margin: var(--space-3) 0; }
+/* @component-css-start */
+.page-header { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); padding: var(--space-4) var(--space-5); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-1); }
+.page-header-body { min-width: 0; }
+.page-header-title { margin: 0; font-family: var(--font-heading); font-size: var(--font-size-h4); font-weight: var(--font-weight-h4); line-height: var(--line-height-h4); color: var(--foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.page-header-desc { margin: var(--space-1) 0 0; font-size: var(--font-size-caption); line-height: var(--line-height-caption); color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.page-header-actions { display: inline-flex; align-items: center; gap: var(--space-2); flex-shrink: 0; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); min-width: var(--size-button-height-sm); height: var(--size-button-height-sm); padding: 0 var(--space-4); border-radius: var(--radius-sm); font-family: var(--font-body); font-size: var(--font-size-body); font-weight: var(--font-weight-caption); white-space: nowrap; cursor: pointer; border: 1px solid transparent; transition: background .15s, border-color .15s; }
+.btn-primary { background: var(--primary); color: var(--primary-foreground); }
+.btn-primary:hover { background: var(--primary-700); }
+.btn-ghost { background: transparent; color: var(--foreground); border-color: var(--border); }
+.btn-ghost:hover { background: var(--muted); border-color: var(--neutral-300); }
+.breadcrumb { display: inline-flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; font-size: var(--font-size-caption); line-height: var(--line-height-caption); }
+.breadcrumb a { color: var(--muted-foreground); text-decoration: none; padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); white-space: nowrap; transition: background .15s, border-color .15s; }
+.breadcrumb a:hover { background: var(--muted); }
+.breadcrumb-sep { color: var(--neutral-400); white-space: nowrap; }
+.breadcrumb-current { color: var(--foreground); font-weight: var(--font-weight-caption); white-space: nowrap; }
+/* @component-css-end */
+</style>
+</head>
+<body>
+<div class="row">
+  <span class="label">页面标题</span>
+  <div class="page-header">
+    <div class="page-header-body">
+      <p class="page-header-title">安全基线</p>
+      <p class="page-header-desc">运行正常</p>
+    </div>
+    <div class="page-header-actions">
+      <button type="button" class="btn btn-ghost">高级详情</button>
+      <button type="button" class="btn btn-primary">立即检查</button>
+    </div>
+  </div>
+</div>
+<hr class="divider">
+<div class="row">
+  <span class="label">面包屑</span>
+  <nav class="breadcrumb" aria-label="面包屑导航">
+    <a href="#">技能库</a>
+    <span class="breadcrumb-sep">/</span>
+    <a href="#">消息通知</a>
+    <span class="breadcrumb-sep">/</span>
+    <span class="breadcrumb-current">安全基线</span>
+  </nav>
+</div>
+</body>
+</html>

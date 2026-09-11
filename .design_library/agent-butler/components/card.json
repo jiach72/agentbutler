@@ -1,0 +1,26 @@
+{
+  "slug": "card",
+  "schemaVersion": 2,
+  "name": "卡片",
+  "category": "surface",
+  "sourceKind": "from-scratch",
+  "confidence": "medium",
+  "semanticTypeCandidates": [
+    { "type": "Card", "confidence": "high", "evidence": "状态/健康卡片，先给结论再给动作" }
+  ],
+  "variantDimensions": [
+    { "dimension": "variant", "values": ["default", "status", "compact"] },
+    { "dimension": "tone", "values": ["neutral", "success", "warning", "danger"] }
+  ],
+  "representativeVariants": [
+    { "name": "default", "whySelected": "信息容器，克制的边框与阴影", "traits": { "surface": "raised", "radius": "rounded", "border": "subtle", "shadow": "quiet" }, "childrenDigest": "标题 + 正文 + 可选动作" },
+    { "name": "status", "whySelected": "结论优先：左侧状态色条 + 状态徽标", "traits": { "surface": "raised", "accent": "left-bar", "tone": "semantic" }, "childrenDigest": "状态条 + 状态徽标 + 结论文案 + 一个动作" },
+    { "name": "compact", "whySelected": "密集指标组里的精简卡片", "traits": { "surface": "flat", "padding": "compact" }, "childrenDigest": "标签 + 数值" }
+  ],
+  "anatomy": ["container", "accent-bar", "title", "body", "action", "status-badge"],
+  "structurePatterns": ["header-body-action", "metric", "status-bar"],
+  "usageHints": { "priorityHint": "high", "oneLine": "首行先给「是否正常」结论，再给一个动作" },
+  "doNotInvent": ["霓虹边框", "过重阴影", "营销页式插画占位"],
+  "unknowns": [],
+  "keyInsightSeed": "结论优先：卡片首行先给状态，再给一个动作"
+}

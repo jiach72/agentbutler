@@ -47,6 +47,7 @@
 import { resolveButlerHome } from "@butler/core";
 import { normalizeMemoryBackendConfig, type MemoryBackendConfig } from "@butler/adapter-hermes";
 import type { ChannelDryRunConfig, LlmProbeEnv } from "./probes/index.js";
+import type { BudgetActionConfig } from "./budget.js";
 
 /** 外部记忆系统探针参数（hindsight/mem0 API 地址与凭据；未配置项回退实例标记文件）。 */
 export interface MemoryProbeEnv {
@@ -125,10 +126,51 @@ export interface WatchConfig {
   hermesControlUrl?: string;
   /** 宿主 Hermes 控制桥 token 文件。 */
   hermesControlTokenFile?: string;
-  /** Hermes 候选、日志和克隆引擎的隔离目录；不可放在只读 Hermes checkout。 */
+  /** evolutionRunRoot?: string; */
   evolutionRunRoot?: string;
   /** openclaw 探测 rootPath 提示。 */
   openclawRoot?: string;
+  /* ------------------- 信任层（Trust Layer）配置 ------------------- */
+  /** 月度预算（USD；0 = 未启用预算引擎，成本页只展示花费）。 */
+  budgetMonthlyUsd: number;
+  /** 预算触线动作：alert 仅告警（默认）/ downgrade 建议降级模型 / pause 建议急停。 */
+  budgetAction: BudgetActionConfig;
+  /** 行为审计采集器开关（默认开；关闭后 /api/audit/* 返回未采集态）。 */
+  auditCollectorEnabled: boolean;
+  /** 审计数据保留天数（默认 14，可调 7-90）。 */
+  auditRetentionDays: number;
+  /** 审计日志路径（逗号分隔；缺省自动发现 <hermesRoot>/logs/*.log）。 */
+  auditLogPaths?: string;
+  /** Agent 周报总开关（默认开；关闭后 /api/trust/report* 返回未启用态）。 */
+  weeklyReportEnabled: boolean;
+  /** 周报生成后是否推送到网关通知渠道（默认推）。 */
+  weeklyReportPush: boolean;
+  /** 会话索引总开关（默认开；关闭后 /api/sessions* 返回未启用态）。 */
+  sessionIndexEnabled: boolean;
+  /** 会话索引保留天数（默认 30，可调 7-90）。 */
+  sessionIndexRetentionDays: number;
+  /** 完整回放（对话正文采集）开关：首版未实现正文采集，开启亦仅索引元数据。 */
+  sessionReplayEnabled: boolean;
+  /** 通知即操作（M3.1）总开关（默认开；关闭后 /api/approvals* 返回未启用态）。 */
+  approvalEnabled: boolean;
+  /** 审批应答时限毫秒（默认 15 分钟；到期未应答按默认拒绝）。 */
+  approvalTtlMs: number;
+  /** 审批单保留天数（默认 30，可调 7-90）。 */
+  approvalRetentionDays: number;
+  /** 同一动作指纹在窗口内第几次请求触发「需 Web 端确认」升级（默认 3）。 */
+  approvalEscalationThreshold: number;
+  /** 是否自动侦测高危动作并开单（默认开；关闭后仅响应显式请求）。 */
+  approvalAutoDetect: boolean;
+  /** 面板公网基址（卡片降级链接用；未配置时卡片仅给相对路径）。 */
+  publicBaseUrl: string;
+  /** 升级金丝雀（M3.2）总开关（默认开）。 */
+  canaryEnabled: boolean;
+  /** 首次运行时的升级策略缺省值（aggressive | standard | conservative）。 */
+  canaryDefaultPolicy: "aggressive" | "standard" | "conservative";
+  /** 假进度检测（M3.3）总开关（默认开）。 */
+  progressIntegrityEnabled: boolean;
+  /** 进度声明保留天数（默认 30，可调 7-90）。 */
+  progressRetentionDays: number;
 }
 
 export const DEFAULT_INSPECT_INTERVAL_MIN = 5;
@@ -159,6 +201,27 @@ export const DEFAULT_VERSION_DOCKER_IMAGE = "hermes-agent/hermes";
 export const DEFAULT_UPGRADE_PIP_PACKAGE = "hermes-agent";
 /** 升级完成通知冷却窗默认 60s（Task 13.2）。 */
 export const DEFAULT_UPGRADE_NOTIFY_COOLDOWN_MS = 60_000;
+/* ---------------------- 信任层（Trust Layer）默认值 ---------------------- */
+/** 月度预算默认未启用（0）；启用后 15 分钟核算一次。 */
+export const DEFAULT_BUDGET_MONTHLY_USD = 0;
+/** 预算触线默认仅告警（自动降级/停机必须用户显式选择）。 */
+export const DEFAULT_BUDGET_ACTION: BudgetActionConfig = "alert";
+/** 审计保留期默认 14 天（可调 7-90）。 */
+export const DEFAULT_AUDIT_RETENTION_DAYS = 14;
+export const MIN_AUDIT_RETENTION_DAYS = 7;
+export const MAX_AUDIT_RETENTION_DAYS = 90;
+/** 会话索引保留期默认 30 天（可调 7-90）。 */
+export const DEFAULT_SESSION_RETENTION_DAYS = 30;
+/** 通知即操作（M3.1）：应答时限默认 15 分钟（60s–2h），到期未应答按默认拒绝。 */
+export const DEFAULT_APPROVAL_TTL_MS = 15 * 60 * 1000;
+export const MIN_APPROVAL_TTL_SEC = 60;
+export const MAX_APPROVAL_TTL_SEC = 7200;
+/** 审批单保留期默认 30 天（可调 7-90）。 */
+export const DEFAULT_APPROVAL_RETENTION_DAYS = 30;
+/** 同一动作指纹 24h 内第几次请求触发「需 Web 端确认」升级（默认 3）。 */
+export const DEFAULT_APPROVAL_ESCALATION_THRESHOLD = 3;
+/** 进度声明保留期默认 30 天（可调 7-90）。 */
+export const DEFAULT_PROGRESS_RETENTION_DAYS = 30;
 
 function readPortEnv(name: string, fallback: number): number {
   const raw = process.env[name]?.trim();
@@ -298,6 +361,99 @@ export function loadWatchConfig(overrides: Partial<WatchConfig> = {}): WatchConf
       "/home/butler/hermes/agent-butler/control.token",
     evolutionRunRoot: overrides.evolutionRunRoot ?? readStrEnv("BUTLER_EVOLUTION_RUN_ROOT"),
     openclawRoot: overrides.openclawRoot ?? readStrEnv("BUTLER_OPENCLAW_ROOT") ?? readStrEnv("OPENCLAW_HOME"),
+    budgetMonthlyUsd:
+      overrides.budgetMonthlyUsd ??
+      readUsdEnv("BUTLER_BUDGET_MONTHLY_USD", DEFAULT_BUDGET_MONTHLY_USD),
+    budgetAction: readBudgetActionEnv(overrides.budgetAction),
+    auditCollectorEnabled:
+      overrides.auditCollectorEnabled ?? readBoolEnv("BUTLER_AUDIT_ENABLED", true),
+    auditRetentionDays:
+      overrides.auditRetentionDays ??
+      readClampedIntEnv(
+        "BUTLER_AUDIT_RETENTION_DAYS",
+        DEFAULT_AUDIT_RETENTION_DAYS,
+        MIN_AUDIT_RETENTION_DAYS,
+        MAX_AUDIT_RETENTION_DAYS,
+      ),
+    auditLogPaths: overrides.auditLogPaths ?? readStrEnv("BUTLER_AUDIT_LOG_PATHS"),
+    weeklyReportEnabled:
+      overrides.weeklyReportEnabled ?? readBoolEnv("BUTLER_WEEKLY_REPORT_ENABLED", true),
+    weeklyReportPush: overrides.weeklyReportPush ?? readBoolEnv("BUTLER_WEEKLY_REPORT_PUSH", true),
+    sessionIndexEnabled:
+      overrides.sessionIndexEnabled ?? readBoolEnv("BUTLER_SESSION_INDEX_ENABLED", true),
+    sessionIndexRetentionDays:
+      overrides.sessionIndexRetentionDays ??
+      readClampedIntEnv(
+        "BUTLER_SESSION_INDEX_RETENTION_DAYS",
+        DEFAULT_SESSION_RETENTION_DAYS,
+        MIN_AUDIT_RETENTION_DAYS,
+        MAX_AUDIT_RETENTION_DAYS,
+      ),
+    sessionReplayEnabled: overrides.sessionReplayEnabled ?? readBoolEnv("BUTLER_SESSION_REPLAY_ENABLED", false),
+    approvalEnabled: overrides.approvalEnabled ?? readBoolEnv("BUTLER_APPROVAL_ENABLED", true),
+    approvalTtlMs:
+      overrides.approvalTtlMs ??
+      readClampedIntEnv(
+        "BUTLER_APPROVAL_TTL_SEC",
+        Math.floor(DEFAULT_APPROVAL_TTL_MS / 1000),
+        MIN_APPROVAL_TTL_SEC,
+        MAX_APPROVAL_TTL_SEC,
+      ) * 1000,
+    approvalRetentionDays:
+      overrides.approvalRetentionDays ??
+      readClampedIntEnv(
+        "BUTLER_APPROVAL_RETENTION_DAYS",
+        DEFAULT_APPROVAL_RETENTION_DAYS,
+        MIN_AUDIT_RETENTION_DAYS,
+        MAX_AUDIT_RETENTION_DAYS,
+      ),
+    approvalEscalationThreshold:
+      overrides.approvalEscalationThreshold ??
+      readClampedIntEnv("BUTLER_APPROVAL_ESCALATION_THRESHOLD", DEFAULT_APPROVAL_ESCALATION_THRESHOLD, 2, 20),
+    approvalAutoDetect: overrides.approvalAutoDetect ?? readBoolEnv("BUTLER_APPROVAL_AUTO_DETECT", true),
+    publicBaseUrl: overrides.publicBaseUrl ?? readStrEnv("BUTLER_PUBLIC_BASE_URL") ?? "",
+    canaryEnabled: overrides.canaryEnabled ?? readBoolEnv("BUTLER_CANARY_ENABLED", true),
+    canaryDefaultPolicy: overrides.canaryDefaultPolicy ?? readCanaryPolicyEnv(),
+    progressIntegrityEnabled:
+      overrides.progressIntegrityEnabled ?? readBoolEnv("BUTLER_PROGRESS_INTEGRITY_ENABLED", true),
+    progressRetentionDays:
+      overrides.progressRetentionDays ??
+      readClampedIntEnv(
+        "BUTLER_PROGRESS_RETENTION_DAYS",
+        DEFAULT_PROGRESS_RETENTION_DAYS,
+        MIN_AUDIT_RETENTION_DAYS,
+        MAX_AUDIT_RETENTION_DAYS,
+      ),
   };
   return config;
+}
+
+/** 升级策略读取：非法值回落 standard（默认）。 */
+function readCanaryPolicyEnv(): "aggressive" | "standard" | "conservative" {
+  const raw = (readStrEnv("BUTLER_UPGRADE_POLICY") ?? "").trim().toLowerCase();
+  return raw === "aggressive" || raw === "conservative" ? raw : "standard";
+}
+
+/** 金额读取：非负有限数有效；0 = 未启用。 */
+function readUsdEnv(name: string, fallback: number): number {
+  const raw = process.env[name]?.trim();
+  if (raw === undefined || raw === "") return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+/** 预算动作读取：alert / downgrade / pause，非法值回退 alert。 */
+function readBudgetActionEnv(override?: BudgetActionConfig): BudgetActionConfig {
+  if (override !== undefined) return override;
+  const raw = readStrEnv("BUTLER_BUDGET_ACTION") ?? "";
+  return raw === "downgrade" || raw === "pause" ? raw : "alert";
+}
+
+/** 区间钳制整数读取（保留期这类有硬边界的配置）。 */
+function readClampedIntEnv(name: string, fallback: number, min: number, max: number): number {
+  const raw = process.env[name]?.trim();
+  if (raw === undefined || raw === "") return fallback;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
 }

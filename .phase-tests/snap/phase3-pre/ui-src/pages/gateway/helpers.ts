@@ -1,0 +1,700 @@
+/**
+ * 网关页共享模型与文案映射：payload 类型、标签字典、
+ * 状态 → 徽标 tone 的唯一换算出口，以及纯函数工具。
+ */
+import type { OutboxState } from "@butler/contract";
+
+import type { SemanticTone } from "../../components/StatusBadge.js";
+
+export interface RateLimitMatch {
+  signature: string;
+  template: string;
+  count: number;
+  firstSeen: string;
+  lastSeen: string;
+  status: string;
+}
+
+export interface PatchSuggestion {
+  patchId: string;
+  param: string;
+  current: number;
+  suggested: number;
+  level: "warn" | "critical";
+  reason: string;
+}
+
+export interface RateLimitView {
+  overall: "ok" | "warn" | "critical" | string;
+  totalEvents: number;
+  last24h: number;
+  matched: RateLimitMatch[];
+  suggestions: PatchSuggestion[];
+}
+
+export interface PatchParamSchema {
+  default: number;
+  min?: number;
+  max?: number;
+  integer?: boolean;
+}
+
+export interface GatewayPatch {
+  id: string;
+  title: string;
+  description: string;
+  target: string;
+  requires?: string[];
+  params: Record<string, PatchParamSchema>;
+  applied: null | {
+    params: Record<string, number>;
+    appliedAt: string;
+    targetPath: string;
+  };
+  observed?: null | {
+    params: Record<string, number>;
+    checkedAt: string;
+    targetPath: string;
+  };
+}
+
+export interface AlertItem {
+  id: number;
+  kind: string;
+  severity: "info" | "warn" | "critical" | string;
+  title: string;
+  body: string;
+  source: string;
+  status: string;
+  attempts: number;
+  mergedCount: number;
+  createdAt: string;
+  updatedAt: string;
+  deliveredAt: string | null;
+  lastError: string | null;
+  channel: string | null;
+}
+
+export interface AlertsView {
+  reachable: boolean;
+  counts: Record<string, number>;
+  degradedChannels: string[];
+  items: AlertItem[];
+}
+
+export interface GatewayPayload {
+  watchReachable?: boolean;
+  rateLimit?: RateLimitView | null;
+  patches?: GatewayPatch[];
+  alerts?: AlertsView;
+}
+
+export interface MessageBridgeView {
+  connected: boolean;
+  running: boolean;
+  inFlight: boolean;
+  attached: boolean;
+  outboxWritable: boolean;
+  protocolVersion: number | null;
+  bridgeVersion: string | null;
+  instanceId: string | null;
+  policyVersion: string | null;
+  remotePolicyVersion: string | null;
+  channels: Record<string, string>;
+  channelDetails?: Record<string, {
+    status: string;
+    unavailableReason: string | null;
+    unavailableFix: string | null;
+    retryable: boolean;
+    loginState?: ChannelDirectoryEntryView["loginState"];
+    account?: string;
+  }>;
+  coverage: Record<string, string>;
+  startedAt: string | null;
+  lastCycleAt: string | null;
+  lastError: string | null;
+  /** 任务执行汇总（旧 Bridge 无此字段时缺省）：failed = 执行失败的 run 数。 */
+  runs?: { total: number; failed: number; active: number };
+}
+
+export interface MessageItemView {
+  messageId: string;
+  instanceId: string;
+  adapterId: string;
+  channel: string;
+  chatId: string;
+  sessionId: string;
+  runId?: string | null;
+  inboundMessageId?: string | null;
+  messageKind: string;
+  transport: string;
+  priority: string;
+  content: string;
+  metadata: Record<string, unknown>;
+  capturedAt: string;
+  sequence: number;
+  state: string;
+  availableAt: string | null;
+  attemptCount: number;
+  providerMessageId: string | null;
+  deliveredAt: string | null;
+  lastError: string | null;
+  transformTrace: string[];
+  lastPolicyError: string | null;
+  updatedAt: string;
+}
+
+/** 消息链路一键接管开关状态（镜像 web MessageStatusView.relay）。 */
+export interface RelayControlView {
+  enabled: boolean;
+  pending: boolean;
+  updatedAt: string | null;
+}
+
+/** 通道目录条目（镜像 contract ChannelDirectoryEntry，来自 GET /api/messages/channels）。 */
+export interface ChannelDirectoryEntryView {
+  id: string;
+  label: string;
+  kind: "qr-login" | "credential" | "builtin";
+  enabled: boolean;
+  credentialsConfigured: boolean;
+  loginState: "logged_in" | "logged_out" | "configuring" | "unknown";
+  account?: string;
+}
+
+/** 通道启停应答（镜像 Bridge 新契约）：restarting=false 表示已保存但未触发通道重启。 */
+export interface ChannelToggleAck {
+  restarting?: boolean;
+  warning?: string;
+}
+
+export interface MessageOverviewPayload {
+  reachable: boolean;
+  status: null | {
+    bridge: MessageBridgeView;
+    counts: Record<string, number>;
+    relay?: RelayControlView;
+  };
+  messages: {
+    counts: Record<string, number>;
+    items: MessageItemView[];
+  };
+  degraded: string[];
+}
+
+/** 消息页恢复面板的操作与原因：以唯一根因代替并列横幅。 */
+export type RecoveryAction = "reconnect" | "refresh";
+export type RecoveryReason = "bridge" | "messages" | "watch" | "alerts" | "records" | "refresh";
+
+/** 消息明细状态过滤（all = 不过滤）；源枚举来自 @butler/contract 的 OutboxState，避免前后端双份漂移。 */
+export type MessageStateFilter = "all" | OutboxState;
+
+export interface RecoveryDetail {
+  reason: RecoveryReason;
+  severity: "critical" | "warn";
+  title: string;
+  description: string;
+}
+
+export interface RecoveryState extends RecoveryDetail {
+  action: RecoveryAction;
+  details: RecoveryDetail[];
+}
+
+export interface RecoveryStateInput {
+  messageData: MessageOverviewPayload | null;
+  messageBridge: MessageBridgeView | null;
+  watchReachable: boolean | undefined;
+  alerts: AlertsView | null;
+  loadError: boolean;
+}
+
+/**
+ * 将同时出现的消息故障按用户可操作性归并为唯一主因。
+ * 优先级固定为 Bridge、消息记录、管家、通知、记录完整性、刷新失败。
+ */
+export function deriveRecoveryState(input: RecoveryStateInput): RecoveryState | null {
+  const details: RecoveryDetail[] = [];
+  const bridgeReady =
+    input.messageBridge?.connected === true &&
+    input.messageBridge.attached &&
+    input.messageBridge.outboxWritable;
+
+  if (input.messageBridge !== null && !bridgeReady) {
+    details.push({
+      reason: "bridge",
+      severity: "critical",
+      title: "消息接管还没准备好",
+      description: "请确认本机 AI 正在运行；重新连接后，页面会自动刷新状态。",
+    });
+  }
+  if (input.messageData !== null && !input.messageData.reachable) {
+    details.push({
+      reason: "messages",
+      severity: "critical",
+      title: "暂时读不到消息记录",
+      description: "服务恢复后会自动重试，已排队消息会继续保留。",
+    });
+  }
+  if (input.watchReachable === false) {
+    details.push({
+      reason: "watch",
+      severity: "warn",
+      title: "管家服务暂时连不上",
+      description: "消息频率和通知设置会在服务恢复后继续可用。",
+    });
+  }
+  if (input.alerts !== null && !input.alerts.reachable) {
+    details.push({
+      reason: "alerts",
+      severity: "warn",
+      title: "通知服务暂时离线",
+      description: "正在排队中的提醒暂不可见，稍后会自动恢复。",
+    });
+  }
+  if (input.messageData?.reachable === true && input.messageData.degraded.length > 0) {
+    details.push({
+      reason: "records",
+      severity: "warn",
+      title: "部分消息记录暂时不完整",
+      description: "服务恢复后会自动补齐缺失记录。",
+    });
+  }
+  if (input.loadError) {
+    details.push({
+      reason: "refresh",
+      severity: "warn",
+      title: "这次刷新没有拿到完整数据",
+      description: "页面保留上一次成功数据；可以手动刷新后再确认。",
+    });
+  }
+
+  const [primary, ...remaining] = details;
+  if (primary === undefined) return null;
+  return {
+    ...primary,
+    action: primary.reason === "bridge" ? "reconnect" : "refresh",
+    details: remaining,
+  };
+}
+
+export interface TaskEventView {
+  runId: string;
+  sequence: number;
+  sessionId: string;
+  kind: string;
+  summary?: string;
+  etaSec?: number;
+  occurredAt: string;
+}
+
+export interface MessageTaskView {
+  runId: string;
+  sessionId: string;
+  state: string;
+  lastEventSequence: number;
+  updatedAt: string;
+  events: TaskEventView[];
+}
+
+export interface DriftDiff {
+  anchorIndex: number;
+  anchorPreview: string;
+  reason: string;
+  context: string[];
+}
+
+export interface DriftReport {
+  patchId: string;
+  status:
+    "ok" | "observed" | "drifted" | "not-applied" | "missing-target" | "missing-backup" | string;
+  params?: Record<string, number>;
+  diffs?: DriftDiff[];
+  checkedAt?: string;
+  targetPath?: string;
+}
+
+/** 补丁参数草稿：数字或 null（输入被清空时回退已生效值/默认值）。 */
+export type PatchDrafts = Record<string, Record<string, number | null>>;
+export type PatchAction = "apply" | "reapply" | "detect";
+export type PendingPatchAction = {
+  patch: GatewayPatch;
+  action: Exclude<PatchAction, "detect">;
+  params: Record<string, number>;
+  busyKey: string;
+  instanceId?: string;
+  preview?: ConfigChangeSetView;
+};
+
+export interface ConfigChangeSetView {
+  targetPath: string;
+  changes: Array<{ path: string; before: number | string | boolean | null; after: number | string | boolean | null; impact?: string }>;
+  redacted: boolean;
+}
+
+export const REFRESH_INTERVAL_MS = 10_000;
+
+export const PARAM_LABELS: Record<string, string> = {
+  minSendIntervalSec: "最小发送间隔",
+  silentFirstDelaySec: "静默后首条延迟",
+  attachmentBudgetPerMsg: "单次回复附件预算",
+  splitThresholdChars: "超长文本阈值",
+};
+
+export const MESSAGE_STATE_LABELS: Record<string, string> = {
+  captured: "刚收到",
+  policy_pending: "正在判断",
+  held_dnd: "免打扰暂存",
+  held_pacing: "间隔暂存",
+  ready: "等待发送",
+  delivering: "发送中",
+  retry_wait: "等待重试",
+  delivered: "已送达",
+  delivery_unknown: "结果未知",
+  absorbed: "已合并",
+  policy_error: "判断异常",
+  dead_letter: "发送失败",
+  cancelled: "已取消",
+  pending: "等待发送",
+  failed: "发送失败",
+  critical: "紧急",
+  warn: "需注意",
+  info: "提示",
+};
+
+export const COVERAGE_LABELS: Record<string, string> = {
+  runtime: "运行时",
+  adapterAttach: "适配器挂载",
+  queuedSend: "排队发送",
+  a2aWaiter: "A2A 等待",
+  a2aPush: "A2A 推送",
+  edit: "消息编辑",
+  media: "媒体出口",
+  inbound: "入站关联",
+  runLifecycle: "任务生命周期",
+  progress: "进度事件",
+  apiJson: "JSON API",
+  apiSse: "SSE API",
+};
+
+const CHANNEL_LABELS: Record<string, string> = {
+  telegram: "Telegram",
+  whatsapp: "WhatsApp",
+  discord: "Discord",
+  wechat: "微信",
+  weixin: "微信",
+  wecom: "企业微信",
+  a2a: "A2A",
+  "api-server": "服务接口",
+  email: "邮件",
+  sms: "短信",
+  desktop: "桌面通知",
+  webhook: "网页通知",
+  // 指标聚合对缺失通道字段的消息统一记为 unknown（见 gateway message/store metrics）。
+  // 多为早期历史记录：通道归档功能上线前，投递记录超过保留期后通道信息无法追溯。
+  unknown: "通道未记录",
+};
+
+const MESSAGE_KIND_LABELS: Record<string, string> = {
+  final: "最终回复",
+  "task-progress": "任务进度",
+  failure: "失败提醒",
+  alert: "重要提醒",
+  system: "系统消息",
+  mutation: "操作确认",
+};
+const TRANSPORT_LABELS: Record<string, string> = {
+  "queued-push": "队列推送",
+  "inline-response": "即时回复",
+};
+const TRACE_LABELS: Record<string, string> = {
+  "policy:queued-push": "进入待发送队列",
+  "digest:events-deduped": "重复进度已合并",
+  "digest:truncated": "内容过长已精简",
+  "digest:final-absorbed": "最终回复已合并进度",
+  "digest:duplicate-absorbed": "重复进度已合并",
+  "dnd:bypass-failure": "失败消息，跳过免打扰",
+  "dnd:bypass-urgent": "紧急消息，跳过免打扰",
+  "dnd:bypass-solicited-reply": "用户正在等待，跳过免打扰",
+  "dnd:none": "免打扰未命中",
+  "pacing:held": "发送间隔未到，先暂存",
+  "pacing:ready": "发送间隔已到",
+  "classified:final": "识别为最终回复",
+  "aggregate-progress": "进度已合并",
+  ready: "可以发送",
+  "delivery:ok": "发送成功",
+  "delivery:failed": "发送失败",
+  "delivery:unknown": "发送结果未知",
+  "task:awaiting-terminal": "等待任务完成",
+  "digest:batch-aggregated": "按聊天批次汇总",
+  "digest:batch-duplicate-absorbed": "重复通知已合并",
+  "digest:terminal-duplicate-absorbed": "重复终态结果已合并",
+};
+const TASK_EVENT_LABELS: Record<string, string> = {
+  started: "已开始",
+  progress: "进行中",
+  completing: "准备结束",
+  done: "已完成",
+  failed: "已失败",
+};
+
+export function channelLabel(channel: string | null | undefined): string {
+  if (channel === null || channel === undefined || channel === "") return "—";
+  return CHANNEL_LABELS[channel.toLowerCase()] ?? channel;
+}
+
+export function messageKindLabel(value: string): string {
+  return MESSAGE_KIND_LABELS[value] ?? value;
+}
+
+export function transportLabel(value: string): string {
+  return TRANSPORT_LABELS[value.toLowerCase()] ?? value;
+}
+
+export function transformTraceLabel(step: string): string {
+  if (TRACE_LABELS[step] !== undefined) return TRACE_LABELS[step];
+  if (step.startsWith("dnd:")) return step.includes("held") ? "免打扰暂存" : "免打扰检查";
+  return step;
+}
+
+export function taskEventLabel(kind: string): string {
+  return TASK_EVENT_LABELS[kind] ?? kind;
+}
+
+export function sourceLabel(source: string | null | undefined): string {
+  if (source === null || source === undefined || source === "") return "—";
+  const labels: Record<string, string> = {
+    watch: "管家检查",
+    gateway: "消息通知",
+    hermes: "Hermes",
+  };
+  return labels[source.toLowerCase()] ?? source;
+}
+
+/** 状态 → 语义徽标（tone + 文案），收编旧 badgeForStatus 的类名拼接。 */
+export function statusTone(status: string): { tone: SemanticTone; label: string } {
+  const normalized = status.toLowerCase();
+  if (["ok", "healthy", "delivered", "applied", "done", "completed"].includes(normalized)) {
+    return { tone: "ok", label: MESSAGE_STATE_LABELS[status] ?? "其他" };
+  }
+  if (
+    [
+      "critical",
+      "failed",
+      "drifted",
+      "missing-target",
+      "missing-backup",
+      "dead_letter",
+      "policy_error",
+      "delivery_unknown",
+      "unavailable",
+    ].includes(normalized)
+  ) {
+    return { tone: "error", label: MESSAGE_STATE_LABELS[status] ?? "其他" };
+  }
+  if (
+    [
+      "warn",
+      "pending",
+      "delivering",
+      "open",
+      "not-applied",
+      "captured",
+      "policy_pending",
+      "held_dnd",
+      "held_pacing",
+      "ready",
+      "retry_wait",
+      "degraded",
+    ].includes(normalized)
+  ) {
+    return { tone: "warn", label: MESSAGE_STATE_LABELS[status] ?? "其他" };
+  }
+  if (normalized === "observed") {
+    return { tone: "warn", label: "手工已生效" };
+  }
+  return { tone: "muted", label: MESSAGE_STATE_LABELS[status] ?? "其他" };
+}
+
+/** 接管开关状态 → 卡片标题与说明文案。 */
+export function relayModeCopy(relay: RelayControlView): { title: string; detail: string } {
+  if (relay.enabled) {
+    return relay.pending
+      ? { title: "消息接管中（待生效）", detail: "正在切回消息接管，生效后面板会自动更新。" }
+      : { title: "消息接管中", detail: "出站消息经过合并、免打扰与频率控制后再发送。" };
+  }
+  return relay.pending
+    ? { title: "原通道直发中（待生效）", detail: "正在切到原通道，生效后面板会自动更新。" }
+    : { title: "原通道直发中", detail: "消息由本机 AI 直接发送，不再经过合并与限速；记录仍然保留。" };
+}
+
+/** 通道登录态 → 面板文案。 */
+export function loginStateCopy(state: ChannelDirectoryEntryView["loginState"]): string {
+  switch (state) {
+    case "logged_in": return "已登录";
+    case "logged_out": return "未登录";
+    case "configuring": return "待配置";
+    default: return "未知";
+  }
+}
+
+/** 通道接入类型 → 面板文案。 */
+export function channelKindLabel(kind: ChannelDirectoryEntryView["kind"]): string {
+  switch (kind) {
+    case "qr-login": return "扫码登录";
+    case "credential": return "凭据接入";
+    default: return "内置";
+  }
+}
+
+export function formatTimestamp(ts: string | null | undefined): string {
+  if (ts === null || ts === undefined || ts === "") return "—";
+  const value = new Date(ts);
+  if (Number.isNaN(value.getTime())) return ts;
+  return value.toLocaleString("zh-CN", { hour12: false });
+}
+
+export function shortId(value: string | null | undefined, length = 12): string {
+  if (value === undefined || value === null || value === "") return "—";
+  return value.length <= length ? value : `${value.slice(0, length)}…`;
+}
+
+export function effectivePatchParams(patch: GatewayPatch): Record<string, number> | undefined {
+  return patch.applied?.params ?? patch.observed?.params;
+}
+
+export function responseError(data: unknown): string {
+  if (data === null || typeof data !== "object") return "";
+  const body = data as Record<string, unknown>;
+  const detail = body["detail"];
+  if (typeof detail === "string" && detail !== "") return detail;
+  const error = body["error"];
+  return typeof error === "string" ? error : "";
+}
+
+/** postJson 的 data 为 unknown：收敛为通道启停应答形状，不是对象时返回 null。 */
+export function channelToggleAck(data: unknown): ChannelToggleAck | null {
+  if (data === null || typeof data !== "object") return null;
+  return data as ChannelToggleAck;
+}
+
+/**
+ * 通道启停/配置启用成功后的警示文案：
+ * - Bridge 返回 warning（如停用被环境变量强制启用的通道）→ 原样展示；
+ * - restarting === false → 已保存但未触发重启，需要手动重启本机 AI。
+ * 返回需要 message.warning 逐条展示的文案列表（可能为空）。
+ */
+export function channelToggleWarnings(ack: ChannelToggleAck | null): string[] {
+  if (ack === null) return [];
+  const notices: string[] = [];
+  if (typeof ack.warning === "string" && ack.warning.trim() !== "") notices.push(ack.warning);
+  if (ack.restarting === false) {
+    notices.push("已保存，但未触发通道重启，需要手动重启本机 AI 后生效");
+  }
+  return notices;
+}
+
+/**
+ * 通道启停、接管切换、重新连接等简单动作的失败文案：
+ * 优先取响应体 error/detail（responseError，如 web 代理 502 {error}），
+ * 取不到（如 Bridge 503 {code:E302/E303} 只带 code）按状态码给通用文案；status=0 表示请求未送达。
+ */
+export function channelActionError(status: number, data: unknown): string {
+  const detail = responseError(data);
+  if (detail !== "") return detail;
+  if (status === 0) return "请求未送达，请确认管家服务正在运行";
+  return `操作失败（HTTP ${status}），请稍后重试`;
+}
+
+export function seedDrafts(current: PatchDrafts, patches: GatewayPatch[]): PatchDrafts {
+  const next: PatchDrafts = { ...current };
+  for (const patch of patches) {
+    const existing = next[patch.id] ?? {};
+    const draft = { ...existing };
+    const effective = effectivePatchParams(patch);
+    for (const [name, schema] of Object.entries(patch.params)) {
+      if (draft[name] !== undefined) continue;
+      draft[name] = effective?.[name] ?? schema.default;
+    }
+    next[patch.id] = draft;
+  }
+  return next;
+}
+
+export function schemaHint(schema: PatchParamSchema): string {
+  const parts: string[] = [];
+  if (schema.min !== undefined) parts.push(`最小 ${schema.min}`);
+  if (schema.max !== undefined) parts.push(`最大 ${schema.max}`);
+  if (schema.integer === true) parts.push("整数");
+  return parts.join(" · ") || `默认 ${schema.default}`;
+}
+
+export function patchActionError(status: number, data: unknown): string {
+  const detail = responseError(data);
+  if (status === 400) return detail || "参数不对，请检查后重试";
+  if (status === 404) return "这个调整没有登记过";
+  if (status === 409) return detail || "这个调整和现有文件冲突";
+  if (status === 502) return "管家服务暂时连不上";
+  if (status === 503) return "暂时没有可操作的管家";
+  if (status === 0) return "请求未送达";
+  return detail || "操作失败，请稍后重试";
+}
+
+/** 实例维度锁键的实例段：留空表示自动选择。 */
+export function instanceKeyOf(selectedInstance: string): string {
+  const trimmed = selectedInstance.trim();
+  return trimmed === "" ? "*" : trimmed;
+}
+
+/** per-patch（含实例维度）busy 锁键。 */
+export function patchBusyKey(action: PatchAction, patchId: string, instKey: string): string {
+  return `${action}:${instKey}:${patchId}`;
+}
+
+/* ---- 消息整理对照历史：日期分组 / 筛选 / 折叠摘要 ---- */
+
+/** 本地时区的年月日键（YYYY-MM-DD）；无效时间返回 null。 */
+export function historyDayKey(value: string): string | null {
+  const time = new Date(value);
+  if (Number.isNaN(time.getTime())) return null;
+  const month = String(time.getMonth() + 1).padStart(2, "0");
+  const day = String(time.getDate()).padStart(2, "0");
+  return `${time.getFullYear()}-${month}-${day}`;
+}
+
+/** 按日期（新→旧）聚合对照历史，生成日期快筛选项；label 对今天/昨天做特殊标注。 */
+export function historyDayOptions(
+  items: ReadonlyArray<{ inbound: { receivedAt: string } }>,
+): Array<{ key: string; label: string; count: number }> {
+  const nowKey = historyDayKey(new Date().toISOString());
+  const yesterdayKey = historyDayKey(new Date(Date.now() - 86_400_000).toISOString());
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const key = historyDayKey(item.inbound.receivedAt);
+    if (key === null) continue;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => (a[0] < b[0] ? 1 : -1))
+    .map(([key, count]) => {
+      const suffix = `${key.slice(5, 7)}月${key.slice(8, 10)}日`;
+      const label = key === nowKey ? `今天（${suffix}）` : key === yesterdayKey ? `昨天（${suffix}）` : suffix;
+      return { key, label: `${label} · ${count} 条`, count };
+    });
+}
+
+/** 按日期键筛选；day 为 null 表示全部。 */
+export function filterHistoryByDay<T extends { inbound: { receivedAt: string } }>(
+  items: ReadonlyArray<T>,
+  day: string | null,
+): Array<T> {
+  if (day === null) return [...items];
+  return items.filter((item) => historyDayKey(item.inbound.receivedAt) === day);
+}
+
+/** 折叠态单行摘要：取第一条非空行，超长截断。 */
+export function historySummaryLine(content: string, max = 64): string {
+  const firstLine = (content.split("\n").find((line) => line.trim() !== "") ?? "").trim();
+  if (firstLine === "") return "（图片或语音消息，没有文字）";
+  return firstLine.length > max ? `${firstLine.slice(0, max)}…` : firstLine;
+}

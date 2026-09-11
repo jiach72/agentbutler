@@ -1,0 +1,196 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+/* @group-priority: primary, success, info, warning, error */
+:root {
+  /* primary */
+  --primary-50: #eef7f4; /* AI-generated */
+  --primary-100: #d8efe8; /* AI-generated */
+  --primary-200: #b3dfd3; /* AI-generated */
+  --primary-300: #84c8b8; /* AI-generated */
+  --primary-400: #53aa98; /* AI-generated */
+  --primary-500: #338f7e; /* AI-generated */
+  --primary-600: #207466; /* AI-generated */ /* @primary */
+  --primary-700: #1d5f53; /* AI-generated */
+  --primary-800: #1c4c43; /* AI-generated */
+  --primary-900: #1a3f39; /* AI-generated */
+  --primary: var(--primary-600);
+  --primary-foreground: #ffffff; /* AI-generated */
+  /* neutral */
+  --neutral-50: #faf9f7; /* AI-generated */
+  --neutral-100: #f3f1ee; /* AI-generated */
+  --neutral-200: #e7e3de; /* AI-generated */
+  --neutral-300: #d2ccc5; /* AI-generated */
+  --neutral-400: #a89f96; /* AI-generated */
+  --neutral-500: #8a8076; /* AI-generated */ /* @primary */
+  --neutral-600: #6f665e; /* AI-generated */
+  --neutral-700: #575048; /* AI-generated */
+  --neutral-800: #3e3933; /* AI-generated */
+  --neutral-900: #2a2622; /* AI-generated */
+  /* success */
+  --success-50: #eef5ef; /* AI-generated */
+  --success-100: #dcebe0; /* AI-generated */
+  --success-200: #bcd7c4; /* AI-generated */
+  --success-300: #93bc9f; /* AI-generated */
+  --success-400: #699b78; /* AI-generated */
+  --success-500: #4a805c; /* AI-generated */
+  --success-600: #3a6b4c; /* AI-generated */ /* @primary */
+  --success-700: #32583f; /* AI-generated */
+  --success-800: #2b4736; /* AI-generated */
+  --success-900: #24392d; /* AI-generated */
+  /* warning */
+  --warning-50: #faf4e9; /* AI-generated */
+  --warning-100: #f4e8d2; /* AI-generated */
+  --warning-200: #e9d0a6; /* AI-generated */
+  --warning-300: #dbb278; /* AI-generated */
+  --warning-400: #c69250; /* AI-generated */
+  --warning-500: #ab7435; /* AI-generated */
+  --warning-600: #8f5c28; /* AI-generated */ /* @primary */
+  --warning-700: #734a23; /* AI-generated */
+  --warning-800: #5c3d20; /* AI-generated */
+  --warning-900: #4b331e; /* AI-generated */
+  /* error */
+  --error-50: #f9efee; /* AI-generated */
+  --error-100: #f2ddda; /* AI-generated */
+  --error-200: #e6bcb7; /* AI-generated */
+  --error-300: #d4948b; /* AI-generated */
+  --error-400: #bf6c61; /* AI-generated */
+  --error-500: #a45147; /* AI-generated */
+  --error-600: #8a3f37; /* AI-generated */ /* @primary */
+  --error-700: #6f362f; /* AI-generated */
+  --error-800: #592e29; /* AI-generated */
+  --error-900: #482725; /* AI-generated */
+  /* info */
+  --info-50: #eef3f8; /* AI-generated */
+  --info-100: #dbe6f0; /* AI-generated */
+  --info-200: #b9cee2; /* AI-generated */
+  --info-300: #90afcd; /* AI-generated */
+  --info-400: #6a8fb3; /* AI-generated */
+  --info-500: #4e7397; /* AI-generated */
+  --info-600: #3d5f7f; /* AI-generated */ /* @primary */
+  --info-700: #344e68; /* AI-generated */
+  --info-800: #2c4054; /* AI-generated */
+  --info-900: #253545; /* AI-generated */
+  /* text */
+  --foreground: #2a2622; /* AI-generated */ /* @primary */
+  --muted-foreground: #6f665e; /* AI-generated */
+  --border: #e7e3de; /* AI-generated */
+  --ring: #338f7e; /* AI-generated */
+  /* surface */
+  --surface: #ffffff; /* AI-generated */ /* @primary */
+  --card: #ffffff; /* AI-generated */
+  --popover: #ffffff; /* AI-generated */
+  --background: #faf9f7; /* AI-generated */
+  --muted: #f3f1ee; /* AI-generated */
+  /* chart */
+  --chart-1: #338f7e; /* AI-generated */ /* @primary */
+  --chart-2: #4e7397; /* AI-generated */
+  --chart-3: #4a805c; /* AI-generated */
+  --chart-4: #ab7435; /* AI-generated */
+  --chart-5: #8a8076; /* AI-generated */
+  /* === Typography === */
+  --font-display: 'Manrope', sans-serif;
+  --font-heading: 'Manrope', sans-serif;
+  --font-body: 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-size-display: 40px;
+  --font-size-h1: 32px;
+  --font-size-h2: 26px;
+  --font-size-h3: 22px;
+  --font-size-h4: 18px;
+  --font-size-body: 15px;
+  --font-size-lead: 17px;
+  --font-size-caption: 12px;
+  --font-size-mono: 13px;
+  --font-weight-display: 700;
+  --font-weight-h1: 700;
+  --font-weight-h2: 600;
+  --font-weight-h3: 600;
+  --font-weight-h4: 600;
+  --font-weight-body: 400;
+  --font-weight-lead: 400;
+  --font-weight-caption: 500;
+  --font-weight-mono: 400;
+  --line-height-display: 1.15;
+  --line-height-h1: 1.2;
+  --line-height-h2: 1.25;
+  --line-height-h3: 1.3;
+  --line-height-h4: 1.4;
+  --line-height-body: 1.6;
+  --line-height-lead: 1.65;
+  --line-height-caption: 1.5;
+  --line-height-mono: 1.6;
+  /* === Spacing === */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  /* === Sizing === */
+  --size-icon-sm: 16px;
+  --size-icon-md: 20px;
+  --size-icon-lg: 24px;
+  --size-button-height-sm: 32px;
+  --size-input-height: 36px;
+  --size-button-height-md: 40px;
+  --size-button-height-lg: 48px;
+  /* === Radius === */
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
+  /* === Shadows === */
+  --shadow-1: 0 1px 2px rgba(42,38,34,0.06), 0 1px 1px rgba(42,38,34,0.04); /* Card */
+  --shadow-2: 0 4px 8px -2px rgba(42,38,34,0.10); /* Card Hover */
+  --shadow-3: 0 8px 24px -8px rgba(42,38,34,0.16); /* Float */
+  --shadow-4: 0 16px 40px -12px rgba(42,38,34,0.22); /* Modal */
+  --shadow-5: 0 24px 60px -20px rgba(42,38,34,0.28); /* Overlay */
+  /* === Portable aliases === */
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-700);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-card: var(--card);
+  --color-popover: var(--popover);
+  --color-border: var(--border);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-success: var(--success-600);
+  --color-warning: var(--warning-600);
+  --color-error: var(--error-600);
+  --color-info: var(--info-600);
+  --font-family-base: var(--font-body);
+  --type-display: var(--font-size-display);
+  --type-h1: var(--font-size-h1);
+  --type-body: var(--font-size-body);
+  --type-caption: var(--font-size-caption);
+}
+.dark {
+  --primary: var(--primary-400);
+  --primary-foreground: #0f2b25;
+  --background: #171412;
+  --surface: #1f1b18;
+  --card: #1f1b18;
+  --popover: #24201c;
+  --muted: #2a251f;
+  --foreground: #f3f1ee;
+  --muted-foreground: #a89f96;
+  --border: #3e3933;
+  --ring: #53aa98;
+  --shadow-1: 0 1px 2px rgba(0,0,0,0.40), 0 1px 1px rgba(0,0,0,0.30); /* Card */
+  --shadow-2: 0 4px 8px -2px rgba(0,0,0,0.50); /* Card Hover */
+  --shadow-3: 0 8px 24px -8px rgba(0,0,0,0.55); /* Float */
+  --shadow-4: 0 16px 40px -12px rgba(0,0,0,0.60); /* Modal */
+  --shadow-5: 0 24px 60px -20px rgba(0,0,0,0.65); /* Overlay */
+}
+.butler-display { font-family: var(--font-display); font-size: 2.5rem; font-weight: var(--font-weight-display); line-height: var(--line-height-display); letter-spacing: -0.01em; }
+.butler-h1 { font-family: var(--font-heading); font-size: 2rem; font-weight: var(--font-weight-h1); line-height: var(--line-height-h1); }
+.butler-h2 { font-family: var(--font-heading); font-size: 1.625rem; font-weight: var(--font-weight-h2); line-height: var(--line-height-h2); }
+.butler-h3 { font-family: var(--font-heading); font-size: 1.375rem; font-weight: var(--font-weight-h3); line-height: var(--line-height-h3); }
+.butler-h4 { font-family: var(--font-heading); font-size: 1.125rem; font-weight: var(--font-weight-h4); line-height: var(--line-height-h4); }
+.butler-body { font-family: var(--font-body); font-size: 0.9375rem; font-weight: var(--font-weight-body); line-height: var(--line-height-body); }
+.butler-lead { font-family: var(--font-body); font-size: 1.0625rem; font-weight: var(--font-weight-lead); line-height: var(--line-height-lead); }
+.butler-caption { font-family: var(--font-body); font-size: 0.75rem; font-weight: var(--font-weight-caption); line-height: var(--line-height-caption); }
+.butler-mono { font-family: var(--font-mono); font-size: 0.8125rem; font-weight: var(--font-weight-mono); line-height: var(--line-height-mono); }

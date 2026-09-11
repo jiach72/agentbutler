@@ -1,26 +1,32 @@
+/**
+ * 连接设置页（v2 连接体检台）。
+ *
+ * v1 的问题：五步向导（环境→实例→模型→验证→场景）对已完成设置的用户
+ * 是纯仪式——每步信息几乎永远全绿，还要走五屏。与首页连接区 80% 重叠。
+ *
+ * v2 改为「状态面板 + 单点修复」：
+ * - 一屏看全链路：控制通道 → 实例连接 → 受管模型，每环绿/黄/红 + 一句话；
+ * - 哪一环不绿修哪一环：失败环给内联修复动作（重新检查 / 绑定模型 / 去设置），
+ *   不再让用户在五步之间导航；
+ * - 全绿时给「完成即走」出口（按记忆的常用场景直达对应页面）；
+ * - 首次引导语义保留：未配置时（FirstRunRedirect 会带进来）同一页面引导首连。
+ */
 import {
   ApiOutlined,
   CheckCircleOutlined,
   ClusterOutlined,
-  CodeOutlined,
-  DashboardOutlined,
-  HomeOutlined,
-  NotificationOutlined,
-  ReadOutlined,
   RobotOutlined,
   RocketOutlined,
 } from "@ant-design/icons";
-import { Alert, Button, Card, Flex, Form, Input, Radio, Select, Space, Spin, Steps, Typography } from "antd";
-import { useEffect, useMemo, useState, type ComponentType } from "react";
+import { Alert, Button, Card, Flex, Form, Input, Select, Space, Spin, Typography } from "antd";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { PageHeader } from "../../components/PageHeader.js";
-import { SectionHeader } from "../../components/SectionHeader.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { loadJson, postJson } from "../../lib/api.js";
 import { isRecord } from "../../lib/format.js";
-import { markSetupDone } from "./state.js";
-import { SCENARIO_TEMPLATES, type ScenarioTemplate } from "./templates.js";
-import { SetupResults, type SetupResultItem } from "./SetupResults.js";
+import { markSetupDone, readSetupPreferences } from "./state.js";
+import { getScenarioTemplate, SCENARIO_TEMPLATES, type ScenarioTemplate } from "./templates.js";
 import "./setup.css";
 
 const { Paragraph, Text } = Typography;
@@ -70,22 +76,47 @@ interface DiscoveredModel {
   runtimeObserved: boolean;
 }
 
-/** 场景卡与实例卡的分类色图标底。 */
-const SCENARIO_META: Record<ScenarioTemplate["id"], { icon: ComponentType; tone: string }> = {
-  daily: { icon: HomeOutlined, tone: "tone-info" },
-  notify: { icon: NotificationOutlined, tone: "tone-warn" },
-  knowledge: { icon: ReadOutlined, tone: "tone-teal" },
-  coding: { icon: CodeOutlined, tone: "tone-cinnabar" },
-  watch: { icon: DashboardOutlined, tone: "tone-ok" },
-};
-
 function isActiveProfile(profile: LlmProfile): boolean {
   return profile.status === "active" && profile.probe?.status === "pass";
 }
 
+type LinkTone = "ok" | "warn" | "error";
+
+/** 单个链路环：图标 + 名称 + 状态 + 一句话 + 可选修复动作。 */
+function LinkRow({
+  icon,
+  title,
+  tone,
+  statusLabel,
+  detail,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  tone: LinkTone;
+  statusLabel: string;
+  detail: string;
+  children?: React.ReactNode;
+}) {
+  return (
+    <Flex vertical gap={10} className="setup-link-row" data-tone={tone}>
+      <Flex align="center" gap={12} wrap>
+        <span className={`setup-tile ${tone === "ok" ? "tone-ok" : tone === "warn" ? "tone-warn" : "tone-error"}`}>
+          {icon}
+        </span>
+        <Flex vertical style={{ minWidth: 0, flex: 1 }}>
+          <Text strong>{title}</Text>
+          <Text type="secondary" style={{ fontSize: 12.5 }}>{detail}</Text>
+        </Flex>
+        <StatusBadge tone={tone} label={statusLabel} />
+      </Flex>
+      {children !== undefined && <div className="setup-link-fix">{children}</div>}
+    </Flex>
+  );
+}
+
 export function SetupPage() {
   const navigate = useNavigate();
-  const [step, setStep] = useState(0);
   const [status, setStatus] = useState<SetupStatus | null>(null);
   const [llmStatus, setLlmStatus] = useState<LlmStatus | null>(null);
   const [profiles, setProfiles] = useState<LlmProfile[]>([]);
@@ -93,13 +124,12 @@ export function SetupPage() {
   const [discoveredModels, setDiscoveredModels] = useState<DiscoveredModel[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
-  const [checkResult, setCheckResult] = useState<string | null>(null);
+  const [checkMessage, setCheckMessage] = useState<string | null>(null);
   const [savingModel, setSavingModel] = useState(false);
   const [modelMessage, setModelMessage] = useState<string | null>(null);
   const [selectedExistingProfile, setSelectedExistingProfile] = useState<string | null>(null);
-  const [templateId, setTemplateId] = useState<ScenarioTemplate["id"]>("daily");
+  const [modelFormOpen, setModelFormOpen] = useState(false);
   const [modelForm] = Form.useForm();
 
   const loadStatus = async () => {
@@ -117,7 +147,6 @@ export function SetupPage() {
       setStatus(null);
     } else {
       setStatus(setupResult.data);
-      setSelected((current) => current ?? setupResult.data.connections[0]?.instanceId ?? null);
     }
     if (llmResult.ok) setLlmStatus(llmResult.data);
     if (profileResult.ok) {
@@ -131,41 +160,51 @@ export function SetupPage() {
 
   useEffect(() => { void loadStatus(); }, []);
 
-  const selectedConnection = useMemo(
-    () => status?.connections.find((item) => item.instanceId === selected) ?? null,
-    [selected, status],
-  );
-  const selectedTemplate = SCENARIO_TEMPLATES.find((item) => item.id === templateId) ?? SCENARIO_TEMPLATES[0]!;
+  const connections = status?.connections ?? [];
   const activeProfiles = profiles.filter(isActiveProfile);
-  const readyProfileIds = new Set(
-    bindings
-      .filter((binding) => binding.instanceId === selected && (binding.scope === "instance" || binding.scope === "framework"))
-      .map((binding) => binding.profileId),
+  const boundProfileIds = useMemo(
+    () => new Set(bindings.filter((b) => b.scope === "instance" || b.scope === "framework").map((b) => b.profileId)),
+    [bindings],
   );
-  const modelReady = selected !== null && activeProfiles.some((profile) => readyProfileIds.has(profile.profileId));
-  const nativeModelDetected = discoveredModels.some((model) => !model.runtimeObserved);
-  const runtimeModelObserved = discoveredModels.filter((model) => model.runtimeObserved).length;
+  const modelReady = activeProfiles.some((p) => boundProfileIds.has(p.profileId));
+  const connectedCount = connections.filter((c) => c.connected).length;
+  const nativeModelDetected = discoveredModels.some((m) => !m.runtimeObserved);
+  const runtimeModelObserved = discoveredModels.filter((m) => m.runtimeObserved).length;
+
+  // 三环判定（绿/黄/红）。
+  const controlTone: LinkTone = status === null ? "warn" : status.reachable ? "ok" : "error";
+  const instanceTone: LinkTone = connections.length === 0 ? "warn" : connectedCount > 0 ? "ok" : "error";
+  const modelTone: LinkTone = modelReady ? "ok" : llmStatus?.vault.available === false ? "error" : activeProfiles.length > 0 || nativeModelDetected || runtimeModelObserved > 0 ? "warn" : "warn";
+  const allOk = controlTone === "ok" && instanceTone === "ok" && modelTone === "ok";
+  const firstRun = !status?.configured && !readSetupPreferences();
+
+  const rememberedTemplate: ScenarioTemplate = useMemo(() => {
+    const prefs = readSetupPreferences();
+    return getScenarioTemplate(prefs?.templateId) ?? SCENARIO_TEMPLATES[0]!;
+  }, []);
 
   const runCheck = async () => {
-    if (selected === null) return;
+    const target = connections[0]?.instanceId;
+    if (target === undefined) return;
     setChecking(true);
-    setCheckResult(null);
-    const result = await postJson("/api/connections/check", { instanceId: selected }, 20_000);
+    setCheckMessage(null);
+    const result = await postJson("/api/connections/check", { instanceId: target }, 20_000);
     setChecking(false);
     if (result.ok) {
-      setCheckResult("连接检查完成。最后选一个常用场景，管家就会按这个入口带你继续。");
-      setStep(4);
+      setCheckMessage("连接检查完成，状态已更新。");
+      await loadStatus();
     } else {
-      setCheckResult(`连接检查没有完成（${result.status || "网络错误"}）。请先回到上一步换一个实例，或在设置中检查运行环境。`);
+      setCheckMessage(`连接检查没有完成（${result.status || "网络错误"}）。`);
     }
   };
 
   const bindProfile = async (profileId: string): Promise<boolean> => {
-    if (selected === null) return false;
-    const result = await postJson("/api/llm/bindings", { profileId, scope: "instance", instanceId: selected }, 15_000);
+    const target = connections[0]?.instanceId;
+    if (target === undefined) return false;
+    const result = await postJson("/api/llm/bindings", { profileId, scope: "instance", instanceId: target }, 15_000);
     if (!result.ok) {
-      const error = isRecord(result.data) ? result.data["error"] : undefined;
-      setModelMessage(error === "credential-writes-require-loopback"
+      const errPayload = isRecord(result.data) ? result.data["error"] : undefined;
+      setModelMessage(errPayload === "credential-writes-require-loopback"
         ? "当前部署已关闭模型配置写入。请在 .env 设置 BUTLER_CREDENTIAL_WRITES_ALLOWED=true 后重启管家服务，再完成绑定。"
         : "模型已验证，但没有完成绑定。请稍后重试，或到设置页检查是否已有同范围绑定。");
       return false;
@@ -175,11 +214,12 @@ export function SetupPage() {
   };
 
   const createAndBindModel = async () => {
-    if (selected === null) return;
+    const target = connections[0]?.instanceId;
+    if (target === undefined) return;
     const values = await modelForm.validateFields();
     setSavingModel(true);
     setModelMessage(null);
-    const result = await postJson("/api/llm/profiles", { ...values, instanceId: selected }, 30_000);
+    const result = await postJson("/api/llm/profiles", { ...values, instanceId: target }, 30_000);
     const profile = result.ok && isRecord(result.data) && isRecord(result.data["profile"])
       ? result.data["profile"] as unknown as LlmProfile
       : undefined;
@@ -200,6 +240,7 @@ export function SetupPage() {
     setSavingModel(false);
     if (bound) {
       modelForm.resetFields();
+      setModelFormOpen(false);
       setModelMessage("模型已通过探针，并已绑定到当前实例。");
     }
   };
@@ -213,62 +254,10 @@ export function SetupPage() {
     if (bound) setModelMessage("已把通过探针的模型绑定到当前实例。");
   };
 
-  const complete = () => {
-    markSetupDone({ instanceId: selected, templateId: selectedTemplate.id });
-    navigate(selectedTemplate.destination, { replace: true });
+  const finish = () => {
+    markSetupDone({ instanceId: connections[0]?.instanceId ?? null, templateId: rememberedTemplate.id });
+    navigate(rememberedTemplate.destination, { replace: true });
   };
-
-  // 第 2 步的检查结论：成功块在前、失败块在后，失败项带修复入口。
-  const modelResults: SetupResultItem[] = [];
-  if (nativeModelDetected) {
-    modelResults.push({
-      key: "native",
-      tone: "ok",
-      title: "已发现 Hermes 原生模型配置",
-      detail: `发现 ${discoveredModels.filter((model) => !model.runtimeObserved).length} 项已有配置；不会被本向导覆盖。`,
-    });
-  } else if (runtimeModelObserved > 0) {
-    modelResults.push({
-      key: "runtime",
-      tone: "ok",
-      title: "已观察到 Hermes 正在使用模型",
-      detail: `从运行日志识别到 ${runtimeModelObserved} 个模型标识；这不会读取或导入凭据。`,
-    });
-  } else {
-    modelResults.push({
-      key: "native-missing",
-      tone: "fail",
-      title: "还没有发现 Hermes 原生模型配置",
-      detail: "如果智能体本身还不能对话，请先在 Hermes 的 config.yaml 或 .env 中完成运行模型配置。",
-    });
-  }
-  if (modelReady) {
-    modelResults.push({
-      key: "managed",
-      tone: "ok",
-      title: "当前智能体已有可用的受管任务模型",
-      detail: "模型探针通过且已绑定。后续可在设置中轮换 Key 或修改绑定范围。",
-    });
-  } else {
-    modelResults.push({
-      key: "managed-missing",
-      tone: "fail",
-      title: "还没有绑定受管任务模型",
-      detail: "这是推荐步骤：它让进化和诊断类任务能使用经过真实探针验证的模型。",
-    });
-  }
-  if (llmStatus?.vault.available === false) {
-    modelResults.push({
-      key: "vault",
-      tone: "fail",
-      title: "凭据库还不可用",
-      detail: "缺少 BUTLER_SECRET_MASTER_KEY 时，管家不会保存 API Key。请在设置中完成本机安全配置后再继续。",
-      action: { label: "打开设置", onClick: () => navigate("/settings") },
-    });
-  }
-  if (modelMessage !== null) {
-    modelResults.push({ key: "model-message", tone: modelReady ? "ok" : "fail", title: modelMessage });
-  }
 
   return (
     <section className="setup-page">
@@ -276,10 +265,24 @@ export function SetupPage() {
         <PageHeader
           eyebrow="维护与升级"
           title="连接设置"
-          description="五步完成管家与智能体的连接；随时可以回来重新检查。"
+          description={
+            firstRun
+              ? "第一次连接：确认下面三环都变绿，管家就准备就绪。"
+              : "三环链路体检：控制通道 → 智能体连接 → 受管模型。哪一环不绿修哪一环。"
+          }
+          extra={
+            <Button onClick={() => void loadStatus()} loading={loading}>重新体检</Button>
+          }
         />
-        <Steps current={step} items={[{ title: "环境检查" }, { title: "选择智能体" }, { title: "绑定模型" }, { title: "连接验证" }, { title: "选择用途" }]} />
-        {loading && <Card size="small"><Flex justify="center" style={{ padding: 32 }}><Space><Spin /><Text type="secondary">正在读取本机环境…</Text></Space></Flex></Card>}
+
+        {loading && (
+          <Card size="small">
+            <Flex justify="center" style={{ padding: 32 }}>
+              <Space><Spin /><Text type="secondary">正在读取连接与模型状态…</Text></Space>
+            </Flex>
+          </Card>
+        )}
+
         {!loading && error !== null && (
           <Card size="small">
             <Flex vertical gap={16}>
@@ -288,155 +291,193 @@ export function SetupPage() {
             </Flex>
           </Card>
         )}
-        {!loading && error === null && status !== null && step === 0 && (
-          <Card size="small">
-            <Flex vertical gap={16}>
-              <SectionHeader kicker="环境检查" title="先确认本机环境" />
-              <div className="setup-check-list">
-                <div className="setup-check-row">
-                  <span className="setup-tile tone-info"><RocketOutlined aria-hidden="true" /></span>
-                  <Flex vertical style={{ minWidth: 0, flex: 1 }}>
-                    <Text strong>管家 Web 服务</Text>
-                    <Text type="secondary">面板本体已在当前浏览器可达</Text>
-                  </Flex>
-                  <StatusBadge tone="ok" label="已启动" />
-                </div>
-                <div className="setup-check-row">
-                  <span className="setup-tile tone-info"><ApiOutlined aria-hidden="true" /></span>
-                  <Flex vertical style={{ minWidth: 0, flex: 1 }}>
-                    <Text strong>管家控制通道</Text>
-                    <Text type="secondary">与看护服务的通信链路</Text>
-                  </Flex>
-                  <StatusBadge tone={status.reachable ? "ok" : "warn"} label={status.reachable ? "可用" : "暂时不可用"} />
-                </div>
-                <div className="setup-check-row">
-                  <span className="setup-tile tone-info"><ClusterOutlined aria-hidden="true" /></span>
-                  <Flex vertical style={{ minWidth: 0, flex: 1 }}>
-                    <Text strong>可管理实例</Text>
-                    <Text type="secondary">自动发现的 Hermes 智能体</Text>
-                  </Flex>
-                  <StatusBadge
-                    tone={status.connections.length > 0 ? "ok" : "warn"}
-                    label={status.connections.length > 0 ? `已发现 ${status.connections.length} 个` : "暂未发现"}
-                  />
-                </div>
-              </div>
-              {status.connections.length === 0 && <Alert type="info" showIcon title="还没有发现 Hermes 实例" description="请先在设置中补充 Hermes 路径，回到这里重新检查。" />}
-              <Space wrap className="setup-nav-bar"><Button type="primary" disabled={status.connections.length === 0} onClick={() => setStep(1)}>继续</Button><Button onClick={() => navigate("/settings")}>打开设置</Button></Space>
+
+        {!loading && error === null && status !== null && (
+          <>
+            {/* 总结论条 */}
+            <Flex className={`setup-verdict ${allOk ? "is-ok" : "is-warn"}`} gap={10}>
+              <CheckCircleOutlined className="setup-verdict-icon" aria-hidden="true" />
+              <Flex vertical gap={2} style={{ minWidth: 0, flex: 1 }}>
+                <Text strong style={{ fontSize: 14.5 }}>
+                  {allOk
+                    ? "链路完整，随时可用"
+                    : `${[controlTone, instanceTone, modelTone].filter((t) => t !== "ok").length} 环需要处理`}
+                </Text>
+                <Text type="secondary" style={{ fontSize: 13 }}>
+                  {allOk
+                    ? `控制通道、${connections.length} 个智能体连接与受管模型全部正常。`
+                    : "从上往下处理标黄/标红的环，每环都带修复动作；全部变绿即完成。"}
+                </Text>
+              </Flex>
             </Flex>
-          </Card>
-        )}
-        {!loading && error === null && status !== null && step === 1 && (
-          <Card size="small">
-            <Flex vertical gap={16}>
-              <SectionHeader kicker="选择智能体" title="选择要管理的智能体" extra={<Text type="secondary" style={{ fontSize: 12 }}>共 {status.connections.length} 个实例</Text>} />
-              <Radio.Group value={selected} onChange={(event) => setSelected(event.target.value)} className="setup-option-grid">
-                {status.connections.map((item) => (
-                  <Radio key={item.instanceId} value={item.instanceId} className="setup-option-card">
-                    <Flex vertical gap={8} style={{ minWidth: 0 }}>
-                      <Flex align="center" gap={10} style={{ minWidth: 0 }}>
-                        <span className="setup-tile tone-info"><RobotOutlined aria-hidden="true" /></span>
-                        <Flex vertical style={{ minWidth: 0 }}>
-                          <Text strong ellipsis>{item.displayName ?? item.instanceId}</Text>
-                          <Text type="secondary" style={{ fontSize: 11 }}>{item.version ?? "版本未知"}</Text>
-                        </Flex>
-                      </Flex>
-                      <StatusBadge
-                        tone={item.connected ? "ok" : "muted"}
-                        label={item.connected ? "当前已连接" : item.connectionState ?? "待检查"}
-                      />
-                    </Flex>
-                    <CheckCircleOutlined className="setup-option-check" aria-hidden="true" />
-                  </Radio>
-                ))}
-              </Radio.Group>
-              <Space wrap className="setup-nav-bar"><Button onClick={() => setStep(0)}>上一步</Button><Button type="primary" disabled={selected === null} onClick={() => setStep(2)}>继续</Button></Space>
-            </Flex>
-          </Card>
-        )}
-        {!loading && error === null && status !== null && step === 2 && (
-          <Card size="small">
-            <Flex vertical gap={16}>
-              <SectionHeader kicker="绑定模型" title="检查模型配置" />
-              <Paragraph type="secondary" style={{ marginBottom: 0 }}>Hermes 的日常运行使用它自己的 `config.yaml` 或 `.env`；Butler 受管任务使用下方加密保存并绑定的模型。两者职责不同，页面会分别如实显示。</Paragraph>
-              <SetupResults items={modelResults} />
-              {!modelReady && activeProfiles.length > 0 && (
-                <Flex vertical gap={12}>
-                  <SectionHeader compact kicker="复用已有配置" title="使用已验证的模型" />
+
+            {/* 环 1：控制通道 */}
+            <Card size="small">
+              <LinkRow
+                icon={<ApiOutlined aria-hidden="true" />}
+                title="管家控制通道"
+                tone={controlTone}
+                statusLabel={controlTone === "ok" ? "可用" : "不可用"}
+                detail={
+                  controlTone === "ok"
+                    ? "面板与看护服务的通信链路正常"
+                    : "与看护服务通信中断，下方状态可能不是最新"
+                }
+              >
+                {controlTone !== "ok" && (
+                  <Button size="small" onClick={() => void loadStatus()}>重试读取</Button>
+                )}
+              </LinkRow>
+            </Card>
+
+            {/* 环 2：智能体连接 */}
+            <Card size="small">
+              <LinkRow
+                icon={<ClusterOutlined aria-hidden="true" />}
+                title="智能体连接"
+                tone={instanceTone}
+                statusLabel={
+                  connections.length === 0 ? "未发现实例"
+                    : connectedCount > 0 ? `已连接 ${connectedCount}/${connections.length}`
+                    : "未连接"
+                }
+                detail={
+                  connections.length === 0
+                    ? "还没有发现 Hermes / OpenClaw 实例；先在设置中补充路径"
+                    : connections.map((c) => `${c.displayName ?? c.instanceId}${c.connected ? "" : "（未连）"}`).join(" · ")
+                }
+              >
+                {connections.length === 0 ? (
                   <Space wrap>
-                    <Select value={selectedExistingProfile ?? undefined} onChange={setSelectedExistingProfile} options={activeProfiles.map((profile) => ({ value: profile.profileId, label: `${profile.provider} · ${profile.model}` }))} />
-                    <Button onClick={() => void bindExistingProfile()} loading={savingModel} disabled={selectedExistingProfile === null}>绑定到当前智能体</Button>
+                    <Button size="small" onClick={() => navigate("/settings")}>去设置补充路径</Button>
                   </Space>
+                ) : (
+                  <Space wrap>
+                    <Button size="small" loading={checking} onClick={() => void runCheck()}>
+                      {checking ? "检查中…" : connectedCount > 0 ? "再检查一次" : "立即连接检查"}
+                    </Button>
+                    {connectedCount === 0 && (
+                      <Button size="small" onClick={() => navigate("/dashboard")}>在首页手动连接</Button>
+                    )}
+                  </Space>
+                )}
+                {checkMessage !== null && (
+                  <Text type="secondary" style={{ fontSize: 12 }}>{checkMessage}</Text>
+                )}
+              </LinkRow>
+              {connections.length > 0 && (
+                <Flex vertical gap={4} style={{ marginTop: 4 }}>
+                  {connections.map((c) => (
+                    <Flex key={c.instanceId} align="center" gap={8}>
+                      <RobotOutlined aria-hidden="true" style={{ color: "var(--ab-text-3)" }} />
+                      <Text style={{ fontSize: 12.5 }}>{c.displayName ?? c.instanceId}</Text>
+                      <Text type="secondary" style={{ fontSize: 12 }}>{c.version ?? "版本未知"}</Text>
+                      <StatusBadge tone={c.connected ? "ok" : "offline"} label={c.connected ? "已连接" : c.connectionState ?? "待检查"} />
+                    </Flex>
+                  ))}
                 </Flex>
               )}
-              {!modelReady && llmStatus?.vault.available !== false && (
-                <Form form={modelForm} layout="vertical" style={{ maxWidth: 560 }} initialValues={{ provider: "OpenAI", protocol: "openai-compatible" }}>
-                  <SectionHeader compact kicker="新增模型" title="添加一个模型" />
-                  <Form.Item name="provider" label="提供商" rules={[{ required: true, message: "请选择提供商" }]}><Select options={[{ value: "OpenAI", label: "OpenAI" }, { value: "DeepSeek", label: "DeepSeek" }, { value: "通义", label: "通义" }, { value: "自定义 OpenAI-compatible", label: "自定义 OpenAI-compatible" }]} /></Form.Item>
-                  <Form.Item name="protocol" label="协议" rules={[{ required: true }]}><Select options={[{ value: "openai-compatible", label: "OpenAI-compatible（推荐 Hermes）" }]} /></Form.Item>
-                  <Form.Item name="endpoint" label="端点" rules={[{ required: true, type: "url", message: "请输入完整的 https 地址" }]}><Input placeholder="https://api.example.com/v1" autoComplete="url" /></Form.Item>
-                  <Form.Item name="model" label="模型名称" rules={[{ required: true, message: "请输入模型名称" }]}><Input placeholder="例如 gpt-4.1-mini" /></Form.Item>
-                  <Form.Item name="apiKey" label="API Key" rules={[{ required: true, message: "请输入 API Key" }]}><Input.Password autoComplete="new-password" /></Form.Item>
-                  <Button type="primary" loading={savingModel} onClick={() => void createAndBindModel()}>验证并绑定</Button>
-                </Form>
-              )}
-              <Space wrap className="setup-nav-bar"><Button onClick={() => setStep(1)}>上一步</Button><Button type="primary" onClick={() => setStep(3)}>继续</Button><Button type="link" onClick={() => navigate("/settings")}>在设置中详细配置</Button></Space>
-            </Flex>
-          </Card>
-        )}
-        {!loading && error === null && status !== null && step === 3 && (
-          <Card size="small">
-            <Flex vertical gap={16}>
-              <SectionHeader kicker="连接验证" title="做一次真实连接检查" />
-              <Paragraph type="secondary" style={{ marginBottom: 0 }}>这一步只检测连接，不会修改你的智能体配置。</Paragraph>
-              {selectedConnection !== null && <Text>当前选择：<Text strong>{selectedConnection.displayName ?? selectedConnection.instanceId}</Text></Text>}
-              {checkResult !== null && (
-                <SetupResults
-                  items={[
-                    {
-                      key: "check-result",
-                      tone: checkResult.startsWith("连接检查完成") ? "ok" : "fail",
-                      title: checkResult,
-                      action: checkResult.startsWith("连接检查完成")
-                        ? undefined
-                        : { label: "回到上一步", onClick: () => setStep(2) },
-                    },
-                  ]}
-                />
-              )}
-              <Space wrap className="setup-nav-bar">
-                <Button onClick={() => setStep(2)}>上一步</Button>
-                <Button type="primary" loading={checking} onClick={() => void runCheck()}>开始检查</Button>
-              </Space>
-            </Flex>
-          </Card>
-        )}
-        {!loading && error === null && status !== null && step === 4 && (
-          <Card size="small">
-            <Flex vertical gap={16}>
-              <SectionHeader kicker="选择用途" title="最后，告诉我你最常用的场景" />
-              <Paragraph type="secondary" style={{ marginBottom: 0 }}>这不会擅自安装技能或改写提示词；它只会替你记住最适合的下一个入口。</Paragraph>
-              <Radio.Group value={templateId} onChange={(event) => setTemplateId(event.target.value)} className="setup-option-grid">
-                {SCENARIO_TEMPLATES.map((template) => {
-                  const meta = SCENARIO_META[template.id];
-                  const TileIcon = meta.icon;
-                  return (
-                    <Radio key={template.id} value={template.id} className="setup-option-card">
-                      <Flex vertical gap={8} style={{ minWidth: 0 }}>
-                        <Flex align="center" gap={10} style={{ minWidth: 0 }}>
-                          <span className={`setup-tile ${meta.tone}`}><TileIcon aria-hidden="true" /></span>
-                          <Text strong ellipsis>{template.label}</Text>
-                        </Flex>
-                        <Text type="secondary" style={{ fontSize: 13 }}>{template.description}</Text>
-                      </Flex>
-                      <CheckCircleOutlined className="setup-option-check" aria-hidden="true" />
-                    </Radio>
-                  );
-                })}
-              </Radio.Group>
-              <Space wrap className="setup-nav-bar"><Button onClick={() => setStep(3)}>上一步</Button><Button type="primary" onClick={complete}>{selectedTemplate.nextLabel}</Button></Space>
-            </Flex>
-          </Card>
+            </Card>
+
+            {/* 环 3：受管模型 */}
+            <Card size="small">
+              <LinkRow
+                icon={<RocketOutlined aria-hidden="true" />}
+                title="受管任务模型"
+                tone={modelTone}
+                statusLabel={modelReady ? "已绑定" : llmStatus?.vault.available === false ? "凭据库不可用" : "未绑定"}
+                detail={
+                  modelReady
+                    ? "进化与诊断类任务使用经过探针验证的模型"
+                    : nativeModelDetected || runtimeModelObserved > 0
+                      ? "检测到 Hermes 已在用模型；受管模型是推荐项（加密保存 + 探针验证）"
+                      : "还没有可用的受管模型；绑定后进化与诊断任务才有模型可用"
+                }
+              >
+                {llmStatus?.vault.available === false ? (
+                  <Button size="small" onClick={() => navigate("/settings")}>去设置完成安全配置</Button>
+                ) : !modelReady && activeProfiles.length > 0 ? (
+                  <Flex vertical gap={8}>
+                    <Space wrap>
+                      <Select
+                        size="small"
+                        style={{ minWidth: 260 }}
+                        placeholder="选择已验证的模型"
+                        value={selectedExistingProfile ?? undefined}
+                        onChange={setSelectedExistingProfile}
+                        options={activeProfiles.map((p) => ({ value: p.profileId, label: `${p.provider} · ${p.model}` }))}
+                      />
+                      <Button size="small" loading={savingModel} disabled={selectedExistingProfile === null} onClick={() => void bindExistingProfile()}>
+                        绑定到当前实例
+                      </Button>
+                    </Space>
+                  </Flex>
+                ) : !modelReady ? (
+                  <Flex vertical gap={8}>
+                    {modelFormOpen ? (
+                      <Form form={modelForm} layout="vertical" style={{ maxWidth: 560 }} initialValues={{ provider: "OpenAI", protocol: "openai-compatible" }}>
+                        <Form.Item name="provider" label="提供商" rules={[{ required: true, message: "请选择提供商" }]}>
+                          <Select options={[{ value: "OpenAI", label: "OpenAI" }, { value: "DeepSeek", label: "DeepSeek" }, { value: "通义", label: "通义" }, { value: "自定义 OpenAI-compatible", label: "自定义 OpenAI-compatible" }]} />
+                        </Form.Item>
+                        <Form.Item name="protocol" label="协议" rules={[{ required: true }]}>
+                          <Select options={[{ value: "openai-compatible", label: "OpenAI-compatible（推荐 Hermes）" }]} />
+                        </Form.Item>
+                        <Form.Item name="endpoint" label="端点" rules={[{ required: true, type: "url", message: "请输入完整的 https 地址" }]}>
+                          <Input placeholder="https://api.example.com/v1" autoComplete="url" />
+                        </Form.Item>
+                        <Form.Item name="model" label="模型名称" rules={[{ required: true, message: "请输入模型名称" }]}>
+                          <Input placeholder="例如 gpt-4.1-mini" />
+                        </Form.Item>
+                        <Form.Item name="apiKey" label="API Key" rules={[{ required: true, message: "请输入 API Key" }]}>
+                          <Input.Password autoComplete="new-password" />
+                        </Form.Item>
+                        <Space>
+                          <Button type="primary" loading={savingModel} onClick={() => void createAndBindModel()}>验证并绑定</Button>
+                          <Button onClick={() => setModelFormOpen(false)}>收起</Button>
+                        </Space>
+                      </Form>
+                    ) : (
+                      <Space wrap>
+                        <Button size="small" onClick={() => setModelFormOpen(true)}>添加模型并绑定</Button>
+                        <Button size="small" onClick={() => navigate("/settings")}>在设置中详细配置</Button>
+                      </Space>
+                    )}
+                  </Flex>
+                ) : null}
+                {modelMessage !== null && (
+                  <Text type={modelReady ? "secondary" : "danger"} style={{ fontSize: 12 }}>{modelMessage}</Text>
+                )}
+              </LinkRow>
+              <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 0, marginTop: 4 }}>
+                Hermes 的日常运行使用它自己的 config.yaml / .env；Butler 受管任务使用上方加密保存并绑定的模型，两者职责不同。
+              </Paragraph>
+            </Card>
+
+            {/* 完成即走：全绿时按记忆场景给直达出口；未全绿也给跳过入口。 */}
+            <Card size="small">
+              <Flex vertical gap={10}>
+                <Text strong>{allOk ? "链路就绪，从这里继续" : "其他入口"}</Text>
+                {allOk && (
+                  <Text type="secondary" style={{ fontSize: 13 }}>
+                    上次记录的常用场景是「{rememberedTemplate.label}」，点下面直达；也可以换一个：
+                  </Text>
+                )}
+                <Space wrap>
+                  {allOk && (
+                    <Button type="primary" onClick={finish}>{rememberedTemplate.nextLabel}</Button>
+                  )}
+                  {SCENARIO_TEMPLATES.filter((t) => t.id !== rememberedTemplate.id).slice(0, 3).map((t) => (
+                    <Button key={t.id} onClick={() => {
+                      markSetupDone({ instanceId: connections[0]?.instanceId ?? null, templateId: t.id });
+                      navigate(t.destination, { replace: true });
+                    }}>
+                      {t.label}
+                    </Button>
+                  ))}
+                </Space>
+              </Flex>
+            </Card>
+          </>
         )}
       </Flex>
     </section>

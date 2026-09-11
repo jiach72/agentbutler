@@ -1,0 +1,26 @@
+{
+  "slug": "chart",
+  "schemaVersion": 2,
+  "name": "图表",
+  "category": "data-display",
+  "sourceKind": "from-scratch",
+  "confidence": "medium",
+  "semanticTypeCandidates": [
+    { "type": "Chart", "confidence": "medium", "evidence": "消息投递趋势、进化评分、巡检 Sparkline" },
+    { "type": "Sparkline", "confidence": "medium", "evidence": "指标条里的迷你趋势线" }
+  ],
+  "variantDimensions": [
+    { "dimension": "type", "values": ["line", "bar", "sparkline"] }
+  ],
+  "representativeVariants": [
+    { "name": "line", "whySelected": "趋势可视化，单一主色", "traits": { "type": "line", "palette": "single-primary", "axis": "quiet" }, "childrenDigest": "坐标轴 + 折线 + 图例" },
+    { "name": "bar", "whySelected": "分类对比，语义状态色", "traits": { "type": "bar", "palette": "semantic" }, "childrenDigest": "分类轴 + 柱 + 数值" },
+    { "name": "sparkline", "whySelected": "指标卡内的迷你趋势", "traits": { "type": "sparkline", "palette": "single-primary", "axis": "none" }, "childrenDigest": "迷你折线，无坐标轴" }
+  ],
+  "anatomy": ["container", "plot-area", "axis", "series", "legend"],
+  "structurePatterns": ["series+legend", "bare-sparkline"],
+  "usageHints": { "priorityHint": "medium", "oneLine": "安静可视化：单一主色 + 语义状态色，无霓虹渐变" },
+  "doNotInvent": ["霓虹渐变填充", "3D 效果", "过度装饰的网格线"],
+  "unknowns": [],
+  "keyInsightSeed": "安静可视化：单一主色 + 语义状态色，无霓虹渐变"
+}

@@ -1,0 +1,126 @@
+/* 设置页「市场风」局部样式：左侧分类导航 + 七路数据源状态概览。
+   颜色一律取 antd Token（--ant-*）；选中态蓝底 + 左蓝条与 skills/marketplace.css 模式一致，
+   组件为本页独立实现，不与技能页共享代码。 */
+
+/* 主体左右布局：左导航 200px，右侧内容自适应；窄屏改纵向堆叠。 */
+.settings-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+}
+
+.settings-content {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 左侧分类导航：粘性白卡容器。 */
+.settings-category-rail {
+  width: 200px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 88px;
+}
+
+.settings-rail-card {
+  background: var(--ant-color-bg-container, #fff);
+  border: 1px solid var(--ant-color-border-secondary, #e5e6eb);
+  border-radius: 10px;
+  padding: 8px;
+}
+
+.settings-rail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-rail-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  padding: 9px 12px;
+  cursor: pointer;
+  color: var(--ant-color-text, #1d2129);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  transition:
+    background 0.2s cubic-bezier(0.2, 0, 0, 1),
+    color 0.2s cubic-bezier(0.2, 0, 0, 1);
+}
+
+.settings-rail-item:hover {
+  background: var(--ant-color-fill-tertiary, #f7f8fa);
+}
+
+.settings-rail-item.active {
+  background: var(--ant-color-primary-bg, #f0f5ff);
+  color: var(--ant-color-primary, #2f54eb);
+  box-shadow: inset 3px 0 0 var(--ant-color-primary, #2f54eb);
+  font-weight: 500;
+}
+
+/* 数据源状态概览：小圆点 + 名称 + 降级状态。 */
+.settings-source-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 28px;
+}
+
+.settings-source-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ant-color-text-secondary, #4e5969);
+}
+
+.settings-source-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.settings-source-dot.loading {
+  background: var(--ant-color-text-quaternary, #bfbfbf);
+}
+
+.settings-source-dot.ready {
+  background: var(--ant-color-success, #52c41a);
+}
+
+.settings-source-dot.failed {
+  background: var(--ant-color-warning, #faad14);
+}
+
+/* 窄屏（<900px）：导航收为顶部横向 chips。 */
+@media (max-width: 899px) {
+  .settings-layout {
+    flex-direction: column;
+  }
+
+  .settings-category-rail {
+    position: static;
+    width: 100%;
+  }
+
+  .settings-rail-list {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .settings-rail-item.active {
+    box-shadow: none;
+  }
+
+  .settings-source-list {
+    gap: 8px 20px;
+  }
+}

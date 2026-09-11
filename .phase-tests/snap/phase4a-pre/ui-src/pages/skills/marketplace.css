@@ -1,0 +1,244 @@
+/* 技能市场（WorkBuddy 风格）局部样式：工具行 / 内容 Tab / 分类 chips / 精选横滑 / 卡片网格。
+   色值与 theme/tokens.ts 的语义色板成对（暗色用 nightPalette 对应值），其余走 antd CSS 变量。 */
+
+/* ---- 顶部工具行：左 Tab（推荐 | SkillHub），右 搜索 + 我安装的 + 添加技能 ---- */
+.wb-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.wb-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--ant-color-fill-tertiary, #f7f8fa);
+}
+
+.wb-tab {
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  padding: 5px 16px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--ant-color-text-secondary, #4e5969);
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s;
+}
+
+.wb-tab:hover { color: var(--ant-color-text, #1d2129); }
+
+.wb-tab.active {
+  background: var(--ant-color-bg-container, #fff);
+  color: var(--ant-color-text, #1d2129);
+  font-weight: 600;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+/* 「我安装的」胶囊按钮：文字 + 计数徽标。 */
+.wb-installed-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--ant-color-border-secondary, #e5e6eb);
+  background: var(--ant-color-bg-container, #fff);
+  border-radius: 999px;
+  padding: 5px 14px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ant-color-text, #1d2129);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
+}
+
+.wb-installed-chip:hover {
+  border-color: var(--ant-color-primary, #2f54eb);
+  color: var(--ant-color-primary, #2f54eb);
+}
+
+.wb-installed-chip.active {
+  border-color: var(--ant-color-primary, #2f54eb);
+  color: var(--ant-color-primary, #2f54eb);
+  background: var(--ant-color-primary-bg, #f0f5ff);
+}
+
+.wb-installed-chip .count {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--ant-color-fill-tertiary, #f0f1f3);
+  color: var(--ant-color-text-secondary, #4e5969);
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+
+.wb-installed-chip.active .count {
+  background: var(--ant-color-primary, #2f54eb);
+  color: #fff;
+}
+
+/* ---- 精选技能：标题行 + 横向滑动卡片行 ---- */
+.wb-featured { margin-top: 4px; }
+
+.wb-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.wb-featured-row {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  scroll-snap-type: x proximity;
+}
+
+.wb-featured-row > * {
+  flex: 0 0 236px;
+  width: 236px;
+  scroll-snap-align: start;
+}
+
+.wb-featured-row .skill-card-desc { font-size: 12px; }
+
+/* ---- 分类 chips 行 ---- */
+.wb-chips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 14px 0 12px;
+}
+
+.wb-chip {
+  border: 1px solid transparent;
+  background: var(--ant-color-fill-tertiary, #f7f8fa);
+  border-radius: 999px;
+  padding: 3px 14px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ant-color-text-secondary, #4e5969);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.2s, background 0.2s;
+}
+
+.wb-chip:hover { color: var(--ant-color-text, #1d2129); }
+
+.wb-chip.active {
+  background: var(--ant-color-primary-bg, #f0f5ff);
+  border-color: var(--ant-color-primary, #2f54eb);
+  color: var(--ant-color-primary, #2f54eb);
+  font-weight: 600;
+}
+
+.wb-chip .count {
+  margin-left: 4px;
+  font-size: 11px;
+  color: var(--ant-color-text-tertiary, #86909c);
+}
+
+/* ---- 卡片网格：自适应列数，统一卡片高度 ---- */
+.wb-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(252px, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 640px) {
+  .wb-grid { grid-template-columns: 1fr; }
+}
+
+.wb-card {
+  border-radius: 12px;
+  height: 100%;
+}
+
+.wb-card .ant-card-body { padding: 14px 16px; }
+
+.wb-card .skill-card-desc {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  min-height: 36px;
+}
+
+.wb-card-meta {
+  font-size: 12px;
+  color: var(--ant-color-text-tertiary, #86909c);
+}
+
+/* 卡片头像：方形圆角，失败回退分类色块。 */
+.wb-card-avatar {
+  border-radius: 8px;
+  flex-shrink: 0;
+  background: var(--ant-color-fill-quaternary, #f7f8fa);
+}
+
+/* ---- 安装「+」圆钮（市场卡右上角） ---- */
+.wb-plus {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--ant-color-border-secondary, #e5e6eb);
+  background: var(--ant-color-bg-container, #fff);
+  color: var(--ant-color-text-secondary, #4e5969);
+  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 0.2s, border-color 0.2s, background 0.2s;
+}
+
+.wb-plus:hover {
+  border-color: var(--ant-color-primary, #2f54eb);
+  color: var(--ant-color-primary, #2f54eb);
+}
+
+.wb-plus.installed {
+  border-color: transparent;
+  background: var(--ant-color-success-bg, #f6ffed);
+  color: var(--ant-color-success, #52c41a);
+  cursor: default;
+}
+
+/* 加载更多行 */
+.wb-load-more {
+  display: flex;
+  justify-content: center;
+  padding: 16px 0 4px;
+}
+
+/* ---- 分类色图标底（走语义变量，真源见 tokens.ts；无图标技能的回退底） ---- */
+.skill-tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  font-size: 20px;
+}
+
+.skill-tile.tone-teal { background: var(--butler-teal-soft); color: var(--butler-teal); }
+.skill-tile.tone-blue { background: var(--butler-accent-soft); color: var(--butler-accent); }
+.skill-tile.tone-purple { background: color-mix(in srgb, var(--butler-ink) 9%, var(--butler-surface)); color: var(--butler-ink-soft); }
+.skill-tile.tone-cinnabar { background: var(--butler-cinnabar-soft); color: var(--butler-cinnabar); }
+.skill-tile.tone-green { background: var(--butler-ok-soft); color: var(--butler-ok); }
+.skill-tile.tone-gold { background: var(--butler-warn-soft); color: var(--butler-warn); }
+.skill-tile.tone-gray { background: var(--butler-sunken); color: var(--butler-ink-faint); }

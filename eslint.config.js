@@ -13,6 +13,9 @@ export default tseslint.config(
       ".superpowers/**",
       ".trae/**",
       ".workbuddy/**",
+      // 品牌迁移的分阶段验收脚本：Node 脚本里嵌 page.evaluate 的浏览器上下文回调，
+      // 全局对象两边都有，静态 lint 无法分类，故整体排除（不影响产品代码）。
+      ".phase-tests/**",
     ],
   },
   js.configs.recommended,

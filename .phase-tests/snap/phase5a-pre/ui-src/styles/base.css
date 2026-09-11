@@ -1,0 +1,138 @@
+/**
+ * 全局基础层：文档底色/字体、焦点环、选区、滚动条、动效降级与通用工具类。
+ * 控件观感全部交给 antd（ConfigProvider + Design Token），这里只兜底
+ * antd 不管理的原生元素；颜色/字号一律引用 --butler-* 变量（真源见 theme/tokens.ts）。
+ */
+
+html {
+  height: 100%;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100%;
+  background-color: var(--butler-bg);
+  color: var(--butler-ink);
+  font-family: var(--butler-body-font);
+  font-size: var(--butler-text-md);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+/* 裸 <small> 不再依赖浏览器相对缩小（会跌到 9.6-10.4px），统一锚定最小字号 token。 */
+small {
+  font-size: var(--butler-text-xs);
+}
+
+::selection {
+  background: var(--butler-accent-soft);
+  color: var(--butler-accent);
+}
+
+/* 统一键盘焦点环：控件自身 antd 已处理，这里兜底自定义交互元素。
+   规范 §5：2px 管家蓝描边 + 3px 外发光、offset 2px。
+   外发光由 --butler-focus-ring（3px rgba 阴影）提供，描边由 --butler-focus（主色）补足。 */
+:focus-visible {
+  outline: 2px solid var(--butler-focus);
+  outline-offset: 2px;
+  box-shadow: var(--butler-focus-ring);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+/* 细滚动条，深浅主题自动跟随；悬停时略加深以增强可发现性。 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--butler-ink) 16%, var(--butler-rule)) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--butler-ink) 16%, var(--butler-rule));
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--butler-ink) 28%, var(--butler-rule));
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---- 工具类 ---- */
+
+.is-mono {
+  font-family: var(--butler-mono-font);
+  /* 相对缩小优先，但不低于 12px 最小字号 token（0.92em 在 12px 父级下 = 11.04px）。 */
+  font-size: max(0.92em, var(--butler-text-xs));
+  font-variant-numeric: tabular-nums;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.skip-link {
+  position: fixed;
+  top: -48px;
+  left: 16px;
+  /* 规范 §2.5 z-index 仅 0/10/20/30/50/60 六档，60 是最高档（modal/焦点提示）。
+     不允许 2000 这类魔法值。 */
+  z-index: 60;
+  padding: 8px 14px;
+  border-radius: var(--butler-radius-control);
+  background: var(--butler-accent);
+  color: var(--butler-on-accent);
+  font-size: var(--butler-text-sm);
+  text-decoration: none;
+  transition: top var(--butler-dur-fast) var(--butler-ease);
+}
+.skip-link:focus-visible {
+  top: 12px;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  font-weight: 600;
+  line-height: 1.3;
+  color: inherit;
+  text-wrap: balance;
+}
+
+p {
+  margin: 0;
+}

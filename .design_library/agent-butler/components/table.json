@@ -1,0 +1,24 @@
+{
+  "slug": "table",
+  "schemaVersion": 2,
+  "name": "表格",
+  "category": "data-display",
+  "sourceKind": "from-scratch",
+  "confidence": "medium",
+  "semanticTypeCandidates": [
+    { "type": "Table", "confidence": "high", "evidence": "限流、日志、审计等结构化数据展示" }
+  ],
+  "variantDimensions": [
+    { "dimension": "density", "values": ["default", "compact"] }
+  ],
+  "representativeVariants": [
+    { "name": "default", "whySelected": "可读优先，行 hover 高亮", "traits": { "density": "normal", "header": "muted", "row-hover": "subtle" }, "childrenDigest": "表头 + 数据行 + 行内操作" },
+    { "name": "compact", "whySelected": "高密度日志/审计场景", "traits": { "density": "compact", "header": "muted" }, "childrenDigest": "表头 + 密集数据行" }
+  ],
+  "anatomy": ["container", "header-row", "data-row", "cell", "row-action", "status-badge"],
+  "structurePatterns": ["header+rows", "row-action", "status-cell"],
+  "usageHints": { "priorityHint": "medium", "oneLine": "危险操作在行内需二次确认；术语保持通俗" },
+  "doNotInvent": ["复杂列排序交互（无交互语境）", "嵌套表格"],
+  "unknowns": ["分页/排序是否内置由具体页面决定"],
+  "keyInsightSeed": "克制密度：可读优先，危险操作行内二次确认"
+}

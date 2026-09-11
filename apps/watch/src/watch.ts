@@ -81,6 +81,7 @@ import {
 } from "./http.js";
 import { createDefaultStages, defaultResourceSampler, type InspectionStage, type ResourceSampler } from "./pipeline.js";
 import { createHostMetricsService, type HostMetricsService } from "./host-metrics.js";
+import { createLlmUsageService } from "./llm-usage.js";
 import { createMemoryProbeStage } from "./probes/memory-probe.js";
 import { createRoutedMemoryProbeProvider } from "./probes/memory-providers.js";
 import { buildDiagnosticSummary, renderDiagnosticReport } from "./diagnostics.js";
@@ -128,6 +129,21 @@ import { createSecurityService, type SecurityService } from "./invariants.js";
 import { createRuntimeCommandExecutor, detectButlerRuntime, type ButlerRuntimeInfo } from "./runtime.js";
 import { createMarkdownFileService, type MarkdownFileService } from "./markdown-files.js";
 import { createRetentionPruner, type RetentionPruner } from "./retention.js";
+import { createBudgetEngine, type BudgetEngine } from "./budget.js";
+import { createActionAuditService, discoverLogFiles, type ActionAuditService } from "./action-audit.js";
+import { createKillSwitchService, type KillSwitchService } from "./killswitch.js";
+import { createTrustEventHub, type TrustEventHub } from "./trust-events.js";
+import { createWeeklyReportService, type WeeklyReportService } from "./weekly-report.js";
+import { createSessionIndexService, type SessionIndexService } from "./session-index.js";
+import { createApprovalService, type ApprovalService } from "./approvals.js";
+import { createCanaryService, type CanaryService } from "./canary.js";
+import {
+  createProgressIntegrityService,
+  type ProgressIntegrityService,
+} from "./progress-integrity.js";
+import { createMemoryDiffService, type MemoryDiffService } from "./memory-diff.js";
+import { createFederationService, type FederationService } from "./federation.js";
+import { createShadowRunner } from "./shadow-runner.js";
 
 const DEFAULT_BUTLER_REPOSITORY = "https://github.com/jiach72/agentbutler";
 
@@ -202,6 +218,27 @@ export interface WatchApp {
   backup: BackupService;
   /** Task 18：安全基线（三条配置不变式 + 密钥权限扫描）。 */
   security: SecurityService;
+  /* ------------------- 信任层（Trust Layer）服务 ------------------- */
+  /** M1.1：预算引擎（15 分钟核算 + 触线动作）。 */
+  budgetEngine: BudgetEngine;
+  /** M1.2：行为审计流（增量解析执行日志；auditCollectorEnabled=false 时为 undefined）。 */
+  actionAudit: ActionAuditService | undefined;
+  /** M1.3：全局急停（engage 自动快照 + 停实例 + 三路留痕）。 */
+  killSwitch: KillSwitchService;
+  /** M2.2：事件中心（统一事件对象 + 关联规则）。 */
+  trustEvents: TrustEventHub;
+  /** M2.1：Agent 周报（周一 08:00 幂等生成 + 推送；weeklyReportEnabled=false 时为 undefined）。 */
+  weeklyReport: WeeklyReportService | undefined;
+  /** M2.3：会话索引（state.db 元数据 + 动作聚合；sessionIndexEnabled=false 时为 undefined）。 */
+  sessions: SessionIndexService | undefined;
+  approvals: ApprovalService | undefined;
+  canary: CanaryService | undefined;
+  /** M3.3：假进度检测（progressIntegrityEnabled=false 时为 undefined）。 */
+  progress: ProgressIntegrityService | undefined;
+  /** M4.3：记忆变更流（依赖行为审计流，恒可用）。 */
+  memoryDiff: MemoryDiffService;
+  /** M4.4：多实例联邦聚合视图。 */
+  federation: FederationService;
   /** 本次组装时检出的实例。 */
   instances: InstanceRecord[];
   /** 手动驱动一次 tail 轮询（测试 / 即时采集）。 */
@@ -927,10 +964,120 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
   const markdownFiles: MarkdownFileService = createMarkdownFileService({ core, backupGate });
   const externalEvolution = createExternalEvolutionService({ core, skills, backup, llm, now: options.now });
 
+  // LLM Token 用量与成本（大屏 Token 三件套 / 成本中枢）：只读聚合 Hermes state.db。
+  const llmUsage = createLlmUsageService({ dbPath: join(runtime.hermesRoot, "state.db") });
+
+  /* ------------------- 信任层（Trust Layer）服务组装 ------------------- */
+  // 事件中心（M2.2）：统一事件对象 + 关联规则（升级疑似回归等）。
+  const trustEventsHub: TrustEventHub = createTrustEventHub({
+    store: core.store,
+    audit: core.audit,
+    now: options.now,
+  });
+  // 行为审计流（M1.2）：增量解析 Hermes 执行日志 → 结构化动作事件。
+  // 路径：BUTLER_AUDIT_LOG_PATHS 显式指定优先；缺省自动发现 <hermesRoot>/logs/*.log。
+  const auditLogPathCandidates = (config.auditLogPaths ?? "")
+    .split(",")
+    .map((path) => path.trim())
+    .filter((path) => path !== "");
+  // 审计与假进度检测共用同一份日志源，避免两套探测结果漂移。
+  const resolvedLogPaths =
+    auditLogPathCandidates.length > 0
+      ? auditLogPathCandidates
+      : discoverLogFiles(join(runtime.hermesRoot, "logs"));
+  const auditCollector: ActionAuditService | undefined = config.auditCollectorEnabled
+    ? createActionAuditService({
+        store: core.store,
+        logPaths: resolvedLogPaths,
+        retentionDays: config.auditRetentionDays,
+        now: options.now,
+        driver,
+      })
+    : undefined;
+  // 全局急停（M1.3）：走能力路由的 control，不旁路；engage 前自动全量快照。
+  const killswitchRefOf = (instanceId: string): InstanceRef | null => {
+    const record = core.instances.getInstance(instanceId);
+    return record === undefined
+      ? null
+      : { instanceId: record.instanceId, rootPath: record.rootPath, runtime: record.runtime };
+  };
+  const killSwitch: KillSwitchService = createKillSwitchService({
+    store: core.store,
+    createSnapshot: async (label) => {
+      const row = await backup.run("full", label);
+      return { id: row.id };
+    },
+    listRunningInstances: () =>
+      core.instances
+        .listInstances()
+        .filter((record) => (record.state === "Serving" || record.state === "Degraded") && record.rootPath !== ""),
+    stopInstance: async (instanceId) => {
+      const ref = killswitchRefOf(instanceId);
+      if (ref === null) throw new Error(`instance-not-found: ${instanceId}`);
+      const result = await routedControl.stop(ref);
+      if (!result.ok) throw new Error(result.error?.message ?? "stop failed");
+      core.instances.markOffline(instanceId, "全局急停");
+    },
+    startInstance: async (instanceId) => {
+      // 复用连接动作的完整流程（探测 → start → 提升为 Serving）。
+      const outcome = await runConnectionAction(instanceId, "connect");
+      if (outcome.status === "failed" || outcome.status === "no-instance") {
+        throw new Error("restart failed");
+      }
+    },
+    poster: alertPoster,
+    audit: core.audit,
+    trustEvents: trustEventsHub,
+    now: options.now,
+  });
+  // 预算引擎（M1.1）：15 分钟核算；触线告警 + 事件中心事件。
+  const budgetEngine: BudgetEngine = createBudgetEngine({
+    store: core.store,
+    llmUsage,
+    poster: alertPoster,
+    audit: core.audit,
+    trustEvents: trustEventsHub,
+    config: { monthlyUsd: config.budgetMonthlyUsd, action: config.budgetAction },
+    now: options.now,
+    driver,
+  });
+  // 事件中心接线（确定性规则，零 LLM）：
+  // - 错误指纹聚合/升级 → 事件中心（R5 resolved→regressed 由 store upsert 实现）；
+  // - 成功升级调用 → markVersionChange（R1 升级疑似回归锚点）。
+  const unsubscribeFingerprintAggregated = core.bus.on("fingerprint-aggregated", (event) => {
+    trustEventsHub.recordFingerprint({
+      signature: event.payload.signature,
+      template: event.payload.template,
+      severity: "warn",
+      instanceId: event.payload.instanceId,
+    });
+  });
+  const unsubscribeFingerprintEscalated = core.bus.on("fingerprint-escalated", (event) => {
+    trustEventsHub.recordFingerprint({
+      signature: event.payload.signature,
+      template: event.payload.template,
+      severity: "critical",
+      instanceId: event.payload.instanceId,
+    });
+  });
+  const unsubscribeUpgradeCalls = core.bus.on("adapter-call-completed", (event) => {
+    if (event.payload.method !== "upgrade" || !event.payload.success || event.payload.instanceId === undefined) return;
+    const record = core.instances.getInstance(event.payload.instanceId);
+    trustEventsHub.markVersionChange(record?.version ?? "unknown");
+  });
+
   // events/audit 追加式表的保留期清理，防止长期常驻时数据库无限膨胀。
+  // 审计流保留期（7-90 天，默认 14）由采集器自身配置计算，这里不透传 cutoff。
   const retentionPruner: RetentionPruner = createRetentionPruner({
     pruneEvents: (cutoff) => core.store.pruneEvents(cutoff),
     pruneAudit: (cutoff) => core.store.pruneAudit(cutoff),
+    pruneActionEvents: () => auditCollector?.prune() ?? 0,
+    pruneTrustEvents: (cutoff) => core.store.pruneTrustEvents(cutoff),
+    // 惰性求值：sessions 在信任层组装块之后创建，此处不能立即读取（TDZ）。
+    pruneSessionIndex: () => sessions?.prune() ?? 0,
+    pruneActionApprovals: () => approvals?.prune() ?? 0,
+    pruneCanaryRuns: () => canary?.prune() ?? 0,
+    pruneProgressClaims: () => progress?.prune() ?? 0,
     now: options.now,
     driver,
   });
@@ -1797,6 +1944,120 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
   const skillAssets = createSkillAssetService({ core, skills, backup, backupGate, logs: logsService, now: options.now });
   const logAnalyzer = createLogAnalyzer(logsService);
 
+  // Agent 周报（M2.1）：周一 08:00 幂等生成 + 网关推送（severity info，不挤占告警语义）。
+  // 依赖 skillAssets（技能用量 TOP），故在技能服务创建之后组装。
+  // 假进度检测（M3.3）：从执行日志提取进度声明 → 与同会话真实副作用动作对账 →
+  // verified / suspect / unverifiable 三态。归属不到会话或无从观测时显式「无法验证」。
+  // 多实例联邦（M4.4）：跨实例聚合视图 + 分组标签 + 统一急停覆盖性。
+  const federation: FederationService = createFederationService({
+    store: core.store,
+    killswitchInstances: () => (killSwitch.state().engaged ? killSwitch.state().stoppedInstanceIds : []),
+    now: options.now,
+  });
+
+  // 记忆变更流（M4.3）：从行为审计流推导「本周新增/修改/遗忘」的记忆文件。
+  const memoryDiff: MemoryDiffService = createMemoryDiffService({
+    store: core.store,
+    managedPaths: () =>
+      markdownFiles
+        .list()
+        .filter((file) => file.exists)
+        .map((file) => file.absolutePath),
+    now: options.now,
+  });
+
+  const progress: ProgressIntegrityService | undefined = config.progressIntegrityEnabled
+    ? createProgressIntegrityService({
+        store: core.store,
+        trustEvents: trustEventsHub,
+        audit: core.audit,
+        poster: alertPoster,
+        logPaths: resolvedLogPaths,
+        retentionDays: config.progressRetentionDays,
+        now: options.now,
+        driver,
+      })
+    : undefined;
+
+  const weeklyReport: WeeklyReportService | undefined = config.weeklyReportEnabled
+    ? createWeeklyReportService({
+        store: core.store,
+        llmUsage,
+        skillAssets,
+        backup,
+        ...(auditCollector !== undefined ? { auditCollector } : {}),
+        ...(progress !== undefined ? { progress } : {}),
+        memoryDiff,
+        trustEvents: trustEventsHub,
+        monthlyBudgetUsd: config.budgetMonthlyUsd,
+        poster: alertPoster,
+        audit: core.audit,
+        now: options.now,
+        driver,
+        pushEnabled: config.weeklyReportPush,
+      })
+    : undefined;
+
+  // 会话索引（M2.3）：state.db 会话元数据 + action_events 动作聚合 → session_index。
+  // 隐私红线：只索引元数据与结构化动作，不采集对话正文。
+  const sessions: SessionIndexService | undefined = config.sessionIndexEnabled
+    ? createSessionIndexService({
+        core,
+        dbPath: join(runtime.hermesRoot, "state.db"),
+        retentionDays: config.sessionIndexRetentionDays,
+        replayEnabled: config.sessionReplayEnabled,
+        now: options.now,
+        driver,
+      })
+    : undefined;
+
+  // 通知即操作（M3.1）：高危动作 → 带按钮卡片 → 批准/拒绝；15 分钟未应答按默认拒绝。
+  // 判定与状态机在 Watch（贴近数据源），卡片推送与回执在 Gateway（贴近通道）。
+  const approvals: ApprovalService | undefined = config.approvalEnabled
+    ? createApprovalService({
+        store: core.store,
+        trustEvents: trustEventsHub,
+        audit: core.audit,
+        poster: alertPoster,
+        publicBaseUrl: config.publicBaseUrl,
+        ttlMs: config.approvalTtlMs,
+        retentionDays: config.approvalRetentionDays,
+        escalationThreshold: config.approvalEscalationThreshold,
+        autoDetect: config.approvalAutoDetect,
+        now: options.now,
+        driver,
+      })
+    : undefined;
+
+  // 升级金丝雀（M3.2）：抽样（真实会话索引）→ 影子验证 → 三指标准入判据 → 观察窗自动回滚。
+  // 影子执行器（M3.2 收尾）：隔离 venv 安装目标版本 + 真实端点冒烟回放（venv 在数据卷，
+  // 不碰运行实例）；模型端点未配置时 available()=false → 按策略诚实降级，绝不伪造指标。
+  const shadowRunner = createShadowRunner({
+    exec: commandExec,
+    stateDbPath: join(runtime.hermesRoot, "state.db"),
+    shadowRoot: join(core.paths.dataDir, "canary-shadow"),
+    llm: {
+      baseUrl: config.llm.baseUrl,
+      apiKey: config.llm.apiKey,
+      model: config.llm.model,
+    },
+    ...(config.upgradePipPackage === undefined ? {} : { pipPackage: config.upgradePipPackage }),
+    now: options.now,
+  });
+  const canary: CanaryService | undefined = config.canaryEnabled
+    ? createCanaryService({
+        store: core.store,
+        trustEvents: trustEventsHub,
+        audit: core.audit,
+        poster: alertPoster,
+        upgrade: upgradeWithBackup,
+        shadowRunner,
+        defaultPolicy: config.canaryDefaultPolicy,
+        now: options.now,
+        driver,
+      })
+    : undefined;
+
   // 技能库管理器（skills-manager CLI 集成）：CLI 的 HOME 隔离在数据卷
   // <dataDir>/skills-manager-home（中央库随卷持久化）；部署目标 claude_code 落在
   // <cliHome>/.claude/skills，由服务维护为指向 Hermes skills 目录的 symlink 穿透落位。
@@ -1858,6 +2119,8 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       resourceSampler: defaultResourceSampler(commandExec),
     });
 
+  // LLM Token 用量（大屏 Token 三件套）：已在信任层组装块前创建（预算引擎共用）。
+
   const repairSessions = createRepairSessionService({
     scheduler,
     connections,
@@ -1891,7 +2154,21 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       evolutionInsights,
       evolutionAnalytics,
       skillAssets,
+      llmUsage,
       skillsManager,
+      // 信任层（Trust Layer）服务注册：M1 成本/审计/急停 + M2 事件中心/周报 + M2.3 会话索引。
+      // ⚠️ 这些必须显式注入，否则断点端点在生产装配下返回 503（测试因直接传 deps 掩盖过该问题）。
+      budget: budgetEngine,
+      actionAudit: auditCollector,
+      killswitch: killSwitch,
+      trustEvents: trustEventsHub,
+      weeklyReport,
+      sessions,
+      approvals,
+      canary,
+      progress,
+      memoryDiff,
+      federation,
       // github-token.json 与 skill-assets / upgrade 消费端同源（core.paths.home）。
       dataDir: core.paths.home,
       llm,
@@ -1940,9 +2217,26 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     backup.start(); // 每小时检查：记忆增量 + 每日全量
     security.start(); // 每 30 秒复验配置不变式，捕获面板外文件修改
     retentionPruner.start(); // 每 6 小时清理超出保留期的 events/audit
+    auditCollector?.start(); // 每 15 秒增量解析执行日志 → 行为审计流
+    budgetEngine.start(); // 每 15 分钟核算月度预算（M1.1）
+    weeklyReport?.start(); // 周一 08:00 幂等生成周报（M2.1）
+    sessions?.start(); // 每 5 分钟增量刷新会话索引（M2.3）
+    approvals?.start(); // 15s 超时结算 + 高危动作侦测（M3.1）
+    canary?.startTimer(); // 5 分钟观察窗守卫：回归自动回滚（M3.2）
+    progress?.start(); // 15s 增量提取进度声明并与副作用对账（M3.3）
   }
 
   const stop = (): void => {
+    unsubscribeFingerprintAggregated();
+    unsubscribeFingerprintEscalated();
+    unsubscribeUpgradeCalls();
+    budgetEngine.stop();
+    weeklyReport?.stop();
+    sessions?.stop();
+    approvals?.stop();
+    canary?.stopTimer();
+    progress?.stop();
+    auditCollector?.stop();
     retentionPruner.stop();
     backup.stop();
     security.stop();
@@ -1984,6 +2278,17 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     promptOptimization,
     backup,
     security,
+    budgetEngine,
+    actionAudit: auditCollector,
+    killSwitch,
+    trustEvents: trustEventsHub,
+    weeklyReport,
+    sessions,
+    approvals,
+    canary,
+    progress,
+    memoryDiff,
+    federation,
     instances,
     pollTail,
     stop,

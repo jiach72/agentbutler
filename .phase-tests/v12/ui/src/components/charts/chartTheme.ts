@@ -1,0 +1,129 @@
+/**
+ * 图表视觉规范：把 tokens.ts 的语义色板桥接为 @ant-design/charts(G2 v5) 的通用配置。
+ * 图表自身不允许出现硬编码色值；亮暗切换由 ConfigProvider 的 mode 驱动，
+ * 与页面共用同一真源（paletteFor）。
+ */
+import type { ThemeMode } from "../../theme/tokens.js";
+import { paletteFor } from "../../theme/tokens.js";
+
+export interface ChartTheme {
+  /** G2 内置主题：暗色切 classicDark，底色/文字自动反转。 */
+  g2Theme: "classic" | "classicDark";
+  /** 系列色序：主色 → 信息青 → 成功 → 警示 → 错误。 */
+  seriesColors: string[];
+  muted: string;
+  rule: string;
+}
+
+export function chartThemeFor(mode: ThemeMode): ChartTheme {
+  const p = paletteFor(mode);
+  return {
+    g2Theme: mode === "dark" ? "classicDark" : "classic",
+    seriesColors: [p.primary, p.teal, p.ok, p.warn, p.error],
+    muted: p.muted,
+    rule: p.rule,
+  };
+}
+
+/** 常用语义系列（长表单数据用：key 即 colorField 域值）。 */
+export function semanticSeries(
+  mode: ThemeMode,
+  defs: Array<
+    [key: string, label: string, tone: "accent" | "teal" | "ok" | "warn" | "error" | "muted"]
+  >,
+): Array<{ key: string; label: string; color: string }> {
+  const p = paletteFor(mode);
+  const toneColor = {
+    accent: p.primary,
+    teal: p.teal,
+    ok: p.ok,
+    warn: p.warn,
+    error: p.error,
+    muted: p.muted,
+  } as const;
+  return defs.map(([key, label, tone]) => ({ key, label, color: toneColor[tone] }));
+}
+
+/** 单系列图的主填充色（primary），避免页面直接取色板。 */
+export function primaryFill(mode: ThemeMode): string {
+  return paletteFor(mode).primary;
+}
+
+/**
+ * 公共坐标轴覆盖：无标题、细刻度、发丝线网格，贴合控制台信息密度。
+ * 返回结构对应 G2 v5 的 axis.{x,y} 配置，经 Trend* 封装透传。
+ */
+export function quietAxes(
+  theme: ChartTheme,
+  options: { integerY?: boolean } = {},
+): {
+  x: Record<string, unknown>;
+  y: Record<string, unknown>;
+} {
+  const integerY = options.integerY ?? true;
+  return {
+    x: {
+      title: false,
+      tick: false,
+      labelFill: theme.muted,
+      labelFontSize: 11,
+      line: true,
+      lineStroke: theme.rule,
+      lineStrokeOpacity: 0.9,
+    },
+    y: {
+      title: false,
+      tick: false,
+      labelFill: theme.muted,
+      labelFontSize: 11,
+      line: false,
+      grid: true,
+      gridStroke: theme.rule,
+      gridStrokeOpacity: 0.7,
+      gridStrokeDash: [3, 4],
+      labelFormatter: (value: unknown) =>
+        integerY && !Number.isInteger(Number(value)) ? "" : String(value),
+    },
+  };
+}
+
+/** 横向条形图使用可读的分类标签，数值轴仍维持安静的网格与刻度。 */
+export function horizontalBarAxes(theme: ChartTheme): {
+  x: Record<string, unknown>;
+  y: Record<string, unknown>;
+} {
+  return {
+    x: {
+      title: false,
+      tick: false,
+      labelFill: theme.muted,
+      labelFontSize: 11,
+      line: false,
+      grid: true,
+      gridStroke: theme.rule,
+      gridStrokeOpacity: 0.7,
+      gridStrokeDash: [3, 4],
+      labelFormatter: (value: unknown) =>
+        Number.isInteger(Number(value)) ? String(value) : "",
+    },
+    y: {
+      title: false,
+      tick: false,
+      labelFill: theme.muted,
+      labelFontSize: 11,
+      line: false,
+    },
+  };
+}
+
+/** 堆叠图顶部横向图例，紧凑且颜色文案继承主题。 */
+export function topLegend(theme: ChartTheme): Record<string, unknown> {
+  return {
+    color: {
+      position: "top",
+      title: false,
+      itemLabelFill: theme.muted,
+      itemLabelFontSize: 12,
+    },
+  };
+}

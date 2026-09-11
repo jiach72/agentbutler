@@ -14,11 +14,22 @@ import {
   ApiOutlined,
   FileSearchOutlined,
   ToolOutlined,
+  DollarOutlined,
+  FileDoneOutlined,
+  AlertOutlined,
+  FileTextOutlined,
+  HistoryOutlined,
+  AuditOutlined,
+  FundProjectionScreenOutlined,
+  DiffOutlined,
+  ClusterOutlined,
 } from "@ant-design/icons";
 import { Button, Drawer, Layout as AntLayout, Menu } from "antd";
 import type { MenuProps } from "antd";
 import { Suspense, useEffect, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { KillSwitchButton } from "./KillSwitchButton.js";
+import { MobileTabBar } from "./MobileTabBar.js";
 import { NotificationCenter } from "./NotificationCenter.js";
 import { PageProgress } from "./PageProgress.js";
 import { NotificationsProvider } from "../hooks/useNotifications.js";
@@ -32,12 +43,25 @@ const NAV_ITEMS = [
   { to: "/gateway", icon: <NotificationOutlined />, label: "消息通知", note: "频率控制与送达记录" },
 ];
 
+/** 信任层（Trust Layer）：成本 / 行为审计 / 事件中心。 */
+const TRUST_NAV_ITEMS = [
+  { to: "/cost", icon: <DollarOutlined />, label: "成本", note: "花了多少钱、值不值" },
+  { to: "/audit", icon: <FileDoneOutlined />, label: "行为审计", note: "动过哪些文件、发了什么" },
+  { to: "/events", icon: <AlertOutlined />, label: "事件中心", note: "一处看完所有告警与回归" },
+  { to: "/report", icon: <FileTextOutlined />, label: "Agent 周报", note: "每周一 08:00 自动汇总推送" },
+  { to: "/sessions", icon: <HistoryOutlined />, label: "会话追踪", note: "按会话回放 agent 的动作链" },
+  { to: "/approvals", icon: <AuditOutlined />, label: "操作审批", note: "高危动作先点头，超时默认拒绝" },
+  { to: "/progress", icon: <FundProjectionScreenOutlined />, label: "进度可信度", note: "它说做完了，是真的还是编的" },
+  { to: "/memory-diff", icon: <DiffOutlined />, label: "记忆变更", note: "本周它记住了什么、忘了什么" },
+  { to: "/federation", icon: <ClusterOutlined />, label: "实例联邦", note: "多实例成本、事件与急停合并看" },
+];
+
 const SECONDARY_ROUTE_ITEMS = [
   { to: "/core-files", icon: <FileSearchOutlined />, label: "核心文件", note: "查看、编辑与回滚 Markdown" },
   { to: "/evolution", icon: <ToolOutlined />, label: "自进化", note: "分析日志与优化方案" },
   { to: "/troubleshoot", icon: <ToolOutlined />, label: "排查问题", note: "按现象一步步处理" },
   { to: "/logs", icon: <FileSearchOutlined />, label: "系统日志", note: "查看记录与修复建议" },
-  { to: "/setup", icon: <SettingOutlined />, label: "连接设置", note: "检查本机实例连接" },
+  { to: "/setup", icon: <SettingOutlined />, label: "连接体检", note: "链路三环体检与修复" },
 ];
 
 const SETTINGS_ITEM = {
@@ -128,9 +152,10 @@ function SidebarContent({
     <>
       <div className="brand">
         <span className="brand-mark" aria-hidden="true">
-          {/* 品牌标志（docs/agent-butler-brand）：浅色主题用主标志，深色主题用反白版。 */}
-          <img className="brand-logo is-light" src="/brand/ab-icon.svg" alt="" />
-          <img className="brand-logo is-dark" src="/brand/ab-icon-inverse.svg" alt="" />
+          {/* 品牌标志（docs/brand/02 §2.3）：侧栏 28×28 用小尺寸加粗版（线宽 2.6，
+              标准版 2.0 在 24px 级会糊）；深色底用反白版——墨线在 #0F2133 上对比度不足。 */}
+          <img className="brand-logo is-light" src="/brand/ab-mark-sm.svg" alt="" />
+          <img className="brand-logo is-dark" src="/brand/ab-mark-inverse.svg" alt="" />
         </span>
         <span className="brand-copy">
           Agent Butler
@@ -197,7 +222,7 @@ export function Layout() {
         跳到主内容
       </a>
       <AntLayout className="app">
-        <AntLayout.Sider className="app-sider" width={232} theme="light">
+        <AntLayout.Sider className="app-sider" width={240} theme="light">
           <SidebarContent baseline={baseline} />
         </AntLayout.Sider>
         <Drawer
@@ -229,6 +254,7 @@ export function Layout() {
               <span className={`topbar-note${baselineTone(baseline) !== "ok" ? ` is-${baselineTone(baseline)}` : ""}`}>
                 {baselineTitle(baseline)}
               </span>
+              <KillSwitchButton />
               <Button
                 type="text"
                 size="small"
@@ -255,6 +281,8 @@ export function Layout() {
             </Suspense>
           </AntLayout.Content>
         </AntLayout>
+        {/* 移动端底部 Tab（M4.1）：≤600px 才渲染显示，桌面端被 CSS 隐藏。 */}
+        <MobileTabBar />
       </AntLayout>
     </NotificationsProvider>
   );

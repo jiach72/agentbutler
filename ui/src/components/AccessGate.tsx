@@ -9,7 +9,7 @@
  * 视觉完全交给 antd 原生 Modal/Alert/Input：不造自定义卡片皮肤。
  */
 import { useEffect, useState } from "react";
-import { Alert, Button, Divider, Flex, Input, Modal, Typography } from "antd";
+import { Alert, Button, Divider, Flex, Input, Modal, Tooltip, Typography } from "antd";
 import { setAccessToken, subscribeUnauthorized } from "../lib/accessToken.js";
 
 export function AccessGate() {
@@ -102,9 +102,11 @@ export function AccessGate() {
             </Typography.Text>
           )}
         </div>
+        <Tooltip title="输入口令后即可进入">
         <Button type="primary" block onClick={submit} disabled={value.trim() === ""}>
           输入口令进入
         </Button>
+      </Tooltip>
         <Flex vertical gap={4} id="access-gate-hint">
           <Typography.Text strong>只有从其他设备访问时才需要口令</Typography.Text>
           <Typography.Text type="secondary">

@@ -20,6 +20,7 @@ import {
   Statistic,
   Table,
   Tag,
+  Tooltip,
   Typography,
   Modal,
 } from "antd";
@@ -479,7 +480,7 @@ export function PromptOptimizationPanel() {
     () =>
       semanticSeries(mode, [
         ["自动整理", "自动整理", "accent"],
-        ["快捷指令", "快捷指令", "teal"],
+        ["快捷指令", "快捷指令", "brand"],
         ["原样发送", "原样发送", "ok"],
       ]),
     [mode],
@@ -766,6 +767,7 @@ export function PromptOptimizationPanel() {
         <Flex vertical gap={16}>
           <Flex justify="space-between" align="center" gap={12} wrap="wrap">
             <Text type="secondary">候选必须基于当前 active hash 创建，并经过成对评估后才能采用。</Text>
+            <Tooltip title="先在上方选择或确认优化目标，才能创建候选">
             <Button
               type="primary"
               disabled={data?.targets.length === 0 || data === null}
@@ -776,6 +778,7 @@ export function PromptOptimizationPanel() {
             >
               新建候选
             </Button>
+            </Tooltip>
           </Flex>
           {data !== null && data.targets.length === 0 && (
             <Empty
@@ -938,20 +941,22 @@ export function PromptOptimizationPanel() {
                     title: "评估",
                     width: 110,
                     render: (_, candidate) => (
-                      <Button
-                        size="small"
-                        disabled={candidate.status === "promoted"}
-                        onClick={() => {
-                          setEvaluationCandidate(candidate);
-                          evaluationForm.setFieldsValue({
-                            cases: JSON.stringify([
-                              { caseId: "case-1", baselineScore: 0, candidateScore: 0 },
-                            ], null, 2),
-                          });
-                        }}
-                      >
-                        运行评估
-                      </Button>
+                      <Tooltip title={candidate.status === "promoted" ? "该候选已采用为当前版本，无需再评估" : ""}>
+                        <Button
+                          size="small"
+                          disabled={candidate.status === "promoted"}
+                          onClick={() => {
+                            setEvaluationCandidate(candidate);
+                            evaluationForm.setFieldsValue({
+                              cases: JSON.stringify([
+                                { caseId: "case-1", baselineScore: 0, candidateScore: 0 },
+                              ], null, 2),
+                            });
+                          }}
+                        >
+                          运行评估
+                        </Button>
+                      </Tooltip>
                     ),
                   },
                   {
@@ -960,14 +965,16 @@ export function PromptOptimizationPanel() {
                     render: (_, candidate) => {
                       if (candidate.status === "approval-pending" && candidate.latestEvaluation?.canPromote) {
                         return (
-                          <Button
-                            type="primary"
-                            disabled={promotingCandidateId !== null}
-                            loading={promotingCandidateId === candidate.candidateId}
-                            onClick={() => void promoteCandidate(candidate)}
-                          >
-                            采用此版本
-                          </Button>
+                          <Tooltip title="另一个采用操作正在进行">
+                            {/* §3.1 行内操作降为 default，页面主 primary 是「新建候选」。 */}
+                            <Button
+                              disabled={promotingCandidateId !== null}
+                              loading={promotingCandidateId === candidate.candidateId}
+                              onClick={() => void promoteCandidate(candidate)}
+                            >
+                              采用此版本
+                            </Button>
+                          </Tooltip>
                         );
                       }
                       return candidate.status === "promoted" ? "当前使用" : "不可采用";

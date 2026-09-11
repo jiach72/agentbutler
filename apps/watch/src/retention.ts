@@ -18,6 +18,18 @@ export const RETENTION_PRUNE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 export interface RetentionPrunerOptions {
   pruneEvents: (cutoff: string) => number;
   pruneAudit: (cutoff: string) => number;
+  /** 行为审计流（Trust Layer M1.2）：保留期由采集器配置决定，此处只执行删除。 */
+  pruneActionEvents?: (cutoff: string) => number;
+  /** 事件中心（Trust Layer M2.2）：按 last_seen 清理。 */
+  pruneTrustEvents?: (cutoff: string) => number;
+  /** 会话索引（Trust Layer M2.3）：保留期由会话服务配置决定，此处只执行删除。 */
+  pruneSessionIndex?: (cutoff: string) => number;
+  /** 操作审批单（Trust Layer M3.1）：保留期由审批服务配置决定，此处只执行删除。 */
+  pruneActionApprovals?: (cutoff: string) => number;
+  /** 升级金丝雀运行记录（Trust Layer M3.2）：保留期由金丝雀服务配置决定。 */
+  pruneCanaryRuns?: (cutoff: string) => number;
+  /** 进度声明核实记录（Trust Layer M3.3）：保留期由进度检测服务配置决定。 */
+  pruneProgressClaims?: (cutoff: string) => number;
   /** 可注入时钟（epoch 毫秒，与 WatchAppOptions.now 一致）。 */
   now?: () => number;
   driver?: TimerDriver;
@@ -29,7 +41,16 @@ export interface RetentionPruner {
   start(): void;
   stop(): void;
   /** 立即执行一轮清理并返回删除行数（测试与手动触发用）。 */
-  runOnce(): { events: number; audit: number };
+  runOnce(): {
+    events: number;
+    audit: number;
+    actionEvents: number;
+    trustEvents: number;
+    sessionIndex: number;
+    actionApprovals: number;
+    canaryRuns: number;
+    progressClaims: number;
+  };
 }
 
 export function createRetentionPruner(options: RetentionPrunerOptions): RetentionPruner {
@@ -47,9 +68,24 @@ export function createRetentionPruner(options: RetentionPrunerOptions): Retentio
   const cutoffIso = (days: number): string =>
     new Date(now() - days * 24 * 60 * 60 * 1000).toISOString();
 
-  function runOnce(): { events: number; audit: number } {
+  function runOnce(): {
+    events: number;
+    audit: number;
+    actionEvents: number;
+    trustEvents: number;
+    sessionIndex: number;
+    actionApprovals: number;
+    canaryRuns: number;
+    progressClaims: number;
+  } {
     let events = 0;
     let audit = 0;
+    let actionEvents = 0;
+    let trustEvents = 0;
+    let sessionIndex = 0;
+    let actionApprovals = 0;
+    let canaryRuns = 0;
+    let progressClaims = 0;
     try {
       events = options.pruneEvents(cutoffIso(EVENT_RETENTION_DAYS));
     } catch (error) {
@@ -60,7 +96,46 @@ export function createRetentionPruner(options: RetentionPrunerOptions): Retentio
     } catch (error) {
       onError(error);
     }
-    return { events, audit };
+    try {
+      actionEvents = options.pruneActionEvents?.(cutoffIso(AUDIT_RETENTION_DAYS)) ?? 0;
+    } catch (error) {
+      onError(error);
+    }
+    try {
+      trustEvents = options.pruneTrustEvents?.(cutoffIso(EVENT_RETENTION_DAYS)) ?? 0;
+    } catch (error) {
+      onError(error);
+    }
+    try {
+      sessionIndex = options.pruneSessionIndex?.(cutoffIso(AUDIT_RETENTION_DAYS)) ?? 0;
+    } catch (error) {
+      onError(error);
+    }
+    try {
+      actionApprovals = options.pruneActionApprovals?.(cutoffIso(AUDIT_RETENTION_DAYS)) ?? 0;
+    } catch (error) {
+      onError(error);
+    }
+    try {
+      canaryRuns = options.pruneCanaryRuns?.(cutoffIso(AUDIT_RETENTION_DAYS)) ?? 0;
+    } catch (error) {
+      onError(error);
+    }
+    try {
+      progressClaims = options.pruneProgressClaims?.(cutoffIso(AUDIT_RETENTION_DAYS)) ?? 0;
+    } catch (error) {
+      onError(error);
+    }
+    return {
+      events,
+      audit,
+      actionEvents,
+      trustEvents,
+      sessionIndex,
+      actionApprovals,
+      canaryRuns,
+      progressClaims,
+    };
   }
 
   return {

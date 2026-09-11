@@ -1,0 +1,35 @@
+/* 系统日志页（/logs）：页面工具带 + 三分区卡（日志流 / 智能分析 / 修复会话）。
+   颜色一律引用 --butler-* 主题变量（真源见 theme/tokens.ts），不写死色值。 */
+
+/* 原始日志流：等宽字体滚动窗口。 */
+.logs-stream-pre {
+  margin: 0;
+  padding: 12px;
+  background: var(--butler-sunken);
+  border-radius: var(--butler-radius-control);
+  font-family: var(--butler-mono-font);
+  font-size: 12px;
+  line-height: 1.6;
+  max-height: 480px;
+  overflow: auto;
+}
+
+.logs-stream-pre code {
+  display: block;
+  white-space: pre-wrap;
+}
+
+/* 智能分析的问题块：标题 + 计数标签 + 示例 + 修复动作。 */
+.logs-issue {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--butler-rule);
+  border-radius: var(--butler-radius-control);
+  background: var(--butler-surface-subtle);
+}
+
+.logs-issue-action {
+  margin-top: 2px;
+}

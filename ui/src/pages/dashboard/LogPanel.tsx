@@ -24,8 +24,10 @@ import {
   Select,
   Space,
   Spin,
+  Tooltip,
   Typography,
 } from "antd";
+import { AiGeneratedNotice } from "../../components/AiGeneratedNotice.js";
 import {
   AlertOutlined,
   FileTextOutlined,
@@ -393,6 +395,7 @@ export function LogPanel({ open = true, onClose = () => undefined, embedded = fa
               label: `${sourceLabel(source.id)} · ${source.format === "journald" ? "服务日志" : formatBytes(source.sizeBytes)}`,
             }))}
           />
+          <Tooltip title="先在上方选择一个日志源">
           <Button
             icon={<ReloadOutlined aria-hidden="true" />}
             disabled={activeLog === null}
@@ -400,6 +403,7 @@ export function LogPanel({ open = true, onClose = () => undefined, embedded = fa
           >
             手动刷新
           </Button>
+          </Tooltip>
         </Flex>
       </Flex>
 
@@ -432,22 +436,26 @@ export function LogPanel({ open = true, onClose = () => undefined, embedded = fa
                     {(activeLog.hasOlder || activeLog.hasNewer) && (
                       <Space wrap>
                         {activeLog.hasOlder && (
-                          <Button
-                            size="small"
-                            disabled={loading}
-                            onClick={() => void loadLogTail(activeLog.sourceId, activeLog.pageStart)}
-                          >
-                            更早的日志
-                          </Button>
+                          <Tooltip title="正在加载日志">
+                            <Button
+                              size="small"
+                              disabled={loading}
+                              onClick={() => void loadLogTail(activeLog.sourceId, activeLog.pageStart)}
+                            >
+                              更早的日志
+                            </Button>
+                          </Tooltip>
                         )}
                         {activeLog.hasNewer && (
-                          <Button
-                            size="small"
-                            disabled={loading}
-                            onClick={() => void loadLogTail(activeLog.sourceId, null)}
-                          >
-                            回到最新
-                          </Button>
+                          <Tooltip title="正在加载日志">
+                            <Button
+                              size="small"
+                              disabled={loading}
+                              onClick={() => void loadLogTail(activeLog.sourceId, null)}
+                            >
+                              回到最新
+                            </Button>
+                          </Tooltip>
                         )}
                       </Space>
                     )}
@@ -496,6 +504,8 @@ export function LogPanel({ open = true, onClose = () => undefined, embedded = fa
                   </Space>
                 }
               />
+              {/* §1 P3：分析结论由模型归纳，必须标注来源，不与管家实测结论混层级。 */}
+              <AiGeneratedNotice compact detail="以下问题分类由模型从日志归纳，修复建议请结合实际日志复核后采纳。" />
               {analysisAnalyzedAt !== null && (
                 <Text type="secondary" style={{ fontSize: 12 }}>
                   分析于 {formatTime(analysisAnalyzedAt)}
@@ -530,13 +540,16 @@ export function LogPanel({ open = true, onClose = () => undefined, embedded = fa
                         {postFix === "recurred" && <StatusBadge tone="error" label="修复后仍出现" />}
                       </Flex>
                       {postFix === "repairing" ? (
-                        <Button className="logs-issue-action" type="primary" size="small" block disabled>
-                          修复执行中…
-                        </Button>
+                        <Tooltip title="修复正在执行，完成后会自动恢复操作">
+                          {/* 状态展示型按钮，不可点，不占 primary 名额（§3.1）。 */}
+                          <Button className="logs-issue-action" size="small" block disabled>
+                            修复执行中…
+                          </Button>
+                        </Tooltip>
                       ) : postFix === "cleared" ? null : issue.suggestedAction !== null ? (
+                        // §3.1 每屏 ≤1 primary：行内修复按钮降为 default，主操作让位给修复会话的「批准执行」。
                         <Button
                           className="logs-issue-action"
-                          type="primary"
                           size="small"
                           block
                           onClick={() => setConfirmFix(issue)}
@@ -586,6 +599,8 @@ export function LogPanel({ open = true, onClose = () => undefined, embedded = fa
         onCancel={() => setConfirmFix(null)}
         onConfirm={() => void runLogFix()}
         impact="该操作会重启或重连相关服务。确认前不会执行任何修改。"
+        reversible="可以。执行前会记录操作前状态，可在「设置 → 备份」还原。"
+        duration="重启或重连期间相关能力短暂不可用，一般 1 分钟内恢复。"
       >
         管家将执行修复方案「<strong>{confirmFix?.actionLabel ?? "重启服务"}</strong>」，
         期间 Hermes 可能短暂不可用，修复完成后会自动复检。

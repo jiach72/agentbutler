@@ -4,7 +4,7 @@
  * 布尔，任何接口都不回显令牌值；保存后立即生效（版本查询与技能市场即时使用）。
  */
 import { useCallback, useEffect, useState } from "react";
-import { App, Button, Card, Flex, Input, Popconfirm, Typography } from "antd";
+import { App, Button, Card, Flex, Input, Popconfirm, Tooltip, Typography } from "antd";
 import { loadJson, postJson } from "../../lib/api.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 
@@ -81,11 +81,11 @@ export function GithubTokenCard() {
       title="GitHub 访问令牌"
       extra={
         configured === null ? (
-          <StatusBadge tone="muted" label="状态未知" />
+          <StatusBadge tone="unknown" label="状态未知" />
         ) : configured ? (
           <StatusBadge tone="ok" label="已配置" />
         ) : (
-          <StatusBadge tone="muted" label="未配置" />
+          <StatusBadge tone="offline" label="未配置" />
         )
       }
     >
@@ -112,7 +112,9 @@ export function GithubTokenCard() {
             cancelText="保留"
             onConfirm={() => void clearToken()}
           >
-            <Button danger disabled={!configured || busy}>清除</Button>
+            <Tooltip title={configured ? "" : "尚未配置令牌，先保存一个再清除"}>
+              <Button danger disabled={!configured || busy}>清除</Button>
+            </Tooltip>
           </Popconfirm>
         </Flex>
         <Text type="secondary" style={{ fontSize: 12 }}>

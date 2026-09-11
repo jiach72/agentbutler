@@ -175,7 +175,8 @@ export function ChannelGrid({ onReconnect }: ChannelGridProps) {
                     <Icon />
                   </span>
                   <span>{channel.label}</span>
-                  <StatusBadge tone={channel.enabled ? "ok" : "muted"} label={channel.enabled ? "已启用" : "已停用"} />
+                  {/* 已停用属于规范 §1.4 的"未启动"，用 offline 而不是 unknown。 */}
+                  <StatusBadge tone={channel.enabled ? "ok" : "offline"} label={channel.enabled ? "已启用" : "已停用"} />
                 </Flex>
               }
             >
@@ -186,12 +187,13 @@ export function ChannelGrid({ onReconnect }: ChannelGridProps) {
                   {` · ${loginStateCopy(channel.loginState)}`}
                 </Typography.Text>
                 {channel.kind === "qr-login" ? (
-                  <Button size="small" type="primary" onClick={() => setLoginOpen(true)}>
+                  // §3.1 行内操作不占 primary 名额，页面主 primary 在页头。
+                  <Button size="small" onClick={() => setLoginOpen(true)}>
                     扫码登录
                   </Button>
                 ) : channel.kind === "credential" ? (
                   <Flex gap={8} wrap="wrap">
-                    <Button size="small" type="primary" onClick={() => setConfigChannel(channel)}>
+                    <Button size="small" onClick={() => setConfigChannel(channel)}>
                       {channel.credentialsConfigured ? "配置" : "配置接入"}
                     </Button>
                     {channel.credentialsConfigured &&

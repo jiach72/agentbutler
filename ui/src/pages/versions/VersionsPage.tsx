@@ -4,9 +4,10 @@
  * 次要功能（受管实例、更新偏好、回滚、备份节奏）收进可展开的简单行。
  */
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
-import { App, Button, Card, Flex, Select, Spin, Switch, Typography } from "antd";
+import { App, Button, Card, Flex, Select, Spin, Switch, Tooltip, Typography } from "antd";
 import { CheckCircleFilled, DownOutlined, UpOutlined } from "@ant-design/icons";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
+import { ConclusionBar } from "../../components/ConclusionBar.js";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
 import { useTheme } from "../../theme/ThemeProvider.js";
 import { useEventStream } from "../../hooks/useEventStream.js";
@@ -357,14 +358,16 @@ export function VersionsPanel() {
           有可用更新 <Text strong>{selfUpgradeCandidate.version}</Text>
           （{selfUpgradeCandidate.channel === "beta" ? "测试" : "正式"} 通道）
         </Text>
-        <Button
-          type="primary"
-          size="small"
-          disabled={selfBusy || prefs.locked}
-          onClick={() => setConfirmAction({ kind: "self-upgrade", target: selfUpgradeCandidate })}
-        >
-          更新管家
-        </Button>
+        <Tooltip title={selfBusy ? "有升级操作正在执行" : "偏好已锁定，先在偏好设置里解锁"}>
+          <Button
+            type="primary"
+            size="small"
+            disabled={selfBusy || prefs.locked}
+            onClick={() => setConfirmAction({ kind: "self-upgrade", target: selfUpgradeCandidate })}
+          >
+            更新管家
+          </Button>
+        </Tooltip>
       </Flex>
     );
   } else {
@@ -416,9 +419,9 @@ export function VersionsPanel() {
                       可升级到{" "}
                       <Text strong>{candidate.displayVersion ?? candidate.version}</Text>
                     </Text>
+                    {/* §3.1 行内升级操作降为 default，页头「更新管家」是主 primary。 */}
                     <Button
                       size="small"
-                      type="primary"
                       onClick={() => {
                         setSelectedInstance(instance.instanceId);
                         requestUpgrade(candidate);
@@ -502,9 +505,11 @@ export function VersionsPanel() {
             <Text>
               上一次升级：{previousSelfSnapshot.version}（commit {previousSelfSnapshot.commit}）
             </Text>
-            <Button size="small" disabled={selfBusy} onClick={() => requestSelfRollback(previousSelfSnapshot)}>
-              回滚到该版本
-            </Button>
+            <Tooltip title="有升级操作正在执行">
+              <Button size="small" disabled={selfBusy} onClick={() => requestSelfRollback(previousSelfSnapshot)}>
+                回滚到该版本
+              </Button>
+            </Tooltip>
           </Flex>
         ),
     },
@@ -539,6 +544,21 @@ export function VersionsPanel() {
           message="本地数据暂时读不到：管家与备份信息需要等管家重新连接后查看。"
         />
       )}
+
+      {/* §2.3 ② 结论条：当前版本 / 可升级。 */}
+      <ConclusionBar
+        tone={selfUpgradeCandidate !== null ? "warn" : "ok"}
+        title={
+          selfUpgradeCandidate !== null
+            ? `管家有可用更新 ${selfUpgradeCandidate.version}（${selfUpgradeCandidate.channel === "beta" ? "测试" : "正式"} 通道）`
+            : "管家已是最新版本"
+        }
+        copy={
+          selfUpgradeCandidate !== null
+            ? "零停机升级通常几十秒，升级前会自动备份当前状态。"
+            : "新版本发布后这里会提示；也可以手动检查更新。"
+        }
+      />
 
       <Card>
         <Flex vertical gap={16}>
@@ -630,6 +650,12 @@ export function VersionsPanel() {
                 : "确认还原"
           }
           impact="请确认你理解这次操作的影响；管家只会在你确认后执行。"
+          reversible="可以。升级/回滚前自动备份，失败自动回滚；也可在「设置 → 备份」手动还原。"
+          duration="管家服务会短暂重启，期间面板可能不可用。"
+          // 回滚管家自身是规范 §3.7 的高危操作，必须先手动勾选。
+          acknowledge={
+            confirmAction.kind === "self-rollback" ? "我已确认要回滚管家自身" : undefined
+          }
           onCancel={() => setConfirmAction(null)}
           onConfirm={() => void confirmActionExecute()}
         >

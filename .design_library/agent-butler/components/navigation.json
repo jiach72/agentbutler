@@ -1,0 +1,24 @@
+{
+  "slug": "navigation",
+  "schemaVersion": 2,
+  "name": "导航",
+  "category": "navigation",
+  "sourceKind": "from-scratch",
+  "confidence": "medium",
+  "semanticTypeCandidates": [
+    { "type": "Navigation", "confidence": "medium", "evidence": "页面标题栏 + 面包屑 + 分段导航" }
+  ],
+  "variantDimensions": [
+    { "dimension": "type", "values": ["page-header", "breadcrumb"] }
+  ],
+  "representativeVariants": [
+    { "name": "page-header", "whySelected": "页面标题 + 主要动作的承载", "traits": { "type": "page-header", "density": "normal" }, "childrenDigest": "标题 + 描述 + 右侧动作" },
+    { "name": "breadcrumb", "whySelected": "层级回溯，克制弱化", "traits": { "type": "breadcrumb", "tone": "muted" }, "childrenDigest": "父级链接 + 分隔符 + 当前页" }
+  ],
+  "anatomy": ["container", "title", "description", "action-slot", "breadcrumb-trail"],
+  "structurePatterns": ["title+actions", "breadcrumb-trail"],
+  "usageHints": { "priorityHint": "high", "oneLine": "激活态清晰，不放无关装饰" },
+  "doNotInvent": ["多级下拉菜单（无交互语境）", "装饰性图标"],
+  "unknowns": [],
+  "keyInsightSeed": "克制层级：激活态清晰，不放无关装饰"
+}

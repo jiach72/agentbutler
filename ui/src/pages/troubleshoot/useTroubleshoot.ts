@@ -1,10 +1,18 @@
 /**
- * 排查向导的数据流：按现象诊断 → 执行动作 → 复验 → 收口。
+ * 排查页数据流（v2 自动体检版）。
  *
- * 与首页恢复流程的区别：这里始终保留完整的证据与全部动作（不可用的也展示原因），
- * 现象选择只改变推荐顺序，不隐藏任何信息。
+ * v1 是纯向导：选现象 → 看证据 → 选动作 → 看结果，第一屏强制用户先做题。
+ * v2 的关键改变：**进入页面即静默体检**（postJson /api/recovery/diagnose 与
+ * chooseSymptom 走同一后端，没有额外成本），拿到结论后：
+ * - 一切正常 → 用户 0 点击看到「没有需要处理的问题」+ 证据摘要，向导收进抽屉；
+ * - 有问题    → 直接给「最可能的原因 + 推荐动作（1 键执行）」，现象选择降级为
+ *               「按我的感受重新聚焦」——改变推荐排序，不隐藏任何证据；
+ * - 想手动走完整向导的进阶用户 → 抽屉里保留全部 4 步。
+ *
+ * 与首页恢复流程的区别保持不变：这里始终保留完整的证据与全部动作
+ * （不可用的也展示原因），现象选择只改变推荐顺序，不隐藏任何信息。
  */
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { App } from "antd";
 import { loadJson, postJson } from "../../lib/api.js";
 import { isRecord } from "../../lib/format.js";
@@ -26,17 +34,32 @@ export interface WizardOutcome {
   detail: string;
 }
 
+export interface TriageSummary {
+  /** 体检总结论：正常 / 有提醒 / 有问题。 */
+  tone: "ok" | "warn" | "error";
+  /** 一句话标题（人话，不说码）。 */
+  title: string;
+  /** 补充说明（含证据摘要）。 */
+  detail: string;
+  /** 最可能的原因；只有探针真的失败时才有值。 */
+  rootCause: string | null;
+}
+
 export function useTroubleshoot() {
   const { message } = App.useApp();
-  const [stage, setStage] = useState<WizardStage>("symptom");
+  // stage === null 表示「体检总览」模式（新默认）；设为具体 stage 即进入完整向导。
+  const [stage, setStage] = useState<WizardStage | null>(null);
   const [symptom, setSymptom] = useState<SymptomId>(DEFAULT_SYMPTOM);
   const [diagnosis, setDiagnosis] = useState<RecoveryDiagnosisView | null>(null);
+  const [triageBusy, setTriageBusy] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
   const [job, setJob] = useState<RecoveryJobView | null>(null);
   const [outcome, setOutcome] = useState<WizardOutcome | null>(null);
   const [busy, setBusy] = useState(false);
   const [verifyingLabel, setVerifyingLabel] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<RecoveryActionView | null>(null);
+  // 自动体检只做一次（失败可手动重试）；向导内的 chooseSymptom 不复用它。
+  const autoTriageRef = useRef(false);
 
   const actions = diagnosis?.recommendedActions ?? [];
   const ranked = useMemo(() => rankActions(actions, symptom), [actions, symptom]);
@@ -49,22 +72,72 @@ export function useTroubleshoot() {
     setBusy(false);
     if (!result.ok || !isRecord(result.data)) {
       message.error("没有读到诊断结果，请确认管家服务是否在运行");
-      return;
+      return null;
     }
     const next = result.data as unknown as RecoveryDiagnosisView;
     setDiagnosis(next);
     setSelected(recommendAction(next.recommendedActions, selectedSymptom)?.id ?? null);
-    setStage("evidence");
+    return next;
   }, [message]);
 
-  /** 选完现象就开始查，不需要用户多点一次。 */
-  const chooseSymptom = useCallback(
-    (next: SymptomId) => {
-      setSymptom(next);
-      void runDiagnose(next);
-    },
-    [runDiagnose],
-  );
+  /** 进入页面即静默体检：不需要用户选择任何东西，直接拿结论。 */
+  useEffect(() => {
+    if (autoTriageRef.current) return;
+    autoTriageRef.current = true;
+    setTriageBusy(true);
+    void postJson("/api/recovery/diagnose", {}, 15_000).then((result) => {
+      setTriageBusy(false);
+      if (!result.ok || !isRecord(result.data)) return;
+      const next = result.data as unknown as RecoveryDiagnosisView;
+      setDiagnosis(next);
+      setSelected(recommendAction(next.recommendedActions, DEFAULT_SYMPTOM)?.id ?? null);
+    });
+  }, []);
+
+  /** 体检总览的手动重试。 */
+  const rerunTriage = useCallback(() => {
+    setTriageBusy(true);
+    void postJson("/api/recovery/diagnose", {}, 15_000).then((result) => {
+      setTriageBusy(false);
+      if (!result.ok || !isRecord(result.data)) {
+        message.error("没有读到诊断结果，请确认管家服务是否在运行");
+        return;
+      }
+      const next = result.data as unknown as RecoveryDiagnosisView;
+      setDiagnosis(next);
+      setSelected(recommendAction(next.recommendedActions, symptom)?.id ?? null);
+    });
+  }, [message, symptom]);
+
+  /** 体检总结论（只依赖 diagnosis，不依赖用户选择）。 */
+  const triage: TriageSummary | null = useMemo(() => {
+    if (diagnosis === null) return null;
+    if (diagnosis.rootCause !== null) {
+      return {
+        tone: "error",
+        title: "找到了一个需要处理的问题",
+        detail: diagnosis.summary ?? "有检查项没有通过，下面是最可能的原因和最快的处理方式。",
+        rootCause: diagnosis.rootCause,
+      };
+    }
+    if (diagnosis.primaryFinding !== null || diagnosis.severity === "warn") {
+      const primary = diagnosis.primaryFinding;
+      return {
+        tone: "warn",
+        title: primary === null ? "运行基本正常，有些提醒" : `运行正常，但日志里有提醒：${primary.title}`,
+        detail: primary === null ? "不影响当前使用，可以留意或按建议处理。" : primary.detail,
+        rootCause: null,
+      };
+    }
+    return {
+      tone: "ok",
+      title: "没有需要处理的问题",
+      detail: diagnosis.historicalFindingCount > 0
+        ? `全部检查通过。更早的日志里有 ${diagnosis.historicalFindingCount} 条历史提醒，不影响当前运行。`
+        : "全部检查通过，各探针状态正常。",
+      rootCause: null,
+    };
+  }, [diagnosis]);
 
   const pollJob = useCallback(async () => {
     if (job === null || job.status !== "running") return;
@@ -174,6 +247,27 @@ export function useTroubleshoot() {
     void executeAction(action);
   }, [executeAction, pendingAction]);
 
+  /** 完整向导入口：从总览进入现象选择。 */
+  const openWizard = useCallback(() => {
+    setStage("symptom");
+  }, []);
+
+  /** 向导内选完现象就开始查，不需要用户多点一次。 */
+  const chooseSymptom = useCallback(
+    (next: SymptomId) => {
+      setSymptom(next);
+      void runDiagnose(next).then((result) => {
+        if (result !== null) setStage("evidence");
+      });
+    },
+    [runDiagnose],
+  );
+
+  /** 回到体检总览（向导内任意步骤可返回）。 */
+  const backToOverview = useCallback(() => {
+    setStage(null);
+  }, []);
+
   const restart = useCallback(() => {
     setStage("symptom");
     setDiagnosis(null);
@@ -185,7 +279,14 @@ export function useTroubleshoot() {
   }, []);
 
   return {
+    // 总览（新增）
     stage,
+    triage,
+    triageBusy,
+    rerunTriage,
+    openWizard,
+    backToOverview,
+    // 向导（原有语义保留）
     setStage,
     symptom,
     chooseSymptom,

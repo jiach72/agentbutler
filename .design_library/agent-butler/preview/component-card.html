@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<link rel="stylesheet" href="../colors_and_type.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+/* Page scaffold — NOT extracted */
+body{margin:0;padding:var(--space-3);background:var(--color-background);font-family:var(--font-body);color:var(--color-foreground);}
+.row{display:grid;grid-template-columns:92px 1fr;gap:var(--space-3);align-items:start;margin-bottom:var(--space-4);}
+.label{padding-top:var(--space-1);font-family:var(--font-body);font-size:var(--font-size-caption);font-weight:var(--font-weight-caption);line-height:var(--line-height-caption);color:var(--color-muted-foreground);white-space:nowrap;}
+.rail{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:var(--space-3);align-items:stretch;}
+.divider{border:none;border-top:1px solid var(--color-border);margin:0 0 var(--space-4);}
+/* @component-css-start */
+.card{display:flex;flex-direction:column;gap:var(--space-3);background:var(--color-card);border:1px solid var(--color-border);border-radius:var(--radius-lg);box-shadow:var(--shadow-1);padding:var(--space-5);min-width:0;}
+.card--status{border-left:4px solid var(--color-border);}
+.card--status.card--success{border-left-color:var(--color-success);}
+.card--status.card--warning{border-left-color:var(--color-warning);}
+.card--status.card--danger{border-left-color:var(--color-error);}
+.card-title{margin:0;font-family:var(--font-heading);font-size:var(--font-size-h4);font-weight:var(--font-weight-h4);line-height:var(--line-height-h4);color:var(--color-foreground);word-break:keep-all;overflow-wrap:break-word;}
+.card-body{margin:0;font-family:var(--font-body);font-size:var(--font-size-body);font-weight:var(--font-weight-body);line-height:var(--line-height-body);color:var(--color-muted-foreground);overflow-wrap:break-word;}
+.card-action{margin-top:auto;align-self:flex-start;font-family:var(--font-body);font-size:var(--font-size-caption);font-weight:var(--font-weight-caption);color:var(--color-primary);text-decoration:none;white-space:nowrap;transition:filter .15s;}
+.card-action:hover{filter:brightness(1.08);}
+.card-cta{margin-top:auto;align-self:flex-start;display:inline-flex;align-items:center;justify-content:center;min-width:var(--size-button-height-sm);min-height:var(--size-button-height-sm);padding:0 var(--space-3);background:var(--color-primary);color:var(--primary-foreground);border-radius:var(--radius-sm);text-decoration:none;font-family:var(--font-body);font-size:var(--font-size-caption);font-weight:var(--font-weight-caption);white-space:nowrap;transition:filter .15s;}
+.card-cta:hover{filter:brightness(1.08);}
+.badge{display:inline-flex;align-items:center;gap:var(--space-1);align-self:flex-start;padding:var(--space-1) var(--space-2);border-radius:var(--radius-full);font-family:var(--font-body);font-size:var(--font-size-caption);font-weight:var(--font-weight-caption);line-height:var(--line-height-caption);white-space:nowrap;}
+.badge--success{background:var(--success-50);color:var(--success-700);}
+.badge--warning{background:var(--warning-50);color:var(--warning-700);}
+.badge--danger{background:var(--error-50);color:var(--error-700);}
+/* @component-css-end */
+</style>
+</head>
+<body>
+<div class="row" data-evidence-sample="default">
+  <span class="label">默认卡片</span>
+  <div class="rail">
+    <div class="card"><h4 class="card-title">版本升级</h4><p class="card-body">消息通知</p><a class="card-action" href="#">高级详情</a></div>
+    <div class="card"><h4 class="card-title">技能库</h4><p class="card-body">安全基线</p><a class="card-action" href="#">立即检查</a></div>
+    <div class="card"><h4 class="card-title">消息通知</h4><p class="card-body">技能库</p><a class="card-action" href="#">修复一下</a></div>
+  </div>
+</div>
+<hr class="divider">
+<div class="row" data-evidence-sample="status">
+  <span class="label">状态卡片</span>
+  <div class="rail">
+    <div class="card card--status card--success"><span class="badge badge--success">运行正常</span><h4 class="card-title">运行正常</h4><p class="card-body">消息通知</p><a class="card-cta" href="#">立即检查</a></div>
+    <div class="card card--status card--warning"><span class="badge badge--warning">版本升级</span><h4 class="card-title">版本升级</h4><p class="card-body">技能库</p><a class="card-cta" href="#">立即检查</a></div>
+    <div class="card card--status card--danger"><span class="badge badge--danger">安全基线</span><h4 class="card-title">安全基线</h4><p class="card-body">修复一下</p><a class="card-cta" href="#">立即检查</a></div>
+  </div>
+</div>
+</body>
+</html>

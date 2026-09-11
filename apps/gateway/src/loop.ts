@@ -86,6 +86,8 @@ export class DeliveryLoop {
       title: alert.title,
       body: alert.body,
       source: alert.source,
+      // 交互式卡片按钮随投递一起下发（M3.1）；无按钮时省略字段，保持旧报文形态。
+      ...(alert.actions.length === 0 ? {} : { actions: alert.actions }),
     };
 
     // info/warn 无需外发；critical 但无可用外发通道时同样降级面板横幅。

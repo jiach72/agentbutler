@@ -1,0 +1,302 @@
+{
+  "meta": {
+    "date": "2026-09-10",
+    "scope": "ui/src",
+    "files_scanned": 135
+  },
+  "findings": {
+    "hardcoded_hex": [
+      {
+        "file": "components/Layout.tsx",
+        "line": 132,
+        "value": "#0F2133"
+      },
+      {
+        "file": "styles/primitives.css",
+        "line": 105,
+        "value": "#1a2e46"
+      }
+    ],
+    "nonstandard_radius": [
+      {
+        "file": "styles/taste.css",
+        "line": 32,
+        "value": "6px 6px 0 0",
+        "bad_parts": [
+          "0",
+          "0"
+        ]
+      }
+    ],
+    "important_usage": [
+      {
+        "file": "styles/base.css",
+        "line": 60,
+        "content": "scroll-behavior: auto !important;"
+      },
+      {
+        "file": "styles/base.css",
+        "line": 61,
+        "content": "transition-duration: 1ms !important;"
+      },
+      {
+        "file": "styles/shell.css",
+        "line": 93,
+        "content": "这样不再需要 !important 强制覆盖（规范 §3.7「组件层零覆盖」+ 禁 !important）。 */"
+      }
+    ],
+    "butler_ref": [
+      {
+        "file": "theme/tokens.ts",
+        "line": 437,
+        "value": "--butler-content-max",
+        "in_comment": true
+      },
+      {
+        "file": "theme/tokens.ts",
+        "line": 437,
+        "value": "--butler-focus-offset",
+        "in_comment": true
+      },
+      {
+        "file": "theme/tokens.ts",
+        "line": 437,
+        "value": "--butler-stat-accent",
+        "in_comment": true
+      }
+    ],
+    "dynamic_var_concat": [
+      {
+        "file": "components/charts/Sparkline.tsx",
+        "line": 13,
+        "content": "* 阶段 5B 删别名桥后 --butler-* 不再输出，动态拼接 `var(--butler-${tone})`"
+      }
+    ],
+    "primary_density": [
+      {
+        "file": "components/ConclusionBar.tsx",
+        "count": 2
+      },
+      {
+        "file": "pages/setup/SetupPage.tsx",
+        "count": 5
+      }
+    ],
+    "bare_badge": [
+      {
+        "file": "components/ConnectionChip.tsx",
+        "line": 37
+      },
+      {
+        "file": "pages/dashboard/ConnectionSection.tsx",
+        "line": 120
+      },
+      {
+        "file": "pages/dashboard/ConnectionSection.tsx",
+        "line": 146
+      },
+      {
+        "file": "pages/dashboard/ConnectionSection.tsx",
+        "line": 228
+      },
+      {
+        "file": "pages/dashboard/DashboardPage.tsx",
+        "line": 228
+      },
+      {
+        "file": "pages/dashboard/LogPanel.tsx",
+        "line": 308
+      },
+      {
+        "file": "pages/dashboard/LogPanel.tsx",
+        "line": 491
+      },
+      {
+        "file": "pages/dashboard/ReadinessSection.tsx",
+        "line": 257
+      },
+      {
+        "file": "pages/dashboard/ReadinessSection.tsx",
+        "line": 324
+      },
+      {
+        "file": "pages/evolution/EvolutionCharts.tsx",
+        "line": 248
+      },
+      {
+        "file": "pages/gateway/GatewayPage.tsx",
+        "line": 409
+      },
+      {
+        "file": "pages/gateway/PromptOptimizationPanel.tsx",
+        "line": 661
+      },
+      {
+        "file": "pages/gateway/PromptOptimizationPanel.tsx",
+        "line": 839
+      },
+      {
+        "file": "pages/gateway/PromptOptimizationPanel.tsx",
+        "line": 913
+      }
+    ],
+    "ai_output_no_notice": [
+      {
+        "file": "components/AdvancedDetails.tsx"
+      },
+      {
+        "file": "components/charts/index.tsx"
+      },
+      {
+        "file": "components/Layout.tsx"
+      },
+      {
+        "file": "components/NotificationCenter.tsx"
+      },
+      {
+        "file": "pages/dashboard/ConnectionSection.tsx"
+      },
+      {
+        "file": "pages/dashboard/DashboardPage.tsx"
+      },
+      {
+        "file": "pages/dashboard/readiness.ts"
+      },
+      {
+        "file": "pages/dashboard/ReadinessSection.tsx"
+      },
+      {
+        "file": "pages/dashboard/types.ts"
+      },
+      {
+        "file": "pages/gateway/DeliveryTrendCard.tsx"
+      },
+      {
+        "file": "pages/gateway/GatewayPage.tsx"
+      },
+      {
+        "file": "pages/gateway/helpers.ts"
+      },
+      {
+        "file": "pages/gateway/MessageInspector.tsx"
+      },
+      {
+        "file": "pages/gateway/PromptOptimizationPanel.tsx"
+      },
+      {
+        "file": "pages/settings/DiagnosticsCenter.tsx"
+      },
+      {
+        "file": "pages/settings/SecurityBaseline.tsx"
+      },
+      {
+        "file": "pages/skills/marketplace.ts"
+      },
+      {
+        "file": "pages/skills/PluginLibrary.tsx"
+      },
+      {
+        "file": "pages/skills/SkillsPage.tsx"
+      },
+      {
+        "file": "pages/troubleshoot/steps/EvidenceStep.tsx"
+      },
+      {
+        "file": "pages/versions/BackupCadenceChart.tsx"
+      }
+    ],
+    "disabled_no_tooltip": [
+      {
+        "file": "pages/versions/CandidateList.tsx",
+        "line": 182
+      }
+    ]
+  },
+  "counts": {
+    "hardcoded_hex": 2,
+    "nonstandard_radius": 1,
+    "important_usage": 3,
+    "butler_ref": 3,
+    "dynamic_var_concat": 1,
+    "primary_density": 2,
+    "bare_badge": 14,
+    "ai_output_no_notice": 21,
+    "disabled_no_tooltip": 1
+  },
+  "page_template": {
+    "/dashboard": {
+      "file": "pages/dashboard/DashboardPage.tsx",
+      "section_header": false,
+      "conclusion_bar": true,
+      "advanced_details": false,
+      "ai_notice": false
+    },
+    "/skills": {
+      "file": "pages/skills/SkillsMarketplace.tsx",
+      "section_header": true,
+      "conclusion_bar": true,
+      "advanced_details": false,
+      "ai_notice": false
+    },
+    "/gateway": {
+      "file": "pages/gateway/GatewayPage.tsx",
+      "section_header": true,
+      "conclusion_bar": true,
+      "advanced_details": true,
+      "ai_notice": false
+    },
+    "/versions": {
+      "file": "pages/versions/VersionsPage.tsx",
+      "section_header": false,
+      "conclusion_bar": true,
+      "advanced_details": false,
+      "ai_notice": false
+    },
+    "/troubleshoot": {
+      "file": "pages/troubleshoot/TroubleshootPage.tsx",
+      "section_header": false,
+      "conclusion_bar": false,
+      "advanced_details": false,
+      "ai_notice": false
+    },
+    "/logs": {
+      "file": null,
+      "note": "未定位到页面文件"
+    },
+    "/core-files": {
+      "file": "pages/CoreFilesPage.tsx",
+      "section_header": false,
+      "conclusion_bar": true,
+      "advanced_details": false,
+      "ai_notice": false
+    },
+    "/evolution": {
+      "file": "pages/evolution/EvolutionPage.tsx",
+      "section_header": true,
+      "conclusion_bar": true,
+      "advanced_details": false,
+      "ai_notice": true
+    },
+    "/settings": {
+      "file": "pages/settings/SettingsPage.tsx",
+      "section_header": false,
+      "conclusion_bar": true,
+      "advanced_details": false,
+      "ai_notice": false
+    },
+    "/setup": {
+      "file": "pages/setup/SetupPage.tsx",
+      "section_header": true,
+      "conclusion_bar": false,
+      "advanced_details": false,
+      "ai_notice": false
+    },
+    "/preferences": {
+      "file": "pages/preferences/PreferencesPage.tsx",
+      "section_header": false,
+      "conclusion_bar": true,
+      "advanced_details": false,
+      "ai_notice": false
+    }
+  }
+}

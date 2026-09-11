@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 296" role="img" aria-label="Agent Butler 管家机器人（品牌线描）">
+  <title>Agent Butler 管家机器人 · 品牌线描</title>
+  <g transform="translate(0,4)" fill="none" stroke="#0B1728" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <!-- 天线（黄铜） -->
+    <path d="M120 42V30"/>
+    <circle cx="120" cy="25" r="4.5" fill="#A8823C" stroke="none"/>
+    <!-- 头 + 耳罩 -->
+    <rect x="70" y="42" width="100" height="78" rx="20"/>
+    <rect x="55" y="65" width="15" height="32" rx="7"/>
+    <rect x="170" y="65" width="15" height="32" rx="7"/>
+    <!-- 眼 + 嘴 -->
+    <circle cx="98" cy="80" r="5.5" fill="#0B1728" stroke="none"/>
+    <circle cx="142" cy="80" r="5.5" fill="#0B1728" stroke="none"/>
+    <path d="M98 96a34 34 0 0 0 44 0"/>
+    <!-- 颈 -->
+    <path d="M108 120V130M132 120V130"/>
+    <!-- 躯干 -->
+    <rect x="74" y="128" width="92" height="78" rx="14"/>
+    <!-- 屏幕（管家蓝） -->
+    <rect x="96" y="148" width="46" height="38" rx="6" stroke="#1B4F7A" fill="#EEF4FA"/>
+    <path d="M104 176h30" stroke="#5B9BD1"/>
+    <circle cx="155" cy="158" r="4"/>
+    <circle cx="155" cy="176" r="4"/>
+    <!-- 左臂 -->
+    <path d="M74 146 52 136 40 110"/>
+    <circle cx="40" cy="104" r="7"/>
+    <!-- 右臂 + 控制盒 -->
+    <path d="M166 146 184 176 169 200"/>
+    <circle cx="169" cy="202" r="7"/>
+    <rect x="174" y="186" width="50" height="42" rx="9"/>
+    <path d="M190 202h18" stroke="#5B9BD1"/>
+    <circle cx="189" cy="214" r="3"/>
+    <circle cx="199" cy="214" r="3"/>
+    <circle cx="209" cy="214" r="3"/>
+    <!-- 腿 + 靴 -->
+    <path d="M96 206V250M144 206V250"/>
+    <rect x="76" y="248" width="40" height="22" rx="8"/>
+    <rect x="124" y="248" width="40" height="22" rx="8"/>
+  </g>
+  <!-- 扳手（黄铜记忆点） -->
+  <g transform="translate(40,104) rotate(-32)" fill="none" stroke="#A8823C" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M0 0V-22"/>
+    <path d="M-8 -22h16"/>
+    <path d="M-8 -22v-14M8 -22v-14"/>
+  </g>
+</svg>

@@ -1,0 +1,179 @@
+/**
+ * 首页数据获取与刷新治理：聚合端点首屏取齐、双轮询（主刷新 10s / 连接探测 5s）、
+ * 共享 /ws 事件流节流信号，以及「关键数据全部读不到」的失败可见性判定。
+ */
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { fetchJson } from "../../lib/api.js";
+import { useEventStream } from "../../hooks/useEventStream.js";
+import { useNotifications } from "../../hooks/useNotifications.js";
+import { usePolling } from "../../hooks/usePolling.js";
+import { REFRESH_EVENT_PREFIXES, REFRESH_THROTTLE_MS } from "./helpers.js";
+import type {
+  ConnectionsPayload,
+  DashboardPayload,
+  DeliveryHistoryPayload,
+  DiscoveredLlmPayload,
+  HealthPayload,
+  HostMetricsPayload,
+  InspectionHistoryPayload,
+  LlmStatusView,
+  MessageStatusPayload,
+  OpenClawStatusView,
+  RunbooksPayload,
+  RuntimePayload,
+} from "./types.js";
+
+/** 轮询返回内容不变时保留原引用，让 React 跳过无意义的整树重渲染。 */
+function sameJson(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+export function useDashboardData() {
+  const [dashboard, setDashboard] = useState<DashboardPayload | null>(null);
+  const [connections, setConnections] = useState<ConnectionsPayload | null>(null);
+  const [openClawStatus, setOpenClawStatus] = useState<OpenClawStatusView | null>(null);
+  // 告警数据复用通知中心（NotificationsProvider）的 10s 轮询，不再重复请求 /api/alerts。
+  const notifications = useNotifications();
+  const [deliveryHistory, setDeliveryHistory] = useState<DeliveryHistoryPayload | null>(null);
+  const [inspectionHistory, setInspectionHistory] = useState<InspectionHistoryPayload | null>(null);
+  const [runbooks, setRunbooks] = useState<RunbooksPayload | null>(null);
+  const [llmStatus, setLlmStatus] = useState<LlmStatusView | null>(null);
+  const [discoveredModels, setDiscoveredModels] = useState<DiscoveredLlmPayload["configs"] | null>(null);
+  const [hostMetrics, setHostMetrics] = useState<HostMetricsPayload | null>(null);
+  const [serviceHealth, setServiceHealth] = useState<HealthPayload | null>(null);
+  const [runtime, setRuntime] = useState<RuntimePayload | null>(null);
+  const [readinessRefreshing, setReadinessRefreshing] = useState(false);
+  const [dashboardLoaded, setDashboardLoaded] = useState(false);
+
+  const refresh = useCallback(async () => {
+    await Promise.all([
+      fetchJson<DashboardPayload>("/api/dashboard").then((dash) => {
+        if (dash !== null) {
+          setDashboard((current) => (sameJson(current, dash) ? current : dash));
+          setDashboardLoaded(true);
+        }
+      }),
+      fetchJson<DeliveryHistoryPayload>("/api/messages/delivery-history?days=7").then((history) => {
+        if (history !== null) setDeliveryHistory((current) => (sameJson(current, history) ? current : history));
+      }),
+      fetchJson<InspectionHistoryPayload>("/api/inspections/history?days=14").then((history) => {
+        if (history !== null) setInspectionHistory((current) => (sameJson(current, history) ? current : history));
+      }),
+      fetchJson<RunbooksPayload>("/api/runbooks").then((nextRunbooks) => {
+        if (nextRunbooks !== null) setRunbooks((current) => (sameJson(current, nextRunbooks) ? current : nextRunbooks));
+      }),
+    ]);
+  }, []);
+
+  const refreshConnections = useCallback(async () => {
+    const [next, openclaw, messageStatus] = await Promise.all([
+      fetchJson<ConnectionsPayload>("/api/connections", 8_000),
+      fetchJson<OpenClawStatusView>("/api/openclaw/status", 8_000),
+      fetchJson<MessageStatusPayload>("/api/messages/status", 8_000),
+    ]);
+    if (next !== null) setConnections((current) => (sameJson(current, next) ? current : next));
+    if (openclaw !== null) {
+      setOpenClawStatus((current) => (sameJson(current, openclaw) ? current : openclaw));
+    }
+    if (messageStatus !== null) {
+      setDashboard((current) => {
+        if (current === null) return current;
+        const merged = { ...current, messageStatus };
+        return sameJson(current, merged) ? current : merged;
+      });
+    }
+  }, []);
+
+  // 模型发现可能读取 WSL 文件，只在首屏、手动复查和低频轮询时执行，避免抢占连接操作。
+  const refreshReadiness = useCallback(async () => {
+    setReadinessRefreshing(true);
+    try {
+      const [status, discovered] = await Promise.all([
+        fetchJson<LlmStatusView>("/api/llm/status", 10_000),
+        fetchJson<DiscoveredLlmPayload>("/api/llm/discovered", 10_000),
+      ]);
+      if (status !== null) setLlmStatus(status);
+      if (discovered !== null) setDiscoveredModels(discovered.configs);
+    } finally {
+      setReadinessRefreshing(false);
+    }
+  }, []);
+
+  // 主机指标（watch 快照含 CPU 双采样与 GPU 探测）+ 各服务健康检查延迟：
+  // 就绪度信息卡数据，非操作入口，低频 30s 轮询即可。
+  const refreshHostMetrics = useCallback(async () => {
+    const [metrics, health, runtime] = await Promise.all([
+      fetchJson<HostMetricsPayload>("/api/host/metrics", 10_000),
+      fetchJson<HealthPayload>("/api/health", 10_000),
+      fetchJson<RuntimePayload>("/api/runtime", 10_000),
+    ]);
+    if (metrics !== null) setHostMetrics(metrics);
+    if (health !== null) setServiceHealth(health);
+    if (runtime !== null) setRuntime(runtime);
+  }, []);
+
+  // 首屏：聚合端点一次取齐。
+  useEffect(() => {
+    void refresh();
+    void refreshConnections();
+    void refreshReadiness();
+    void refreshHostMetrics();
+  }, [refresh, refreshConnections, refreshReadiness, refreshHostMetrics]);
+
+  // 状态条需要跟随告警/通道变化，额外每 10 秒刷新一次。
+  usePolling(() => void refresh(), 10_000);
+
+  // 连接状态包含启停动作和端口探测，使用更短的轮询窗口让按钮反馈不滞后。
+  usePolling(() => void refreshConnections(), 5_000);
+
+  usePolling(() => void refreshReadiness(), 30_000);
+
+  usePolling(() => void refreshHostMetrics(), 30_000);
+
+  // 实时性：复用共享 /ws 事件流（与通知中心一致），相关事件触发节流 5s 的刷新。
+  const handleEventSignal = useCallback(() => {
+    void refresh();
+    void refreshConnections();
+  }, [refresh, refreshConnections]);
+  useEventStream({
+    prefixes: REFRESH_EVENT_PREFIXES,
+    onSignal: handleEventSignal,
+    throttleMs: REFRESH_THROTTLE_MS,
+  });
+
+  // 首屏失败可见性：关键数据全部为 null/不可达时给出整体降级与重试入口。
+  const alerts = notifications.payload;
+  const initialLoad = {
+    dashboard: dashboardLoaded,
+    alerts: !notifications.loading,
+    finished: dashboardLoaded && !notifications.loading,
+  };
+  const criticalLoadFailed = useMemo(
+    () =>
+      initialLoad.finished &&
+      dashboard === null &&
+      (alerts === null || alerts.reachable !== true),
+    [alerts, dashboard, initialLoad.finished],
+  );
+
+  return {
+    dashboard,
+    connections,
+    openClawStatus,
+    alerts,
+    initialLoad,
+    refresh,
+    refreshConnections,
+    criticalLoadFailed,
+    deliveryHistory,
+    inspectionHistory,
+    runbooks,
+    llmStatus,
+    discoveredModels,
+    readinessRefreshing,
+    refreshReadiness,
+    hostMetrics,
+    serviceHealth,
+    runtime,
+  };
+}

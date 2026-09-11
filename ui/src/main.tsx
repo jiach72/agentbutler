@@ -25,6 +25,19 @@ const LogsPage = lazy(() => import("./pages/Logs.js").then(({ LogsPage: Page }) 
 const TroubleshootPage = lazy(() => import("./pages/troubleshoot/TroubleshootPage.js").then(({ TroubleshootPage: Page }) => ({ default: Page })));
 const SetupPage = lazy(() => import("./pages/setup/SetupPage.js").then(({ SetupPage: Page }) => ({ default: Page })));
 const CoreFilesPage = lazy(() => import("./pages/CoreFilesPage.js").then(({ CoreFilesPage: Page }) => ({ default: Page })));
+const WallPage = lazy(() => import("./pages/wall/WallPage.js").then(({ WallPage: Page }) => ({ default: Page })));
+const CostPage = lazy(() => import("./pages/cost/CostPage.js").then(({ CostPage: Page }) => ({ default: Page })));
+const AuditPage = lazy(() => import("./pages/audit/AuditPage.js").then(({ AuditPage: Page }) => ({ default: Page })));
+const EventsPage = lazy(() => import("./pages/events/EventsPage.js").then(({ EventsPage: Page }) => ({ default: Page })));
+const ReportPage = lazy(() => import("./pages/report/ReportPage.js").then(({ ReportPage: Page }) => ({ default: Page })));
+const SessionsPage = lazy(() => import("./pages/sessions/SessionsPage.js").then(({ SessionsPage: Page }) => ({ default: Page })));
+const SessionDetailPage = lazy(() => import("./pages/sessions/SessionDetailPage.js").then(({ SessionDetailPage: Page }) => ({ default: Page })));
+const ApprovalsPage = lazy(() => import("./pages/approvals/ApprovalsPage.js").then(({ ApprovalsPage: Page }) => ({ default: Page })));
+const ApprovalDetailPage = lazy(() => import("./pages/approvals/ApprovalDetailPage.js").then(({ ApprovalDetailPage: Page }) => ({ default: Page })));
+const CanaryPage = lazy(() => import("./pages/canary/CanaryPage.js").then(({ CanaryPage: Page }) => ({ default: Page })));
+const ProgressPage = lazy(() => import("./pages/progress/ProgressPage.js").then(({ ProgressPage: Page }) => ({ default: Page })));
+const MemoryDiffPage = lazy(() => import("./pages/memory/MemoryDiffPage.js").then(({ MemoryDiffPage: Page }) => ({ default: Page })));
+const FederationPage = lazy(() => import("./pages/federation/FederationPage.js").then(({ FederationPage: Page }) => ({ default: Page })));
 
 function FirstRunRedirect() {
   const location = useLocation();
@@ -88,6 +101,8 @@ function ThemedApp({ locale }: { locale: React.ComponentProps<typeof ConfigProvi
               不再整树卸载 Layout（其 Drawer/Popover 等 Portal 容器保持稳定，
               避免 React 19 提交删除阶段与 rc-motion 动画的 removeChild 竞态）。 */}
           <Routes>
+            {/* /wall 大屏：全屏只读结论层，不进 Layout（无侧栏顶栏），画布自身等比缩放。 */}
+            <Route path="/wall" element={<WallPage />} />
             <Route element={<Layout />}>
               <Route index element={<Navigate to="/dashboard" replace />} />
               <Route path="/dashboard" element={<DashboardPage />} />
@@ -101,6 +116,19 @@ function ThemedApp({ locale }: { locale: React.ComponentProps<typeof ConfigProvi
               <Route path="/prompt" element={<Navigate to="/gateway" replace />} />
               <Route path="/skills" element={<SkillsPage />} />
               <Route path="/core-files" element={<CoreFilesPage />} />
+              {/* 信任层（Trust Layer）：成本 / 行为审计 / 事件中心 / Agent 周报 */}
+              <Route path="/cost" element={<CostPage />} />
+              <Route path="/audit" element={<AuditPage />} />
+              <Route path="/events" element={<EventsPage />} />
+              <Route path="/report" element={<ReportPage />} />
+              <Route path="/sessions" element={<SessionsPage />} />
+              <Route path="/sessions/:id" element={<SessionDetailPage />} />
+              <Route path="/approvals" element={<ApprovalsPage />} />
+              <Route path="/approvals/:id" element={<ApprovalDetailPage />} />
+              <Route path="/canary" element={<CanaryPage />} />
+              <Route path="/progress" element={<ProgressPage />} />
+              <Route path="/memory-diff" element={<MemoryDiffPage />} />
+              <Route path="/federation" element={<FederationPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/preferences" element={<Navigate to="/settings" replace />} />
               <Route path="*" element={<Navigate to="/dashboard" replace />} />

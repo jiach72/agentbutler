@@ -19,6 +19,7 @@ import {
   Spin,
   Table,
   Tag,
+  Tooltip,
   Typography,
 } from "antd";
 import {
@@ -33,6 +34,7 @@ import {
 } from "@ant-design/icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PageHeader } from "../components/PageHeader.js";
+import { ConclusionBar } from "../components/ConclusionBar.js";
 import { fetchBlob, loadJson, postJson } from "../lib/api.js";
 import { formatBytes, formatTime } from "../lib/format.js";
 import "./core-files.css";
@@ -215,6 +217,13 @@ export function CoreFilesPage() {
           }
         />
 
+        {/* §2.3 ② 结论条。 */}
+        <ConclusionBar
+          tone={instanceId === undefined ? "info" : "ok"}
+          title={instanceId === undefined ? "先在右上角选择要管理的实例" : "已连接实例，选择左侧文件开始编辑"}
+          copy={instanceId === undefined ? "核心文件按实例区分，未选实例前列表为空。" : "每次保存自动生成版本，可随时回滚。"}
+        />
+
         <div className="core-files-toolbar">
           <Input
             className="core-files-toolbar-search"
@@ -226,15 +235,21 @@ export function CoreFilesPage() {
             onChange={(event) => setKeyword(event.target.value)}
           />
           <div className="core-files-toolbar-actions">
-            <Button icon={<ReloadOutlined />} disabled={loading || instanceId === undefined} onClick={refresh}>
-              刷新
-            </Button>
-            <Button icon={<SafetyCertificateOutlined />} disabled={!selectedFile || !selectedFile.exists} onClick={() => void backup()}>
-              立即备份
-            </Button>
-            <Button icon={<DownloadOutlined />} disabled={!selectedFile || !selectedFile.exists} onClick={() => void download()}>
-              下载
-            </Button>
+            <Tooltip title={loading ? "正在加载文件列表" : "请先在设置中选择要管理的实例"}>
+              <Button icon={<ReloadOutlined />} disabled={loading || instanceId === undefined} onClick={refresh}>
+                刷新
+              </Button>
+            </Tooltip>
+            <Tooltip title="先在左侧选择一个已存在的文件">
+              <Button icon={<SafetyCertificateOutlined />} disabled={!selectedFile || !selectedFile.exists} onClick={() => void backup()}>
+                立即备份
+              </Button>
+            </Tooltip>
+            <Tooltip title="先在左侧选择一个已存在的文件">
+              <Button icon={<DownloadOutlined />} disabled={!selectedFile || !selectedFile.exists} onClick={() => void download()}>
+                下载
+              </Button>
+            </Tooltip>
           </div>
         </div>
 
@@ -375,7 +390,10 @@ export function CoreFilesPage() {
                           />
                         )}
                         <pre style={{ maxHeight: 320, margin: 0, overflow: "auto", whiteSpace: "pre-wrap", fontFamily: "var(--ant-font-family-code)", fontSize: 12, lineHeight: 1.6 }}>{preview.diff}</pre>
-                        <Button type="primary" onClick={() => Modal.confirm({ title: "确认保存修改？", content: "保存会先备份当前版本，再原子替换源文件。", okText: "确认保存", onOk: apply })} disabled={!preview.canApply}>确认保存</Button>
+                                                {/* §3.1 每屏 ≤1 primary：编辑器「预览修改」是主操作，确认保存走二次确认弹窗。 */}
+                        <Tooltip title="当前预览已过期或不可直接保存，请重新生成预览">
+                          <Button onClick={() => Modal.confirm({ title: "确认保存修改？", content: "保存会先备份当前版本，再原子替换源文件。", okText: "确认保存", onOk: apply })} disabled={!preview.canApply}>确认保存</Button>
+                        </Tooltip>
                       </Flex>
                     </Card>
                   )}

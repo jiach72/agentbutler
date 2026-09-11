@@ -2,6 +2,52 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/)；开发预览版本可能包含不兼容调整。
 
+## [Unreleased] — 信任层（Trust Layer）全量（M1-M4）
+
+依据 `docs/trust-layer-upgrade-plan-2026-09-11.md` 落地全部四个里程碑：成本防线、行为审计、全局急停、事件中心、Agent 周报、会话追踪、通知即操作、升级金丝雀、假进度检测、通道口令急停、移动端 PWA、安装医生、记忆可视化与多实例联邦。
+
+### Added
+
+- **升级金丝雀（M3.2）**：新版本先在影子环境跑一轮真实任务再切换。任务抽样取自真实会话索引（10 常规 + 全部失败，确定性可复现）；三指标准入判据（成功率降幅 ≤5pp、token 增幅 ≤15%、无新增 error 级指纹）**任一指标缺失一律按不通过处理**；观察窗（标准 24h / 保守 48h）内检出升级疑似回归（复用 M2.2 R1 关联规则）→ 自动回滚登记快照 + 推送说明；回滚成败按子步骤判定，无快照或子步骤失败时明说无法自动回滚，不假称成功。版本策略三档：激进（跳过）/ 标准（默认）/ 保守（验证不可用则拦截升级）。影子执行器（`shadow-runner.ts`）已接线：数据卷隔离 venv 安装目标版本 + 对抽样任务做真实端点冒烟回放（指标全部实测；API key 只经环境变量，绝不进命令行；回放为等价冒烟任务——历史 prompt 不存档是隐私红线，口径写入 metrics.source）；模型端点未配置时 available=false，仍按策略诚实降级（标准记「未验证」、保守拦截）——**绝不伪造「验证通过」**。新增内核 `canary_runs` 与 `runtime_settings` 表；端点 `GET /api/canary`、`POST /api/canary/plan|start|tick`、`GET|POST /api/canary/policy`、`GET /api/canary/:id`；面板 `/canary` 版本策略页（策略切换 + 五维汇总 + 差异报告详情），设置页「进阶工具」提供入口。配置 `BUTLER_CANARY_ENABLED` / `BUTLER_UPGRADE_POLICY`。
+- **假进度检测（M3.3，差异化王牌）**：把「声称完成 X%」与同会话真实副作用动作对账——增量解析执行日志提取进度声明，与 [上一条声明, 本条声明] 窗口内的写文件/删文件/执行命令/调接口/发消息/抓页面对账。三态判定：有副作用 → `verified`；可观测但窗口空 → `suspect`；归属不到会话或无可观测记录 → `unverifiable`（显式「无法验证」，**绝不猜成可疑**）。防误报：只认带明确进度语汇的行，裸百分数（token 占比等）不判为声明。连续 ≥3 次 suspect → `progress-untrusted` 事件；终态 ok 但零副作用 → `unverified-completion` 事件。**可信度分母只含 verified+suspect**（「无法验证」≠「不诚实」）。呈现：`/progress` 页（三态卡 + 可疑会话点名 + 明细 + 判定口径）、会话时间线并入 ✓/？ 节点、周报「进度可信度」与 suspect 会话点名。新增内核 `progress_claims` 表；端点 `GET /api/progress`、`POST /api/progress/scan`、`GET /api/progress/sessions/:id`；配置 `BUTLER_PROGRESS_INTEGRITY_ENABLED` / `BUTLER_PROGRESS_RETENTION_DAYS`。
+- **通道口令急停（M1.3）**：在通道里发「<口令> 急停 / 恢复 / 状态」即可远程急停。口令未配置或 <6 位功能整体关闭；口令必须完整出现且只认显式动词；可配置会话白名单防口令泄露后旁路使用；实际执行桥接到 Watch 既有 `/api/killswitch/*`（复用快照→停实例→三路留痕），结果回执到会话。配置 `BUTLER_KILLSWITCH_PASSPHRASE`。
+- **移动端（M4.1）**：PWA manifest + iOS 添加到主屏；≤600px 底部 Tab 四格（周报/事件/成本/急停，急停红底强化复用同一确认逻辑）；单列重排 + 表格横滚 + 触控目标加大 + 刘海屏安全区。不开发原生 App。
+- **安装医生（M4.2）**：`node scripts/doctor.mjs` 十项只读体检（docker/compose/git、三端口、`/api/health` 网关联通、Hermes Bridge 链路、.env 关键项安全自检——主密钥只看有无绝不打印、公网暴露必须配套口令）。三态结论 + 失败项给「下一步」修复命令；退出码 0/1；输出脱敏可整段分享。设置页提供命令复制入口。
+- **记忆可视化（M4.3）**：`/memory-diff` 从行为审计流推导本周 added / modified / forgotten 记忆文件变更（删除后未再写=遗忘；删除后又写回=修改）；观测口径与边界（不做内容级语义 diff、「不在受管清单内」≠「已删除」）在接口与 UI 显式声明；周报新增「本周它记住了什么（TOP5）」。端点 `GET /api/memory-diff`。
+- **多实例联邦（M4.4）**：`/federation` 按实例聚合成本 / token / 会话（session_index.instance 维度）；活跃事件按 evidence 归属（提取不到归 global 不假归属）；实例分组（工作/实验/沙箱）；**统一急停覆盖性**（已停/总数，覆盖不全 UI 显式警示）；无实例归属的孤儿会话单列不摊派。端点 `GET /api/federation`、`POST /api/federation/group`。
+- **周报增强**：新增「本周它记住了什么（TOP5）」与「进度可信度（7 天）」两个段落（均含边界诚实声明：无可核实声明时明说，不硬造指标）。
+
+- **通知即操作（M3.1）**：高危动作触发带按钮的通知卡片，可在手机通知里直接「批准一次 / 拒绝」，不必回电脑。新增内核 `action_approvals` 表（`action_id` 唯一 + `fingerprint` 升级计数口径）与 `apps/watch/src/approvals.ts` 审批服务：
+  - **超时默认拒绝**：`BUTLER_APPROVAL_TTL_SEC`（60-7200，默认 900=15 分钟）到期未应答一律置 `expired` 并生成「已拦截」事件（severity warn）+ 审计 + 告警归档；踩在超时点上的批准也按拒绝结算，不给「迟到的批准」开口子。
+  - **升级防误触**：同一动作指纹（kind + 目标）在 24h 内第 `BUTLER_APPROVAL_ESCALATION_THRESHOLD`（默认 3）次请求时自动升级为「需 Web 端确认」——卡片撤下内联一键放行，只留「前往面板确认」链接；通道侧对已升级单的批准请求被服务端拒绝（409），拒绝请求仍允许（拦比放安全）。
+  - **自动侦测**：`BUTLER_APPROVAL_AUTO_DETECT`（默认开）按 `action_events.id` 水位增量侦测高危动作自动开单，不全量重扫；同一动作事件幂等（只开一张单、不重复推送与留痕）。
+  - **全链路留痕**：请求 / 批准 / 拒绝 / 超时四类动作全部写入审计流与事件中心（`approval-requested|approved|denied|expired`），卡片终态后自动归档。
+  - 新增 `GET /api/approvals`（列表 + summary + scan 视图）、`POST /api/approvals`（显式登记，幂等，201）、`GET /api/approvals/:id`（404）、`POST /api/approvals/:id/decide`（409 已结算/需面板确认、410 已超时）；配置 `BUTLER_APPROVAL_ENABLED` / `BUTLER_APPROVAL_TTL_SEC` / `BUTLER_APPROVAL_ESCALATION_THRESHOLD` / `BUTLER_APPROVAL_AUTO_DETECT` / `BUTLER_APPROVAL_RETENTION_DAYS` / `BUTLER_PUBLIC_BASE_URL`。
+  - **网关交互卡片**：`POST /api/alerts` 支持 `actions`（≤3 项，`label` + `url` 或 `callbackData`），队列新增 `actions_json` 列（含老库迁移）；Telegram 走 `inline_keyboard`（`callback_data=apr:<id>:approve|deny`），不支持内联按钮的通道（Server酱 / Bark / SMTP / 面板）**降级为正文追加 Web 确认链接**——这是计划书「微信不支持内联按钮时降级为链接到 Web 确认页」的落点。新增 `POST /api/channels/telegram/webhook` 接收 `callback_query` 并桥接到 Watch 决策端点（`BUTLER_WATCH_HTTP_URL` 可配），带 `BUTLER_TELEGRAM_WEBHOOK_SECRET` 常量时间校验，无论成败返回 200 避免 Telegram 重投。
+  - 面板新增 `/approvals`（待处理 / 需面板确认 / 全部 + 五维汇总 + 剩余时限倒计时）与 `/approvals/:id` 确认页（倒计时、结构化摘要折叠、升级与超时显式说明、「批准一次只对当前动作生效」提示）。
+- **会话追踪（M2.3）**：新增 `session_index` 表与会话索引服务——Hermes `state.db` 会话元数据（会话表/列按候选清单探测，命中才用）+ butler `action_events` 动作聚合 → 会话级索引（起止/时长/模型/任务类型/token/成本/终态/动作数/高危数）。异常规则首版 4 条（全部可判定）：`error-terminated`、`context-truncated`、`long-running`(>30min)、`high-risk-actions`；计划书中依赖 Hermes 工具级耗时/失败归因的 2 条规则**显式声明未实现**（接口返回 `unimplementedRules`，不冒名顶替）。新增 `GET /api/sessions`、`GET /api/sessions/:id`（时间线）、`POST /api/sessions/reindex`；配置 `BUTLER_SESSION_INDEX_ENABLED` / `BUTLER_SESSION_INDEX_RETENTION_DAYS` / `BUTLER_SESSION_REPLAY_ENABLED`。面板新增 `/sessions` 列表与 `/sessions/:id` 时间线（节点可展开脱敏载荷、异常红边）；**深链编织**：成本页会话、审计页会话标签一键跳转会话时间线。隐私红线：只索引元数据与结构化动作，**不采集对话正文**；完整回放开关为占位并在 UI 显式说明未实现。
+- **Agent 周报（M2.1）**：周一 08:00（本地时区）幂等生成并推送本周汇总——成本（本周 vs 上周环比、月度预算用量、最贵会话）、实例状态、事件中心活跃项、行为审计高危计数、技能用量 TOP5、最近全量备份；全确定性组装零 LLM。推送走网关告警通道 `severity:"info"`（不挤占 warn/critical 告警语义），`dedupeKey=weekly-report:<周一日期>` 网关端幂等；crash-safe 调度（每 15 分钟 tick，服务重启错过时点自动补生成）。新增内核 `report_history` 表（week_start 唯一键 + markdown 原文 + data_json 快照）与 `GET /api/trust/report`（本周实时）、`GET /api/trust/report/history`、`GET /api/trust/report/:id`、`POST /api/trust/report/run`；配置 `BUTLER_WEEKLY_REPORT_ENABLED` / `BUTLER_WEEKLY_REPORT_PUSH`；面板新增 `/report` 页（本周速览六卡 + 正文预览 + 历史 12 周存档）。
+- **成本贯通（M1.1）**：`/api/llm/usage` 透出 `estimatedCostUsd` / `actualCostUsd` / `cost.verifiedUsd`（读 Hermes `session_model_usage` 计费元数据，成本列按候选名探测、缺失时 `costAvailable=false` 显式「待接入」而非伪造 0）；新增 `GET /api/llm/cost/summary`（按日 / 模型 / 会话聚合 + 最贵会话 TOP10）与 `monthToDateCost` 月度核算。
+- **预算引擎（M1.1）**：`BUTLER_BUDGET_MONTHLY_USD`（0=关闭）+ `BUTLER_BUDGET_ACTION`（alert/downgrade/pause，首版为建议+事件记录，不自动执行侵入性控制）；每 15 分钟核算，80% warn / 100% critical 告警（阈值标记持久化防重放），新增 `GET /api/budget`、`POST /api/budget/check`。
+- **行为审计流（M1.2）**：Watch 增量解析 Hermes 执行日志（默认 `<hermesRoot>/logs/*.log`，`BUTLER_AUDIT_LOG_PATHS` 可覆盖；启动对齐文件末尾，不全量重扫）生成结构化动作事件（file-write/file-delete/shell-exec/api-call/message-send/web-fetch）；高危集合（删除/外发/危险命令）红色标记；行片段过凭据脱敏（sk-/Bearer/token= → ***），**不存储 prompt/对话正文**；保留期 `BUTLER_AUDIT_RETENTION_DAYS`（7-90，默认 14）。新增 `GET /api/audit/actions|summary`。
+- **全局急停（M1.3）**：`POST /api/killswitch/engage|release` + `GET /api/killswitch`。engage 顺序：自动全量快照（失败如实记录不阻断）→ 经能力路由逐实例停止 → `killswitch_log` 落库（crash-safe：重启按未 released 行恢复状态）→ 事件中心 + 审计 + 网关告警三路留痕；engage 期间拒绝实例重连与升级任务（409 killswitch-engaged）。
+- **事件中心数据层（M2.2）**：统一事件对象（kind/severity/title/first_seen/last_seen/count/status/evidence/related）+ 首版关联规则（版本变更 2h 内指纹 → 升级疑似回归；resolved 同键复发 → regressed 置顶，回归一等公民）。新增 `GET /api/trust/events`、`GET /api/trust/events/:id`、`POST /api/trust/events/:id/status`。
+- **面板**：新增「信任层」导航组与三页——`/cost`（大数字 + 按模型/按日 + 最贵会话 TOP10）、`/audit`（按天时间线 + 类型/级别/时间窗过滤 + 降级态显式标注）、`/events`（列表 + 证据链详情 + 确认/解决/重开）；顶栏常驻「紧急暂停」按钮（两次点击触达，确认卡 → 暂停态 → 恢复）。
+- **数据模型**：butler 库新增 `budget_state` / `killswitch_log` / `action_events` / `trust_events` 四表（幂等 DDL）与配套存取方法；保留期清理扩展覆盖新表。
+
+### Changed
+
+- `apps/web` BFF 新增信任层全部端点代理（含 `/api/sessions*`）；`docker-compose.yml` 与 `.env.example` 透传 `BUTLER_BUDGET_*` / `BUTLER_AUDIT_*` / `BUTLER_WEEKLY_REPORT_*` / `BUTLER_SESSION_*`。
+- 全链路零 LLM 调用（判定规则全确定性）。
+
+### Fixed
+
+- **生产装配漏注信任层服务（重要）**：`createWatchApp` 的 `watchHttp` deps 未注入 `budget` / `actionAudit` / `killswitch` / `trustEvents` / `weeklyReport`，导致 M1/M2 端点在真实部署下返回 503（测试因直接构造 deps 而掩盖该问题）。本批次一并接线，并把 `sessions`（M2.3）同时注入，避免同类回归。
+
+### Security
+
+- 隐私红线落地：审计流仅存结构化动作字段与脱敏片段；会话索引仅存元数据与结构化动作（不含对话正文）；急停/预算/事件全部动作入审计。
+
 ## [1.0.0-beta.33] - 2026-09-06
 
 ### Added

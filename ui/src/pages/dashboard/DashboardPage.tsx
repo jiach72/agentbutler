@@ -225,10 +225,13 @@ export function DashboardPage() {
           title="本地管家"
           description="查看本机服务状态、连接情况和消息通知。"
           extra={
-            <Badge
-              status={inspectStatus?.reachable ? "success" : "error"}
-              text={inspectStatus?.reachable ? "管家服务已连接" : "管家服务暂时连不上"}
-            />
+            <Flex align="center" gap={12}>
+              <Badge
+                status={inspectStatus?.reachable ? "success" : "error"}
+                text={inspectStatus?.reachable ? "管家服务已连接" : "管家服务暂时连不上"}
+              />
+              <Button size="small" onClick={() => navigate("/wall")}>大屏模式</Button>
+            </Flex>
           }
         />
 
@@ -348,6 +351,8 @@ export function DashboardPage() {
           onCancel={() => setRunbookCandidate(null)}
           onConfirm={() => void runRunbook()}
           impact={runbookCandidate?.impact ?? "该操作会修改本机服务状态，完成后会自动复核。"}
+          reversible="多数处理方案可回退；执行后可在「设置 → 备份」还原到操作前状态。"
+          duration="通常几十秒内完成，期间面板仍可用。"
         >
           管家将执行「<strong>{runbookCandidate?.label ?? "处理方案"}</strong>」。
           确认后才会开始执行。

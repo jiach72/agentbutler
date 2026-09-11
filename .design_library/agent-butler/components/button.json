@@ -1,0 +1,27 @@
+{
+  "slug": "button",
+  "schemaVersion": 2,
+  "name": "按钮",
+  "category": "control",
+  "sourceKind": "from-scratch",
+  "confidence": "medium",
+  "semanticTypeCandidates": [
+    { "type": "Button", "confidence": "high", "evidence": "一键动作语义：立即检查/修复一下，触发单一动作" }
+  ],
+  "variantDimensions": [
+    { "dimension": "variant", "values": ["primary", "secondary", "ghost", "danger"] },
+    { "dimension": "size", "values": ["sm", "md", "lg"] }
+  ],
+  "representativeVariants": [
+    { "name": "primary", "whySelected": "品牌主动作，承载一键检查/修复", "traits": { "fill": "solid", "tone": "primary", "height": "40px", "radius": "rounded", "density": "normal" }, "childrenDigest": "label + 可选前置图标" },
+    { "name": "secondary", "whySelected": "次级动作，克制不抢主按钮", "traits": { "fill": "outline", "tone": "neutral", "height": "40px" }, "childrenDigest": "label" },
+    { "name": "ghost", "whySelected": "低干扰动作，用于展开/收起", "traits": { "fill": "ghost", "tone": "neutral" }, "childrenDigest": "label" },
+    { "name": "danger", "whySelected": "危险操作需二次确认", "traits": { "fill": "solid", "tone": "danger", "height": "40px" }, "childrenDigest": "label + 确认态" }
+  ],
+  "anatomy": ["container", "label", "leading-icon", "focus-ring"],
+  "structurePatterns": ["icon-left", "text-only"],
+  "usageHints": { "priorityHint": "high", "oneLine": "单个动作用大白话文案，如「立即检查」「修复一下」" },
+  "doNotInvent": ["异步状态无 loading 语境下的 spinner", "同按钮多图标", "渐变填充"],
+  "unknowns": [],
+  "keyInsightSeed": "一键动作：主按钮用大白话，危险动作需二次确认"
+}

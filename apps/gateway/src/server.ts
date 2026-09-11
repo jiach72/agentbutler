@@ -19,7 +19,7 @@ import { CONTROL_API_SCHEMA_VERSION, CONTRACT_VERSION, isOutboxState } from "@bu
 import type { ChannelControlPort, InboundHistoryView, OutboxMessageView, PolicySnapshot, Result } from "@butler/contract";
 import { readHermesConfig } from "@butler/adapter-hermes";
 import { ensureButlerHome } from "@butler/core";
-import { buildEnvChannels, degradedChannelLabels, type AlertChannel } from "./channels.js";
+import { buildEnvChannels, degradedChannelLabels, TelegramChannel, type AlertChannel } from "./channels.js";
 import { DeliveryLoop, type Clock, type LoopScheduler } from "./loop.js";
 import { validateMessagePolicy } from "./message/config.js";
 import type { MessageGatewayStatus } from "./message/service.js";
@@ -28,7 +28,9 @@ import { MESSAGE_OUTCOME_HISTORY_RETENTION_DAYS } from "./message/store.js";
 import type { MessagePolicyConfig } from "./message/types.js";
 import {
   AlertQueue,
+  MAX_ALERT_ACTIONS,
   normalizeCooldownMs,
+  type AlertAction,
   type AlertRow,
   type AlertSeverity,
 } from "./queue.js";
@@ -74,6 +76,221 @@ export const GATEWAY_SERVICE_VERSION = `gateway@1.0.0-beta.33+${CONTRACT_VERSION
 
 export type MessageDeliveryMode = "native" | "observe" | "disabled";
 
+/** 通知即操作（M3.1）：通道侧按钮回执 → Watch 审批决策的桥接端口。 */
+export interface ApprovalCallbackInput {
+  approvalId: string;
+  decision: "approve" | "deny";
+  /** 通道侧身份（Telegram 用户名或 id），用于审计「谁批的」。 */
+  actor?: string;
+  channel: string;
+}
+
+export interface ApprovalCallbackResult {
+  ok: boolean;
+  /** not-found | already-settled | requires-web-confirm | expired | upstream-error */
+  reason?: string;
+  /** 回执给用户看的一句话（Telegram toast）。 */
+  message: string;
+}
+
+export type ApprovalDecider = (input: ApprovalCallbackInput) => Promise<ApprovalCallbackResult>;
+
+/* ------------------- 通道口令急停（M1.3） ------------------- */
+
+export type KillswitchCommand = "engage" | "release" | "status";
+
+export interface KillswitchCommandInput {
+  command: KillswitchCommand;
+  /** 通道侧身份，用于审计「谁按的急停」。 */
+  actor?: string;
+  channel: string;
+}
+
+export interface KillswitchCommandResult {
+  ok: boolean;
+  /** already-engaged | not-engaged | upstream-error | unavailable */
+  reason?: string;
+  /** 回给用户看的一句话。 */
+  message: string;
+}
+
+export type KillswitchCommander = (input: KillswitchCommandInput) => Promise<KillswitchCommandResult>;
+
+/**
+ * 口令急停指令解析。
+ *
+ * 安全设计（这是唯一能「停掉全部实例」的远程入口，必须保守）：
+ * 1. 口令未配置或长度 < 6 → 功能整体关闭（返回 null），绝不退化成「任意文本都能急停」；
+ * 2. 口令必须**完整出现**在文本中；
+ * 3. 只认显式动词，不认模糊表述；解析不出动词则返回 null（当作普通消息忽略）。
+ *
+ * 实现注意：中文在 JS 正则里不算 `\w`，所以中文分支不能跟 `\b`（`恢复\b` 永不匹配）；
+ * 词边界只加在拉丁分支上。
+ */
+const KILLSWITCH_RELEASE_RE = /恢复|解除|释放|\b(?:resume|release|unpause)\b/i;
+const KILLSWITCH_ENGAGE_RE =
+  /急停|停机|全部停止|停止所有|\b(?:emergency\s*stop|panic|killswitch|kill\s*switch|halt|stop\s*all)\b/i;
+const KILLSWITCH_STATUS_RE = /状态|\b(?:status|state)\b/i;
+
+export function parseKillswitchCommand(
+  text: string,
+  passphrase: string,
+): { command: KillswitchCommand } | null {
+  const secret = passphrase.trim();
+  if (secret.length < 6) return null;
+  const normalized = text.trim();
+  if (normalized === "") return null;
+  if (!normalized.includes(secret)) return null;
+  // 去掉口令后的剩余部分即指令动词区。
+  const rest = normalized.split(secret).join(" ").trim();
+  if (rest === "") return null;
+
+  // 恢复必须排在急停之前判断：「恢复运行」里不含「急停」，但避免将来词表扩展时误判。
+  if (KILLSWITCH_RELEASE_RE.test(rest)) return { command: "release" };
+  if (KILLSWITCH_ENGAGE_RE.test(rest)) return { command: "engage" };
+  if (KILLSWITCH_STATUS_RE.test(rest)) return { command: "status" };
+  return null;
+}
+
+/** 默认实现：把口令急停转发到 Watch 的 killswitch 端点。 */
+export function createWatchKillswitchCommander(options: {
+  watchUrl?: string;
+  fetchFn?: typeof fetch;
+  timeoutMs?: number;
+} = {}): KillswitchCommander {
+  const base = (
+    options.watchUrl ??
+    process.env["BUTLER_WATCH_URL"] ??
+    process.env["BUTLER_WATCH_HTTP_URL"] ??
+    "http://127.0.0.1:7533"
+  ).replace(/\/+$/, "");
+  const doFetch = options.fetchFn ?? ((url, init) => fetch(url, init));
+  // 急停是「尽快停掉」的路径，超时给得比审批短。
+  const timeoutMs = options.timeoutMs ?? 8000;
+
+  return async (input) => {
+    try {
+      if (input.command === "status") {
+        const response = await doFetch(`${base}/api/killswitch`, {
+          method: "GET",
+          headers: { "content-type": "application/json" },
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+        if (!response.ok) {
+          return { ok: false, reason: "unavailable", message: "管家急停服务暂时不可用" };
+        }
+        const state = (await response.json()) as { engaged?: boolean; engagedAt?: string | null };
+        return {
+          ok: true,
+          message: state.engaged === true
+            ? `当前状态：已急停（${state.engagedAt ?? "时间未知"}）`
+            : "当前状态：运行中，未急停",
+        };
+      }
+
+      const endpoint = input.command === "engage" ? "engage" : "release";
+      const response = await doFetch(`${base}/api/killswitch/${endpoint}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          trigger: "channel-command",
+          ...(input.actor === undefined || input.actor === "" ? {} : { actor: input.actor }),
+        }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (response.ok) {
+        return {
+          ok: true,
+          message: input.command === "engage" ? "已急停：全部实例已停止并落盘留痕" : "已恢复运行",
+        };
+      }
+      if (response.status === 409) {
+        const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+        const error = typeof body["error"] === "string" ? body["error"] : "";
+        if (error === "killswitch-already-engaged") {
+          return { ok: false, reason: "already-engaged", message: "当前已经是急停状态，无需重复操作" };
+        }
+        if (error === "killswitch-not-engaged") {
+          return { ok: false, reason: "not-engaged", message: "当前没有处于急停状态" };
+        }
+        return { ok: false, reason: "upstream-error", message: `操作被拒绝（HTTP ${response.status}）` };
+      }
+      return { ok: false, reason: "upstream-error", message: `操作失败（HTTP ${response.status}）` };
+    } catch {
+      return { ok: false, reason: "upstream-error", message: "管家暂时联系不上，急停指令未送达" };
+    }
+  };
+}
+
+/** 默认实现：转发到 Watch 的决策端点（HTTP 401/404/409/410 原样映射为 reason）。 */
+export function createWatchApprovalDecider(options: {
+  watchUrl?: string;
+  fetchFn?: typeof fetch;
+  timeoutMs?: number;
+} = {}): ApprovalDecider {
+  // 变量名与 butler-web 的 BUTLER_WATCH_URL 保持一致（compose 内为 http://butler-watch:7533）。
+  const base = (
+    options.watchUrl ??
+    process.env["BUTLER_WATCH_URL"] ??
+    process.env["BUTLER_WATCH_HTTP_URL"] ??
+    "http://127.0.0.1:7533"
+  ).replace(/\/+$/, "");
+  const doFetch = options.fetchFn ?? ((url, init) => fetch(url, init));
+  const timeoutMs = options.timeoutMs ?? 5000;
+  return async (input) => {
+    try {
+      const response = await doFetch(
+        `${base}/api/approvals/${encodeURIComponent(input.approvalId)}/decide`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            decision: input.decision,
+            channel: input.channel,
+            // 通道侧来源，不允许对已升级单放行（服务端只认 panel/web）。
+            source: "channel",
+            ...(input.actor === undefined || input.actor === "" ? {} : { actor: input.actor }),
+          }),
+          signal: AbortSignal.timeout(timeoutMs),
+        },
+      );
+      if (response.ok) {
+        return {
+          ok: true,
+          message: input.decision === "approve" ? "已批准本次操作" : "已拒绝本次操作",
+        };
+      }
+      const reason = mapDecideFailureReason(response.status);
+      return { ok: false, reason, message: describeDecideFailure(reason) };
+    } catch {
+      return { ok: false, reason: "upstream-error", message: "管家暂时联系不上，请稍后在面板处理" };
+    }
+  };
+}
+
+function mapDecideFailureReason(status: number): string {
+  if (status === 404) return "not-found";
+  if (status === 409) return "already-settled";
+  if (status === 410) return "expired";
+  if (status === 503) return "upstream-unavailable";
+  return "upstream-error";
+}
+
+function describeDecideFailure(reason: string): string {
+  switch (reason) {
+    case "not-found":
+      return "该操作已不存在";
+    case "already-settled":
+      return "该操作已被处理，或已升级为需在面板确认";
+    case "expired":
+      return "已超时，按默认拒绝拦截";
+    case "upstream-unavailable":
+      return "管家审批服务未启用";
+    default:
+      return "处理失败，请在面板重试";
+  }
+}
+
 export interface MessageGatewayController {
   status(): Promise<MessageGatewayStatus>;
   updatePolicy(config: MessagePolicyConfig): Promise<PolicySnapshot>;
@@ -117,6 +334,14 @@ export interface GatewayServerOptions {
   accessToken?: string;
   /** /internal/hermes/* 每分钟 wake 上限（测试显式注入用；生产缺省读 env，默认 120）。 */
   wakeRateLimit?: number;
+  /** 通知即操作（M3.1）：通道按钮回执 → Watch 决策的桥接（缺省按 env 组装 HTTP 客户端）。 */
+  approvalDecider?: ApprovalDecider;
+  /** Telegram webhook 校验密钥（缺省读 BUTLER_TELEGRAM_WEBHOOK_SECRET；未配置则不校验）。 */
+  telegramWebhookSecret?: string;
+  /** M1.3 通道口令急停：指令 → Watch killswitch 的桥接（缺省按 env 组装 HTTP 客户端）。 */
+  killswitchCommander?: KillswitchCommander;
+  /** M1.3 急停口令（缺省读 BUTLER_KILLSWITCH_PASSPHRASE；未配置则通道急停整体关闭）。 */
+  killswitchPassphrase?: string;
 }
 
 export interface GatewayHandle {
@@ -250,6 +475,40 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
     }
     const dedupeKey = typeof dedupeKeyRaw === "string" ? dedupeKeyRaw.trim() : "";
 
+    // 交互式卡片按钮（可选）：≤3 项，label 必填，url / callbackData 至少一个。
+    const actionsRaw = body["actions"];
+    let actions: AlertAction[] | undefined;
+    if (actionsRaw !== undefined) {
+      if (!Array.isArray(actionsRaw)) {
+        return await reply.code(400).send({ error: "actions 必须是数组" });
+      }
+      if (actionsRaw.length > MAX_ALERT_ACTIONS) {
+        return await reply.code(400).send({ error: `actions 最多 ${MAX_ALERT_ACTIONS} 个` });
+      }
+      const parsed: AlertAction[] = [];
+      for (const item of actionsRaw) {
+        if (typeof item !== "object" || item === null) {
+          return await reply.code(400).send({ error: "actions 每项必须是对象" });
+        }
+        const record = item as Record<string, unknown>;
+        const label = readString(record["label"])?.trim() ?? "";
+        const url = typeof record["url"] === "string" ? record["url"].trim() : "";
+        const callbackData = typeof record["callbackData"] === "string" ? record["callbackData"].trim() : "";
+        if (label === "") {
+          return await reply.code(400).send({ error: "actions[].label 必填" });
+        }
+        if (url === "" && callbackData === "") {
+          return await reply.code(400).send({ error: "actions[] 必须提供 url 或 callbackData" });
+        }
+        parsed.push({
+          label,
+          ...(callbackData === "" ? {} : { callbackData }),
+          ...(url === "" ? {} : { url }),
+        });
+      }
+      if (parsed.length > 0) actions = parsed;
+    }
+
     // ts 为上报侧时间戳，仅接受不持久化：投递排序一律以队列侧 created_at 为准。
     const row = queueRef.enqueue({
       kind,
@@ -258,6 +517,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
       body: bodyText,
       source,
       dedupeKey: dedupeKey || undefined,
+      ...(actions === undefined ? {} : { actions }),
     });
     return await reply.code(202).send({ id: row.id });
   });
@@ -296,6 +556,81 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
     const row = queueRef.markRead(id);
     if (row === undefined) return reply.code(404).send({ error: "alert-not-found" });
     return { item: toApiItem(row) };
+  });
+
+  /**
+   * Telegram 内联按钮回执（M3.1）。Telegram 侧按钮 callback_data 形如
+   * `apr:<approvalId>:approve|deny`；本端点把它桥接为 Watch 的审批决策。
+   *
+   * 安全：这是唯一面向公网的写入口，因此
+   * 1) 校验 X-Telegram-Bot-Api-Secret-Token（配置了密钥才启用校验）；
+   * 2) 只认 callback_query.data 前缀 apr:，其余一律忽略；
+   * 3) 「批准已升级单」会被 Watch 侧拒绝——通道侧不具备放行升级单的权限。
+   * 无论结果如何都返回 200，避免 Telegram 反复重投同一更新。
+   */
+  app.post("/api/channels/telegram/webhook", async (request, reply) => {
+    const secret = (options.telegramWebhookSecret ?? process.env["BUTLER_TELEGRAM_WEBHOOK_SECRET"] ?? "").trim();
+    if (secret !== "") {
+      const provided = String(request.headers["x-telegram-bot-api-secret-token"] ?? "");
+      if (!timingSafeEqualString(provided, secret)) {
+        return await reply.code(401).send({ error: "invalid-webhook-secret" });
+      }
+    }
+    const body = (request.body ?? {}) as Record<string, unknown>;
+
+    // ① 内联按钮回执（配对口令审批单）。
+    const callback = body["callback_query"];
+    if (typeof callback === "object" && callback !== null) {
+      const record = callback as Record<string, unknown>;
+      const data = typeof record["data"] === "string" ? record["data"] : "";
+      const parsed = parseApprovalCallback(data);
+      const callbackId = typeof record["id"] === "string" ? record["id"] : "";
+      if (parsed === null) {
+        if (callbackId !== "") await answerCallback(channels, callbackId, "该按钮已失效", app);
+        return await reply.code(200).send({ ok: true, ignored: "unrecognized-callback-data" });
+      }
+      const actor = describeTelegramActor(record["from"]);
+      const decider = options.approvalDecider ?? createWatchApprovalDecider();
+      const result = await decider({
+        approvalId: parsed.approvalId,
+        decision: parsed.decision,
+        channel: "telegram",
+        ...(actor === null ? {} : { actor }),
+      });
+      if (callbackId !== "") await answerCallback(channels, callbackId, result.message, app);
+      return await reply.code(200).send({ ok: result.ok, reason: result.reason ?? null });
+    }
+
+    // ② 口令急停指令（M1.3）：在通道里直接发「<口令> 急停 / 恢复 / 状态」。
+    //    口令未配置时本通道整体关闭，解析必然返回 null → 当普通消息忽略。
+    const message = body["message"];
+    if (typeof message === "object" && message !== null) {
+      const record = message as Record<string, unknown>;
+      const text = typeof record["text"] === "string" ? record["text"] : "";
+      const passphrase = (options.killswitchPassphrase ?? process.env["BUTLER_KILLSWITCH_PASSPHRASE"] ?? "").trim();
+      const parsed = parseKillswitchCommand(text, passphrase);
+      if (parsed === null) return await reply.code(200).send({ ok: true, ignored: "not-a-command" });
+
+      // 若配置了会话白名单，只接受来自该会话的指令（防口令泄露后被旁路使用）。
+      const allowedChat = (process.env["BUTLER_TELEGRAM_CHAT_ID"] ?? "").trim();
+      const chatId = describeTelegramChatId(record["chat"]);
+      if (allowedChat !== "" && chatId !== allowedChat) {
+        return await reply.code(200).send({ ok: false, reason: "chat-not-allowed" });
+      }
+
+      const actor = describeTelegramActor(record["from"]);
+      const commander = options.killswitchCommander ?? createWatchKillswitchCommander();
+      const result = await commander({
+        command: parsed.command,
+        channel: "telegram",
+        ...(actor === null ? {} : { actor }),
+      });
+      // 回执：把结果发回同一会话，让用户知道指令到底生效没有。
+      await sendTelegramText(channels, result.message, chatId, app);
+      return await reply.code(200).send({ ok: result.ok, reason: result.reason ?? null, command: parsed.command });
+    }
+
+    return await reply.code(200).send({ ok: true, ignored: "unsupported-update" });
   });
 
   app.get("/healthz", async () => {
@@ -1044,6 +1379,73 @@ function parseLimit(raw: string | undefined): number {
 }
 
 /** 行内不含任何凭据，剔除 next_attempt_at 等内部调度字段后原样外发。 */
+/** Telegram callback_data 解析：只认 `apr:<id>:<approve|deny>`。 */
+export function parseApprovalCallback(
+  data: string,
+): { approvalId: string; decision: "approve" | "deny" } | null {
+  const match = /^apr:([^:]+):(approve|deny)$/.exec(data);
+  if (match === null) return null;
+  return { approvalId: match[1]!, decision: match[2] as "approve" | "deny" };
+}
+
+/** 会话标识（数字或字符串）；取不到返回空串（不编造）。 */
+function describeTelegramChatId(chat: unknown): string {
+  if (typeof chat !== "object" || chat === null) return "";
+  const id = (chat as Record<string, unknown>)["id"];
+  return typeof id === "number" || typeof id === "string" ? String(id) : "";
+}
+
+/** 向会话回发一条纯文本（口令急停回执）；失败不影响已生效的指令。 */
+async function sendTelegramText(
+  channels: AlertChannel[],
+  text: string,
+  chatId: string,
+  app: FastifyInstance,
+): Promise<void> {
+  const telegram = channels.find((channel) => channel.name === "telegram");
+  if (telegram === undefined || !(telegram instanceof TelegramChannel)) return;
+  try {
+    await telegram.sendText(text, chatId === "" ? undefined : chatId);
+  } catch (error) {
+    app.log.warn({ err: error }, "telegram sendText failed");
+  }
+}
+
+/** 通道侧身份：优先用户名，其次数字 id；都没有则 null（不编造）。 */
+function describeTelegramActor(from: unknown): string | null {
+  if (typeof from !== "object" || from === null) return null;
+  const record = from as Record<string, unknown>;
+  const username = typeof record["username"] === "string" ? record["username"].trim() : "";
+  if (username !== "") return `telegram:${username}`;
+  const id = record["id"];
+  if (typeof id === "number" || typeof id === "string") return `telegram:${String(id)}`;
+  return null;
+}
+
+/** 常量时间比较（长度不同直接判否；密钥不进日志）。 */
+function timingSafeEqualString(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
+}
+
+/** 回执 Telegram 按钮点击（尽力而为：失败不影响已落地的审批决定）。 */
+async function answerCallback(
+  channels: AlertChannel[],
+  callbackQueryId: string,
+  text: string,
+  app: FastifyInstance,
+): Promise<void> {
+  const telegram = channels.find((channel) => channel.name === "telegram");
+  if (telegram === undefined || !(telegram instanceof TelegramChannel)) return;
+  try {
+    await telegram.answerCallbackQuery(callbackQueryId, text);
+  } catch (error) {
+    app.log.warn({ err: error }, "telegram answerCallbackQuery failed");
+  }
+}
+
 function toApiItem(row: AlertRow): Record<string, unknown> {
   return {
     id: row.id,
@@ -1062,5 +1464,6 @@ function toApiItem(row: AlertRow): Record<string, unknown> {
     lastError: row.lastError,
     channel: row.channel,
     readAt: row.readAt,
+    actions: row.actions,
   };
 }

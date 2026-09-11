@@ -5,7 +5,7 @@
  * fetch / transporter 均可注入，测试不触网。
  * 逐级降级路由由 DeliveryLoop 负责，这里只提供单通道发送能力与可用性判断。
  */
-import type { AlertSeverity } from "./queue.js";
+import type { AlertAction, AlertSeverity } from "./queue.js";
 import nodemailer from "nodemailer";
 
 export interface OutboundMessage {
@@ -13,6 +13,8 @@ export interface OutboundMessage {
   title: string;
   body: string;
   source: string;
+  /** 交互式卡片按钮（M3.1）；不支持内联按钮的通道降级为正文追加 url。 */
+  actions?: AlertAction[];
 }
 
 export interface AlertChannel {
@@ -74,7 +76,10 @@ export class TelegramChannel implements AlertChannel {
 
   async send(message: OutboundMessage): Promise<void> {
     if (!this.isConfigured()) throw new Error("telegram: missing credentials");
-    const form = new URLSearchParams({ chat_id: this.chatId, text: formatText(message) });
+    const form = new URLSearchParams({ chat_id: this.chatId, text: formatText(message, false) });
+    // 内联键盘：只有具备 callback_data 的按钮才能就地回执；url 按钮为纯跳转。
+    const keyboard = buildInlineKeyboard(message.actions);
+    if (keyboard !== null) form.set("reply_markup", JSON.stringify(keyboard));
     const res = await this.fetchImpl(`https://api.telegram.org/bot${this.token}/sendMessage`, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -83,6 +88,39 @@ export class TelegramChannel implements AlertChannel {
     });
     if (!res.ok) {
       throw new Error(`telegram sendMessage failed: HTTP ${res.status} ${await res.text()}`);
+    }
+  }
+
+  /** 向指定会话发纯文本（口令急停回执 / 指令确认）。chat_id 缺省用配置值。 */
+  async sendText(text: string, chatId?: string): Promise<void> {
+    if (!this.isConfigured()) throw new Error("telegram: missing credentials");
+    const form = new URLSearchParams({ chat_id: chatId ?? this.chatId, text });
+    const res = await this.fetchImpl(`https://api.telegram.org/bot${this.token}/sendMessage`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: form.toString(),
+      signal: AbortSignal.timeout(this.timeoutMs),
+    });
+    if (!res.ok) {
+      throw new Error(`telegram sendText failed: HTTP ${res.status} ${await res.text()}`);
+    }
+  }
+
+  /**
+   * 回执内联按钮点击（M3.1）：不停用会一直转圈。失败只影响交互反馈，
+   * 不影响已经落地的审批决定——调用方按「尽力而为」处理。
+   */
+  async answerCallbackQuery(callbackQueryId: string, text: string): Promise<void> {
+    if (!this.isConfigured()) throw new Error("telegram: missing credentials");
+    const form = new URLSearchParams({ callback_query_id: callbackQueryId, text });
+    const res = await this.fetchImpl(`https://api.telegram.org/bot${this.token}/answerCallbackQuery`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: form.toString(),
+      signal: AbortSignal.timeout(this.timeoutMs),
+    });
+    if (!res.ok) {
+      throw new Error(`telegram answerCallbackQuery failed: HTTP ${res.status} ${await res.text()}`);
     }
   }
 }
@@ -252,8 +290,32 @@ export class ServerChanChannel implements AlertChannel {
 
 /* --------------------------------- 辅助函数 -------------------------------- */
 
-function formatText(message: OutboundMessage): string {
-  return `[${message.severity}] ${message.title}\n${message.body}\n(来源: ${message.source})`;
+/**
+ * 渲染正文。通道不支持内联按钮时（includeActionLinks=true），把带 url 的按钮
+ * 追加为正文链接——这是「微信不支持内联按钮则降级为链接到 Web 确认页」的落点；
+ * 只有 callbackData 的按钮无链接可降级，故不计入（避免出现点了没反应的死按钮）。
+ */
+function formatText(message: OutboundMessage, includeActionLinks = true): string {
+  const base = `[${message.severity}] ${message.title}\n${message.body}\n(来源: ${message.source})`;
+  if (!includeActionLinks) return base;
+  const links = (message.actions ?? [])
+    .filter((action) => typeof action.url === "string" && action.url !== "")
+    .map((action) => `· ${action.label}：${action.url}`);
+  return links.length === 0 ? base : `${base}\n\n${links.join("\n")}`;
+}
+
+/** Telegram 内联键盘：每行一个按钮（手机上不挤压；≤3 个按钮最多 3 行）。 */
+function buildInlineKeyboard(actions: AlertAction[] | undefined): { inline_keyboard: Array<Array<Record<string, string>>> } | null {
+  if (actions === undefined || actions.length === 0) return null;
+  const rows: Array<Array<Record<string, string>>> = [];
+  for (const action of actions) {
+    if (typeof action.callbackData === "string" && action.callbackData !== "") {
+      rows.push([{ text: action.label, callback_data: action.callbackData }]);
+    } else if (typeof action.url === "string" && action.url !== "") {
+      rows.push([{ text: action.label, url: action.url }]);
+    }
+  }
+  return rows.length === 0 ? null : { inline_keyboard: rows };
 }
 
 /** 按给定顺序返回凭据齐备的外发通道（降级路由的候选序列）。 */

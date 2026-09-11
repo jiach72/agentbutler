@@ -12,8 +12,10 @@
   font-size: 22px;
 }
 
-.channel-tile.tone-teal { background: var(--butler-teal-soft); color: var(--butler-teal); }
-.channel-tile.tone-blue { background: var(--butler-accent-soft); color: var(--butler-accent); }
-.channel-tile.tone-green { background: var(--butler-ok-soft); color: var(--butler-ok); }
-.channel-tile.tone-gold { background: var(--butler-warn-soft); color: var(--butler-warn); }
-.channel-tile.tone-gray { background: var(--butler-sunken); color: var(--butler-ink-faint); }
+/* 图标底：soft 底 + 同色系细描边（color-mix 28%），色块有轮廓不糊。
+   描边比底色深一档，避免大平涂。 */
+.channel-tile.tone-teal { background: var(--ab-brand-soft); color: var(--ab-brand); border: 1px solid color-mix(in srgb, var(--ab-brand) 28%, transparent); }
+.channel-tile.tone-blue { background: var(--ab-primary-soft); color: var(--ab-primary); border: 1px solid color-mix(in srgb, var(--ab-primary) 28%, transparent); }
+.channel-tile.tone-green { background: var(--ab-ok-soft); color: var(--ab-ok); border: 1px solid color-mix(in srgb, var(--ab-ok) 28%, transparent); }
+.channel-tile.tone-gold { background: var(--ab-warn-soft); color: var(--ab-warn); border: 1px solid color-mix(in srgb, var(--ab-warn) 28%, transparent); }
+.channel-tile.tone-gray { background: var(--ab-sunken); color: var(--ab-text-3); border: 1px solid var(--ab-border); }

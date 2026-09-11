@@ -1,0 +1,411 @@
+/**
+ * 共享原语层：仅保留仍被页面/组件引用的容器与共享组件皮肤。
+ * 已被 antd v6 原语替代的旧规则（旧卡片体系、页面标题层级、语义色调助手等）已退役。
+ * 控件观感交给 antd Design Token；变量真源见 theme/tokens.ts。
+ */
+
+/* ---- 页面容器 ---- */
+
+[class$="-page"] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--butler-space-4);
+}
+
+/* ---- 趋势图表卡片 ---- */
+
+.chart-card {
+  padding: var(--butler-space-4) var(--butler-space-5);
+  background: var(--butler-surface);
+  border: 1px solid var(--butler-rule);
+  border-radius: var(--butler-radius-card);
+  box-shadow: var(--butler-shadow);
+}
+
+.chart-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--butler-space-3);
+  margin-bottom: var(--butler-space-3);
+}
+.chart-card-head h3 {
+  font-size: var(--butler-text-md);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.chart-card-head p {
+  margin-top: 2px;
+  color: var(--butler-muted);
+  font-size: var(--butler-text-xs);
+  line-height: 1.5;
+}
+
+/* ---- 空态（图表空态配品牌角色「管家机器人」，见 docs/brand/02 §2.6） ---- */
+
+.empty-state {
+  min-height: 168px;
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  padding: var(--butler-space-6) var(--butler-space-4);
+  text-align: center;
+  border: 1px dashed var(--butler-rule);
+  border-radius: var(--butler-radius-card);
+  background: var(--butler-surface-subtle);
+  color: var(--butler-muted);
+  line-height: 1.6;
+}
+
+/* 空态三件套：一句结论 + 一句怎么做 + 一个按钮（规范 03 §3.9）。 */
+.empty-state-title {
+  color: var(--ab-text);
+  font-size: var(--butler-text-md);
+  font-weight: 600;
+}
+.empty-state-hint {
+  max-width: 38em;
+  color: var(--butler-muted);
+  font-size: var(--butler-text-sm);
+}
+.empty-state-action {
+  margin-top: 2px;
+}
+
+/* ---- AI 生成内容标识（规范 03 §1 P3：必须标来源，且不与实测结论同层）---- */
+
+.ai-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0 0 var(--butler-space-3);
+  padding: 6px 10px;
+  /* 黄铜而非状态色：它表达"来源"，不是"好坏"。 */
+  border: 1px solid var(--ab-brand-line);
+  border-radius: var(--ab-r-tag);
+  background: var(--ab-brand-soft);
+  font-size: var(--butler-text-xs);
+  line-height: 1.5;
+}
+.ai-notice.is-compact {
+  margin-bottom: var(--butler-space-2);
+  padding: 4px 8px;
+}
+.ai-notice-mark {
+  color: var(--ab-brand);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.ai-notice-text {
+  color: var(--butler-muted);
+}
+
+/* ---- 品牌角色（机器人）----
+   亮色用品牌线描、深色用反白版：墨线在 --butler-surface-subtle（#1a2e46）上对比度不足 2:1。
+   双图 + html[data-theme] 切换，与 Layout 品牌标志同一套做法，不引入主题 context。 */
+.brand-mascot {
+  display: block;
+  flex: none;
+  line-height: 0;
+}
+
+.brand-mascot-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  user-select: none;
+}
+
+.brand-mascot-img.is-dark {
+  display: none;
+}
+
+html[data-theme="dark"] .brand-mascot-img.is-light {
+  display: none;
+}
+
+html[data-theme="dark"] .brand-mascot-img.is-dark {
+  display: block;
+}
+
+/* ---- 键值对 / 数据行 ---- */
+
+.kv {
+  display: grid;
+  grid-template-columns: minmax(84px, auto) 1fr;
+  gap: 4px var(--butler-space-3);
+  align-items: baseline;
+  font-size: var(--butler-text-sm);
+}
+.kv > dt,
+.kv > .k {
+  color: var(--butler-muted);
+  font-size: var(--butler-text-xs);
+}
+
+/* ---- 高级详情折叠区 ---- */
+
+.advanced-details .ant-collapse-header {
+  align-items: center !important;
+  padding-block: 7px !important;
+}
+.advanced-details .ant-collapse-content-box {
+  padding: 10px 12px !important;
+}
+.advanced-details-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: var(--butler-text-sm);
+}
+.advanced-details-summary span:first-child {
+  font-weight: 600;
+}
+.advanced-details-extra {
+  color: var(--butler-muted);
+  font-size: var(--butler-text-xs);
+}
+
+/* ---- 紧凑描述列表（连接卡片 / 检查明细头部） ---- */
+
+.dense-descriptions .ant-descriptions-item-label,
+.dense-descriptions .ant-descriptions-item-content {
+  padding-block: 3px !important;
+}
+
+/* ---- 检查明细行：标签定宽 + 状态徽标 + 说明省略 + 耗时右对齐 ---- */
+
+.check-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  line-height: 22px;
+}
+.check-row-label {
+  flex: 0 0 auto;
+  width: 10.5em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.check-row-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.check-row-duration {
+  flex: 0 0 auto;
+  min-width: 3.5em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- 状态徽标（规范 03 §3.2：高 22 / 左右 padding 8 / 字号 12 / 字重 500 / 圆角 6）---- */
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--ab-r-tag);
+  font-size: var(--butler-text-xs);
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+.status-badge .anticon {
+  font-size: 11px;
+}
+.status-badge-label {
+  display: inline-block;
+}
+
+.status-badge[data-tone="ok"] {
+  background: var(--ab-ok-soft);
+  color: var(--ab-ok);
+}
+.status-badge[data-tone="warn"] {
+  background: var(--ab-warn-soft);
+  color: var(--ab-warn);
+}
+.status-badge[data-tone="error"] {
+  background: var(--ab-error-soft);
+  color: var(--ab-error);
+}
+/* 离线与未知同色（规范 02 §1.4），靠文案与图标区分。 */
+.status-badge[data-tone="offline"],
+.status-badge[data-tone="unknown"] {
+  background: var(--ab-offline-soft);
+  color: var(--ab-offline);
+}
+/* brand 是标记（推荐 / 当前版本 / 已备份），用黄铜记忆色，不参与状态语义。 */
+.status-badge[data-tone="brand"] {
+  background: var(--ab-brand-soft);
+  color: var(--ab-brand);
+}
+
+/* ---- 通知中心 ---- */
+
+.notification-badge .ant-badge-count {
+  background: var(--butler-notification-badge);
+  color: var(--butler-notification-badge-on);
+  box-shadow: 0 0 0 1px var(--butler-surface);
+}
+
+.notification-popover .ant-popover-inner {
+  padding: 0;
+}
+.notification-panel {
+  width: 340px;
+  max-width: 82vw;
+}
+.notification-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--butler-rule);
+}
+.notification-panel-head > div {
+  display: flex;
+  flex-direction: column;
+}
+.notification-panel-head strong {
+  font-size: var(--butler-text-sm);
+}
+.notification-panel-head span {
+  color: var(--butler-muted);
+  font-size: var(--butler-text-xs);
+}
+.notification-panel-loading {
+  display: grid;
+  place-items: center;
+  padding: 28px 0;
+}
+.notification-list {
+  max-height: 380px;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  overflow-y: auto;
+}
+.notification-item {
+  position: relative;
+  border-radius: 8px;
+}
+.notification-item:hover {
+  background: var(--butler-surface-subtle);
+}
+.notification-item-main {
+  width: 100%;
+  min-height: 44px;
+  padding: 11px 32px 11px 10px;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+.notification-item-main strong {
+  font-size: var(--butler-text-sm);
+  font-weight: 550;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.notification-unread-dot {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--butler-accent);
+  transform: translateY(-50%);
+}
+.notification-panel-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--butler-rule);
+  font-size: var(--butler-text-sm);
+}
+
+/* ---- 危险确认弹窗 ---- */
+
+.danger-modal-title .anticon {
+  color: var(--butler-error);
+  margin-right: 4px;
+}
+.danger-modal-copy {
+  color: var(--butler-ink-soft);
+  font-size: var(--butler-text-sm);
+  line-height: 1.65;
+}
+.danger-impact-alert {
+  margin-top: var(--butler-space-3);
+}
+
+/* 危险确认弹窗的「能否撤回 / 耗时」两栏（规范 03 §3.7 必填四项之二） */
+.danger-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px var(--butler-space-3);
+  margin: var(--butler-space-3) 0 0;
+  font-size: var(--butler-text-sm);
+}
+.danger-facts > dt {
+  color: var(--butler-muted);
+  font-size: var(--butler-text-xs);
+  white-space: nowrap;
+}
+.danger-facts > dd {
+  margin: 0;
+  color: var(--butler-ink-soft);
+}
+
+/* 高危操作的手动勾选确认框 */
+.danger-acknowledge {
+  margin-top: var(--butler-space-3);
+  padding: 10px 12px;
+  border: 1px solid var(--ab-warn-soft);
+  border-radius: var(--ab-r-ctl);
+  background: var(--ab-warn-soft);
+}
+.danger-acknowledge .ant-checkbox-wrapper {
+  color: var(--ab-warn);
+  font-size: var(--butler-text-sm);
+}
+.repair-steps {
+  margin-top: var(--butler-space-3);
+  font-size: var(--butler-text-sm);
+}
+.repair-steps > span {
+  color: var(--butler-muted);
+  font-size: var(--butler-text-xs);
+}
+.repair-steps ol {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 4px;
+  color: var(--butler-ink-soft);
+}

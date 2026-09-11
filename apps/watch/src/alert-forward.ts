@@ -14,6 +14,17 @@
 import type { AuditLog, EventBus } from "@butler/core";
 import type { FetchLike } from "./dashboard-signal.js";
 
+/**
+ * 卡片按钮（M3.1 通知即操作）。两种承载方式二选一：
+ * - callbackData：具备内联按钮能力的通道（Telegram callback_query）就地回执；
+ * - url：其余通道降级为在正文追加链接（微信/Server 酱不支持内联按钮时跳 Web 确认页）。
+ */
+export interface AlertAction {
+  label: string;
+  callbackData?: string;
+  url?: string;
+}
+
 /** 网关告警统一 body 形态（/api/alerts）。 */
 export interface GatewayAlertBody {
   kind: string;
@@ -22,6 +33,8 @@ export interface GatewayAlertBody {
   body: string;
   source: string;
   dedupeKey: string;
+  /** 交互式卡片按钮（可选；最多 3 个）。 */
+  actions?: AlertAction[];
 }
 
 export interface AlertForwardBody {

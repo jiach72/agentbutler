@@ -1,0 +1,24 @@
+{
+  "slug": "sidebar",
+  "schemaVersion": 2,
+  "name": "侧边栏",
+  "category": "navigation",
+  "sourceKind": "from-scratch",
+  "confidence": "medium",
+  "semanticTypeCandidates": [
+    { "type": "Sidebar", "confidence": "medium", "evidence": "控制台左栏段落导航（巡检/消息/版本/设置）" }
+  ],
+  "variantDimensions": [
+    { "dimension": "state", "values": ["expanded", "collapsed"] }
+  ],
+  "representativeVariants": [
+    { "name": "expanded", "whySelected": "默认展开，图标 + 标签", "traits": { "state": "expanded", "density": "normal" }, "childrenDigest": "导航项（图标 + 标签）+ 激活高亮" },
+    { "name": "collapsed", "whySelected": "折叠后仅图标，节省横向空间", "traits": { "state": "collapsed" }, "childrenDigest": "图标导航项" }
+  ],
+  "anatomy": ["container", "nav-item", "icon", "label", "active-indicator", "section-header"],
+  "structurePatterns": ["icon+label", "active-indicator", "section-group"],
+  "usageHints": { "priorityHint": "high", "oneLine": "激活态克制，用主色左条或浅色底标识" },
+  "doNotInvent": ["多层树形展开（无交互语境）", "装饰性渐变背景"],
+  "unknowns": [],
+  "keyInsightSeed": "可折叠的段落导航：图标 + 标签，激活态克制"
+}

@@ -23,6 +23,19 @@ import path from "node:path";
 export type AlertSeverity = "info" | "warn" | "critical";
 export type AlertStatus = "pending" | "delivering" | "delivered" | "failed" | "resolved";
 
+/**
+ * 交互式卡片按钮（M3.1）。callbackData 走支持内联按钮的通道（Telegram）；
+ * url 为降级链接（微信类通道不支持内联按钮时跳 Web 确认页）。
+ */
+export interface AlertAction {
+  label: string;
+  callbackData?: string;
+  url?: string;
+}
+
+/** 单条告警最多 3 个按钮（够用且避免通道侧排版过载）。 */
+export const MAX_ALERT_ACTIONS = 3;
+
 /** alerts 表行（camelCase 视图，不含任何凭据，可直接外发 API）。 */
 export interface AlertRow {
   id: number;
@@ -44,6 +57,8 @@ export interface AlertRow {
   channel: string | null;
   /** 面板通知已读时间；null 表示仍未读。 */
   readAt: string | null;
+  /** 交互式卡片按钮（无按钮为空数组）。 */
+  actions: AlertAction[];
 }
 
 export interface AlertInput {
@@ -53,6 +68,7 @@ export interface AlertInput {
   body: string;
   source: string;
   dedupeKey?: string;
+  actions?: AlertAction[];
 }
 
 /** 连续失败上限：达到即 failed（保留可见）。 */
@@ -92,7 +108,8 @@ CREATE TABLE IF NOT EXISTS alerts (
   delivered_at TEXT,
   last_error TEXT,
   channel TEXT,
-  read_at TEXT
+  read_at TEXT,
+  actions_json TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_alerts_status_next ON alerts(status, next_attempt_at);
 CREATE INDEX IF NOT EXISTS idx_alerts_pending_priority ON alerts(status, severity, next_attempt_at, created_at, id);
@@ -116,6 +133,10 @@ export class AlertQueue {
     const columns = this.db.prepare("PRAGMA table_info(alerts)").all() as Record<string, unknown>[];
     if (!columns.some((column) => column["name"] === "read_at")) {
       this.db.exec("ALTER TABLE alerts ADD COLUMN read_at TEXT;");
+    }
+    // 兼容已存在的 gateway.db：交互式卡片按钮列（M3.1）。
+    if (!columns.some((column) => column["name"] === "actions_json")) {
+      this.db.exec("ALTER TABLE alerts ADD COLUMN actions_json TEXT;");
     }
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_alerts_unread ON alerts(read_at, severity);");
     // 重启补发：进程刚启动时不存在真正投递中的行，delivering 一律回置 pending。
@@ -143,17 +164,20 @@ export class AlertQueue {
   enqueue(input: AlertInput): AlertRow {
     const now = new Date().toISOString();
     const dedupeKey = input.dedupeKey?.trim() || null;
+    const actionsJson = serializeActions(input.actions);
     if (dedupeKey !== null) {
       const open = this.findOpenByDedupeKey(dedupeKey);
       if (open !== undefined) {
         if (open.status === "pending" && severityRank(input.severity) < severityRank(open.severity)) {
+          // 未投递行升级：摘要与按钮一起替换（例如审批单从「可一键放行」升级为「需面板确认」）。
           this.db
             .prepare(
               `UPDATE alerts
-               SET severity = ?, title = ?, body = ?, source = ?, merged_count = merged_count + 1, updated_at = ?
+               SET severity = ?, title = ?, body = ?, source = ?, actions_json = ?,
+                   merged_count = merged_count + 1, updated_at = ?
                WHERE id = ?`,
             )
-            .run(input.severity, input.title, input.body, input.source, now, open.id);
+            .run(input.severity, input.title, input.body, input.source, actionsJson, now, open.id);
         } else {
           this.db
             .prepare("UPDATE alerts SET merged_count = merged_count + 1, updated_at = ? WHERE id = ?")
@@ -176,10 +200,10 @@ export class AlertQueue {
     const result = this.db
       .prepare(
         `INSERT INTO alerts (kind, severity, title, body, source, dedupe_key, status,
-                             attempts, merged_count, next_attempt_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, 1, NULL, ?, ?)`,
+                             attempts, merged_count, next_attempt_at, created_at, updated_at, actions_json)
+         VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, 1, NULL, ?, ?, ?)`,
       )
-      .run(input.kind, input.severity, input.title, input.body, input.source, dedupeKey, now, now);
+      .run(input.kind, input.severity, input.title, input.body, input.source, dedupeKey, now, now, actionsJson);
     const row = this.get(Number(result.lastInsertRowid));
     if (row === undefined) {
       throw new Error(`alert ${result.lastInsertRowid} disappeared right after insert`);
@@ -362,7 +386,46 @@ export class AlertQueue {
       lastError: (r["last_error"] as string | null) ?? null,
       channel: (r["channel"] as string | null) ?? null,
       readAt: (r["read_at"] as string | null) ?? null,
+      actions: parseActions(r["actions_json"]),
     };
+  }
+}
+
+/** 序列化按钮（空/非法一律存 NULL，读侧回落空数组）。 */
+function serializeActions(actions: AlertAction[] | undefined): string | null {
+  if (actions === undefined || actions.length === 0) return null;
+  const cleaned = actions
+    .filter((action) => typeof action.label === "string" && action.label.trim() !== "")
+    .slice(0, MAX_ALERT_ACTIONS)
+    .map((action) => {
+      const item: AlertAction = { label: action.label.trim() };
+      if (typeof action.callbackData === "string" && action.callbackData !== "") {
+        item.callbackData = action.callbackData;
+      }
+      if (typeof action.url === "string" && action.url !== "") item.url = action.url;
+      return item;
+    })
+    // 两者皆无的按钮点了没反应，直接丢弃而不是渲染一个死按钮。
+    .filter((action) => action.callbackData !== undefined || action.url !== undefined);
+  return cleaned.length === 0 ? null : JSON.stringify(cleaned);
+}
+
+function parseActions(raw: unknown): AlertAction[] {
+  if (typeof raw !== "string" || raw === "") return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
+      .map((item) => {
+        const action: AlertAction = { label: String(item["label"] ?? "") };
+        if (typeof item["callbackData"] === "string") action.callbackData = item["callbackData"];
+        if (typeof item["url"] === "string") action.url = item["url"];
+        return action;
+      })
+      .filter((action) => action.label !== "");
+  } catch {
+    return [];
   }
 }
 

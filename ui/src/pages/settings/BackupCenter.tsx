@@ -2,7 +2,7 @@
  * 设置页右栏备份面板：手动备份入口、保留策略与备份记录时间线。
  * 备份/管家自检两路数据独立三态，失败时显示降级横幅与单源重试。
  */
-import { Button, Card, Divider, Empty, Flex, Space, Spin, Timeline, Typography } from "antd";
+import { Button, Card, Divider, Empty, Flex, Space, Spin, Timeline, Tooltip, Typography } from "antd";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { SectionHeader } from "../../components/SectionHeader.js";
@@ -57,29 +57,34 @@ export function BackupCenter({
         kicker="备份与还原"
         title="备份记录"
         extra={
+          // 还没拿到备份列表 = 规范 §1.4 的"还没读到数据"，用 unknown。
           <StatusBadge
-            tone={backups.status === "ready" && backups.data.items.length > 0 ? "ok" : "muted"}
+            tone={backups.status === "ready" && backups.data.items.length > 0 ? "ok" : "unknown"}
             label={`${backups.status === "ready" ? backups.data.items.length : 0} 条`}
           />
         }
       />
 
       <Space wrap>
-        <Button
-          type="primary"
-          loading={busy === "full"}
-          disabled={busy !== null}
-          onClick={() => onRunBackup("full")}
-        >
-          立即全量备份
-        </Button>
-        <Button
-          loading={busy === "memory"}
-          disabled={busy !== null}
-          onClick={() => onRunBackup("memory")}
-        >
-          备份记忆
-        </Button>
+        <Tooltip title="有备份或还原操作正在执行">
+          <Button
+            type="primary"
+            loading={busy === "full"}
+            disabled={busy !== null}
+            onClick={() => onRunBackup("full")}
+          >
+            立即全量备份
+          </Button>
+        </Tooltip>
+        <Tooltip title="有备份或还原操作正在执行">
+          <Button
+            loading={busy === "memory"}
+            disabled={busy !== null}
+            onClick={() => onRunBackup("memory")}
+          >
+            备份记忆
+          </Button>
+        </Tooltip>
         <Button
           disabled={busy !== null || backups.status !== "ready" || backups.data.items.length === 0}
           loading={busy === "verify"}
@@ -173,16 +178,18 @@ export function BackupCenter({
                   </Text>
                 </div>
                 <Space>
-                  <StatusBadge tone="muted" label={snapshotStatusLabel(item.status)} />
+                  <StatusBadge tone="unknown" label={snapshotStatusLabel(item.status)} />
                   {restoreable(item) && (
-                    <Button
-                      size="small"
-                      disabled={busy !== null}
-                      loading={busy === `restore-${item.id}`}
-                      onClick={() => onRequestRestore(item)}
-                    >
-                      还原
+                    <Tooltip title="有备份或还原操作正在执行">
+                      <Button
+                        size="small"
+                        disabled={busy !== null}
+                        loading={busy === `restore-${item.id}`}
+                        onClick={() => onRequestRestore(item)}
+                      >
+                        还原
                     </Button>
+                    </Tooltip>
                   )}
                 </Space>
               </Flex>

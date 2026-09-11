@@ -8,6 +8,18 @@ interface SparklineProps {
   height?: number;
 }
 
+/**
+ * tone → 品牌 token 显式映射。
+ * 阶段 5B 删别名桥后 --butler-* 不再输出，动态拼接 `var(--butler-${tone})`
+ * 会在运行时静默失效（CSS 退化为继承值），这里改为查表。
+ */
+const SPARKLINE_TONE_VAR: Record<NonNullable<SparklineProps["tone"]>, string> = {
+  accent: "var(--ab-primary)",
+  ok: "var(--ab-ok)",
+  warn: "var(--ab-warn)",
+  error: "var(--ab-error)",
+};
+
 export function Sparkline({
   values,
   label,
@@ -26,7 +38,7 @@ export function Sparkline({
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     })
     .join(" ");
-  const style = { "--sparkline-color": `var(--butler-${tone})` } as CSSProperties;
+  const style = { "--sparkline-color": SPARKLINE_TONE_VAR[tone] } as CSSProperties;
 
   return (
     <svg

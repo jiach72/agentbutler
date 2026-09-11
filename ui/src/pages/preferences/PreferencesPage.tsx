@@ -5,6 +5,7 @@
 import { CheckOutlined, MoonOutlined, SunOutlined } from "@ant-design/icons";
 import { Button, Card, Col, Flex, List, Row, Segmented, Space, Switch, Typography } from "antd";
 import { PageHeader } from "../../components/PageHeader.js";
+import { ConclusionBar } from "../../components/ConclusionBar.js";
 import { useTheme } from "../../theme/ThemeProvider.js";
 import { usePreferences } from "../../lib/preferences.js";
 
@@ -122,6 +123,11 @@ export function PreferencesPage() {
           eyebrow="常规偏好"
           title="设置"
           description="调整界面外观和重要通知的显示方式。"
+        />
+        <ConclusionBar
+          tone="ok"
+          title="偏好即改即存"
+          copy="外观与通知设置自动保存，无需手动确认。"
         />
         <PreferencesPanel />
         <Flex justify="flex-end">

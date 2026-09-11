@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<link rel="stylesheet" href="../colors_and_type.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>图表</title>
+<style>
+/* Page scaffold — NOT extracted */
+body { margin: 0; padding: 12px; background: var(--color-surface); font-family: var(--font-family-base); color: var(--color-foreground); }
+.specimen { display: flex; flex-direction: column; gap: var(--space-3); }
+.stage { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); align-items: stretch; }
+.story { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.story-label { font-family: var(--font-family-base); font-size: var(--font-size-caption); font-weight: var(--font-weight-caption); color: var(--color-muted-foreground); letter-spacing: .02em; white-space: nowrap; }
+.rail { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: stretch; }
+.chart-card { background: var(--color-card); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-3); box-shadow: var(--shadow-1); }
+.divider { border: none; border-top: 1px solid var(--color-border); margin: 0; }
+
+/* @component-css-start */
+.chart-legend { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--font-size-caption); color: var(--color-muted-foreground); }
+.chart-legend .dot { width: 8px; height: 8px; border-radius: var(--radius-full); background: var(--chart-1); flex-shrink: 0; }
+.chart { display: block; width: 100%; height: auto; }
+.chart-axis { stroke: var(--color-border); stroke-width: 1; }
+.chart-line { stroke: var(--chart-1); stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
+.chart-tick { fill: var(--color-muted-foreground); font-size: 10px; font-family: var(--font-family-base); }
+.bar-primary { fill: var(--chart-1); }
+.bar-success { fill: var(--color-success); }
+.bar-warning { fill: var(--color-warning); }
+.bar-error { fill: var(--color-error); }
+.bar-info { fill: var(--color-info); }
+.metric { display: flex; flex-direction: column; gap: var(--space-1); min-width: 132px; }
+.metric-label { font-size: var(--font-size-caption); color: var(--color-muted-foreground); white-space: nowrap; }
+.metric-value { font-family: var(--font-mono); font-size: var(--font-size-h4); font-weight: var(--font-weight-h3); white-space: nowrap; }
+.spark { stroke: var(--chart-1); stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
+.spark.success { stroke: var(--color-success); }
+.spark.warning { stroke: var(--color-warning); }
+/* @component-css-end */
+</style>
+</head>
+<body>
+<div class="specimen">
+  <div class="stage">
+    <div class="story" data-evidence-sample="line">
+      <span class="story-label">折线 · 趋势</span>
+      <div class="chart-card">
+        <div class="chart-legend"><span class="dot"></span>消息通知</div>
+        <svg class="chart" viewBox="0 0 300 120" role="img" aria-label="消息通知趋势折线图">
+          <line class="chart-axis" x1="20" y1="20" x2="292" y2="20"/>
+          <line class="chart-axis" x1="20" y1="48" x2="292" y2="48"/>
+          <line class="chart-axis" x1="20" y1="76" x2="292" y2="76"/>
+          <line class="chart-axis" x1="20" y1="104" x2="292" y2="104"/>
+          <polyline class="chart-line" points="20,88 60,70 100,80 140,50 180,58 220,32 260,40 292,18"/>
+        </svg>
+      </div>
+    </div>
+    <div class="story" data-evidence-sample="bar">
+      <span class="story-label">柱状 · 分类对比</span>
+      <div class="chart-card">
+        <svg class="chart" viewBox="0 0 300 132" role="img" aria-label="分类对比柱状图">
+          <line class="chart-axis" x1="20" y1="104" x2="292" y2="104"/>
+          <rect class="bar-success" x="24" y="58" width="40" height="46"/>
+          <rect class="bar-warning" x="94" y="72" width="40" height="32"/>
+          <rect class="bar-error" x="164" y="46" width="40" height="58"/>
+          <rect class="bar-info" x="234" y="80" width="40" height="24"/>
+          <text class="chart-tick" x="44" y="116" text-anchor="middle">运行正常</text>
+          <text class="chart-tick" x="114" y="116" text-anchor="middle">立即检查</text>
+          <text class="chart-tick" x="184" y="116" text-anchor="middle">修复一下</text>
+          <text class="chart-tick" x="254" y="116" text-anchor="middle">高级详情</text>
+        </svg>
+      </div>
+    </div>
+  </div>
+  <hr class="divider">
+  <div class="story" data-evidence-sample="sparkline">
+    <span class="story-label">迷你趋势 · Sparkline</span>
+    <div class="rail">
+      <div class="chart-card metric">
+        <span class="metric-label">消息通知</span>
+        <span class="metric-value">12,480</span>
+        <svg class="chart" viewBox="0 0 120 36" role="img" aria-label="消息通知迷你趋势">
+          <polyline class="spark" points="2,30 20,24 40,27 60,16 80,20 100,8 118,12"/>
+        </svg>
+      </div>
+      <div class="chart-card metric">
+        <span class="metric-label">技能库</span>
+        <span class="metric-value">3,412</span>
+        <svg class="chart" viewBox="0 0 120 36" role="img" aria-label="技能库迷你趋势">
+          <polyline class="spark success" points="2,28 20,26 40,18 60,22 80,12 100,16 118,6"/>
+        </svg>
+      </div>
+      <div class="chart-card metric">
+        <span class="metric-label">安全基线</span>
+        <span class="metric-value">98.6%</span>
+        <svg class="chart" viewBox="0 0 120 36" role="img" aria-label="安全基线迷你趋势">
+          <polyline class="spark warning" points="2,10 20,16 40,12 60,22 80,20 100,28 118,30"/>
+        </svg>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

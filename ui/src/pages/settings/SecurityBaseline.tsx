@@ -4,12 +4,12 @@
  * 视觉全部走 antd List / Badge / Collapse 原语，不依赖旧页面 CSS。
  */
 import { useMemo } from "react";
-import { Badge, Button, Flex, List, Typography } from "antd";
-import type { BadgeProps } from "antd";
+import { Button, Flex, List, Tooltip, Typography } from "antd";
 import { AdvancedDetails } from "../../components/AdvancedDetails.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { SectionHeader } from "../../components/SectionHeader.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
+import type { SemanticTone } from "../../components/StatusBadge.js";
 import type { FetchState } from "../../lib/api.js";
 import {
   type AlertsPayload,
@@ -65,12 +65,16 @@ function retryBanner(
   );
 }
 
-/** 检查状态 → antd Badge status 映射（pass/warn/fail 之外的都按中性处理）。 */
-function statusToBadge(status: string): BadgeProps["status"] {
-  if (status === "pass") return "success";
-  if (status === "warn") return "warning";
+/**
+ * 检查状态 → 规范语义 tone。
+ * v2 起不再用「只有色点」的 antd Badge（规范 §1 P3 / §6：颜色 + 图标 + 文字至少取二），
+ * 状态一律由 <StatusBadge> 渲染。
+ */
+function statusToTone(status: string): SemanticTone {
+  if (status === "pass") return "ok";
+  if (status === "warn") return "warn";
   if (status === "fail") return "error";
-  return "default";
+  return "unknown";
 }
 
 /** 检查状态 → 右侧结论文案（已满足 / 需注意 / 建设中）。 */
@@ -227,7 +231,7 @@ export function SecurityBaseline({
       <SectionHeader
         kicker="本机安全"
         title="本机安全检查"
-        extra={<StatusBadge tone="muted" label="基础检查" />}
+        extra={<StatusBadge tone="unknown" label="基础检查" />}
       />
 
       {baseline.status === "failed" && retryBanner("baseline", baseline.reason, onRetry)}
@@ -239,13 +243,10 @@ export function SecurityBaseline({
         renderItem={(item) => (
           <List.Item
             actions={[
-              <Text key="state" type="secondary">
-                {stateLabel(item.status)}
-              </Text>,
+              <StatusBadge key="state" tone={statusToTone(item.status)} label={stateLabel(item.status)} />,
             ]}
           >
             <List.Item.Meta
-              avatar={<Badge status={statusToBadge(item.status)} />}
               title={item.title}
               description={item.detail}
             />
@@ -261,13 +262,14 @@ export function SecurityBaseline({
             renderItem={(item) => (
               <List.Item
                 actions={[
-                  <Text key="label" type="secondary">
-                    {invariantStatusLabel(item.status)}
-                  </Text>,
+                  <StatusBadge
+                    key="label"
+                    tone={statusToTone(item.status)}
+                    label={invariantStatusLabel(item.status)}
+                  />,
                 ]}
               >
                 <List.Item.Meta
-                  avatar={<Badge status={statusToBadge(item.status)} />}
                   title={item.title}
                   description={item.detail}
                 />
@@ -307,10 +309,13 @@ export function SecurityBaseline({
           extra={
             <StatusBadge
               tone={
-                runbooks.status !== "ready" || runbooks.data.reachable === false
-                  ? "muted"
-                  : trippedRunbooks.length === 0
-                    ? "ok"
+                // 拆开判定：读不到数据是 unknown，读到了但连不上才是 offline（§1.4 要求区分）。
+                runbooks.status !== "ready"
+                  ? "unknown"
+                  : runbooks.data.reachable === false
+                    ? "offline"
+                    : trippedRunbooks.length === 0
+                      ? "ok"
                     : "warn"
               }
               label={
@@ -342,14 +347,15 @@ export function SecurityBaseline({
             renderItem={(runbook) => (
               <List.Item
                 actions={[
+                  <Tooltip key="reset" title="有基线操作正在执行">
                   <Button
-                    key="reset"
                     disabled={busy !== null}
                     loading={busy === `reset-${runbook.id}`}
                     onClick={() => onRequestReset(runbook)}
                   >
                     确认后解除
-                  </Button>,
+                  </Button>
+                  </Tooltip>,
                 ]}
               >
                 <List.Item.Meta
@@ -369,14 +375,14 @@ export function SecurityBaseline({
         <List size="small">
           <List.Item>
             <List.Item.Meta
-              avatar={<StatusBadge tone="muted" label="规则" />}
+              avatar={<StatusBadge tone="unknown" label="规则" />}
               title="按当前消息通道发送"
               description="系统只使用当前通道，不设置备用通知链路"
             />
           </List.Item>
           <List.Item>
             <List.Item.Meta
-              avatar={<StatusBadge tone="muted" label="当前" />}
+              avatar={<StatusBadge tone="unknown" label="当前" />}
               title={
                 alerts.status === "ready" && alerts.data.reachable
                   ? "通知服务在线"

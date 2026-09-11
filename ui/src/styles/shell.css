@@ -21,14 +21,14 @@
 
 .content > .product-page,
 .content > [class$="-page"] {
-  max-width: 1360px;
+  max-width: 1440px;
   margin-inline: auto;
 }
 
 /* ---- 侧栏骨架 ---- */
 
 .app-sider {
-  border-right: 1px solid var(--butler-rule);
+  border-right: 1px solid var(--ab-border);
 }
 
 .app-sider .ant-layout-sider-children {
@@ -48,8 +48,9 @@
 }
 
 .brand-mark {
-  width: 34px;
-  height: 34px;
+  /* 规范 02 §2.3：侧栏标识 28×28。低于 16×16 时改用纯墨底容器色块，不放线条。 */
+  width: 28px;
+  height: 28px;
   flex-shrink: 0;
 }
 
@@ -73,13 +74,13 @@ html[data-theme="dark"] .brand-logo.is-dark {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  font-size: var(--butler-text-md);
+  font-size: var(--ab-text-size-md);
   font-weight: 600;
   letter-spacing: -0.01em;
 }
 .brand-copy small {
-  color: var(--butler-muted);
-  font-size: var(--butler-text-xs);
+  color: var(--ab-text-3);
+  font-size: var(--ab-text-size-xs);
   font-weight: 400;
   white-space: nowrap;
   overflow: hidden;
@@ -88,8 +89,10 @@ html[data-theme="dark"] .brand-logo.is-dark {
 
 /* ---- 导航（antd inline Menu + 双行文案） ---- */
 
-.app-nav {
-  border-inline-end: none !important;
+/* 提高选择器权重到 html body .app-nav，避免与 antd 内置的 .ant-menu 选择器平级，
+   这样不再需要 !important 强制覆盖（规范 §3.7「组件层零覆盖」+ 禁 !important）。 */
+html body .app-nav {
+  border-inline-end: none;
   flex: 1;
 }
 
@@ -122,29 +125,30 @@ html[data-theme="dark"] .brand-logo.is-dark {
   min-width: 0;
 }
 .menu-copy strong {
-  font-size: var(--butler-text-sm);
+  font-size: var(--ab-text-size-sm);
   font-weight: 550;
   line-height: 1.35;
 }
 .menu-copy small {
-  color: var(--butler-muted);
-  font-size: var(--butler-text-xs);
+  color: var(--ab-text-3);
+  font-size: var(--ab-text-size-xs);
   line-height: 1.35;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.app-nav .ant-menu-item-selected {
-  background: var(--butler-accent-soft) !important;
+/* 用 html body 前缀提高权重，替代 !important。 */
+html body .app-nav .ant-menu-item-selected {
+  background: var(--ab-primary-soft);
 }
-.app-nav .ant-menu-item-selected,
-.app-nav .ant-menu-item-selected .menu-link,
-.app-nav .ant-menu-item-selected .menu-copy strong,
-.app-nav .ant-menu-item-selected .anticon {
-  color: var(--butler-ink) !important;
+html body .app-nav .ant-menu-item-selected,
+html body .app-nav .ant-menu-item-selected .menu-link,
+html body .app-nav .ant-menu-item-selected .menu-copy strong,
+html body .app-nav .ant-menu-item-selected .anticon {
+  color: var(--ab-text);
 }
 .app-nav .ant-menu-item-selected .menu-copy small {
-  color: var(--butler-ink-soft);
+  color: var(--ab-text-2);
   opacity: 1;
 }
 
@@ -163,19 +167,19 @@ html[data-theme="dark"] .brand-logo.is-dark {
   align-items: center;
   gap: 10px;
   padding: 7px 10px;
-  border-radius: var(--butler-radius-control);
-  color: var(--butler-ink-soft);
+  border-radius: var(--ab-r-ctl);
+  color: var(--ab-text-2);
   text-decoration: none;
-  transition: background-color var(--butler-dur-fast) var(--butler-ease),
-    color var(--butler-dur-fast) var(--butler-ease);
+  transition: background-color var(--ab-dur-fast) var(--ab-ease),
+    color var(--ab-dur-fast) var(--ab-ease);
 }
 .sidebar-settings:hover {
-  background: var(--butler-sunken);
-  color: var(--butler-ink);
+  background: var(--ab-sunken);
+  color: var(--ab-text);
 }
 .sidebar-settings.active {
-  background: var(--butler-accent-soft);
-  color: var(--butler-ink);
+  background: var(--ab-primary-soft);
+  color: var(--ab-text);
 }
 
 .sidebar-settings-icon {
@@ -184,14 +188,14 @@ html[data-theme="dark"] .brand-logo.is-dark {
   width: 22px;
   flex-shrink: 0;
   font-size: 15px;
-  color: var(--butler-muted);
-  transition: color var(--butler-dur-fast) var(--butler-ease);
+  color: var(--ab-text-3);
+  transition: color var(--ab-dur-fast) var(--ab-ease);
 }
 .sidebar-settings:hover .sidebar-settings-icon {
-  color: var(--butler-ink-soft);
+  color: var(--ab-text-2);
 }
 .sidebar-settings.active .sidebar-settings-icon {
-  color: var(--butler-ink);
+  color: var(--ab-text);
 }
 
 /* ---- 消息通道目录：标题行不再包一层 Card，卡片只用于单个通道。 ---- */
@@ -199,7 +203,7 @@ html[data-theme="dark"] .brand-logo.is-dark {
 .channel-directory {
   display: flex;
   flex-direction: column;
-  gap: var(--butler-space-3);
+  gap: var(--ab-space-3);
 }
 
 .channel-directory-head {
@@ -209,7 +213,7 @@ html[data-theme="dark"] .brand-logo.is-dark {
 .channel-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: var(--butler-space-4);
+  gap: var(--ab-space-4);
 }
 
 .channel-grid > .ant-card {
@@ -221,17 +225,17 @@ html[data-theme="dark"] .brand-logo.is-dark {
   align-items: flex-start;
   gap: 8px;
   padding: 10px 12px;
-  border: 1px solid var(--butler-rule);
-  border-radius: var(--butler-radius-control);
-  background: var(--butler-surface-subtle);
-  color: var(--butler-muted);
-  font-size: var(--butler-text-xs);
+  border: 1px solid var(--ab-border);
+  border-radius: var(--ab-r-ctl);
+  background: var(--ab-surface-2);
+  color: var(--ab-text-3);
+  font-size: var(--ab-text-size-xs);
   line-height: 1.45;
 }
 .sidebar-meta .anticon {
   margin-top: 2px;
   font-size: 13px;
-  color: var(--butler-ok);
+  color: var(--ab-ok);
 }
 .sidebar-meta span {
   display: flex;
@@ -243,18 +247,18 @@ html[data-theme="dark"] .brand-logo.is-dark {
 
 /* 访问范围不是本机时，保留语义色提示：中性底 + 细彩色边框 + 彩色图标。 */
 .sidebar-meta.is-warn {
-  border-color: color-mix(in srgb, var(--butler-warn) 45%, var(--butler-rule));
-  background: var(--butler-sunken);
+  border-color: color-mix(in srgb, var(--ab-warn) 45%, var(--ab-border));
+  background: var(--ab-sunken);
 }
 .sidebar-meta.is-warn .anticon {
-  color: var(--butler-warn);
+  color: var(--ab-warn);
 }
 .sidebar-meta.is-error {
-  border-color: color-mix(in srgb, var(--butler-error) 45%, var(--butler-rule));
-  background: var(--butler-sunken);
+  border-color: color-mix(in srgb, var(--ab-error) 45%, var(--ab-border));
+  background: var(--ab-sunken);
 }
 .sidebar-meta.is-error .anticon {
-  color: var(--butler-error);
+  color: var(--ab-error);
 }
 
 /* ---- 顶栏 ---- */
@@ -268,8 +272,8 @@ html[data-theme="dark"] .brand-logo.is-dark {
   padding-block: 0;
   padding-inline: clamp(16px, 2.6vw, 28px);
   line-height: normal;
-  background: var(--butler-surface);
-  border-bottom: 1px solid var(--butler-rule);
+  background: var(--ab-surface);
+  border-bottom: 1px solid var(--ab-border);
 }
 
 .topbar-leading {
@@ -280,15 +284,15 @@ html[data-theme="dark"] .brand-logo.is-dark {
 }
 
 .topbar-title {
-  font-size: var(--butler-text-lg);
+  font-size: var(--ab-text-size-lg);
   font-weight: 650;
   letter-spacing: -0.01em;
   white-space: nowrap;
 }
 
 .topbar-brand {
-  color: var(--butler-muted);
-  font-size: var(--butler-text-sm);
+  color: var(--ab-text-3);
+  font-size: var(--ab-text-size-sm);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -303,10 +307,10 @@ html[data-theme="dark"] .brand-logo.is-dark {
 
 .topbar-note {
   padding: 4px 10px;
-  border-radius: 999px;
-  background: var(--butler-sunken);
-  color: var(--butler-muted);
-  font-size: var(--butler-text-xs);
+  border-radius: 6px; /* 规范仅 14/8/6 三档，999 胶囊应改成 6。 */
+  background: var(--ab-sunken);
+  color: var(--ab-text-3);
+  font-size: var(--ab-text-size-xs);
   white-space: nowrap;
 }
 
@@ -328,25 +332,25 @@ html[data-theme="dark"] .brand-logo.is-dark {
 .page-progress {
   display: flex;
   flex-direction: column;
-  gap: var(--butler-space-2);
-  padding: var(--butler-space-3) var(--butler-space-4);
-  background: var(--butler-surface);
-  border: 1px solid var(--butler-rule);
-  border-radius: var(--butler-radius-card);
+  gap: var(--ab-space-2);
+  padding: var(--ab-space-3) var(--ab-space-4);
+  background: var(--ab-surface);
+  border: 1px solid var(--ab-border);
+  border-radius: var(--ab-r-card);
 }
 .page-progress.is-compact {
-  padding: 10px var(--butler-space-3);
+  padding: 10px var(--ab-space-3);
 }
 .page-progress-copy {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 8px;
-  font-size: var(--butler-text-sm);
+  font-size: var(--ab-text-size-sm);
 }
 .page-progress-copy span {
-  color: var(--butler-muted);
-  font-size: var(--butler-text-xs);
+  color: var(--ab-text-3);
+  font-size: var(--ab-text-size-xs);
 }
 .page-progress-steps {
   display: flex;
@@ -355,40 +359,40 @@ html[data-theme="dark"] .brand-logo.is-dark {
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: var(--butler-text-xs);
+  font-size: var(--ab-text-size-xs);
 }
 .page-progress-steps li {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: var(--butler-muted);
+  color: var(--ab-text-3);
 }
 .page-progress-steps li i {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--butler-ink-faint);
+  background: var(--ab-text-3);
   opacity: 0.45;
 }
 .page-progress-steps li.is-active {
-  color: var(--butler-accent);
+  color: var(--ab-primary);
 }
 .page-progress-steps li.is-active i {
-  background: var(--butler-accent);
+  background: var(--ab-primary);
   opacity: 1;
 }
 .page-progress-steps li.is-done {
-  color: var(--butler-ok);
+  color: var(--ab-ok);
 }
 .page-progress-steps li.is-done i {
-  background: var(--butler-ok);
+  background: var(--ab-ok);
   opacity: 1;
 }
 .page-progress-steps li.is-failed {
-  color: var(--butler-error);
+  color: var(--ab-error);
 }
 .page-progress-steps li.is-failed i {
-  background: var(--butler-error);
+  background: var(--ab-error);
   opacity: 1;
 }
 
@@ -399,7 +403,7 @@ html[data-theme="dark"] .brand-logo.is-dark {
   gap: 6px;
 }
 .access-gate-field > label {
-  font-size: var(--butler-text-sm);
+  font-size: var(--ab-text-size-sm);
   font-weight: 550;
 }
 
@@ -432,5 +436,99 @@ html[data-theme="dark"] .brand-logo.is-dark {
   }
   .content {
     padding: 12px;
+  }
+}
+
+/* ---- 移动端底部 Tab（M4.1） ---- */
+
+.mobile-tabbar {
+  display: none;
+}
+
+@media (max-width: 600px) {
+  .mobile-tabbar {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    position: fixed;
+    inset-inline: 0;
+    bottom: 0;
+    z-index: 20;
+    background: var(--ab-surface, #fff);
+    border-top: 1px solid var(--ab-border);
+    /* 刘海屏安全区：不顶到 Home 指示条上，否则最后一个 Tab 点不准。 */
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    box-shadow: 0 -2px 12px rgb(15 33 51 / 6%);
+  }
+
+  .mobile-tab,
+  .mobile-tab-trigger {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    min-height: 52px;
+    padding: 6px 4px;
+    font-size: 11px;
+    line-height: 1.2;
+    color: var(--ab-text-secondary, #667085);
+    text-decoration: none;
+    background: none;
+    border: 0;
+    cursor: pointer;
+  }
+
+  .mobile-tab-icon {
+    font-size: 18px;
+  }
+
+  .mobile-tab.is-active {
+    color: var(--ab-brand, #2563eb);
+    font-weight: 600;
+  }
+
+  /* 急停：整格红底反白，视觉上明确「这是逃生口，不是普通导航」。 */
+  .mobile-tab.is-emergency .mobile-tab-trigger {
+    color: #fff;
+    background: #cf1322;
+  }
+
+  .mobile-tab.is-emergency .mobile-tab-trigger:hover,
+  .mobile-tab.is-emergency .mobile-tab-trigger:focus-visible {
+    background: #a8071a;
+  }
+
+  .mobile-tab.is-emergency .mobile-tab-trigger:disabled {
+    background: var(--ab-border);
+    color: var(--ab-text-secondary, #667085);
+    cursor: not-allowed;
+  }
+
+  /* 已暂停态：换成绿色「恢复」，与顶栏语义一致。 */
+  .mobile-tab.is-emergency .mobile-tab-trigger.is-engaged {
+    background: #389e0d;
+  }
+
+  /* Tab 是 fixed 的：给内容留出高度，否则最后一屏内容被压住。 */
+  .content {
+    padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* 移动端单列重排：宽表改为可横向滚动，卡片纵向堆叠。 */
+  .content :where(.ant-table-wrapper) {
+    overflow-x: auto;
+  }
+
+  .content :where(.ant-card) {
+    margin-bottom: 12px;
+  }
+
+  .content :where(.ant-statistic-content) {
+    font-size: 20px;
+  }
+
+  /* 触控目标 ≥44px（移动可用性基线）。 */
+  .content :where(.ant-btn:not(.ant-btn-sm)) {
+    min-height: 40px;
   }
 }

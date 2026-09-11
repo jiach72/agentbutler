@@ -1,24 +1,24 @@
 /* 排查问题页（/troubleshoot）：现象卡网格与证据/处理/结果统一卡片语言。
-   颜色一律引用 --butler-* 主题变量（真源见 theme/tokens.ts），不写死色值。 */
+   颜色一律引用 --ab-* 主题变量（真源见 theme/tokens.ts），不写死色值。 */
 
-/* 分类色图标底。 */
+/* 分类色图标底：soft 底 + 同色系细描边。 */
 .ts-tile {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 40px;
   height: 40px;
-  border-radius: var(--butler-radius-control);
+  border-radius: var(--ab-r-ctl);
   font-size: 20px;
   flex-shrink: 0;
 }
 
-.ts-tile.tone-info { background: var(--butler-accent-soft); color: var(--butler-accent); }
-.ts-tile.tone-ok { background: var(--butler-ok-soft); color: var(--butler-ok); }
-.ts-tile.tone-warn { background: var(--butler-warn-soft); color: var(--butler-warn); }
-.ts-tile.tone-error { background: var(--butler-error-soft); color: var(--butler-error); }
-.ts-tile.tone-cinnabar { background: var(--butler-cinnabar-soft); color: var(--butler-cinnabar); }
-.ts-tile.tone-muted { background: var(--butler-surface-subtle); color: var(--butler-ink-faint); }
+.ts-tile.tone-info { background: var(--ab-primary-soft); color: var(--ab-primary); border: 1px solid color-mix(in srgb, var(--ab-primary) 28%, transparent); }
+.ts-tile.tone-ok { background: var(--ab-ok-soft); color: var(--ab-ok); border: 1px solid color-mix(in srgb, var(--ab-ok) 28%, transparent); }
+.ts-tile.tone-warn { background: var(--ab-warn-soft); color: var(--ab-warn); border: 1px solid color-mix(in srgb, var(--ab-warn) 28%, transparent); }
+.ts-tile.tone-error { background: var(--ab-error-soft); color: var(--ab-error); border: 1px solid color-mix(in srgb, var(--ab-error) 28%, transparent); }
+.ts-tile.tone-cinnabar { background: var(--ab-warn-soft); color: var(--ab-warn); border: 1px solid color-mix(in srgb, var(--ab-warn) 28%, transparent); }
+.ts-tile.tone-muted { background: var(--ab-surface-2); color: var(--ab-text-3); border: 1px solid var(--ab-border); }
 
 /* 现象选择：统一卡规格网格（宽屏 4 列）。 */
 .ts-symptom-grid {
@@ -31,32 +31,34 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  border: 1px solid var(--butler-rule);
-  border-radius: var(--butler-radius-card);
-  background: var(--butler-surface);
+  border: 1px solid var(--ab-border);
+  border-radius: var(--ab-r-card);
+  background: var(--ab-surface);
   padding: 16px;
   transition:
-    transform var(--butler-dur-fast) var(--butler-ease),
-    box-shadow var(--butler-dur-fast) var(--butler-ease),
-    border-color var(--butler-dur-fast) var(--butler-ease),
-    background var(--butler-dur-fast) var(--butler-ease);
+    transform var(--ab-dur-fast) var(--ab-ease),
+    box-shadow var(--ab-dur-fast) var(--ab-ease),
+    border-color var(--ab-dur-fast) var(--ab-ease),
+    background var(--ab-dur-fast) var(--ab-ease);
 }
 
 .ts-symptom-card:hover {
   transform: translateY(-2px);
-  border-color: var(--butler-rule-strong);
-  box-shadow: var(--butler-shadow);
+  border-color: var(--ab-border-strong);
+  box-shadow: var(--ab-shadow-1);
 }
 
 .ts-symptom-card:focus-visible {
-  outline: none;
-  box-shadow: var(--butler-focus-ring);
+  /* 子元素（ant radio）获焦时，让父卡片显出描边 + 外发光。 */
+  outline: 2px solid var(--ab-primary);
+  outline-offset: 2px;
+  box-shadow: var(--ab-focus);
 }
 
 .ts-symptom-card.is-selected {
-  border-color: var(--butler-accent);
-  background: var(--butler-accent-soft);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--butler-accent) 10%, transparent);
+  border-color: var(--ab-primary);
+  background: var(--ab-primary-soft);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ab-primary) 10%, transparent);
 }
 
 .ts-symptom-hint {
@@ -73,9 +75,9 @@
   align-items: flex-start;
   gap: 10px;
   padding: 12px;
-  border: 1px solid var(--butler-rule);
-  border-radius: var(--butler-radius-control);
-  background: var(--butler-surface);
+  border: 1px solid var(--ab-border);
+  border-radius: var(--ab-r-ctl);
+  background: var(--ab-surface);
 }
 
 /* 处理动作卡：Radio 语义 + 卡片外观。 */
@@ -94,15 +96,15 @@
   display: flex;
   align-items: flex-start;
   width: 100%;
-  border: 1px solid var(--butler-rule);
-  border-radius: var(--butler-radius-card);
+  border: 1px solid var(--ab-border);
+  border-radius: var(--ab-r-card);
   padding: 14px 16px;
-  background: var(--butler-surface);
+  background: var(--ab-surface);
   cursor: pointer;
   transition:
-    border-color var(--butler-dur-base) var(--butler-ease),
-    background var(--butler-dur-base) var(--butler-ease),
-    box-shadow var(--butler-dur-base) var(--butler-ease);
+    border-color var(--ab-dur-base) var(--ab-ease),
+    background var(--ab-dur-base) var(--ab-ease),
+    box-shadow var(--ab-dur-base) var(--ab-ease);
 }
 
 .ts-action-card.is-static {
@@ -110,13 +112,13 @@
 }
 
 .ts-action-card:hover {
-  border-color: var(--butler-rule-strong);
+  border-color: var(--ab-border-strong);
 }
 
 .ts-action-card.ant-radio-wrapper-checked {
-  border-color: var(--butler-accent);
-  background: var(--butler-accent-soft);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--butler-accent) 10%, transparent);
+  border-color: var(--ab-primary);
+  background: var(--ab-primary-soft);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ab-primary) 10%, transparent);
 }
 
 .ts-action-card .ant-radio {
@@ -131,40 +133,99 @@
 }
 
 .ts-action-card:has(.ant-radio-input:focus-visible) {
-  outline: none;
-  box-shadow: var(--butler-focus-ring);
+  outline: 2px solid var(--ab-primary);
+  outline-offset: 2px;
+  box-shadow: var(--ab-focus);
 }
 
-/* 结论块：成功绿 / 提醒黄 / 失败红 / 说明蓝。 */
+/* 结论块（v2 语言）：大面积状态色块 → 「左侧信号边 + 图标着色 + 极浅 tint」。
+   状态由 3px 左边与图标/标题承载，背景退到 6% tint——安静、可扫读。 */
 .ts-result {
+  position: relative;
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  border-radius: var(--butler-radius-control);
-  padding: 12px 14px;
+  gap: 12px;
+  border-radius: var(--ab-r-ctl);
+  border: 1px solid var(--ab-border);
+  background: var(--ab-surface);
+  padding: 14px 16px;
+}
+
+.ts-result::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--ab-text-4);
 }
 
 .ts-result .ts-result-icon {
-  font-size: 16px;
+  font-size: 17px;
   margin-top: 2px;
+  color: var(--ab-text-3);
 }
 
-.ts-result.is-ok { background: var(--butler-ok-soft); border: 1px solid color-mix(in srgb, var(--butler-ok) 35%, transparent); }
-.ts-result.is-ok .ts-result-icon { color: var(--butler-ok); }
+.ts-result.is-ok {
+  background: color-mix(in srgb, var(--ab-ok) 5%, var(--ab-surface));
+}
+.ts-result.is-ok::before { background: var(--ab-ok); }
+.ts-result.is-ok .ts-result-icon { color: var(--ab-ok); }
 
-.ts-result.is-warn { background: var(--butler-warn-soft); border: 1px solid color-mix(in srgb, var(--butler-warn) 35%, transparent); }
-.ts-result.is-warn .ts-result-icon { color: var(--butler-warn); }
+.ts-result.is-warn {
+  background: color-mix(in srgb, var(--ab-warn) 6%, var(--ab-surface));
+}
+.ts-result.is-warn::before { background: var(--ab-warn); }
+.ts-result.is-warn .ts-result-icon { color: var(--ab-warn); }
 
-.ts-result.is-fail { background: var(--butler-error-soft); border: 1px solid color-mix(in srgb, var(--butler-error) 35%, transparent); }
-.ts-result.is-fail .ts-result-icon { color: var(--butler-error); }
+.ts-result.is-fail {
+  background: color-mix(in srgb, var(--ab-error) 5%, var(--ab-surface));
+}
+.ts-result.is-fail::before { background: var(--ab-error); }
+.ts-result.is-fail .ts-result-icon { color: var(--ab-error); }
 
-.ts-result.is-info { background: var(--butler-accent-soft); border: 1px solid color-mix(in srgb, var(--butler-accent) 35%, transparent); }
-.ts-result.is-info .ts-result-icon { color: var(--butler-accent); }
+.ts-result.is-info {
+  background: color-mix(in srgb, var(--ab-primary) 5%, var(--ab-surface));
+}
+.ts-result.is-info::before { background: var(--ab-primary); }
+.ts-result.is-info .ts-result-icon { color: var(--ab-primary); }
 
 /* 步骤底部导航按钮条。 */
 .ts-nav {
   width: 100%;
-  border-top: 1px solid var(--butler-rule);
+  border-top: 1px solid var(--ab-border);
   padding-top: 16px;
   margin-top: 8px;
+}
+
+/* ── 体检总览（v2 新首屏） ─────────────────────────── */
+
+/* 推荐动作卡：左侧主色描边，从普通卡片里跳出来（但不抢结论块）。 */
+.ts-reco-card {
+  border-left: 3px solid var(--ab-primary);
+}
+
+/* 折叠面板标题：主标签 + 右侧通过率摘要。 */
+.ts-collapse-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ts-collapse-extra {
+  color: var(--ab-text-3);
+  font-size: 12px;
+}
+
+/* 底部出口行：与内容区分隔，主次按钮拉开层级。 */
+.ts-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding-top: 16px;
+  border-top: 1px solid var(--ab-border);
 }

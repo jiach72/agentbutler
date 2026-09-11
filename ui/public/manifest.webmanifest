@@ -1,0 +1,26 @@
+{
+  "name": "Agent Butler",
+  "short_name": "Butler",
+  "description": "本地优先的 AI Agent 运维控制台：成本、审计、事件、急停与进度核实",
+  "lang": "zh-CN",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0F2133",
+  "theme_color": "#0F2133",
+  "icons": [
+    {
+      "src": "/brand/ab-mark-sm.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

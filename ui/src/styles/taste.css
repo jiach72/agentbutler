@@ -1,11 +1,8 @@
 /* 设计品味层：仅保留仍被引用的组件/结构规则（图表骨架动画、数据表格细节、core-files 宽度等）。
- * 已被 antd v6 原语替代的旧页面规则已退役；变量真源见 theme/tokens.ts。 */
-
-:root {
-  --butler-content-max: 1440px;
-  --butler-focus-offset: 2px;
-  --butler-stat-accent: color-mix(in srgb, var(--butler-accent) 86%, var(--butler-ink-faint));
-}
+ * 已被 antd v6 原语替代的旧页面规则已退役；变量真源见 theme/tokens.ts。
+ *
+ * 阶段 5C：原先 :root 块里重复定义 --ab-content-max / --ab-focus-offset / --ab-stat-accent 已下沉到 tokens.ts。
+ * 这里只保留与图表骨架、数据表格细节、core-files 宽度等"设计品味层"的样式规则。 */
 
 /* ---- 趋势图表骨架 ---- */
 
@@ -14,7 +11,7 @@
   place-items: center;
   gap: 10px;
   min-width: 0;
-  color: var(--butler-muted);
+  color: var(--ab-text-3);
 }
 
 .chart-skeleton {
@@ -25,20 +22,20 @@
   width: min(180px, 70%);
   height: 56px;
   padding: 0 8px 8px;
-  border-bottom: 1px solid var(--butler-rule);
+  border-bottom: 1px solid var(--ab-border);
 }
 
 .chart-skeleton span {
   display: block;
   width: 20%;
   min-height: 14px;
-  border-radius: 3px 3px 0 0;
+  border-radius: 6px 6px 0 0; /* 规范仅 14/8/6 三档。 */
   background: linear-gradient(
     180deg,
-    color-mix(in srgb, var(--butler-accent-soft) 78%, var(--butler-surface)),
-    color-mix(in srgb, var(--butler-accent) 26%, var(--butler-surface))
+    color-mix(in srgb, var(--ab-primary-soft) 78%, var(--ab-surface)),
+    color-mix(in srgb, var(--ab-primary) 26%, var(--ab-surface))
   );
-  animation: chart-skeleton-pulse 1.2s var(--butler-ease) infinite alternate;
+  animation: chart-skeleton-pulse 1.2s var(--ab-ease) infinite alternate;
 }
 
 .chart-skeleton span:nth-child(1) {
@@ -116,7 +113,7 @@
 .skills-manager-heading,
 .memory-panel-heading {
   padding-bottom: 4px;
-  border-bottom: 1px solid var(--butler-rule);
+  border-bottom: 1px solid var(--ab-border);
 }
 
 .skills-manager-heading > div:first-child,

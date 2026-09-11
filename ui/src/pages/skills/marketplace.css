@@ -15,8 +15,8 @@
   align-items: center;
   gap: 4px;
   padding: 3px;
-  border-radius: 10px;
-  background: var(--ant-color-fill-tertiary, #f7f8fa);
+  border-radius: 8px; /* 规范仅 14/8/6 三档。 */
+  background: var(--ab-sunken);
 }
 
 .wb-tab {
@@ -26,16 +26,16 @@
   padding: 5px 16px;
   font: inherit;
   font-size: 14px;
-  color: var(--ant-color-text-secondary, #4e5969);
+  color: var(--ab-text-2);
   cursor: pointer;
   transition: color 0.2s, background 0.2s;
 }
 
-.wb-tab:hover { color: var(--ant-color-text, #1d2129); }
+.wb-tab:hover { color: var(--ab-text); }
 
 .wb-tab.active {
-  background: var(--ant-color-bg-container, #fff);
-  color: var(--ant-color-text, #1d2129);
+  background: var(--ab-surface);
+  color: var(--ab-text);
   font-weight: 600;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 }
@@ -45,44 +45,44 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border: 1px solid var(--ant-color-border-secondary, #e5e6eb);
-  background: var(--ant-color-bg-container, #fff);
-  border-radius: 999px;
+  border: 1px solid var(--ab-border);
+  background: var(--ab-surface);
+  border-radius: 6px; /* 规范 §3: tag 用 6。 */
   padding: 5px 14px;
   font: inherit;
   font-size: 13px;
-  color: var(--ant-color-text, #1d2129);
+  color: var(--ab-text);
   cursor: pointer;
   white-space: nowrap;
   transition: border-color 0.2s, color 0.2s, background 0.2s;
 }
 
 .wb-installed-chip:hover {
-  border-color: var(--ant-color-primary, #2f54eb);
-  color: var(--ant-color-primary, #2f54eb);
+  border-color: var(--ab-primary);
+  color: var(--ab-primary);
 }
 
 .wb-installed-chip.active {
-  border-color: var(--ant-color-primary, #2f54eb);
-  color: var(--ant-color-primary, #2f54eb);
-  background: var(--ant-color-primary-bg, #f0f5ff);
+  border-color: var(--ab-primary);
+  color: var(--ab-primary);
+  background: var(--ab-primary-soft);
 }
 
 .wb-installed-chip .count {
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
-  border-radius: 999px;
-  background: var(--ant-color-fill-tertiary, #f0f1f3);
-  color: var(--ant-color-text-secondary, #4e5969);
+  border-radius: 6px; /* 规范 §3: tag 用 6。 */
+  background: var(--ab-sunken);
+  color: var(--ab-text-2);
   font-size: 11px;
   line-height: 18px;
   text-align: center;
 }
 
 .wb-installed-chip.active .count {
-  background: var(--ant-color-primary, #2f54eb);
-  color: #fff;
+  background: var(--ab-primary);
+  color: var(--ab-surface);
 }
 
 /* ---- 精选技能：标题行 + 横向滑动卡片行 ---- */
@@ -122,30 +122,30 @@
 
 .wb-chip {
   border: 1px solid transparent;
-  background: var(--ant-color-fill-tertiary, #f7f8fa);
-  border-radius: 999px;
+  background: var(--ab-sunken);
+  border-radius: 6px; /* 规范 §3: tag 用 6。 */
   padding: 3px 14px;
   font: inherit;
   font-size: 13px;
-  color: var(--ant-color-text-secondary, #4e5969);
+  color: var(--ab-text-2);
   cursor: pointer;
   white-space: nowrap;
   transition: color 0.2s, background 0.2s;
 }
 
-.wb-chip:hover { color: var(--ant-color-text, #1d2129); }
+.wb-chip:hover { color: var(--ab-text); }
 
 .wb-chip.active {
-  background: var(--ant-color-primary-bg, #f0f5ff);
-  border-color: var(--ant-color-primary, #2f54eb);
-  color: var(--ant-color-primary, #2f54eb);
+  background: var(--ab-primary-soft);
+  border-color: var(--ab-primary);
+  color: var(--ab-primary);
   font-weight: 600;
 }
 
 .wb-chip .count {
   margin-left: 4px;
   font-size: 11px;
-  color: var(--ant-color-text-tertiary, #86909c);
+  color: var(--ab-text-3);
 }
 
 /* ---- 卡片网格：自适应列数，统一卡片高度 ---- */
@@ -160,7 +160,7 @@
 }
 
 .wb-card {
-  border-radius: 12px;
+  border-radius: 14px;
   height: 100%;
 }
 
@@ -177,14 +177,14 @@
 
 .wb-card-meta {
   font-size: 12px;
-  color: var(--ant-color-text-tertiary, #86909c);
+  color: var(--ab-text-3);
 }
 
 /* 卡片头像：方形圆角，失败回退分类色块。 */
 .wb-card-avatar {
   border-radius: 8px;
   flex-shrink: 0;
-  background: var(--ant-color-fill-quaternary, #f7f8fa);
+  background: var(--ant-color-fill-quaternary, var(--ab-sunken));
 }
 
 /* ---- 安装「+」圆钮（市场卡右上角） ---- */
@@ -192,9 +192,9 @@
   width: 26px;
   height: 26px;
   border-radius: 50%;
-  border: 1px solid var(--ant-color-border-secondary, #e5e6eb);
-  background: var(--ant-color-bg-container, #fff);
-  color: var(--ant-color-text-secondary, #4e5969);
+  border: 1px solid var(--ab-border);
+  background: var(--ab-surface);
+  color: var(--ab-text-2);
   font-size: 14px;
   display: inline-flex;
   align-items: center;
@@ -205,14 +205,14 @@
 }
 
 .wb-plus:hover {
-  border-color: var(--ant-color-primary, #2f54eb);
-  color: var(--ant-color-primary, #2f54eb);
+  border-color: var(--ab-primary);
+  color: var(--ab-primary);
 }
 
 .wb-plus.installed {
   border-color: transparent;
-  background: var(--ant-color-success-bg, #f6ffed);
-  color: var(--ant-color-success, #52c41a);
+  background: var(--ab-ok-soft);
+  color: var(--ab-ok);
   cursor: default;
 }
 
@@ -235,10 +235,11 @@
   font-size: 20px;
 }
 
-.skill-tile.tone-teal { background: var(--butler-teal-soft); color: var(--butler-teal); }
-.skill-tile.tone-blue { background: var(--butler-accent-soft); color: var(--butler-accent); }
-.skill-tile.tone-purple { background: color-mix(in srgb, var(--butler-ink) 9%, var(--butler-surface)); color: var(--butler-ink-soft); }
-.skill-tile.tone-cinnabar { background: var(--butler-cinnabar-soft); color: var(--butler-cinnabar); }
-.skill-tile.tone-green { background: var(--butler-ok-soft); color: var(--butler-ok); }
-.skill-tile.tone-gold { background: var(--butler-warn-soft); color: var(--butler-warn); }
-.skill-tile.tone-gray { background: var(--butler-sunken); color: var(--butler-ink-faint); }
+/* 图标底：soft 底 + 同色系细描边，色块有轮廓不糊成一片。 */
+.skill-tile.tone-teal { background: var(--ab-brand-soft); color: var(--ab-brand); border: 1px solid color-mix(in srgb, var(--ab-brand) 28%, transparent); }
+.skill-tile.tone-blue { background: var(--ab-primary-soft); color: var(--ab-primary); border: 1px solid color-mix(in srgb, var(--ab-primary) 28%, transparent); }
+.skill-tile.tone-purple { background: color-mix(in srgb, var(--ab-text) 9%, var(--ab-surface)); color: var(--ab-text-2); border: 1px solid var(--ab-border); }
+.skill-tile.tone-cinnabar { background: var(--ab-warn-soft); color: var(--ab-warn); border: 1px solid color-mix(in srgb, var(--ab-warn) 28%, transparent); }
+.skill-tile.tone-green { background: var(--ab-ok-soft); color: var(--ab-ok); border: 1px solid color-mix(in srgb, var(--ab-ok) 28%, transparent); }
+.skill-tile.tone-gold { background: var(--ab-warn-soft); color: var(--ab-warn); border: 1px solid color-mix(in srgb, var(--ab-warn) 28%, transparent); }
+.skill-tile.tone-gray { background: var(--ab-sunken); color: var(--ab-text-3); border: 1px solid var(--ab-border); }

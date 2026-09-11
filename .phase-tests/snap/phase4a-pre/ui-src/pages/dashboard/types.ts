@@ -1,0 +1,483 @@
+/**
+ * 管家首页共享类型：/api 载荷视图与页面结论模型，
+ * 供 dashboard/ 目录下编排层与各子组件统一引用。
+ */
+
+export interface InstanceView {
+  instanceId: string;
+  frameworkId: string;
+  state: string;
+  runtime: string;
+  version: string | null;
+  confidence: number;
+}
+
+export interface InspectionCheckView {
+  id: string;
+  status: string;
+  detail: unknown;
+  durationMs: number | null;
+}
+
+export interface InspectionView {
+  instanceId: string;
+  ts: string;
+  overall: string | null;
+  confidence: number | null;
+  checks: InspectionCheckView[];
+}
+
+export interface FingerprintView {
+  signature: string;
+  count: number;
+  status: string;
+  firstSeen: string;
+  lastSeen: string;
+  lastSample: string | null;
+  instance?: string;
+}
+
+export interface RunbookView {
+  id: string;
+  label: string;
+  description?: string;
+  impact?: string;
+  steps?: string[];
+  breakerTripped?: boolean;
+  lastRun?: { at: string; success: boolean } | null;
+}
+
+export interface RunbooksPayload {
+  reachable: boolean;
+  runbooks?: RunbookView[];
+}
+
+export interface RecoveryActionView {
+  id: string;
+  label: string;
+  description: string;
+  risk: "low" | "medium" | "high";
+  impact: string;
+  estimatedSeconds: number;
+  requiresConfirmation: boolean;
+  available: boolean;
+  unavailableReason?: string;
+  unavailableFix?: string;
+}
+
+/** 一条发现的证据，让用户自己判断严不严重。 */
+export interface RecoveryEvidenceView {
+  lastSeenAt: string | null;
+  occurrences: number;
+  source: string | null;
+  kind: string;
+  lastSeenLabel: string | null;
+  recent: boolean;
+}
+
+export interface RecoveryFindingView {
+  id: string;
+  title: string;
+  detail: string;
+  severity: "error" | "warn";
+  evidence: RecoveryEvidenceView;
+  suggestedAction: string | null;
+  actionLabel: string | null;
+}
+
+export interface RecoveryDiagnosisView {
+  incidentId: string;
+  severity: "ok" | "warn" | "error";
+  stateCode?: string;
+  summary?: string;
+  safeToRetry?: boolean;
+  /** 只有探针真的失败时才有值；否则为 null。 */
+  rootCause: string | null;
+  primaryFinding: RecoveryFindingView | null;
+  findings: RecoveryFindingView[];
+  historicalFindingCount: number;
+  probes: Array<{ id: string; label: string; status: "pass" | "warn" | "fail"; detail: string }>;
+  recommendedActions: RecoveryActionView[];
+  checkedAt: string;
+}
+
+export interface RecoveryJobView {
+  jobId: string;
+  actionId: string;
+  label: string;
+  instanceId: string | null;
+  status: "running" | "done" | "failed" | "unknown";
+  progress: number;
+  detail: string;
+  startedAt: string;
+  finishedAt: string | null;
+}
+
+export type RepairSessionStatus =
+  | "collecting"
+  | "awaiting-approval"
+  | "applying"
+  | "verifying"
+  | "done"
+  | "blocked"
+  | "failed";
+
+export interface RepairSessionView {
+  sessionId: string;
+  instanceId: string | null;
+  status: RepairSessionStatus;
+  progress: number;
+  detail: string;
+  diagnosis: {
+    severity: "ok" | "warn" | "error";
+    summary: string;
+    rootCause: string | null;
+    primaryFinding: {
+      title: string;
+      detail: string;
+      evidence: { source: string | null; kind: string; lastSeenLabel: string | null; occurrences: number };
+    } | null;
+    probes: Array<{ id: string; label: string; status: "pass" | "warn" | "fail"; detail: string }>;
+    checkedAt: string;
+  } | null;
+  plan: {
+    actionId: string;
+    label: string;
+    description: string;
+    impact: string;
+    approvalRequired: boolean;
+    source: "deterministic-policy" | "background-advisor";
+  } | null;
+  changes: string[];
+  verification: {
+    status: "pending" | "passed" | "failed" | "not-needed";
+    summary: string;
+    checkedAt: string | null;
+    probes: Array<{ label: string; status: "pass" | "warn" | "fail"; detail: string }>;
+  };
+  advisor: {
+    source: "deterministic-policy" | "background-advisor";
+    promptDispatched: boolean;
+    detail: string;
+  };
+  createdAt: string;
+  updatedAt: string;
+  finishedAt: string | null;
+}
+
+export interface InspectStatusView {
+  reachable: boolean;
+  lastAt?: string | null;
+  nextAt?: string | null;
+  intervalMin?: number | null;
+  inFlight?: boolean;
+  criticalProbe?: {
+    intervalMin: number;
+    slaMin: number;
+    lastStartedAt: string | null;
+    lastCompletedAt: string | null;
+    nextAt: string | null;
+    deadlineAt: string | null;
+    lastDurationMs: number | null;
+    lastStatus: string | null;
+    lastWithinSla: boolean | null;
+    overdue: boolean;
+    inFlight: boolean;
+    runCount: number;
+    missedTicks: number;
+  };
+}
+
+export interface DashboardPayload {
+  instances?: InstanceView[];
+  latestInspections?: InspectionView[];
+  fingerprints?: FingerprintView[];
+  inspectStatus?: InspectStatusView;
+  messageStatus?: MessageStatusPayload;
+}
+
+export interface DeliveryHistoryDay {
+  date: string;
+  delivered: number;
+  failed: number;
+  uncertain: number;
+}
+
+export interface DeliveryHistoryPayload {
+  reachable: boolean;
+  days: number;
+  retentionDays: number;
+  items: DeliveryHistoryDay[];
+}
+
+export interface InspectionHistoryDay {
+  date: string;
+  count: number;
+  avgDurationMs: number | null;
+  errorCount: number;
+}
+
+export interface InspectionHistoryPayload {
+  days: number;
+  items: InspectionHistoryDay[];
+  degraded?: string[];
+}
+
+export interface MessageStatusPayload {
+  reachable: boolean;
+  status?: {
+    bridge: {
+      connected: boolean;
+      running: boolean;
+      attached: boolean;
+      outboxWritable: boolean;
+    };
+    counts?: Record<string, number>;
+    relay?: {
+      enabled: boolean;
+      pending: boolean;
+      updatedAt: string | null;
+    };
+  } | null;
+}
+
+export interface ConnectionCheckView {
+  id: string;
+  label: string;
+  status: string;
+  detail: string;
+  durationMs: number | null;
+}
+
+export interface ConnectionView {
+  instanceId: string;
+  frameworkId: string;
+  displayName: string;
+  state: string;
+  connectionState: "connected" | "disconnected" | "checking" | "error" | "unknown" | string;
+  connected: boolean;
+  runtime: string;
+  rootPath: string;
+  version: string | null;
+  confidence: number;
+  effectiveLevel: number | null;
+  capabilities: Record<string, string>;
+  checks: ConnectionCheckView[];
+  anomalies: string[];
+  lastCheckedAt: string | null;
+  lastActionAt: string | null;
+  lastAction: string | null;
+  latencyMs: number | null;
+  lastError: string | null;
+}
+
+export interface ConnectionsPayload {
+  reachable: boolean;
+  checkedAt?: string;
+  connections?: ConnectionView[];
+}
+
+/** Butler 受管任务的加密模型配置状态；不等同于 Hermes 原生运行模型。 */
+export interface LlmStatusView {
+  vault: { available: boolean };
+  profiles: number;
+  activeProfiles: number;
+  bindings: number;
+  activeBindings: number;
+  ready: boolean;
+  blocked: Array<{ profileId: string; status: string; detail: string }>;
+}
+
+/** 只读发现的 Hermes 原生模型配置，来源为 Hermes 的 config.yaml 或 .env。 */
+export interface DiscoveredLlmConfigView {
+  id: string;
+  source: string;
+  provider: string;
+  protocol: string;
+  endpoint: string;
+  model: string;
+  maskedKey: string;
+  importable: boolean;
+  runtimeObserved: boolean;
+}
+
+export interface DiscoveredLlmPayload {
+  configs: DiscoveredLlmConfigView[];
+}
+
+export interface OpenClawStatusView {
+  installed: boolean;
+  version: string | null;
+  rootPath: string | null;
+  detail: string;
+  runtime?: {
+    kind?: string;
+    distro?: string | null;
+    user?: string | null;
+    detail?: string;
+  };
+  target?: {
+    dataRoot?: string;
+    npmGlobalRoot?: string | null;
+  };
+}
+
+export interface AlertsPayload {
+  reachable: boolean;
+  counts?: Record<string, number>;
+  items?: Array<{ severity?: string; status?: string; title?: string }>;
+}
+
+export interface LogSourceView {
+  id: string;
+  path: string;
+  format: string;
+  modifiedAt: string | null;
+  sizeBytes: number;
+}
+
+export interface LogTailView {
+  sourceId: string;
+  path: string;
+  format: string;
+  lines: string[];
+  truncated: boolean;
+  limit: number;
+  totalLines: number;
+  pageStart: number | null;
+  hasOlder: boolean;
+  hasNewer: boolean;
+  error?: string;
+}
+
+export interface LogIssueView {
+  id: string;
+  kind: string;
+  severity: "error" | "warn";
+  title: string;
+  detail: string;
+  count: number;
+  sources: string[];
+  examples: string[];
+  suggestedAction: "rb-restart" | "rb-reconnect" | null;
+  actionLabel: string | null;
+  /** 该类问题最后一次出现的 ISO 时间（来自日志分析器）；修复闭环用它判断是否复发。 */
+  lastSeenAt?: string | null;
+}
+
+export interface LogAnalyzeView {
+  reachable?: boolean;
+  issues?: LogIssueView[];
+  scannedSources?: number;
+  scannedLines?: number;
+  analyzedAt?: string | null;
+}
+
+/** 首页待办：用大白话说明“哪里需要注意”，并尽量给出下一步。 */
+export interface IssueView {
+  id: string;
+  tone: "ok" | "warn" | "error" | "idle";
+  title: string;
+  detail: string;
+  /** 首页问题卡的下一步。没有下一步时不渲染操作，避免“正常”状态也像待办。 */
+  action?: {
+    label: string;
+    to?: string;
+  };
+  runbook?: RunbookView;
+  /** 重复问题指纹：有值时渲染「复制求助提示词 / 转发给智能体」动作。 */
+  fingerprint?: {
+    signature: string;
+    count: number;
+    firstSeen: string;
+    lastSeen: string;
+    lastSample: string | null;
+    instance?: string;
+  };
+}
+
+export interface StatusCardView {
+  id: string;
+  tone: "ok" | "warn" | "error" | "idle";
+  label: string;
+  value: string;
+  detail: string;
+  trend?: {
+    values: number[];
+    label: string;
+    tone?: "accent" | "ok" | "warn" | "error";
+  };
+  action?: { label: string; kind: "link" | "detail"; to?: string };
+}
+
+/** 英雄区一句话结论。 */
+export interface HeroView {
+  tone: "ok" | "warn" | "error" | "idle";
+  title: string;
+  copy: string;
+}
+
+/** 单条 GPU 采样（无 GPU / 驱动缺失时整条为 null）。 */
+export interface HostGpuSample {
+  name: string;
+  utilPercent: number | null;
+  memUsedMb: number;
+}
+
+/** watch /api/host/metrics 的机器样本（与 watch src/host-metrics.ts 同构；null 表示该项不可用）。 */
+export interface HostMetricsSample {
+  capturedAt: string;
+  cpuPercent: number | null;
+  memTotalBytes: number | null;
+  memFreeBytes: number | null;
+  load1: number | null;
+  uptimeSeconds: number | null;
+  diskTotalBytes: number | null;
+  diskUsedBytes: number | null;
+  gpu: HostGpuSample | null;
+}
+
+/** 单个 agent 进程资源占用；实例不在或采样失败时字段为 null。 */
+export interface AgentProcessSample {
+  instanceId: string;
+  cpuPercent: number | null;
+  rssBytes: number | null;
+}
+
+export interface HostMetricsPayload {
+  machine: HostMetricsSample;
+  agents: AgentProcessSample[];
+  samples: HostMetricsSample[];
+}
+
+/** /api/health 单服务健康视图（含 /healthz 往返延迟；不可达时 latencyMs 为 null）。 */
+export interface ServiceHealthView {
+  reachable: boolean;
+  serviceVersion: string | null;
+  schemaVersion: string | null;
+  latencyMs: number | null;
+}
+
+export interface HealthPayload {
+  ok: boolean;
+  services: { gateway: ServiceHealthView; watch: ServiceHealthView };
+}
+
+export interface RuntimePortProxyStatus {
+  status: "healthy" | "stale" | "missing" | "unknown";
+  listenAddress: string;
+  listenPort: number;
+  connectAddress: string | null;
+  connectPort: number | null;
+  expectedAddress: string | null;
+  detail: string;
+  fixCommand: string;
+}
+
+export interface RuntimePayload {
+  kind: "wsl" | "windows-wsl" | "linux" | "unknown" | string;
+  distro?: string | null;
+  user?: string | null;
+  detail: string;
+  portProxy?: RuntimePortProxyStatus;
+}

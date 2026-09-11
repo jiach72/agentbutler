@@ -123,6 +123,49 @@
  * - POST /api/github-token → body { token }（trim 后 8..200 字符）→ 写入 { configured:true }；
  *      body { clear:true } → 删除文件 { configured:false }；长度不合法 → 400
  *
+ * 信任层（Trust Layer，docs/trust-layer-upgrade-plan-2026-09-11.md）：
+ * - GET  /api/llm/cost/summary → query { days?=30 }；CostSummaryView
+ *      （total/days/models/sessions TOP10；成本列缺失 → costAvailable=false，金额 null）
+ * - GET  /api/budget → BudgetStatus（{ enabled, budgetUsd, spentUsd, ratio,
+ *      threshold, lastAction, projectedExhaustedAt }）；未接线 → 503
+ * - POST /api/budget/check → 立即核算一轮 → BudgetStatus
+ * - GET  /api/audit/actions → query { hours?=24, kind?, severity?, limit?=200 }；
+ *      { windowHours, actions: ActionEventRow[], collector }；kind 非法 → 400
+ * - GET  /api/audit/summary → query { hours?=24 }；{ total, highRisk, byKind,
+ *      lastActionAt, collector }（隐私红线：不含 prompt/对话正文字段）
+ * - GET  /api/killswitch → KillSwitchState
+ * - POST /api/killswitch/engage → body { trigger?, actor? }；200 State |
+ *      409 { error: "killswitch-already-engaged" }；engage 自动全量快照 + 停实例
+ * - POST /api/killswitch/release → body { actor? }；200 State |
+ *      409 { error: "killswitch-not-engaged" }
+ *      急停期间：/api/connections/:id/connect 与 /api/upgrade/run → 409 killswitch-engaged
+ * - GET  /api/trust/events → query { status?, severity?, limit?=100 }；
+ *      { events: [{ id, kind, severity, title, firstSeen, lastSeen, count, status,
+ *        evidence[], relatedIds[] }] }（regressed/active 置顶）
+ * - GET  /api/trust/events/:id → { event }；未知 id → 404
+ * - POST /api/trust/events/:id → body { status: active|acknowledged|resolved }；
+ *      200 { event }；非法 status → 400；未知 id → 404
+ *      （resolved 后同指纹复发自动 regressed——回归是一等公民）
+ * - GET  /api/trust/report → 本周实时视图 { weekStart, weekEnd, data, markdown }
+ * - GET  /api/trust/report/history → query { limit?=12 }；{ reports }（不含正文）
+ * - GET  /api/trust/report/:id → { report }（含 data 快照）；未知 id → 404
+ * - POST /api/trust/report/run → body { push? }；手动生成（push=true 立即推送）
+ * - GET  /api/sessions → query { limit?=100, offset?=0, anomalyOnly?, outcome?, windowDays? }；
+ *      { items: [{ sessionId, startedAt, durationMs, model, taskType, tokenIn, tokenOut,
+ *        costUsd, outcome, anomalies[], actionCount, highRiskCount }], summary, lastRefresh }
+ * - GET  /api/sessions/:id → { session, timeline[], kinds }；未知 id → 404
+ * - POST /api/sessions/reindex → 立即重建索引 { scanned, indexed, stateDbAvailable, reason }
+ * - GET  /api/approvals → query { status?, escalateOnly?, limit?=100, offset?=0 }；
+ *      { items: [{ id, actionId, kind, title, status, attempts, escalateRequired, expiresAt,
+ *        remainingMs, confirmUrl }], summary, scan }
+ * - POST /api/approvals → body { actionId, kind, title, detail?, instance?, sessionId? }；
+ *      显式登记审批单（幂等）→ 201 { item }
+ * - GET  /api/approvals/:id → { item }；未知 id → 404
+ * - POST /api/approvals/:id/decide → body { decision: approve|deny, actor?, channel?, source? }；
+ *      已升级单仅 source=panel|web 可放行（409 requires-web-confirm）；超时 → 410 expired
+ * - GET  /api/canary → { items, summary }；POST /api/canary/plan|start|tick；
+ *      GET|POST /api/canary/policy；GET /api/canary/:id（未知 id → 404）
+ *
  * 请求体解析上限 16KB（超出 413；非法 JSON 400）。监听 127.0.0.1:7533
  * （BUTLER_WATCH_HOST / BUTLER_WATCH_PORT 可覆盖，config.ts 读入）。依赖全部
  * 注入（scheduler / runbooks 元信息 / executeRunbook / upgrade 升级服务 /
@@ -159,6 +202,18 @@ import { createDiagnosticZip } from "./diagnostics.js";
 import type { DiagnosticSummary } from "./diagnostics.js";
 import { classifyRuntimeState } from "./runtime-diagnosis.js";
 import type { HostMetricsService } from "./host-metrics.js";
+import type { LlmUsageService } from "./llm-usage.js";
+import type { BudgetEngine, BudgetStatus } from "./budget.js";
+import type { ActionAuditService } from "./action-audit.js";
+import type { KillSwitchService, KillSwitchState } from "./killswitch.js";
+import type { TrustEventHub } from "./trust-events.js";
+import type { WeeklyReportService } from "./weekly-report.js";
+import type { SessionIndexService } from "./session-index.js";
+import type { ApprovalService } from "./approvals.js";
+import type { CanaryService } from "./canary.js";
+import type { ProgressIntegrityService } from "./progress-integrity.js";
+import type { MemoryDiffService } from "./memory-diff.js";
+import { GROUP_LABEL, type FederationService, type InstanceGroup } from "./federation.js";
 import { SkillsManagerError, SKILLS_MANAGER_INSTALL_HINT, type SkillsManagerCli } from "./skills-manager.js";
 import { readGithubToken, writeGithubToken } from "./github-token.js";
 import { RepairSessionService, type RepairActionExecution, type RepairDiagnosis, type RepairSessionDeps } from "./repair-session.js";
@@ -338,7 +393,33 @@ export interface WatchHttpDeps {
   externalEvolution?: ExternalEvolutionService;
   evolutionInsights?: EvolutionInsightsService;
   evolutionAnalytics?: EvolutionAnalyticsService;
+  /** LLM 端点探针凭据服务。 */
   llm?: LlmCredentialService;
+  /** LLM Token 用量只读聚合（大屏 Token 三件套；未接线时 /api/llm/usage 返回 503）。 */
+  llmUsage?: LlmUsageService;
+  /* ------------------- 信任层（Trust Layer）服务 ------------------- */
+  /** 预算引擎（M1.1；未接线时 /api/budget 返回 503）。 */
+  budget?: BudgetEngine;
+  /** 行为审计流（M1.2；未接线时 /api/audit/* 返回 503）。 */
+  actionAudit?: ActionAuditService;
+  /** 全局急停（M1.3；未接线时 /api/killswitch 返回 503）。 */
+  killswitch?: KillSwitchService;
+  /** 事件中心（M2.2；未接线时 /api/trust/events 返回 503）。 */
+  trustEvents?: TrustEventHub;
+  /** Agent 周报（M2.1；未接线时 /api/trust/report* 返回 503）。 */
+  weeklyReport?: WeeklyReportService;
+  /** 会话索引（M2.3；未接线时 /api/sessions* 返回 503）。 */
+  sessions?: SessionIndexService;
+  /** 通知即操作（M3.1；未接线时 /api/approvals* 返回 503）。 */
+  approvals?: ApprovalService;
+  /** 升级金丝雀（M3.2；未接线时 /api/canary* 返回 503）。 */
+  canary?: CanaryService;
+  /** 假进度检测（M3.3；未接线时 /api/progress* 返回 503）。 */
+  progress?: ProgressIntegrityService;
+  /** 记忆变更流（M4.3；未接线时 /api/memory-diff 返回 503）。 */
+  memoryDiff?: MemoryDiffService;
+  /** 多实例联邦（M4.4；未接线时 /api/federation 返回 503）。 */
+  federation?: FederationService;
   /** Task 17：技能与记忆只读列表服务；可选以兼容尚未接线的嵌入式测试。 */
   skills?: SkillsMemoryService;
   /** 技能资产中心：使用统计、生命周期、趋势与隔离安装。 */
@@ -447,6 +528,94 @@ function sendJson(res: import("node:http").ServerResponse, status: number, body:
     "content-length": Buffer.byteLength(payload),
   });
   res.end(payload);
+}
+
+/* ------------------- 信任层端点的参数解析与序列化 ------------------- */
+
+type TrustEventLike = {
+  id: number;
+  kind: string;
+  severity: string;
+  title: string;
+  firstSeen: string;
+  lastSeen: string;
+  count: number;
+  status: string;
+  evidenceJson: string;
+  relatedIds: string;
+  dedupeKey: string;
+  updatedAt: string;
+};
+
+/** evidence_json/related_ids 在 HTTP 边界解析为数组（畸形数据降级为空数组）。 */
+function serializeTrustEvent(event: TrustEventLike): Record<string, unknown> {
+  const parseArray = (raw: string): unknown[] => {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
+  return {
+    id: event.id,
+    kind: event.kind,
+    severity: event.severity,
+    title: event.title,
+    firstSeen: event.firstSeen,
+    lastSeen: event.lastSeen,
+    count: event.count,
+    status: event.status,
+    evidence: parseArray(event.evidenceJson),
+    relatedIds: parseArray(event.relatedIds),
+    dedupeKey: event.dedupeKey,
+    updatedAt: event.updatedAt,
+  };
+}
+
+function readBoundedNumber(
+  url: URL,
+  name: string,
+  min: number,
+  max: number,
+  fallback: number,
+): number {
+  const raw = url.searchParams.get(name);
+  if (raw === null || raw === "") return fallback;
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed >= min && parsed <= max ? parsed : fallback;
+}
+
+/** 取非空字符串（去空白后为空视为未提供）；非字符串一律视为未提供。 */
+function readNonEmptyString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed === "" ? null : trimmed;
+}
+
+function parseActionKind(raw: string | null): "file-write" | "file-delete" | "shell-exec" | "api-call" | "message-send" | "web-fetch" | "raw" | undefined {
+  if (raw === null) return undefined;
+  return raw === "file-write" || raw === "file-delete" || raw === "shell-exec" ||
+    raw === "api-call" || raw === "message-send" || raw === "web-fetch" || raw === "raw"
+    ? raw
+    : undefined;
+}
+
+function parseSeverityParam(raw: string | null): "info" | "high" | undefined {
+  if (raw === null) return undefined;
+  return raw === "info" || raw === "high" ? raw : undefined;
+}
+
+function parseTrustStatus(raw: string | null): "active" | "acknowledged" | "resolved" | "regressed" | undefined {
+  if (raw === null) return undefined;
+  return raw === "active" || raw === "acknowledged" || raw === "resolved" || raw === "regressed"
+    ? raw
+    : undefined;
+}
+
+function parseTrustSeverity(raw: string | null): "info" | "warn" | "critical" | undefined {
+  if (raw === null) return undefined;
+  return raw === "info" || raw === "warn" || raw === "critical" ? raw : undefined;
 }
 
 function skillInstallStatus(result: Record<string, unknown>): number {
@@ -1449,6 +1618,11 @@ async function handle(
     const connectionAction = /^\/api\/connections\/([^/]+)\/(connect|disconnect)$/.exec(path);
     if (connectionAction !== null) {
       if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      // 急停护栏（M1.3）：engage 期间拒绝重连实例，防止绕过全局暂停。
+      // （护栏先于连接服务可用性检查：急停期间即使控制面离线也不能重连。）
+      if (connectionAction[2] === "connect" && deps.killswitch?.isEngaged() === true) {
+        return sendJson(res, 409, { error: "killswitch-engaged" });
+      }
       if (deps.connections === undefined) return sendJson(res, 503, { error: "connections-unavailable" });
       const body = await readJsonBody(req, res);
       if (body === null) return;
@@ -1501,6 +1675,467 @@ async function handle(
       const requestedGranularity = url.searchParams.get("granularity");
       const granularity = requestedGranularity === "week" || requestedGranularity === "month" ? requestedGranularity : "day";
       return sendJson(res, 200, await deps.skillAssets.usage([30, 90, 180].includes(range) ? range : 180, granularity));
+    }
+
+    if (path === "/api/llm/usage") {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.llmUsage === undefined) return sendJson(res, 503, { error: "llm-usage-unavailable" });
+      const daysRaw = Number(url.searchParams.get("days") ?? "7");
+      const days = Number.isInteger(daysRaw) && daysRaw >= 1 && daysRaw <= 180 ? daysRaw : 7;
+      const view = await deps.llmUsage.usage(days);
+      if (view === null) return sendJson(res, 503, { error: "llm-usage-unavailable" });
+      return sendJson(res, 200, view);
+    }
+
+    /* ---------------------- 信任层（Trust Layer）端点 ---------------------- */
+
+    // 成本中枢（M1.1）：task×model×day 聚合 + 最贵会话 TOP10（本表最细归因粒度
+    // 为会话；task 归因需 Hermes sessions 映射，后续接入）。成本列缺失时
+    // costAvailable=false（前端显示「待接入」，不伪造 0）。
+    if (path === "/api/llm/cost/summary") {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.llmUsage === undefined) return sendJson(res, 503, { error: "llm-usage-unavailable" });
+      const daysRaw = Number(url.searchParams.get("days") ?? "30");
+      const days = Number.isInteger(daysRaw) && daysRaw >= 1 && daysRaw <= 180 ? daysRaw : 30;
+      const view = await deps.llmUsage.costSummary(days);
+      if (view === null) return sendJson(res, 503, { error: "llm-usage-unavailable" });
+      return sendJson(res, 200, view);
+    }
+
+    // 预算引擎（M1.1）：状态查询 + 手动核算（正常节奏 15 分钟一轮）。
+    if (path === "/api/budget") {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.budget === undefined) return sendJson(res, 503, { error: "budget-unavailable" });
+      return sendJson(res, 200, deps.budget.status());
+    }
+    if (path === "/api/budget/check") {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.budget === undefined) return sendJson(res, 503, { error: "budget-unavailable" });
+      const status: BudgetStatus = await deps.budget.checkNow();
+      return sendJson(res, 200, status);
+    }
+
+    // 行为审计流（M1.2）：按时间窗过滤的动作时间线 + 汇总。
+    if (path === "/api/audit/actions") {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.actionAudit === undefined) return sendJson(res, 503, { error: "audit-unavailable" });
+      const windowHours = readBoundedNumber(url, "hours", 1, 24 * 90, 24);
+      const limit = readBoundedNumber(url, "limit", 1, 1000, 200);
+      const kind = parseActionKind(url.searchParams.get("kind"));
+      if (url.searchParams.get("kind") !== null && kind === undefined) {
+        return sendJson(res, 400, { error: "invalid-kind" });
+      }
+      const severity = parseSeverityParam(url.searchParams.get("severity"));
+      if (url.searchParams.get("severity") !== null && severity === undefined) {
+        return sendJson(res, 400, { error: "invalid-severity" });
+      }
+      return sendJson(res, 200, {
+        windowHours,
+        actions: deps.actionAudit.actions({ windowHours, kind, severity, limit }),
+        collector: deps.actionAudit.collectorView(),
+      });
+    }
+    if (path === "/api/audit/summary") {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.actionAudit === undefined) return sendJson(res, 503, { error: "audit-unavailable" });
+      const windowHours = readBoundedNumber(url, "hours", 1, 24 * 90, 24);
+      return sendJson(res, 200, deps.actionAudit.summary(windowHours));
+    }
+
+    // 全局急停（M1.3）：状态 / 触发 / 解除。engage 与 release 都落审计与事件。
+    if (path === "/api/killswitch") {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.killswitch === undefined) return sendJson(res, 503, { error: "killswitch-unavailable" });
+      return sendJson(res, 200, deps.killswitch.state());
+    }
+    if (path === "/api/killswitch/engage") {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.killswitch === undefined) return sendJson(res, 503, { error: "killswitch-unavailable" });
+      const body = await readJsonBody(req, res);
+      if (body === null) return;
+      const outcome = await deps.killswitch.engage({
+        trigger: typeof body["trigger"] === "string" ? body["trigger"] : undefined,
+        actor: typeof body["actor"] === "string" ? body["actor"] : undefined,
+      });
+      if (outcome.status === "already-engaged") {
+        return sendJson(res, 409, { error: "killswitch-already-engaged", state: outcome.state });
+      }
+      return sendJson(res, 200, outcome.state);
+    }
+    if (path === "/api/killswitch/release") {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.killswitch === undefined) return sendJson(res, 503, { error: "killswitch-unavailable" });
+      const body = await readJsonBody(req, res);
+      if (body === null) return;
+      const outcome = await deps.killswitch.release({
+        actor: typeof body["actor"] === "string" ? body["actor"] : undefined,
+      });
+      if (outcome.status === "not-engaged") {
+        return sendJson(res, 409, { error: "killswitch-not-engaged", state: outcome.state });
+      }
+      return sendJson(res, 200, outcome.state);
+    }
+
+    // 事件中心（M2.2）：列表（regressed/active 置顶）+ 详情 + 状态流转。
+    if (path === "/api/trust/events") {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.trustEvents === undefined) return sendJson(res, 503, { error: "trust-events-unavailable" });
+      const status = parseTrustStatus(url.searchParams.get("status"));
+      if (url.searchParams.get("status") !== null && status === undefined) {
+        return sendJson(res, 400, { error: "invalid-status" });
+      }
+      const severity = parseTrustSeverity(url.searchParams.get("severity"));
+      if (url.searchParams.get("severity") !== null && severity === undefined) {
+        return sendJson(res, 400, { error: "invalid-severity" });
+      }
+      const limit = readBoundedNumber(url, "limit", 1, 500, 100);
+      return sendJson(res, 200, {
+        events: deps.trustEvents.list({ status, severity, limit }).map(serializeTrustEvent),
+      });
+    }
+    const trustEventMatch = /^\/api\/trust\/events\/(\d+)$/.exec(path);
+    if (trustEventMatch !== null) {
+      if (deps.trustEvents === undefined) return sendJson(res, 503, { error: "trust-events-unavailable" });
+      const id = Number(trustEventMatch[1]);
+      if (method === "GET") {
+        const event = deps.trustEvents.get(id);
+        if (event === undefined) return sendJson(res, 404, { error: "event-not-found" });
+        return sendJson(res, 200, { event: serializeTrustEvent(event) });
+      }
+      if (method === "POST") {
+        const body = await readJsonBody(req, res);
+        if (body === null) return;
+        const next = body["status"];
+        if (next !== "acknowledged" && next !== "resolved" && next !== "active") {
+          return sendJson(res, 400, { error: "invalid-status" });
+        }
+        const updated = deps.trustEvents.setStatus(id, next);
+        if (updated === undefined) return sendJson(res, 404, { error: "event-not-found" });
+        return sendJson(res, 200, { event: serializeTrustEvent(updated) });
+      }
+      return sendJson(res, 405, { error: "method-not-allowed" });
+    }
+
+    // ── M2.1 Agent 周报 ──
+    if (path === "/api/trust/report") {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.weeklyReport === undefined) return sendJson(res, 503, { error: "weekly-report-unavailable" });
+      const current = await deps.weeklyReport.current();
+      return sendJson(res, 200, current);
+    }
+    if (path === "/api/trust/report/history") {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.weeklyReport === undefined) return sendJson(res, 503, { error: "weekly-report-unavailable" });
+      const limit = readBoundedNumber(url, "limit", 1, 52, 12);
+      const reports = deps.weeklyReport
+        .history(limit)
+        .map(({ markdown: _markdown, dataJson: _dataJson, ...rest }) => rest);
+      return sendJson(res, 200, { reports });
+    }
+    const reportMatch = /^\/api\/trust\/report\/(\d+)$/.exec(path);
+    if (reportMatch !== null) {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.weeklyReport === undefined) return sendJson(res, 503, { error: "weekly-report-unavailable" });
+      const row = deps.weeklyReport.get(Number(reportMatch[1]));
+      if (row === undefined) return sendJson(res, 404, { error: "report-not-found" });
+      let data: unknown = null;
+      try {
+        data = JSON.parse(row.dataJson) as unknown;
+      } catch {
+        data = null;
+      }
+      return sendJson(res, 200, { report: { ...row, dataJson: undefined, data } });
+    }
+    if (path === "/api/trust/report/run") {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.weeklyReport === undefined) return sendJson(res, 503, { error: "weekly-report-unavailable" });
+      const body = await readJsonBody(req, res);
+      if (body === null) return;
+      const row = await deps.weeklyReport.runFor(undefined, { push: body["push"] === true });
+      return sendJson(res, 200, { report: { ...row, dataJson: undefined } });
+    }
+
+    // ── M2.3 会话索引 ──
+    if (path === "/api/sessions") {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.sessions === undefined) return sendJson(res, 503, { error: "sessions-unavailable" });
+      const anomalyOnly = url.searchParams.get("anomalyOnly") === "1" || url.searchParams.get("anomalyOnly") === "true";
+      const outcome = url.searchParams.get("outcome");
+      const limit = readBoundedNumber(url, "limit", 1, 500, 100);
+      const offset = readBoundedNumber(url, "offset", 0, 100_000, 0);
+      const windowDaysRaw = url.searchParams.get("windowDays");
+      const windowDays = windowDaysRaw === null ? undefined : readBoundedNumber(url, "windowDays", 1, 90, 30);
+      return sendJson(res, 200, {
+        ...deps.sessions.list({
+          limit,
+          offset,
+          anomalyOnly,
+          ...(outcome === null || outcome === "" ? {} : { outcome }),
+          ...(windowDays === undefined ? {} : { windowDays }),
+        }),
+        lastRefresh: deps.sessions.lastRefresh(),
+      });
+    }
+    // reindex 必须先于 :id 判断（会话 id 为任意字符串）。
+    if (path === "/api/sessions/reindex") {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.sessions === undefined) return sendJson(res, 503, { error: "sessions-unavailable" });
+      const result = await deps.sessions.refresh();
+      return sendJson(res, 200, result);
+    }
+    const sessionMatch = /^\/api\/sessions\/([^/]+)$/.exec(path);
+    if (sessionMatch !== null) {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.sessions === undefined) return sendJson(res, 503, { error: "sessions-unavailable" });
+      const sessionId = decodeURIComponent(sessionMatch[1]!);
+      const detail = deps.sessions.detail(sessionId);
+      if (detail === null) return sendJson(res, 404, { error: "session-not-found" });
+      // 进度可信度节点并入时间线：✓ = 有实际动作佐证，？= 无副作用（含「无法验证」）。
+      if (deps.progress !== undefined) {
+        const claims = deps.progress.claims({ sessionId, windowDays: 90, limit: 500 });
+        const nodes = claims.map((claim) => ({
+          at: claim.ts,
+          kind: "progress" as const,
+          label: `${claim.verdict === "verified" ? "✓" : "？"} ${
+            claim.claimedPct === null ? "声称已完成" : `声称完成 ${claim.claimedPct}%`
+          }`,
+          severity: claim.verdict === "verified" ? ("info" as const) : ("warn" as const),
+          payload: {
+            claimId: claim.id,
+            verdict: claim.verdict,
+            sideEffectCount: claim.sideEffectCount,
+            sideEffectKinds: claim.sideEffectKinds,
+            reason: claim.reason,
+          },
+        }));
+        return sendJson(res, 200, {
+          ...detail,
+          timeline: [...detail.timeline, ...nodes].sort((a, b) => Date.parse(a.at) - Date.parse(b.at)),
+          progress: deps.progress.sessionProgress(sessionId),
+        });
+      }
+      return sendJson(res, 200, detail);
+    }
+
+    // ── M4.4 多实例联邦 ──
+    if (path === "/api/federation") {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.federation === undefined) return sendJson(res, 503, { error: "federation-unavailable" });
+      const windowDays = readBoundedNumber(url, "windowDays", 1, 90, 7);
+      const view = deps.federation.view(windowDays);
+      return sendJson(res, 200, { ...view, groupLabels: GROUP_LABEL });
+    }
+    if (path === "/api/federation/group") {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.federation === undefined) return sendJson(res, 503, { error: "federation-unavailable" });
+      const body = await readJsonBody(req, res);
+      if (body === null) return;
+      const instanceId = readNonEmptyString(body["instanceId"]);
+      const group = readNonEmptyString(body["group"]);
+      const validGroups: InstanceGroup[] = ["work", "lab", "sandbox", "unassigned"];
+      if (instanceId === null || group === null || !validGroups.includes(group as InstanceGroup)) {
+        return sendJson(res, 400, { error: "instanceId 必填；group 必须是 work | lab | sandbox | unassigned" });
+      }
+      deps.federation.setGroup(instanceId, group as InstanceGroup);
+      return sendJson(res, 200, { ok: true });
+    }
+
+    // ── M4.3 记忆变更流 ──
+    if (path === "/api/memory-diff") {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.memoryDiff === undefined) return sendJson(res, 503, { error: "memory-diff-unavailable" });
+      const windowDays = readBoundedNumber(url, "windowDays", 1, 90, 7);
+      return sendJson(res, 200, deps.memoryDiff.diff(windowDays));
+    }
+
+    // ── M3.3 假进度检测 ──
+    if (path === "/api/progress") {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.progress === undefined) return sendJson(res, 503, { error: "progress-unavailable" });
+      const windowDays = readBoundedNumber(url, "windowDays", 1, 90, 7);
+      const verdictRaw = url.searchParams.get("verdict");
+      const verdict =
+        verdictRaw === "verified" || verdictRaw === "suspect" || verdictRaw === "unverifiable"
+          ? verdictRaw
+          : undefined;
+      const limit = readBoundedNumber(url, "limit", 1, 500, 200);
+      return sendJson(res, 200, {
+        summary: deps.progress.summary(windowDays),
+        claims: deps.progress.claims({
+          windowDays,
+          limit,
+          ...(verdict === undefined ? {} : { verdict }),
+        }),
+      });
+    }
+    // scan 必须先于会话路径判断。
+    if (path === "/api/progress/scan") {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.progress === undefined) return sendJson(res, 503, { error: "progress-unavailable" });
+      deps.progress.tick();
+      return sendJson(res, 200, { summary: deps.progress.summary(7) });
+    }
+    const progressSession = /^\/api\/progress\/sessions\/([^/]+)$/.exec(path);
+    if (progressSession !== null) {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.progress === undefined) return sendJson(res, 503, { error: "progress-unavailable" });
+      const sessionId = decodeURIComponent(progressSession[1]!);
+      const progress = deps.progress.sessionProgress(sessionId);
+      return sendJson(res, 200, {
+        sessionId,
+        progress,
+        claims: deps.progress.claims({ sessionId, windowDays: 90, limit: 500 }),
+      });
+    }
+
+    // ── M3.2 升级金丝雀 ──
+    if (path === "/api/canary") {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.canary === undefined) return sendJson(res, 503, { error: "canary-unavailable" });
+      const status = readNonEmptyString(url.searchParams.get("status"));
+      const limit = readBoundedNumber(url, "limit", 1, 200, 50);
+      return sendJson(res, 200, deps.canary.list({
+        ...(status === null ? {} : { status: status as never }),
+        limit,
+      }));
+    }
+    // policy / plan / start / tick 必须先于 :id 判断（id 为任意字符串）。
+    if (path === "/api/canary/policy") {
+      if (deps.canary === undefined) return sendJson(res, 503, { error: "canary-unavailable" });
+      if (method === "GET") return sendJson(res, 200, { policy: deps.canary.getPolicy() });
+      if (method === "POST") {
+        const body = await readJsonBody(req, res);
+        if (body === null) return;
+        const policy = readNonEmptyString(body["policy"]);
+        if (policy !== "aggressive" && policy !== "standard" && policy !== "conservative") {
+          return sendJson(res, 400, { error: "policy 必须是 aggressive | standard | conservative" });
+        }
+        return sendJson(res, 200, { policy: deps.canary.setPolicy(policy) });
+      }
+      return sendJson(res, 405, { error: "method-not-allowed" });
+    }
+    if (path === "/api/canary/plan" || path === "/api/canary/start") {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.canary === undefined) return sendJson(res, 503, { error: "canary-unavailable" });
+      const body = await readJsonBody(req, res);
+      if (body === null) return;
+      const targetVersion = readNonEmptyString(body["targetVersion"]);
+      if (targetVersion === null) return sendJson(res, 400, { error: "targetVersion 为必填非空字符串" });
+      const instance = readNonEmptyString(body["instance"]);
+      const fromVersion = readNonEmptyString(body["fromVersion"]);
+      const runInput = {
+        targetVersion,
+        ...(instance === null ? {} : { instance }),
+        fromVersion: fromVersion ?? null,
+      };
+      if (path === "/api/canary/plan") return sendJson(res, 200, { run: deps.canary.plan(runInput) });
+      const snapshotRaw = body["rollbackSnapshotId"];
+      const rollbackSnapshotId =
+        typeof snapshotRaw === "number" && Number.isSafeInteger(snapshotRaw) && snapshotRaw > 0 ? snapshotRaw : null;
+      return sendJson(res, 200, { run: await deps.canary.start({ ...runInput, rollbackSnapshotId }) });
+    }
+    if (path === "/api/canary/tick") {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.canary === undefined) return sendJson(res, 503, { error: "canary-unavailable" });
+      return sendJson(res, 200, { handled: await deps.canary.tick() });
+    }
+    const canaryMatch = /^\/api\/canary\/([^/]+)$/.exec(path);
+    if (canaryMatch !== null) {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.canary === undefined) return sendJson(res, 503, { error: "canary-unavailable" });
+      const run = deps.canary.get(decodeURIComponent(canaryMatch[1]!));
+      if (run === null) return sendJson(res, 404, { error: "canary-run-not-found" });
+      return sendJson(res, 200, { run });
+    }
+
+    // ── M3.1 通知即操作（操作审批） ──
+    if (path === "/api/approvals") {
+      if (deps.approvals === undefined) return sendJson(res, 503, { error: "approvals-unavailable" });
+      if (method === "GET") {
+        const status = url.searchParams.get("status");
+        const escalateOnly =
+          url.searchParams.get("escalateOnly") === "1" || url.searchParams.get("escalateOnly") === "true";
+        const limit = readBoundedNumber(url, "limit", 1, 500, 100);
+        const offset = readBoundedNumber(url, "offset", 0, 100_000, 0);
+        return sendJson(res, 200, {
+          ...deps.approvals.list({
+            ...(status === null || status === "" ? {} : { status }),
+            escalateOnly,
+            limit,
+            offset,
+          }),
+          scan: deps.approvals.scanView(),
+        });
+      }
+      if (method === "POST") {
+        // 显式登记一张审批单（供执行侧在动作落地前请求放行）。
+        const body = await readJsonBody(req, res);
+        if (body === null) return;
+        const actionId = readNonEmptyString(body["actionId"]);
+        const kind = readNonEmptyString(body["kind"]);
+        const title = readNonEmptyString(body["title"]);
+        if (actionId === null || kind === null || title === null) {
+          return sendJson(res, 400, { error: "actionId/kind/title 均为必填非空字符串" });
+        }
+        const item = deps.approvals.request({
+          actionId,
+          kind,
+          title,
+          ...(body["detail"] === undefined ? {} : { detail: body["detail"] }),
+          ...(readNonEmptyString(body["instance"]) === null
+            ? {}
+            : { instance: readNonEmptyString(body["instance"])! }),
+          ...(readNonEmptyString(body["sessionId"]) === null
+            ? {}
+            : { sessionId: readNonEmptyString(body["sessionId"])! }),
+          ...(readNonEmptyString(body["fingerprint"]) === null
+            ? {}
+            : { fingerprint: readNonEmptyString(body["fingerprint"])! }),
+        });
+        return sendJson(res, 201, { item });
+      }
+      return sendJson(res, 405, { error: "method-not-allowed" });
+    }
+    // decide 必须先于 :id 判断（approval id 为任意字符串）。
+    const approveDecide = /^\/api\/approvals\/([^/]+)\/decide$/.exec(path);
+    if (approveDecide !== null) {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.approvals === undefined) return sendJson(res, 503, { error: "approvals-unavailable" });
+      const body = await readJsonBody(req, res);
+      if (body === null) return;
+      const decision = readNonEmptyString(body["decision"]);
+      if (decision !== "approve" && decision !== "deny") {
+        return sendJson(res, 400, { error: "decision 必须是 approve | deny" });
+      }
+      const id = decodeURIComponent(approveDecide[1]!);
+      const outcome = deps.approvals.decide(id, {
+        decision,
+        ...(readNonEmptyString(body["actor"]) === null ? {} : { actor: readNonEmptyString(body["actor"])! }),
+        ...(readNonEmptyString(body["channel"]) === null ? {} : { channel: readNonEmptyString(body["channel"])! }),
+        ...(readNonEmptyString(body["reason"]) === null ? {} : { reason: readNonEmptyString(body["reason"])! }),
+        // 仅面板来源（panel / web）允许对已升级单放行；通道侧一键放行被拒。
+        allowEscalatedInline: body["source"] === "panel" || body["source"] === "web",
+      });
+      if (!outcome.ok) {
+        const code =
+          outcome.reason === "not-found"
+            ? 404
+            : outcome.reason === "requires-web-confirm"
+              ? 409
+              : outcome.reason === "expired"
+                ? 410
+                : 409;
+        return sendJson(res, code, { error: outcome.reason, item: outcome.item });
+      }
+      return sendJson(res, 200, { item: outcome.item });
+    }
+    const approvalMatch = /^\/api\/approvals\/([^/]+)$/.exec(path);
+    if (approvalMatch !== null) {
+      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.approvals === undefined) return sendJson(res, 503, { error: "approvals-unavailable" });
+      const item = deps.approvals.get(decodeURIComponent(approvalMatch[1]!));
+      if (item === null) return sendJson(res, 404, { error: "approval-not-found" });
+      return sendJson(res, 200, { item });
     }
 
     const skillLifecycle = /^\/api\/skills\/([^/]+)\/(archive|restore|purge)$/.exec(path);
@@ -2121,6 +2756,10 @@ async function handle(
 
         if (path === "/api/upgrade/run") {
       if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      // 急停护栏（M1.3）：engage 期间拒绝新升级任务。
+      if (deps.killswitch?.isEngaged() === true) {
+        return sendJson(res, 409, { error: "killswitch-engaged" });
+      }
       const body = await readJsonBody(req, res);
       if (body === null) return;
       const targetVersion = body["targetVersion"];

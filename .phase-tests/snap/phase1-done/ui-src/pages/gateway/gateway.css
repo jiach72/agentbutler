@@ -1,0 +1,19 @@
+/* 消息通知页局部样式：通道卡图标底，颜色走主题语义变量（真源见 theme/tokens.ts），
+   深浅主题由变量自动切换，不再写死色值。 */
+
+.channel-tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  font-size: 22px;
+}
+
+.channel-tile.tone-teal { background: var(--butler-teal-soft); color: var(--butler-teal); }
+.channel-tile.tone-blue { background: var(--butler-accent-soft); color: var(--butler-accent); }
+.channel-tile.tone-green { background: var(--butler-ok-soft); color: var(--butler-ok); }
+.channel-tile.tone-gold { background: var(--butler-warn-soft); color: var(--butler-warn); }
+.channel-tile.tone-gray { background: var(--butler-sunken); color: var(--butler-ink-faint); }

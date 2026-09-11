@@ -1,13 +1,13 @@
 /* 系统日志页（/logs）：页面工具带 + 三分区卡（日志流 / 智能分析 / 修复会话）。
-   颜色一律引用 --butler-* 主题变量（真源见 theme/tokens.ts），不写死色值。 */
+   颜色一律引用 --ab-* 主题变量（真源见 theme/tokens.ts），不写死色值。 */
 
 /* 原始日志流：等宽字体滚动窗口。 */
 .logs-stream-pre {
   margin: 0;
   padding: 12px;
-  background: var(--butler-sunken);
-  border-radius: var(--butler-radius-control);
-  font-family: var(--butler-mono-font);
+  background: var(--ab-sunken);
+  border-radius: var(--ab-r-ctl);
+  font-family: var(--ab-mono);
   font-size: 12px;
   line-height: 1.6;
   max-height: 480px;
@@ -25,9 +25,9 @@
   flex-direction: column;
   gap: 8px;
   padding: 12px;
-  border: 1px solid var(--butler-rule);
-  border-radius: var(--butler-radius-control);
-  background: var(--butler-surface-subtle);
+  border: 1px solid var(--ab-border);
+  border-radius: var(--ab-r-ctl);
+  background: var(--ab-surface-2);
 }
 
 .logs-issue-action {

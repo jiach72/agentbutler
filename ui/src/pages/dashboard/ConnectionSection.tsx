@@ -272,6 +272,7 @@ export function ConnectionSection({
                         </Flex>
                       )}
                       <Space wrap>
+                        <Tooltip title="另一个连接检查正在进行，等它完成后再试">
                         <Button
                           icon={<ReloadOutlined />}
                           onClick={() => onCheckOne(connection.instanceId)}
@@ -279,6 +280,7 @@ export function ConnectionSection({
                         >
                           {checkBusy ? "检查中…" : "重新检查"}
                         </Button>
+                      </Tooltip>
                         <Button
                           danger={connection.connected}
                           type={connection.connected ? "default" : "primary"}

@@ -1,0 +1,428 @@
+/**
+ * 设置页主编排：七路数据源逐源 FetchState（并行加载、独立降级与重试），
+ * 30 秒轻量轮询让备份/审计在管家自动动作后出现；危险操作统一走确认弹窗。
+ * 展示层为「市场风」：PageHeader + 数据源状态概览条 + 左侧分类导航 + 右侧内容区。
+ */
+import { useCallback, useEffect, useState } from "react";
+import { BugOutlined, FileMarkdownOutlined, FileSearchOutlined, ThunderboltOutlined } from "@ant-design/icons";
+import { Alert, App, Button, Card, Flex, Typography } from "antd";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { ConnectionChip } from "../../components/ConnectionChip.js";
+import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
+import { PageHeader } from "../../components/PageHeader.js";
+import { loadJson, postJson, type LoadResult } from "../../lib/api.js";
+import { usePolling } from "../../hooks/usePolling.js";
+import { formatTime } from "../../lib/format.js";
+import { AuditLog } from "./AuditLog.js";
+import { BackupCenter } from "./BackupCenter.js";
+import {
+  backupKindLabel,
+  createInitialSources,
+  type AlertsPayload,
+  type AuditPayload,
+  type BackupItem,
+  type BackupsPayload,
+  type ButlerSelfPayload,
+  type RunbookSummary,
+  type RunbooksPayload,
+  type SecurityBaselinePayload,
+  type SecurityPayload,
+  type SettingsConfirmAction,
+  type SettingsSourceKey,
+  SOURCE_KEYS,
+  type SourcesState,
+} from "./helpers.js";
+import { DiagnosticsCenter } from "./DiagnosticsCenter.js";
+import { GithubTokenCard } from "./GithubTokenCard.js";
+import { SecurityBaseline } from "./SecurityBaseline.js";
+import { SettingsCategoryNav, resolveCategoryKey } from "./SettingsCategoryNav.js";
+import { SourceStatusBar } from "./SourceStatusBar.js";
+import { PreferencesPanel } from "../preferences/PreferencesPage.js";
+import { LlmProfileManager } from "./LlmProfileManager.js";
+import { VersionsPanel } from "../versions/VersionsPage.js";
+import "./settings.css";
+
+const { Paragraph, Text } = Typography;
+
+export function SettingsPage() {
+  const { message } = App.useApp();
+  const [sources, setSources] = useState(createInitialSources);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [confirmAction, setConfirmAction] = useState<SettingsConfirmAction | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const activeTab = resolveCategoryKey(searchParams.get("tab"));
+  const setActiveTab = (key: string) => {
+    setSearchParams(key === "security" ? {} : { tab: key }, { replace: true });
+  };
+
+  const applyResult = useCallback((key: SettingsSourceKey, result: LoadResult<unknown>) => {
+    setSources((prev) =>
+      ({
+        ...prev,
+        [key]: result.ok
+          ? { status: "ready", data: result.data }
+          : { status: "failed", reason: result.reason },
+      }) as SourcesState,
+    );
+  }, []);
+
+  /** 七路数据源逐源请求：并行发起，各自记录 ready / failed。 */
+  const loadOne = useCallback(
+    async (key: SettingsSourceKey): Promise<void> => {
+      switch (key) {
+        case "baseline":
+          applyResult(key, await loadJson<SecurityBaselinePayload>("/api/security-baseline", 5_000));
+          break;
+        case "alerts":
+          applyResult(key, await loadJson<AlertsPayload>("/api/alerts", 5_000));
+          break;
+        case "runbooks":
+          applyResult(key, await loadJson<RunbooksPayload>("/api/runbooks", 10_000));
+          break;
+        case "security":
+          applyResult(key, await loadJson<SecurityPayload>("/api/security", 10_000));
+          break;
+        case "backups":
+          applyResult(key, await loadJson<BackupsPayload>("/api/backups", 10_000));
+          break;
+        case "butlerSelf":
+          applyResult(key, await loadJson<ButlerSelfPayload>("/api/butler/self", 10_000));
+          break;
+        case "audit":
+          applyResult(key, await loadJson<AuditPayload>("/api/audit", 10_000));
+          break;
+      }
+    },
+    [applyResult],
+  );
+
+  /** 并行刷新全部数据源；已就绪的数据保持可见，不闪加载态。 */
+  const refreshAll = useCallback(() => {
+    for (const key of SOURCE_KEYS) void loadOne(key);
+  }, [loadOne]);
+
+  useEffect(() => {
+    refreshAll();
+  }, [refreshAll]);
+
+  // 轻量轮询：备份/审计在管家自动动作后能自动出现（后台标签页暂停）。
+  usePolling(refreshAll, 30_000);
+
+  /** 单源重试：先把该源切回 loading，再重新请求。 */
+  const retrySource = useCallback(
+    (key: SettingsSourceKey) => {
+      setSources((prev) => ({ ...prev, [key]: { status: "loading" } }) as SourcesState);
+      void loadOne(key);
+    },
+    [loadOne],
+  );
+
+  function requestResetBreaker(runbook: RunbookSummary) {
+    if (busy !== null) return;
+    setConfirmAction({ kind: "reset", runbook });
+  }
+
+  async function executeResetBreaker(runbook: RunbookSummary) {
+    setBusy(`reset-${runbook.id}`);
+    try {
+      const result = await postJson(`/api/runbooks/${encodeURIComponent(runbook.id)}/reset`, {});
+      if (result.ok) {
+        message.success(`已解除“${runbook.label}”的自动修复保护，并写入操作记录。`);
+      } else if (result.status === 409) {
+        message.success("这项保护已经解除，页面将刷新。");
+      } else {
+        message.error("解除保护失败，请先确认管家服务在线。");
+      }
+      refreshAll();
+    } catch {
+      message.error("解除保护失败，请稍后再试。");
+    } finally {
+      setBusy(null);
+      setConfirmAction(null);
+    }
+  }
+
+  function onRunBackup(kind: "full" | "memory") {
+    if (busy !== null) return;
+    void executeRunBackup(kind);
+  }
+
+  async function executeRunBackup(kind: "full" | "memory") {
+    setBusy(kind);
+    try {
+      const result = await postJson("/api/backups", {
+        kind,
+        label: kind === "full" ? "手动全量备份" : "手动记忆备份",
+      });
+      if (result.ok) {
+        message.success(kind === "full" ? "全量备份完成。" : "记忆备份完成。");
+      } else {
+        message.error("备份没有执行，请查看提示后重试。");
+      }
+      refreshAll();
+    } catch {
+      message.error("备份失败，请稍后再试。");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function onVerifyBackup() {
+    if (busy !== null) return;
+    void executeVerifyBackup();
+  }
+
+  async function executeVerifyBackup() {
+    setBusy("verify");
+    try {
+      const result = await postJson("/api/backups/verify", {}, 35_000);
+      if (result.ok) {
+        const data = (result.data ?? {}) as { checkedFiles?: number; checkedDatabases?: number };
+        message.success(`验证完成：检查 ${data.checkedFiles ?? 0} 个文件、${data.checkedDatabases ?? 0} 个数据库。`);
+      } else {
+        message.error("备份未通过验证；不会影响当前运行数据，请查看备份记录后重试。");
+      }
+      refreshAll();
+    } catch {
+      message.error("验证备份失败，请稍后再试。");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function onRequestRestore(item: BackupItem) {
+    if (busy !== null) return;
+    setConfirmAction({ kind: "restore", backup: item });
+  }
+
+  async function executeRestoreBackup(item: BackupItem) {
+    setBusy(`restore-${item.id}`);
+    try {
+      const result = await postJson(`/api/backups/${item.id}/restore`, {
+        confirmed: true,
+      });
+      if (result.ok) {
+        const data = (result.data ?? {}) as { restored?: number; skipped?: number };
+        message.success(
+          `还原完成：恢复 ${data.restored ?? 0} 个文件${
+            (data.skipped ?? 0) > 0 ? `，跳过 ${data.skipped} 个运行中文件` : ""
+          }。`,
+        );
+      } else {
+        message.error("还原未执行，请查看提示后重试。");
+      }
+      refreshAll();
+    } catch {
+      message.error("还原失败，请稍后再试。");
+    } finally {
+      setBusy(null);
+      setConfirmAction(null);
+    }
+  }
+
+  const securityOnline = sources.security.status === "ready"
+    ? sources.security.data.watchReachable !== false
+    : true;
+
+  /** 右侧内容区：按当前分类渲染对应面板（数据流与旧六签完全一致）。 */
+  function renderCategory(key: string) {
+    switch (key) {
+      case "backups":
+        return (
+          <BackupCenter
+            backups={sources.backups}
+            butlerSelf={sources.butlerSelf}
+            busy={busy}
+            onRetry={retrySource}
+            onRunBackup={onRunBackup}
+            onVerifyBackup={onVerifyBackup}
+            onRequestRestore={onRequestRestore}
+          />
+        );
+      case "llm":
+        return <LlmProfileManager />;
+      case "diagnostics":
+        return (
+          <>
+            <DiagnosticsCenter actionBusy={busy !== null} />
+            <AuditLog audit={sources.audit} onRetry={() => retrySource("audit")} />
+            <div
+              style={{
+                borderTop: "1px dashed var(--ant-color-border)",
+                paddingTop: 16,
+              }}
+            >
+              <Text strong>目前能做到</Text>
+              <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                本页展示真实的安全状态、备份、操作记录和脱敏的凭据管理状态。
+              </Paragraph>
+            </div>
+          </>
+        );
+      case "preferences":
+        return <PreferencesPanel />;
+      case "about":
+        return <VersionsPanel />;
+      case "advanced":
+        return (
+          <Flex vertical gap={12}>
+            <Typography.Title level={4} style={{ margin: 0 }}>
+              进阶工具
+            </Typography.Title>
+            <Paragraph type="secondary" style={{ marginBottom: 4 }}>
+              这些功能用于分析、配置或恢复；日常使用从首页、消息通知和排查问题开始即可。
+            </Paragraph>
+            <Card size="small" title="自进化">
+              <Flex justify="space-between" align="center" gap={16} wrap="wrap">
+                <Text type="secondary">根据真实日志生成候选方案，并经验证后再应用。</Text>
+                <Button icon={<ThunderboltOutlined />} onClick={() => navigate("/evolution")}>
+                  打开自进化
+                </Button>
+              </Flex>
+            </Card>
+            <Card size="small" title="核心文件">
+              <Flex justify="space-between" align="center" gap={16} wrap="wrap">
+                <Text type="secondary">查看、预览修改并恢复 Agent 的受管 Markdown 文件。</Text>
+                <Button icon={<FileMarkdownOutlined />} onClick={() => navigate("/core-files")}>
+                  管理核心文件
+                </Button>
+              </Flex>
+            </Card>
+            <Card size="small" title="系统日志">
+              <Flex justify="space-between" align="center" gap={16} wrap="wrap">
+                <Text type="secondary">在排查建议不足时查看原始记录和历史问题。</Text>
+                <Button icon={<FileSearchOutlined />} onClick={() => navigate("/logs")}>
+                  查看系统日志
+                </Button>
+              </Flex>
+            </Card>
+            <Card size="small" title="重新设置连接">
+              <Flex justify="space-between" align="center" gap={16} wrap="wrap">
+                <Text type="secondary">重新检测本机实例、模型配置和常用使用场景。</Text>
+                <Button icon={<BugOutlined />} onClick={() => navigate("/setup")}>
+                  打开连接设置
+                </Button>
+              </Flex>
+            </Card>
+          </Flex>
+        );
+      case "security":
+      default:
+        return (
+          <>
+            {sources.baseline.status === "ready" && sources.baseline.data.warnings.length > 0 && (
+              <Alert
+                role="status"
+                type="warning"
+                showIcon
+                message="当前风险提示"
+                description={sources.baseline.data.warnings.join("；")}
+              />
+            )}
+            <SecurityBaseline
+              baseline={sources.baseline}
+              alerts={sources.alerts}
+              runbooks={sources.runbooks}
+              security={sources.security}
+              audit={sources.audit}
+              backups={sources.backups}
+              busy={busy}
+              onRetry={retrySource}
+              onRequestReset={requestResetBreaker}
+            />
+            <GithubTokenCard />
+          </>
+        );
+    }
+  }
+
+  return (
+    <section className="settings-page">
+      <Flex vertical gap={24}>
+        <PageHeader
+          eyebrow="设置"
+          title="设置"
+          description="管理本机安全、备份与还原、模型密钥、诊断报告与常规偏好；「关于」里查看版本并升级。"
+          extra={
+            <ConnectionChip
+              reachable={securityOnline}
+              onlineText="安全状态已读取"
+              offlineText="服务暂时连不上"
+            />
+          }
+        />
+
+        <SourceStatusBar sources={sources} />
+
+        <div className="settings-layout">
+          <SettingsCategoryNav active={activeTab} onSelect={setActiveTab} />
+          <div className="settings-content">
+            <Flex vertical gap={16}>{renderCategory(activeTab)}</Flex>
+          </div>
+        </div>
+
+        {confirmAction !== null && (
+          <DangerConfirmModal
+            open
+            title={confirmAction.kind === "reset" ? "确认解除自动修复保护" : "确认还原备份"}
+            busy={busy !== null}
+            confirmLabel={confirmAction.kind === "reset" ? "确认解除保护" : "确认还原"}
+            onCancel={() => setConfirmAction(null)}
+            onConfirm={() =>
+              confirmAction.kind === "reset"
+                ? executeResetBreaker(confirmAction.runbook)
+                : executeRestoreBackup(confirmAction.backup)
+            }
+            impact={
+              confirmAction.kind === "reset"
+                ? "如果根因尚未处理，自动修复可能再次重启或重连服务。"
+                : "还原前会自动备份当前状态；运行中的 Hermes 文件可能被跳过，建议先停止 Hermes。"
+            }
+            reversible={
+              confirmAction.kind === "reset"
+                ? "可以。保护解除后若仍反复失败，会自动再次暂停。"
+                : "可以。还原前会自动备份当前状态，可再次还原回去。"
+            }
+            duration={
+              confirmAction.kind === "reset" ? "立即生效。" : "取决于备份体积，通常几秒到 1 分钟。"
+            }
+            // 重置保护与还原备份都属于规范 §3.7 的高危操作，必须先手动勾选。
+            acknowledge={
+              confirmAction.kind === "reset"
+                ? "我了解解除保护后，自动修复可能再次重启或重连服务"
+                : "我了解运行中的 Hermes 文件可能被跳过"
+            }
+            steps={
+              confirmAction.kind === "reset"
+                ? [
+                    "解除该自动修复方案的熔断状态",
+                    "允许后续巡检再次触发它",
+                    "继续记录执行结果，失败时仍会再次暂停",
+                  ]
+                : [
+                    "先为当前状态创建一份操作前备份",
+                    "还原选中的备份文件",
+                    "刷新安全状态和操作记录",
+                  ]
+            }
+          >
+            {confirmAction.kind === "reset" ? (
+              <p>
+                「{confirmAction.runbook.label}
+                」已因连续失败暂停。请确认根因已经处理；解除后，管家会恢复该方案的自动执行资格。
+              </p>
+            ) : (
+              <p>
+                将还原「
+                {confirmAction.backup.label ?? backupKindLabel(confirmAction.backup.kind)}」（
+                {formatTime(confirmAction.backup.createdAt)}）到{" "}
+                {confirmAction.backup.target || "当前管家"}。
+              </p>
+            )}
+          </DangerConfirmModal>
+        )}
+      </Flex>
+    </section>
+  );
+}

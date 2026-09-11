@@ -15,11 +15,12 @@ import {
   SendOutlined,
   StopOutlined,
 } from "@ant-design/icons";
-import { App, Badge, Button, Card, Flex, Spin, Typography } from "antd";
+import { App, Badge, Button, Card, Flex, Spin, Tooltip, Typography } from "antd";
 import { AdvancedDetails } from "../../components/AdvancedDetails.js";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { PageHeader } from "../../components/PageHeader.js";
+import { ConclusionBar } from "../../components/ConclusionBar.js";
 import { SectionHeader } from "../../components/SectionHeader.js";
 import { StatStrip } from "../../components/StatStrip.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
@@ -308,6 +309,12 @@ export function GatewayPage() {
       <section className="gateway-page">
         <Flex vertical gap={24}>
           <PageHeader title="消息通知" />
+          {/* §2.3 ② 结论条。 */}
+          <ConclusionBar
+            tone={loading ? "info" : "ok"}
+            title={loading ? "正在读取消息状态" : "消息通道运行正常"}
+            copy={loading ? "同步中，稍候片刻。" : `通知按免打扰规则调度，最近更新 ${lastUpdated?.toLocaleTimeString("zh-CN", { hour12: false }) ?? "—"}。`}
+          />
           <Card>
             <Flex vertical align="center" gap={12} style={{ padding: "40px 0" }}>
               <Spin />
@@ -322,7 +329,7 @@ export function GatewayPage() {
   const overallBadge = statusTone(rateLimit?.overall ?? "unknown");
   const channelBadge =
     alerts === null
-      ? { tone: "muted" as const, label: "未知" }
+      ? { tone: "unknown" as const, label: "未知" }
       : !alerts.reachable
         ? { tone: "error" as const, label: "离线" }
         : { tone: "ok" as const, label: "就绪" };
@@ -403,6 +410,7 @@ export function GatewayPage() {
               <Typography.Text type="secondary">
                 更新于 {lastUpdated?.toLocaleTimeString("zh-CN", { hour12: false }) ?? "—"}
               </Typography.Text>
+              <Tooltip title="正在刷新消息数据">
               <Button
                 type="primary"
                 icon={<ReloadOutlined />}
@@ -411,6 +419,7 @@ export function GatewayPage() {
               >
                 {loading ? "刷新中" : "刷新"}
               </Button>
+            </Tooltip>
             </Flex>
           }
         />
@@ -428,7 +437,8 @@ export function GatewayPage() {
                   : messageData.status.relay.enabled
                     ? "已开启"
                     : "已关闭",
-              tone: messageData?.status?.relay?.enabled ? "info" : undefined,
+              // v2 起蓝不再用于强调（§1.1 蓝=交互）；这里只是标记开关已开，用 brand。
+              tone: messageData?.status?.relay?.enabled ? "brand" : undefined,
             },
             {
               key: "sent24h",
@@ -463,8 +473,8 @@ export function GatewayPage() {
               message={recoveryState.title}
               description={recoveryState.description}
               action={
+                // §3.1 恢复路径是本区块的主操作，保留 primary；页头刷新降为 default。
                 <Button
-                  type="primary"
                   loading={loading}
                   onClick={() =>
                     recoveryState.action === "reconnect" ? void reconnectMessages() : void refresh()
@@ -593,6 +603,13 @@ export function GatewayPage() {
             confirmLabel={pendingPatchAction.action === "apply" ? "确认应用" : "确认恢复"}
             onCancel={() => setPendingPatchAction(null)}
             onConfirm={() => executePendingPatchAction(pendingPatchAction)}
+            impact="会修改 Hermes 的源文件。漂移、手工实现或配置不变式不满足时，服务端会拒绝执行；本次确认前不会修改任何文件。"
+            reversible="可以。首次应用前保留官方原文备份，可随时恢复官方默认。"
+            duration="写入若干源文件并记录审计，通常几秒内完成。"
+            // 重新应用官方默认会覆盖当前自定义内容，属高危操作，必须先手动勾选。
+            acknowledge={
+              pendingPatchAction.action === "reapply" ? "我了解这会覆盖当前的自定义内容" : undefined
+            }
             steps={[
               "再次校验配置不变式和补丁锚点",
               "首次应用前保留官方原文备份",
@@ -636,6 +653,8 @@ export function GatewayPage() {
             if (confirmRedeliverId !== null) void redeliverMessage(confirmRedeliverId);
           }}
           impact="消息会按当前策略重新走一遍投递流程，并再次发送给对方。"
+          reversible="不可撤回。消息一旦重新发出就无法收回。"
+          duration="几秒内进入投递队列，实际送达时间取决于对端。"
         >
           这条消息此前发送失败已被搁置。重投后会重新排队，可在消息明细中跟踪投递结果。
         </DangerConfirmModal>

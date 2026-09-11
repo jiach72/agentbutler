@@ -32,6 +32,8 @@ import { ConnectionChip } from "../../components/ConnectionChip.js";
 import { StatStrip } from "../../components/StatStrip.js";
 import { SectionHeader } from "../../components/SectionHeader.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
+import { AiGeneratedNotice } from "../../components/AiGeneratedNotice.js";
+import { ConclusionBar } from "../../components/ConclusionBar.js";
 import { PageHeader } from "../../components/PageHeader.js";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
 import { Link, useNavigate } from "react-router-dom";
@@ -128,7 +130,9 @@ type Proposal = {
   target: { name: string; canApply: boolean };
 };
 const impactLabel = { high: "高", medium: "中", low: "低" } as const;
-const impactTone = { high: "error", medium: "warn", low: "info" } as const;
+// 影响程度是"标记"不是"系统状态"（v2 里蓝=交互色，不再用于徽标），
+// 所以低影响走 brand（无状态图标），不用带时钟图标的 unknown。
+const impactTone = { high: "error", medium: "warn", low: "brand" } as const;
 
 export function EvolutionPage() {
   const { message } = App.useApp();
@@ -371,9 +375,9 @@ export function EvolutionPage() {
     ) : item.blocked ? (
       <StatusBadge tone="warn" label="需处理" />
     ) : item.confirmedAt ? (
-      <StatusBadge tone="info" label="已确认" />
+      <StatusBadge tone="brand" label="已确认" />
     ) : (
-      <StatusBadge tone="muted" label="待确认" />
+      <StatusBadge tone="unknown" label="待确认" />
     );
   const startedCount = (data?.directions ?? []).filter((item) => item.execution).length;
   const pendingCount = (data?.directions ?? []).filter(
@@ -426,10 +430,31 @@ export function EvolutionPage() {
               label: "已启动执行",
               value: startedCount,
               unit: "项",
-              tone: startedCount > 0 ? "info" : undefined,
+              // v2 起蓝不再用于强调（§1.1 蓝=交互）；这里只是标记"有内容"，用 brand。
+              tone: startedCount > 0 ? "brand" : undefined,
             },
           ]}
         />
+        {/* §2.3 ② 结论条：3 秒读清"现在好不好、要不要点一下"。 */}
+        {!error && (
+          <ConclusionBar
+            tone={pendingCount > 0 ? "warn" : startedCount > 0 ? "info" : "ok"}
+            title={
+              pendingCount > 0
+                ? `有 ${pendingCount} 项改进方向待你确认`
+                : startedCount > 0
+                  ? `有 ${startedCount} 项已进入试运行`
+                  : "当前运行平稳，没有待处理的改进方向"
+            }
+            copy={
+              pendingCount > 0
+                ? "先看方向详情与优化说明，确认后再试运行。"
+                : startedCount > 0
+                  ? "试运行通过评估后，回到这里确认应用。"
+                  : "系统会在新一轮日志分析后更新改进方向。"
+            }
+          />
+        )}
         {error && (
           <Alert
             type="error"
@@ -476,7 +501,7 @@ export function EvolutionPage() {
             <Descriptions.Item label="日志覆盖">
               {data?.coverage?.from
                 ? `${formatTime(data.coverage.from)} 至 ${formatTime(data.coverage.to ?? "")}`
-                : "暂无数据"}
+                : "尚未收录日志，先在「系统日志」跑一次分析"}
             </Descriptions.Item>
             <Descriptions.Item label="扫描文件 / 行数">
               {data?.coverage ? `${data.coverage.sources} / ${data.coverage.lines}` : "-"}
@@ -568,6 +593,9 @@ export function EvolutionPage() {
                   }
                 >
                   <Flex vertical gap={12}>
+                    {/* 模型生成的方向概览，必须带 AI 来源标识（规范 §1 P3）。
+                       不能与本页的管家实测结论条出现在同一视觉层级。 */}
+                    <AiGeneratedNotice compact detail="关于这个方向的判断，由模型基于管家采集到的样本给出，未经过工程人员复核。" />
                     <Paragraph style={{ marginBottom: 0 }}>{selected.summary}</Paragraph>
                     <Descriptions size="small" column={1}>
                       <Descriptions.Item label="关联技能">
@@ -662,6 +690,8 @@ export function EvolutionPage() {
                 <Card title={<SectionHeader kicker="优化方案" title="优化说明" compact />}>
                   {selected.optimization ? (
                     <Flex vertical gap={8}>
+                      {/* 模型生成的优化目标，逐字列表与预期结果都属模型产出，按 §1 P3 必须标注来源。 */}
+                      <AiGeneratedNotice compact detail="下方目标、改动清单与预期结果均由模型拟订，请阅读后自行判断再采纳。" />
                       <Paragraph style={{ marginBottom: 0 }}>{selected.optimization.goal}</Paragraph>
                       <ul style={LIST_STYLE}>
                         {selected.optimization.changes.map((item, index) => (
@@ -712,8 +742,8 @@ export function EvolutionPage() {
                         >
                           隔离验证
                         </Button>
+                        {/* §3.1 每屏 ≤1 primary：危险操作用 default danger 保留红色语义。 */}
                         <Button
-                          type="primary"
                           danger
                           loading={busy === "apply"}
                           onClick={() => setConfirmTarget({ kind: "apply-proposal", id: selectedProposal.id })}
@@ -796,7 +826,6 @@ export function EvolutionPage() {
                               description="请核对候选差异后，再确认应用。"
                             />
                             <Button
-                              type="primary"
                               danger
                               loading={busy === "promote"}
                               onClick={() => setConfirmTarget({ kind: "promote-run", run })}
@@ -884,6 +913,8 @@ export function EvolutionPage() {
             else if (target?.kind === "promote-run") await promoteRun(target.run);
           }}
           impact="应用后 Hermes 将改用候选提示词/配置运行；执行前管家会自动备份当前状态，如需回退可在「设置 → 备份」中恢复。"
+          reversible="可以。执行前自动备份当前状态，可在「设置 → 备份」恢复。"
+          duration="写入并刷新执行状态，通常几秒完成，期间 Hermes 无需重启。"
           steps={["备份当前状态", "应用候选变更", "刷新执行状态"]}
         >
           这是实际的配置写入操作，会影响 Hermes 正在使用的提示词与行为。

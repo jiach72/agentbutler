@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "tokenSource": "css.json",
+  "recommendedReadOrder": ["SKILL.md", "css.json", "components/index.json", "preview/component-button.html", "preview/component-card.html", "preview/component-table.html", "preview/component-chart.html", "preview/component-navigation.html", "preview/component-sidebar.html"],
+  "coreComponents": ["button", "card"],
+  "supportComponents": ["table", "chart", "navigation", "sidebar"]
+}

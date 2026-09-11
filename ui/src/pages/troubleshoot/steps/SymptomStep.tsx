@@ -7,7 +7,7 @@
  */
 import { useState } from "react";
 import { LoadingOutlined, MessageOutlined, ClockCircleOutlined, AlertOutlined, SyncOutlined, SearchOutlined } from "@ant-design/icons";
-import { Button, Flex, Space, Steps, Typography } from "antd";
+import { Button, Flex, Space, Steps, Tooltip, Typography } from "antd";
 import { SectionHeader } from "../../../components/SectionHeader.js";
 import { SYMPTOMS, type SymptomId } from "../symptoms.js";
 import type { ComponentType } from "react";
@@ -113,14 +113,18 @@ export function WizardNav({
   return (
     <Space wrap className="ts-nav">
       {onBack !== undefined && (
-        <Button onClick={onBack} disabled={busy}>
-          上一步
-        </Button>
+        <Tooltip title="正在执行操作，请稍候">
+          <Button onClick={onBack} disabled={busy}>
+            上一步
+          </Button>
+        </Tooltip>
       )}
       {onNext !== undefined && (
-        <Button type="primary" onClick={onNext} disabled={nextDisabled} loading={busy}>
-          {nextLabel}
-        </Button>
+        <Tooltip title="请先完成本步的必选项">
+          <Button type="primary" onClick={onNext} disabled={nextDisabled} loading={busy}>
+            {nextLabel}
+          </Button>
+        </Tooltip>
       )}
     </Space>
   );

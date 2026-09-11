@@ -1,0 +1,264 @@
+/* 设计品味层：仅保留仍被引用的组件/结构规则（图表骨架动画、数据表格细节、core-files 宽度等）。
+ * 已被 antd v6 原语替代的旧页面规则已退役；变量真源见 theme/tokens.ts。 */
+
+:root {
+  --butler-content-max: 1440px;
+  --butler-focus-offset: 2px;
+  --butler-stat-accent: color-mix(in srgb, var(--butler-accent) 86%, var(--butler-ink-faint));
+}
+
+/* ---- 趋势图表骨架 ---- */
+
+.chart-loading {
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  min-width: 0;
+  color: var(--butler-muted);
+}
+
+.chart-skeleton {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 6px;
+  width: min(180px, 70%);
+  height: 56px;
+  padding: 0 8px 8px;
+  border-bottom: 1px solid var(--butler-rule);
+}
+
+.chart-skeleton span {
+  display: block;
+  width: 20%;
+  min-height: 14px;
+  border-radius: 6px 6px 0 0; /* 规范仅 14/8/6 三档。 */
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--butler-accent-soft) 78%, var(--butler-surface)),
+    color-mix(in srgb, var(--butler-accent) 26%, var(--butler-surface))
+  );
+  animation: chart-skeleton-pulse 1.2s var(--butler-ease) infinite alternate;
+}
+
+.chart-skeleton span:nth-child(1) {
+  height: 34%;
+}
+.chart-skeleton span:nth-child(2) {
+  height: 62%;
+  animation-delay: 90ms;
+}
+.chart-skeleton span:nth-child(3) {
+  height: 46%;
+  animation-delay: 180ms;
+}
+.chart-skeleton span:nth-child(4) {
+  height: 78%;
+  animation-delay: 270ms;
+}
+
+@keyframes chart-skeleton-pulse {
+  from {
+    opacity: 0.45;
+    transform: scaleY(0.88);
+    transform-origin: bottom;
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1);
+    transform-origin: bottom;
+  }
+}
+
+.chart-state {
+  min-height: 156px;
+  margin: 0;
+}
+
+/* ---- 数据表面与表格细节 ---- */
+
+.chart-card,
+.ant-card,
+.ant-table-wrapper {
+  min-width: 0;
+}
+
+.chart-card {
+  overflow: hidden;
+}
+
+.ant-statistic-content,
+.ant-table-cell {
+  font-variant-numeric: tabular-nums;
+}
+
+.ant-statistic-content-value {
+  letter-spacing: -0.02em;
+}
+
+.ant-table-wrapper.is-scrollable .ant-table {
+  min-width: 640px;
+}
+
+.ant-table-wrapper .ant-table-container {
+  min-width: 0;
+}
+
+.ant-table-thead > tr > th {
+  white-space: nowrap;
+}
+
+.ant-table-tbody > tr > td {
+  overflow-wrap: anywhere;
+}
+
+/* ---- 智能体与记忆：把状态、动作、内容分成可扫描的层级 ---- */
+.skills-manager-heading,
+.memory-panel-heading {
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--butler-rule);
+}
+
+.skills-manager-heading > div:first-child,
+.memory-panel-heading > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.skills-manager-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.skills-manager-stats > .ant-card {
+  min-width: 0;
+}
+
+.skills-install-source {
+  flex: 1 1 320px;
+  min-width: 240px;
+}
+
+.skills-install-name {
+  flex: 0 1 220px;
+  min-width: 180px;
+}
+
+.skills-filter-keyword {
+  flex: 1 1 260px;
+  min-width: 220px;
+}
+
+.skills-filter-tags {
+  flex: 1 1 240px;
+  min-width: 220px;
+}
+
+.skills-filter-source {
+  width: 150px;
+}
+
+.skill-table-name {
+  min-width: 180px;
+}
+
+.memory-stat-grid .ant-card {
+  height: 100%;
+}
+
+.memory-stat-grid .ant-statistic-content {
+  min-height: 28px;
+}
+
+.memory-trend-card .ant-card-body {
+  padding-top: 12px;
+}
+
+.memory-panel .ant-list-item {
+  align-items: flex-start;
+}
+
+@media (max-width: 760px) {
+  .skills-manager-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .skills-filter-source {
+    width: 100%;
+  }
+}
+
+@media (max-width: 520px) {
+  .skills-manager-stats {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .skills-manager-heading,
+  .memory-panel-heading {
+    align-items: stretch;
+  }
+
+  .skills-manager-heading .ant-flex:last-child,
+  .memory-panel-heading > .ant-btn {
+    width: 100%;
+  }
+
+  .skills-manager-heading .ant-flex:last-child .ant-btn {
+    flex: 1 1 auto;
+  }
+
+  .skills-install-source,
+  .skills-install-name,
+  .skills-filter-keyword,
+  .skills-filter-tags {
+    min-width: 100%;
+  }
+}
+
+/* ---- Core files 页面容器宽度（壳层基础宽度之上再收紧一档） ---- */
+
+.core-files-page {
+  width: min(100%, 1280px);
+  margin-inline: auto;
+}
+
+/* ---- 响应式收紧 ---- */
+
+@media (max-width: 600px) {
+  .chart-card {
+    padding: 16px 14px;
+  }
+
+  .chart-card-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .chart-card-head > :last-child {
+    max-width: 100%;
+  }
+
+  .ant-table-wrapper.is-scrollable .ant-table {
+    min-width: 620px;
+  }
+
+  .ant-table-pagination {
+    justify-content: flex-start;
+    overflow-x: auto;
+  }
+
+  .topbar-title {
+    font-size: 16px;
+  }
+
+  .topbar-actions {
+    gap: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chart-skeleton span {
+    animation: none;
+  }
+}

@@ -1,7 +1,7 @@
 /**
  * 版本页 · 最新可升级版本：版本源诊断、目标实例选择与候选列表。
  */
-import { Button, Card, Empty, Flex, Select, Timeline, Typography } from "antd";
+import { Button, Card, Empty, Flex, Select, Timeline, Tooltip, Typography } from "antd";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { formatRelative } from "../../lib/format.js";
@@ -156,7 +156,7 @@ export function CandidateList({
                     <Flex align="center" gap={8} wrap="wrap">
                       <Text strong>{versionDisplay(entry)}</Text>
                       {badge !== null && <StatusBadge tone={badge.tone} label={badge.label} />}
-                      {isCurrent && <StatusBadge tone="muted" label="当前版本" />}
+                      {isCurrent && <StatusBadge tone="brand" label="当前版本" />}
                     </Flex>
                     <Text type="secondary">
                       {entry.version}
@@ -166,11 +166,22 @@ export function CandidateList({
                       <Text type="secondary">{entry.notes}</Text>
                     )}
                   </Flex>
-                  <Button
-                    type="primary"
-                    disabled={isCurrent || launchPending || jobRunning}
-                    onClick={() => onUpgrade(entry)}
-                  >
+                  <Tooltip
+                      title={
+                        isCurrent
+                          ? "该版本正在使用"
+                          : launchPending
+                            ? "正在启动升级"
+                            : jobRunning
+                              ? "升级任务执行中"
+                              : ""
+                      }
+                    >
+                      <Button
+                        type="primary"
+                        disabled={isCurrent || launchPending || jobRunning}
+                        onClick={() => onUpgrade(entry)}
+                      >
                     {isCurrent
                       ? "正在使用"
                       : launchPending
@@ -179,6 +190,7 @@ export function CandidateList({
                           ? "升级进行中"
                           : "升级到这一版"}
                   </Button>
+                    </Tooltip>
                 </Flex>
               </Card>
             );

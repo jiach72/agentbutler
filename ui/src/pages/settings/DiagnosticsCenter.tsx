@@ -3,7 +3,7 @@
  * 保留文本响应处理；超时与失败文案走固定文案，成败均有 message 提示。
  */
 import { useEffect, useState, type CSSProperties } from "react";
-import { App, Button, Flex, List, Space, Spin, Typography } from "antd";
+import { App, Button, Flex, List, Space, Spin, Tooltip, Typography } from "antd";
 import { fetchBlob, fetchText, loadJson, type FetchState } from "../../lib/api.js";
 import { AdvancedDetails } from "../../components/AdvancedDetails.js";
 import { SectionHeader } from "../../components/SectionHeader.js";
@@ -18,7 +18,7 @@ const REPORT_PREVIEW_STYLE: CSSProperties = {
   padding: 12,
   background: "var(--ant-color-fill-tertiary)",
   borderRadius: "var(--ant-border-radius-lg)",
-  fontFamily: "var(--butler-mono-font)",
+  fontFamily: "var(--ab-mono)",
   fontSize: 12,
   lineHeight: 1.6,
   maxHeight: 320,
@@ -131,14 +131,16 @@ export function DiagnosticsCenter({ actionBusy }: DiagnosticsCenterProps) {
           打包脱敏的日志问题、错误指纹、巡检快照和配置摘要；不含密钥和聊天正文。
         </Paragraph>
         <Space wrap>
-          <Button
-            type="primary"
-            loading={diagnostic.busy}
-            disabled={actionBusy || diagnostic.busy}
-            onClick={() => void runDiagnostic()}
-          >
-            生成诊断报告
-          </Button>
+          <Tooltip title="有诊断或修复操作正在执行">
+            <Button
+              type="primary"
+              loading={diagnostic.busy}
+              disabled={actionBusy || diagnostic.busy}
+              onClick={() => void runDiagnostic()}
+            >
+              生成诊断报告
+            </Button>
+          </Tooltip>
         </Space>
         <section aria-label="本机结果摘要">
           <Text strong>最近本机结果</Text>
@@ -183,7 +185,8 @@ export function DiagnosticsCenter({ actionBusy }: DiagnosticsCenterProps) {
                 <Button onClick={() => downloadDiagnostic(diagnostic.text!)}>
                   下载 Markdown
                 </Button>
-                <Button type="primary" onClick={() => void downloadDiagnosticZip()}>
+                {/* §3.1 行内下载操作降为 default，面板主 primary 是「生成诊断报告」。 */}
+                <Button onClick={() => void downloadDiagnosticZip()}>
                   下载诊断 ZIP
                 </Button>
               </Space>

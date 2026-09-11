@@ -1,13 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Agent Butler">
-  <title>Agent Butler · Favicon（简化版，小尺寸专用）</title>
-  <rect width="512" height="512" rx="112" fill="#0E1B2A"/>
-  <g transform="rotate(-15 159 256)">
-    <rect x="86" y="200" width="146" height="112" rx="32" fill="#C8A15A"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Agent Butler">
+  <title>Agent Butler · 站点图标</title>
+  <rect width="64" height="64" rx="14" fill="#0B1728"/>
+  <g transform="translate(32 32) scale(2) translate(-16 -16)" fill="none" stroke="#C8A15A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 10.5l-7-2.5v16l7-2.5"/>
+    <path d="M20 10.5l7-2.5v16l-7-2.5"/>
+    <rect x="13.75" y="13.75" width="4.5" height="4.5" rx="1.4"/>
   </g>
-  <g transform="translate(512,0) scale(-1,1)">
-    <g transform="rotate(-15 159 256)">
-      <rect x="86" y="200" width="146" height="112" rx="32" fill="#C8A15A"/>
-    </g>
-  </g>
-  <rect x="224" y="224" width="64" height="64" rx="20" fill="#35D0BA"/>
 </svg>

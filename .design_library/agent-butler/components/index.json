@@ -1,0 +1,10 @@
+{
+  "components": [
+    { "slug": "button", "name": "按钮", "category": "control", "sourceKind": "from-scratch", "confidence": "medium", "variantCount": 4, "priorityHint": "high", "keyInsightSeed": "一键动作：主按钮用大白话，危险动作需二次确认" },
+    { "slug": "card", "name": "卡片", "category": "surface", "sourceKind": "from-scratch", "confidence": "medium", "variantCount": 3, "priorityHint": "high", "keyInsightSeed": "结论优先：卡片首行先给状态，再给一个动作" },
+    { "slug": "table", "name": "表格", "category": "data-display", "sourceKind": "from-scratch", "confidence": "medium", "variantCount": 2, "priorityHint": "medium", "keyInsightSeed": "克制密度：可读优先，危险操作行内二次确认" },
+    { "slug": "chart", "name": "图表", "category": "data-display", "sourceKind": "from-scratch", "confidence": "medium", "variantCount": 3, "priorityHint": "medium", "keyInsightSeed": "安静可视化：单一主色 + 语义状态色，无霓虹渐变" },
+    { "slug": "navigation", "name": "导航", "category": "navigation", "sourceKind": "from-scratch", "confidence": "medium", "variantCount": 2, "priorityHint": "high", "keyInsightSeed": "克制层级：激活态清晰，不放无关装饰" },
+    { "slug": "sidebar", "name": "侧边栏", "category": "navigation", "sourceKind": "from-scratch", "confidence": "medium", "variantCount": 2, "priorityHint": "high", "keyInsightSeed": "可折叠的段落导航：图标 + 标签，激活态克制" }
+  ]
+}

@@ -2,7 +2,7 @@
  * 形态补丁区：补丁卡片、参数草稿（antd InputNumber）、漂移检测与应用动作。
  * busy 锁按「动作:实例:补丁」粒度生效，只禁用对应按钮。
  */
-import { Alert, Button, Card, Descriptions, Empty, Flex, Input, InputNumber, Tag, Typography } from "antd";
+import { Alert, Button, Card, Descriptions, Empty, Flex, Input, InputNumber, Tag, Tooltip, Typography } from "antd";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { formatRelative } from "../../lib/format.js";
 import { PARAM_LABELS, instanceKeyOf, patchBusyKey, schemaHint, statusTone } from "./helpers.js";
@@ -99,7 +99,8 @@ export function PatchBoard({
                         </Typography.Title>
                         <StatusBadge
                           tone={
-                            patch.applied !== null ? "ok" : isObserved ? "warn" : "muted"
+                            // 未应用且未观察到 = 还没读到数据（§1.4），用 unknown。
+                            patch.applied !== null ? "ok" : isObserved ? "warn" : "unknown"
                           }
                           label={
                             patch.applied !== null
@@ -198,28 +199,56 @@ export function PatchBoard({
                   )}
 
                   <Flex wrap="wrap" gap={8}>
-                    <Button
-                      type="primary"
-                      disabled={applyDisabled}
-                      loading={busyKeys.has(applyKey)}
-                      onClick={() => onRunAction(patch, "apply")}
+                    <Tooltip
+                      title={
+                        patchBusy
+                          ? "有补丁操作正在执行，请等它完成"
+                          : isObserved
+                            ? "该调整尚未应用（观察中），先应用后才能恢复默认"
+                            : missingRequires.length > 0
+                              ? `先应用前置调整：${missingRequires.join("、")}`
+                              : "管家 watch 服务不可达，暂不能操作"
+                      }
                     >
-                      应用这个调整
-                    </Button>
-                    <Button
-                      disabled={applyDisabled}
-                      loading={busyKeys.has(reapplyKey)}
-                      onClick={() => onRunAction(patch, "reapply")}
+                      <Button
+                        type="primary"
+                        disabled={applyDisabled}
+                        loading={busyKeys.has(applyKey)}
+                        onClick={() => onRunAction(patch, "apply")}
+                      >
+                        应用这个调整
+                      </Button>
+                    </Tooltip>
+                    <Tooltip
+                      title={
+                        patchBusy
+                          ? "有补丁操作正在执行，请等它完成"
+                          : isObserved
+                            ? "该调整尚未应用（观察中），没有可恢复的默认版本"
+                            : missingRequires.length > 0
+                              ? `先应用前置调整：${missingRequires.join("、")}`
+                              : "管家 watch 服务不可达，暂不能操作"
+                      }
                     >
-                      恢复官方默认
-                    </Button>
-                    <Button
-                      disabled={detectDisabled}
-                      loading={busyKeys.has(detectKey)}
-                      onClick={() => onRunAction(patch, "detect")}
+                      <Button
+                        disabled={applyDisabled}
+                        loading={busyKeys.has(reapplyKey)}
+                        onClick={() => onRunAction(patch, "reapply")}
+                      >
+                        恢复官方默认
+                      </Button>
+                    </Tooltip>
+                    <Tooltip
+                      title={patchBusy ? "有补丁操作正在执行，请等它完成" : "管家 watch 服务不可达，暂不能检查"}
                     >
-                      检查是否被改过
-                    </Button>
+                      <Button
+                        disabled={detectDisabled}
+                        loading={busyKeys.has(detectKey)}
+                        onClick={() => onRunAction(patch, "detect")}
+                      >
+                        检查是否被改过
+                      </Button>
+                    </Tooltip>
                   </Flex>
                 </Flex>
               </Card>

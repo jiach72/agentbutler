@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 1,
+  "headBoilerplate": "<link rel=\"stylesheet\" href=\"../../colors_and_type.css\">",
+  "corePreviewComponents": [
+    {
+      "slug": "button",
+      "reason": "fixed slot \"button\"; semantic=Button:NaN; policy=fixed-slots-first",
+      "evidenceFile": "components/button.json",
+      "priority": 1,
+      "slot": "button"
+    },
+    {
+      "slug": "navigation",
+      "reason": "fixed slot \"navigation\"; semantic=Navigation:NaN; policy=fixed-slots-first",
+      "evidenceFile": "components/navigation.json",
+      "priority": 2,
+      "slot": "navigation"
+    },
+    {
+      "slug": "card",
+      "reason": "fixed slot \"card\"; semantic=Card:NaN; policy=fixed-slots-first",
+      "evidenceFile": "components/card.json",
+      "priority": 3,
+      "slot": "card"
+    },
+    {
+      "slug": "table",
+      "reason": "fixed slot \"table\"; semantic=Table:NaN; policy=fixed-slots-first",
+      "evidenceFile": "components/table.json",
+      "priority": 4,
+      "slot": "table"
+    },
+    {
+      "slug": "chart",
+      "reason": "fallback after fixed slots; semantic=Chart:NaN; policy=fixed-slots-first",
+      "evidenceFile": "components/chart.json",
+      "priority": 5
+    },
+    {
+      "slug": "sidebar",
+      "reason": "fallback after fixed slots; semantic=Sidebar:NaN; policy=fixed-slots-first",
+      "evidenceFile": "components/sidebar.json",
+      "priority": 6
+    }
+  ],
+  "supportEvidenceComponents": [],
+  "allowedComponents": [
+    "button",
+    "navigation",
+    "card",
+    "table",
+    "chart",
+    "sidebar"
+  ],
+  "screenBlueprints": [
+    {
+      "name": null,
+      "componentSlugs": [],
+      "role": "primary"
+    },
+    {
+      "name": null,
+      "componentSlugs": [],
+      "role": "secondary"
+    },
+    {
+      "name": null,
+      "componentSlugs": [],
+      "role": "secondary"
+    }
+  ],
+  "productContext": {
+    "kitType": "dashboard",
+    "productType": "Dashboard",
+    "dominantCopy": [],
+    "pageNames": [],
+    "selectedFrameNames": []
+  },
+  "selectionPolicy": "fixed-slots-first",
+  "slotAssignments": [
+    {
+      "slot": "button",
+      "slug": "button",
+      "reason": "name"
+    },
+    {
+      "slot": "navigation",
+      "slug": "navigation",
+      "reason": "name"
+    },
+    {
+      "slot": "card",
+      "slug": "card",
+      "reason": "name"
+    },
+    {
+      "slot": "table",
+      "slug": "table",
+      "reason": "name"
+    }
+  ],
+  "missingFixedSlots": [
+    "menu",
+    "tag"
+  ],
+  "fallbackComponents": [
+    "chart",
+    "sidebar"
+  ],
+  "needsNarrative": false,
+  "forbiddenInventedComponents": [],
+  "lowConfidence": false,
+  "warnings": [
+    "missing-fixed-slot:menu",
+    "missing-fixed-slot:tag"
+  ]
+}

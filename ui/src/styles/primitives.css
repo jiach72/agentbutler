@@ -9,58 +9,125 @@
 [class$="-page"] {
   display: flex;
   flex-direction: column;
-  gap: var(--butler-space-4);
+  gap: var(--ab-space-4);
 }
 
 /* ---- 趋势图表卡片 ---- */
 
 .chart-card {
-  padding: var(--butler-space-4) var(--butler-space-5);
-  background: var(--butler-surface);
-  border: 1px solid var(--butler-rule);
-  border-radius: var(--butler-radius-card);
-  box-shadow: var(--butler-shadow);
+  padding: var(--ab-space-4) var(--ab-space-5);
+  background: var(--ab-surface);
+  border: 1px solid var(--ab-border);
+  border-radius: var(--ab-r-card);
+  box-shadow: var(--ab-shadow-1);
 }
 
 .chart-card-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: var(--butler-space-3);
-  margin-bottom: var(--butler-space-3);
+  gap: var(--ab-space-3);
+  margin-bottom: var(--ab-space-3);
 }
 .chart-card-head h3 {
-  font-size: var(--butler-text-md);
+  font-size: var(--ab-text-size-md);
   font-weight: 600;
   letter-spacing: -0.01em;
 }
 .chart-card-head p {
   margin-top: 2px;
-  color: var(--butler-muted);
-  font-size: var(--butler-text-xs);
+  color: var(--ab-text-3);
+  font-size: var(--ab-text-size-xs);
   line-height: 1.5;
 }
 
-/* ---- 空态（图表空态配 IP 形象「巴特」，自带月白底盘、深浅底通用） ---- */
+/* ---- 空态（图表空态配品牌角色「管家机器人」，见 docs/brand/02 §2.6） ---- */
 
 .empty-state {
   min-height: 168px;
   display: grid;
   place-items: center;
   gap: 10px;
-  padding: var(--butler-space-6) var(--butler-space-4);
+  padding: var(--ab-space-6) var(--ab-space-4);
   text-align: center;
-  border: 1px dashed var(--butler-rule);
-  border-radius: var(--butler-radius-card);
-  background: var(--butler-surface-subtle);
-  color: var(--butler-muted);
+  border: 1px dashed var(--ab-border);
+  border-radius: var(--ab-r-card);
+  background: var(--ab-surface-2);
+  color: var(--ab-text-3);
   line-height: 1.6;
 }
 
-.empty-state-mascot {
-  width: 72px;
-  height: 72px;
+/* 空态三件套：一句结论 + 一句怎么做 + 一个按钮（规范 03 §3.9）。 */
+.empty-state-title {
+  color: var(--ab-text);
+  font-size: var(--ab-text-size-md);
+  font-weight: 600;
+}
+.empty-state-hint {
+  max-width: 38em;
+  color: var(--ab-text-3);
+  font-size: var(--ab-text-size-sm);
+}
+.empty-state-action {
+  margin-top: 2px;
+}
+
+/* ---- AI 生成内容标识（规范 03 §1 P3：必须标来源，且不与实测结论同层）---- */
+
+.ai-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0 0 var(--ab-space-3);
+  padding: 6px 10px;
+  /* 黄铜而非状态色：它表达"来源"，不是"好坏"。 */
+  border: 1px solid var(--ab-brand-line);
+  border-radius: var(--ab-r-tag);
+  background: var(--ab-brand-soft);
+  font-size: var(--ab-text-size-xs);
+  line-height: 1.5;
+}
+.ai-notice.is-compact {
+  margin-bottom: var(--ab-space-2);
+  padding: 4px 8px;
+}
+.ai-notice-mark {
+  color: var(--ab-brand);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.ai-notice-text {
+  color: var(--ab-text-3);
+}
+
+/* ---- 品牌角色（机器人）----
+   亮色用品牌线描、深色用反白版：墨线在 --ab-surface-2（#1a2e46）上对比度不足 2:1。
+   双图 + html[data-theme] 切换，与 Layout 品牌标志同一套做法，不引入主题 context。 */
+.brand-mascot {
+  display: block;
+  flex: none;
+  line-height: 0;
+}
+
+.brand-mascot-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: contain;
   user-select: none;
+}
+
+.brand-mascot-img.is-dark {
+  display: none;
+}
+
+html[data-theme="dark"] .brand-mascot-img.is-light {
+  display: none;
+}
+
+html[data-theme="dark"] .brand-mascot-img.is-dark {
+  display: block;
 }
 
 /* ---- 键值对 / 数据行 ---- */
@@ -68,44 +135,46 @@
 .kv {
   display: grid;
   grid-template-columns: minmax(84px, auto) 1fr;
-  gap: 4px var(--butler-space-3);
+  gap: 4px var(--ab-space-3);
   align-items: baseline;
-  font-size: var(--butler-text-sm);
+  font-size: var(--ab-text-size-sm);
 }
 .kv > dt,
 .kv > .k {
-  color: var(--butler-muted);
-  font-size: var(--butler-text-xs);
+  color: var(--ab-text-3);
+  font-size: var(--ab-text-size-xs);
 }
 
 /* ---- 高级详情折叠区 ---- */
 
-.advanced-details .ant-collapse-header {
-  align-items: center !important;
-  padding-block: 7px !important;
+/* 用 html body 前缀提高权重，替代 !important。 */
+html body .advanced-details .ant-collapse-header {
+  align-items: center;
+  padding-block: 7px;
 }
-.advanced-details .ant-collapse-content-box {
-  padding: 10px 12px !important;
+html body .advanced-details .ant-collapse-content-box {
+  padding: 10px 12px;
 }
 .advanced-details-summary {
   display: flex;
   align-items: baseline;
   gap: 10px;
-  font-size: var(--butler-text-sm);
+  font-size: var(--ab-text-size-sm);
 }
 .advanced-details-summary span:first-child {
   font-weight: 600;
 }
 .advanced-details-extra {
-  color: var(--butler-muted);
-  font-size: var(--butler-text-xs);
+  color: var(--ab-text-3);
+  font-size: var(--ab-text-size-xs);
 }
 
 /* ---- 紧凑描述列表（连接卡片 / 检查明细头部） ---- */
 
-.dense-descriptions .ant-descriptions-item-label,
-.dense-descriptions .ant-descriptions-item-content {
-  padding-block: 3px !important;
+/* 用 html body 前缀提高权重，替代 !important。 */
+html body .dense-descriptions .ant-descriptions-item-label,
+html body .dense-descriptions .ant-descriptions-item-content {
+  padding-block: 3px;
 }
 
 /* ---- 检查明细行：标签定宽 + 状态徽标 + 说明省略 + 耗时右对齐 ---- */
@@ -146,12 +215,62 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* ---- 状态徽标（规范 03 §3.2：高 22 / 左右 padding 8 / 字号 12 / 字重 500 / 圆角 6）---- */
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--ab-r-tag);
+  font-size: var(--ab-text-size-xs);
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+.status-badge .anticon {
+  font-size: 11px;
+}
+.status-badge-label {
+  display: inline-block;
+}
+
+.status-badge[data-tone="ok"] {
+  background: var(--ab-ok-soft);
+  color: var(--ab-ok);
+  border: 1px solid color-mix(in srgb, var(--ab-ok) 26%, transparent);
+}
+.status-badge[data-tone="warn"] {
+  background: var(--ab-warn-soft);
+  color: var(--ab-warn);
+  border: 1px solid color-mix(in srgb, var(--ab-warn) 26%, transparent);
+}
+.status-badge[data-tone="error"] {
+  background: var(--ab-error-soft);
+  color: var(--ab-error);
+  border: 1px solid color-mix(in srgb, var(--ab-error) 26%, transparent);
+}
+/* 离线与未知同色（规范 02 §1.4），靠文案与图标区分。 */
+.status-badge[data-tone="offline"],
+.status-badge[data-tone="unknown"] {
+  background: var(--ab-offline-soft);
+  color: var(--ab-offline);
+  border: 1px solid var(--ab-border);
+}
+/* brand 是标记（推荐 / 当前版本 / 已备份），用黄铜记忆色，不参与状态语义。 */
+.status-badge[data-tone="brand"] {
+  background: var(--ab-brand-soft);
+  color: var(--ab-brand);
+  border: 1px solid color-mix(in srgb, var(--ab-brand) 26%, transparent);
+}
+
 /* ---- 通知中心 ---- */
 
 .notification-badge .ant-badge-count {
-  background: var(--butler-notification-badge);
-  color: var(--butler-notification-badge-on);
-  box-shadow: 0 0 0 1px var(--butler-surface);
+  background: var(--ab-error);
+  color: var(--ab-on-primary);
+  box-shadow: 0 0 0 1px var(--ab-surface);
 }
 
 .notification-popover .ant-popover-inner {
@@ -167,18 +286,18 @@
   justify-content: space-between;
   gap: 12px;
   padding: 12px 14px;
-  border-bottom: 1px solid var(--butler-rule);
+  border-bottom: 1px solid var(--ab-border);
 }
 .notification-panel-head > div {
   display: flex;
   flex-direction: column;
 }
 .notification-panel-head strong {
-  font-size: var(--butler-text-sm);
+  font-size: var(--ab-text-size-sm);
 }
 .notification-panel-head span {
-  color: var(--butler-muted);
-  font-size: var(--butler-text-xs);
+  color: var(--ab-text-3);
+  font-size: var(--ab-text-size-xs);
 }
 .notification-panel-loading {
   display: grid;
@@ -197,7 +316,7 @@
   border-radius: 8px;
 }
 .notification-item:hover {
-  background: var(--butler-surface-subtle);
+  background: var(--ab-surface-2);
 }
 .notification-item-main {
   width: 100%;
@@ -210,7 +329,7 @@
   color: inherit;
 }
 .notification-item-main strong {
-  font-size: var(--butler-text-sm);
+  font-size: var(--ab-text-size-sm);
   font-weight: 550;
   display: block;
   overflow: hidden;
@@ -224,7 +343,7 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--butler-accent);
+  background: var(--ab-primary);
   transform: translateY(-50%);
 }
 .notification-panel-foot {
@@ -233,36 +352,79 @@
   justify-content: space-between;
   gap: 10px;
   padding: 10px 14px;
-  border-top: 1px solid var(--butler-rule);
-  font-size: var(--butler-text-sm);
+  border-top: 1px solid var(--ab-border);
+  font-size: var(--ab-text-size-sm);
 }
 
 /* ---- 危险确认弹窗 ---- */
 
 .danger-modal-title .anticon {
-  color: var(--butler-error);
+  color: var(--ab-error);
   margin-right: 4px;
 }
 .danger-modal-copy {
-  color: var(--butler-ink-soft);
-  font-size: var(--butler-text-sm);
+  color: var(--ab-text-2);
+  font-size: var(--ab-text-size-sm);
   line-height: 1.65;
 }
 .danger-impact-alert {
-  margin-top: var(--butler-space-3);
+  margin-top: var(--ab-space-3);
+}
+
+/* 危险确认弹窗的「能否撤回 / 耗时」两栏（规范 03 §3.7 必填四项之二） */
+.danger-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px var(--ab-space-3);
+  margin: var(--ab-space-3) 0 0;
+  font-size: var(--ab-text-size-sm);
+}
+.danger-facts > dt {
+  color: var(--ab-text-3);
+  font-size: var(--ab-text-size-xs);
+  white-space: nowrap;
+}
+.danger-facts > dd {
+  margin: 0;
+  color: var(--ab-text-2);
+}
+
+/* 高危操作的手动勾选确认框：信号边 + 极浅 tint（与其余结论块同语言）。 */
+.danger-acknowledge {
+  position: relative;
+  margin-top: var(--ab-space-3);
+  padding: 10px 12px;
+  border: 1px solid var(--ab-border);
+  border-radius: var(--ab-r-ctl);
+  background: color-mix(in srgb, var(--ab-warn) 6%, var(--ab-surface));
+}
+
+.danger-acknowledge::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--ab-warn);
+}
+.danger-acknowledge .ant-checkbox-wrapper {
+  color: var(--ab-warn);
+  font-size: var(--ab-text-size-sm);
 }
 .repair-steps {
-  margin-top: var(--butler-space-3);
-  font-size: var(--butler-text-sm);
+  margin-top: var(--ab-space-3);
+  font-size: var(--ab-text-size-sm);
 }
 .repair-steps > span {
-  color: var(--butler-muted);
-  font-size: var(--butler-text-xs);
+  color: var(--ab-text-3);
+  font-size: var(--ab-text-size-xs);
 }
 .repair-steps ol {
   margin: 8px 0 0;
   padding-left: 20px;
   display: grid;
   gap: 4px;
-  color: var(--butler-ink-soft);
+  color: var(--ab-text-2);
 }

@@ -4,10 +4,11 @@
  * 展示层为「市场风」：PageHeader + 数据源状态概览条 + 左侧分类导航 + 右侧内容区。
  */
 import { useCallback, useEffect, useState } from "react";
-import { BugOutlined, FileMarkdownOutlined, FileSearchOutlined, ThunderboltOutlined } from "@ant-design/icons";
-import { Alert, App, Button, Card, Flex, Typography } from "antd";
+import { BugOutlined, ExperimentOutlined, FileMarkdownOutlined, FileSearchOutlined, MedicineBoxOutlined, ThunderboltOutlined } from "@ant-design/icons";
+import { Alert, App, Button, Card, Flex, Tooltip, Typography } from "antd";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ConnectionChip } from "../../components/ConnectionChip.js";
+import { ConclusionBar } from "../../components/ConclusionBar.js";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
 import { PageHeader } from "../../components/PageHeader.js";
 import { loadJson, postJson, type LoadResult } from "../../lib/api.js";
@@ -273,6 +274,34 @@ export function SettingsPage() {
             <Paragraph type="secondary" style={{ marginBottom: 4 }}>
               这些功能用于分析、配置或恢复；日常使用从首页、消息通知和排查问题开始即可。
             </Paragraph>
+            <Card size="small" title="安装医生">
+              <Flex justify="space-between" align="center" gap={16} wrap="wrap">
+                <Text type="secondary">
+                  一键体检：运行环境、端口、网关链路与常见坑位；输出可整段复制的脱敏诊断与修复命令。
+                </Text>
+                <Tooltip title="node scripts/doctor.mjs —— 在部署机仓库根目录执行">
+                  <Button
+                    icon={<MedicineBoxOutlined />}
+                    onClick={() => {
+                      void navigator.clipboard?.writeText("node scripts/doctor.mjs").catch(() => undefined);
+                      navigate("/setup");
+                    }}
+                  >
+                    复制体检命令
+                  </Button>
+                </Tooltip>
+              </Flex>
+            </Card>
+            <Card size="small" title="升级策略">
+              <Flex justify="space-between" align="center" gap={16} wrap="wrap">
+                <Text type="secondary">
+                  新版本先在影子环境跑一轮真实任务，三指标全过才切换；观察窗内检出回归自动回滚。
+                </Text>
+                <Button icon={<ExperimentOutlined />} onClick={() => navigate("/canary")}>
+                  打开升级策略
+                </Button>
+              </Flex>
+            </Card>
             <Card size="small" title="自进化">
               <Flex justify="space-between" align="center" gap={16} wrap="wrap">
                 <Text type="secondary">根据真实日志生成候选方案，并经验证后再应用。</Text>
@@ -353,6 +382,13 @@ export function SettingsPage() {
           }
         />
 
+        {/* §2.3 ② 结论条。 */}
+        <ConclusionBar
+          tone={securityOnline ? "ok" : "offline"}
+          title={securityOnline ? "管家在线，各项设置实时生效" : "管家暂时连不上，部分设置只读"}
+          copy={securityOnline ? "改动会立即写入配置并自动备份。" : "等服务恢复后重试；当前界面仅供查看。"}
+        />
+
         <SourceStatusBar sources={sources} />
 
         <div className="settings-layout">
@@ -378,6 +414,20 @@ export function SettingsPage() {
               confirmAction.kind === "reset"
                 ? "如果根因尚未处理，自动修复可能再次重启或重连服务。"
                 : "还原前会自动备份当前状态；运行中的 Hermes 文件可能被跳过，建议先停止 Hermes。"
+            }
+            reversible={
+              confirmAction.kind === "reset"
+                ? "可以。保护解除后若仍反复失败，会自动再次暂停。"
+                : "可以。还原前会自动备份当前状态，可再次还原回去。"
+            }
+            duration={
+              confirmAction.kind === "reset" ? "立即生效。" : "取决于备份体积，通常几秒到 1 分钟。"
+            }
+            // 重置保护与还原备份都属于规范 §3.7 的高危操作，必须先手动勾选。
+            acknowledge={
+              confirmAction.kind === "reset"
+                ? "我了解解除保护后，自动修复可能再次重启或重连服务"
+                : "我了解运行中的 Hermes 文件可能被跳过"
             }
             steps={
               confirmAction.kind === "reset"

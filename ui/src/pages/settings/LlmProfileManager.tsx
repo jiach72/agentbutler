@@ -19,6 +19,7 @@ import {
   Select,
   Space,
   Table,
+  Tooltip,
   Typography,
 } from "antd";
 import { ApiOutlined, CopyOutlined, DeleteOutlined, ReloadOutlined, SafetyCertificateOutlined } from "@ant-design/icons";
@@ -194,7 +195,9 @@ export function LlmProfileManager() {
                 <Form.Item name="instanceId" label="实例 ID"><Input placeholder="可选，建议填写" /></Form.Item>
                 <Form.Item name="frameworkId" label="框架"><Input placeholder="hermes" /></Form.Item>
                 <Form.Item name="targetRef" label="技能/插件/目标引用"><Input placeholder="skill-name（精确绑定时必填）" /></Form.Item>
-                <Button icon={<ApiOutlined />} disabled={profiles.length === 0} onClick={() => void addBinding()}>建立绑定</Button>
+                <Tooltip title="还没有可绑定的配置档案，先创建一个">
+                  <Button icon={<ApiOutlined />} disabled={profiles.length === 0} onClick={() => void addBinding()}>建立绑定</Button>
+                </Tooltip>
               </Form>
             </Card>
           </Col>
@@ -203,7 +206,7 @@ export function LlmProfileManager() {
           { title: "提供商 / 模型", render: (_, row) => <div><strong>{row.provider}</strong><br />{row.model}</div> },
           { title: "端点", dataIndex: "endpoint", ellipsis: true },
           { title: "Key", dataIndex: "maskedKey" },
-          { title: "探针", render: (_, row) => row.probe ? <span title={row.probe.detail}><StatusBadge tone={row.probe.status === "pass" ? "ok" : "error"} label={row.probe.category} /><small>{new Date(row.probe.checkedAt).toLocaleString()}</small></span> : <StatusBadge tone="muted" label="未检查" /> },
+          { title: "探针", render: (_, row) => row.probe ? <span title={row.probe.detail}><StatusBadge tone={row.probe.status === "pass" ? "ok" : "error"} label={row.probe.category} /><small>{new Date(row.probe.checkedAt).toLocaleString()}</small></span> : <StatusBadge tone="unknown" label="未检查" /> },
           { title: "绑定", dataIndex: "bindingCount" },
           { title: "操作", render: (_, row) => <Space><Button onClick={() => void probe(row.profileId)}>探针</Button><Button onClick={() => { setRotateId(row.profileId); rotateForm.resetFields(); }}>轮换</Button><Popconfirm title="禁用此配置？" onConfirm={() => void disable(row.profileId)}><Button danger>禁用</Button></Popconfirm></Space> },
         ]} locale={{ emptyText: "还没有模型配置。添加后必须绑定到实例、技能或进化目标才会被使用。" }} />

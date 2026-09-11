@@ -1,24 +1,24 @@
 /* 连接设置页（/setup）：环境检查清单行、可选卡片网格、分层结果块与导航按钮条。
-   颜色一律引用 --butler-* 主题变量（真源见 theme/tokens.ts），不写死色值。 */
+   颜色一律引用 --ab-* 主题变量（真源见 theme/tokens.ts），不写死色值。 */
 
-/* 分类色图标底（实例/场景/检查项共用）。 */
+/* 分类色图标底（实例/场景/检查项共用）：soft 底 + 同色系细描边。 */
 .setup-tile {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 36px;
   height: 36px;
-  border-radius: var(--butler-radius-control);
+  border-radius: var(--ab-r-ctl);
   font-size: 18px;
   flex-shrink: 0;
 }
 
-.setup-tile.tone-info { background: var(--butler-accent-soft); color: var(--butler-accent); }
-.setup-tile.tone-ok { background: var(--butler-ok-soft); color: var(--butler-ok); }
-.setup-tile.tone-warn { background: var(--butler-warn-soft); color: var(--butler-warn); }
-.setup-tile.tone-teal { background: var(--butler-teal-soft); color: var(--butler-teal); }
-.setup-tile.tone-cinnabar { background: var(--butler-cinnabar-soft); color: var(--butler-cinnabar); }
-.setup-tile.tone-muted { background: var(--butler-surface-subtle); color: var(--butler-ink-faint); }
+.setup-tile.tone-info { background: var(--ab-primary-soft); color: var(--ab-primary); border: 1px solid color-mix(in srgb, var(--ab-primary) 28%, transparent); }
+.setup-tile.tone-ok { background: var(--ab-ok-soft); color: var(--ab-ok); border: 1px solid color-mix(in srgb, var(--ab-ok) 28%, transparent); }
+.setup-tile.tone-warn { background: var(--ab-warn-soft); color: var(--ab-warn); border: 1px solid color-mix(in srgb, var(--ab-warn) 28%, transparent); }
+.setup-tile.tone-teal { background: var(--ab-brand-soft); color: var(--ab-brand); border: 1px solid color-mix(in srgb, var(--ab-brand) 28%, transparent); }
+.setup-tile.tone-cinnabar { background: var(--ab-warn-soft); color: var(--ab-warn); border: 1px solid color-mix(in srgb, var(--ab-warn) 28%, transparent); }
+.setup-tile.tone-muted { background: var(--ab-surface-2); color: var(--ab-text-3); border: 1px solid var(--ab-border); }
 
 /* 环境检查清单行：图标 + 名称/说明 + 状态标签。 */
 .setup-check-list {
@@ -31,7 +31,7 @@
   align-items: center;
   gap: 12px;
   padding: 12px 0;
-  border-bottom: 1px solid var(--butler-rule);
+  border-bottom: 1px solid var(--ab-border);
 }
 
 .setup-check-row:last-child {
@@ -56,26 +56,26 @@
   align-items: flex-start;
   width: 100%;
   height: 100%;
-  border: 1px solid var(--butler-rule);
-  border-radius: var(--butler-radius-card);
+  border: 1px solid var(--ab-border);
+  border-radius: var(--ab-r-card);
   padding: 14px 36px 14px 16px;
-  background: var(--butler-surface);
+  background: var(--ab-surface);
   cursor: pointer;
   transition:
-    border-color var(--butler-dur-base) var(--butler-ease),
-    background var(--butler-dur-base) var(--butler-ease),
-    box-shadow var(--butler-dur-base) var(--butler-ease);
+    border-color var(--ab-dur-base) var(--ab-ease),
+    background var(--ab-dur-base) var(--ab-ease),
+    box-shadow var(--ab-dur-base) var(--ab-ease);
 }
 
 .setup-option-card:hover {
-  border-color: var(--butler-rule-strong);
+  border-color: var(--ab-border-strong);
 }
 
 .setup-option-card.ant-radio-wrapper-checked,
 .setup-option-card.is-selected {
-  border-color: var(--butler-accent);
-  background: var(--butler-accent-soft);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--butler-accent) 10%, transparent);
+  border-color: var(--ab-primary);
+  background: var(--ab-primary-soft);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ab-primary) 10%, transparent);
 }
 
 /* 隐藏 Radio 圆点（保留 input 的键盘可达性），选中态改由卡片边框 + 角标表达。 */
@@ -91,8 +91,9 @@
 }
 
 .setup-option-card:has(.ant-radio-input:focus-visible) {
-  outline: none;
-  box-shadow: var(--butler-focus-ring);
+  outline: 2px solid var(--ab-primary);
+  outline-offset: 2px;
+  box-shadow: var(--ab-focus);
 }
 
 .setup-option-card .setup-option-check {
@@ -100,7 +101,7 @@
   position: absolute;
   top: 10px;
   right: 12px;
-  color: var(--butler-accent);
+  color: var(--ab-primary);
   font-size: 16px;
 }
 
@@ -109,39 +110,127 @@
   display: inline-block;
 }
 
-/* 分层结果块：成功绿块在前、失败红块在后。 */
+/* 分层结果块容器。 */
 .setup-results {
   display: flex;
   flex-direction: column;
+  gap: 8px;
 }
 
+/* 分层结果块：与 .setup-verdict 同一「信号边 + 极浅 tint」语言。 */
 .setup-result {
-  border-radius: var(--butler-radius-control);
+  position: relative;
+  border-radius: var(--ab-r-ctl);
+  border: 1px solid var(--ab-border);
+  background: var(--ab-surface);
   padding: 12px 14px;
 }
 
-.setup-result.is-ok {
-  background: var(--butler-ok-soft);
-  border: 1px solid color-mix(in srgb, var(--butler-ok) 35%, transparent);
+.setup-result::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--ab-text-4);
 }
 
+.setup-result.is-ok {
+  background: color-mix(in srgb, var(--ab-ok) 5%, var(--ab-surface));
+}
+
+.setup-result.is-ok::before { background: var(--ab-ok); }
+
 .setup-result.is-ok .setup-result-icon {
-  color: var(--butler-ok);
+  color: var(--ab-ok);
 }
 
 .setup-result.is-fail {
-  background: var(--butler-error-soft);
-  border: 1px solid color-mix(in srgb, var(--butler-error) 35%, transparent);
+  background: color-mix(in srgb, var(--ab-error) 5%, var(--ab-surface));
 }
 
+.setup-result.is-fail::before { background: var(--ab-error); }
+
 .setup-result.is-fail .setup-result-icon {
-  color: var(--butler-error);
+  color: var(--ab-error);
 }
 
 /* 步骤底部导航按钮条。 */
 .setup-nav-bar {
   width: 100%;
-  border-top: 1px solid var(--butler-rule);
+  border-top: 1px solid var(--ab-border);
   padding-top: 16px;
   margin-top: 8px;
+}
+
+/* ── v2 连接体检台 ─────────────────────────── */
+
+/* 总结论条：与 troubleshoot .ts-result 同一「信号边 + 极浅 tint」语言。 */
+.setup-verdict {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  border-radius: var(--ab-r-ctl);
+  border: 1px solid var(--ab-border);
+  background: var(--ab-surface);
+  padding: 14px 16px;
+}
+
+.setup-verdict::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--ab-warn);
+}
+
+.setup-verdict .setup-verdict-icon {
+  font-size: 17px;
+  margin-top: 2px;
+  color: var(--ab-text-3);
+}
+
+.setup-verdict.is-ok {
+  background: color-mix(in srgb, var(--ab-ok) 5%, var(--ab-surface));
+}
+
+.setup-verdict.is-ok::before { background: var(--ab-ok); }
+.setup-verdict.is-ok .setup-verdict-icon { color: var(--ab-ok); }
+
+.setup-verdict.is-warn {
+  background: color-mix(in srgb, var(--ab-warn) 6%, var(--ab-surface));
+}
+
+.setup-verdict.is-warn::before { background: var(--ab-warn); }
+.setup-verdict.is-warn .setup-verdict-icon { color: var(--ab-warn); }
+
+/* 链路环：状态由 data-tone 表达；修复动作缩进在内容区。 */
+.setup-link-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.setup-link-row[data-tone="error"] .setup-tile {
+  background: var(--ab-error-soft);
+  color: var(--ab-error);
+}
+
+.setup-link-fix {
+  padding-left: 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  .setup-link-fix {
+    padding-left: 0;
+  }
 }

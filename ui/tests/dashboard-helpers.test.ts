@@ -98,12 +98,13 @@ describe("recentInspectionDurationMs", () => {
 });
 
 describe("fingerprintBadge 徽标语义", () => {
-  it("open 为 error（待处理），known 为 muted（已知问题）", () => {
+  // v2.0：中性态由 muted 收敛为 unknown（规范 03 §3.2 只认 ok/warn/error/offline/unknown/brand）。
+  it("open 为 error（待处理），known 为 unknown（已知问题）", () => {
     expect(fingerprintBadge("open")).toEqual({ tone: "error", label: "待处理" });
-    expect(fingerprintBadge("known")).toEqual({ tone: "muted", label: "已知问题" });
+    expect(fingerprintBadge("known")).toEqual({ tone: "unknown", label: "已知问题" });
   });
 
-  it("未知状态回退 muted", () => {
-    expect(fingerprintBadge("whatever")).toEqual({ tone: "muted", label: "whatever" });
+  it("未知状态回退 unknown", () => {
+    expect(fingerprintBadge("whatever")).toEqual({ tone: "unknown", label: "whatever" });
   });
 });

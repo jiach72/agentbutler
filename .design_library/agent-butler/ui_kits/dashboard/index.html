@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Agent Butler · 控制台</title>
+<link rel="stylesheet" href="../../colors_and_type.css" />
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--background);color:var(--foreground);font-family:var(--font-body);font-size:var(--font-size-body);line-height:var(--line-height-body);-webkit-font-smoothing:antialiased}
+#root{min-height:100vh}
+
+/* page layer */
+.uikit-shell{width:100%;max-width:1184px;margin:0 auto;overflow:hidden;display:grid;grid-template-columns:var(--uikit-sidebar-w,220px) minmax(0,1fr);gap:var(--space-4);min-height:100vh}
+.uikit-sidebar,.uikit-main,.uikit-toolbar{min-width:0}
+.uikit-sidebar{overflow:hidden;max-width:100%;background:var(--surface);border-right:1px solid var(--border);padding:var(--space-4);display:flex;flex-direction:column;gap:var(--space-5)}
+.uikit-main{min-width:0;padding:var(--space-5);display:flex;flex-direction:column;gap:var(--space-4)}
+[data-component]{min-width:0;max-width:100%;overflow:hidden}
+.uikit-toolbar{display:flex;align-items:center;gap:var(--space-2)}
+.uikit-responsive-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--space-4)}
+.uikit-table-wrap{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain}
+.uikit-truncate{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.uikit-nowrap{white-space:nowrap;flex-shrink:0}
+.uikit-action-cell{display:flex;align-items:center;gap:8px;min-width:0;max-width:160px;overflow:hidden}
+.uikit-action{min-width:0;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width:900px){.uikit-shell{grid-template-columns:minmax(0,1fr)}.uikit-responsive-grid{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:640px){.uikit-toolbar{flex-direction:column;align-items:stretch}.uikit-responsive-grid{grid-template-columns:minmax(0,1fr)}}
+
+/* button */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--space-2);border:1px solid transparent;border-radius:var(--radius-md);font-family:var(--font-body);font-weight:600;font-size:var(--font-size-body);line-height:1;cursor:pointer;transition:background .15s,border-color .15s,color .15s;white-space:nowrap}
+.btn:focus-visible{outline:2px solid var(--ring);outline-offset:2px}
+.btn:disabled{cursor:not-allowed;background:var(--muted);color:var(--neutral-400);border-color:var(--border)}
+.btn-primary{background:var(--primary);color:var(--primary-foreground)}
+.btn-primary:hover{background:var(--primary-700)}
+.btn-secondary{background:var(--surface);color:var(--foreground);border-color:var(--border)}
+.btn-secondary:hover{background:var(--muted)}
+.btn-ghost{background:transparent;color:var(--muted-foreground)}
+.btn-ghost:hover{background:var(--muted);color:var(--foreground)}
+.btn-danger{background:var(--error-600);color:var(--primary-foreground)}
+.btn-danger:hover{background:var(--error-700)}
+.btn-sm{height:var(--size-button-height-sm);padding:0 var(--space-3);font-size:var(--font-size-caption);border-radius:var(--radius-sm)}
+.btn-md{height:var(--size-button-height-md);padding:0 var(--space-4)}
+.btn-lg{height:var(--size-button-height-lg);padding:0 var(--space-5)}
+
+/* card */
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-1);padding:var(--space-5)}
+.card-flush{padding:0}
+.card-head{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);padding:var(--space-4) var(--space-5);border-bottom:1px solid var(--border);min-width:0}
+.card-title{font-family:var(--font-heading);font-size:var(--font-size-h4);font-weight:var(--font-weight-h4);line-height:1.4;color:var(--foreground);margin:0}
+.card-sub{font-size:var(--font-size-caption);color:var(--muted-foreground);margin:var(--space-1) 0 0}
+.card-status{border-left:4px solid var(--neutral-300)}
+.card-status.is-success{border-left-color:var(--success-600)}
+.card-status.is-warning{border-left-color:var(--warning-600)}
+.card-status.is-danger{border-left-color:var(--error-600)}
+
+/* metric card */
+.metric-card{display:flex;flex-direction:column;gap:var(--space-3)}
+.metric-label{font-size:var(--font-size-caption);color:var(--muted-foreground);font-weight:500}
+.metric-value{font-family:var(--font-mono);font-size:var(--font-size-h3);font-weight:500;line-height:1.2;color:var(--foreground)}
+.metric-unit{font-size:var(--font-size-caption);color:var(--muted-foreground);font-family:var(--font-body);margin-left:var(--space-1)}
+.metric-foot{display:flex;align-items:center;gap:var(--space-2);font-size:var(--font-size-caption)}
+.delta-up{color:var(--success-600)}
+.delta-warn{color:var(--warning-600)}
+.delta-muted{color:var(--muted-foreground)}
+
+/* status card */
+.status-card-head{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3)}
+.status-card-title{font-family:var(--font-heading);font-size:var(--font-size-h4);font-weight:var(--font-weight-h4);color:var(--foreground);margin:0}
+.status-card-body{font-size:var(--font-size-body);color:var(--muted-foreground);line-height:var(--line-height-body);margin:0}
+.status-card-foot{display:flex;justify-content:flex-end}
+
+/* badge */
+.badge{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 var(--space-2);border-radius:var(--radius-full);font-size:var(--font-size-caption);font-weight:500;line-height:1;white-space:nowrap;font-family:var(--font-body)}
+.badge::before{content:'';width:6px;height:6px;border-radius:var(--radius-full);background:currentColor;flex-shrink:0}
+.badge-success{background:var(--success-50);color:var(--success-700)}
+.badge-warning{background:var(--warning-50);color:var(--warning-700)}
+.badge-danger{background:var(--error-50);color:var(--error-700)}
+.badge-info{background:var(--info-50);color:var(--info-700)}
+.badge-neutral{background:var(--muted);color:var(--muted-foreground)}
+
+/* table */
+.tbl{width:100%;min-width:640px;border-collapse:collapse;font-family:var(--font-body);font-size:var(--font-size-body);color:var(--foreground)}
+.tbl th{text-align:left;padding:var(--space-3) var(--space-4);font-size:var(--font-size-caption);font-weight:500;color:var(--muted-foreground);border-bottom:1px solid var(--border);white-space:nowrap}
+.tbl td{padding:var(--space-3) var(--space-4);border-bottom:1px solid var(--border);vertical-align:middle}
+.tbl tbody tr{transition:background .15s}
+.tbl tbody tr:hover{background:var(--muted)}
+.tbl tbody tr:last-child td{border-bottom:none}
+.tbl .mono{font-family:var(--font-mono);font-size:var(--font-size-mono)}
+.table-cell-main{display:block;max-width:300px}
+
+/* navigation header */
+.page-header{display:flex;flex-direction:column;gap:var(--space-3)}
+.breadcrumb{display:flex;align-items:center;gap:var(--space-2);font-size:var(--font-size-caption);color:var(--muted-foreground)}
+.breadcrumb .current{color:var(--foreground);font-weight:500}
+.page-header-row{display:flex;align-items:flex-end;justify-content:space-between;gap:var(--space-4);flex-wrap:wrap}
+.page-header-text{min-width:0;flex:1}
+.page-title{font-family:var(--font-heading);font-size:var(--font-size-h2);font-weight:var(--font-weight-h2);line-height:var(--line-height-h2);margin:0;color:var(--foreground)}
+.page-desc{font-size:var(--font-size-body);color:var(--muted-foreground);margin:var(--space-1) 0 0}
+.page-actions{flex-shrink:0}
+
+/* chart */
+.chart-body{padding:var(--space-4) var(--space-5) var(--space-5)}
+.chart-svg{display:block;width:100%;height:auto}
+.chart-grid-line{stroke:var(--border);stroke-width:1}
+.chart-line{stroke:var(--chart-1);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.chart-dot{fill:var(--chart-1)}
+.chart-label{fill:var(--muted-foreground);font-family:var(--font-body);font-size:11px}
+.legend{display:flex;align-items:center;gap:var(--space-2);font-size:var(--font-size-caption);color:var(--muted-foreground);flex-shrink:0}
+.legend-dot{width:8px;height:8px;border-radius:var(--radius-full);background:var(--chart-1);flex-shrink:0}
+.bar-wrap{display:flex;align-items:flex-end;gap:var(--space-2);height:180px}
+.bar{flex:1;min-width:0;background:var(--chart-1);border-radius:var(--radius-sm) var(--radius-sm) 0 0;transition:background .15s}
+.bar:hover{background:var(--primary-700)}
+.bar-axis{display:flex;justify-content:space-between;gap:var(--space-2);margin-top:var(--space-2)}
+.bar-axis span{flex:1;text-align:center;min-width:0;font-size:var(--font-size-caption);color:var(--muted-foreground)}
+.bar-h10{height:10%}.bar-h20{height:20%}.bar-h30{height:30%}.bar-h40{height:40%}.bar-h50{height:50%}.bar-h60{height:60%}.bar-h70{height:70%}.bar-h80{height:80%}.bar-h90{height:90%}.bar-h100{height:100%}
+
+/* sidebar */
+.sidebar-brand{display:flex;align-items:center;gap:var(--space-3);min-width:0}
+.brand-mark{width:36px;height:36px;border-radius:var(--radius-md);background:var(--primary);color:var(--primary-foreground);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.brand-text{display:flex;flex-direction:column;min-width:0}
+.brand-name{font-family:var(--font-heading);font-weight:600;font-size:var(--font-size-body);color:var(--foreground);line-height:1.3}
+.brand-sub{font-size:var(--font-size-caption);color:var(--muted-foreground)}
+.sidebar-section{margin:0;font-size:var(--font-size-caption);font-weight:500;color:var(--neutral-400);letter-spacing:0.04em;padding:0 var(--space-2)}
+.sidebar-nav{display:flex;flex-direction:column;gap:var(--space-1)}
+.nav-item{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-2) var(--space-3);border-radius:var(--radius-md);color:var(--muted-foreground);font-size:var(--font-size-body);cursor:pointer;min-width:0;border:none;background:transparent;text-align:left;transition:background .15s,color .15s;width:100%}
+.nav-item:hover{background:var(--muted);color:var(--foreground)}
+.nav-item.active{background:var(--primary-50);color:var(--primary-700);font-weight:600;box-shadow:inset 3px 0 0 var(--primary)}
+.nav-icon{display:flex;align-items:center;flex-shrink:0}
+.nav-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sidebar-footer{margin-top:auto;display:flex;flex-direction:column;gap:var(--space-3);padding-top:var(--space-4);border-top:1px solid var(--border)}
+.sidebar-footer .ver{font-size:var(--font-size-caption);color:var(--muted-foreground)}
+</style>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState} = React;
+
+const ICONS = {
+  dashboard: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>,
+  message: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>,
+  skills: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><path d="M3 8l9 5 9-5"/><path d="M12 22V13"/></svg>
+};
+
+const NAV = [
+  {id:'overview', label:'总览', icon:'dashboard'},
+  {id:'messages', label:'消息通知', icon:'message'},
+  {id:'skills', label:'技能库', icon:'skills'}
+];
+
+const METRICS = [
+  {label:'今日消息', value:'1,284', unit:'条', delta:'+12.4% 较昨日', tone:'up'},
+  {label:'运行时长', value:'14 天', unit:'06:22', delta:'连续运行', tone:'muted'},
+  {label:'技能调用', value:'3,952', unit:'次', delta:'+8.1% 较上周', tone:'up'},
+  {label:'待处理告警', value:'3', unit:'条', delta:'2 条需关注', tone:'warn'}
+];
+
+const SKILL_METRICS = [
+  {label:'已启用', value:'24', unit:'个', delta:'本月 +3', tone:'up'},
+  {label:'本月调用', value:'3,952', unit:'次', delta:'+8.1% 较上月', tone:'up'},
+  {label:'平均耗时', value:'1.8', unit:'秒', delta:'较上月 -0.2s', tone:'up'}
+];
+
+const MESSAGES = [
+  {t:'09:42', ch:'微信', c:'行程提醒已送达', s:'已送达', st:'success'},
+  {t:'09:38', ch:'飞书', c:'会议纪要生成完成', s:'已送达', st:'success'},
+  {t:'09:31', ch:'邮件', c:'日报摘要发送中', s:'发送中', st:'info'},
+  {t:'09:24', ch:'短信', c:'验证码通知', s:'已送达', st:'success'},
+  {t:'09:15', ch:'Webhook', c:'系统事件推送失败', s:'发送失败', st:'danger'},
+  {t:'09:02', ch:'微信', c:'待办提醒已送达', s:'已送达', st:'success'},
+  {t:'08:47', ch:'飞书', c:'群消息摘要', s:'已送达', st:'success'}
+];
+
+const SKILLS = [
+  {n:'日程安排', ty:'日程', t:'2 分钟前', s:'已启用', st:'success'},
+  {n:'邮件起草', ty:'邮件', t:'18 分钟前', s:'已启用', st:'success'},
+  {n:'消息总结', ty:'消息', t:'1 小时前', s:'已启用', st:'success'},
+  {n:'文件整理', ty:'文件', t:'3 小时前', s:'已启用', st:'success'},
+  {n:'网页浏览', ty:'浏览', t:'昨天', s:'已启用', st:'success'},
+  {n:'数据查询', ty:'数据', t:'2 天前', s:'已启用', st:'success'},
+  {n:'语音转写', ty:'语音', t:'从未', s:'已停用', st:'neutral'}
+];
+
+const BAR_DATA = [
+  {h:'bar-h50', label:'09'}, {h:'bar-h60', label:'10'}, {h:'bar-h40', label:'11'},
+  {h:'bar-h70', label:'12'}, {h:'bar-h80', label:'13'}, {h:'bar-h60', label:'14'},
+  {h:'bar-h80', label:'15'}, {h:'bar-h100', label:'16'}, {h:'bar-h80', label:'17'},
+  {h:'bar-h50', label:'18'}, {h:'bar-h70', label:'19'}, {h:'bar-h90', label:'20'}
+];
+
+function PageHeader({crumb, title, desc, children}) {
+  return (
+    <header className="page-header" data-component="navigation">
+      <div className="breadcrumb uikit-truncate">
+        <span>控制台</span><span>/</span><span className="current">{crumb}</span>
+      </div>
+      <div className="page-header-row">
+        <div className="page-header-text">
+          <h1 className="page-title uikit-truncate">{title}</h1>
+          <p className="page-desc">{desc}</p>
+        </div>
+        <div className="page-actions uikit-toolbar">{children}</div>
+      </div>
+    </header>
+  );
+}
+
+function MetricCard({label, value, unit, delta, tone}) {
+  const toneClass = tone === 'up' ? 'delta-up' : tone === 'warn' ? 'delta-warn' : 'delta-muted';
+  return (
+    <div className="card metric-card" data-component="card">
+      <div className="metric-label uikit-truncate">{label}</div>
+      <div className="metric-value uikit-nowrap">{value}<span className="metric-unit">{unit}</span></div>
+      <div className={"metric-foot " + toneClass}>{delta}</div>
+    </div>
+  );
+}
+
+function StatusCard({tone, title, body, action}) {
+  const badgeClass = tone === 'success' ? 'badge-success' : tone === 'warning' ? 'badge-warning' : 'badge-danger';
+  const badgeText = tone === 'success' ? '运行正常' : tone === 'warning' ? '需关注' : '异常';
+  return (
+    <div className={"card card-status is-" + tone} data-component="card">
+      <div className="status-card-head">
+        <h3 className="status-card-title uikit-truncate">{title}</h3>
+        <span className={"badge " + badgeClass}>{badgeText}</span>
+      </div>
+      <p className="status-card-body">{body}</p>
+      <div className="status-card-foot">
+        <button className="btn btn-ghost btn-sm" data-component="button">{action}</button>
+      </div>
+    </div>
+  );
+}
+
+function Sidebar({view, setView}) {
+  return (
+    <aside className="uikit-sidebar" data-component="sidebar">
+      <div className="sidebar-brand">
+        <span className="brand-mark">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l2.4 6.1L20 10l-5.6 2.1L12 18l-2.4-5.9L4 10l5.6-1.9z"/></svg>
+        </span>
+        <span className="brand-text uikit-truncate">
+          <span className="brand-name uikit-truncate">Agent Butler</span>
+          <span className="brand-sub">本地 AI 管家</span>
+        </span>
+      </div>
+      <p className="sidebar-section">工作台</p>
+      <nav className="sidebar-nav">
+        {NAV.map(item => (
+          <button key={item.id} className={view === item.id ? 'nav-item active' : 'nav-item'} onClick={() => setView(item.id)}>
+            <span className="nav-icon">{ICONS[item.icon]}</span>
+            <span className="nav-label">{item.label}</span>
+          </button>
+        ))}
+      </nav>
+      <div className="sidebar-footer">
+        <span className="ver">版本 v2.4.1</span>
+        <button className="btn btn-secondary btn-sm" disabled data-component="button">版本升级</button>
+      </div>
+    </aside>
+  );
+}
+
+function Overview() {
+  return (
+    <React.Fragment>
+      <PageHeader crumb="总览" title="总览" desc="系统运行概览与关键指标。">
+        <button className="btn btn-primary btn-md" data-component="button">立即检查</button>
+      </PageHeader>
+
+      <div className="uikit-responsive-grid">
+        {METRICS.map((m, i) => <MetricCard key={i} {...m} />)}
+      </div>
+
+      <div className="uikit-responsive-grid">
+        <StatusCard tone="success" title="运行正常" body="网关与消息链路运行正常，无异常。最近一次巡检通过。" action="高级详情" />
+        <StatusCard tone="warning" title="1 项需关注" body="1 条消息投递延迟超过 5 分钟，已自动加入重试队列。" action="查看详情" />
+      </div>
+
+      <div className="card card-flush" data-component="chart">
+        <div className="card-head">
+          <div className="uikit-truncate">
+            <h3 className="card-title">消息投递趋势</h3>
+            <p className="card-sub">近 24 小时 · 每 2 小时采样 · 单位：条</p>
+          </div>
+          <div className="legend"><span className="legend-dot"></span>投递量</div>
+        </div>
+        <div className="chart-body">
+          <svg className="chart-svg" viewBox="0 0 600 220" role="img" aria-label="消息投递趋势">
+            <line className="chart-grid-line" x1="40" y1="20" x2="590" y2="20" />
+            <line className="chart-grid-line" x1="40" y1="70" x2="590" y2="70" />
+            <line className="chart-grid-line" x1="40" y1="120" x2="590" y2="120" />
+            <line className="chart-grid-line" x1="40" y1="180" x2="590" y2="180" />
+            <polyline className="chart-line" points="40,180 90,152 140,164 190,125 240,89 290,109 340,62 390,26 440,73 490,102 540,55 590,20" />
+            <circle className="chart-dot" cx="590" cy="20" r="3" />
+            <text className="chart-label" x="40" y="205">00:00</text>
+            <text className="chart-label" x="290" y="205">12:00</text>
+            <text className="chart-label" x="572" y="205">24:00</text>
+          </svg>
+        </div>
+      </div>
+    </React.Fragment>
+  );
+}
+
+function Messages() {
+  return (
+    <React.Fragment>
+      <PageHeader crumb="消息通知" title="消息通知" desc="查看各通道消息的发送状态与投递结果。">
+        <button className="btn btn-ghost btn-md" data-component="button">导出记录</button>
+        <button className="btn btn-primary btn-md" data-component="button">重新发送</button>
+      </PageHeader>
+
+      <div className="card card-flush" data-component="chart">
+        <div className="card-head">
+          <div className="uikit-truncate">
+            <h3 className="card-title">近 12 小时消息量</h3>
+            <p className="card-sub">单位：条 · 每小时采样</p>
+          </div>
+        </div>
+        <div className="chart-body">
+          <div className="bar-wrap">
+            {BAR_DATA.map((b, i) => <div key={i} className={"bar " + b.h}></div>)}
+          </div>
+          <div className="bar-axis">
+            {BAR_DATA.map((b, i) => <span key={i}>{b.label}</span>)}
+          </div>
+        </div>
+      </div>
+
+      <div className="card card-flush" data-component="table">
+        <div className="card-head">
+          <div className="uikit-truncate">
+            <h3 className="card-title">消息列表</h3>
+            <p className="card-sub">共 7 条 · 最近 24 小时</p>
+          </div>
+        </div>
+        <div className="uikit-table-wrap">
+          <table className="tbl">
+            <thead>
+              <tr><th>时间</th><th>通道</th><th>内容</th><th>状态</th><th>操作</th></tr>
+            </thead>
+            <tbody>
+              {MESSAGES.map((m, i) => (
+                <tr key={i}>
+                  <td className="mono uikit-nowrap">{m.t}</td>
+                  <td className="uikit-nowrap">{m.ch}</td>
+                  <td><span className="uikit-truncate table-cell-main">{m.c}</span></td>
+                  <td><span className={"badge badge-" + m.st}>{m.s}</span></td>
+                  <td className="uikit-action-cell">
+                    <button className="btn btn-ghost btn-sm uikit-action" data-component="button">{m.s === '发送失败' ? '重试' : '查看'}</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </React.Fragment>
+  );
+}
+
+function Skills() {
+  return (
+    <React.Fragment>
+      <PageHeader crumb="技能库" title="技能库" desc="Agent Butler 已启用的自动化能力。">
+        <button className="btn btn-secondary btn-md" data-component="button">刷新</button>
+        <button className="btn btn-primary btn-md" data-component="button">新增技能</button>
+      </PageHeader>
+
+      <div className="uikit-responsive-grid" style={{gridTemplateColumns:'repeat(3,minmax(0,1fr))'}}>
+        {SKILL_METRICS.map((m, i) => <MetricCard key={i} {...m} />)}
+      </div>
+
+      <div className="card card-flush" data-component="table">
+        <div className="card-head">
+          <div className="uikit-truncate">
+            <h3 className="card-title">技能列表</h3>
+            <p className="card-sub">共 24 项 · 按最近调用排序</p>
+          </div>
+        </div>
+        <div className="uikit-table-wrap">
+          <table className="tbl">
+            <thead>
+              <tr><th>技能名称</th><th>类型</th><th>最近调用</th><th>状态</th><th>操作</th></tr>
+            </thead>
+            <tbody>
+              {SKILLS.map((s, i) => (
+                <tr key={i}>
+                  <td className="uikit-nowrap">{s.n}</td>
+                  <td className="uikit-nowrap">{s.ty}</td>
+                  <td className="uikit-nowrap">{s.t}</td>
+                  <td><span className={"badge badge-" + s.st}>{s.s}</span></td>
+                  <td className="uikit-action-cell">
+                    <button className="btn btn-ghost btn-sm uikit-action" data-component="button">{s.s === '已停用' ? '启用' : '配置'}</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </React.Fragment>
+  );
+}
+
+function App() {
+  const [view, setView] = useState('overview');
+  return (
+    <div className="uikit-shell" data-layout-guard="uikit-v1" style={{'--uikit-sidebar-w':'240px'}}>
+      <Sidebar view={view} setView={setView} />
+      <main className="uikit-main">
+        {view === 'overview' ? <Overview /> : view === 'messages' ? <Messages /> : <Skills />}
+      </main>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
