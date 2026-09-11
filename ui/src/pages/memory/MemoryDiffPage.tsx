@@ -7,7 +7,7 @@
  * 诚实呈现：页面显式声明观测口径与边界（只覆盖被 agent 动作过的记忆文件，不做内容级 diff），
  * 不冒称「完整记忆快照」。「不在受管清单内」也不写成「已删除」——那是两件事。
  */
-import { Alert, Button, Card, Empty, Flex, Segmented, Space, Statistic, Table, Tag, Tooltip, Typography } from "antd";
+import { Alert, Button, Card, Empty, Flex, Segmented, Statistic, Table, Tag, Tooltip, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { ReloadOutlined, InfoCircleOutlined, PlusOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
 import { useCallback, useEffect, useState } from "react";

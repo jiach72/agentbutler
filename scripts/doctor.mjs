@@ -16,7 +16,6 @@
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 
 const argv = process.argv.slice(2);
@@ -49,9 +48,11 @@ if (dockerVersion === null) {
 }
 
 const gitVersion = run("git", ["--version"]);
-gitVersion === null
-  ? warn("git 可用", "git 命令不存在（不影响已部署实例运行，但自升级通道需要它）", "安装 git 后重试")
-  : pass("git 可用", gitVersion);
+if (gitVersion === null) {
+  warn("git 可用", "git 命令不存在（不影响已部署实例运行，但自升级通道需要它）", "安装 git 后重试");
+} else {
+  pass("git 可用", gitVersion);
+}
 
 /* ------------------------------ 2. 核心端口 ------------------------------ */
 
@@ -74,17 +75,20 @@ async function probeTcp(host, port, timeoutMs = 2000) {
 const webHost = new URL(webBase).hostname;
 const webPort = Number(new URL(webBase).port || 7531);
 const webUp = await probeTcp(webHost, webPort);
-webUp ? pass("Web 端口可访问", `${webBase}（TCP ${webHost}:${webPort}）`) : fail(
+if (webUp) pass("Web 端口可访问", `${webBase}（TCP ${webHost}:${webPort}）`);
+else fail(
   "Web 端口可访问",
   `${webHost}:${webPort} 没有服务监听（浏览器打不开面板就是它）`,
   "容器场景：docker compose ps 看 butler-web 是否 healthy；WSL 场景：管理员 PowerShell 执行 scripts/fix-portproxy.ps1 修复 portproxy",
 );
 
 const gatewayUp = await probeTcp(webHost, 7532);
-gatewayUp ? pass("Gateway 端口可访问（7532）") : warn("Gateway 端口可访问（7532）", "7532 未监听——通知与消息通道不可用", "docker compose logs --tail=100 butler-gateway 定位");
+if (gatewayUp) pass("Gateway 端口可访问（7532）");
+else warn("Gateway 端口可访问（7532）", "7532 未监听——通知与消息通道不可用", "docker compose logs --tail=100 butler-gateway 定位");
 
 const watchUp = await probeTcp(webHost, 7533);
-watchUp ? pass("Watch 端口可访问（7533）") : warn("Watch 端口可访问（7533）", "7533 未监听——采集与信任层不可用", "docker compose logs --tail=100 butler-watch 定位");
+if (watchUp) pass("Watch 端口可访问（7533）");
+else warn("Watch 端口可访问（7533）", "7533 未监听——采集与信任层不可用", "docker compose logs --tail=100 butler-watch 定位");
 
 /* --------------------------- 3. Web /api/health --------------------------- */
 
@@ -96,9 +100,11 @@ if (webUp) {
     if (res.ok) {
       const body = await res.json().catch(() => ({}));
       const gatewayFlag = body?.gateway === true || body?.services?.gateway === true;
-      gatewayFlag === false
-        ? warn("Web → Gateway 联通", "/api/health 返回 gateway:false（面板能开，但告警/通知链路断着）", "确认 butler-gateway 容器健康且 BUTLER_GATEWAY_URL 指向正确")
-        : pass("Web /api/health", `HTTP ${res.status}，gateway 联通`);
+      if (gatewayFlag === false) {
+        warn("Web → Gateway 联通", "/api/health 返回 gateway:false（面板能开，但告警/通知链路断着）", "确认 butler-gateway 容器健康且 BUTLER_GATEWAY_URL 指向正确");
+      } else {
+        pass("Web /api/health", `HTTP ${res.status}，gateway 联通`);
+      }
     } else {
       fail("Web /api/health", `HTTP ${res.status}`, "docker compose logs --tail=100 butler-web 查看错误栈");
     }
@@ -137,9 +143,11 @@ if (!existsSync(envPath)) {
   };
 
   const masterKey = get("BUTLER_SECRET_MASTER_KEY");
-  masterKey === ""
-    ? fail("主密钥已配置", ".env 缺 BUTLER_SECRET_MASTER_KEY（模型 API Key 将无法加密存储）", "重新执行 bash scripts/deploy.sh 会自动生成并写入；切勿手动轮换已有密钥")
-    : pass("主密钥已配置", "已设置（值不显示）");
+  if (masterKey === "") {
+    fail("主密钥已配置", ".env 缺 BUTLER_SECRET_MASTER_KEY（模型 API Key 将无法加密存储）", "重新执行 bash scripts/deploy.sh 会自动生成并写入；切勿手动轮换已有密钥");
+  } else {
+    pass("主密钥已配置", "已设置（值不显示）");
+  }
 
   const publishHost = get("BUTLER_WEB_PUBLISH_HOST");
   const accessToken = get("BUTLER_ACCESS_TOKEN");

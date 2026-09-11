@@ -79,7 +79,7 @@ export function createBudgetEngine(options: BudgetEngineOptions): BudgetEngine {
   let running = false;
   let lastStatus: BudgetStatus | null = null;
   /** 燃速估算（USD/天，trailing 7d）：触线日预测用；核算时刷新。 */
-  let dailyBurnUsd: number | null = null;
+  const dailyBurnUsd: number | null = null;
 
   function baseStatus(): BudgetStatus {
     const date = new Date(now());

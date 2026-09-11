@@ -237,7 +237,7 @@ export function useWallData(): WallData & { refreshAll: () => void } {
 
 /** 派生视图：KPI 数值、趋势序列、TOP5 等，全部由真实载荷计算。 */
 export function deriveWallView(data: WallData) {
-  const { dashboard, connections, metrics, messageStatus, alerts, hostMetrics, skillUsage } = data;
+  const { dashboard, metrics, messageStatus, alerts, hostMetrics, skillUsage } = data;
 
   const instances = dashboard?.instances ?? [];
   const onlineInstances = instances.filter((item) => item.state === "running" || item.state === "healthy").length;

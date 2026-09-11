@@ -26,7 +26,7 @@ import { startWatchHttp, type WatchHttp, type WatchHttpDeps } from "../src/http.
 import type { GatewayPanelService } from "../src/gateway-stats.js";
 import type { UpgradeService } from "../src/upgrade.js";
 
-let tempDirs: string[] = [];
+const tempDirs: string[] = [];
 function makeTempDir(): string {
   const dir = mkdtempSync(join(tmpdir(), "butler-progress-"));
   tempDirs.push(dir);

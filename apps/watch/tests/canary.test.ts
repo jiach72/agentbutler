@@ -23,7 +23,7 @@ import type { GatewayPanelService } from "../src/gateway-stats.js";
 import type { UpgradeService } from "../src/upgrade.js";
 import type { AlertPoster, GatewayAlertBody } from "../src/alert-forward.js";
 
-let tempDirs: string[] = [];
+const tempDirs: string[] = [];
 function makeTempDir(): string {
   const dir = mkdtempSync(join(tmpdir(), "butler-canary-"));
   tempDirs.push(dir);

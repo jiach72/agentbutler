@@ -15,7 +15,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createShadowRunner, SHADOW_MAX_TASKS } from "../src/shadow-runner.js";
 import type { CommandExecutor, CommandResult } from "@butler/adapter-hermes";
 
-let tempDirs: string[] = [];
+const tempDirs: string[] = [];
 function makeTempDir(): string {
   const dir = mkdtempSync(join(tmpdir(), "butler-shadow-"));
   tempDirs.push(dir);

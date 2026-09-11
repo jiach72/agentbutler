@@ -4,7 +4,7 @@
  * - 服务级：真实 SqliteStore（临时目录）+ 注入式依赖；
  * - HTTP 级：startWatchHttp 回环真实端口，契约与状态码逐条断言。
  */
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -21,7 +21,7 @@ import type { UpgradeService } from "../src/upgrade.js";
 
 /* ------------------------------- 测试脚手架 ------------------------------- */
 
-let tempDirs: string[] = [];
+const tempDirs: string[] = [];
 
 function makeTempDir(): string {
   const dir = mkdtempSync(join(tmpdir(), "butler-trust-"));
@@ -253,7 +253,7 @@ describe("动作解析与采集（M1.2）", () => {
     const dir = makeTempDir();
     const store = new SqliteStore(join(dir, "butler.db"));
     const logPath = join(dir, "agent.log");
-    let content = "plain log\n";
+    const content = "plain log\n";
     const collector = createActionAuditService({
       store,
       logPaths: [logPath],

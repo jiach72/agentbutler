@@ -4,7 +4,7 @@
  * 单实例也照常工作（聚合结果就是那一个实例的全貌）。
  * 关键呈现：「统一急停覆盖 x / y」——覆盖不全时用户必须看得见，而不是默认没事。
  */
-import { Alert, Button, Card, Empty, Flex, Select, Space, Statistic, Table, Tag, Tooltip, Typography } from "antd";
+import { Alert, Button, Card, Empty, Flex, Select, Space, Statistic, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { ReloadOutlined, ClusterOutlined } from "@ant-design/icons";
 import { useCallback, useEffect, useState } from "react";

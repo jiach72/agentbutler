@@ -141,6 +141,12 @@ function SidebarContent({
       children: NAV_ITEMS.map((item) => navEntry(item, onNavigate)),
     },
     {
+      key: "group-trust",
+      type: "group",
+      label: "信任层",
+      children: TRUST_NAV_ITEMS.map((item) => navEntry(item, onNavigate)),
+    },
+    {
       key: "group-management",
       type: "group",
       label: "维护与升级",

@@ -22,6 +22,15 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
   prettier,
   {
+    rules: {
+      // 下划线前缀 = 有意忽略的占位（解构剔除、参数预留）。约定写进规则，不靠记忆。
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_", destructuredArrayIgnorePattern: "^_" },
+      ],
+    },
+  },
+  {
     // 独立 Node 脚本（.mjs）不在 tseslint 覆盖内，显式声明 Node 全局，
     // 否则 no-undef 会把 process/Buffer/console 全部误报。
     files: ["scripts/**/*.mjs"],

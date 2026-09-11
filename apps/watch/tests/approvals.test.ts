@@ -29,7 +29,7 @@ import type { GatewayPanelService } from "../src/gateway-stats.js";
 import type { UpgradeService } from "../src/upgrade.js";
 import type { AlertPoster, GatewayAlertBody } from "../src/alert-forward.js";
 
-let tempDirs: string[] = [];
+const tempDirs: string[] = [];
 function makeTempDir(): string {
   const dir = mkdtempSync(join(tmpdir(), "butler-approval-"));
   tempDirs.push(dir);
@@ -157,7 +157,7 @@ describe("审批服务：纯函数", () => {
 
 describe("审批服务：决策链路", () => {
   it("请求 → 推送卡片（含 3 个按钮）→ 批准 → 审计 + 事件 + 归档", () => {
-    const { service, store, trustEvents, posts, resolved, audit } = makeService();
+    const { service, trustEvents, posts, resolved, audit } = makeService({});
     const item = service.request(DELETE_INPUT);
 
     expect(item.status).toBe("pending");
@@ -192,7 +192,7 @@ describe("审批服务：决策链路", () => {
   });
 
   it("拒绝 → 状态 denied + 拦截事件（warn）", () => {
-    const { service, store, trustEvents, audit } = makeService();
+    const { service, trustEvents, audit } = makeService();
     const item = service.request(DELETE_INPUT);
     const outcome = service.decide(item.id, { decision: "deny", actor: "u1", channel: "panel", reason: "不该删这个库" });
 
@@ -207,7 +207,7 @@ describe("审批服务：决策链路", () => {
   });
 
   it("重复决策只生效一次（并发下不产生第二份留痕）", () => {
-    const { service, store, audit } = makeService();
+    const { service, audit } = makeService();
     const item = service.request(DELETE_INPUT);
     expect(service.decide(item.id, { decision: "approve" }).ok).toBe(true);
     const second = service.decide(item.id, { decision: "deny" });
@@ -218,7 +218,7 @@ describe("审批服务：决策链路", () => {
   });
 
   it("未知 id → not-found", () => {
-    const { service, audit } = makeService();
+    const { service } = makeService();
     expect(service.decide("missing", { decision: "approve" })).toEqual({ ok: false, reason: "not-found" });
   });
 
@@ -235,7 +235,7 @@ describe("审批服务：决策链路", () => {
 
 describe("审批服务：超时默认拒绝（验收硬指标）", () => {
   it("到期未应答 → expired + 拦截事件 + 审计 + 归档", () => {
-    const { service, store, trustEvents, resolved, clock, audit } = makeService({ ttlMs: 60_000 });
+    const { service, trustEvents, resolved, clock, audit } = makeService({ ttlMs: 60_000 });
     const item = service.request(DELETE_INPUT);
     expect(service.sweep()).toBe(0); // 未到期不动
 
@@ -254,7 +254,7 @@ describe("审批服务：超时默认拒绝（验收硬指标）", () => {
   });
 
   it("踩在超时点上批准 → 一律按拒绝结算（不给「迟到的批准」开口子）", () => {
-    const { service, clock, audit } = makeService({ ttlMs: 60_000 });
+    const { service, clock } = makeService({ ttlMs: 60_000 });
     const item = service.request(DELETE_INPUT);
     clock.advance(60_000); // 恰好到期
 
@@ -265,7 +265,7 @@ describe("审批服务：超时默认拒绝（验收硬指标）", () => {
   });
 
   it("已结算的单不被 sweep 二次结算", () => {
-    const { service, clock, audit } = makeService({ ttlMs: 60_000 });
+    const { service, clock } = makeService({ ttlMs: 60_000 });
     const item = service.request(DELETE_INPUT);
     service.decide(item.id, { decision: "deny" });
     clock.advance(120_000);
@@ -276,7 +276,7 @@ describe("审批服务：超时默认拒绝（验收硬指标）", () => {
 
 describe("审批服务：24h 内第 3 次升级", () => {
   it("同一动作指纹第 3 次请求 → escalateRequired，卡片改为「前往面板确认」", () => {
-    const { service, posts, audit } = makeService();
+    const { service, posts } = makeService();
     // 三个不同的 action event，打同一目标 → 同一指纹。
     const a = service.request({ ...DELETE_INPUT, actionId: "evt-1" });
     const b = service.request({ ...DELETE_INPUT, actionId: "evt-2" });
@@ -294,7 +294,7 @@ describe("审批服务：24h 内第 3 次升级", () => {
   });
 
   it("通道侧对已升级单批准被拒；面板侧放行成功", () => {
-    const { service, audit } = makeService();
+    const { service } = makeService();
     service.request({ ...DELETE_INPUT, actionId: "evt-1" });
     service.request({ ...DELETE_INPUT, actionId: "evt-2" });
     const third = service.request({ ...DELETE_INPUT, actionId: "evt-3" });
@@ -312,7 +312,7 @@ describe("审批服务：24h 内第 3 次升级", () => {
   });
 
   it("面板侧可放行已升级单", () => {
-    const { service, audit } = makeService();
+    const { service } = makeService();
     service.request({ ...DELETE_INPUT, actionId: "evt-1" });
     service.request({ ...DELETE_INPUT, actionId: "evt-2" });
     const third = service.request({ ...DELETE_INPUT, actionId: "evt-3" });
@@ -327,7 +327,7 @@ describe("审批服务：24h 内第 3 次升级", () => {
   });
 
   it("超出升级窗口后计数重置（不会永久背着历史包袱）", () => {
-    const { service, clock, audit } = makeService({ escalationWindowMs: 60_000 });
+    const { service, clock } = makeService({ escalationWindowMs: 60_000 });
     service.request({ ...DELETE_INPUT, actionId: "evt-1" });
     service.request({ ...DELETE_INPUT, actionId: "evt-2" });
     clock.advance(61_000); // 滑出窗口
@@ -339,7 +339,7 @@ describe("审批服务：24h 内第 3 次升级", () => {
 
 describe("审批服务：高危动作增量侦测", () => {
   it("只处理 watermark 之后的新高危行；info 级动作不开单", () => {
-    const { service, store, audit } = makeService({ autoDetect: true });
+    const { service, store } = makeService({ autoDetect: true });
     store.insertActionEvent({
       ts: new Date().toISOString(),
       kind: "file-write",
@@ -380,7 +380,7 @@ describe("审批服务：高危动作增量侦测", () => {
   });
 
   it("autoDetect 关闭时侦测不产生任何单", () => {
-    const { service, store, audit } = makeService({ autoDetect: false });
+    const { service, store } = makeService({ autoDetect: false });
     store.insertActionEvent({
       ts: new Date().toISOString(),
       kind: "shell-exec",
@@ -423,7 +423,7 @@ describe("审批服务：列表与统计", () => {
   });
 
   it("prune 按保留期清理旧单", () => {
-    const { service, store, clock, audit } = makeService();
+    const { service, store, clock } = makeService()
     service.request(DELETE_INPUT);
     expect(store.countActionApprovals().total).toBe(1);
     clock.advance(31 * 24 * 60 * 60 * 1000); // 越过默认 30 天保留期
@@ -438,7 +438,7 @@ describe("审批 HTTP 端点", () => {
   let cleanup: (() => void) | null = null;
 
   const boot = async (withApprovals = true, ttlMs = 60_000) => {
-    const { service, store, clock, audit } = makeService({ ttlMs });
+    const { service, clock, store } = makeService({ ttlMs });
     const deps: WatchHttpDeps = {
       scheduler: {
         runNow: () => true,

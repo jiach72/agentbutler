@@ -205,7 +205,7 @@ import type { HostMetricsService } from "./host-metrics.js";
 import type { LlmUsageService } from "./llm-usage.js";
 import type { BudgetEngine, BudgetStatus } from "./budget.js";
 import type { ActionAuditService } from "./action-audit.js";
-import type { KillSwitchService, KillSwitchState } from "./killswitch.js";
+import type { KillSwitchService } from "./killswitch.js";
 import type { TrustEventHub } from "./trust-events.js";
 import type { WeeklyReportService } from "./weekly-report.js";
 import type { SessionIndexService } from "./session-index.js";

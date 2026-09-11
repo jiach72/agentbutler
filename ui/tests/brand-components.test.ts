@@ -17,7 +17,7 @@ import { StatusBadge, TONE_TITLE } from "../src/components/StatusBadge.js";
 import type { SemanticTone } from "../src/components/StatusBadge.js";
 import { Empty } from "../src/components/Empty.js";
 import { AiGeneratedNotice } from "../src/components/AiGeneratedNotice.js";
-import { StatStrip } from "../src/components/StatStrip.js";
+import { } from "../src/components/StatStrip.js";
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 
