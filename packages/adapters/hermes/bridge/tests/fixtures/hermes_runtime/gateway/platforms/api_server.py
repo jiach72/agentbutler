@@ -16,3 +16,6 @@ class APIServerAdapter:
             "host": self._host,
             "port": self._port,
         }
+
+    def describe(self):
+        return {"name": "API Server", "type": "api", "host": self._host, "port": self._port}
