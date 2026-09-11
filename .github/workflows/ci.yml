@@ -93,10 +93,10 @@ jobs:
           cache: pnpm
       - name: 解析 tag 版本并覆写构建号为流水线号
         run: |
-          # v0.1-beta.260911.13 → SemVer 0.1.0-beta.260911.<run_number>
-          BASE="${TAG_VERSION#v}"
-          PREFIX="${BASE%.*}"
-          FULL="${PREFIX}.${GITHUB_RUN_NUMBER}"
+          # v0.1-beta.260911.13（显示形态）→ 0.1.0-beta.260911.<run_number>（存储形态 SemVer）
+          BASE="${TAG_VERSION#v}"                  # 0.1-beta.260911.13
+          PREFIX="${BASE%.*}"                      # 0.1-beta.260911
+          FULL="0.1.0-${PREFIX#0.1-}.${GITHUB_RUN_NUMBER}"
           node scripts/version.mjs set "$FULL"
           echo "RELEASE_VERSION=$FULL" >> "$GITHUB_ENV"
           echo "发布版本: $FULL（tag $TAG_VERSION，构建号=$GITHUB_RUN_NUMBER）"
