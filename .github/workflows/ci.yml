@@ -67,7 +67,9 @@ jobs:
       - run: python -m pip install -r packages/adapters/hermes/bridge/requirements.txt
       - run: python -m unittest discover -s packages/adapters/hermes/bridge/tests -q
         env:
-          PYTHONPATH: packages/adapters/hermes/bridge
+          # fixture/hermes_runtime 里有 hermes_hooks 延迟导入的 gateway 包（run.py），
+          # 不加进路径则 CI 上 12 个用例 ModuleNotFoundError（历史遗留）。
+          PYTHONPATH: packages/adapters/hermes/bridge:packages/adapters/hermes/bridge/tests/fixtures/hermes_runtime
 
   # 发版：推 v 前缀 tag 触发（如 v0.1-beta.260911.42）。
   # 版本末段（构建号）用 CI run.number 覆写——本地 set 的值只是占位，
