@@ -391,6 +391,11 @@ export class AlertQueue {
   }
 }
 
+/** 外发 URL 必须带 scheme：相对路径（如基址未配置时的 /approvals/x）在外部客户端打不开，宁可不发。 */
+function isExternallyOpenableUrl(url: string | undefined): url is string {
+  return typeof url === "string" && /^https?:\/\//i.test(url);
+}
+
 /** 序列化按钮（空/非法一律存 NULL，读侧回落空数组）。 */
 function serializeActions(actions: AlertAction[] | undefined): string | null {
   if (actions === undefined || actions.length === 0) return null;
@@ -402,7 +407,7 @@ function serializeActions(actions: AlertAction[] | undefined): string | null {
       if (typeof action.callbackData === "string" && action.callbackData !== "") {
         item.callbackData = action.callbackData;
       }
-      if (typeof action.url === "string" && action.url !== "") item.url = action.url;
+      if (isExternallyOpenableUrl(action.url)) item.url = action.url;
       return item;
     })
     // 两者皆无的按钮点了没反应，直接丢弃而不是渲染一个死按钮。

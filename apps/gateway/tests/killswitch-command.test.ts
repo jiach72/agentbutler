@@ -260,6 +260,35 @@ describe("M3.1 通道渲染与降级", () => {
     expect(form.get("text")).not.toContain(ACTION_URL);
   });
 
+  it("相对路径 URL 不外发：正文与键盘都过滤掉（基址未配置时不产生打不开的链接）", async () => {
+    const bodies: string[] = [];
+    const channel = new TelegramChannel({
+      env: { BUTLER_TELEGRAM_BOT_TOKEN: "t", BUTLER_TELEGRAM_CHAT_ID: "c" },
+      fetchImpl: (async (_url: string, init: { body: string }) => {
+        bodies.push(init.body);
+        return { ok: true, status: 200, text: async () => "{}" };
+      }) as never,
+    });
+    await channel.send({
+      severity: "critical",
+      title: "删除文件",
+      body: "15 分钟",
+      source: "butler-watch",
+      actions: [
+        { label: "批准一次", callbackData: "apr:ap-1:approve" },
+        { label: "查看详情", url: "/approvals/ap-1" }, // 相对路径——不应外发
+      ],
+    });
+    const form = new URLSearchParams(bodies[0]!);
+    expect(form.get("text")).not.toContain("/approvals/ap-1");
+    const markup = JSON.parse(form.get("reply_markup")!) as {
+      inline_keyboard: Array<Array<Record<string, string>>>;
+    };
+    // 只有回调按钮；相对 url 按钮被过滤。
+    expect(markup.inline_keyboard.length).toBe(1);
+    expect(markup.inline_keyboard[0]?.[0]?.callback_data).toBe("apr:ap-1:approve");
+  });
+
   it("Server酱（不支持内联按钮）：降级为正文追加链接", async () => {
     const bodies: string[] = [];
     const channel = new ServerChanChannel({
@@ -375,6 +404,38 @@ describe("webhook：口令急停与审批回执", () => {
     const res = await hook({ edited_message: { text: "x" } });
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body).ignored).toBe("unsupported-update");
+  });
+
+  it("会话白名单从注入配置读取（与 env 解耦）：非白名单会话被拒", async () => {
+    const strictApp = createGatewayServer({
+      queue,
+      channels: [],
+      startLoop: false,
+      killswitchPassphrase: PASSPHRASE,
+      killswitchAllowedChat: "424242",
+      killswitchCommander: async (input) => {
+        killed.push(input.command);
+        return { ok: true, message: "ok" };
+      },
+    });
+    const denied = await strictApp.inject({
+      method: "POST",
+      url: "/api/channels/telegram/webhook",
+      headers: { "x-telegram-bot-api-secret-token": "hook-secret" },
+      payload: { message: { text: `${PASSPHRASE} 急停`, from: { id: 1 }, chat: { id: 999 } } },
+    });
+    expect(JSON.parse(denied.body).reason).toBe("chat-not-allowed");
+    expect(killed.length).toBe(0);
+
+    const allowed = await strictApp.inject({
+      method: "POST",
+      url: "/api/channels/telegram/webhook",
+      headers: { "x-telegram-bot-api-secret-token": "hook-secret" },
+      payload: { message: { text: `${PASSPHRASE} 急停`, from: { id: 1 }, chat: { id: 424242 } } },
+    });
+    expect(JSON.parse(allowed.body).command).toBe("engage");
+    expect(killed).toEqual(["engage"]);
+    await strictApp.close();
   });
 
   it("未配置 webhook 密钥时不校验（本地调试），但指令逻辑不变", async () => {

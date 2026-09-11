@@ -20,7 +20,8 @@
  *   等价冒烟任务而非原任务；这一点写进 metrics.source，UI 可见；
  * - 全程只读 Hermes state.db（readOnly），影子产物全部落在隔离目录，跑完可整目录删除。
  */
-import { mkdirSync } from "node:fs";
+import { chmodSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import type { CanaryMetrics } from "@butler/core";
 import type { CommandExecutor } from "@butler/adapter-hermes";
@@ -110,7 +111,6 @@ export function createShadowRunner(deps: ShadowRunnerDeps): CanaryShadowRunner {
     // 直接复用 canary 基线的口径（fingerprints 表），避免两套定义。
     // 影子跑动期间新出现的错误正是要拦的东西。
     try {
-      const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
       const db = new DatabaseSync(deps.stateDbPath, { readOnly: true });
       try {
         const rows = db
@@ -210,7 +210,6 @@ export function createShadowRunner(deps: ShadowRunnerDeps): CanaryShadowRunner {
     model: string,
   ): Promise<TaskOutcome> {
     const started = now();
-    const { writeFileSync, chmodSync, unlinkSync } = require("node:fs") as typeof import("node:fs");
     const scriptPath = join(runDir, `smoke-${Math.random().toString(36).slice(2)}.py`);
     writeFileSync(scriptPath, smokeScript(endpoint, model), { mode: 0o600 });
     chmodSync(scriptPath, 0o600);

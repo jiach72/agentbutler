@@ -342,6 +342,8 @@ export interface GatewayServerOptions {
   killswitchCommander?: KillswitchCommander;
   /** M1.3 急停口令（缺省读 BUTLER_KILLSWITCH_PASSPHRASE；未配置则通道急停整体关闭）。 */
   killswitchPassphrase?: string;
+  /** M1.3 指令白名单会话（缺省读 BUTLER_TELEGRAM_CHAT_ID；空 = 不限）。 */
+  killswitchAllowedChat?: string;
 }
 
 export interface GatewayHandle {
@@ -612,7 +614,10 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
       if (parsed === null) return await reply.code(200).send({ ok: true, ignored: "not-a-command" });
 
       // 若配置了会话白名单，只接受来自该会话的指令（防口令泄露后被旁路使用）。
-      const allowedChat = (process.env["BUTLER_TELEGRAM_CHAT_ID"] ?? "").trim();
+      // 与 webhook 密钥同模式：注入优先、env 兜底，测试可完全控制。
+      const allowedChat = (
+        options.killswitchAllowedChat ?? process.env["BUTLER_TELEGRAM_CHAT_ID"] ?? ""
+      ).trim();
       const chatId = describeTelegramChatId(record["chat"]);
       if (allowedChat !== "" && chatId !== allowedChat) {
         return await reply.code(200).send({ ok: false, reason: "chat-not-allowed" });

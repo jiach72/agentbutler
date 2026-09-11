@@ -187,12 +187,14 @@ export class SmtpChannel implements AlertChannel {
 
   async send(message: OutboundMessage): Promise<void> {
     if (!this.isConfigured() || this.transporter === null) throw new Error("smtp: missing credentials");
+    // HTML 正文让降级链接可点（审批卡片在邮件里的落地路径）；text 保底纯文本客户端。
     await this.transporter.sendMail({
       from: this.from,
       to: this.to,
       subject: `[${message.severity}] ${message.title}`,
       text: formatText(message),
-    });
+      html: formatHtml(message),
+    } as never);
   }
 }
 
@@ -295,11 +297,29 @@ export class ServerChanChannel implements AlertChannel {
  * 追加为正文链接——这是「微信不支持内联按钮则降级为链接到 Web 确认页」的落点；
  * 只有 callbackData 的按钮无链接可降级，故不计入（避免出现点了没反应的死按钮）。
  */
+/** HTML 版正文：动作链接渲染为 <a>（转义防注入）。仅 SMTP 使用。 */
+function formatHtml(message: OutboundMessage): string {
+  const esc = (value: string): string =>
+    value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const base = `<p><strong>[${esc(message.severity)}] ${esc(message.title)}</strong></p>` +
+    `<p style="white-space:pre-wrap">${esc(message.body)}</p>` +
+    `<p style="color:#888">来源: ${esc(message.source)}</p>`;
+  const links = (message.actions ?? [])
+    .filter((action) => isExternallyOpenableUrl(action.url))
+    .map((action) => `<a href="${esc(action.url!)}">${esc(action.label)}</a>`);
+  return links.length === 0 ? base : `${base}<hr/><p>${links.join(" &nbsp;|&nbsp; ")}</p>`;
+}
+
+/** 外发 URL 必须带 scheme（同 queue.ts 规则；相对路径不进任何通道正文）。 */
+function isExternallyOpenableUrl(url: string | undefined): url is string {
+  return typeof url === "string" && /^https?:\/\//i.test(url);
+}
+
 function formatText(message: OutboundMessage, includeActionLinks = true): string {
   const base = `[${message.severity}] ${message.title}\n${message.body}\n(来源: ${message.source})`;
   if (!includeActionLinks) return base;
   const links = (message.actions ?? [])
-    .filter((action) => typeof action.url === "string" && action.url !== "")
+    .filter((action) => isExternallyOpenableUrl(action.url))
     .map((action) => `· ${action.label}：${action.url}`);
   return links.length === 0 ? base : `${base}\n\n${links.join("\n")}`;
 }
@@ -311,7 +331,7 @@ function buildInlineKeyboard(actions: AlertAction[] | undefined): { inline_keybo
   for (const action of actions) {
     if (typeof action.callbackData === "string" && action.callbackData !== "") {
       rows.push([{ text: action.label, callback_data: action.callbackData }]);
-    } else if (typeof action.url === "string" && action.url !== "") {
+    } else if (isExternallyOpenableUrl(action.url)) {
       rows.push([{ text: action.label, url: action.url }]);
     }
   }

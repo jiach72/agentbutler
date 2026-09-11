@@ -216,6 +216,8 @@ export function createApprovalService(options: ApprovalServiceOptions): Approval
   let lastScanned = 0;
   let lastCreated = 0;
 
+  // 基址未配置时返回相对路径：网关/面板同源部署下仍可用；外发通道会因无主机而
+  // 省略 url 按钮（serializeActions 只存完整链接），不会发出点不开的裸链接。
   const confirmUrlOf = (id: string): string =>
     baseUrl === "" ? `/approvals/${id}` : `${baseUrl}/approvals/${id}`;
 
