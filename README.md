@@ -11,7 +11,27 @@ Agent Butler 把 Agent 运行时的健康检查、消息接入、日志诊断、
 > OpenClaw 适配器目前为**实验性只读**——支持连接探测、启停、升级与快照回滚，但技能/记忆/配置
 > 仅为只读盘点，且**不支持消息接管**。页面中的 OpenClaw 表述以此为准。
 
-> 当前开发版本：`1.0.0-beta.33`（`main`）。这是测试版，默认只监听本机回环地址；如需跨设备访问，请同时设置 `BUTLER_ACCESS_TOKEN` 并配置发布地址。未配置口令时不要把 Web 端口暴露到不可信网络。
+> 当前开发版本：`0.1-beta.260911.13`（`main`）。这是测试版，默认只监听本机回环地址；如需跨设备访问，请同时设置 `BUTLER_ACCESS_TOKEN` 并配置发布地址。未配置口令时不要把 Web 端口暴露到不可信网络。
+
+## 版本规则
+
+版本形如 **`0.1-beta.YYMMDD.构建号`**（存储形态为合法 SemVer `0.1.0-beta.YYMMDD.构建号`）：
+
+| 段 | 含义 |
+|---|---|
+| `0.1` | 主线版本（0.x 阶段：接口与数据 schema 可能调整） |
+| `YYMMDD` | 发布日期（UTC） |
+| `构建号` | CI 流水线号（`run.number`）；本地开发时缺省取提交时刻的 UTC 小时 |
+
+**发版流程**：打 `v` 前缀 tag 触发（如 `git tag v0.1-beta.260911.42 && git push --tags`）→ CI 三门（TS / Compose / Bridge）通过后进入 release job → **构建号被流水线号覆写**（本地 set 的值只是占位，发布产物永远以本次流水线号为准）→ 创建 GitHub Release（prerelease）。
+
+**日常操作**：
+```bash
+node scripts/version.mjs next            # 按当前 UTC 时间生成下一版本号
+node scripts/version.mjs set <semver>    # 设定版本（全仓 11 个 package.json + 源码标记 + README 同步）
+node scripts/version.mjs check           # 校验全仓一致（CI 也跑这一步）
+```
+`v` 前缀仅用于 git tag 与 CI 触发，不出现在包版本里。
 
 ## 能做什么
 

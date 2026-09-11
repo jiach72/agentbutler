@@ -45,6 +45,53 @@ jobs:
           cache: pip
           cache-dependency-path: packages/adapters/hermes/bridge/requirements.txt
       - run: python -m pip install -r packages/adapters/hermes/bridge/requirements.txt
-      - run: python -m unittest discover -s packages/adapters/hermes/bridge/tests -q
+      - run: python - unittest discover -s packages/adapters/hermes/bridge/tests -q
         env:
           PYTHONPATH: packages/adapters/hermes/bridge
+
+  # 发版：推 v 前缀 tag 触发（如 v0.1-beta.260911.42）。
+  # 版本末段（构建号）用 CI run.number 覆写——本地 set 的值只是占位，
+  # 发布产物永远以本次流水线号为准（同一小时多次发布也可区分）。
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [typescript, docker-compose, hermes-bridge]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG_VERSION: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.20.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: 解析 tag 版本并覆写构建号为流水线号
+        run: |
+          # v0.1-beta.260911.13 → SemVer 0.1.0-beta.260911.<run_number>
+          BASE="${TAG_VERSION#v}"
+          PREFIX="${BASE%.*}"
+          FULL="${PREFIX}.${GITHUB_RUN_NUMBER}"
+          node scripts/version.mjs set "$FULL"
+          echo "RELEASE_VERSION=$FULL" >> "$GITHUB_ENV"
+          echo "发布版本: $FULL（tag $TAG_VERSION，构建号=$GITHUB_RUN_NUMBER）"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ env.RELEASE_VERSION }}
+          body: |
+            Agent Butler ${{ env.RELEASE_VERSION }}
+
+            版本规则：`0.1-beta.YYMMDD.构建号`
+            - `YYMMDD` — UTC 日期
+            - `构建号` — 本次 CI 流水线号（run #${{ github.run_number }}）
+            - tag 形态：`v0.1-beta.YYMMDD.x`（v 前缀仅用于触发发版）
+
+            Docker 镜像由部署机 `docker compose build` 自行构建；
+            本 Release 附源码归档，版本一致性已由 CI `pnpm version:check` 校验。
+          draft: false
+          prerelease: true

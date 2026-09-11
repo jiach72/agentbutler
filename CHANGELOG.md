@@ -1,8 +1,15 @@
 # Changelog
 
 本项目遵循 [Semantic Versioning](https://semver.org/)；开发预览版本可能包含不兼容调整。
+版本规则：`0.1-beta.YYMMDD.构建号`（构建号=CI 流水线号；详见 README「版本规则」）。
 
-## [Unreleased] — 信任层（Trust Layer）全量（M1-M4）
+## [0.1-beta.260911.13] - 2026-09-11 — 版本体系切换 + 信任层（Trust Layer）全量（M1-M4）
+
+### Changed（版本体系）
+- 版本号从 `1.0.0-beta.N` 递增制切换为 **`0.1-beta.YYMMDD.构建号`** 日期构建制（存储形态 `0.1.0-beta.YYMMDD.构建号`，合法 SemVer）。
+- `scripts/version.mjs` 新增 `next [buildNumber]` 子命令：按 UTC 时间生成下一版本；`set`/`check` 保持原语义，新增日期构建段格式校验（YYMMDD 6 位 + 构建号 ≤3 位）。
+- CI 新增 `release` job：推 `v` 前缀 tag 触发（`v0.1-beta.YYMMDD.x`），三门通过后 **构建号以流水线号覆写** 并创建 GitHub Release（prerelease）——本地 set 的构建号仅是占位。
+- README 新增「版本规则」章节；全仓 11 个 package.json、源码版本标记（core/web/watch/gateway/双 adapter/bridge）、双 manifest 同步到新版本。
 
 依据 `docs/trust-layer-upgrade-plan-2026-09-11.md` 落地全部四个里程碑：成本防线、行为审计、全局急停、事件中心、Agent 周报、会话追踪、通知即操作、升级金丝雀、假进度检测、通道口令急停、移动端 PWA、安装医生、记忆可视化与多实例联邦。
 

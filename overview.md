@@ -1,5 +1,7 @@
 # Agent Butler「信任层」升级实施总览（2026-09-11）
 
+> 版本：`0.1-beta.260911.13`（新版本体系首发；规则见 README「版本规则」——`0.1-beta.YYMMDD.CI构建号`，tag `v` 前缀触发发版）
+
 > 依据 `docs/trust-layer-upgrade-plan-2026-09-11.md`，在保留全部现有功能的前提下，**全部四个里程碑（M1-M4）已落地**。
 > 实施明细见 `docs/trust-layer-implementation-2026-09-11.md`（§1-§12）；逐条变更见 `CHANGELOG.md`。
 
