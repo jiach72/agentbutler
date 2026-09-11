@@ -53,13 +53,25 @@ async function createConfiguredRuntime(env: NodeJS.ProcessEnv): Promise<HermesMe
   const effectiveEnv = withHostHermesDefaults(env);
   const mode = resolveHermesMessageRuntimeMode(effectiveEnv[RUNTIME_FLAG]);
   const configured = hasHermesRuntimeConfiguration(effectiveEnv);
+  console.log(
+    `[gateway] message runtime: mode=${mode} configured=${configured} ` +
+      `bridgeUrl=${effectiveEnv[MESSAGE_RUNTIME_ENV.bridgeUrl] ?? "-"} ` +
+      `hermesRoot=${effectiveEnv[MESSAGE_RUNTIME_ENV.hermesRoot] ?? "-"} ` +
+      `tokenFile=${effectiveEnv[MESSAGE_RUNTIME_ENV.tokenFile] ?? "-"}`,
+  );
   if (mode === "disabled" || (mode === "auto" && !configured)) return null;
   if (mode === "enabled" && !configured) {
     throw new Error(`${RUNTIME_FLAG}=true requires complete Hermes Bridge configuration`);
   }
-  const runtime = createHermesMessageRuntime({ env: effectiveEnv });
-  await runtime.start();
-  return runtime;
+  try {
+    const runtime = createHermesMessageRuntime({ env: effectiveEnv });
+    await runtime.start();
+    return runtime;
+  } catch (error) {
+    // 运行时启动失败不拖垮网关其余职责（队列/通道/急停），但必须留下可诊断的痕迹。
+    console.error("[gateway] message runtime 启动失败，通道面板将以降级运行:", error);
+    return null;
+  }
 }
 
 /**
