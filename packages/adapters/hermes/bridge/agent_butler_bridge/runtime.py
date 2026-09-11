@@ -148,8 +148,9 @@ class BridgeRuntime:
             if self.channel_control is None:
                 self.channel_control = ChannelControl()
             channel_control = self.channel_control
-            if self.weixin_login is None:
-                self.weixin_login = WeixinLoginManager()
+            # 懒初始化：WeixinLoginManager 的默认构造会延迟导入 gateway.platforms.weixin
+            # （真实 Hermes 运行时才有），非微信部署 / 测试环境没有该模块。
+            # server.py 对 weixin_login=None 已有降级响应，微信扫码接口不可用不影响其他通道。
             weixin_login = self.weixin_login
             outbox: Outbox | None = None
             runner: web.AppRunner | None = None
