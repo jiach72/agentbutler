@@ -53,8 +53,12 @@ export interface NavGroup {
 
 /**
  * 分组顺序即导航顺序。
- * 「信任层」是 9 项的重头，可折叠：展开后按语义再分「花了什么 / 管得住吗」两簇，
+ * 「信任层」是 9 项的重头，可折叠：展开后按语义再分「费用与记录 / 审计与管控」两簇，
  * 收起时只占一行——这是把侧栏内容高压到 768px 首屏以内的关键。
+ *
+ * 【副注写法】侧栏 note 只写「里面有什么」，用功能词，不写反问和总结腔
+ * （「值不值」「是真的还是编的」这类在九个条目上同时出现就成了表演随意）。
+ * 口语化留给页面正文里真正需要解释边界的地方。
  */
 export const NAV_GROUPS: NavGroup[] = [
   { key: "console", label: "控制台", collapsible: false },
@@ -81,7 +85,7 @@ export interface RouteMeta {
 }
 
 /** 信任层分簇顺序即渲染顺序。 */
-export const TRUST_CLUSTERS = ["花了什么", "管得住吗"] as const;
+export const TRUST_CLUSTERS = ["费用与记录", "审计与管控"] as const;
 
 export const ROUTES: RouteMeta[] = [
   /* ---- 控制台 ---- */
@@ -89,18 +93,18 @@ export const ROUTES: RouteMeta[] = [
   { path: "/skills", group: "console", title: "智能体与记忆", note: "技能、插件与记忆", icon: ApiOutlined, nav: true },
   { path: "/gateway", group: "console", title: "消息通知", note: "频率控制与送达记录", icon: NotificationOutlined, nav: true },
 
-  /* ---- 信任层 · 花了什么 ---- */
-  { path: "/cost", group: "trust", cluster: "花了什么", title: "成本", note: "花了多少钱、值不值", icon: DollarOutlined, nav: true, short: "成本" },
-  { path: "/report", group: "trust", cluster: "花了什么", title: "Agent 周报", note: "每周一 08:00 自动汇总推送", icon: FileTextOutlined, nav: true, short: "周报" },
-  { path: "/sessions", group: "trust", cluster: "花了什么", title: "会话追踪", note: "按会话回放 agent 的动作链", icon: HistoryOutlined, nav: true },
-  { path: "/memory-diff", group: "trust", cluster: "花了什么", title: "记忆变更", note: "本周它记住了什么、忘了什么", icon: DiffOutlined, nav: true },
+  /* ---- 信任层 · 费用与记录 ---- */
+  { path: "/cost", group: "trust", cluster: "费用与记录", title: "成本", note: "模型成本与预算", icon: DollarOutlined, nav: true, short: "成本" },
+  { path: "/report", group: "trust", cluster: "费用与记录", title: "Agent 周报", note: "每周自动汇总推送", icon: FileTextOutlined, nav: true, short: "周报" },
+  { path: "/sessions", group: "trust", cluster: "费用与记录", title: "会话追踪", note: "按会话查看动作记录", icon: HistoryOutlined, nav: true },
+  { path: "/memory-diff", group: "trust", cluster: "费用与记录", title: "记忆变更", note: "记忆文件改动明细", icon: DiffOutlined, nav: true },
 
-  /* ---- 信任层 · 管得住吗 ---- */
-  { path: "/audit", group: "trust", cluster: "管得住吗", title: "行为审计", note: "动过哪些文件、发了什么", icon: FileDoneOutlined, nav: true },
-  { path: "/events", group: "trust", cluster: "管得住吗", title: "事件中心", note: "一处看完所有告警与回归", icon: AlertOutlined, nav: true, short: "事件" },
-  { path: "/approvals", group: "trust", cluster: "管得住吗", title: "操作审批", note: "高危动作先点头，超时默认拒绝", icon: AuditOutlined, nav: true },
-  { path: "/progress", group: "trust", cluster: "管得住吗", title: "进度可信度", note: "它说做完了，是真的还是编的", icon: FundProjectionScreenOutlined, nav: true },
-  { path: "/federation", group: "trust", cluster: "管得住吗", title: "实例联邦", note: "多实例成本、事件与急停合并看", icon: ClusterOutlined, nav: true },
+  /* ---- 信任层 · 审计与管控 ---- */
+  { path: "/audit", group: "trust", cluster: "审计与管控", title: "行为审计", note: "全部动作时间线", icon: FileDoneOutlined, nav: true },
+  { path: "/events", group: "trust", cluster: "审计与管控", title: "事件中心", note: "告警与回归汇总", icon: AlertOutlined, nav: true, short: "事件" },
+  { path: "/approvals", group: "trust", cluster: "审计与管控", title: "操作审批", note: "高危动作确认与超时拒绝", icon: AuditOutlined, nav: true },
+  { path: "/progress", group: "trust", cluster: "审计与管控", title: "进度可信度", note: "进度声明核对", icon: FundProjectionScreenOutlined, nav: true },
+  { path: "/federation", group: "trust", cluster: "审计与管控", title: "实例联邦", note: "多实例汇总", icon: ClusterOutlined, nav: true },
 
   /* ---- 维护与升级 ---- */
   { path: "/core-files", group: "maintain", title: "核心文件", note: "查看、编辑与回滚 Markdown", icon: FileMarkdownOutlined, nav: true },
