@@ -1,8 +1,9 @@
 /**
- * 运维总览大屏（/wall）：挂墙用只读结论层，1920×1080 基准画布等比缩放，
+ * 运维总览大屏（/wall）：挂墙用只读结论层，3840×2160 基准画布等比缩放（4K 版，
+ * 2026-09-12 由 1080p 升级：图表字号/栅格同步放大，新增成本用量列与底部记录行），
  * 暗色为主、浅色可切（解除品牌约束的主流水大屏风格，见 docs/dashboard-design-2026-09-11.md）。
- * 全部数值来自既有 /api 端点轮询；Token 三件套来自 /api/llm/usage（Hermes
- * session_model_usage 只读聚合），不可用时显示「待接入」灰态，不伪造数据。
+ * 全部数值来自既有 /api 端点轮询；金额统一经 money() 折算 ¥；
+ * 数据不可用时显示「待接入」灰态，不伪造数据。
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -12,6 +13,7 @@ import {
   WALL_PALETTES,
   type TokenModelSeries,
   type WallThemeMode,
+  costTrendOption,
   donutOption,
   gaugeOption,
   skillBarOption,
@@ -21,11 +23,12 @@ import {
   wallSequence,
 } from "./wallTheme.js";
 import { deriveWallView, useWallData, type WallLlmUsage } from "./useWallData.js";
+import { formatBytes, formatTime, money, USD_TO_CNY } from "../../lib/format.js";
 import "./wall.css";
 
 const THEME_STORAGE_KEY = "butler.wallTheme";
-const STAGE_WIDTH = 1920;
-const STAGE_HEIGHT = 1080;
+const STAGE_WIDTH = 3840;
+const STAGE_HEIGHT = 2160;
 
 function readInitialTheme(): WallThemeMode {
   try {
@@ -38,7 +41,7 @@ function readInitialTheme(): WallThemeMode {
 /**
  * ECharts 挂载组件：option 变化即 setOption，容器尺寸变化自动 resize。
  * dpr 必须传入「系统 dpr × stage 缩放比」：stage 被 transform scale 放大时，
- * canvas 位图若仍按 1920 基准渲染会被拉伸发虚（审计 P0-2），因此 scale
+ * canvas 位图若仍按基准渲染会被拉伸发虚（审计 P0-2），因此 scale
  * 变化时以新 dpr 重建图表实例，保证 2K/4K 下像素级清晰。
  */
 function WallChart({ option, className, dpr }: { option: EChartsOption | null; className?: string; dpr: number }) {
@@ -97,7 +100,7 @@ function KpiCard(props: {
   unit?: string;
   foot: string;
   footExtra?: string;
-  tone?: "brand" | "cyan" | "warn" | "error";
+  tone?: "brand" | "cyan" | "warn" | "error" | "brass";
   badge?: { text: string; kind: "ok" | "warn" | "err" | "info" | "brass" | "off" };
   spark?: { data: Array<number>; theme: WallThemeMode };
   dpr?: number;
@@ -131,12 +134,14 @@ function PendingPanel({ title, source, hint }: { title: string; source: string; 
         <div className="wall-pending-mark">◌</div>
         <div>
           <div className="wall-pending-title">{hint}</div>
-          <div className="wall-pending-sub">需 Watch llm-probe 落地 model / prompt_tokens / completion_tokens 采集后启用</div>
+          <div className="wall-pending-sub">需数据端补齐字段后自动亮起，这里不会用估算值顶替。</div>
         </div>
       </div>
     </div>
   );
 }
+
+const BACKUP_KIND_LABEL: Record<string, string> = { full: "全量备份", memory: "记忆备份", event: "事件备份" };
 
 export function WallPage() {
   const navigate = useNavigate();
@@ -154,7 +159,7 @@ export function WallPage() {
     }
   }, [theme]);
 
-  // 画布等比缩放：以 1920×1080 为基准，居中适配任意窗口（无滚动条）。
+  // 画布等比缩放：以 3840×2160 为基准，居中适配任意窗口（无滚动条）。
   // scale 存入 state 驱动 WallChart 以「系统 dpr × scale」重建位图，
   // 否则 transform 放大后 canvas 文字/线条会像素化（审计 P0-2）。
   const stageRef = useRef<HTMLDivElement | null>(null);
@@ -177,7 +182,11 @@ export function WallPage() {
 
   const successRateText = view.successRate === null ? "—" : view.successRate.toFixed(1);
   const p95Text = view.p95Ms === null ? "—" : view.p95Ms >= 1000 ? `${(view.p95Ms / 1000).toFixed(1)}s` : `${view.p95Ms}ms`;
-  const relayText = view.relayEnabled === null ? "消息状态未知" : view.relayEnabled ? "Butler 管线接管中" : "Hermes 通道直发";
+  const relayText = view.relayEnabled === null
+    ? "消息状态未知"
+    : view.relayEnabled
+      ? (view.relayPending === true ? "管线切换待生效" : "Butler 管线接管中")
+      : "Hermes 通道直发";
   const versionText = data.health?.services.gateway.serviceVersion ?? "—";
   const updatedText = data.lastRefreshAt === null ? "--:--:--" : formatClock(data.lastRefreshAt).slice(11);
   const cpuText = view.cpuPercent === null ? "—" : Math.round(view.cpuPercent).toString();
@@ -204,7 +213,6 @@ export function WallPage() {
     : Math.round(llm.days.reduce((sum, d) => sum + d.tokens, 0) / 10_000);
 
   // Token 按模型堆叠序列：Top7 模型各一条 + 其余合并「其他」，单位万 token。
-  // 服务端未带 daily（理论不发生）时退回单条「合计」。
   const tokenSeries: Array<TokenModelSeries> = useMemo(() => {
     if (llm === null) return [];
     const colorSeq = wallSequence(palette);
@@ -229,6 +237,44 @@ export function WallPage() {
     }
     return series;
   }, [llm, palette]);
+
+  // ── 4K 新增：成本与用量（/api/llm/cost/summary · /api/budget）──
+  const costReady = data.costSummary !== null && view.costAvailable;
+  const costTrendOptionMemo = useMemo(() => costTrendOption(
+    view.costDays.map((d) => ({
+      date: d.date,
+      costCny: d.costUsd === null ? null : Math.round(d.costUsd * USD_TO_CNY * 100) / 100,
+      tokensWan: d.tokensWan,
+    })),
+    palette,
+  ), [view.costDays, palette]);
+  const costModelRows = useMemo(() => {
+    const total = view.costModels.reduce(
+      (sum, m) => sum + (m.actualCostUsd ?? m.estimatedCostUsd ?? 0), 0);
+    return view.costModels.map((m) => {
+      const usd = m.actualCostUsd ?? m.estimatedCostUsd ?? null;
+      const share = usd !== null && total > 0 ? Math.round((usd / total) * 100) : null;
+      return { model: m.model, tokensWan: Math.round(m.tokens / 10_000), usd, share };
+    });
+  }, [view.costModels]);
+  const budgetTone = view.budgetEnabled && data.budget !== null && (data.budget.threshold === "100%" || data.budget.threshold === "over")
+    ? "error"
+    : view.budgetEnabled && data.budget?.threshold === "80%" ? "warn" : undefined;
+
+  // ── 4K 新增：消息网关链路（/api/messages/status）──
+  const bridge = view.bridge;
+  const bridgeConnected = bridge?.connected === true;
+  const linkRows: Array<{ k: string; v: string; ok: boolean | null }> = [
+    { k: "Bridge 连接", v: bridge === null ? "状态未知" : bridgeConnected ? "已连接" : "离线（自愈重试中）", ok: bridge === null ? null : bridgeConnected },
+    { k: "Bridge 进程", v: bridge?.running === undefined ? "—" : bridge.running ? "运行中" : "未运行", ok: bridge?.running ?? null },
+    { k: "消息管线", v: relayText, ok: view.relayEnabled === null ? null : view.relayEnabled },
+    { k: "Outbox 积压", v: `${view.pendingMessages} 条`, ok: view.pendingMessages === 0 },
+  ];
+
+  // ── 4K 新增：升级与备份记录（/api/versions · /api/backups）──
+  const backupRows = view.recentBackups;
+  const snapshotRows = view.recentSnapshots;
+  const job = view.upgradeJob;
 
   return (
     <div className="wall-root" data-wall-theme={theme}>
@@ -282,7 +328,7 @@ export function WallPage() {
           </button>
         </header>
 
-        {/* B KPI 行 */}
+        {/* B KPI 行：9 卡（原有 7 + 30日成本 + 预算执行） */}
         <div className="wall-kpirow">
           <KpiCard
             label="实例在线"
@@ -323,6 +369,25 @@ export function WallPage() {
             badge={latestTokensWan === null ? { text: "待接入", kind: "brass" } : { text: "已接入", kind: "ok" }}
           />
           <KpiCard
+            label="30日 模型成本"
+            value={costReady && view.costTotalUsd !== null ? (view.costTotalUsd * USD_TO_CNY).toFixed(2) : "—"}
+            unit={costReady && view.costTotalUsd !== null ? "元" : undefined}
+            foot={data.costSummary === null ? "cost/summary 读取中" : costReady ? "实际账单优先" : "金额字段未接入"}
+            footExtra="↑ 60s"
+            tone="brass"
+            badge={data.costSummary === null
+              ? { text: "读取中", kind: "off" }
+              : costReady ? { text: "已接入", kind: "ok" } : { text: "待接入", kind: "brass" }}
+          />
+          <KpiCard
+            label="月度预算执行"
+            value={view.budgetEnabled && view.budgetRatioPct !== null ? `${view.budgetRatioPct}` : "—"}
+            unit={view.budgetEnabled && view.budgetRatioPct !== null ? "%" : undefined}
+            foot={data.budget === null ? "budget 读取中" : view.budgetEnabled ? `月度上限 ¥${((data.budget.budgetUsd) * USD_TO_CNY).toFixed(0)}` : "未设置预算"}
+            footExtra="↑ 60s"
+            tone={budgetTone}
+          />
+          <KpiCard
             label="主机 CPU"
             value={cpuText}
             unit="%"
@@ -334,7 +399,7 @@ export function WallPage() {
           />
         </div>
 
-        {/* 主体三列 */}
+        {/* 主体四列（第 4 列为 4K 新增的成本与用量） */}
         <div className="wall-main">
           {/* C 左列 */}
           <div className="wall-col">
@@ -505,33 +570,181 @@ export function WallPage() {
               </div>
             </div>
           </div>
+
+          {/* F 第 4 列（4K 新增）：成本与用量 */}
+          <div className="wall-col">
+            {data.costSummary === null
+              ? (
+                <PendingPanel
+                  title="成本与用量趋势（30 日）"
+                  source="llm/cost/summary"
+                  hint="成本汇总读取中"
+                />
+              )
+              : !costReady
+                ? (
+                  <PendingPanel
+                    title="成本与用量趋势（30 日）"
+                    source="llm/cost/summary"
+                    hint="用量已记录，金额字段未接入"
+                  />
+                )
+                : (
+                  <div className="wall-panel" style={{ flex: "255 0 0" }}>
+                    <div className="wall-panel-title">成本与用量趋势（30 日）<span className="wall-psrc">llm/cost/summary · 60s</span></div>
+                    <WallChart option={costTrendOptionMemo} className="wall-chart" dpr={chartDpr} />
+                  </div>
+                )}
+
+            <div className="wall-panel" style={{ flex: "225 0 0" }}>
+              <div className="wall-panel-title">模型成本分解<span className="wall-psrc">按汇率 7.2 折算 · 60s</span></div>
+              {costReady && costModelRows.length > 0
+                ? (
+                  <table className="wall-costtable">
+                    <thead>
+                      <tr><th>模型</th><th>Token 万</th><th>成本</th><th>占比</th></tr>
+                    </thead>
+                    <tbody>
+                      {costModelRows.map((row, index) => (
+                        <tr key={row.model}>
+                          <td><span className="wall-cost-rank">{index + 1}</span><span className="wall-cost-model">{row.model}</span></td>
+                          <td className="num">{row.tokensWan.toLocaleString()}</td>
+                          <td className="num">{money(row.usd)}</td>
+                          <td>
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: "12px" }}>
+                              <span className="wall-cost-bar"><i style={{ width: `${row.share ?? 0}%` }} /></span>
+                              <span className="num">{row.share === null ? "—" : `${row.share}%`}</span>
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )
+                : (
+                  <div className="wall-empty">
+                    {data.costSummary === null ? "成本分解读取中。" : "金额字段未接入，先看 30 日成本趋势上方的用量曲线。"}
+                  </div>
+                )}
+            </div>
+
+            <div className="wall-panel" style={{ flex: "150 0 0" }}>
+              <div className="wall-panel-title">预算执行<span className="wall-psrc">/api/budget · 60s</span></div>
+              {data.budget === null
+                ? <div className="wall-empty">预算状态读取中。</div>
+                : !view.budgetEnabled
+                  ? <div className="wall-empty">未设置月度预算。到「成本」页设置后，这里给出余量与触线预测。</div>
+                  : (
+                    <div className="wall-guard">
+                      <div className="wall-gcell">
+                        <div className="wall-gv2">{view.budgetRatioPct ?? "—"}<small style={{ fontSize: 24 }}>%</small></div>
+                        <div className="wall-gl">本月已执行</div>
+                      </div>
+                      <div className="wall-gcell">
+                        <div className="wall-gv2">{data.budget.spentUsd === null ? "—" : money(data.budget.spentUsd)}</div>
+                        <div className="wall-gl">本月已花</div>
+                      </div>
+                      <div className="wall-gcell">
+                        <div className="wall-gv2">{money(Math.max(0, data.budget.budgetUsd - (data.budget.spentUsd ?? 0)))}</div>
+                        <div className="wall-gl">预算余量</div>
+                      </div>
+                    </div>
+                  )}
+            </div>
+          </div>
         </div>
 
-        {/* T1 明细表格：投递明细依赖 message_projection 单条视图，本期以通道汇总代替，避免伪造行级数据。 */}
-        <div className="wall-panel" style={{ height: "196px", flex: "none" }}>
-          <div className="wall-panel-title">通道投递汇总<span className="wall-psrc">messages/metrics?days=7 · 60s</span></div>
-          <table className="wall-table">
-            <thead>
-              <tr><th>通道</th><th>送达</th><th>失败</th><th>不确定</th><th>成功率</th><th>P50</th><th>P95</th><th>重试</th></tr>
-            </thead>
-            <tbody>
-              {(data.metrics?.channels ?? []).filter((ch) => ch.total > 0).map((ch) => (
-                <tr key={ch.channel}>
-                  <td>{ch.channel}</td>
-                  <td>{ch.delivered}</td>
-                  <td className={ch.failed > 0 ? "wall-num-error" : ""}>{ch.failed}</td>
-                  <td>{ch.uncertain}</td>
-                  <td>{(ch.successRate * 100).toFixed(1)}%</td>
-                  <td className="wall-mono">{ch.p50LatencyMs === null ? "—" : `${ch.p50LatencyMs}ms`}</td>
-                  <td className="wall-mono">{ch.p95LatencyMs === null ? "—" : `${ch.p95LatencyMs}ms`}</td>
-                  <td>{ch.retries}</td>
-                </tr>
+        {/* T 底部记录行（4K 新增）：通道投递汇总 / 消息网关链路 / 升级与备份 */}
+        <div className="wall-bottom">
+          <div className="wall-panel">
+            <div className="wall-panel-title">通道投递汇总<span className="wall-psrc">messages/metrics?days=7 · 60s</span></div>
+            <table className="wall-table">
+              <thead>
+                <tr><th>通道</th><th>送达</th><th>失败</th><th>不确定</th><th>成功率</th><th>P50</th><th>P95</th><th>重试</th></tr>
+              </thead>
+              <tbody>
+                {(data.metrics?.channels ?? []).filter((ch) => ch.total > 0).slice(0, 4).map((ch) => (
+                  <tr key={ch.channel}>
+                    <td>{ch.channel}</td>
+                    <td>{ch.delivered}</td>
+                    <td className={ch.failed > 0 ? "wall-num-error" : ""}>{ch.failed}</td>
+                    <td>{ch.uncertain}</td>
+                    <td>{(ch.successRate * 100).toFixed(1)}%</td>
+                    <td className="wall-mono">{ch.p50LatencyMs === null ? "—" : `${ch.p50LatencyMs}ms`}</td>
+                    <td className="wall-mono">{ch.p95LatencyMs === null ? "—" : `${ch.p95LatencyMs}ms`}</td>
+                    <td>{ch.retries}</td>
+                  </tr>
+                ))}
+                {(data.metrics?.channels ?? []).every((ch) => ch.total === 0) && (
+                  <tr><td colSpan={8} className="wall-empty">近 7 天暂无投递记录。</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="wall-panel">
+            <div className="wall-panel-title">消息网关链路<span className="wall-psrc">messages/status · 15s</span></div>
+            <div className="wall-link">
+              {linkRows.map((row) => (
+                <div className="wall-link-row" key={row.k}>
+                  <span className="k">{row.k}</span>
+                  <span
+                    className="wall-dot"
+                    style={{
+                      background: row.ok === null ? "var(--text-3)" : row.ok ? "var(--ok)" : row.k === "Outbox 积压" ? "var(--warn)" : "var(--error)",
+                      marginTop: 0,
+                    }}
+                  />
+                  <span className="v">{row.v}</span>
+                </div>
               ))}
-              {(data.metrics?.channels ?? []).every((ch) => ch.total === 0) && (
-                <tr><td colSpan={8} className="wall-empty">近 7 天暂无投递记录。</td></tr>
-              )}
-            </tbody>
-          </table>
+              <div className="wall-link-foot">
+                断线自愈：Bridge 离线只标记不退出，每秒重试；恢复后续传 Outbox，无需人工干预。
+              </div>
+            </div>
+          </div>
+
+          <div className="wall-panel">
+            <div className="wall-panel-title">升级与备份记录<span className="wall-psrc">versions · backups · 60s</span></div>
+            <div className="wall-upgrid">
+              <div className="wall-upcol">
+                <div className="wall-uphead"><span style={{ width: 130 }}>最近备份</span></div>
+                {backupRows.map((item) => (
+                  <div className="wall-uprow" key={item.id}>
+                    <span className="t">{formatTime(item.createdAt)}</span>
+                    <span className="m">{item.label ?? BACKUP_KIND_LABEL[item.kind] ?? item.kind}</span>
+                    <span className="wall-mono" style={{ fontSize: 22 }}>{formatBytes(item.sizeBytes)}</span>
+                    <span className={`wall-badge ${item.status === "ok" || item.status === "completed" ? "b-ok" : "b-off"}`}>{item.status}</span>
+                  </div>
+                ))}
+                {backupRows.length === 0 && <div className="wall-empty" style={{ fontSize: 24 }}>备份记录读取中或暂无备份。</div>}
+              </div>
+              <div className="wall-upcol">
+                <div className="wall-uphead"><span>版本快照 / 升级</span></div>
+                {job !== null && (
+                  <div className="wall-uprow">
+                    <span className="t">{formatTime(job.startedAt)}</span>
+                    <span className="m">升级 → {job.targetVersion}{job.rolledBack ? "（已回滚）" : ""}</span>
+                    <span className={`wall-badge ${job.status === "done" ? "b-ok" : job.status === "running" ? "b-info" : "b-err"}`}>{job.status}</span>
+                  </div>
+                )}
+                {snapshotRows.map((snap) => (
+                  <div className="wall-uprow" key={snap.id}>
+                    <span className="t">{formatTime(snap.createdAt)}</span>
+                    <span className="m">快照 {snap.label ?? `#${snap.id}`} · {snap.instance}</span>
+                    <span className={`wall-badge ${snap.status === "ok" ? "b-ok" : "b-off"}`}>{snap.status}</span>
+                  </div>
+                ))}
+                {job === null && snapshotRows.length === 0 && (
+                  <div className="wall-empty" style={{ fontSize: 24 }}>暂无升级与快照记录。</div>
+                )}
+              </div>
+            </div>
+            <div className="wall-upfoot">
+              当前版本 <b className="wall-mono">{versionText}</b>
+              {data.versions?.watchReachable === false ? " · Watch 通道离线，记录可能滞后" : " · 升级/回滚前自动做数据卷备份"}
+            </div>
+          </div>
         </div>
       </div>
     </div>

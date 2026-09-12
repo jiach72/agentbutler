@@ -2,6 +2,9 @@
  * 大屏（/wall）视觉与图表配置：暗色为主、浅色可切，双主题调色板 +
  * ECharts option 构建器。大屏经用户决策解除品牌 v2.0 约束，
  * 应用内其余页面仍以 theme/tokens.ts 为真源。
+ *
+ * 4K 版（2026-09-12）：stage 基准 1920×1080 → 3840×2160，图表内字号/栅格
+ * 随画布等比放大（否则 4K 物理屏上图表文字只有布局的一半大）。
  */
 import type { EChartsOption } from "echarts";
 
@@ -107,7 +110,7 @@ export function wallSequence(c: WallPalette): Array<string> {
   ];
 }
 
-const axis = (c: WallPalette, fontSize = 12) => ({
+const axis = (c: WallPalette, fontSize = 24) => ({
   axisLine: { lineStyle: { color: c.axisLine } },
   axisTick: { show: false },
   axisLabel: { color: c.text3, fontSize, fontFamily: c.font },
@@ -116,7 +119,7 @@ const axis = (c: WallPalette, fontSize = 12) => ({
 const tooltip = (c: WallPalette) => ({
   backgroundColor: c.tipBg,
   borderColor: c.tipBd,
-  textStyle: { color: c.text, fontSize: 12, fontFamily: c.font },
+  textStyle: { color: c.text, fontSize: 24, fontFamily: c.font },
   extraCssText: "box-shadow:0 8px 24px rgba(0,0,0,.25);border-radius:8px;",
 });
 
@@ -130,23 +133,23 @@ export function trendOption(points: TrendPoint[], c: WallPalette): EChartsOption
   return {
     textStyle: { fontFamily: c.font },
     animationDuration: 600,
-    grid: { left: 44, right: 16, top: 36, bottom: 24 },
+    grid: { left: 88, right: 32, top: 72, bottom: 48 },
     legend: {
-      top: 0, right: 2, itemWidth: 16, itemHeight: 3, icon: "rect", itemGap: 14,
-      textStyle: { color: c.text2, fontSize: 12 },
+      top: 0, right: 4, itemWidth: 32, itemHeight: 6, icon: "rect", itemGap: 28,
+      textStyle: { color: c.text2, fontSize: 24 },
     },
     tooltip: { trigger: "axis", ...tooltip(c) },
     xAxis: { type: "category", data: points.map((p) => p.date), boundaryGap: false, ...axis(c) },
     yAxis: {
       type: "value", splitNumber: 3,
       splitLine: { lineStyle: { color: c.gridLine } },
-      axisLabel: { color: c.text3, fontSize: 12, fontFamily: c.font },
+      axisLabel: { color: c.text3, fontSize: 24, fontFamily: c.font },
     },
     series: [
       {
         name: "送达量", type: "line", smooth: 0.35, symbol: "none",
         data: points.map((p) => p.delivered),
-        lineStyle: { width: 3, color: c.accent, shadowColor: c.accent, shadowBlur: 14, shadowOffsetY: 5 },
+        lineStyle: { width: 6, color: c.accent, shadowColor: c.accent, shadowBlur: 28, shadowOffsetY: 10 },
         itemStyle: { color: c.accent },
         areaStyle: {
           color: {
@@ -158,15 +161,15 @@ export function trendOption(points: TrendPoint[], c: WallPalette): EChartsOption
           },
         },
         markPoint: {
-          data: [{ type: "max", name: "峰值" }], symbolSize: 48,
-          itemStyle: { color: c.accent, shadowColor: c.accent, shadowBlur: 12 },
-          label: { color: c.markText, fontSize: 12, fontWeight: 700, formatter: "{c}" },
+          data: [{ type: "max", name: "峰值" }], symbolSize: 96,
+          itemStyle: { color: c.accent, shadowColor: c.accent, shadowBlur: 24 },
+          label: { color: c.markText, fontSize: 24, fontWeight: 700, formatter: "{c}" },
         },
       },
       {
         name: "失败量", type: "line", smooth: 0.35, symbol: "none",
         data: points.map((p) => p.failed),
-        lineStyle: { width: 1.5, type: "dashed", color: c.error, opacity: 0.75 },
+        lineStyle: { width: 3, type: "dashed", color: c.error, opacity: 0.75 },
         itemStyle: { color: c.error },
       },
     ],
@@ -186,26 +189,77 @@ export function tokenTrendOption(
   return {
     textStyle: { fontFamily: c.font },
     animationDuration: 600,
-    grid: { left: 44, right: 16, top: 36, bottom: 24 },
+    grid: { left: 88, right: 32, top: 72, bottom: 48 },
     legend: {
-      top: 0, right: 2, itemWidth: 12, itemHeight: 8, icon: "roundRect", itemGap: 12,
+      top: 0, right: 4, itemWidth: 24, itemHeight: 16, icon: "roundRect", itemGap: 24,
       type: "scroll",
-      textStyle: { color: c.text2, fontSize: 11.5 },
+      textStyle: { color: c.text2, fontSize: 23 },
     },
     tooltip: { trigger: "axis", ...tooltip(c) },
     xAxis: { type: "category", data: days, boundaryGap: false, ...axis(c) },
     yAxis: {
       type: "value", splitNumber: 3,
       splitLine: { lineStyle: { color: c.gridLine } },
-      axisLabel: { color: c.text3, fontSize: 12, fontFamily: c.font },
+      axisLabel: { color: c.text3, fontSize: 24, fontFamily: c.font },
     },
     series: models.map((m) => ({
       name: m.name, type: "line", stack: "token", smooth: 0.35, symbol: "none",
       data: m.data,
-      lineStyle: { width: 1.5, color: m.color },
+      lineStyle: { width: 3, color: m.color },
       itemStyle: { color: m.color },
       areaStyle: { opacity: 0.42, color: m.color },
     })),
+  };
+}
+
+export interface CostDayPoint {
+  date: string;
+  /** 折算后的人民币日成本（null 表示当日无金额记录）。 */
+  costCny: number | null;
+  /** 当日 token 数（万），作为第二系列折线。 */
+  tokensWan: number;
+}
+
+/**
+ * 成本与用量趋势（30 日）：黄铜柱 = 日成本 ¥，蓝色折线 = Token（万）。
+ * 成本列缺失（costCny null）的日子柱体断开，只用 token 折线表达用量。
+ */
+export function costTrendOption(points: Array<CostDayPoint>, c: WallPalette): EChartsOption {
+  return {
+    textStyle: { fontFamily: c.font },
+    animationDuration: 600,
+    grid: { left: 108, right: 108, top: 72, bottom: 48 },
+    legend: {
+      top: 0, right: 4, itemWidth: 32, itemHeight: 6, icon: "rect", itemGap: 28,
+      textStyle: { color: c.text2, fontSize: 24 },
+    },
+    tooltip: { trigger: "axis", ...tooltip(c) },
+    xAxis: { type: "category", data: points.map((p) => p.date), ...axis(c, 20) },
+    yAxis: [
+      {
+        type: "value", name: "成本 ¥", nameTextStyle: { color: c.text3, fontSize: 22, fontFamily: c.font },
+        splitNumber: 3, splitLine: { lineStyle: { color: c.gridLine } },
+        axisLabel: { color: c.text3, fontSize: 22, fontFamily: c.font },
+      },
+      {
+        type: "value", name: "Token 万", nameTextStyle: { color: c.text3, fontSize: 22, fontFamily: c.font },
+        splitNumber: 3, splitLine: { show: false },
+        axisLabel: { color: c.text3, fontSize: 22, fontFamily: c.font },
+      },
+    ],
+    series: [
+      {
+        name: "日成本 ¥", type: "bar", yAxisIndex: 0, barWidth: "56%",
+        data: points.map((p) => p.costCny),
+        itemStyle: { color: hexA(c.brass, 0.88), borderRadius: [6, 6, 0, 0] },
+      },
+      {
+        name: "Token（万）", type: "line", yAxisIndex: 1, smooth: 0.35, symbol: "none",
+        data: points.map((p) => p.tokensWan),
+        lineStyle: { width: 5, color: c.accent },
+        itemStyle: { color: c.accent },
+      },
+    ],
   };
 }
 
@@ -219,7 +273,7 @@ export function skillBarOption(rows: Array<SkillRow>, c: WallPalette): EChartsOp
   return {
     textStyle: { fontFamily: c.font },
     animationDuration: 600,
-    grid: { left: 70, right: 44, top: 10, bottom: 6 },
+    grid: { left: 140, right: 88, top: 20, bottom: 12 },
     tooltip: { trigger: "item", ...tooltip(c), formatter: (p: unknown) => {
       const point = p as { name: string; value: number };
       return `${point.name}：${point.value} 次`;
@@ -228,10 +282,10 @@ export function skillBarOption(rows: Array<SkillRow>, c: WallPalette): EChartsOp
     yAxis: {
       type: "category", data: rows.map((r) => r.name), inverse: true,
       axisLine: { show: false }, axisTick: { show: false },
-      axisLabel: { color: c.text, fontSize: 12.5, fontWeight: 500, fontFamily: c.font, margin: 8 },
+      axisLabel: { color: c.text, fontSize: 25, fontWeight: 500, fontFamily: c.font, margin: 16 },
     },
     series: [{
-      type: "bar", barWidth: 12,
+      type: "bar", barWidth: 24,
       data: rows.map((r, i) => ({
         value: r.calls,
         itemStyle: {
@@ -242,15 +296,15 @@ export function skillBarOption(rows: Array<SkillRow>, c: WallPalette): EChartsOp
               { offset: 1, color: shades[i] ?? c.accent },
             ],
           },
-          borderRadius: [0, 7, 7, 0],
+          borderRadius: [0, 14, 14, 0],
           shadowColor: shades[i] ?? c.accent,
-          shadowBlur: c.glow > 0 ? 8 : 3,
-          shadowOffsetY: 2,
+          shadowBlur: c.glow > 0 ? 16 : 6,
+          shadowOffsetY: 4,
         },
       })),
       showBackground: true,
-      backgroundStyle: { color: c.gridLine, borderRadius: [0, 7, 7, 0] },
-      label: { show: true, position: "right", color: c.text2, fontSize: 12, fontWeight: 600, fontFamily: c.font },
+      backgroundStyle: { color: c.gridLine, borderRadius: [0, 14, 14, 0] },
+      label: { show: true, position: "right", color: c.text2, fontSize: 24, fontWeight: 600, fontFamily: c.font },
     }],
   };
 }
@@ -269,9 +323,9 @@ export function donutOption(slices: Array<DonutSlice>, c: WallPalette): EChartsO
     animationDuration: 600,
     tooltip: { trigger: "item", ...tooltip(c) },
     legend: {
-      orient: "vertical", right: 6, top: "middle", type: "scroll",
-      itemWidth: 12, itemHeight: 8, icon: "roundRect", itemGap: 12,
-      textStyle: { color: c.text2, fontSize: 12 },
+      orient: "vertical", right: 12, top: "middle", type: "scroll",
+      itemWidth: 24, itemHeight: 16, icon: "roundRect", itemGap: 24,
+      textStyle: { color: c.text2, fontSize: 24 },
       // 长模型名截断防裁切，并附数值（万 token）让图例自解释（审计 P1-3）。
       formatter: (name: string) => {
         const hit = slices.find((s) => s.name === name);
@@ -282,9 +336,9 @@ export function donutOption(slices: Array<DonutSlice>, c: WallPalette): EChartsO
     series: [{
       type: "pie", radius: ["58%", "80%"], center: ["33%", "50%"],
       avoidLabelOverlap: true, padAngle: 2,
-      itemStyle: { borderRadius: 6, borderColor: c.donutBorder, borderWidth: 2 },
+      itemStyle: { borderRadius: 12, borderColor: c.donutBorder, borderWidth: 4 },
       label: { show: false },
-      emphasis: { label: { show: false }, scaleSize: 4 },
+      emphasis: { label: { show: false }, scaleSize: 8 },
       data: slices.map((s, i) => ({
         ...s,
         tooltip: total > 0
@@ -304,14 +358,14 @@ export function gaugeOption(value: number, color: string, c: WallPalette): EChar
       type: "gauge", startAngle: 90, endAngle: -270, radius: "96%",
       pointer: { show: false }, axisTick: { show: false }, splitLine: { show: false },
       axisLabel: { show: false },
-      axisLine: { lineStyle: { width: 11, color: [[1, c.gridLine]] } },
+      axisLine: { lineStyle: { width: 22, color: [[1, c.gridLine]] } },
       progress: {
-        show: true, width: 11, roundCap: true,
+        show: true, width: 22, roundCap: true,
         itemStyle: { color, shadowColor: color, shadowBlur: c.glow },
       },
       detail: {
         valueAnimation: false, formatter: "{value}%", offsetCenter: [0, 0],
-        fontSize: 18, fontWeight: 700, color: c.text, fontFamily: c.font,
+        fontSize: 36, fontWeight: 700, color: c.text, fontFamily: c.font,
       },
       data: [{ value }],
     }],
@@ -322,12 +376,12 @@ export function sparkOption(data: Array<number>, c: WallPalette): EChartsOption 
   return {
     textStyle: { fontFamily: c.font },
     animationDuration: 400,
-    grid: { left: 0, right: 0, top: 2, bottom: 2 },
+    grid: { left: 0, right: 0, top: 4, bottom: 4 },
     xAxis: { type: "category", show: false, data: data.map((_, i) => i) },
     yAxis: { type: "value", show: false, min: "dataMin", max: "dataMax" },
     series: [{
       type: "line", data, smooth: 0.5, symbol: "none",
-      lineStyle: { width: 2, color: c.accent }, itemStyle: { color: c.accent },
+      lineStyle: { width: 4, color: c.accent }, itemStyle: { color: c.accent },
       areaStyle: {
         color: {
           type: "linear", x: 0, y: 0, x2: 0, y2: 1,

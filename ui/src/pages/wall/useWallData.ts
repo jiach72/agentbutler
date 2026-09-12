@@ -125,6 +125,55 @@ export interface WallLlmUsage {
   models: Array<{ model: string; tokens: number; /** 与 days 对齐的每日 token。 */ daily?: number[] }>;
 }
 
+/** 成本汇总（/api/llm/cost/summary，金额字段单位美元，展示层统一折算 ¥）。 */
+export interface WallCostSummary {
+  rangeDays: number;
+  costAvailable: boolean;
+  total: { estimatedUsd: number | null; actualUsd: number | null; verifiedUsd: number | null };
+  days: Array<{ date: string; tokens: number; estimatedCostUsd: number | null; actualCostUsd: number | null }>;
+  models: Array<{ model: string; tokens: number; estimatedCostUsd: number | null; actualCostUsd: number | null }>;
+}
+
+/** 月度预算（/api/budget）。 */
+export interface WallBudget {
+  enabled: boolean;
+  budgetUsd: number;
+  month: string;
+  spentUsd: number | null;
+  ratio: number | null;
+  threshold: "ok" | "80%" | "100%" | "over";
+}
+
+/** 版本载荷（/api/versions，只取大屏要用的快照与最近升级任务）。 */
+export interface WallVersions {
+  upgradeJob?: {
+    jobId: string;
+    targetVersion: string;
+    status: string;
+    rolledBack?: boolean;
+    startedAt: string;
+    finishedAt?: string;
+  } | null;
+  snapshots?: Array<{ id: number; instance: string; label: string | null; createdAt: string; status: string }>;
+  watchReachable?: boolean;
+}
+
+/** 备份载荷（/api/backups，字段对齐 settings/helpers.ts）。 */
+export interface WallBackupItem {
+  id: number;
+  kind: "full" | "memory" | "event";
+  label: string | null;
+  sizeBytes: number;
+  status: string;
+  createdAt: string;
+}
+
+export interface WallBackups {
+  watchReachable: boolean;
+  items: Array<WallBackupItem>;
+  status: null | { enabled: boolean; lastFullAt: string | null };
+}
+
 /* ────────────────────────────── 待处理态判定 ───────────────────────────── */
 
 /** Outbox 视为「待处理」的状态集合（captured→ready 尚未投递完成）。 */
@@ -143,6 +192,10 @@ export interface WallData {
   skillUsage: WallSkillUsage | null;
   proposals: WallProposals | null;
   llmUsage: WallLlmUsage | null | "unavailable";
+  costSummary: WallCostSummary | null;
+  budget: WallBudget | null;
+  versions: WallVersions | null;
+  backups: WallBackups | null;
   lastRefreshAt: Date | null;
 }
 
@@ -169,6 +222,10 @@ export function useWallData(): WallData & { refreshAll: () => void } {
   const [metrics, setMetrics] = usePolledState<WallMessageMetrics>();
   const [skillUsage, setSkillUsage] = usePolledState<WallSkillUsage>();
   const [proposals, setProposals] = usePolledState<WallProposals>();
+  const [costSummary, setCostSummary] = usePolledState<WallCostSummary>();
+  const [budget, setBudget] = usePolledState<WallBudget>();
+  const [versions, setVersions] = usePolledState<WallVersions>();
+  const [backups, setBackups] = usePolledState<WallBackups>();
   const [llmUsage, setLlmUsage] = useState<WallLlmUsage | null | "unavailable">(null);
   const [lastRefreshAt, setLastRefreshAt] = useState<Date | null>(null);
   const llmUnavailableRef = useRef(false);
@@ -195,6 +252,10 @@ export function useWallData(): WallData & { refreshAll: () => void } {
       fetchJson<WallMessageMetrics>("/api/messages/metrics?days=7", 12_000).then(setMetrics),
       fetchJson<WallSkillUsage>("/api/skills/usage?range=30&granularity=day", 12_000).then(setSkillUsage),
       fetchJson<WallProposals>("/api/evolution/proposals", 12_000).then(setProposals),
+      fetchJson<WallCostSummary>("/api/llm/cost/summary?days=30", 12_000).then(setCostSummary),
+      fetchJson<WallBudget>("/api/budget", 12_000).then(setBudget),
+      fetchJson<WallVersions>("/api/versions", 12_000).then(setVersions),
+      fetchJson<WallBackups>("/api/backups", 12_000).then(setBackups),
     ]);
     // Token 用量：llm-probe 未落地前端点不存在，确认 404 后不再反复请求。
     if (!llmUnavailableRef.current) {
@@ -207,7 +268,7 @@ export function useWallData(): WallData & { refreshAll: () => void } {
         }
       });
     }
-  }, [setMetrics, setProposals, setSkillUsage]);
+  }, [setBackups, setBudget, setCostSummary, setMetrics, setProposals, setSkillUsage, setVersions]);
 
   useEffect(() => {
     refreshFast();
@@ -230,6 +291,10 @@ export function useWallData(): WallData & { refreshAll: () => void } {
     skillUsage,
     proposals,
     llmUsage,
+    costSummary,
+    budget,
+    versions,
+    backups,
     lastRefreshAt,
     refreshAll: refreshFast,
   };
@@ -315,6 +380,36 @@ export function deriveWallView(data: WallData) {
     .sort((a, b) => b.total - a.total)
     .slice(0, 4);
 
+  // 4K 新增模块的派生值：成本趋势/分解、预算执行、升级与备份记录。
+  // 金额换算放展示层（money/USD_TO_CNY），这里只整理形状。
+  const cost = data.costSummary ?? null;
+  const costAvailable = cost?.costAvailable === true;
+  const costTotalUsd = cost === null
+    ? null
+    : cost.total.actualUsd ?? cost.total.estimatedUsd;
+  const costDays = (cost?.days ?? []).map((d) => ({
+    date: d.date.slice(5),
+    costUsd: d.actualCostUsd ?? d.estimatedCostUsd,
+    tokensWan: Math.round(d.tokens / 10_000),
+  }));
+  const costModels = [...(cost?.models ?? [])]
+    .sort((a, b) => (b.actualCostUsd ?? b.estimatedCostUsd ?? 0) - (a.actualCostUsd ?? a.estimatedCostUsd ?? 0))
+    .slice(0, 5);
+  const costModelsTokenSum = costModels.reduce((sum, m) => sum + m.tokens, 0);
+  const budgetEnabled = data.budget?.enabled === true;
+  const budgetRatioPct = budgetEnabled && data.budget?.ratio !== null && data.budget?.ratio !== undefined
+    ? Math.round(data.budget.ratio * 100)
+    : null;
+  const bridge = data.messageStatus?.status?.bridge ?? null;
+  const relayPending = data.messageStatus?.status?.relay?.pending ?? null;
+  const recentBackups = [...(data.backups?.items ?? [])]
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .slice(0, 5);
+  const recentSnapshots = [...(data.versions?.snapshots ?? [])]
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .slice(0, 3);
+  const upgradeJob = data.versions?.upgradeJob ?? null;
+
   return {
     onlineInstances,
     totalInstances: instances.length,
@@ -337,5 +432,17 @@ export function deriveWallView(data: WallData) {
     fingerprints: dashboard?.fingerprints?.length ?? null,
     relayEnabled: messageStatus?.status?.relay?.enabled ?? null,
     alertEvents: alertItems.slice(0, 5),
+    costAvailable,
+    costTotalUsd,
+    costDays,
+    costModels,
+    costModelsTokenSum,
+    budgetEnabled,
+    budgetRatioPct,
+    bridge,
+    relayPending,
+    recentBackups,
+    recentSnapshots,
+    upgradeJob,
   };
 }
