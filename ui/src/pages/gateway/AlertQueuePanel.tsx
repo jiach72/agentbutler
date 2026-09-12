@@ -1,8 +1,9 @@
 /**
  * 待处理通知面板：告警队列计数 + 队列表（antd Table）。
  */
-import { Card, Empty, Flex, Table, Typography } from "antd";
+import { Card, Flex, Table, Typography } from "antd";
 import type { TableColumnsType } from "antd";
+import { Empty } from "../../components/Empty.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { formatNumber, formatRelative } from "../../lib/format.js";
 import { channelLabel, sourceLabel, statusTone } from "./helpers.js";
@@ -61,8 +62,9 @@ export function AlertQueuePanel({ alerts }: AlertQueuePanelProps) {
       </Typography.Title>
       {alerts === null || !alerts.reachable ? (
         <Empty
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description="管家连上后，这里会显示排队中的提醒和当前通知状态。"
+          mascot={false}
+          title="还没有排队中的提醒"
+          hint="管家连上后，这里会显示提醒和当前通知状态。"
         />
       ) : (
         <>
@@ -75,7 +77,7 @@ export function AlertQueuePanel({ alerts }: AlertQueuePanelProps) {
             ))}
           </Flex>
           {alerts.items.length === 0 ? (
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有等待处理的通知。" />
+            <Empty mascot={false} title="还没有等待处理的通知。" />
           ) : (
             <Card styles={{ body: { padding: 0 } }}>
               <Table<AlertItem>

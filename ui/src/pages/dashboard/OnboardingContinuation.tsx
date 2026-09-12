@@ -29,7 +29,8 @@ export function OnboardingContinuation({ preferences: suppliedPreferences }: Onb
                 告诉管家你想先做什么，它会保留相应入口和下一步。
               </Paragraph>
             </div>
-            <Button type="primary" href="/setup">开始设置</Button>
+            {/* 次按钮：首屏唯一的主动作留给结论条的「立即检查」（规范 §1 P2 一个动作）。 */}
+            <Button href="/setup">开始设置</Button>
           </Flex>
         </Card>
       </section>

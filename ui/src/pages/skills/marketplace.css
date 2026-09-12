@@ -75,7 +75,8 @@
   border-radius: 6px; /* 规范 §3: tag 用 6。 */
   background: var(--ab-sunken);
   color: var(--ab-text-2);
-  font-size: 11px;
+  /* 12 是全站最小字阶（规范 03 §3.2）；11px 在密集卡片里已经读不清（评审 P2-1）。 */
+  font-size: var(--ab-text-size-xs);
   line-height: 18px;
   text-align: center;
 }
@@ -144,7 +145,7 @@
 
 .wb-chip .count {
   margin-left: 4px;
-  font-size: 11px;
+  font-size: var(--ab-text-size-xs);
   color: var(--ab-text-3);
 }
 

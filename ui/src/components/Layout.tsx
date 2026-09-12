@@ -1,32 +1,20 @@
 /**
- * 应用外壳（antd v6 原生）：Layout/Sider/Menu/Header/Content 承担骨架，
- * 导航是 inline Menu（组内嵌 react-router Link，保留真实 <a href> 语义），
- * 移动端侧栏收进 Drawer。顶栏保留页题、通知与主题切换。
+ * 应用外壳（antd v6 原生）：Layout/Sider/Menu/Header/Content 承担骨架。
+ *
+ * 【导航结构】全部由 lib/routeMeta.ts 派生，本文件不再维护第二份导航事实：
+ *   · 控制台 / 维护与升级：常显分组；
+ *   · 信任层：可折叠分组（9 项），展开后按「花了什么 / 管得住吗」分簇。
+ *     折叠是为了把侧栏内容压进 768px 首屏——此前 18 项平铺约 1030px，
+ *     底部的「设置」与访问安全态在短屏上默认掉出视野（评审 P0-1）。
+ *   · 设置：底部钉住，不随导航滚动。
+ *
+ * 【状态只在一处说】访问安全态在侧栏底部展示；顶栏只在「不是仅本机访问」时
+ * 才补一句警示，避免同一事实在一屏出现两次（评审 P0-3）。
  */
-import {
-  DashboardOutlined,
-  MenuOutlined,
-  MoonOutlined,
-  NotificationOutlined,
-  SafetyCertificateOutlined,
-  SettingOutlined,
-  SunOutlined,
-  ApiOutlined,
-  FileSearchOutlined,
-  ToolOutlined,
-  DollarOutlined,
-  FileDoneOutlined,
-  AlertOutlined,
-  FileTextOutlined,
-  HistoryOutlined,
-  AuditOutlined,
-  FundProjectionScreenOutlined,
-  DiffOutlined,
-  ClusterOutlined,
-} from "@ant-design/icons";
+import { MenuOutlined, MoonOutlined, SafetyCertificateOutlined, SunOutlined, ToolOutlined } from "@ant-design/icons";
 import { Button, Drawer, Layout as AntLayout, Menu } from "antd";
 import type { MenuProps } from "antd";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { KillSwitchButton } from "./KillSwitchButton.js";
 import { MobileTabBar } from "./MobileTabBar.js";
@@ -35,63 +23,44 @@ import { PageProgress } from "./PageProgress.js";
 import { NotificationsProvider } from "../hooks/useNotifications.js";
 import { useTheme } from "../theme/ThemeProvider.js";
 import { loadJson } from "../lib/api.js";
+import {
+  NAV_GROUPS,
+  PINNED_ROUTE,
+  TRUST_CLUSTERS,
+  navRoutesFor,
+  routeMetaFor,
+  type NavGroup,
+  type RouteMeta,
+} from "../lib/routeMeta.js";
 import type { SecurityBaselinePayload } from "../pages/settings/helpers.js";
-
-const NAV_ITEMS = [
-  { to: "/dashboard", icon: <DashboardOutlined />, label: "首页", note: "运行总览与一键检查" },
-  { to: "/skills", icon: <ApiOutlined />, label: "智能体与记忆", note: "技能、插件与记忆" },
-  { to: "/gateway", icon: <NotificationOutlined />, label: "消息通知", note: "频率控制与送达记录" },
-];
-
-/** 信任层（Trust Layer）：成本 / 行为审计 / 事件中心。 */
-const TRUST_NAV_ITEMS = [
-  { to: "/cost", icon: <DollarOutlined />, label: "成本", note: "花了多少钱、值不值" },
-  { to: "/audit", icon: <FileDoneOutlined />, label: "行为审计", note: "动过哪些文件、发了什么" },
-  { to: "/events", icon: <AlertOutlined />, label: "事件中心", note: "一处看完所有告警与回归" },
-  { to: "/report", icon: <FileTextOutlined />, label: "Agent 周报", note: "每周一 08:00 自动汇总推送" },
-  { to: "/sessions", icon: <HistoryOutlined />, label: "会话追踪", note: "按会话回放 agent 的动作链" },
-  { to: "/approvals", icon: <AuditOutlined />, label: "操作审批", note: "高危动作先点头，超时默认拒绝" },
-  { to: "/progress", icon: <FundProjectionScreenOutlined />, label: "进度可信度", note: "它说做完了，是真的还是编的" },
-  { to: "/memory-diff", icon: <DiffOutlined />, label: "记忆变更", note: "本周它记住了什么、忘了什么" },
-  { to: "/federation", icon: <ClusterOutlined />, label: "实例联邦", note: "多实例成本、事件与急停合并看" },
-];
-
-const SECONDARY_ROUTE_ITEMS = [
-  { to: "/core-files", icon: <FileSearchOutlined />, label: "核心文件", note: "查看、编辑与回滚 Markdown" },
-  { to: "/evolution", icon: <ToolOutlined />, label: "自进化", note: "分析日志与优化方案" },
-  { to: "/troubleshoot", icon: <ToolOutlined />, label: "排查问题", note: "按现象一步步处理" },
-  { to: "/logs", icon: <FileSearchOutlined />, label: "系统日志", note: "查看记录与修复建议" },
-  { to: "/setup", icon: <SettingOutlined />, label: "连接体检", note: "链路三环体检与修复" },
-];
-
-const SETTINGS_ITEM = {
-  to: "/settings",
-  icon: <SettingOutlined />,
-  label: "设置",
-  note: "本机安全、备份与偏好",
-};
 
 interface NavItem {
   to: string;
-  icon: React.ReactNode;
-  label: string;
+  icon: RouteMeta["icon"];
+  title: string;
   note: string;
 }
 
+/** 把一个路由元信息渲染成菜单项（组内嵌 react-router Link，保留真实 <a href> 语义）。 */
 function navEntry(item: NavItem, onNavigate?: () => void): NonNullable<MenuProps["items"]>[number] {
+  const Icon = item.icon;
   return {
     key: item.to,
-    icon: item.icon,
-    title: item.label,
+    icon: <Icon />,
+    title: item.title,
     label: (
       <Link to={item.to} onClick={onNavigate} className="menu-link">
         <span className="menu-copy">
-          <strong>{item.label}</strong>
+          <strong>{item.title}</strong>
           <small>{item.note}</small>
         </span>
       </Link>
     ),
   };
+}
+
+function toNavItem(route: RouteMeta): NavItem {
+  return { to: route.path, icon: route.icon, title: route.title, note: route.note };
 }
 
 /**
@@ -115,9 +84,50 @@ function baselineNote(baseline: SecurityBaselinePayload | null): string {
   if (baseline.loopback) {
     return baseline.auth ? "数据只保存在你的电脑上，已设置访问口令" : "数据只保存在你的电脑上";
   }
-  return baseline.auth
-    ? "已设访问口令"
-    : "未设访问口令，请尽快处理";
+  return baseline.auth ? "已设访问口令" : "未设访问口令，请尽快处理";
+}
+
+/** 常显分组：标题 + 直接列出子项。 */
+function groupItem(group: NavGroup, onNavigate?: () => void): NonNullable<MenuProps["items"]>[number] {
+  return {
+    key: `group-${group.key}`,
+    type: "group",
+    label: group.label,
+    children: navRoutesFor(group.key).map((route) => navEntry(toNavItem(route), onNavigate)),
+  };
+}
+
+/** 可折叠分组：SubMenu + 内部按 cluster 再分簇。 */
+function collapsibleGroupItem(
+  group: NavGroup,
+  onNavigate?: () => void,
+): NonNullable<MenuProps["items"]>[number] {
+  const routes = navRoutesFor(group.key);
+  const clusters = TRUST_CLUSTERS.filter((cluster) => routes.some((route) => route.cluster === cluster));
+  const children: NonNullable<MenuProps["items"]> =
+    clusters.length === 0
+      ? routes.map((route) => navEntry(toNavItem(route), onNavigate))
+      : clusters.map((cluster) => ({
+          key: `cluster-${cluster}`,
+          type: "group",
+          label: cluster,
+          children: routes
+            .filter((route) => route.cluster === cluster)
+            .map((route) => navEntry(toNavItem(route), onNavigate)),
+        }));
+
+  return {
+    key: group.key,
+    icon: <SafetyCertificateOutlined />,
+    title: group.label,
+    label: (
+      <span className="menu-copy">
+        <strong>{group.label}</strong>
+        {group.note !== undefined && <small>{group.note}</small>}
+      </span>
+    ),
+    children,
+  };
 }
 
 function SidebarContent({
@@ -128,31 +138,27 @@ function SidebarContent({
   baseline: SecurityBaselinePayload | null;
 }) {
   const location = useLocation();
-  const settingsActive =
-    location.pathname.startsWith(SETTINGS_ITEM.to) || location.pathname.startsWith("/preferences");
-  const currentEntry = [...NAV_ITEMS, ...SECONDARY_ROUTE_ITEMS].find((item) => location.pathname.startsWith(item.to));
-  const selectedKey = settingsActive ? SETTINGS_ITEM.to : (currentEntry?.to ?? "");
+  const currentMeta = routeMetaFor(location.pathname);
+  const settingsActive = currentMeta?.group === "settings" || location.pathname.startsWith("/preferences");
+  const selectedKey = settingsActive ? PINNED_ROUTE.path : (currentMeta?.path ?? "");
 
-  const menuItems: MenuProps["items"] = [
-    {
-      key: "group-console",
-      type: "group",
-      label: "控制台",
-      children: NAV_ITEMS.map((item) => navEntry(item, onNavigate)),
-    },
-    {
-      key: "group-trust",
-      type: "group",
-      label: "信任层",
-      children: TRUST_NAV_ITEMS.map((item) => navEntry(item, onNavigate)),
-    },
-    {
-      key: "group-management",
-      type: "group",
-      label: "维护与升级",
-      children: SECONDARY_ROUTE_ITEMS.map((item) => navEntry(item, onNavigate)),
-    },
-  ];
+  // 折叠分组默认收起；当前页在组内时自动展开（从移动 Tab 直接进 /cost 也能看到自己在哪）。
+  const trustActive = currentMeta?.group === "trust";
+  const [openKeys, setOpenKeys] = useState<string[]>(() => (trustActive ? ["trust"] : []));
+  useEffect(() => {
+    if (!trustActive) return;
+    setOpenKeys((keys) => (keys.includes("trust") ? keys : [...keys, "trust"]));
+  }, [trustActive]);
+
+  const menuItems: MenuProps["items"] = useMemo(
+    () =>
+      NAV_GROUPS.filter((group) => group.key !== "settings").map((group) =>
+        group.collapsible ? collapsibleGroupItem(group, onNavigate) : groupItem(group, onNavigate),
+      ),
+    [onNavigate],
+  );
+
+  const PinnedIcon = PINNED_ROUTE.icon;
 
   return (
     <>
@@ -168,19 +174,26 @@ function SidebarContent({
           <small>本地运维控制台</small>
         </span>
       </div>
-      <Menu mode="inline" className="app-nav" items={menuItems} selectedKeys={[selectedKey]} />
+      <Menu
+        mode="inline"
+        className="app-nav"
+        items={menuItems}
+        selectedKeys={[selectedKey]}
+        openKeys={openKeys}
+        onOpenChange={(keys) => setOpenKeys(keys as string[])}
+      />
       <div className="sidebar-bottom">
         <Link
-          to={SETTINGS_ITEM.to}
+          to={PINNED_ROUTE.path}
           onClick={onNavigate}
           className={`sidebar-settings${settingsActive ? " active" : ""}`}
         >
           <span className="sidebar-settings-icon" aria-hidden="true">
-            {SETTINGS_ITEM.icon}
+            <PinnedIcon />
           </span>
           <span className="menu-copy">
-            <strong>{SETTINGS_ITEM.label}</strong>
-            <small>{SETTINGS_ITEM.note}</small>
+            <strong>{PINNED_ROUTE.title}</strong>
+            <small>{PINNED_ROUTE.note}</small>
           </span>
         </Link>
         <div className={`sidebar-meta${baselineTone(baseline) !== "ok" ? ` is-${baselineTone(baseline)}` : ""}`}>
@@ -211,16 +224,10 @@ export function Layout() {
       alive = false;
     };
   }, []);
-  const currentPage = location.pathname.startsWith(SETTINGS_ITEM.to) ||
-      location.pathname.startsWith("/preferences")
-    ? SETTINGS_ITEM
-    : [...NAV_ITEMS, ...SECONDARY_ROUTE_ITEMS].find((item) => location.pathname.startsWith(item.to)) ?? {
-      to: location.pathname,
-      icon: null,
-      label: "当前页面",
-      note: "",
-    };
+  const currentPage = routeMetaFor(location.pathname);
   const themeLabel = mode === "dark" ? "切换到亮色主题" : "切换到暗色主题";
+  // 访问安全态在侧栏底部已说明；顶栏只在「不是仅本机访问」时补一句警示（评审 P0-3）。
+  const topbarWarn = baselineTone(baseline) !== "ok";
 
   return (
     <NotificationsProvider>
@@ -253,24 +260,25 @@ export function Layout() {
                 aria-label="打开导航"
                 onClick={() => setDrawerOpen(true)}
               />
-              <strong className="topbar-title">{currentPage.label}</strong>
+              <strong className="topbar-title">{currentPage?.title ?? "当前页面"}</strong>
               <span className="topbar-brand">Agent Butler · 本地运维控制台</span>
             </div>
             <div className="topbar-actions">
-              <span className={`topbar-note${baselineTone(baseline) !== "ok" ? ` is-${baselineTone(baseline)}` : ""}`}>
-                {baselineTitle(baseline)}
-              </span>
+              {topbarWarn && (
+                <span className={`topbar-note is-${baselineTone(baseline)}`}>{baselineTitle(baseline)}</span>
+              )}
+              <NotificationCenter />
               <KillSwitchButton />
               <Button
                 type="text"
                 size="small"
+                className="topbar-tool"
                 icon={<ToolOutlined />}
                 aria-label="开始排查问题"
                 onClick={() => navigate("/troubleshoot")}
               >
                 排查问题
               </Button>
-              <NotificationCenter />
               <Button
                 type="text"
                 className="theme-toggle"

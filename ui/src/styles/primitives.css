@@ -215,7 +215,21 @@ html body .dense-descriptions .ant-descriptions-item-content {
   font-variant-numeric: tabular-nums;
 }
 
-/* ---- 状态徽标（规范 03 §3.2：高 22 / 左右 padding 8 / 字号 12 / 字重 500 / 圆角 6）---- */
+/* ---- 概览统计条（StatStrip，全站唯一出口） ---- */
+
+/* 数值默认 24px；页面可以在自己的作用域里收一档（如首页的证据层降到 20），
+   不需要属性选择器，更不用 !important 对抗内联样式。 */
+.stat-strip-value {
+  font-size: var(--ab-text-size-xxl);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.stat-strip-meta {
+  font-size: var(--ab-text-size-xs);
+}
+
+/* ---- 语义状态徽标（规范 03 §3.2：高 22 / 左右 padding 8 / 字号 12 / 字重 500 / 圆角 6）---- */
 
 .status-badge {
   display: inline-flex;
@@ -335,6 +349,45 @@ html body .dense-descriptions .ant-descriptions-item-content {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 每条通知三行：严重度 + 相对时间 / 标题 / 正文摘要（评审 P1-8）。 */
+.notification-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.notification-item-time {
+  color: var(--ab-text-3);
+  font-size: var(--ab-text-size-xs);
+}
+.notification-item-body {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 2px;
+  color: var(--ab-text-3);
+  font-size: var(--ab-text-size-xs);
+  line-height: 1.5;
+}
+/* 合并次数 / 上次发送失败：用 warn 而不是 error——它是「需要你看一眼」，不是「坏了」。 */
+.notification-item-note {
+  display: block;
+  margin-top: 4px;
+  color: var(--ab-warn);
+  font-size: var(--ab-text-size-xs);
+}
+.notification-panel-empty {
+  padding: 8px 0;
+}
+.notification-panel-more {
+  margin: 0;
+  padding: 8px 14px;
+  border-top: 1px solid var(--ab-border);
+  color: var(--ab-text-3);
+  font-size: var(--ab-text-size-xs);
 }
 .notification-unread-dot {
   position: absolute;

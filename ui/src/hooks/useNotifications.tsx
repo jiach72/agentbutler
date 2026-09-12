@@ -32,7 +32,9 @@ export interface NotificationsPayload {
 
 interface NotificationsContextValue {
   payload: NotificationsPayload | null;
+  /** 重要通知（warn + critical），未按用户偏好收窄。 */
   items: NotificationItem[];
+  /** 服务端口径的全部未读数：只用来判断「全部标记已读」是否可点。 */
   unreadCount: number;
   loading: boolean;
   refresh: () => Promise<void>;
@@ -50,6 +52,25 @@ const NotificationsContext = createContext<NotificationsContextValue | null>(nul
 
 function important(item: NotificationItem): boolean {
   return item.severity === "warn" || item.severity === "critical";
+}
+
+/**
+ * 按用户偏好收窄可见通知。
+ *
+ * 【唯一出口】徽标数与列表内容必须由**同一次过滤**得出，否则会出现
+ * 「铃铛显示 3 条未读、点开列表是空的」（服务端全量未读 vs 列表只留 warn+critical）——
+ * 评审 P1-8。消费方请调用它并复用同一份结果，不要各自再 filter 一遍。
+ */
+export function visibleForPreference(
+  item: NotificationItem,
+  minSeverity: "warn" | "critical",
+): boolean {
+  return minSeverity === "critical" ? item.severity === "critical" : true;
+}
+
+/** 未读计数：只数同一份可见列表，保证与界面显示一致。 */
+export function countUnread(items: NotificationItem[]): number {
+  return items.filter((item) => item.readAt === null).length;
 }
 
 export function NotificationsProvider({ children }: { children: React.ReactNode }) {

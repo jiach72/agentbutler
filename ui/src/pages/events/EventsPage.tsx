@@ -2,13 +2,25 @@
  * 事件中心（Trust Layer M2.2）：告警、指纹、预算、急停等分散信号收敛为一处。
  * 左列表（regressed/active 置顶，severity×频率排序）+ 右详情（证据链 + 处理动作）。
  * 「回归是一等公民」：resolved 后同键复发自动标 regressed 置顶。
+ *
+ * 展示层遵循规范 03 §2.3：页头 → 结论条 → 主内容。
+ * 结论只来自真实数据（评审 P0-2）；筛选落 URL 便于把「你看这个」贴给同事（评审 P1-7）；
+ * 选中态与分隔线走品牌令牌，不再用 antd 默认蓝与半透明灰（评审 P1-2 / P2-4）。
  */
-import { Button, Card, Col, Empty, Flex, Row, Segmented, Tag, Timeline, Typography } from "antd";
+import { Button, Card, Col, Flex, Row, Segmented, Typography } from "antd";
 import { CheckOutlined, FlagOutlined } from "@ant-design/icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { ConclusionBar } from "../../components/ConclusionBar.js";
+import type { PageConclusionView } from "../../components/ConclusionBar.js";
+import { Empty } from "../../components/Empty.js";
 import { PageHeader } from "../../components/PageHeader.js";
+import { StatusBadge } from "../../components/StatusBadge.js";
+import type { SemanticTone } from "../../components/StatusBadge.js";
+import { useUrlState } from "../../hooks/useUrlState.js";
 import { loadJson, postJson } from "../../lib/api.js";
 import { usePolling } from "../../hooks/usePolling.js";
+import "./events.css";
 
 interface TrustEvent {
   id: number;
@@ -25,17 +37,25 @@ interface TrustEvent {
   updatedAt: string;
 }
 
-const SEVERITY_META: Record<TrustEvent["severity"], { label: string; color: string }> = {
-  critical: { label: "严重", color: "red" },
-  warn: { label: "警告", color: "orange" },
-  info: { label: "提示", color: "blue" },
+/** 严重度只映射到品牌 6 档语义色，不用 antd 预设色名（预设色由算法派生，与品牌信号色不同值）。 */
+const SEVERITY_TONE: Record<TrustEvent["severity"], SemanticTone | null> = {
+  critical: "error",
+  warn: "warn",
+  /** 提示级不占用状态色：它表达「有条记录」，不是「有坏事」。 */
+  info: null,
 };
 
-const STATUS_META: Record<TrustEvent["status"], { label: string; color: string }> = {
-  regressed: { label: "回归", color: "volcano" },
-  active: { label: "进行中", color: "red" },
-  acknowledged: { label: "已确认", color: "gold" },
-  resolved: { label: "已解决", color: "green" },
+const SEVERITY_LABEL: Record<TrustEvent["severity"], string> = {
+  critical: "严重",
+  warn: "警告",
+  info: "提示",
+};
+
+const STATUS_LABEL: Record<TrustEvent["status"], string> = {
+  regressed: "回归",
+  active: "进行中",
+  acknowledged: "已确认",
+  resolved: "已解决",
 };
 
 function evidenceText(event: TrustEvent): string {
@@ -47,8 +67,10 @@ function evidenceText(event: TrustEvent): string {
 }
 
 export function EventsPage() {
+  const navigate = useNavigate();
   const [events, setEvents] = useState<TrustEvent[] | null>(null);
-  const [statusFilter, setStatusFilter] = useState<string>("open");
+  // 筛选同步到 URL：刷新、返回、贴链接都能还原同一个视图（评审 P1-7）。
+  const [statusFilter, setStatusFilter] = useUrlState<string>("status", "open");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -93,22 +115,74 @@ export function EventsPage() {
 
   const counts = useMemo(() => {
     const list = events ?? [];
+    const criticalActive = list.filter(
+      (event) => event.severity === "critical" && (event.status === "active" || event.status === "regressed"),
+    ).length;
     return {
       regressed: list.filter((event) => event.status === "regressed").length,
       active: list.filter((event) => event.status === "active").length,
+      criticalActive,
       acknowledged: list.filter((event) => event.status === "acknowledged").length,
     };
   }, [events]);
+
+  /**
+   * 页面结论条（规范 03 §2.3 ②「必须有」）。
+   * 顺序即优先级：读不到 → 回归 → 严重进行中 → 一般进行中 → 没有进行中的（评审 P0-2）。
+   */
+  const conclusion: PageConclusionView =
+    error !== null
+      ? {
+          tone: "offline",
+          title: "事件中心暂时读不到",
+          copy: error,
+          action: <Button onClick={refresh}>重试</Button>,
+        }
+      : events === null
+        ? { tone: "unknown", title: "正在读取事件", copy: "告警、指纹与预算事件会汇总到这里。" }
+        : counts.regressed > 0
+          ? {
+              tone: "error",
+              title: `有 ${counts.regressed} 个问题回归了`,
+              copy: "之前已解决的同键问题又出现了；回归优先级最高，先看这几条。",
+              action: <Button type="primary" onClick={() => navigate("/troubleshoot")}>去排查</Button>,
+            }
+          : counts.criticalActive > 0
+            ? {
+                tone: "error",
+                title: `有 ${counts.criticalActive} 个严重事件正在进行`,
+                copy: "这些事件会影响 agent 的正常工作，建议先处理。",
+                action: <Button type="primary" onClick={() => navigate("/troubleshoot")}>去排查</Button>,
+              }
+            : counts.active > 0
+              ? {
+                  tone: "warn",
+                  title: `有 ${counts.active} 个事件正在进行`,
+                  copy:
+                    counts.acknowledged > 0
+                      ? `另有 ${counts.acknowledged} 个已确认待解决。`
+                      : "目前没有回归，也没有严重级事件。",
+                }
+              : {
+                  tone: "ok",
+                  title: "没有正在进行的事件",
+                  copy:
+                    counts.acknowledged > 0
+                      ? `另有 ${counts.acknowledged} 个已确认待解决，不着急。`
+                      : "告警、指纹、预算与急停都没有新动作。",
+                };
 
   return (
     <section className="events-page">
       <Flex vertical gap={16}>
         <PageHeader
-          eyebrow="信任层"
           title="事件中心"
-          description="发生了什么、影响了什么、怎么处理、处理好没有——只看这一个地方。"
+          description="告警、回归和预算事件都汇总在这一页，处理进度也在这里更新。"
         />
-        {error !== null && <Typography.Text type="warning">事件中心不可用：{error}</Typography.Text>}
+
+        {/* §2.3 ② 结论条。 */}
+        <ConclusionBar tone={conclusion.tone} title={conclusion.title} copy={conclusion.copy} action={conclusion.action} />
+
         <Flex gap={8} wrap="wrap">
           <Segmented
             value={statusFilter}
@@ -126,37 +200,45 @@ export function EventsPage() {
             <Card title="事件列表" styles={{ body: { padding: 0, maxHeight: 560, overflow: "auto" } }}>
               {visible.length === 0 ? (
                 <Empty
-                  style={{ padding: 32 }}
-                  description="没有待处理的事件——安心"
-                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  className="events-empty"
+                  title="没有待处理的事件"
+                  hint="换个筛选看看，或等管家报告新的异常——没问题时这里本来就该是空的。"
+                  mascotWidth={80}
                 />
               ) : (
                 <Flex vertical>
                   {visible.map((event) => {
-                    const severity = SEVERITY_META[event.severity];
-                    const status = STATUS_META[event.status];
+                    const tone = SEVERITY_TONE[event.severity];
                     const isSelected = selected?.id === event.id;
                     return (
                       <button
                         key={event.id}
                         type="button"
+                        aria-current={isSelected ? "true" : undefined}
                         onClick={() => setSelectedId(event.id)}
-                        style={{
-                          textAlign: "left",
-                          border: "none",
-                          borderLeft: `3px solid ${isSelected ? "#1677ff" : "transparent"}`,
-                          borderBottom: "1px solid rgba(128,128,128,0.15)",
-                          background: isSelected ? "rgba(22,119,255,0.06)" : "transparent",
-                          padding: "10px 14px",
-                          cursor: "pointer",
-                          width: "100%",
-                        }}
+                        className={`events-row${isSelected ? " is-selected" : ""}`}
                       >
                         <Flex gap={6} align="center" wrap="wrap" style={{ marginBottom: 4 }}>
-                          <Tag color={severity.color}>{severity.label}</Tag>
-                          <Tag color={status.color}>{status.label}</Tag>
-                          {event.count > 1 && <Tag>×{event.count}</Tag>}
-                          <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                          {tone === null ? (
+                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                              {SEVERITY_LABEL[event.severity]}
+                            </Typography.Text>
+                          ) : (
+                            <StatusBadge tone={tone} label={SEVERITY_LABEL[event.severity]} />
+                          )}
+                          {event.status === "regressed" ? (
+                            <StatusBadge tone="error" label={STATUS_LABEL.regressed} />
+                          ) : (
+                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                              {STATUS_LABEL[event.status]}
+                            </Typography.Text>
+                          )}
+                          {event.count > 1 && (
+                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                              共 {event.count} 次
+                            </Typography.Text>
+                          )}
+                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                             {new Date(event.lastSeen).toLocaleString()}
                           </Typography.Text>
                         </Flex>
@@ -205,43 +287,52 @@ export function EventsPage() {
               }
             >
               {selected === null ? (
-                <Empty description="选择左侧事件查看证据链" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                <Empty title="先选一条事件" hint="左侧列表里点一条，这里会展示它的证据链和处理动作。" mascotWidth={72} />
               ) : (
                 <Flex vertical gap={12}>
                   <Typography.Title level={5} style={{ marginTop: 0 }}>{selected.title}</Typography.Title>
-                  <Flex gap={6} wrap="wrap">
-                    <Tag color={SEVERITY_META[selected.severity].color}>
-                      {SEVERITY_META[selected.severity].label}
-                    </Tag>
-                    <Tag>{selected.kind}</Tag>
-                    <Tag color={STATUS_META[selected.status].color}>{STATUS_META[selected.status].label}</Tag>
-                    {selected.count > 1 && <Tag>发生 {selected.count} 次</Tag>}
+                  <Flex gap={6} wrap="wrap" align="center">
+                    {SEVERITY_TONE[selected.severity] === null ? (
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        {SEVERITY_LABEL[selected.severity]}
+                      </Typography.Text>
+                    ) : (
+                      <StatusBadge
+                        tone={SEVERITY_TONE[selected.severity] as SemanticTone}
+                        label={SEVERITY_LABEL[selected.severity]}
+                      />
+                    )}
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>{selected.kind}</Typography.Text>
+                    {selected.status === "regressed" ? (
+                      <StatusBadge tone="error" label={STATUS_LABEL.regressed} />
+                    ) : (
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        {STATUS_LABEL[selected.status]}
+                      </Typography.Text>
+                    )}
+                    {selected.count > 1 && (
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        发生 {selected.count} 次
+                      </Typography.Text>
+                    )}
                   </Flex>
-                  <Timeline
-                    items={[
-                      { children: `首次出现：${new Date(selected.firstSeen).toLocaleString()}` },
-                      { children: `最近出现：${new Date(selected.lastSeen).toLocaleString()}` },
-                      { children: `状态更新：${new Date(selected.updatedAt).toLocaleString()}` },
-                    ]}
-                  />
+                  <div className="events-evidence-timeline">
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>时间线</Typography.Text>
+                    <dl className="kv">
+                      <dt>首次出现</dt>
+                      <dd>{new Date(selected.firstSeen).toLocaleString()}</dd>
+                      <dt>最近出现</dt>
+                      <dd>{new Date(selected.lastSeen).toLocaleString()}</dd>
+                      <dt>状态更新</dt>
+                      <dd>{new Date(selected.updatedAt).toLocaleString()}</dd>
+                    </dl>
+                  </div>
                   <Typography.Text type="secondary">证据链（脱敏）</Typography.Text>
-                  <pre
-                    style={{
-                      margin: 0,
-                      padding: 12,
-                      background: "rgba(128,128,128,0.08)",
-                      borderRadius: 8,
-                      fontSize: 12,
-                      overflow: "auto",
-                      maxHeight: 240,
-                    }}
-                  >
-                    {evidenceText(selected) || "（无证据记录）"}
-                  </pre>
+                  <pre className="events-evidence">{evidenceText(selected) || "（无证据记录）"}</pre>
                   <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                     事件键：{selected.dedupeKey}
                     {selected.status === "resolved"
-                      ? "。同键复发会自动转「回归」并置顶——回归是一等公民。"
+                      ? "。同类问题再次出现会自动标为回归并置顶。"
                       : ""}
                   </Typography.Text>
                 </Flex>

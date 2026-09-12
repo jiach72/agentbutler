@@ -18,6 +18,7 @@ import {
   sparkOption,
   tokenTrendOption,
   trendOption,
+  wallSequence,
 } from "./wallTheme.js";
 import { deriveWallView, useWallData, type WallLlmUsage } from "./useWallData.js";
 import "./wall.css";
@@ -34,14 +35,19 @@ function readInitialTheme(): WallThemeMode {
   }
 }
 
-/** ECharts 挂载组件：option 变化即 setOption，容器尺寸变化自动 resize。 */
-function WallChart({ option, className }: { option: EChartsOption | null; className?: string }) {
+/**
+ * ECharts 挂载组件：option 变化即 setOption，容器尺寸变化自动 resize。
+ * dpr 必须传入「系统 dpr × stage 缩放比」：stage 被 transform scale 放大时，
+ * canvas 位图若仍按 1920 基准渲染会被拉伸发虚（审计 P0-2），因此 scale
+ * 变化时以新 dpr 重建图表实例，保证 2K/4K 下像素级清晰。
+ */
+function WallChart({ option, className, dpr }: { option: EChartsOption | null; className?: string; dpr: number }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<ReturnType<typeof echarts.init> | null>(null);
 
   useEffect(() => {
     if (hostRef.current === null) return;
-    chartRef.current = echarts.init(hostRef.current);
+    chartRef.current = echarts.init(hostRef.current, undefined, { devicePixelRatio: dpr });
     const observer = new ResizeObserver(() => chartRef.current?.resize());
     observer.observe(hostRef.current);
     return () => {
@@ -49,13 +55,13 @@ function WallChart({ option, className }: { option: EChartsOption | null; classN
       chartRef.current?.dispose();
       chartRef.current = null;
     };
-  }, []);
+  }, [dpr]);
 
   useEffect(() => {
     if (chartRef.current !== null && option !== null) {
       chartRef.current.setOption(option, true);
     }
-  }, [option]);
+  }, [option, dpr]);
 
   return <div ref={hostRef} className={className ?? "wall-chart"} />;
 }
@@ -94,6 +100,7 @@ function KpiCard(props: {
   tone?: "brand" | "cyan" | "warn" | "error";
   badge?: { text: string; kind: "ok" | "warn" | "err" | "info" | "brass" | "off" };
   spark?: { data: Array<number>; theme: WallThemeMode };
+  dpr?: number;
 }) {
   const toneClass = props.tone === undefined ? "" : ` tone-${props.tone}`;
   const badge = props.badge === undefined
@@ -110,7 +117,7 @@ function KpiCard(props: {
         <span>{props.foot}</span>
         {props.spark === undefined
           ? props.footExtra === undefined ? null : <span>{props.footExtra}</span>
-          : <WallChart option={sparkOption(props.spark.data, WALL_PALETTES[props.spark.theme])} className="wall-spark" />}
+          : <WallChart option={sparkOption(props.spark.data, WALL_PALETTES[props.spark.theme])} className="wall-spark" dpr={props.dpr ?? 1} />}
       </div>
     </div>
   );
@@ -147,19 +154,26 @@ export function WallPage() {
     }
   }, [theme]);
 
-  // 画布等比缩放：以 1920×1080 为基准，居中适配任意窗口（2K/4K 不失真，无滚动条）。
+  // 画布等比缩放：以 1920×1080 为基准，居中适配任意窗口（无滚动条）。
+  // scale 存入 state 驱动 WallChart 以「系统 dpr × scale」重建位图，
+  // 否则 transform 放大后 canvas 文字/线条会像素化（审计 P0-2）。
   const stageRef = useRef<HTMLDivElement | null>(null);
+  const [stageScale, setStageScale] = useState(() =>
+    Math.min(window.innerWidth / STAGE_WIDTH, window.innerHeight / STAGE_HEIGHT));
   useEffect(() => {
     const fit = () => {
       const scale = Math.min(window.innerWidth / STAGE_WIDTH, window.innerHeight / STAGE_HEIGHT);
       if (stageRef.current !== null) {
         stageRef.current.style.transform = `translate(-50%,-50%) scale(${scale})`;
       }
+      setStageScale(scale);
     };
     fit();
     window.addEventListener("resize", fit);
     return () => window.removeEventListener("resize", fit);
   }, []);
+  // 位图分辨率上限 3：超过后收益趋零且显存占用陡增。
+  const chartDpr = Math.min(window.devicePixelRatio * stageScale, 3);
 
   const successRateText = view.successRate === null ? "—" : view.successRate.toFixed(1);
   const p95Text = view.p95Ms === null ? "—" : view.p95Ms >= 1000 ? `${(view.p95Ms / 1000).toFixed(1)}s` : `${view.p95Ms}ms`;
@@ -172,29 +186,43 @@ export function WallPage() {
   const diskWarn = view.diskPercent !== null && view.diskPercent >= 75;
   const alertTone = view.openAlerts > 0 ? "warn" : undefined;
 
+  // 实例健康摘要：单实例时填充面板空白（审计 P1-1）。
+  const conns = data.connections ?? [];
+  const lastCheckedIso = conns.reduce<string | null>(
+    (acc, c) => (c.lastCheckedAt !== null && (acc === null || c.lastCheckedAt > acc) ? c.lastCheckedAt : acc),
+    null,
+  );
+  const runtimeSet = Array.from(new Set(conns.map((c) => c.runtime).filter((r) => r !== "")));
+
   const llmPending = data.llmUsage === "unavailable" || data.llmUsage === null;
   const llm: WallLlmUsage | null = llmPending || data.llmUsage === "unavailable" ? null : data.llmUsage;
 
-  // Token 按模型堆叠序列：Top4 模型各一条 + 其余合并「其他」，单位万 token。
+  // 24h / 7 日 token 汇总（万）：注意 (a ?? 0) 必须带括号，?? 优先级低于 /（审计 P0-1 教训）。
+  const latestTokensWan = llm === null ? null : Math.round((llm.days.at(-1)?.tokens ?? 0) / 10_000);
+  const sevenDayTokensWan = llm === null
+    ? null
+    : Math.round(llm.days.reduce((sum, d) => sum + d.tokens, 0) / 10_000);
+
+  // Token 按模型堆叠序列：Top7 模型各一条 + 其余合并「其他」，单位万 token。
   // 服务端未带 daily（理论不发生）时退回单条「合计」。
   const tokenSeries: Array<TokenModelSeries> = useMemo(() => {
     if (llm === null) return [];
-    const colorSeq = [palette.accent, palette.cyan, palette.brass, palette.ok];
+    const colorSeq = wallSequence(palette);
     const hasDaily = llm.models.some((m) => Array.isArray(m.daily) && m.daily.length === llm.days.length);
     if (!hasDaily) {
       return [{ name: "合计", color: colorSeq[0]!, data: llm.days.map((d) => Math.round(d.tokens / 10_000)) }];
     }
     const sorted = [...llm.models].sort((a, b) => b.tokens - a.tokens);
-    const series = sorted.slice(0, 4).map((m, i) => ({
+    const series = sorted.slice(0, 7).map((m, i) => ({
       name: m.model,
       color: colorSeq[i % colorSeq.length]!,
       data: (m.daily ?? []).map((v) => Math.round(v / 10_000)),
     }));
-    const rest = sorted.slice(4);
+    const rest = sorted.slice(7);
     if (rest.length > 0) {
       series.push({
         name: "其他",
-        color: palette.blue100,
+        color: palette.text3,
         data: llm.days.map((_, dayIndex) =>
           Math.round(rest.reduce((sum, m) => sum + (m.daily?.[dayIndex] ?? 0), 0) / 10_000)),
       });
@@ -204,13 +232,23 @@ export function WallPage() {
 
   return (
     <div className="wall-root" data-wall-theme={theme}>
+      {/* 四角装饰：统一双 path + currentColor，颜色随主题切换（审计 P2-2）。 */}
       <svg className="wall-corner tl" viewBox="0 0 140 140" aria-hidden="true">
-        <path d="M0 0 H84 V3 H3 V84 H0 Z" fill="#4DA3FF" opacity=".5" />
-        <path d="M0 26 H26 V0 H29 V29 H0 Z" fill="#4DA3FF" opacity=".25" />
+        <path d="M0 0 H84 V3 H3 V84 H0 Z" fill="currentColor" opacity=".5" />
+        <path d="M0 26 H26 V0 H29 V29 H0 Z" fill="currentColor" opacity=".25" />
       </svg>
-      <svg className="wall-corner tr" viewBox="0 0 140 140" aria-hidden="true"><path d="M0 0 H84 V3 H3 V84 H0 Z" fill="#4DA3FF" opacity=".5" /></svg>
-      <svg className="wall-corner bl" viewBox="0 0 140 140" aria-hidden="true"><path d="M0 0 H84 V3 H3 V84 H0 Z" fill="#4DA3FF" opacity=".5" /></svg>
-      <svg className="wall-corner br" viewBox="0 0 140 140" aria-hidden="true"><path d="M0 0 H84 V3 H3 V84 H0 Z" fill="#4DA3FF" opacity=".5" /></svg>
+      <svg className="wall-corner tr" viewBox="0 0 140 140" aria-hidden="true">
+        <path d="M0 0 H84 V3 H3 V84 H0 Z" fill="currentColor" opacity=".5" />
+        <path d="M0 26 H26 V0 H29 V29 H0 Z" fill="currentColor" opacity=".25" />
+      </svg>
+      <svg className="wall-corner bl" viewBox="0 0 140 140" aria-hidden="true">
+        <path d="M0 0 H84 V3 H3 V84 H0 Z" fill="currentColor" opacity=".5" />
+        <path d="M0 26 H26 V0 H29 V29 H0 Z" fill="currentColor" opacity=".25" />
+      </svg>
+      <svg className="wall-corner br" viewBox="0 0 140 140" aria-hidden="true">
+        <path d="M0 0 H84 V3 H3 V84 H0 Z" fill="currentColor" opacity=".5" />
+        <path d="M0 26 H26 V0 H29 V29 H0 Z" fill="currentColor" opacity=".25" />
+      </svg>
 
       <div className="wall-stage" ref={stageRef}>
         {/* A 标题区 */}
@@ -277,12 +315,12 @@ export function WallPage() {
           />
           <KpiCard
             label="24h Token 消耗"
-            value={llm === null ? "—" : Math.round(llm.days.at(-1)?.tokens ?? 0 / 10_000).toString()}
-            unit="万"
-            foot="7 日待接入"
+            value={latestTokensWan === null ? "—" : latestTokensWan.toLocaleString()}
+            unit={latestTokensWan === null ? undefined : "万"}
+            foot={sevenDayTokensWan === null ? "7 日待接入" : `7 日累计 ${sevenDayTokensWan.toLocaleString()} 万`}
             footExtra="↑ 60s"
             tone="brand"
-            badge={{ text: "待接入", kind: "brass" }}
+            badge={latestTokensWan === null ? { text: "待接入", kind: "brass" } : { text: "已接入", kind: "ok" }}
           />
           <KpiCard
             label="主机 CPU"
@@ -292,6 +330,7 @@ export function WallPage() {
             footExtra={`内存 ${memText}`}
             tone="cyan"
             spark={{ data: view.cpuSeries.length >= 2 ? view.cpuSeries : [0, 0], theme }}
+            dpr={chartDpr}
           />
         </div>
 
@@ -299,9 +338,9 @@ export function WallPage() {
         <div className="wall-main">
           {/* C 左列 */}
           <div className="wall-col">
-            <div className="wall-panel" style={{ flex: "280 0 0" }}>
+            <div className="wall-panel" style={{ flex: "250 0 0" }}>
               <div className="wall-panel-title">实例健康<span className="wall-psrc">lifecycle · connections · 30s</span></div>
-              {(data.connections ?? []).slice(0, 4).map((conn) => (
+              {conns.slice(0, 4).map((conn) => (
                 <div className="wall-inst" key={conn.instanceId}>
                   <span
                     className="wall-idot"
@@ -318,22 +357,29 @@ export function WallPage() {
                   </div>
                 </div>
               ))}
-              {(data.connections ?? []).length === 0 && <div className="wall-empty">实例状态读取中，若持续为空请检查管家服务。</div>}
+              {conns.length === 0 && <div className="wall-empty">实例状态读取中，若持续为空请检查管家服务。</div>}
+              {conns.length > 0 && (
+                <div className="wall-inst-summary">
+                  <span>在线 <b>{view.onlineInstances}/{view.totalInstances}</b></span>
+                  <span>最近检查 <b>{relativeTime(lastCheckedIso)}</b></span>
+                  {runtimeSet.length > 0 && <span>运行时 <b>{runtimeSet.join(" / ")}</b></span>}
+                </div>
+              )}
             </div>
 
             <div className="wall-panel" style={{ flex: "250 0 0" }}>
               <div className="wall-panel-title">主机资源<span className="wall-psrc">watch/host-metrics · 15s</span></div>
               <div className="wall-gauges">
                 <div className="wall-gauge">
-                  <WallChart option={gaugeOption(view.cpuPercent ?? 0, palette.accent, palette)} className="wall-gauge-chart" />
+                  <WallChart option={gaugeOption(view.cpuPercent ?? 0, palette.accent, palette)} className="wall-gauge-chart" dpr={chartDpr} />
                   <span className="wall-gauge-label">CPU</span>
                 </div>
                 <div className="wall-gauge">
-                  <WallChart option={gaugeOption(Math.round(view.memPercent ?? 0), palette.cyan, palette)} className="wall-gauge-chart" />
+                  <WallChart option={gaugeOption(Math.round(view.memPercent ?? 0), palette.cyan, palette)} className="wall-gauge-chart" dpr={chartDpr} />
                   <span className="wall-gauge-label">内存</span>
                 </div>
                 <div className="wall-gauge">
-                  <WallChart option={gaugeOption(Math.round(view.diskPercent ?? 0), diskWarn ? palette.warn : palette.accent, palette)} className="wall-gauge-chart" />
+                  <WallChart option={gaugeOption(Math.round(view.diskPercent ?? 0), diskWarn ? palette.warn : palette.accent, palette)} className="wall-gauge-chart" dpr={chartDpr} />
                   <span className={`wall-gauge-label ${diskWarn ? "w" : ""}`}>磁盘 {diskText}</span>
                 </div>
               </div>
@@ -364,7 +410,7 @@ export function WallPage() {
             <div className="wall-panel" style={{ flex: "245 0 0" }}>
               <div className="wall-panel-title">近 7 日消息投递趋势<span className="wall-psrc">message_outcome_history · 60s</span></div>
               {view.trend.length >= 2
-                ? <WallChart option={trendOption(view.trend, palette)} className="wall-chart" />
+                ? <WallChart option={trendOption(view.trend, palette)} className="wall-chart" dpr={chartDpr} />
                 : <div className="wall-empty">投递历史不足或消息服务暂不可达。</div>}
             </div>
 
@@ -388,21 +434,22 @@ export function WallPage() {
                       palette,
                     )}
                     className="wall-chart"
+                    dpr={chartDpr}
                   />
                 </div>
               )}
 
-            <div className="wall-panel" style={{ flex: "220 0 0" }}>
-              <div className="wall-panel-title">技能调用 TOP5<span className="wall-psrc">skills/usage · 60s</span></div>
+            <div className="wall-panel" style={{ flex: "250 0 0" }}>
+              <div className="wall-panel-title">技能调用概览<span className="wall-psrc">skills/usage · 60s</span></div>
               <div className="wall-skillwrap">
                 <div className="wall-skgrid">
                   <div className="wall-gcell"><div className="wall-gv2 sm">{view.skillTotal}</div><div className="wall-gl">技能总数</div></div>
                   <div className="wall-gcell"><div className="wall-gv2 sm">{view.active7d}</div><div className="wall-gl">7日活跃</div></div>
-                  <div className="wall-gcell"><div className="wall-gv2 sm">{view.calls24h}</div><div className="gl">24h 调用</div></div>
+                  <div className="wall-gcell"><div className="wall-gv2 sm">{view.calls24h}</div><div className="wall-gl">24h 调用</div></div>
                   <div className="wall-gcell"><div className="wall-gv2 sm">{view.calls7d}</div><div className="wall-gl">7 日调用</div></div>
                 </div>
                 {view.topSkills.length > 0
-                  ? <WallChart option={skillBarOption(view.topSkills, palette)} className="wall-chart" />
+                  ? <WallChart option={skillBarOption(view.topSkills, palette)} className="wall-chart" dpr={chartDpr} />
                   : <div className="wall-empty">近 30 天暂无技能调用记录。</div>}
               </div>
             </div>
@@ -421,7 +468,7 @@ export function WallPage() {
               : (
                 <div className="wall-panel" style={{ flex: "225 0 0" }}>
                   <div className="wall-panel-title">模型 Token 占比（24h）<span className="wall-psrc">llm-probe · 60s</span></div>
-                  <WallChart option={donutOption(llm.models.map((m) => ({ name: m.model, value: Math.round(m.tokens / 10_000) })), palette)} className="wall-chart" />
+                  <WallChart option={donutOption(llm.models.map((m) => ({ name: m.model, value: Math.round(m.tokens / 10_000) })), palette)} className="wall-chart" dpr={chartDpr} />
                 </div>
               )}
 

@@ -8,7 +8,6 @@ import {
   Button,
   Card,
   Col,
-  Empty,
   Flex,
   Input,
   List,
@@ -25,6 +24,7 @@ import { useTheme } from "../../theme/ThemeProvider.js";
 import type { MemorySelfCheckView, SkillsPayload } from "./helpers.js";
 import { channelLabel, formatNumber, formatTime, memoryBackendLabel, PREVIEW_LIMIT } from "./helpers.js";
 import { DirectoryFallback } from "./DirectoryFallback.js";
+import { Empty } from "../../components/Empty.js";
 import { MemoryHealthCard } from "./MemoryHealthCard.js";
 
 const { Text, Title } = Typography;
@@ -267,12 +267,9 @@ export function MemoryPanel({
         {previewEntries.length === 0 ? (
           !refreshing && !searching ? (
             <Empty
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description={
-                data?.memory.mode === "driver"
-                  ? "没有可预览的记忆。"
-                  : "没有可预览的记忆；管家服务恢复后可重试。"
-              }
+              mascot={false}
+              title="没有可预览的记忆"
+              hint={data?.memory.mode === "driver" ? undefined : "管家服务恢复后，这里会重新显示最近记忆。"}
             />
           ) : null
         ) : (

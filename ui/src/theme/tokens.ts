@@ -83,23 +83,37 @@ export const butlerBlue = {
   50: "#EEF4FA",
 } as const;
 
-/** 黄铜（品牌记忆色）：只用于标志、锁版、插画、图表第二系列、"推荐"标记。不做默认按钮、不做状态。 */
+/**
+ * 黄铜（品牌记忆色）：只用于标志、锁版、插画、图表第二系列、"推荐"标记。不做默认按钮、不做状态。
+ *
+ * 【v2.1 修订 · 实测驱动】brass-700 作为「推荐」徽标与「由模型生成」标记的文字色时，
+ * 落在 brandSoft 底上实测只有 4.47:1（12px 不达 AA）→ 改为 #826428，soft 底 4.91:1 / 白底 5.52:1。
+ * 暗色档 #C8A15A 在暗底 6.38–6.45:1，达标不动。
+ */
 export const brass = {
-  700: "#8A6A2A",
+  700: "#826428",
   600: "#A8823C",
   500: "#C8A15A",
   100: "#F2E4C6",
   50: "#F8F1E1",
 } as const;
 
-/** 墨阶（中性，10 级）。ink-300 及以下不可用于正文。 */
+/**
+ * 墨阶（中性，10 级）。ink-300 及以下不可用于正文。
+ *
+ * 【v2.1 修订 · 由真实 DOM 实测驱动（2026-09-12）】
+ * 用 Playwright 在渲染后的界面里遍历全部文本节点、计算「前景色 × 实际生效背景」的
+ * WCAG 对比度，发现 ink-400（#5F7488）在 ink-50 底上只有 4.37:1、在画布底上 4.50:1——
+ * 12px 正文不达 AA（差 0.13）。改为 #596D80 后：白底 5.35:1、画布 5.07:1、ink-50 底 4.98:1。
+ * 这是「三级文字」这一档必须满足的下限，不要再调浅回去。
+ */
 export const ink = {
   900: "#0B1728",
   800: "#16283C",
   700: "#233B52",
   600: "#3A5468",
   500: "#4A6076",
-  400: "#5F7488",
+  400: "#596D80",
   300: "#8496A8",
   200: "#C6D3E0",
   100: "#E2E9F1",
@@ -109,15 +123,22 @@ export const ink = {
 /**
  * 信号色（亮色主题）：状态专用。
  * 离线与未知同色，靠文案区分——离线是"确定连不上"，未知是"还不知道"。
+ *
+ * 【v2.1 修订 · 实测驱动】徽标是「signal 色 × 自己的 soft 底」，这一对才是真正的约束：
+ *   · ok  #0B7F6F on okSoft  实测 4.43:1 → 改为 #0A7667，soft 底 4.99:1 / 白底 5.53:1
+ *   · warn #9A6B0B on warnSoft 实测 4.35:1 → 改为 #8F630A，soft 底 4.92:1 / 白底 5.31:1
+ *   · error #B4342A on errorSoft 实测 5.45:1，达标不动
+ *   · offline 与三级文字同值（#596D80），保持「离线与未知同色」的既有语义
+ * 12px/500 的徽标文字不属于 WCAG 的「大字」，必须按 4.5:1 判，不能按 3:1。
  */
 export const signal = {
-  ok: "#0B7F6F",
+  ok: "#0A7667",
   okSoft: "#EAF6F3",
-  warn: "#9A6B0B",
+  warn: "#8F630A",
   warnSoft: "#FDF6E4",
   error: "#B4342A",
   errorSoft: "#FDF0EE",
-  offline: "#5F7488",
+  offline: ink[400],
   offlineSoft: "#F4F7FA",
 } as const;
 
@@ -146,11 +167,20 @@ export interface SemanticPalette {
   surface2: string;
   sunken: string;
   sider: string;
+  /** 装饰性描边：卡片、分隔线、表格线。不承担「标识控件」的职责，不适用 SC 1.4.11。 */
   border: string;
   borderStrong: string;
+  /**
+   * 控件描边：输入框 / 下拉 / 按钮等**需要被认出是控件**的边界。
+   * SC 1.4.11 要求非文本元素 3:1——我们的输入框填充色与画布几乎同色（白 on #F7F9FC），
+   * 边界就是唯一的识别特征，所以这一档必须 ≥3:1（实测：亮 3.04:1 / 暗 3.28:1）。
+   */
+  borderControl: string;
   text: string;
   text2: string;
+  /** 三级文字：正文级下限，两个主题都必须 ≥4.5:1（实测亮 5.35:1 白底）。 */
   text3: string;
+  /** 四级文字：**只许用于图标、禁用态、装饰线条**，不可用于正文或占位符文案（实测亮底仅 3.04:1）。 */
   text4: string;
   primary: string;
   primaryHover: string;
@@ -158,6 +188,8 @@ export interface SemanticPalette {
   primarySoft: string;
   primarySoftBorder: string;
   onPrimary: string;
+  /** 危险实底（红）之上的文字色：两种主题都用白，红底白字是对比度最高的组合。 */
+  onError: string;
   brand: string;
   brandSoft: string;
   brandLine: string;
@@ -183,6 +215,7 @@ export const lightPalette: SemanticPalette = {
   sider: "#FFFFFF",
   border: ink[100],
   borderStrong: ink[200],
+  borderControl: ink[300],
   text: ink[900],
   text2: ink[600],
   text3: ink[400],
@@ -193,6 +226,7 @@ export const lightPalette: SemanticPalette = {
   primarySoft: butlerBlue[50],
   primarySoftBorder: butlerBlue[100],
   onPrimary: "#FFFFFF",
+  onError: "#FFFFFF",
   brand: brass[700],
   brandSoft: brass[50],
   brandLine: brass[100],
@@ -218,16 +252,23 @@ export const darkPalette: SemanticPalette = {
   sider: "#0F2133",
   border: "#22374D",
   borderStrong: "#2E4760",
+  borderControl: "#547699",
   text: "#E9F0F7",
   text2: "#AFC0D1",
-  text3: "#7E93A8",
-  text4: "#5F7488",
+  /**
+   * 三级文字（暗）：必须对 surface(#132538) **和** elevated(#1A2E44) 都 ≥4.5:1——
+   * elevated 更亮、更苛刻。#7E93A8 对 elevated 只有 4.36:1（实测）→ 改为 #8FA5BA（5.44:1）。
+   */
+  text3: "#8FA5BA",
+  /** 四级文字（暗）：ink-400 加深后会掉到 3:1 以下，所以暗色单独用更亮的值，实测 vs surface 4.01:1。 */
+  text4: "#6F8496",
   primary: butlerBlue[300],
   primaryHover: "#7BB0DC",
   primaryPress: "#4A87BC",
   primarySoft: "#14293D",
   primarySoftBorder: "#1B3A55",
   onPrimary: ink[900],
+  onError: "#FFFFFF",
   brand: brass[500],
   brandSoft: "#2A2417",
   brandLine: "#4A3C22",
@@ -302,6 +343,23 @@ export const layout = {
   gutter: 16,
 } as const;
 
+/**
+ * 响应式断点（规范 03 §8）。
+ *
+ * 【为什么是这两个数】此前 CSS 里散着 520 / 600 / 760 / 860 / 899 / 1200 六个阈值，
+ * 结果是 601–899px 区间（平板竖屏、手机横屏、分屏窗口）侧栏仍以 240px 常驻，
+ * 内容区被压到 320–660px——卡片换行严重、表格横向溢出（评审 P1-4）。
+ *
+ * 收敛为两档后：≥900 侧栏常驻展开；768–899 侧栏进 Drawer；<768 单列 + 正文 16px。
+ * 媒体查询里的数值必须以本文件为准同步修改（CSS 无法引用 JS 常量）。
+ */
+export const breakpoints = {
+  /** 低于此宽度：侧栏收进 Drawer，顶栏出现汉堡按钮。 */
+  drawer: 900,
+  /** 低于此宽度：单列布局、正文与表单控件提到 16px、内容 padding 16。 */
+  single: 768,
+} as const;
+
 /* ────────────────────────  4. antd 主题（ConfigProvider）  ──────────────────────── */
 
 /** ConfigProvider 主题：antd v6 原生观感 + 品牌色板，组件层零覆盖。 */
@@ -314,19 +372,44 @@ export function themeConfigFor(mode: ThemeMode): ThemeConfig {
     token: {
       colorPrimary: p.primary,
       colorInfo: p.primary,
+      // hover/press 也必须显式给：色板里定义了 primaryHover/primaryPress，
+      // 但此前从没传进 ConfigProvider，antd 一直在自己派生 —— ghost / link 形态的
+      // 文字色因此落到 press 档（实测暗色只剩 4.06:1）。
+      colorPrimaryHover: p.primaryHover,
+      colorPrimaryActive: p.primaryPress,
       // 状态色以品牌信号色为真源：浅底状态文字用信号色深值，深底用提亮值。
       colorSuccess: p.ok,
       colorWarning: p.warn,
       colorError: p.error,
       colorBgLayout: p.canvas,
       ...(mode === "dark" ? { colorBgBase: p.canvas } : {}),
+      /**
+       * 【必须显式锁住，不能让算法派生】
+       * 只传 colorBgBase 时，antd v6 的暗色算法会自己把容器色往蓝色方向提亮：
+       * 实测渲染出 #0D284F，而令牌声称的 surface 是 #132538 —— 同一屏出现两种暗色面板，
+       * 且所有按令牌算好的对比度全部失准（这是静态审查发现不了、只有渲染后才能看到的缺陷）。
+       */
+      colorBgContainer: p.surface,
+      colorBgElevated: p.surface2,
+      // 链接色同理：不锁的话暗色下被派生成 #5087B5，对 #0D284F 只有 3.82:1，不达 AA。
+      colorLink: p.primary,
+      colorLinkHover: p.primaryHover,
+      colorLinkActive: p.primaryPress,
       // 暗色主题的主按钮是管家蓝浅底，实底文字用午夜墨而不是白。
       colorTextLightSolid: mode === "dark" ? p.onPrimary : "#ffffff",
       colorText: p.text,
       colorTextSecondary: p.text2,
       colorTextTertiary: p.text3,
       colorTextQuaternary: p.text4,
-      colorBorder: p.borderStrong,
+      /**
+       * antd v6 把 Typography 的 `type="secondary"` 映射到 colorTextDescription，
+       * 而 description 默认派生成**三级**色 —— 全站的「次要文字」于是都掉到了三级档，
+       * 实测暗色下只剩 4.06:1。这里显式指到二级色，让「次要」真的是次要。
+       */
+      colorTextDescription: p.text2,
+      // 控件描边走 borderControl（≥3:1），不是装饰性的 borderStrong（1.5:1）。
+      // 我们的输入框填充与画布几乎同色，边界是唯一识别特征，SC 1.4.11 要求 3:1。
+      colorBorder: p.borderControl,
       colorBorderSecondary: p.border,
       borderRadius: radius.control,
       borderRadiusLG: radius.card,
@@ -376,6 +459,7 @@ const AB_COLOR_VARS: Array<[name: string, pick: (p: SemanticPalette) => string]>
   ["--ab-sider", (p) => p.sider],
   ["--ab-border", (p) => p.border],
   ["--ab-border-strong", (p) => p.borderStrong],
+  ["--ab-border-control", (p) => p.borderControl],
   ["--ab-text", (p) => p.text],
   ["--ab-text-2", (p) => p.text2],
   ["--ab-text-3", (p) => p.text3],
@@ -387,6 +471,7 @@ const AB_COLOR_VARS: Array<[name: string, pick: (p: SemanticPalette) => string]>
   ["--ab-primary-soft", (p) => p.primarySoft],
   ["--ab-primary-soft-border", (p) => p.primarySoftBorder],
   ["--ab-on-primary", (p) => p.onPrimary],
+  ["--ab-on-error", (p) => p.onError],
   ["--ab-brand", (p) => p.brand],
   ["--ab-brand-soft", (p) => p.brandSoft],
   ["--ab-brand-line", (p) => p.brandLine],

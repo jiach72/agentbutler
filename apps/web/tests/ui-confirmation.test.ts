@@ -20,13 +20,18 @@ describe("UI 危险操作确认层", () => {
   it("统一确认组件基于 antd Modal，并在 busy 期间锁死全部退出路径", () => {
     // 对话框语义（role=dialog / 焦点圈禁 / Escape 关闭 / 滚动锁）由 antd Modal 契约提供；
     // 这里断言我们叠加的安全不变式：busy 时禁止关闭与重复确认。
+    //
+    // 注：确认按钮的禁用条件后来从 `busy` 升级为 `blocked = busy || 未勾选高危确认`，
+    // 取消按钮补了 autoFocus（规范 §6「打开时焦点落在取消」）。断言同步到当前契约。
     const modal = readUiSource("components/DangerConfirmModal.tsx");
 
     expect(modal).toContain("<Modal");
     expect(modal).toContain("mask={{ closable: false }}");
     expect(modal).toContain("keyboard={!busy}");
     expect(modal).toContain("closable={!busy}");
-    expect(modal).toContain('okButtonProps={{ danger: true, disabled: busy, loading: busy }}');
-    expect(modal).toContain("cancelButtonProps={{ disabled: busy }}");
+    // blocked 必须同时覆盖 busy 与未勾选两个条件，否则高危操作能被一键点过
+    expect(modal).toMatch(/blocked\s*=\s*busy\s*\|\|/);
+    expect(modal).toContain("okButtonProps={{ danger: true, disabled: blocked, loading: busy }}");
+    expect(modal).toContain("cancelButtonProps={{ disabled: busy, autoFocus: true }}");
   });
 });

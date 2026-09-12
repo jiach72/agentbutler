@@ -47,11 +47,10 @@ export function HeroConclusion({
       }
       extra={
         <Flex wrap="wrap" align="center" gap={8}>
+          {/* 「管家服务在线/离线」只在状态条里说一次，结论条不再复述（评审 P0-3）。 */}
           <Text type="secondary">上次检查：{formatRelative(inspectStatus?.lastAt)}</Text>
-          <Divider type="vertical" />
+          <Divider orientation="vertical" />
           <Text type="secondary">自动检查：{inspectStatus?.intervalMin ?? "—"} 分钟一次</Text>
-          <Divider type="vertical" />
-          <Text type="secondary">管家服务：{inspectStatus?.reachable ? "在线" : "未连接"}</Text>
         </Flex>
       }
     />

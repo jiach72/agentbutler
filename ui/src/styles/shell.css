@@ -19,8 +19,12 @@
   padding: clamp(16px, 2.6vw, 28px);
 }
 
-.content > .product-page,
-.content > [class$="-page"] {
+/* 页面宽度约束。
+   原先靠 `[class$="-page"]` 这个「类名以 -page 结尾」的隐式约定，新页面只要类名
+   写成别的形状就静默失去约束（评审 P2-13）。现在按结构选：`<AntLayout.Content>`
+   的直接子元素是页面的根 `<section>`，与类名无关。 */
+.content > section,
+.content > .product-page {
   max-width: 1440px;
   margin-inline: auto;
 }
@@ -35,7 +39,10 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  overflow-y: auto;
+  /* 只让中间的导航区滚动：底部「设置 + 访问状态」必须始终钉在可视区底部。
+     此前这里是 overflow-y:auto，配合 .sidebar-bottom 的 margin-top:auto，
+     会把底部块推到滚动内容末尾——768px 高的屏幕上默认看不见（评审 P0-1）。 */
+  overflow: hidden;
 }
 
 /* ---- 品牌区 ---- */
@@ -94,6 +101,10 @@ html[data-theme="dark"] .brand-logo.is-dark {
 html body .app-nav {
   border-inline-end: none;
   flex: 1;
+  /* 导航区是唯一的滚动容器（底部块另占 flex 空间，不参与滚动）。 */
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 /* Menu item 高度放开，由双行文案决定。 */
@@ -101,6 +112,38 @@ html body .app-nav {
   height: auto;
   min-height: 44px;
   padding-block: 7px;
+  line-height: 1.4;
+}
+
+/* 可折叠分组（信任层）：标题也是双行，收起时只占一行高度。 */
+html body .app-nav .ant-menu-submenu-title {
+  height: auto;
+  min-height: 44px;
+  margin-block: 0;
+  padding-block: 7px;
+  line-height: 1.4;
+  /* 颜色显式接管，不依赖 antd 的继承链：实测暗色下 SubMenu 标题会落到
+     primaryPress 档（4.06:1），这里是「导航必须最可读」的地方。 */
+  color: var(--ab-text);
+}
+html body .app-nav .ant-menu-submenu-title .menu-copy strong {
+  color: var(--ab-text);
+}
+html body .app-nav .ant-menu-submenu-title .menu-copy small {
+  color: var(--ab-text-3);
+}
+html body .app-nav .ant-menu-submenu-title .ant-menu-title-content {
+  height: auto;
+  line-height: inherit;
+}
+
+/* 折叠分组内再分簇的组标题（「花了什么 / 管得住吗」）。
+   用 text-3（白底 4.84:1）而不是 text-4——后者是 3.04:1，只够图标与大字，
+   12px 正文用它不达 AA。 */
+html body .app-nav .ant-menu-item-group-title {
+  padding: 8px 16px 2px;
+  color: var(--ab-text-3);
+  font-size: var(--ab-text-size-xs);
   line-height: 1.4;
 }
 
@@ -158,8 +201,11 @@ html body .app-nav .ant-menu-item-selected .anticon {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin-top: auto;
+  /* 固定占位：由 .app-nav 的 flex:1 把这一块顶到侧栏底部，
+     不用 margin-top:auto（那在可滚动容器里会把底部署推出首屏）。 */
+  flex: 0 0 auto;
   padding: 10px;
+  border-top: 1px solid var(--ab-border);
 }
 
 .sidebar-settings {
@@ -407,35 +453,46 @@ html body .app-nav .ant-menu-item-selected .anticon {
   font-weight: 550;
 }
 
-/* ---- 响应式 ---- */
+/* ---- 响应式 ----
+   断点真源：theme/tokens.ts 的 `breakpoints`（drawer=900 / single=768）。
+   此前这里散着 600 / 860 / 1200 三个阈值，导致 601–899px 区间侧栏仍以 240px 常驻，
+   内容区被压到 320–660px（评审 P1-4）。媒体查询无法引用 JS 常量，改数值时两处同步。 */
 
-@media (max-width: 1200px) {
-  .topbar-brand {
-    display: none;
-  }
-  .menu-copy small {
-    display: none;
-  }
-}
-
-@media (max-width: 860px) {
-  .topbar-note {
-    display: none;
-  }
-}
-
-@media (max-width: 600px) {
+@media (max-width: 900px) {
+  /* 侧栏收进 Drawer；顶栏出现汉堡按钮。 */
   .app-sider {
     display: none;
   }
   .mobile-menu-button {
     display: inline-flex;
   }
+  /* 侧栏副注是折叠分组收起后唯一的「里面有什么」线索，到 900 才隐藏。 */
+  .menu-copy small {
+    display: none;
+  }
+  .topbar-brand {
+    display: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .topbar-note {
+    display: none;
+  }
   .app-topbar {
-    padding-inline: 12px;
+    padding-inline: 16px;
+  }
+  /* 顶栏在 390px 下只有 ~360px 可用，5 个元素放不下文字 ——「排查问题」收成纯图标，
+     它的完整入口仍在侧栏「维护与升级」分组里，不会丢功能。 */
+  .topbar-tool {
+    padding-inline: 8px;
+  }
+  .topbar-tool > span:not(.ant-btn-icon) {
+    display: none;
   }
   .content {
-    padding: 12px;
+    /* 规范 03 §2.1：≤768px 内容区 padding 16。 */
+    padding: 16px;
   }
 }
 
@@ -445,15 +502,15 @@ html body .app-nav .ant-menu-item-selected .anticon {
   display: none;
 }
 
-@media (max-width: 600px) {
+@media (max-width: 768px) {
   .mobile-tabbar {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     position: fixed;
     inset-inline: 0;
     bottom: 0;
     z-index: 20;
-    background: var(--ab-surface, #fff);
+    background: var(--ab-surface);
     border-top: 1px solid var(--ab-border);
     /* 刘海屏安全区：不顶到 Home 指示条上，否则最后一个 Tab 点不准。 */
     padding-bottom: env(safe-area-inset-bottom, 0px);
@@ -467,11 +524,15 @@ html body .app-nav .ant-menu-item-selected .anticon {
     align-items: center;
     justify-content: center;
     gap: 2px;
-    min-height: 52px;
+    /* 触控目标 ≥44（规范 §3.1 / §6）；50 给图标 + 文字两行留余量。 */
+    min-height: 50px;
     padding: 6px 4px;
-    font-size: 11px;
+    /* 12 是全站最小字阶（`small` 已锚定 --ab-text-size-xs，见 base.css）。 */
+    font-size: var(--ab-text-size-xs);
     line-height: 1.2;
-    color: var(--ab-text-secondary, #667085);
+    /* 变量名曾经写成 --ab-text-secondary（真源是 --ab-text-2），fallback 永远生效，
+       深色主题下文字固定 #667085、对比只有 3.4:1（审计二轮 P1-3）。 */
+    color: var(--ab-text-2);
     text-decoration: none;
     background: none;
     border: 0;
@@ -482,31 +543,33 @@ html body .app-nav .ant-menu-item-selected .anticon {
     font-size: 18px;
   }
 
+  /* 选中态走交互色（蓝=交互，规范 02 §1.1），不用品牌记忆色黄铜。 */
   .mobile-tab.is-active {
-    color: var(--ab-brand, #2563eb);
+    color: var(--ab-primary);
     font-weight: 600;
   }
 
   /* 急停：整格红底反白，视觉上明确「这是逃生口，不是普通导航」。 */
   .mobile-tab.is-emergency .mobile-tab-trigger {
-    color: #fff;
-    background: #cf1322;
+    color: var(--ab-on-error);
+    background: var(--ab-error);
   }
 
   .mobile-tab.is-emergency .mobile-tab-trigger:hover,
   .mobile-tab.is-emergency .mobile-tab-trigger:focus-visible {
-    background: #a8071a;
+    background: color-mix(in srgb, var(--ab-error) 82%, #000);
   }
 
   .mobile-tab.is-emergency .mobile-tab-trigger:disabled {
     background: var(--ab-border);
-    color: var(--ab-text-secondary, #667085);
+    color: var(--ab-text-2);
     cursor: not-allowed;
   }
 
-  /* 已暂停态：换成绿色「恢复」，与顶栏语义一致。 */
+  /* 已暂停态：换成「恢复」，用信号色 ok，与顶栏语义一致。 */
   .mobile-tab.is-emergency .mobile-tab-trigger.is-engaged {
-    background: #389e0d;
+    background: var(--ab-ok);
+    color: var(--ab-on-error);
   }
 
   /* Tab 是 fixed 的：给内容留出高度，否则最后一屏内容被压住。 */
@@ -527,8 +590,34 @@ html body .app-nav .ant-menu-item-selected .anticon {
     font-size: 20px;
   }
 
-  /* 触控目标 ≥44px（移动可用性基线）。 */
-  .content :where(.ant-btn:not(.ant-btn-sm)) {
-    min-height: 40px;
+  /* 规范 03 §8：移动端正文字号提到 16px。14px 在手机上偏小，
+     且表单控件 <16px 会触发 iOS 聚焦时自动放大页面。 */
+  body {
+    font-size: 16px;
+  }
+  .content :where(.ant-input, .ant-input-affix-wrapper, .ant-select-selector,
+      .ant-input-number, .ant-picker, .ant-input-number-input) {
+    font-size: 16px;
+  }
+}
+
+/* ---- 粗指针（触控）目标：与宽度解耦 ----
+   规范 §3.1 要求触屏 44×44。只按宽度做媒体查询会漏掉桌面触控屏与平板横向（>900px），
+   全仓此前 0 处 pointer:coarse 分支（评审 P1-5）。 */
+@media (pointer: coarse) {
+  .content :where(.ant-btn),
+  .mobile-tab-trigger {
+    min-height: 44px;
+  }
+  .app-nav .ant-menu-item,
+  html body .app-nav .ant-menu-submenu-title {
+    min-height: 48px;
+  }
+  .sidebar-settings {
+    min-height: 44px;
+  }
+  .content :where(.ant-input, .ant-input-affix-wrapper, .ant-select-selector,
+      .ant-input-number, .ant-picker) {
+    min-height: 44px;
   }
 }

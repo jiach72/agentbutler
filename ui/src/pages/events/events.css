@@ -1,0 +1,56 @@
+/**
+ * 事件中心局部样式。
+ *
+ * 选中态与分隔线原先写在 JSX 内联样式里，用的是 antd 默认蓝 #1677ff 与
+ * rgba(128,128,128,.15)——深色主题下选中底几乎不可见、分隔线消失（评审 P1-2 / P2-4）。
+ * 收到这里改用品牌令牌，随主题切换。
+ */
+
+.events-row {
+  display: block;
+  width: 100%;
+  padding: 10px 14px;
+  border: 0;
+  /* 左侧 3px 选中条始终占位，避免选中时文字横移。 */
+  border-left: 3px solid transparent;
+  border-bottom: 1px solid var(--ab-border);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--ab-dur-fast) var(--ab-ease);
+}
+.events-row:hover {
+  background: var(--ab-surface-2);
+}
+.events-row.is-selected {
+  border-left-color: var(--ab-primary);
+  background: var(--ab-primary-soft);
+}
+.events-row:last-child {
+  border-bottom: 0;
+}
+
+.events-empty {
+  border: 0;
+  background: transparent;
+}
+
+.events-evidence-timeline {
+  padding: 10px 12px;
+  border: 1px solid var(--ab-border);
+  border-radius: var(--ab-r-ctl);
+  background: var(--ab-surface-2);
+}
+
+.events-evidence {
+  max-height: 240px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  border-radius: var(--ab-r-ctl);
+  /* 只读区走 sunken 层，不再用半透明灰（评审 P2-4）。 */
+  background: var(--ab-sunken);
+  font-family: var(--ab-mono);
+  font-size: var(--ab-text-size-xs);
+  font-variant-numeric: tabular-nums;
+}

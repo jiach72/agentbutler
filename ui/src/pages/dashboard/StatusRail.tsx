@@ -112,7 +112,13 @@ export function StatusRail({
             : "ok"
           : "error",
       label: "消息通知",
-      value: !messageStats.messageStatusKnown ? "读取中" : messageStats.messageConnected ? "在线" : "离线",
+      value: !messageStats.messageStatusKnown
+        ? "读取中"
+        : messageStats.messageConnected
+          ? messageStats.relayEnabled
+            ? "已接管"
+            : "直发中"
+          : "未连接",
       detail: !messageStats.messageStatusKnown
         ? "正在读取消息接管状态"
         : !messageStats.messageConnected
@@ -173,7 +179,7 @@ export function StatusRail({
           aria-expanded={runtimeDetailsOpen}
           onClick={onOpenRuntimeDetails}
         >
-          查看运行详情
+          查看实例明细
         </Button>
       ),
     },

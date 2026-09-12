@@ -78,7 +78,7 @@ export function KillSwitchButton({ variant = "default" }: KillSwitchButtonProps 
     if (busy) return;
     Modal.confirm({
       title: "确认紧急暂停全部 agent？",
-      icon: <ExclamationCircleFilled style={{ color: "#d4380d" }} />,
+      icon: <ExclamationCircleFilled style={{ color: "var(--ab-error)" }} />,
       content: (
         <Typography.Paragraph style={{ marginBottom: 0 }}>
           将立即停止全部 agent 实例，并拒绝新的连接与升级任务；
@@ -205,9 +205,10 @@ export function KillSwitchButton({ variant = "default" }: KillSwitchButtonProps 
     </button>
   ) : (
     <Tooltip title="紧急暂停全部 agent 实例">
+      {/* 未暂停时用中性文字按钮：危险语义由确认弹窗承担（规范 03 §3.1「危险按钮仅在确认弹窗内出现」）。
+          常驻红色会让「红 = 出事了」的信号贬值——评审 P0-3。 */}
       <Button
-        type="default"
-        danger
+        type="text"
         size="small"
         icon={<PauseCircleOutlined />}
         onClick={engage}

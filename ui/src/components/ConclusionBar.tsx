@@ -53,6 +53,14 @@ interface ConclusionBarProps {
   extra?: ReactNode;
 }
 
+/**
+ * 页面级结论条的视图模型：`ConclusionBar` 的 props 与它结构一致。
+ *
+ * 页面把「结论该说什么」建成一个对象再展开，而不是在 JSX 里堆三元表达式——
+ * 分支（加载中 / 读不到 / 离线 / 有异常 / 正常）在数据层就穷举完，渲染层只管展示（评审 P0-2）。
+ */
+export type PageConclusionView = ConclusionBarProps;
+
 export function ConclusionBar({ tone, title, copy, action, extra }: ConclusionBarProps) {
   return (
     <Flex vertical gap={12}>

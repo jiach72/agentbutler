@@ -6,12 +6,24 @@
  *
  * 诚实呈现：页面显式声明观测口径与边界（只覆盖被 agent 动作过的记忆文件，不做内容级 diff），
  * 不冒称「完整记忆快照」。「不在受管清单内」也不写成「已删除」——那是两件事。
+ *
+ * 展示层遵循规范 03 §2.3（页头 → 结论条 → 主内容）；颜色全部走品牌语义 tone
+ * ——「遗忘」用 warn 而不是 error：这一页存在的意义正是安抚「它是不是把事忘了」的焦虑，
+ * 用错误红会和页面文案自相矛盾（评审 P1-1）。
  */
-import { Alert, Button, Card, Empty, Flex, Segmented, Statistic, Table, Tag, Tooltip, Typography } from "antd";
+import { Alert, Button, Card, Flex, Segmented, Table, Tooltip, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { ReloadOutlined, InfoCircleOutlined, PlusOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
+import { ReloadOutlined, InfoCircleOutlined } from "@ant-design/icons";
 import { useCallback, useEffect, useState } from "react";
+import { ConclusionBar } from "../../components/ConclusionBar.js";
+import type { PageConclusionView } from "../../components/ConclusionBar.js";
+import { Empty } from "../../components/Empty.js";
 import { PageHeader } from "../../components/PageHeader.js";
+import { StatStrip } from "../../components/StatStrip.js";
+import type { StatStripItem } from "../../components/StatStrip.js";
+import { StatusBadge } from "../../components/StatusBadge.js";
+import type { SemanticTone } from "../../components/StatusBadge.js";
+import { useUrlState } from "../../hooks/useUrlState.js";
 import { loadJson } from "../../lib/api.js";
 import { usePolling } from "../../hooks/usePolling.js";
 
@@ -38,10 +50,20 @@ interface MemoryDiffPayload {
   lastActionAt: string | null;
 }
 
-const CHANGE_META: Record<Change, { color: string; label: string; icon: typeof PlusOutlined }> = {
-  added: { color: "green", label: "新增", icon: PlusOutlined },
-  modified: { color: "blue", label: "修改", icon: EditOutlined },
-  forgotten: { color: "red", label: "遗忘", icon: DeleteOutlined },
+/**
+ * 变化类型 → 品牌语义 tone。
+ * 「修改」走 brand（标记色，不是状态色）：蓝是交互色，按 02 §1.1 不进徽标语义。
+ */
+const CHANGE_TONE: Record<Change, SemanticTone> = {
+  added: "ok",
+  modified: "brand",
+  forgotten: "warn",
+};
+
+const CHANGE_LABEL: Record<Change, string> = {
+  added: "新增",
+  modified: "修改",
+  forgotten: "遗忘",
 };
 
 /** 长路径只显示尾部（面包屑式），完整值放 tooltip，避免表格被撑爆。 */
@@ -53,7 +75,8 @@ const shortPath = (path: string): string => {
 export function MemoryDiffPage() {
   const [data, setData] = useState<MemoryDiffPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<"all" | Change>("all");
+  // 筛选同步到 URL（规范 03 §3.12）：刷新/分享能还原同一视图（评审 P1-7）。
+  const [filter, setFilter] = useUrlState<string>("change", "all");
 
   const refresh = useCallback(() => {
     void loadJson<MemoryDiffPayload>("/api/memory-diff?windowDays=7", 20_000).then((result) => {
@@ -76,15 +99,8 @@ export function MemoryDiffPage() {
       title: "变化",
       dataIndex: "change",
       key: "change",
-      width: 100,
-      render: (change: Change) => {
-        const meta = CHANGE_META[change];
-        return (
-          <Tag color={meta.color} icon={<meta.icon />}>
-            {meta.label}
-          </Tag>
-        );
-      },
+      width: 110,
+      render: (change: Change) => <StatusBadge tone={CHANGE_TONE[change]} label={CHANGE_LABEL[change]} />,
     },
     {
       title: "记忆文件",
@@ -93,7 +109,7 @@ export function MemoryDiffPage() {
       ellipsis: true,
       render: (path: string) => (
         <Tooltip title={path}>
-          <Typography.Text code>{shortPath(path)}</Typography.Text>
+          <Typography.Text className="is-mono">{shortPath(path)}</Typography.Text>
         </Tooltip>
       ),
     },
@@ -112,13 +128,15 @@ export function MemoryDiffPage() {
       title: "在受管清单内",
       dataIndex: "stillPresent",
       key: "stillPresent",
-      width: 130,
+      width: 140,
       render: (value: boolean | null) =>
         value === true ? (
-          <Tag color="green">是</Tag>
+          <StatusBadge tone="ok" label="在清单内" />
         ) : (
           <Tooltip title="不在受管清单内，或该目录未被清单覆盖——这不等于文件已被删除">
-            <Tag>未知</Tag>
+            <span>
+              <StatusBadge tone="unknown" label="未知" />
+            </span>
           </Tooltip>
         ),
     },
@@ -147,14 +165,63 @@ export function MemoryDiffPage() {
 
   const summary = data?.summary;
   const entries = (data?.entries ?? []).filter((entry) => filter === "all" || entry.change === filter);
+  const windowDays = data?.windowDays ?? 7;
+
+  /**
+   * 页面结论条（规范 03 §2.3 ②「必须有」）。
+   * 结论文案刻意区分「遗忘」与「删除」——口径边界写在 basisLimits 里，这里不夸大（评审 P0-2）。
+   */
+  const conclusion: PageConclusionView =
+    error !== null
+      ? {
+          tone: "offline",
+          title: "记忆变更视图暂时读不到",
+          copy: error,
+          action: <Button onClick={refresh}>重试</Button>,
+        }
+      : data === null
+        ? { tone: "unknown", title: "正在整理记忆变更", copy: `正在统计最近 ${windowDays} 天记忆类文件的改动。` }
+        : summary === undefined || summary.total === 0
+          ? {
+              tone: "ok",
+              title: `最近 ${windowDays} 天没有观测到记忆改动`,
+              copy: "没有改动不代表记忆丢了，只是这段时间没动过记忆类文件。",
+            }
+          : summary.forgotten > 0
+            ? {
+                tone: "warn",
+                title: `最近 ${windowDays} 天它记住了 ${summary.added} 个文件，另有 ${summary.forgotten} 个疑似遗忘`,
+                copy: `共涉及 ${summary.total} 个记忆文件（修改 ${summary.modified} 个）。「不在受管清单内」不等于文件被删除，判断口径见页尾说明。`,
+              }
+            : {
+                tone: "ok",
+                title: `最近 ${windowDays} 天它记住了 ${summary.added} 个文件、修改了 ${summary.modified} 个`,
+                copy: `共涉及 ${summary.total} 个记忆文件，没有观测到遗忘。`,
+              };
+
+  const stats: StatStripItem[] =
+    summary === undefined
+      ? []
+      : [
+          { key: "added", label: "新增", value: summary.added, unit: "个", tone: "ok", sub: "新写入的记忆文件" },
+          { key: "modified", label: "修改", value: summary.modified, unit: "个", tone: "brand", sub: "被再次写入" },
+          {
+            key: "forgotten",
+            label: "遗忘",
+            value: summary.forgotten,
+            unit: "个",
+            tone: summary.forgotten > 0 ? "warn" : undefined,
+            sub: "被删除或移出受管清单",
+          },
+          { key: "total", label: "涉及文件", value: summary.total, unit: "个", sub: `统计窗口 ${windowDays} 天` },
+        ];
 
   return (
     <section className="memory-diff-page">
       <Flex vertical gap={16}>
         <PageHeader
-          eyebrow="信任层"
-          title="记忆变更流"
-          description="本周它记住了什么、改了什么、忘了什么——记忆在被维护，你应该看得见。"
+          title="记忆变更"
+          description="列出最近一段时间记忆文件的新增、修改和删除。"
           extra={
             <Button icon={<ReloadOutlined />} onClick={refresh}>
               刷新
@@ -162,38 +229,24 @@ export function MemoryDiffPage() {
           }
         />
 
-        {error !== null && <Alert type="warning" showIcon message="记忆变更视图不可用" description={error} />}
+        {/* §2.3 ② 结论条。 */}
+        <ConclusionBar tone={conclusion.tone} title={conclusion.title} copy={conclusion.copy} action={conclusion.action} />
 
-        {summary !== undefined && (
-          <Flex gap={16} wrap="wrap">
-            <Card style={{ flex: "1 1 150px" }}>
-              <Statistic title="新增" value={summary.added} valueStyle={{ color: "#389e0d" }} />
-            </Card>
-            <Card style={{ flex: "1 1 150px" }}>
-              <Statistic title="修改" value={summary.modified} valueStyle={{ color: "#0958d9" }} />
-            </Card>
-            <Card style={{ flex: "1 1 150px" }}>
-              <Statistic title="遗忘" value={summary.forgotten} valueStyle={{ color: "#cf1322" }} />
-            </Card>
-            <Card style={{ flex: "1 1 150px" }}>
-              <Statistic title="涉及文件" value={summary.total} />
-            </Card>
-          </Flex>
-        )}
+        <StatStrip items={stats} />
 
         {data !== null && data.top.length > 0 && (
           <Card size="small" title="本周它记住的重点（TOP5）">
             <Flex gap={8} wrap="wrap">
-              {data.top.map((entry) => {
-                const meta = CHANGE_META[entry.change];
-                return (
-                  <Tooltip key={entry.path} title={entry.path}>
-                    <Tag color={meta.color}>
-                      {meta.label} {shortPath(entry.path)}
-                    </Tag>
-                  </Tooltip>
-                );
-              })}
+              {data.top.map((entry) => (
+                <Tooltip key={entry.path} title={entry.path}>
+                  <span>
+                    <StatusBadge
+                      tone={CHANGE_TONE[entry.change]}
+                      label={`${CHANGE_LABEL[entry.change]} ${shortPath(entry.path)}`}
+                    />
+                  </span>
+                </Tooltip>
+              ))}
             </Flex>
           </Card>
         )}
@@ -209,18 +262,19 @@ export function MemoryDiffPage() {
                 { label: "遗忘", value: "forgotten" },
               ]}
               value={filter}
-              onChange={(value) => setFilter(value as "all" | Change)}
+              onChange={(value) => setFilter(value as string)}
             />
           }
         >
           {data !== null && entries.length === 0 ? (
             <Empty
-              description={
+              title={
                 filter === "all"
-                  ? "本周观测到 agent 没有改动记忆类文件"
-                  : `本周没有「${CHANGE_META[filter as Change].label}」的记忆文件`
+                  ? "本周没有观察到记忆改动"
+                  : `本周没有「${CHANGE_LABEL[filter as Change]}」的记忆文件`
               }
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              hint="换一个筛选看看；也可以等 agent 动过记忆类文件后再回到这里。"
+              mascotWidth={72}
             />
           ) : (
             <Table<MemoryEntry>

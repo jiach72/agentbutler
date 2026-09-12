@@ -1,5 +1,7 @@
-/* 样式分层加载顺序：全局基础 → 应用外壳 → 共享原语 → 各页面局部样式。 */
+/* 样式分层加载顺序：全局基础 → 应用外壳 → 共享原语 → 各页面局部样式 → 动效。
+   动效放最后一层：它修饰的是前面所有层的结果，且需要在 reduced-motion 下整层可关。 */
 @import "./styles/base.css";
 @import "./styles/shell.css";
 @import "./styles/primitives.css";
 @import "./styles/taste.css";
+@import "./styles/motion.css";

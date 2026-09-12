@@ -1,19 +1,35 @@
 /**
  * 操作审批列表（Trust Layer M3.1）：
- * - 汇总卡：待处理 / 已升级（需面板确认）/ 已批准 / 已拒绝 / 超时拦截；
+ * - 结论条：一句话说清「有多少待你处理、多少已超时拦截」这两个最关键信号；
+ * - 概览：待处理 / 需面板确认 / 已批准 / 已拒绝 / 超时拦截（StatStrip，色走品牌语义）；
  * - 过滤：全部 / 仅待处理 / 仅已升级；
  * - 表格：动作类型 + 目标 + 剩余时限倒计时 + 状态，点击进入 /approvals/:id 确认页。
  *
  * 数据真相原则：卡片里绝不出现对话正文——审批只针对「动作」，不看 agent 说了什么。
  */
-import { Alert, Button, Card, Empty, Flex, Segmented, Space, Statistic, Table, Tag, Tooltip, Typography } from "antd";
+import { Alert, Button, Card, Flex, Segmented, Space, Table, Tag, Tooltip, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { ReloadOutlined, SafetyCertificateOutlined } from "@ant-design/icons";
+import {
+  CheckCircleOutlined,
+  ClockCircleOutlined,
+  CloseCircleOutlined,
+  ReloadOutlined,
+  SafetyCertificateOutlined,
+  StopOutlined,
+} from "@ant-design/icons";
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { ConclusionBar } from "../../components/ConclusionBar.js";
+import type { PageConclusionView } from "../../components/ConclusionBar.js";
+import { Empty } from "../../components/Empty.js";
 import { PageHeader } from "../../components/PageHeader.js";
+import { StatStrip } from "../../components/StatStrip.js";
+import type { StatStripItem } from "../../components/StatStrip.js";
+import { StatusBadge } from "../../components/StatusBadge.js";
+import type { SemanticTone } from "../../components/StatusBadge.js";
 import { loadJson } from "../../lib/api.js";
 import { usePolling } from "../../hooks/usePolling.js";
+import { useUrlState } from "../../hooks/useUrlState.js";
 
 export interface ApprovalItem {
   id: string;
@@ -61,11 +77,19 @@ interface ApprovalsPayload {
   };
 }
 
-const STATUS_TAG: Record<string, { color: string; label: string }> = {
-  pending: { color: "processing", label: "待处理" },
-  approved: { color: "green", label: "已批准" },
-  denied: { color: "red", label: "已拒绝" },
-  expired: { color: "default", label: "超时拦截" },
+/** 状态 → 品牌语义 tone（antd 预设色名 processing/green/red/default 与品牌信号色不是同一值，统一走 StatusBadge）。 */
+const STATUS_TONE: Record<string, SemanticTone> = {
+  pending: "warn",
+  approved: "ok",
+  denied: "error",
+  expired: "error",
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  pending: "待处理",
+  approved: "已批准",
+  denied: "已拒绝",
+  expired: "超时拦截",
 };
 
 const KIND_LABEL: Record<string, string> = {
@@ -101,7 +125,8 @@ const detailTarget = (item: ApprovalItem): string => {
 export function ApprovalsPage() {
   const [data, setData] = useState<ApprovalsPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<"all" | "pending" | "escalated">("pending");
+  // 过滤同步到 URL（规范 03 §3.12）：刷新/分享能还原同一视图（评审 P1-7）。
+  const [filter, setFilter] = useUrlState<string>("filter", "pending");
 
   const refresh = useCallback(() => {
     const params = new URLSearchParams({ limit: "200" });
@@ -154,13 +179,16 @@ export function ApprovalsPage() {
       key: "status",
       width: 150,
       render: (status: string, row) => {
-        const meta = STATUS_TAG[status] ?? { color: "default", label: status };
+        const tone = STATUS_TONE[status] ?? "unknown";
+        const label = STATUS_LABEL[status] ?? status;
         return (
           <Space size={4}>
-            <Tag color={meta.color}>{meta.label}</Tag>
+            <StatusBadge tone={tone} label={label} />
             {row.escalateRequired && row.status === "pending" && (
               <Tooltip title={`同一动作今日已被请求 ${row.attempts} 次，需在面板确认后才可放行`}>
-                <Tag color="orange">需面板确认</Tag>
+                <span>
+                  <StatusBadge tone="warn" label="需面板确认" />
+                </span>
               </Tooltip>
             )}
           </Space>
@@ -186,7 +214,7 @@ export function ApprovalsPage() {
           <span>
             {new Date(row.respondedAt).toLocaleString()}
             {row.actor !== null && row.actor !== "" && (
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              <Typography.Text type="secondary" style={{ fontSize: "var(--ab-text-size-xs)" }}>
                 {" "}
                 · {row.actor}
               </Typography.Text>
@@ -199,13 +227,97 @@ export function ApprovalsPage() {
   const summary = data?.summary;
   const scan = data?.scan;
 
+  /**
+   * 页面结论条（规范 03 §2.3 ②「必须有」）。
+   * 审批页最关键两个信号：待审批数量、超时（超时默认拒绝）。pending > 0 走 warn，
+   * 并一并点出需面板确认与已超时拦截的条数；无待处理时再陈述已处理分布。
+   */
+  const conclusion: PageConclusionView =
+    error !== null
+      ? {
+          tone: "offline",
+          title: "审批服务暂时读不到",
+          copy: error,
+          action: <Button onClick={refresh}>重试</Button>,
+        }
+      : data === null
+        ? { tone: "unknown", title: "正在读取审批单", copy: "刚打开页面，稍等片刻。" }
+        : summary !== undefined && summary.pending > 0
+          ? {
+              tone: "warn",
+              title: `有 ${summary.pending} 条待你处理${
+                summary.escalated > 0 ? `，其中 ${summary.escalated} 条需面板确认` : ""
+              }`,
+              copy: `15 分钟内不处理会按拒绝拦住${
+                summary.expired > 0 ? `；另有 ${summary.expired} 条已超时拦截` : ""
+              }。点开逐条决定放行还是拦下。`,
+            }
+          : summary !== undefined && summary.expired > 0
+            ? {
+                tone: "warn",
+                title: `近窗口有 ${summary.expired} 条超时拦截`,
+                copy: "这些动作因你（或系统）超时未应答，已被默认拒绝；可在审计流查看明细。",
+              }
+            : {
+                tone: "ok",
+                title: "当前没有待处理的审批",
+                copy:
+                  summary !== undefined && summary.total > 0
+                    ? `近窗口共 ${summary.total} 条均已处理（批准 ${summary.approved} / 拒绝 ${summary.denied}）。`
+                    : "近期没有高危动作需要你点头。",
+              };
+
+  const stats: StatStripItem[] =
+    summary === undefined
+      ? []
+      : [
+          {
+            key: "pending",
+            icon: ClockCircleOutlined,
+            label: "待你处理",
+            value: summary.pending,
+            tone: summary.pending > 0 ? "warn" : undefined,
+            sub: "需点头或拒绝",
+          },
+          {
+            key: "escalated",
+            icon: SafetyCertificateOutlined,
+            label: "其中需面板确认",
+            value: summary.escalated,
+            tone: summary.escalated > 0 ? "warn" : undefined,
+            sub: "一键放行不生效",
+          },
+          {
+            key: "approved",
+            icon: CheckCircleOutlined,
+            label: "已批准",
+            value: summary.approved,
+            tone: "ok",
+            sub: "本次动作已放行",
+          },
+          {
+            key: "denied",
+            icon: CloseCircleOutlined,
+            label: "已拒绝",
+            value: summary.denied,
+            sub: "动作被拦下",
+          },
+          {
+            key: "expired",
+            icon: StopOutlined,
+            label: "超时拦截",
+            value: summary.expired,
+            tone: summary.expired > 0 ? "warn" : undefined,
+            sub: "默认按拒绝处理",
+          },
+        ];
+
   return (
     <section className="approvals-page">
       <Flex vertical gap={16}>
         <PageHeader
-          eyebrow="信任层"
           title="操作审批"
-          description="agent 要删文件、跑命令、对外发消息时，先在这儿点头——15 分钟不处理就按拒绝拦住。"
+          description="agent 要删文件、跑命令或对外发消息时，先在这里确认。15 分钟不处理会按拒绝拦截。"
           extra={
             <Button icon={<ReloadOutlined />} onClick={refresh}>
               刷新
@@ -213,31 +325,10 @@ export function ApprovalsPage() {
           }
         />
 
-        {error !== null && <Alert type="warning" showIcon message="审批服务不可用" description={error} />}
+        {/* §2.3 ② 结论条。原「审批服务不可用」Alert 与离线结论同一件事，已并入此条。 */}
+        <ConclusionBar tone={conclusion.tone} title={conclusion.title} copy={conclusion.copy} action={conclusion.action} />
 
-        {summary !== undefined && (
-          <Flex gap={16} wrap="wrap">
-            <Card style={{ flex: "1 1 160px" }}>
-              <Statistic
-                title="待你处理"
-                value={summary.pending}
-                valueStyle={summary.pending > 0 ? { color: "#d46b08" } : undefined}
-              />
-            </Card>
-            <Card style={{ flex: "1 1 160px" }}>
-              <Statistic title="其中需面板确认" value={summary.escalated} />
-            </Card>
-            <Card style={{ flex: "1 1 160px" }}>
-              <Statistic title="已批准" value={summary.approved} valueStyle={{ color: "#389e0d" }} />
-            </Card>
-            <Card style={{ flex: "1 1 160px" }}>
-              <Statistic title="已拒绝" value={summary.denied} />
-            </Card>
-            <Card style={{ flex: "1 1 160px" }}>
-              <Statistic title="超时拦截" value={summary.expired} />
-            </Card>
-          </Flex>
-        )}
+        <StatStrip items={stats} />
 
         {scan !== undefined && (
           <Alert
@@ -269,18 +360,19 @@ export function ApprovalsPage() {
                 { label: "全部", value: "all" },
               ]}
               value={filter}
-              onChange={(value) => setFilter(value as "all" | "pending" | "escalated")}
+              onChange={(value) => setFilter(value as string)}
             />
           }
         >
           {data !== null && data.items.length === 0 ? (
             <Empty
-              description={
+              title={
                 filter === "pending"
                   ? "当前没有待处理的审批请求——说明 agent 没伸手去碰高危动作"
                   : "窗口内没有审批记录"
               }
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              hint="换一个筛选看看，或等 agent 发起新的高危动作。"
+              mascotWidth={72}
             />
           ) : (
             <Table<ApprovalItem>

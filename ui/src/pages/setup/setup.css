@@ -229,8 +229,14 @@
   gap: 8px;
 }
 
+/* 实例明细行与修复动作区同缩进,消除「按钮悬空、明细贴左」的断裂感(审计 P2-4)。 */
+.setup-link-instances {
+  padding-left: 48px;
+}
+
 @media (max-width: 640px) {
-  .setup-link-fix {
+  .setup-link-fix,
+  .setup-link-instances {
     padding-left: 0;
   }
 }

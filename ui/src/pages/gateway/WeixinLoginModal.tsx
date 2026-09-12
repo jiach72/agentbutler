@@ -112,11 +112,11 @@ export function WeixinLoginModal({ open, onClose, onConfirmed }: WeixinLoginModa
       width={420}
     >
       {linkLost && (
-        <Alert type="error" showIcon message="与管家服务暂时失联，正在重试…" style={{ marginBottom: 12 }} />
+        <Alert type="error" showIcon title="与管家服务暂时失联，正在重试…" style={{ marginBottom: 12 }} />
       )}
       {status?.state === "failed" ? (
         <Flex vertical gap={12}>
-          <Alert type="error" showIcon message="登录未完成" description={status.reason ?? "请关闭后重试"} />
+          <Alert type="error" showIcon title="登录未完成" description={status.reason ?? "请关闭后重试"} />
           <Button onClick={() => setAttempt((current) => current + 1)}>重新生成二维码</Button>
         </Flex>
       ) : qrUrl === null ? (

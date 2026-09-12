@@ -9,7 +9,6 @@ import {
   Collapse,
   Descriptions,
   Divider,
-  Empty,
   Flex,
   Progress,
   Row,
@@ -39,6 +38,7 @@ import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
 import { Link, useNavigate } from "react-router-dom";
 import { EvolutionOverview } from "./EvolutionOverview.js";
 import type { EvolutionOverviewPayload } from "./types.js";
+import { Empty } from "../../components/Empty.js";
 
 const { Paragraph, Text } = Typography;
 
@@ -387,7 +387,6 @@ export function EvolutionPage() {
     <section className="evolution-page">
       <Flex vertical gap={24}>
         <PageHeader
-          eyebrow="维护与升级"
           title="自进化"
           description="定期分析运行日志，归纳重复问题并生成可审计的优化方向；先试运行，再由你确认应用。"
           extra={
@@ -521,7 +520,7 @@ export function EvolutionPage() {
               styles={{ body: { padding: 12, maxHeight: 640, overflow: "auto" } }}
             >
               {(data?.directions ?? []).length === 0 ? (
-                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前窗口没有可归纳的问题" />
+                <Empty mascot={false} title="当前窗口没有可归纳的问题" />
               ) : (
                 <Flex vertical gap={8}>
                   {data?.directions.map((item) => (
@@ -580,8 +579,8 @@ export function EvolutionPage() {
             {!selected ? (
               <Card title={<SectionHeader kicker="方向详情" title="选择一个方向" />}>
                 <Empty
-                  image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  description="选择左侧方向查看问题总结、日志依据和处理方式。"
+                  title="还没选择改进方向"
+                  hint="在左侧列表点一个，这里会显示它的总结、日志依据和处理方式。"
                 />
               </Card>
             ) : (
@@ -880,8 +879,9 @@ export function EvolutionPage() {
               children:
                 (data?.directions.filter((item) => item.execution).length ?? 0) === 0 ? (
                   <Empty
-                    image={Empty.PRESENTED_IMAGE_SIMPLE}
-                    description="暂无处理记录；历史运行仍保留在记录中"
+                    mascot={false}
+                    title="还没有处理过的改进方向"
+                    hint="历史运行仍保留在记录中，不会丢失。"
                   />
                 ) : (
                   <ul style={LIST_STYLE}>

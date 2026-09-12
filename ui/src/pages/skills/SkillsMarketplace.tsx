@@ -14,7 +14,6 @@ import {
   Descriptions,
   Drawer,
   Dropdown,
-  Empty,
   Flex,
   Input,
   Modal,
@@ -60,6 +59,7 @@ import type {
   TrendItem,
 } from "./marketplace.js";
 import "./marketplace.css";
+import { Empty } from "../../components/Empty.js";
 
 const { Text } = Typography;
 
@@ -936,9 +936,8 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
         <>
           {(hub.items.length === 0 ? (
             <Empty
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description={hubSearching ? "SkillHub 里没有匹配的技能，换个关键词试试" : "该分类下暂时没有技能，换个分类或搜索试试"}
-              style={{ padding: "32px 0" }}
+              mascot={false}
+              title={hubSearching ? "SkillHub 里没有匹配的技能，换个关键词试试" : "该分类下暂时没有技能，换个分类或搜索试试"}
             />
           ) : (
             <div className="wb-grid">
@@ -963,7 +962,11 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
       <Text type="secondary">正在读取推荐与公开趋势…</Text>
     </Flex>
   ) : recommendedCards.length === 0 ? (
-    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无推荐项目；点击右上角搜索或从 Git 安装" style={{ padding: "32px 0" }} />
+    <Empty
+      mascot={false}
+      title="还没有推荐项目"
+      hint="点击右上角搜索，或从 Git 安装技能。"
+    />
   ) : (
     <div className="wb-grid">
       {recommendedCards.map(renderMarketCard)}
@@ -1008,12 +1011,16 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
         </Flex>
       ) : localItems.length === 0 && localError === null ? (
         <Empty
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description="还没有安装任何技能；去 SkillHub 市场逛逛，或从 Git 安装"
-          style={{ padding: "32px 0" }}
+          mascot={false}
+          title="还没有安装任何技能"
+          hint="去 SkillHub 市场逛逛，或从 Git 安装。"
         />
       ) : visibleInstalled.length === 0 && localError === null ? (
-        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有匹配当前分类和筛选的技能" style={{ padding: "32px 0" }} />
+        <Empty
+          mascot={false}
+          title="没有匹配当前分类和筛选的技能"
+          hint="试试切换分类，或清空搜索关键词。"
+        />
       ) : (
         <div className="wb-grid">
           {visibleInstalled.map(renderInstalledCard)}

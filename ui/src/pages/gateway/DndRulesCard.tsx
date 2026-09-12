@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import { App, Button, Card, Flex, Form, InputNumber, Select, Switch, Table, Typography } from "antd";
 
+import { Empty } from "../../components/Empty.js";
 import { deleteJson, fetchJson, postJson } from "../../lib/api.js";
 
 interface DndRuleRow {
@@ -148,7 +149,9 @@ export function DndRulesCard() {
           <Form.Item name="scope" rules={[{ required: true }]}>
             <Select options={SCOPE_OPTIONS} style={{ width: 100 }} />
           </Form.Item>
-          <Form.Item name="scopeKey" dependencies={["scope"]} noStyle>
+          {/* 外层只是「按 scope 决定要不要渲染」，真正的字段是内层那个 Form.Item。
+              外层若带上 name，antd v6 会警告「渲染函数不能是字段」，所以这里不写 name。 */}
+          <Form.Item dependencies={["scope"]} noStyle>
             {({ getFieldValue }) =>
               getFieldValue("scope") !== "global" ? (
                 <Form.Item name="scopeKey" rules={[{ required: true, message: "请填写标识" }]}>
@@ -177,7 +180,13 @@ export function DndRulesCard() {
           dataSource={rules}
           loading={loading}
           pagination={false}
-          locale={{ emptyText: "暂无规则" }}
+          locale={{
+            /* 传字符串会让 antd 用自己的最低对比度色渲染（实测白底仅 3.04:1，不达 AA）；
+               传组件才能走我们的令牌，顺便把「暂无规则」这种敷衍文案换成三件套。 */
+            emptyText: (
+              <Empty title="还没有免打扰规则" hint="加一条规则后，管家在这段时间只保留紧急提醒。" mascot={false} />
+            ),
+          }}
         />
       </Flex>
     </Card>

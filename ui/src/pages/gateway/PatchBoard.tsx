@@ -2,7 +2,8 @@
  * 形态补丁区：补丁卡片、参数草稿（antd InputNumber）、漂移检测与应用动作。
  * busy 锁按「动作:实例:补丁」粒度生效，只禁用对应按钮。
  */
-import { Alert, Button, Card, Descriptions, Empty, Flex, Input, InputNumber, Tag, Tooltip, Typography } from "antd";
+import { Alert, Button, Card, Descriptions, Flex, Input, InputNumber, Tag, Tooltip, Typography } from "antd";
+import { Empty } from "../../components/Empty.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { formatRelative } from "../../lib/format.js";
 import { PARAM_LABELS, instanceKeyOf, patchBusyKey, schemaHint, statusTone } from "./helpers.js";
@@ -65,8 +66,9 @@ export function PatchBoard({
 
       {patches.length === 0 ? (
         <Empty
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description="暂时没有可调整的消息规则，请稍后刷新。"
+          mascot={false}
+          title="暂时没有可调整的消息规则"
+          hint="管家发现新规则后会显示在这里，也可以稍后刷新。"
         />
       ) : (
         <Flex vertical gap={16}>

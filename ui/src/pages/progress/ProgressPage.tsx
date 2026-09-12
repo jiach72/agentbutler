@@ -9,12 +9,20 @@
  *    算成「不诚实」，那本身就是在制造新的信任问题；
  * 3. 每一条判定都给出理由与副作用明细，用户可以自己复核，不用信我们。
  */
-import { Alert, Button, Card, Empty, Flex, Segmented, Space, Statistic, Table, Tag, Tooltip, Typography } from "antd";
+import { Alert, Button, Card, Flex, Segmented, Space, Table, Tooltip, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { ReloadOutlined, SafetyCertificateOutlined, SyncOutlined } from "@ant-design/icons";
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { ConclusionBar } from "../../components/ConclusionBar.js";
+import type { PageConclusionView } from "../../components/ConclusionBar.js";
+import { Empty } from "../../components/Empty.js";
 import { PageHeader } from "../../components/PageHeader.js";
+import { StatStrip } from "../../components/StatStrip.js";
+import type { StatStripItem } from "../../components/StatStrip.js";
+import { StatusBadge } from "../../components/StatusBadge.js";
+import type { SemanticTone } from "../../components/StatusBadge.js";
+import { useUrlState } from "../../hooks/useUrlState.js";
 import { loadJson, postJson } from "../../lib/api.js";
 import { usePolling } from "../../hooks/usePolling.js";
 
@@ -59,15 +67,23 @@ interface ProgressPayload {
   claims: Claim[];
 }
 
-const VERDICT_META: Record<Verdict, { color: string; mark: string; label: string; note: string }> = {
-  verified: { color: "green", mark: "✓", label: "可信", note: "声明窗口内确实产生了副作用动作" },
-  suspect: { color: "red", mark: "？", label: "可疑", note: "观测得到该会话，但声明窗口内没有任何实际动作" },
-  unverifiable: {
-    color: "default",
-    mark: "—",
-    label: "无法验证",
-    note: "日志缺少会话归属，或该会话没有任何可观测动作——不猜测",
-  },
+/** 判定结论映射到品牌 6 档语义色（不用 antd 预设色名，预设色由算法派生、深色下对比不足）。 */
+const VERDICT_TONE: Record<Verdict, SemanticTone> = {
+  verified: "ok",
+  suspect: "error",
+  unverifiable: "offline",
+};
+
+const VERDICT_NOTE: Record<Verdict, string> = {
+  verified: "声明窗口内确实产生了副作用动作",
+  suspect: "观测得到该会话，但声明窗口内没有任何实际动作",
+  unverifiable: "日志缺少会话归属，或该会话没有任何可观测动作——不猜测",
+};
+
+const VERDICT_LABEL: Record<Verdict, string> = {
+  verified: "可信",
+  suspect: "可疑",
+  unverifiable: "无法验证",
 };
 
 const pct = (value: number | null): string => (value === null ? "—" : `${Math.round(value * 100)}%`);
@@ -75,7 +91,8 @@ const pct = (value: number | null): string => (value === null ? "—" : `${Math.
 export function ProgressPage() {
   const [data, setData] = useState<ProgressPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<"all" | Verdict>("all");
+  // 筛选同步到 URL（规范 03 §3.12）：刷新/分享能还原同一视图（评审 P1-7）。
+  const [filter, setFilter] = useUrlState<string>("verdict", "all");
   const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(() => {
@@ -109,16 +126,13 @@ export function ProgressPage() {
       dataIndex: "verdict",
       key: "verdict",
       width: 110,
-      render: (verdict: Verdict) => {
-        const meta = VERDICT_META[verdict];
-        return (
-          <Tooltip title={meta.note}>
-            <Tag color={meta.color}>
-              {meta.mark} {meta.label}
-            </Tag>
-          </Tooltip>
-        );
-      },
+      render: (verdict: Verdict) => (
+        <Tooltip title={VERDICT_NOTE[verdict]}>
+          <span>
+            <StatusBadge tone={VERDICT_TONE[verdict]} label={VERDICT_LABEL[verdict]} />
+          </span>
+        </Tooltip>
+      ),
     },
     {
       title: "会话",
@@ -170,14 +184,106 @@ export function ProgressPage() {
   ];
 
   const summary = data?.summary;
+  const suspectNamed = summary?.suspectSessions.length ?? 0;
+  const scanMode = summary?.mode;
+
+  /**
+   * 页面结论条（规范 03 §2.3 ②「必须有」）。
+   * 这一页的存在意义就是回答「它有没有编」，所以结论必须直接给判断（评审 P0-2）。
+   */
+  const conclusion: PageConclusionView =
+    error !== null
+      ? {
+          tone: "offline",
+          title: "进度核实暂时不可用",
+          copy: error,
+          action: <Button onClick={refresh}>重试</Button>,
+        }
+      : summary === undefined
+        ? { tone: "unknown", title: "正在核实进度声明", copy: "管家在日志里找「已完成 X%」这类声明，再和实际动作对账。" }
+        : scanMode === "no-sources"
+          ? {
+              tone: "unknown",
+              title: "没有找到可解析的执行日志",
+              copy: "进度核实依赖 Hermes 执行日志。确认实例已产生日志，或用 BUTLER_AUDIT_LOG_PATHS 指定路径。",
+              action: (
+                <Button type="primary" icon={<SyncOutlined />} loading={busy} onClick={() => void scan()}>
+                  立即核实
+                </Button>
+              ),
+            }
+          : summary.total === 0
+            ? {
+                tone: "ok",
+                title: "这个窗口内没有进度声明",
+                copy: "没有声明就不存在「编进度」的问题；有新的声明后这里会自动出现。",
+              }
+            : suspectNamed > 0
+              ? {
+                  tone: "error",
+                  title: `有 ${suspectNamed} 个会话反复声称完成却没有动作`,
+                  copy: `7 天内共 ${summary.total} 条声明，其中 ${summary.suspect} 条没有实际动作佐证；下面的名单点名了连续 3 次以上的会话。`,
+                  action: <Button onClick={refresh}>刷新</Button>,
+                }
+              : summary.suspect > 0
+                ? {
+                    tone: "warn",
+                    title: `${summary.suspect} 条声明没有实际动作佐证`,
+                    copy: `7 天内共 ${summary.total} 条声明，可信度 ${pct(summary.trustRate)}（分母只含可信 + 可疑）。`,
+                  }
+                : {
+                    tone: "ok",
+                    title: "这个窗口内的进度声明都有动作佐证",
+                    copy: `7 天内共 ${summary.total} 条声明，可信度 ${pct(summary.trustRate)}。`,
+                  };
+
+  const progressStats: StatStripItem[] =
+    summary === undefined
+      ? []
+      : [
+          {
+            key: "trust-rate",
+            icon: SafetyCertificateOutlined,
+            label: "进度可信度（7 天）",
+            value: summary.trustRate === null ? "—" : Math.round(summary.trustRate * 100),
+            unit: summary.trustRate === null ? undefined : "%",
+            tone: summary.trustRate === null ? undefined : summary.trustRate < 0.8 ? "error" : "ok",
+            sub: "分母只含「可信 + 可疑」，无法验证单列",
+          },
+          {
+            key: "verified",
+            icon: SafetyCertificateOutlined,
+            label: "有动作佐证",
+            value: summary.verified,
+            unit: "条",
+            tone: "ok",
+            sub: "声明窗口内确有副作用动作",
+          },
+          {
+            key: "suspect",
+            icon: SafetyCertificateOutlined,
+            label: "无动作佐证",
+            value: summary.suspect,
+            unit: "条",
+            tone: "error",
+            sub: "观测得到会话，但窗口内没有动作",
+          },
+          {
+            key: "unverifiable",
+            icon: SafetyCertificateOutlined,
+            label: "无法验证",
+            value: summary.unverifiable,
+            unit: "条",
+            sub: "日志缺少会话归属——不猜测",
+          },
+        ];
 
   return (
     <section className="progress-page">
       <Flex vertical gap={16}>
         <PageHeader
-          eyebrow="信任层"
           title="进度可信度"
-          description="它说「已完成 65%」的时候，是真的在做，还是只是嘴上说说——这里给你答案。"
+          description="对比 agent 声称的进度和它实际做过的动作，看看进度是不是可信。"
           extra={
             <Space>
               <Button icon={<ReloadOutlined />} onClick={refresh}>
@@ -192,43 +298,16 @@ export function ProgressPage() {
           }
         />
 
-        {error !== null && <Alert type="warning" showIcon message="进度检测不可用" description={error} />}
+        {/* §2.3 ② 结论条：直接给「它有没有编」的判断。 */}
+        <ConclusionBar
+          tone={conclusion.tone}
+          title={conclusion.title}
+          copy={conclusion.copy}
+          action={conclusion.action}
+        />
 
-        {summary !== undefined && summary.mode === "no-sources" && (
-          <Alert
-            type="info"
-            showIcon
-            message="没有找到可解析的执行日志"
-            description="进度核实依赖 Hermes 执行日志。请确认实例已产生日志，或用 BUTLER_AUDIT_LOG_PATHS 显式指定路径。"
-          />
-        )}
+        <StatStrip items={progressStats} />
 
-        {summary !== undefined && (
-          <Flex gap={16} wrap="wrap">
-            <Card style={{ flex: "1 1 200px" }}>
-              <Statistic
-                title="进度可信度（7 天）"
-                value={summary.trustRate === null ? "—" : Math.round(summary.trustRate * 100)}
-                suffix={summary.trustRate === null ? "" : "%"}
-                valueStyle={
-                  summary.trustRate !== null && summary.trustRate < 0.8 ? { color: "#cf1322" } : { color: "#389e0d" }
-                }
-              />
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                分母只含「可信 + 可疑」，无法验证单列
-              </Typography.Text>
-            </Card>
-            <Card style={{ flex: "1 1 140px" }}>
-              <Statistic title="✓ 有动作佐证" value={summary.verified} valueStyle={{ color: "#389e0d" }} />
-            </Card>
-            <Card style={{ flex: "1 1 140px" }}>
-              <Statistic title="？ 无动作佐证" value={summary.suspect} valueStyle={{ color: "#cf1322" }} />
-            </Card>
-            <Card style={{ flex: "1 1 140px" }}>
-              <Statistic title="— 无法验证" value={summary.unverifiable} />
-            </Card>
-          </Flex>
-        )}
 
         {summary !== undefined && summary.suspectSessions.length > 0 && (
           <Card
@@ -242,10 +321,15 @@ export function ProgressPage() {
           >
             <Flex gap={8} wrap="wrap">
               {summary.suspectSessions.map((row) => (
-                <Link key={row.sessionId} to={`/sessions/${encodeURIComponent(row.sessionId)}`}>
-                  <Tag color="red">
-                    {row.sessionId} · 最长连续 {row.maxSuspectStreak} 次 · 可信度 {pct(row.trustRate)}
-                  </Tag>
+                <Link
+                  key={row.sessionId}
+                  to={`/sessions/${encodeURIComponent(row.sessionId)}`}
+                  style={{ textDecoration: "none" }}
+                >
+                  <StatusBadge
+                    tone="error"
+                    label={`${row.sessionId} · 最长连续 ${row.maxSuspectStreak} 次 · 可信度 ${pct(row.trustRate)}`}
+                  />
                 </Link>
               ))}
             </Flex>
@@ -263,18 +347,19 @@ export function ProgressPage() {
                 { label: "无法验证", value: "unverifiable" },
               ]}
               value={filter}
-              onChange={(value) => setFilter(value as "all" | Verdict)}
+              onChange={(value) => setFilter(value as string)}
             />
           }
         >
           {data !== null && data.claims.length === 0 ? (
             <Empty
-              description={
+              title={summary?.mode === "no-sources" ? "没有日志源，暂时无法核实" : "窗口内没有可核实的进度声明"}
+              hint={
                 summary?.mode === "no-sources"
-                  ? "没有日志源，暂时无法核实"
-                  : "窗口内没有可核实的进度声明"
+                  ? "确认实例已产生执行日志，或用 BUTLER_AUDIT_LOG_PATHS 指定日志路径。"
+                  : "换个筛选看看，或等 agent 产生新的进度声明。"
               }
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              mascotWidth={72}
             />
           ) : (
             <Table<Claim>

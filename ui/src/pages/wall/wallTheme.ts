@@ -23,6 +23,8 @@ export interface WallPalette {
   tipBg: string;
   tipBd: string;
   donutBorder: string;
+  /** markPoint 峰值标签文字色：深色主题亮底配深字、浅色主题深底配白字。 */
+  markText: string;
   glow: number;
   font: string;
 }
@@ -46,6 +48,7 @@ export const WALL_PALETTES: Record<WallThemeMode, WallPalette> = {
     tipBg: "#0F2136",
     tipBd: "#274B6F",
     donutBorder: "#0F2136",
+    markText: "#081220",
     glow: 12,
     font: FONT_STACK,
   },
@@ -56,7 +59,7 @@ export const WALL_PALETTES: Record<WallThemeMode, WallPalette> = {
     blue100: "#B9D2EA",
     text: "#0B1728",
     text2: "#3A5468",
-    text3: "#5F7488",
+    text3: "#52677B",
     ok: "#0B7F6F",
     warn: "#9A6B0B",
     error: "#B4342A",
@@ -65,6 +68,7 @@ export const WALL_PALETTES: Record<WallThemeMode, WallPalette> = {
     tipBg: "#FFFFFF",
     tipBd: "#E2E9F1",
     donutBorder: "#FFFFFF",
+    markText: "#FFFFFF",
     glow: 0,
     font: FONT_STACK,
   },
@@ -86,7 +90,24 @@ export function mixHex(a: string, t: number): string {
   return `#${out.map((v) => v.toString(16).padStart(2, "0")).join("")}`;
 }
 
-const axis = (c: WallPalette, fontSize = 11.5) => ({
+/**
+ * 大屏分类色序列（8 阶）：基础四色 + 同色系深浅扩展。
+ * 模型/技能等分类数量超过 4 时不再循环撞色（审计 P1-3）。
+ */
+export function wallSequence(c: WallPalette): Array<string> {
+  return [
+    c.accent,
+    c.brass,
+    c.cyan,
+    c.blue100,
+    mixHex(c.accent, 0.22),
+    mixHex(c.accent, 0.46),
+    mixHex(c.cyan, 0.45),
+    mixHex(c.brass, 0.42),
+  ];
+}
+
+const axis = (c: WallPalette, fontSize = 12) => ({
   axisLine: { lineStyle: { color: c.axisLine } },
   axisTick: { show: false },
   axisLabel: { color: c.text3, fontSize, fontFamily: c.font },
@@ -119,7 +140,7 @@ export function trendOption(points: TrendPoint[], c: WallPalette): EChartsOption
     yAxis: {
       type: "value", splitNumber: 3,
       splitLine: { lineStyle: { color: c.gridLine } },
-      axisLabel: { color: c.text3, fontSize: 11, fontFamily: c.font },
+      axisLabel: { color: c.text3, fontSize: 12, fontFamily: c.font },
     },
     series: [
       {
@@ -139,7 +160,7 @@ export function trendOption(points: TrendPoint[], c: WallPalette): EChartsOption
         markPoint: {
           data: [{ type: "max", name: "峰值" }], symbolSize: 48,
           itemStyle: { color: c.accent, shadowColor: c.accent, shadowBlur: 12 },
-          label: { color: "#081220", fontSize: 10.5, fontWeight: 700, formatter: "{c}" },
+          label: { color: c.markText, fontSize: 12, fontWeight: 700, formatter: "{c}" },
         },
       },
       {
@@ -168,6 +189,7 @@ export function tokenTrendOption(
     grid: { left: 44, right: 16, top: 36, bottom: 24 },
     legend: {
       top: 0, right: 2, itemWidth: 12, itemHeight: 8, icon: "roundRect", itemGap: 12,
+      type: "scroll",
       textStyle: { color: c.text2, fontSize: 11.5 },
     },
     tooltip: { trigger: "axis", ...tooltip(c) },
@@ -175,7 +197,7 @@ export function tokenTrendOption(
     yAxis: {
       type: "value", splitNumber: 3,
       splitLine: { lineStyle: { color: c.gridLine } },
-      axisLabel: { color: c.text3, fontSize: 11, fontFamily: c.font },
+      axisLabel: { color: c.text3, fontSize: 12, fontFamily: c.font },
     },
     series: models.map((m) => ({
       name: m.name, type: "line", stack: "token", smooth: 0.35, symbol: "none",
@@ -228,7 +250,7 @@ export function skillBarOption(rows: Array<SkillRow>, c: WallPalette): EChartsOp
       })),
       showBackground: true,
       backgroundStyle: { color: c.gridLine, borderRadius: [0, 7, 7, 0] },
-      label: { show: true, position: "right", color: c.text2, fontSize: 11.5, fontWeight: 600, fontFamily: c.font },
+      label: { show: true, position: "right", color: c.text2, fontSize: 12, fontWeight: 600, fontFamily: c.font },
     }],
   };
 }
@@ -240,14 +262,22 @@ export interface DonutSlice {
 
 /** Token 三件套未接入；接入后用此构建模型占比环形图。 */
 export function donutOption(slices: Array<DonutSlice>, c: WallPalette): EChartsOption {
-  const colors = [c.accent, c.brass, c.cyan, c.blue100];
+  const colors = wallSequence(c);
+  const total = slices.reduce((sum, s) => sum + s.value, 0);
   return {
     textStyle: { fontFamily: c.font },
     animationDuration: 600,
     tooltip: { trigger: "item", ...tooltip(c) },
     legend: {
-      orient: "vertical", right: 6, top: "middle", itemWidth: 12, itemHeight: 8,
-      icon: "roundRect", textStyle: { color: c.text2, fontSize: 12 }, itemGap: 12,
+      orient: "vertical", right: 6, top: "middle", type: "scroll",
+      itemWidth: 12, itemHeight: 8, icon: "roundRect", itemGap: 12,
+      textStyle: { color: c.text2, fontSize: 12 },
+      // 长模型名截断防裁切，并附数值（万 token）让图例自解释（审计 P1-3）。
+      formatter: (name: string) => {
+        const hit = slices.find((s) => s.name === name);
+        const short = name.length > 13 ? `${name.slice(0, 12)}…` : name;
+        return hit === undefined ? short : `${short} ${hit.value}`;
+      },
     },
     series: [{
       type: "pie", radius: ["58%", "80%"], center: ["33%", "50%"],
@@ -257,6 +287,9 @@ export function donutOption(slices: Array<DonutSlice>, c: WallPalette): EChartsO
       emphasis: { label: { show: false }, scaleSize: 4 },
       data: slices.map((s, i) => ({
         ...s,
+        tooltip: total > 0
+          ? { value: `${s.value} 万（${((s.value / total) * 100).toFixed(1)}%）` }
+          : undefined,
         itemStyle: { color: colors[i % colors.length]!, shadowColor: colors[i % colors.length]!, shadowBlur: c.glow },
       })),
     }],

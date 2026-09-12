@@ -1,4 +1,7 @@
-import { Card, Empty, Flex, Tag, Typography } from "antd";
+import { Card, Flex, Typography } from "antd";
+import { Empty } from "../../components/Empty.js";
+import { StatusBadge } from "../../components/StatusBadge.js";
+import type { SemanticTone } from "../../components/StatusBadge.js";
 import type { EvolutionOverviewPayload } from "./types.js";
 
 const labels: Record<string, string> = {
@@ -8,6 +11,21 @@ const labels: Record<string, string> = {
   engine: "引擎问题",
   target: "目标问题",
   unknown: "未知",
+};
+
+/** 影响程度 → 品牌语义 tone（阻断=error、高影响=warn、其余=中性标记）。 */
+const IMPACT_TONE: Record<string, SemanticTone> = {
+  blocking: "error",
+  high: "warn",
+  medium: "unknown",
+  low: "unknown",
+};
+
+const IMPACT_LABEL: Record<string, string> = {
+  blocking: "阻断",
+  high: "高影响",
+  medium: "一般",
+  low: "轻微",
 };
 
 export function FailureAttributionPanel({ items }: { items: EvolutionOverviewPayload["failures"] }) {
@@ -29,7 +47,7 @@ export function FailureAttributionPanel({ items }: { items: EvolutionOverviewPay
       extra={<Typography.Text type="secondary">{items.length} 类</Typography.Text>}
     >
       {items.length === 0 ? (
-        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前范围没有失败归因" />
+        <Empty mascot={false} title="当前范围还没有失败归因" />
       ) : (
         <Flex vertical gap={12}>
           {items.slice(0, 8).map((item, index) => (
@@ -43,13 +61,12 @@ export function FailureAttributionPanel({ items }: { items: EvolutionOverviewPay
                   {item.evidence}
                 </Typography.Text>
               </Flex>
-              <Tag
-                color={
-                  item.impact === "blocking" ? "red" : item.impact === "high" ? "orange" : "default"
-                }
-              >
-                {item.impact === "blocking" ? "阻断" : item.impact}
-              </Tag>
+              {/* 严重度用品牌语义 tone，不用 antd 预设色名——预设色由算法派生，
+                  实测亮底 orange Tag 仅 3.34:1，不达 AA。 */}
+              <StatusBadge
+                tone={IMPACT_TONE[item.impact]}
+                label={IMPACT_LABEL[item.impact]}
+              />
             </Flex>
           ))}
         </Flex>

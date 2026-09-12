@@ -7,6 +7,13 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { App as AntdApp, ConfigProvider } from "antd";
 import * as zhCNNamespace from "antd/es/locale/zh_CN.js";
+// Inter 本地打包(离线部署,不走 CDN):修复「字体栈写了 Inter 却从未加载」
+// 导致的 faux bold 发虚与数字字形走样(审计 P2-1)。
+import "@fontsource/inter/400.css";
+import "@fontsource/inter/500.css";
+import "@fontsource/inter/600.css";
+import "@fontsource/inter/700.css";
+import "@fontsource/inter/800.css";
 import "antd/dist/reset.css";
 import { AccessGate } from "./components/AccessGate.js";
 import { Layout } from "./components/Layout.js";

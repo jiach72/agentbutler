@@ -94,6 +94,20 @@ export function formatDurationMs(
   return `${formatDecimal(value / 1000, 1)} s`;
 }
 
+/**
+ * 模型计费上游按美元结算，界面统一折算成人民币展示。
+ *
+ * 汇率是**展示用近似值**，写死在一个地方：调汇率只改这一行。
+ * 后端字段名（costUsd / budgetUsd 等）保持原样不动——它们描述的是数据来源，
+ * 不是界面货币。需要精确计费口径时以账单为准，不要反过来从界面数值倒推。
+ */
+export const USD_TO_CNY = 7.2;
+
+export function money(value: number | null | undefined, emptyText = "—"): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return emptyText;
+  return `¥${formatDecimal(value * USD_TO_CNY, 2)}`;
+}
+
 /** 结构化数据守卫：对象且非数组。 */
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

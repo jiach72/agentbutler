@@ -401,7 +401,6 @@ export function GatewayPage() {
     <section className="gateway-page">
       <Flex vertical gap={24}>
         <PageHeader
-          eyebrow="控制台"
           title="消息通知"
           description="记录消息发送结果，合并重复内容，并按免打扰规则调度；所有通知保留可追溯记录。"
           extra={

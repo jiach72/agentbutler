@@ -4,11 +4,18 @@
  * 单实例也照常工作（聚合结果就是那一个实例的全貌）。
  * 关键呈现：「统一急停覆盖 x / y」——覆盖不全时用户必须看得见，而不是默认没事。
  */
-import { Alert, Button, Card, Empty, Flex, Select, Space, Statistic, Table, Tag, Typography } from "antd";
+import { money } from "../../lib/format.js";
+import { Alert, Button, Card, Flex, Select, Space, Table, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { ReloadOutlined, ClusterOutlined } from "@ant-design/icons";
+import { ReloadOutlined } from "@ant-design/icons";
 import { useCallback, useEffect, useState } from "react";
+import { ConclusionBar } from "../../components/ConclusionBar.js";
+import type { PageConclusionView } from "../../components/ConclusionBar.js";
+import { Empty } from "../../components/Empty.js";
 import { PageHeader } from "../../components/PageHeader.js";
+import { StatStrip } from "../../components/StatStrip.js";
+import type { StatStripItem } from "../../components/StatStrip.js";
+import { StatusBadge } from "../../components/StatusBadge.js";
 import { loadJson, postJson } from "../../lib/api.js";
 import { usePolling } from "../../hooks/usePolling.js";
 
@@ -41,8 +48,6 @@ interface FederationPayload {
   basis: string;
   groupLabels: Record<Group, string>;
 }
-
-const usd = (value: number | null): string => (value === null ? "—" : `$${value.toFixed(2)}`);
 
 export function FederationPage() {
   const [data, setData] = useState<FederationPayload | null>(null);
@@ -116,7 +121,7 @@ export function FederationPage() {
       dataIndex: "costUsd",
       key: "costUsd",
       width: 110,
-      render: (value: number | null) => usd(value),
+      render: (value: number | null) => money(value),
     },
     {
       title: "Token",
@@ -131,29 +136,93 @@ export function FederationPage() {
       key: "activeEvents",
       width: 90,
       render: (value: number) =>
-        value === 0 ? <Typography.Text type="secondary">0</Typography.Text> : (
-          <Tag color={value > 2 ? "red" : "orange"}>{value}</Tag>
+        value === 0 ? (
+          <Typography.Text type="secondary">0</Typography.Text>
+        ) : (
+          <StatusBadge tone={value > 2 ? "error" : "warn"} label={String(value)} />
         ),
     },
     {
       title: "急停覆盖",
       dataIndex: "killswitchCovered",
       key: "killswitchCovered",
-      width: 100,
+      width: 110,
       render: (covered: boolean) =>
-        covered ? <Tag color="red">已停</Tag> : <Tag>运行中</Tag>,
+        covered ? <StatusBadge tone="ok" label="已覆盖" /> : <StatusBadge tone="warn" label="未覆盖" />,
     },
   ];
 
   const summary = data?.summary;
+  const coverageFull =
+    summary !== undefined && summary.killswitchCoverage === `${summary.totalInstances}/${summary.totalInstances}`;
+
+  /**
+   * 页面结论条（规范 03 §2.3 ②「必须有」）。
+   * 原「联邦视图不可用」Alert 并入 offline 档；「统一急停未覆盖全部实例」Alert 与本结论同源，移入此处（只说一次）。
+   */
+  const conclusion: PageConclusionView =
+    error !== null
+      ? {
+          tone: "offline",
+          title: "联邦视图暂时读不到",
+          copy: error,
+          action: <Button onClick={refresh}>重试</Button>,
+        }
+      : data === null
+        ? { tone: "unknown", title: "正在合并各实例视图", copy: "正在按实例聚合会话、成本与急停覆盖。" }
+        : summary === undefined
+          ? {
+              tone: "unknown",
+              title: "联邦视图已加载，但汇总数字未算出",
+              copy: "实例明细照常展示；刷新可补上合计。",
+            }
+          : !coverageFull
+            ? {
+                tone: "warn",
+                title: "统一急停没覆盖全部实例",
+                copy: `当前覆盖 ${summary.killswitchCoverage}（共 ${summary.totalInstances} 个）。需要全量急停时，在顶栏重新执行「紧急暂停」，它会按能力路由停止全部实例。`,
+              }
+            : {
+                tone: "ok",
+                title: `${summary.totalInstances} 个实例已合并看`,
+                copy: `合并成本 ${money(summary.totalCostUsd)}，活跃事件 ${summary.activeEvents} 个，急停已覆盖 ${summary.killswitchCoverage}。`,
+              };
+
+  const fedStats: StatStripItem[] =
+    summary === undefined
+      ? []
+      : [
+          { key: "instances", label: "实例总数", value: summary.totalInstances, unit: "个" },
+          {
+            key: "cost",
+            label: "合并成本（7 天）",
+            value: money(summary.totalCostUsd),
+            sub: summary.totalCostUsd === null ? "金额未回传" : undefined,
+          },
+          { key: "sessions", label: "会话总量", value: summary.totalSessions, unit: "个" },
+          {
+            key: "events",
+            label: "活跃事件",
+            value: summary.activeEvents,
+            unit: summary.activeEvents === 0 ? undefined : "个",
+            tone: summary.activeEvents > 0 ? "warn" : undefined,
+            sub: summary.activeEvents > 0 ? "需关注" : "无活跃",
+          },
+          {
+            key: "coverage",
+            label: "急停覆盖",
+            value: summary.killswitchCoverage,
+            sub: coverageFull ? "全部覆盖" : "覆盖不全",
+            tone: coverageFull ? "ok" : "warn",
+          },
+        ];
 
   return (
     <section className="federation-page">
       <Flex vertical gap={16}>
         <PageHeader
-          eyebrow="信任层"
           title="实例联邦"
-          description="多实例的成本、事件与急停在一张表里看——覆盖不全时，你会看得见。"
+          description="多实例的成本、事件和急停状态汇总在一张表里，覆盖不全时会明确标出。"
           extra={
             <Button icon={<ReloadOutlined />} onClick={refresh}>
               刷新
@@ -161,54 +230,27 @@ export function FederationPage() {
           }
         />
 
-        {error !== null && <Alert type="warning" showIcon message="联邦视图不可用" description={error} />}
+        {/* §2.3 ② 结论条。 */}
+        <ConclusionBar tone={conclusion.tone} title={conclusion.title} copy={conclusion.copy} action={conclusion.action} />
 
-        {summary !== undefined && (
-          <Flex gap={16} wrap="wrap">
-            <Card style={{ flex: "1 1 150px" }}>
-              <Statistic title="实例总数" value={summary.totalInstances} />
-            </Card>
-            <Card style={{ flex: "1 1 150px" }}>
-              <Statistic title="合并成本（7 天）" value={usd(summary.totalCostUsd)} />
-            </Card>
-            <Card style={{ flex: "1 1 150px" }}>
-              <Statistic title="会话总量" value={summary.totalSessions} />
-            </Card>
-            <Card style={{ flex: "1 1 150px" }}>
-              <Statistic
-                title="活跃事件"
-                value={summary.activeEvents}
-                valueStyle={summary.activeEvents > 0 ? { color: "#d46b08" } : undefined}
-              />
-            </Card>
-            <Card style={{ flex: "1 1 170px" }}>
-              <Statistic title="急停覆盖（已停/总数）" value={summary.killswitchCoverage} />
-            </Card>
-          </Flex>
-        )}
+        <StatStrip items={fedStats} />
 
         {data !== null && data.orphanSessions > 0 && (
           <Alert
             type="info"
             showIcon
             message={`${data.orphanSessions} 个会话未归属到任何实例`}
-            description="这些会话在采集时缺少实例维度（如手工导入的历史数据），未计入任何实例的成本分摊——如实呈现，不做摊派。"
-          />
-        )}
-
-        {summary !== undefined && summary.totalInstances > 1 && summary.killswitchCoverage !== `${summary.totalInstances} / ${summary.totalInstances}` && (
-          <Alert
-            type="warning"
-            showIcon
-            icon={<ClusterOutlined />}
-            message="统一急停未覆盖全部实例"
-            description={`当前急停覆盖 ${summary.killswitchCoverage}。如需全量急停，请在顶栏重新执行「紧急暂停」——它会按能力路由停止全部实例。`}
+            description="这些会话在采集时缺少实例信息（例如手工导入的历史数据），没有计入任何实例的成本。"
           />
         )}
 
         <Card title="实例明细">
           {data !== null && data.instances.length === 0 ? (
-            <Empty description="还没有观测到任何实例" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            <Empty
+              title="还没有观测到任何实例"
+              hint="管家会按实例聚合会话与成本；有实例接入后这里会列出明细。"
+              mascot={false}
+            />
           ) : (
             <Table<InstanceView>
               rowKey="instanceId"
@@ -222,7 +264,7 @@ export function FederationPage() {
         </Card>
 
         {data !== null && (
-          <Alert type="info" showIcon message="聚合口径" description={data.basis} />
+          <Alert type="info" showIcon title="聚合口径" description={data.basis} />
         )}
       </Flex>
     </section>

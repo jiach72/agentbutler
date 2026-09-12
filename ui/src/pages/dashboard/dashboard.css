@@ -1,0 +1,68 @@
+/**
+ * 首页局部样式：把首屏从「6 块同底色同宽度的堆叠」改成三级权重（评审 P2-10）。
+ *
+ * 依据规范 03 §2.4：用背景层次 + 1px 描边区分层级，不用多层阴影堆叠。
+ *
+ *   ① 结论层（.dashboard-tier-conclusion）—— 现在好不好。唯一有「抬起」感的块。
+ *   ② 证据层（.dashboard-tier-evidence）—— 支撑结论的四个数字。压成下沉底、去掉描边，
+ *      不再和结论抢视觉重量。
+ *   ③ 行动层（.dashboard-tier-action）—— 需要你做什么。左 3px 状态色竖条（规范 §3.3 强调卡），
+ *      只在真的有待办时才出现。
+ */
+
+/* ---- ① 结论层 ---- */
+.dashboard-tier-conclusion .ant-alert {
+  padding: 16px 18px;
+  border-radius: var(--ab-r-card);
+  box-shadow: var(--ab-shadow-1);
+}
+/* 结论句是这一屏最大的一句话：抬到 20px（等价 typography 的 h2）。 */
+.dashboard-tier-conclusion .ant-alert-title {
+  font-size: var(--ab-text-size-xl);
+  line-height: 1.4;
+}
+
+/* ---- ② 证据层：下沉一档，无描边、无阴影 ---- */
+.dashboard-tier-evidence .ant-card {
+  background: var(--ab-surface-2);
+  border-color: transparent;
+  box-shadow: none;
+}
+.dashboard-tier-evidence .ant-card:hover {
+  border-color: var(--ab-border);
+}
+/* 数字收一档：24 → 20，与结论句同号但走语义色，读起来是「证据」而不是「并列的结论」。 */
+.dashboard-tier-evidence .stat-strip-value {
+  font-size: var(--ab-text-size-xl);
+  font-weight: 550;
+}
+
+/* ---- ③ 行动层：左侧状态色竖条 ---- */
+.dashboard-tier-action {
+  position: relative;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--ab-error) 26%, var(--ab-border));
+  border-radius: var(--ab-r-card);
+  background: color-mix(in srgb, var(--ab-error) 5%, var(--ab-surface));
+}
+.dashboard-tier-action::before {
+  content: "";
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: 0;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--ab-error);
+}
+/* 行动层内的单卡不再自带描边（外框已经表达「这是要处理的事」）。 */
+.dashboard-tier-action .ant-card {
+  border-color: transparent;
+  background: var(--ab-surface);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-tier-conclusion .ant-alert {
+    box-shadow: none;
+  }
+}

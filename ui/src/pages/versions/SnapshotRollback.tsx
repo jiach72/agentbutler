@@ -1,7 +1,8 @@
 /**
  * 版本页 · 退回上一版本：最近一次可用的升级前快照。
  */
-import { Button, Empty, Flex, Typography } from "antd";
+import { Button, Flex, Typography } from "antd";
+import { Empty } from "../../components/Empty.js";
 import { formatRelative } from "../../lib/format.js";
 import { instanceLabel } from "./helpers.js";
 import type { SnapshotView } from "./types.js";
@@ -17,8 +18,9 @@ export function SnapshotRollback({ snapshot, onRollback }: SnapshotRollbackProps
   if (snapshot === null) {
     return (
       <Empty
-        image={Empty.PRESENTED_IMAGE_SIMPLE}
-        description="还没有上一版本恢复点；首次升级前会自动创建。"
+        mascot={false}
+        title="还没有上一版本恢复点"
+        hint="首次升级前会自动创建。"
       />
     );
   }

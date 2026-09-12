@@ -1,8 +1,9 @@
 /**
  * 消息频率观察面：调参建议 + 限流命中表（antd Table）。
  */
-import { Alert, Button, Card, Empty, Flex, Table, Typography } from "antd";
+import { Alert, Button, Card, Flex, Table, Typography } from "antd";
 import type { TableColumnsType } from "antd";
+import { Empty } from "../../components/Empty.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { formatNumber, formatRelative } from "../../lib/format.js";
 import { PARAM_LABELS, statusTone } from "./helpers.js";
@@ -47,8 +48,9 @@ export function RateLimitsTable({ rateLimit, onUseSuggestion }: RateLimitsTableP
       </Typography.Title>
       {rateLimit === null ? (
         <Empty
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description="管家服务连上后，这里会显示消息频率是否正常、是否需要调整。"
+          mascot={false}
+          title="还没有消息频率数据"
+          hint="管家连上后，这里会显示消息频率是否正常、是否需要调整。"
         />
       ) : (
         <>
@@ -86,7 +88,11 @@ export function RateLimitsTable({ rateLimit, onUseSuggestion }: RateLimitsTableP
           )}
 
           {rateLimit.matched.length === 0 ? (
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂时没有发现频率相关的异常。" />
+            <Empty
+              mascot={false}
+              title="暂时没有发现频率相关的异常"
+              hint="出现限流命中时会显示在这里。"
+            />
           ) : (
             <Card styles={{ body: { padding: 0 } }}>
               <Table<RateLimitMatch>

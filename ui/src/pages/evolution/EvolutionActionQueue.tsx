@@ -1,4 +1,6 @@
-import { Button, Card, Empty, Flex, Tag, Typography } from "antd";
+import { Button, Card, Flex, Typography } from "antd";
+import { Empty } from "../../components/Empty.js";
+import { StatusBadge } from "../../components/StatusBadge.js";
 import { ReloadOutlined } from "@ant-design/icons";
 import { formatTime } from "../../lib/format.js";
 import type { EvolutionOverviewPayload } from "./types.js";
@@ -31,7 +33,7 @@ export function EvolutionActionQueue({
       extra={<Typography.Text type="secondary">{open.length} 待处理</Typography.Text>}
     >
       {open.length === 0 ? (
-        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有待处理事项" />
+        <Empty mascot={false} title="还没有待处理事项" />
       ) : (
         <Flex vertical gap={12}>
           {open.slice(0, 6).map((item) => (
@@ -39,9 +41,10 @@ export function EvolutionActionQueue({
               <Flex vertical gap={2} style={{ minWidth: 0 }}>
                 <Typography.Text strong>{item.title}</Typography.Text>
                 <Flex wrap="wrap" align="center" gap={4}>
-                  <Tag color={item.impact === "blocking" ? "red" : "orange"}>
-                    {item.impact === "blocking" ? "阻断进化" : "建议处理"}
-                  </Tag>
+                  <StatusBadge
+                    tone={item.impact === "blocking" ? "error" : "warn"}
+                    label={item.impact === "blocking" ? "阻断进化" : "建议处理"}
+                  />
                   <Typography.Text type="secondary">
                     {item.occurrences} 次 · 最近 {formatTime(item.lastSeenAt)}
                   </Typography.Text>

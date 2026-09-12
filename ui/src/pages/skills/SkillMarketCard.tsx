@@ -75,7 +75,9 @@ export function SkillMarketCard({
                 {name}
               </Text>
               {subtitle !== undefined && subtitle !== "" && (
-                <Text type="secondary" className="mono" ellipsis style={{ fontSize: 11 }}>
+                /* 原 className="mono" 是个不存在的类（真源是 .is-mono）、字号也压到 11px；
+                   .is-mono 自带等宽栈 + tabular-nums + 最小 12px 兜底（评审 P2-1 / P2-12）。 */
+                <Text type="secondary" className="is-mono" ellipsis>
                   {subtitle}
                 </Text>
               )}

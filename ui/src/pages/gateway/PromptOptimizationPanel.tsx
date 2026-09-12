@@ -10,7 +10,6 @@ import {
   Button,
   Card,
   Col,
-  Empty,
   Flex,
   Form,
   Input,
@@ -24,6 +23,7 @@ import {
   Typography,
   Modal,
 } from "antd";
+import { Empty } from "../../components/Empty.js";
 import type { TableColumnsType } from "antd";
 import { ArrowRightOutlined, DownOutlined, UpOutlined } from "@ant-design/icons";
 import { TrendCard, ChartEmpty, TrendColumn } from "../../components/charts/index.js";
@@ -589,24 +589,24 @@ export function PromptOptimizationPanel() {
       </Flex>
 
       {history.status === "loading" && (
-        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="正在读取整理记录…" />
+        <Empty mascot={false} title="正在读取整理记录…" />
       )}
 
       {history.status === "failed" && (
-        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={`整理记录读取失败：${history.reason}`} />
+        <Empty mascot={false} title={`整理记录读取失败：${history.reason}`} />
       )}
 
       {history.status === "ready" && !history.data.reachable && (
         <Empty
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description="暂时连不上消息服务，等管家恢复后这里会自动显示对照记录。"
+          mascot={false}
+          title="暂时连不上消息服务，等管家恢复后这里会自动显示对照记录。"
         />
       )}
 
       {history.status === "ready" && history.data.reachable && history.data.items.length === 0 && (
         <Empty
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description="还没有消息记录。发送一条消息后，这里会显示“你发的原文”和“整理后的内容”对照。"
+          mascot={false}
+          title="还没有消息记录。发送一条消息后，这里会显示“你发的原文”和“整理后的内容”对照。"
         />
       )}
 
@@ -633,7 +633,7 @@ export function PromptOptimizationPanel() {
           </Flex>
 
           {filteredHistory.length === 0 && (
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="这一天没有消息记录。" />
+            <Empty mascot={false} title="这一天没有消息记录。" />
           )}
 
           {pagedHistory.map((item) => {
@@ -782,8 +782,8 @@ export function PromptOptimizationPanel() {
           </Flex>
           {data !== null && data.targets.length === 0 && (
             <Empty
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description="还没有找到可查看的规则；完成规则配置后，这里会显示真实内容。"
+              mascot={false}
+              title="还没有找到可查看的规则；完成规则配置后，这里会显示真实内容。"
             />
           )}
 
@@ -878,8 +878,8 @@ export function PromptOptimizationPanel() {
 
           {candidates !== null && candidates.candidates.length === 0 && (
             <Empty
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description="还没有试过新的规则版本；现在只能查看，不能创建或替换。"
+              mascot={false}
+              title="还没有试过新的规则版本；现在只能查看，不能创建或替换。"
             />
           )}
 

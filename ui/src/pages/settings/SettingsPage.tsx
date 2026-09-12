@@ -370,7 +370,6 @@ export function SettingsPage() {
     <section className="settings-page">
       <Flex vertical gap={24}>
         <PageHeader
-          eyebrow="设置"
           title="设置"
           description="管理本机安全、备份与还原、模型密钥、诊断报告与常规偏好；「关于」里查看版本并升级。"
           extra={

@@ -1,7 +1,8 @@
 /**
  * 版本页 · 最新可升级版本：版本源诊断、目标实例选择与候选列表。
  */
-import { Button, Card, Empty, Flex, Select, Timeline, Tooltip, Typography } from "antd";
+import { Button, Card, Flex, Select, Timeline, Tooltip, Typography } from "antd";
+import { Empty } from "../../components/Empty.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { formatRelative } from "../../lib/format.js";
@@ -129,15 +130,19 @@ export function CandidateList({
       )}
       {candidates.length === 0 ? (
         <Empty
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description={
+          mascot={false}
+          title={
             currentVersion === ""
-              ? "尚未读取到目标实例当前版本；请先确认 Hermes 实例在线，再重新检查。"
-              : `当前目标实例 ${instanceLabel(targetInstance)} 为 ${currentVersion}，版本源没有更高版本候选。`
+              ? "还没有读到目标实例的当前版本"
+              : "已经是最新版本，版本源里没有更高版本候选"
           }
-        >
-          <Button onClick={onRefresh}>重新检查版本</Button>
-        </Empty>
+          hint={
+            currentVersion === ""
+              ? "确认 Hermes 实例在线后，点下方重新检查版本。"
+              : `当前目标实例 ${instanceLabel(targetInstance)} 为 ${currentVersion}；有新版本出现时会列在这里。`
+          }
+          action={<Button onClick={onRefresh}>重新检查版本</Button>}
+        />
       ) : (
         <Flex vertical gap={12}>
           {candidates.map((entry) => {

@@ -5,11 +5,26 @@
  * - 顶部过滤 chips（类型 / 严重度 / 时间窗）；
  * - 采集器降级态（no-sources / no-matches）显式展示，不假装一切正常。
  */
-import { Alert, Card, Empty, Flex, Segmented, Select, Tag, Timeline, Tooltip, Typography } from "antd";
-import { DeleteOutlined, LinkOutlined, MailOutlined, PushpinOutlined, CodeOutlined, GlobalOutlined, QuestionOutlined } from "@ant-design/icons";
+import { Button, Card, Flex, Segmented, Select, Timeline, Tooltip, Typography } from "antd";
+import {
+  CodeOutlined,
+  DeleteOutlined,
+  GlobalOutlined,
+  LinkOutlined,
+  MailOutlined,
+  PushpinOutlined,
+  QuestionOutlined,
+} from "@ant-design/icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { ConclusionBar } from "../../components/ConclusionBar.js";
+import type { PageConclusionView } from "../../components/ConclusionBar.js";
+import { Empty } from "../../components/Empty.js";
 import { PageHeader } from "../../components/PageHeader.js";
+import { StatStrip } from "../../components/StatStrip.js";
+import type { StatStripItem } from "../../components/StatStrip.js";
+import { StatusBadge } from "../../components/StatusBadge.js";
+import { useUrlState } from "../../hooks/useUrlState.js";
 import { loadJson } from "../../lib/api.js";
 import { usePolling } from "../../hooks/usePolling.js";
 
@@ -45,14 +60,15 @@ interface AuditSummary {
   lastActionAt: string | null;
 }
 
-const KIND_META: Record<ActionEvent["kind"], { label: string; color: string; icon: React.ReactNode }> = {
-  "file-delete": { label: "文件删除", color: "#cf1322", icon: <DeleteOutlined /> },
-  "file-write": { label: "文件写入", color: "#1677ff", icon: <PushpinOutlined /> },
-  "shell-exec": { label: "命令执行", color: "#d4380d", icon: <CodeOutlined /> },
-  "api-call": { label: "API 调用", color: "#722ed1", icon: <LinkOutlined /> },
-  "message-send": { label: "外发消息", color: "#cf1322", icon: <MailOutlined /> },
-  "web-fetch": { label: "网络抓取", color: "#08979c", icon: <GlobalOutlined /> },
-  raw: { label: "原始记录", color: "#8c8c8c", icon: <QuestionOutlined /> },
+/** 动作类型 → 展示元信息。颜色不再写死 antd 调色板，时间线点统一走品牌信号色（高危=error，其余=primary）。 */
+const KIND_META: Record<ActionEvent["kind"], { label: string; icon: React.ReactNode }> = {
+  "file-delete": { label: "文件删除", icon: <DeleteOutlined /> },
+  "file-write": { label: "文件写入", icon: <PushpinOutlined /> },
+  "shell-exec": { label: "命令执行", icon: <CodeOutlined /> },
+  "api-call": { label: "API 调用", icon: <LinkOutlined /> },
+  "message-send": { label: "外发消息", icon: <MailOutlined /> },
+  "web-fetch": { label: "网络抓取", icon: <GlobalOutlined /> },
+  raw: { label: "原始记录", icon: <QuestionOutlined /> },
 };
 
 const WINDOWS = [
@@ -76,9 +92,10 @@ function snippetOf(event: ActionEvent): string {
 }
 
 export function AuditPage() {
-  const [windowHours, setWindowHours] = useState(24);
-  const [kindFilter, setKindFilter] = useState<string>("all");
-  const [severityFilter, setSeverityFilter] = useState<string>("all");
+  // 时间窗 / 类型 / 严重度筛选同步到 URL（规范 03 §3.12）：刷新/分享能还原同一视图（评审 P1-7）。
+  const [windowHours, setWindowHours] = useUrlState<number>("range", 24);
+  const [kindFilter, setKindFilter] = useUrlState<string>("kind", "all");
+  const [severityFilter, setSeverityFilter] = useUrlState<string>("sev", "all");
   const [data, setData] = useState<ActionsResponse | null>(null);
   const [summary, setSummary] = useState<AuditSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -134,42 +151,86 @@ export function AuditPage() {
   const collector = data?.collector;
   const degraded = collector !== null && collector !== undefined && collector.mode !== "structured";
 
+  /**
+   * 页面结论条（规范 03 §2.3 ②「必须有」）。
+   * 原来挂在两条 Alert 上的「读不到 / 采集降级」信息并入结论，避免说两遍（评审 P0-2）。
+   * 结论只陈述已读到的字段：读不到就说读不到，不猜、不填充。
+   */
+  const lastActionLabel =
+    summary !== null && summary.lastActionAt !== null ? new Date(summary.lastActionAt).toLocaleString() : null;
+  const conclusion: PageConclusionView =
+    error !== null
+      ? {
+          tone: "offline",
+          title: "审计数据暂时读不到",
+          copy: error,
+          action: <Button onClick={refresh}>重试</Button>,
+        }
+      : data === null
+        ? { tone: "unknown", title: "正在读取行为审计", copy: `正在拉取最近 ${windowHours} 小时的动作记录。` }
+        : degraded && collector?.mode === "no-sources"
+          ? {
+              tone: "unknown",
+              title: "还没有发现可解析的执行日志",
+              copy: "采集器尚未在指定路径发现 agent 写入的执行日志；可用 BUTLER_AUDIT_LOG_PATHS 指定路径，有日志后会自动开始记录。",
+            }
+          : degraded
+            ? {
+                tone: "warn",
+                title: "已启用采集，但还没匹配到结构化动作",
+                copy: `解析器版本 ${collector?.parserVersion ?? "v1"}：当前日志格式未命中任何动作模式；未匹配的行不会猜测补齐，也不记录对话正文。`,
+              }
+            : summary === null
+              ? {
+                  tone: "unknown",
+                  title: `最近 ${windowHours} 小时的动作明细已读到`,
+                  copy: "概览合计数字这次没算出来，时间线照常展示；刷新可补上。",
+                }
+              : summary.highRisk > 0
+                ? {
+                    tone: "error",
+                    title: `最近 ${windowHours} 小时有 ${summary.highRisk} 个高危动作`,
+                    copy: `共记录 ${summary.total} 个动作${lastActionLabel !== null ? `，最近一次在 ${lastActionLabel}` : ""}。高危动作已用红色左边标出，点开会话可看时间线。`,
+                  }
+                : {
+                    tone: "ok",
+                    title: `最近 ${windowHours} 小时记录了 ${summary.total} 个动作`,
+                    copy: `无高危${lastActionLabel !== null ? `；最近一次在 ${lastActionLabel}` : "；本窗口暂无任何动作"}。`,
+                  };
+
+  const auditStats: StatStripItem[] =
+    summary === null
+      ? []
+      : [
+          {
+            key: "total",
+            label: "动作总数",
+            value: summary.total,
+            unit: "个",
+            sub: lastActionLabel !== null ? `最近一次 ${lastActionLabel}` : `窗口 ${summary.windowHours} 小时`,
+          },
+          {
+            key: "high-risk",
+            label: "高危动作",
+            value: summary.highRisk,
+            unit: "个",
+            tone: summary.highRisk > 0 ? "error" : undefined,
+            sub: summary.highRisk > 0 ? "已在时间线红边标出" : "本窗口无高危",
+          },
+        ];
+
   return (
     <section className="audit-page">
       <Flex vertical gap={16}>
         <PageHeader
-          eyebrow="信任层"
           title="行为审计"
-          description={`agent 执行动作的时间线。默认保留 ${collector?.retentionDays ?? 14} 天，只记动作不记对话（隐私红线）。`}
+          description={`agent 执行动作的时间线。默认保留 ${collector?.retentionDays ?? 14} 天，只记动作，不记对话内容。`}
         />
 
-        {error !== null && <Alert type="warning" showIcon message="审计数据不可用" description={error} />}
-        {degraded && (
-          <Alert
-            type={collector?.mode === "no-sources" ? "info" : "warning"}
-            showIcon
-            message={
-              collector?.mode === "no-sources"
-                ? "尚未发现可解析的执行日志"
-                : "已启用采集，但日志中尚未匹配到结构化动作"
-            }
-            description={
-              collector?.mode === "no-sources"
-                ? "采集器会在 agent 写入执行日志后自动开始记录（可用 BUTLER_AUDIT_LOG_PATHS 指定路径）。"
-                : "解析器版本 " + (collector?.parserVersion ?? "v1") + "：当前日志格式未命中任何动作模式；未匹配的行不会被猜测补齐，也不会记录对话正文。"
-            }
-          />
-        )}
+        {/* §2.3 ② 结论条：读不到 / 采集降级 / 高危概览都归到这里，不另立 Alert。 */}
+        <ConclusionBar tone={conclusion.tone} title={conclusion.title} copy={conclusion.copy} action={conclusion.action} />
 
-        {summary !== null && (
-          <Flex gap={8} wrap="wrap">
-            <Tag color="blue">{summary.total} 个动作</Tag>
-            <Tag color={summary.highRisk > 0 ? "red" : "default"}>{summary.highRisk} 个高危</Tag>
-            {summary.lastActionAt !== null && (
-              <Tag>最近动作 {new Date(summary.lastActionAt).toLocaleString()}</Tag>
-            )}
-          </Flex>
-        )}
+        <StatStrip items={auditStats} />
 
         <Card
           title="动作时间线"
@@ -204,14 +265,17 @@ export function AuditPage() {
         >
           {filtered.length === 0 ? (
             <Empty
-              description="窗口内没有匹配的动作记录"
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              title="窗口内还没有匹配的动作记录"
+              hint="换一个时间窗或筛选条件看看；有动作后这里会按天列出时间线。"
+              mascotWidth={72}
             />
           ) : (
             <Flex vertical gap={20}>
               {grouped.map(([day, events]) => (
                 <div key={day}>
-                  <Typography.Text type="secondary" strong>{day}</Typography.Text>
+                  <Typography.Text type="secondary" strong>
+                    {day}
+                  </Typography.Text>
                   <Timeline
                     style={{ marginTop: 12 }}
                     items={events.map((event) => {
@@ -219,33 +283,35 @@ export function AuditPage() {
                       const snippet = snippetOf(event);
                       const high = event.severity === "high";
                       return {
-                        color: high ? "red" : meta.color,
+                        color: high ? "var(--ab-error)" : "var(--ab-primary)",
                         dot: meta.icon,
                         children: (
                           <div
                             style={{
-                              borderLeft: high ? "3px solid #cf1322" : undefined,
+                              borderLeft: high ? "3px solid var(--ab-error)" : undefined,
                               paddingLeft: high ? 8 : 0,
                             }}
                           >
                             <Flex gap={8} align="center" wrap="wrap">
-                              <Tag color={high ? "red" : "default"}>{meta.label}</Tag>
-                              {high && <Tag color="red">高危</Tag>}
+                              <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                                {meta.icon}
+                                <Typography.Text>{meta.label}</Typography.Text>
+                              </span>
+                              {high && <StatusBadge tone="error" label="高危" />}
                               <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                                 {new Date(event.ts).toLocaleTimeString()}
                               </Typography.Text>
                               {event.sessionId !== null && (
                                 <Tooltip title={`打开会话时间线：${event.sessionId}`}>
                                   <Link to={`/sessions/${encodeURIComponent(event.sessionId)}`}>
-                                    <Tag style={{ fontSize: 11, cursor: "pointer" }} color="blue">
-                                      会话 {event.sessionId.slice(0, 10)}…
-                                    </Tag>
+                                    <StatusBadge tone="brand" label={`会话 ${event.sessionId.slice(0, 10)}…`} />
                                   </Link>
                                 </Tooltip>
                               )}
                             </Flex>
                             <Typography.Paragraph
-                              style={{ marginBottom: snippet === "" ? 0 : 4, marginTop: 4, fontFamily: "monospace", fontSize: 12 }}
+                              className="is-mono"
+                              style={{ marginBottom: snippet === "" ? 0 : 4, marginTop: 4, fontSize: 12 }}
                               ellipsis={{ rows: 2, expandable: true, symbol: "展开" }}
                             >
                               {event.target}
@@ -253,7 +319,8 @@ export function AuditPage() {
                             {snippet !== "" && snippet !== event.target && (
                               <Typography.Paragraph
                                 type="secondary"
-                                style={{ marginBottom: 0, fontFamily: "monospace", fontSize: 11 }}
+                                className="is-mono"
+                                style={{ marginBottom: 0, fontSize: "var(--ab-text-size-xs)" }}
                                 ellipsis={{ rows: 2, expandable: true, symbol: "展开" }}
                               >
                                 {snippet}

@@ -2,8 +2,9 @@
  * 设置页操作记录面板：管家历史操作的只读时间线。
  * 审计数据独立三态，失败时显示降级横幅与重试。
  */
-import { Button, Empty, Flex, Spin, Timeline, Typography } from "antd";
+import { Button, Flex, Spin, Timeline, Typography } from "antd";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
+import { Empty } from "../../components/Empty.js";
 import { SectionHeader } from "../../components/SectionHeader.js";
 import { formatTime } from "../../lib/format.js";
 import type { FetchState } from "../../lib/api.js";
@@ -62,8 +63,9 @@ export function AuditLog({ audit, onRetry }: AuditLogProps) {
         )}
         {audit.status === "ready" && audit.data.items.length === 0 && (
           <Empty
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description="还没有操作记录；管家每次操作都会记在这里。"
+            mascot={false}
+            title="还没有操作记录"
+            hint="管家每次操作都会记在这里。"
           />
         )}
       </Flex>

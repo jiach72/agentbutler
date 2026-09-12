@@ -11,21 +11,25 @@ import {
   Button,
   Card,
   Descriptions,
-  Empty,
   Flex,
   Modal,
   Radio,
   Space,
-  Statistic,
   Table,
-  Tag,
   Tooltip,
   Typography,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { ExperimentOutlined, ReloadOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import { useCallback, useEffect, useState } from "react";
+import { ConclusionBar } from "../../components/ConclusionBar.js";
+import type { PageConclusionView } from "../../components/ConclusionBar.js";
+import { Empty } from "../../components/Empty.js";
 import { PageHeader } from "../../components/PageHeader.js";
+import { StatStrip } from "../../components/StatStrip.js";
+import type { StatStripItem } from "../../components/StatStrip.js";
+import { StatusBadge } from "../../components/StatusBadge.js";
+import type { SemanticTone } from "../../components/StatusBadge.js";
 import { loadJson, postJson } from "../../lib/api.js";
 import { usePolling } from "../../hooks/usePolling.js";
 
@@ -89,16 +93,28 @@ interface CanaryPayload {
   };
 }
 
-const STATUS_TAG: Record<string, { color: string; label: string }> = {
-  planned: { color: "default", label: "已计划" },
-  running: { color: "processing", label: "验证中" },
-  passed: { color: "green", label: "通过" },
-  blocked: { color: "red", label: "已拦截" },
-  skipped: { color: "default", label: "已跳过" },
-  unverified: { color: "orange", label: "未验证" },
-  observing: { color: "blue", label: "观察中" },
-  completed: { color: "green", label: "已完成" },
-  "rolled-back": { color: "purple", label: "已回滚" },
+/** 验证记录状态 → 语义徽标（不走 antd 预设色名）。 */
+const STATUS_TONE: Record<string, SemanticTone> = {
+  planned: "brand",
+  running: "unknown",
+  passed: "ok",
+  blocked: "error",
+  skipped: "brand",
+  unverified: "warn",
+  observing: "unknown",
+  completed: "ok",
+  "rolled-back": "warn",
+};
+const STATUS_LABEL: Record<string, string> = {
+  planned: "已计划",
+  running: "验证中",
+  passed: "通过",
+  blocked: "已拦截",
+  skipped: "已跳过",
+  unverified: "未验证",
+  observing: "观察中",
+  completed: "已完成",
+  "rolled-back": "已回滚",
 };
 
 const POLICY_META: Record<Policy, { label: string; note: string }> = {
@@ -194,17 +210,16 @@ export function CanaryPage() {
       dataIndex: "status",
       key: "status",
       width: 110,
-      render: (status: string) => {
-        const meta = STATUS_TAG[status] ?? { color: "default", label: status };
-        return <Tag color={meta.color}>{meta.label}</Tag>;
-      },
+      render: (status: string) => (
+        <StatusBadge tone={STATUS_TONE[status] ?? "unknown"} label={STATUS_LABEL[status] ?? status} />
+      ),
     },
     {
       title: "策略",
       dataIndex: "policy",
       key: "policy",
       width: 90,
-      render: (value: Policy) => <Tag>{POLICY_META[value]?.label ?? value}</Tag>,
+      render: (value: Policy) => <StatusBadge tone="brand" label={POLICY_META[value]?.label ?? value} />,
     },
     {
       title: "样本",
@@ -218,7 +233,12 @@ export function CanaryPage() {
         ) : (
           <span>
             {row.sampleRegular} 常规
-            {row.sampleFailed > 0 && <Typography.Text type="danger"> + {row.sampleFailed} 失败</Typography.Text>}
+            {row.sampleFailed > 0 && (
+              <>
+                {" "}
+                <StatusBadge tone="warn" label={`+${row.sampleFailed} 失败`} />
+              </>
+            )}
           </span>
         ),
     },
@@ -230,9 +250,9 @@ export function CanaryPage() {
         row.verdict === null ? (
           <Typography.Text type="secondary">—</Typography.Text>
         ) : row.verdict.pass ? (
-          <Tag color="green">全部通过</Tag>
+          <StatusBadge tone="ok" label="全部通过" />
         ) : (
-          <Tag color="red">{row.verdict.checks.filter((check) => !check.pass).length} 项未过</Tag>
+          <StatusBadge tone="error" label={`${row.verdict.checks.filter((check) => !check.pass).length} 项未过`} />
         ),
     },
     { title: "观察窗剩余", key: "observation", width: 130, render: (_: unknown, row) => observationText(row) },
@@ -257,13 +277,100 @@ export function CanaryPage() {
 
   const summary = data?.summary;
 
+  /**
+   * 页面结论条（规范 03 §2.3 ②「必须有」）。
+   * 原「升级策略服务不可用」Alert 并入 offline 档；notice 是操作瞬时反馈，单独保留。
+   * 结论穷举各异常档，没异常才下「正常」结论，读不到就不猜。
+   */
+  const conclusion: PageConclusionView =
+    error !== null
+      ? {
+          tone: "offline",
+          title: "升级策略服务暂时读不到",
+          copy: error,
+          action: <Button onClick={refresh}>重试</Button>,
+        }
+      : data === null
+        ? { tone: "unknown", title: "正在读取升级策略", copy: "正在拉取验证记录与汇总。" }
+        : summary !== undefined && summary.blocked > 0
+          ? {
+              tone: "error",
+              title: `有 ${summary.blocked} 次升级被拦截`,
+              copy: "保守或验证未过时管家会拦下升级。点开下方记录看原因，或调整策略后重试。",
+            }
+          : summary !== undefined && summary.rolledBack > 0
+            ? {
+                tone: "warn",
+                title: `有 ${summary.rolledBack} 次升级自动回滚`,
+                copy: "观察窗内检出回归，管家已自动回滚——这正是金丝雀要拦的事。",
+              }
+            : summary !== undefined && summary.unverified > 0
+              ? {
+                  tone: "warn",
+                  title: `有 ${summary.unverified} 次未验证放行`,
+                  copy: "标准策略下验证不可用时会记为「未验证」放行；保守策略会直接拦截。详见每条记录。",
+                }
+              : summary !== undefined && summary.observing > 0
+                ? {
+                    tone: "unknown",
+                    title: `正在观察 ${summary.observing} 次升级`,
+                    copy: "观察窗内不切换；到点自动确认，或检出回归自动回滚。",
+                  }
+                : summary !== undefined
+                  ? {
+                      tone: "ok",
+                      title: "升级策略当前没有待处理的异常",
+                      copy: `当前策略：${POLICY_META[summary.policy].label}。最近一次升级：${
+                        summary.lastAt !== null ? new Date(summary.lastAt).toLocaleString() : "暂无"
+                      }。`,
+                    }
+                  : {
+                      tone: "unknown",
+                      title: "升级策略已加载，但汇总未算出",
+                      copy: "验证记录照常展示；刷新可补上合计。",
+                    };
+
+  const canaryStats: StatStripItem[] =
+    summary === undefined
+      ? []
+      : [
+          {
+            key: "observing",
+            label: "观察中",
+            value: summary.observing,
+            unit: summary.observing === 0 ? undefined : "次",
+            tone: summary.observing > 0 ? "unknown" : undefined,
+          },
+          {
+            key: "blocked",
+            label: "已拦截",
+            value: summary.blocked,
+            unit: summary.blocked === 0 ? undefined : "次",
+            tone: summary.blocked > 0 ? "error" : undefined,
+          },
+          {
+            key: "unverified",
+            label: "未验证放行",
+            value: summary.unverified,
+            unit: summary.unverified === 0 ? undefined : "次",
+            tone: summary.unverified > 0 ? "warn" : undefined,
+          },
+          {
+            key: "rolledBack",
+            label: "已自动回滚",
+            value: summary.rolledBack,
+            unit: summary.rolledBack === 0 ? undefined : "次",
+            tone: summary.rolledBack > 0 ? "warn" : undefined,
+          },
+          { key: "completed", label: "已验证完成", value: summary.completed ?? 0, unit: "次" },
+        ];
+
   return (
     <section className="canary-page">
       <Flex vertical gap={16}>
         <PageHeader
-          eyebrow="信任层"
           title="升级策略"
-          description="agent 框架更新不该是开盲盒——新版本先在影子环境跑一轮你的真实任务，没问题才切换。"
+          description="新版本先在影子环境跑一轮真实任务，确认没问题再切换。"
           extra={
             <Space>
               <Button icon={<ReloadOutlined />} onClick={refresh}>
@@ -278,16 +385,14 @@ export function CanaryPage() {
           }
         />
 
-        {error !== null && <Alert type="warning" showIcon message="升级策略服务不可用" description={error} />}
-        {notice !== null && <Alert type="info" showIcon message={notice} />}
+        {/* §2.3 ② 结论条。 */}
+        <ConclusionBar tone={conclusion.tone} title={conclusion.title} copy={conclusion.copy} action={conclusion.action} />
+
+        {notice !== null && <Alert type="info" showIcon title={notice} />}
 
         <Card title="版本策略">
           <Flex vertical gap={12}>
-            <Radio.Group
-              value={policy}
-              onChange={(event) => void changePolicy(event.target.value as Policy)}
-              disabled={busy}
-            >
+            <Radio.Group value={policy} onChange={(event) => void changePolicy(event.target.value as Policy)} disabled={busy}>
               <Flex gap={16} wrap="wrap">
                 {(Object.keys(POLICY_META) as Policy[]).map((key) => (
                   <Radio key={key} value={key}>
@@ -318,31 +423,14 @@ export function CanaryPage() {
           </Flex>
         </Card>
 
-        {summary !== undefined && (
-          <Flex gap={16} wrap="wrap">
-            <Card style={{ flex: "1 1 150px" }}>
-              <Statistic title="观察中" value={summary.observing} valueStyle={summary.observing > 0 ? { color: "#0958d9" } : undefined} />
-            </Card>
-            <Card style={{ flex: "1 1 150px" }}>
-              <Statistic title="已拦截" value={summary.blocked} valueStyle={summary.blocked > 0 ? { color: "#cf1322" } : undefined} />
-            </Card>
-            <Card style={{ flex: "1 1 150px" }}>
-              <Statistic title="未验证放行" value={summary.unverified} valueStyle={summary.unverified > 0 ? { color: "#d46b08" } : undefined} />
-            </Card>
-            <Card style={{ flex: "1 1 150px" }}>
-              <Statistic title="已自动回滚" value={summary.rolledBack} />
-            </Card>
-            <Card style={{ flex: "1 1 150px" }}>
-              <Statistic title="已验证完成" value={summary.completed ?? 0} />
-            </Card>
-          </Flex>
-        )}
+        <StatStrip items={canaryStats} />
 
         <Card title="金丝雀验证记录">
           {data !== null && data.items.length === 0 ? (
             <Empty
-              description="还没有升级验证记录——发起一次升级时会自动按当前策略执行"
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              title="还没有升级验证记录"
+              hint="发起一次升级时，管家会自动按当前策略执行金丝雀验证。"
+              mascot={false}
             />
           ) : (
             <Table<CanaryRun>
@@ -376,7 +464,7 @@ function CanaryRunDetail({ run }: { run: CanaryRun }) {
     <Flex vertical gap={16}>
       <Descriptions column={2} size="small" bordered>
         <Descriptions.Item label="状态">
-          {(STATUS_TAG[run.status] ?? { label: run.status }).label}
+          <StatusBadge tone={STATUS_TONE[run.status] ?? "unknown"} label={STATUS_LABEL[run.status] ?? run.status} />
         </Descriptions.Item>
         <Descriptions.Item label="策略">{POLICY_META[run.policy]?.label ?? run.policy}</Descriptions.Item>
         <Descriptions.Item label="实例">{run.instance === "" ? "—" : run.instance}</Descriptions.Item>
@@ -409,7 +497,7 @@ function CanaryRunDetail({ run }: { run: CanaryRun }) {
           <Flex vertical gap={8}>
             {verdict.checks.map((check) => (
               <Flex key={check.id} gap={8} align="center" wrap="wrap">
-                <Tag color={check.pass ? "green" : "red"}>{check.pass ? "通过" : "未过"}</Tag>
+                <StatusBadge tone={check.pass ? "ok" : "error"} label={check.pass ? "通过" : "未过"} />
                 <Typography.Text strong>{check.label}</Typography.Text>
                 <Typography.Text type="secondary">
                   基线 {check.id === "success-rate" ? fmtPct(check.baseline) : fmtNum(check.baseline, 1)} → 影子{" "}
@@ -445,18 +533,27 @@ function CanaryRunDetail({ run }: { run: CanaryRun }) {
           type="warning"
           showIcon
           message="没有影子侧指标"
-          description="影子执行器未配置或未产出指标——本次验证不算通过；标准策略记为「未验证」放行，保守策略直接拦截升级。"
+          description="影子执行器未配置或没有产出指标，本次验证不算通过；标准策略会记为「未验证」放行，保守策略直接拦截升级。"
         />
       )}
 
       {run.tasks.length > 0 && (
         <Card size="small" title={`抽样任务（${run.tasks.length}）`}>
           <Flex gap={4} wrap="wrap">
-            {run.tasks.slice(0, 60).map((task) => (
-              <Tag key={`${task.bucket}:${task.sessionId}`} color={task.bucket === "failed" ? "red" : "default"}>
-                {task.sessionId}
-              </Tag>
-            ))}
+            {run.tasks.slice(0, 60).map((task) =>
+              task.bucket === "failed" ? (
+                <StatusBadge key={`${task.bucket}:${task.sessionId}`} tone="error" label={task.sessionId} />
+              ) : (
+                <Typography.Text
+                  key={`${task.bucket}:${task.sessionId}`}
+                  className="is-mono"
+                  type="secondary"
+                  style={{ fontSize: 12 }}
+                >
+                  {task.sessionId}
+                </Typography.Text>
+              ),
+            )}
             {run.tasks.length > 60 && <Typography.Text type="secondary">等 {run.tasks.length} 条</Typography.Text>}
           </Flex>
         </Card>

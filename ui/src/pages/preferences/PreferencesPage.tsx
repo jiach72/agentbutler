@@ -120,7 +120,6 @@ export function PreferencesPage() {
     <section className="preferences-page">
       <Flex vertical gap={24}>
         <PageHeader
-          eyebrow="常规偏好"
           title="设置"
           description="调整界面外观和重要通知的显示方式。"
         />

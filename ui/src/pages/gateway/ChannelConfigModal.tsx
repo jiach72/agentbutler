@@ -89,7 +89,7 @@ export function ChannelConfigModal({ channel, label, onClose, onApplied }: Chann
       onCancel={onClose}
       okText="保存并启用"
     >
-      {error !== null && <Alert type="error" showIcon message={error} style={{ marginBottom: 12 }} />}
+      {error !== null && <Alert type="error" showIcon title={error} style={{ marginBottom: 12 }} />}
       <Typography.Paragraph type="secondary">
         保存后管家会重启消息通道使其生效，期间通道状态会短暂显示「应用中」。
       </Typography.Paragraph>

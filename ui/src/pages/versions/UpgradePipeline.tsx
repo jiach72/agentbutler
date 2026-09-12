@@ -1,7 +1,8 @@
 /**
  * 版本页 · 升级进度：启动态进度条与真实 Job 五步流水线。
  */
-import { Descriptions, Empty, Flex, Steps, Typography } from "antd";
+import { Descriptions, Flex, Steps, Typography } from "antd";
+import { Empty } from "../../components/Empty.js";
 import type { StepsProps } from "antd";
 import { PageProgress } from "../../components/PageProgress.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
@@ -41,12 +42,13 @@ export function UpgradePipeline({ job, launchPending, progress }: UpgradePipelin
       )}
       {job === null ? (
         <Empty
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description={
+          mascot={false}
+          title={
             launchPending
               ? "正在创建升级任务，收到管家的第一步状态后会显示详细步骤。"
-              : "目前没有正在进行的升级。选择上方版本后，进度会显示在这里。"
+              : "目前没有正在进行的升级"
           }
+          hint={launchPending ? undefined : "选择上方版本后，进度会显示在这里。"}
         />
       ) : (
         <Flex vertical gap={16}>

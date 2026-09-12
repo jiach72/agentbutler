@@ -2,7 +2,8 @@
  * 实例状态卡片网格：实例概览 + 最近一次检查明细。
  */
 import { useMemo } from "react";
-import { Card, Col, Descriptions, Empty, Flex, Row, Typography } from "antd";
+import { Card, Col, Descriptions, Flex, Row, Typography } from "antd";
+import { Empty } from "../../components/Empty.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { formatRelative } from "../../lib/format.js";
 import {
@@ -46,8 +47,8 @@ export function InstanceHealthCard({ instances, inspections }: InstanceHealthCar
   if (instances.length === 0) {
     return (
       <Empty
-        image={Empty.PRESENTED_IMAGE_SIMPLE}
-        description="还没有发现可管理的实例：管家检查完成后，这里会显示状态。"
+        title="还没有发现可管理的实例"
+        hint="管家检查完成后，这里会显示它的状态。"
       />
     );
   }

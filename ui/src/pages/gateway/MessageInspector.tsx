@@ -4,7 +4,8 @@
  */
 import { AdvancedDetails } from "../../components/AdvancedDetails.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
-import { Alert, Button, Card, Col, Descriptions, Empty, Flex, Row, Timeline, Typography } from "antd";
+import { Alert, Button, Card, Col, Descriptions, Flex, Row, Timeline, Typography } from "antd";
+import { Empty } from "../../components/Empty.js";
 import { formatRelative } from "../../lib/format.js";
 import {
   COVERAGE_LABELS,
@@ -120,8 +121,9 @@ export function MessageInspector({
           <Flex wrap="wrap" gap={8} aria-label="运行路径覆盖">
             {coverageEntries.length === 0 ? (
               <Empty
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description="消息接管后，这里会显示真实经过处理的消息路径。"
+                mascot={false}
+                title="还没有消息处理路径"
+                hint="消息接管后，这里会显示真实经过处理的路径。"
               />
             ) : (
               coverageEntries.map(([path, status]) => {
@@ -217,21 +219,15 @@ export function MessageInspector({
           >
             {messageItems.length === 0 ? (
               <Empty
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description={
-                  <Flex vertical gap={4}>
-                    <Typography.Text strong>
-                      {!messagesReachable
-                        ? "暂时读不到消息"
-                        : activeStateFilter !== "all"
-                          ? "没有处于该状态的消息"
-                          : "还没有消息记录"}
-                    </Typography.Text>
-                    <Typography.Text type="secondary">
-                      真实消息经过管家后会出现在这里；不会生成演示数据。
-                    </Typography.Text>
-                  </Flex>
+                mascot={false}
+                title={
+                  !messagesReachable
+                    ? "暂时读不到消息"
+                    : activeStateFilter !== "all"
+                      ? "没有处于该状态的消息"
+                      : "还没有消息记录"
                 }
+                hint="真实消息经过管家后会出现在这里；不会生成演示数据。"
               />
             ) : (
               <Flex vertical gap={8}>
@@ -286,16 +282,9 @@ export function MessageInspector({
           >
             {selectedMessage === null ? (
               <Empty
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description={
-                  <Flex vertical gap={4}>
-                    <Typography.Text>消息详情</Typography.Text>
-                    <Typography.Text strong>选择一条消息查看完整轨迹</Typography.Text>
-                    <Typography.Text type="secondary">
-                      这里会显示发送状态、是否被合并、是否暂存以及最终结果。
-                    </Typography.Text>
-                  </Flex>
-                }
+                mascot={false}
+                title="选择一条消息查看完整轨迹"
+                hint="这里会显示发送状态、是否被合并、是否暂存以及最终结果。"
               />
             ) : (
               <Flex vertical gap={16}>

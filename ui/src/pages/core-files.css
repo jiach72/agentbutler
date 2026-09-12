@@ -82,8 +82,9 @@
 
 .core-file-card-path {
   display: block;
-  font-family: var(--ant-font-family-code, Consolas, monospace);
-  font-size: 11px;
+  /* 等宽走品牌栈：Windows 上裸 Consolas/monospace 会和日志页的 Cascadia Mono 不一致。 */
+  font-family: var(--ab-mono);
+  font-size: var(--ab-text-size-xs);
   color: var(--ab-text-3);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -93,8 +94,10 @@
 .core-file-card-meta {
   display: block;
   margin-top: 6px;
-  font-size: 11px;
-  color: var(--ab-text-4);
+  /* 原来是 11px + text-4（全站对比度最低的一级文字）——两个主题下都低于 AA。
+     路径与「最后修改时间」是这一页的核心识别信息，提到 12px + text-3（评审 P1-4）。 */
+  font-size: var(--ab-text-size-xs);
+  color: var(--ab-text-3);
 }
 
 .core-file-card-icon {

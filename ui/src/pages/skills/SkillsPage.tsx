@@ -3,12 +3,17 @@
  * 推荐精选 / 本机已安装）/ 记忆库 分区。市场浏览与安装由 SkillsMarketplace 承载；
  * 插件为只读盘点，降级为折叠区。记忆检索独立于技能库。
  */
+import { ApiOutlined, AppstoreOutlined, DatabaseOutlined } from "@ant-design/icons";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { App, Button, Card, Col, Flex, Row, Statistic, Tabs, Typography } from "antd";
+import { App, Button, Flex, Tabs, Typography } from "antd";
 import { AdvancedDetails } from "../../components/AdvancedDetails.js";
+import { ConclusionBar } from "../../components/ConclusionBar.js";
+import type { PageConclusionView } from "../../components/ConclusionBar.js";
 import { ConnectionChip } from "../../components/ConnectionChip.js";
-import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { PageHeader } from "../../components/PageHeader.js";
+import { StatStrip } from "../../components/StatStrip.js";
+import type { StatStripItem } from "../../components/StatStrip.js";
+import { useUrlState } from "../../hooks/useUrlState.js";
 import { loadJson, postJson } from "../../lib/api.js";
 import type { FetchState } from "../../lib/api.js";
 import {
@@ -26,6 +31,9 @@ const { Text } = Typography;
 
 export function SkillsPage() {
   const { message } = App.useApp();
+  // 页签同步到 URL（规范 03 §3.12）：刷新、返回、贴链接都能还原同一个视图（评审 P1-7）。
+  // 显式给 string 而不是让它推断成字面量 "manager"，否则 setActiveTab 只能收 "manager"。
+  const [activeTab, setActiveTab] = useUrlState<string>("tab", "manager");
   const [mainState, setMainState] = useState<FetchState<SkillsPayload>>({ status: "loading" });
   // 最近一次完整数据：检索期间/失败时记忆面板仍显示它，不再伪装成空态。
   const [lastGood, setLastGood] = useState<SkillsPayload | null>(null);
@@ -174,29 +182,83 @@ export function SkillsPage() {
   const libraryData = mainState.status === "ready" ? mainState.data : null;
   const refreshing = mainState.status === "loading" || searching;
   const memoryStats = libraryData?.memory.stats ?? null;
+  const enabledPluginCount = libraryData === null ? 0 : libraryData.plugins.items.filter((item) => item.enabled).length;
+  const disabledPluginCount = libraryData === null ? 0 : libraryData.plugins.total - enabledPluginCount;
+  /** 记忆写入被关掉时，页面必须说出来——否则用户会以为写进去了（P3 真实即边界）。 */
+  const memoryWritesOff = memoryWritesEnabled === false;
+
+  /**
+   * 页面结论条（规范 03 §2.3 ②「必须有」）。
+   * 结论只来自真实数据；读不到就说读不到，不猜、不填充（评审 P0-2）。
+   */
+  const conclusion: PageConclusionView =
+    mainState.status === "loading"
+      ? {
+          tone: "unknown" as const,
+          title: "正在读取技能与记忆",
+          copy: "读取完成后这里会直接告诉你技能和记忆是否正常。",
+        }
+      : mainState.status === "failed"
+        ? {
+            tone: "offline" as const,
+            title: "技能与记忆暂时读不到",
+            copy: mainState.reason,
+            action: (
+              <Button onClick={() => void loadLibrary()}>重试</Button>
+            ),
+          }
+        : libraryData?.watchReachable === false
+          ? {
+              tone: "offline" as const,
+              title: "管家服务暂时连不上",
+              copy: "技能安装与记忆维护需要管家在线；恢复后页面会自动更新。",
+            }
+          : memoryWritesOff
+            ? {
+                tone: "warn" as const,
+                title: "记忆写入当前是关闭的",
+                copy: "技能与插件可以正常加载，但新的记忆不会被写回本机。",
+              }
+            : {
+                tone: "ok" as const,
+                title: `${formatNumber(libraryData?.skills.total ?? 0)} 个技能与 ${formatNumber(libraryData?.plugins.total ?? 0)} 个插件可加载`,
+                copy:
+                  disabledPluginCount > 0
+                    ? `记忆中累计 ${memoryStats === null ? "读取中" : formatNumber(memoryStats.totalEntries)} 条；另有 ${disabledPluginCount} 个插件未启用。`
+                    : `记忆中累计 ${memoryStats === null ? "读取中" : formatNumber(memoryStats.totalEntries)} 条记录。`,
+              };
 
   // 全局概览带：只保留技能、插件和记忆三库的当前规模。
-  const overview = [
+  // 走 StatStrip（全站唯一概览统计出口），不再手写 Row+Card+Statistic——
+  // 手写版本的字号、取色、副注位与其他页面不一致（评审 P1-6）。
+  const overview: StatStripItem[] = [
     {
       key: "skills",
+      icon: ApiOutlined,
       label: "技能（Hermes 全量）",
       value: libraryData === null ? "…" : formatNumber(libraryData.skills.total),
       sub: libraryData === null ? "读取中" : "含内置/系统技能",
     },
     {
       key: "plugins",
+      icon: AppstoreOutlined,
       label: "插件",
       value: libraryData === null ? "…" : formatNumber(libraryData.plugins.total),
+      tone: disabledPluginCount > 0 ? "warn" : undefined,
       sub:
         libraryData === null
           ? "读取中"
-          : `共 ${libraryData.plugins.items.filter((item) => item.enabled).length} 启用`,
+          : disabledPluginCount > 0
+            ? `共 ${enabledPluginCount} 启用 · ${disabledPluginCount} 未启用`
+            : "全部已启用",
     },
     {
       key: "memory-entries",
+      icon: DatabaseOutlined,
       label: "记忆条目",
       value: memoryStats === null ? "…" : formatNumber(memoryStats.totalEntries),
-      sub: "累计入库",
+      tone: memoryWritesOff ? "warn" : undefined,
+      sub: memoryWritesOff ? "写入已关闭" : "累计入库",
     },
   ];
 
@@ -221,25 +283,10 @@ export function SkillsPage() {
         }
       />
 
-      <Row gutter={[16, 16]} aria-label="全局概览">
-        {overview.map((item) => (
-          <Col flex="1 1 160px" key={item.key}>
-            <Card size="small">
-              <Statistic title={item.label} value={item.value} />
-              <Text type="secondary">{item.sub}</Text>
-            </Card>
-          </Col>
-        ))}
-      </Row>
+      {/* §2.3 ② 结论条：进来先说「技能和记忆现在好不好」。 */}
+      <ConclusionBar tone={conclusion.tone} title={conclusion.title} copy={conclusion.copy} action={conclusion.action} />
 
-      {mainState.status === "failed" && (
-        <DegradedBanner
-          severity="warn"
-          message="这一部分暂时读不到"
-          description={mainState.reason}
-          action={<Button onClick={() => void loadLibrary()}>重试</Button>}
-        />
-      )}
+      <StatStrip items={overview} />
 
       {mainState.status === "ready" && libraryData !== null && (
         <AdvancedDetails
@@ -250,7 +297,8 @@ export function SkillsPage() {
       )}
 
       <Tabs
-        defaultActiveKey="manager"
+        activeKey={activeTab}
+        onChange={setActiveTab}
         aria-busy={mainState.status === "loading"}
         items={[
           {

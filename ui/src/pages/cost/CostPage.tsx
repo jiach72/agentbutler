@@ -1,16 +1,25 @@
 /**
  * 成本页（Trust Layer M1.1 成本中枢）：
- * - 顶部大数字：本月已花 / 预算余量 / 日均燃速 + 预计触线日；
- * - 中部：按模型成本排行（条形）+ 按日成本（迷你柱状）；
+ * - 顶部结论条：一句话说清「花了多少、会不会超」；
+ * - 中部：三个关键数字（已花 / 预算余量 / 日均燃速）；
+ * - 下方：按模型成本排行（条形）+ 按日成本（迷你柱状）；
  * - 底部：最贵会话 TOP10 表格。
- * 数据真相原则：Hermes 未提供成本列时显示「待接入」而非 0——不伪造。
+ * 数据真相原则：Hermes 未提供成本列时显示「还没有金额字段」而非 0——不伪造。
  */
-import { Alert, Card, Empty, Flex, Progress, Segmented, Statistic, Table, Tooltip, Typography } from "antd";
+import { money, USD_TO_CNY } from "../../lib/format.js";
+import { Button, Card, Flex, Progress, Segmented, Table, Tooltip, Typography } from "antd";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { ThunderboltOutlined, WalletOutlined } from "@ant-design/icons";
+import { ConclusionBar } from "../../components/ConclusionBar.js";
+import type { PageConclusionView } from "../../components/ConclusionBar.js";
+import { Empty } from "../../components/Empty.js";
 import { PageHeader } from "../../components/PageHeader.js";
-import { loadJson } from "../../lib/api.js";
+import { StatStrip } from "../../components/StatStrip.js";
+import type { StatStripItem } from "../../components/StatStrip.js";
+import { useUrlState } from "../../hooks/useUrlState.js";
 import { usePolling } from "../../hooks/usePolling.js";
+import { loadJson } from "../../lib/api.js";
 
 interface CostSummary {
   rangeDays: number;
@@ -34,9 +43,6 @@ interface BudgetStatus {
   lastCheckedAt: string | null;
 }
 
-const usd = (value: number | null | undefined): string =>
-  value === null || value === undefined ? "—" : `$${value.toFixed(2)}`;
-
 const RANGES = [
   { value: 7, label: "近 7 天" },
   { value: 30, label: "近 30 天" },
@@ -44,10 +50,12 @@ const RANGES = [
 ];
 
 export function CostPage() {
-  const [rangeDays, setRangeDays] = useState(30);
+  // 时间区间同步到 URL（规范 03 §3.12），刷新/分享链接能还原同一视图（评审 P1-7）。
+  const [rangeDays, setRangeDays] = useUrlState<number>("range", 30);
   const [summary, setSummary] = useState<CostSummary | null>(null);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [budget, setBudget] = useState<BudgetStatus | null>(null);
+  const navigate = useNavigate();
 
   const refresh = useCallback(() => {
     void loadJson<CostSummary>(`/api/llm/cost/summary?days=${rangeDays}`, 8_000).then((result) => {
@@ -104,94 +112,130 @@ export function CostPage() {
       key: "cost",
       width: 110,
       render: (_: unknown, record: CostSummary["sessions"][number]) =>
-        usd(record.actualCostUsd ?? record.estimatedCostUsd),
+        money(record.actualCostUsd ?? record.estimatedCostUsd),
     },
     { title: "Token", dataIndex: "tokens", key: "tokens", width: 120, render: (v: number) => v.toLocaleString() },
     { title: "最近活动", dataIndex: "lastSeen", key: "lastSeen", width: 170, render: (v: string) => new Date(v).toLocaleString() },
   ];
 
+  const budgetEnabled = budget !== null && budget.enabled;
+  const budgetRatioPct = budgetEnabled && budget.ratio !== null ? Math.round(budget.ratio * 100) : null;
+  const projectedLabel =
+    budgetEnabled && budget.projectedExhaustedAt !== null
+      ? `预计 ${new Date(budget.projectedExhaustedAt).toLocaleDateString()} 触线`
+      : "";
+  /** 触线动作与核算时间：原来挂在一条独立 Alert 上，现在并入结论条的元信息行，避免说两遍。 */
+  const budgetFootNote =
+    budgetEnabled && budget.threshold !== "ok"
+      ? `触线动作：${budget.action === "alert" ? "仅告警" : budget.action} · 核算于 ${
+          budget.lastCheckedAt !== null ? new Date(budget.lastCheckedAt).toLocaleString() : "—"
+        }`
+      : null;
+
+  /**
+   * 页面结论条（规范 03 §2.3 ②「必须有」）。
+   * 成本页尤其需要：一排数字本身不说明「这算多还是少」（评审 P0-2）。
+   */
+  const conclusion: PageConclusionView =
+    summaryError !== null
+      ? {
+          tone: "offline",
+          title: "成本数据暂时读不到",
+          copy: summaryError,
+          action: <Button onClick={refresh}>重试</Button>,
+        }
+      : summary === null
+        ? { tone: "unknown", title: "正在读取成本", copy: "刚打开页面，稍等片刻。" }
+        : !summary.costAvailable
+          ? {
+              tone: "unknown",
+              title: "成本明细还没接入",
+              copy: "管家已经记下用量，但用量表还没有金额字段，所以这里不会显示金额——不会用 token 数反推伪造。",
+            }
+          : totalCost === null
+            ? {
+                tone: "unknown",
+                title: `近 ${rangeDays} 天还没有用量记录`,
+                copy: "这个时间段内没有记录到调用，或成本列尚未回填。",
+              }
+            : budgetEnabled && (budget.threshold === "100%" || budget.threshold === "over")
+              ? {
+                  tone: "error",
+                  title: budget.threshold === "over" ? "本月成本已超出预算" : "本月成本已达预算上限",
+                  copy: `本月已花 ${money(budget.spentUsd)}，预算 ${money(budget.budgetUsd)}。`,
+                  action: <Button onClick={() => navigate("/gateway")}>查看消息通知</Button>,
+                }
+              : budgetEnabled && budget.threshold === "80%"
+                ? {
+                    tone: "warn",
+                    title: "本月成本已达预算的 80%",
+                    copy: `还剩 ${money(budgetLeft)}。${projectedLabel === "" ? "按当前速度本月内不会超。" : projectedLabel + "。"}`,
+                  }
+                : {
+                    /* 结论说判断，下面的数字卡说数值 —— 不要把同一句话写两遍。 */
+                    tone: "ok",
+                    title: budgetEnabled ? "花费在预算之内" : "还没有设置预算，所以只能看到已花金额",
+                    copy: budgetEnabled
+                      ? `预算余量 ${money(budgetLeft)}（已用 ${budgetRatioPct ?? "—"}%），按当前速度不会触线。`
+                      : "设置一个月度预算后，这里会给出余量和触线预测。",
+                  };
+
+  const costStats: StatStripItem[] = [
+    {
+      key: "spent",
+      icon: WalletOutlined,
+      label: `${RANGES.find((r) => r.value === rangeDays)?.label ?? ""}已花`,
+      value: totalCost === null ? "—" : (totalCost * USD_TO_CNY).toFixed(2),
+      unit: totalCost === null ? undefined : "元",
+      sub:
+        summary?.total.actualUsd !== null && summary?.total.actualUsd !== undefined
+          ? "为实际账单金额"
+          : summary !== null && summary.costAvailable
+            ? "实际账单缺失，按估算列展示"
+            : "读取中",
+    },
+    {
+      key: "budget-left",
+      icon: WalletOutlined,
+      label: "预算余量",
+      value: budgetLeft === null ? "未设预算" : (budgetLeft * USD_TO_CNY).toFixed(2),
+      unit: budgetLeft === null ? undefined : "元",
+      tone: budgetEnabled && (budget.threshold === "100%" || budget.threshold === "over")
+        ? "error"
+        : budgetEnabled && budget.threshold === "80%"
+          ? "warn"
+          : undefined,
+      sub: budgetRatioPct === null ? "设置预算后可看到余量" : `本月已用 ${budgetRatioPct}%`,
+    },
+    {
+      key: "daily-burn",
+      icon: ThunderboltOutlined,
+      label: "日均燃速",
+      value: dailyBurn === null ? "—" : (dailyBurn * USD_TO_CNY).toFixed(2),
+      unit: dailyBurn === null ? undefined : "元/天",
+      sub: projectedLabel === "" ? `按 ${dayCount} 天窗口计算` : projectedLabel,
+    },
+  ];
+
   return (
     <section className="cost-page">
       <Flex vertical gap={16}>
-        <PageHeader
-          eyebrow="信任层"
-          title="成本"
-          description="每一分花在 agent 上的钱都应能归因到模型和会话——无黑箱。"
+        <PageHeader title="成本" description="每笔花费都能查到用在哪个模型、哪次会话。" />
+
+        {/* §2.3 ② 结论条：把「花了多少、会不会超」放在数字之前。 */}
+        <ConclusionBar
+          tone={conclusion.tone}
+          title={conclusion.title}
+          copy={conclusion.copy}
+          action={conclusion.action}
+          extra={
+            budgetFootNote === null ? undefined : (
+              <Typography.Text type="secondary">{budgetFootNote}</Typography.Text>
+            )
+          }
         />
 
-        {summaryError !== null && (
-          <Alert type="warning" showIcon message="成本数据不可用" description={summaryError} />
-        )}
-        {summary !== null && !summary.costAvailable && (
-          <Alert
-            type="info"
-            showIcon
-            message="成本明细待接入"
-            description="Hermes 的用量表尚未提供成本（billing/cost）字段，金额将保持为空，不会用 token 数反推伪造。等 Hermes 侧写入成本列后本页自动点亮。"
-          />
-        )}
-
-        <Flex gap={16} wrap="wrap">
-          <Card style={{ flex: "1 1 200px" }}>
-            <Statistic
-              title={`${RANGES.find((r) => r.value === rangeDays)?.label ?? ""}已花`}
-              value={totalCost === null ? "—" : totalCost.toFixed(2)}
-              precision={totalCost === null ? undefined : 2}
-              prefix={totalCost === null ? undefined : "$"}
-              suffix={
-                summary?.total.actualUsd !== null && summary?.total.actualUsd !== undefined
-                  ? undefined
-                  : summary !== null && summary.costAvailable
-                    ? <Tooltip title="实际账单缺失，按估算列展示">（估算）</Tooltip>
-                    : undefined
-              }
-            />
-          </Card>
-          <Card style={{ flex: "1 1 200px" }}>
-            <Statistic
-              title="预算余量"
-              value={budgetLeft === null ? "未设预算" : budgetLeft.toFixed(2)}
-              prefix={budgetLeft === null ? undefined : "$"}
-              suffix={
-                budget !== null && budget.enabled && budget.ratio !== null
-                  ? `（已用 ${Math.round(budget.ratio * 100)}%）`
-                  : undefined
-              }
-              valueStyle={
-                budget !== null && budget.enabled && (budget.threshold === "100%" || budget.threshold === "over")
-                  ? { color: "#cf1322" }
-                  : budget !== null && budget.enabled && budget.threshold === "80%"
-                    ? { color: "#d46b08" }
-                    : undefined
-              }
-            />
-          </Card>
-          <Card style={{ flex: "1 1 200px" }}>
-            <Statistic
-              title="日均燃速"
-              value={dailyBurn === null ? "—" : dailyBurn.toFixed(2)}
-              prefix={dailyBurn === null ? undefined : "$"}
-              suffix={
-                budget !== null && budget.enabled && budget.projectedExhaustedAt !== null
-                  ? `预计 ${new Date(budget.projectedExhaustedAt).toLocaleDateString()} 触线`
-                  : undefined
-              }
-            />
-          </Card>
-        </Flex>
-
-        {budget !== null && budget.enabled && budget.threshold !== "ok" && (
-          <Alert
-            type={budget.threshold === "100%" || budget.threshold === "over" ? "error" : "warning"}
-            showIcon
-            message={
-              budget.threshold === "over"
-                ? "本月成本已超出预算"
-                : `本月成本已达预算 ${budget.threshold}`
-            }
-            description={`触线动作：${budget.action === "alert" ? "仅告警" : budget.action}。核算时间：${budget.lastCheckedAt !== null ? new Date(budget.lastCheckedAt).toLocaleString() : "—"}`}
-          />
-        )}
+        <StatStrip items={costStats} />
 
         <Card
           title="按模型成本"
@@ -205,7 +249,7 @@ export function CostPage() {
           }
         >
           {summary === null || summary.models.length === 0 ? (
-            <Empty description="窗口内暂无用量" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            <Empty title="窗口内还没有用量" hint="换个时间区间看看，或等管家记录到新的调用。" mascotWidth={72} />
           ) : (
             <Flex vertical gap={12}>
               {summary.models.map((model) => {
@@ -214,14 +258,25 @@ export function CostPage() {
                   <div key={model.model}>
                     <Flex justify="space-between" style={{ marginBottom: 4 }}>
                       <Typography.Text ellipsis style={{ maxWidth: "70%" }}>{model.model}</Typography.Text>
-                      <Typography.Text strong>{usd(model.actualCostUsd ?? model.estimatedCostUsd)}</Typography.Text>
+                      <Typography.Text strong>{money(model.actualCostUsd ?? model.estimatedCostUsd)}</Typography.Text>
                     </Flex>
-                    <Progress
-                      percent={Math.round((cost / maxModelCost) * 100)}
-                      showInfo={false}
-                      strokeColor={{ from: "#1677ff", to: "#69b1ff" }}
-                      size="small"
-                    />
+                    {/* 0 成本时不画条：空轨道会被读成「加载中」或「坏了」，
+                        而「—」已经把「这条没有金额」说清楚了。 */}
+                    {cost > 0 ? (
+                      <Progress
+                        percent={Math.round((cost / maxModelCost) * 100)}
+                        showInfo={false}
+                        strokeColor={{
+                          from: "var(--ab-primary)",
+                          to: "color-mix(in srgb, var(--ab-primary) 45%, var(--ab-surface))",
+                        }}
+                        size="small"
+                      />
+                    ) : (
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        有调用记录，但金额字段还没回填
+                      </Typography.Text>
+                    )}
                   </div>
                 );
               })}
@@ -231,27 +286,37 @@ export function CostPage() {
 
         <Card title="按日成本">
           {summary === null || summary.days.length === 0 ? (
-            <Empty description="窗口内暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            <Empty title="窗口内还没有按日数据" hint="管家按天汇总用量；有记录后这里会画出趋势。" mascotWidth={72} />
           ) : (
-            <Flex gap={4} align="flex-end" style={{ height: 120 }}>
-              {summary.days.map((day) => {
-                const cost = day.actualCostUsd ?? day.estimatedCostUsd ?? 0;
-                const height = Math.max(2, Math.round((cost / maxDayCost) * 100));
-                return (
-                  <Tooltip key={day.date} title={`${day.date}：${usd(day.actualCostUsd ?? day.estimatedCostUsd)}`}>
-                    <div
-                      style={{
-                        flex: 1,
-                        height: `${height}%`,
-                        background: "linear-gradient(180deg, #1677ff, #91caff)",
-                        borderRadius: 2,
-                        minWidth: 6,
-                      }}
-                    />
-                  </Tooltip>
-                );
-              })}
-            </Flex>
+            <>
+              {/* 键盘/触屏用户拿不到 hover Tooltip，所以把可读结论先写在卡头（评审 P2-5）。 */}
+              <Typography.Text type="secondary" style={{ display: "block", marginBottom: 8 }}>
+                峰值 {money(maxDayCost >= 0.000001 ? maxDayCost : 0)} · 合计 {money(totalCost)}
+              </Typography.Text>
+              <Flex gap={4} align="flex-end" style={{ height: 120 }}>
+                {summary.days.map((day) => {
+                  const cost = day.actualCostUsd ?? day.estimatedCostUsd ?? 0;
+                  const height = Math.max(2, Math.round((cost / maxDayCost) * 100));
+                  return (
+                    <Tooltip key={day.date} title={`${day.date}：${money(day.actualCostUsd ?? day.estimatedCostUsd)}`}>
+                      <div
+                        tabIndex={0}
+                        role="img"
+                        aria-label={`${day.date}：${money(day.actualCostUsd ?? day.estimatedCostUsd)}`}
+                        style={{
+                          flex: 1,
+                          height: `${height}%`,
+                          background:
+                            "linear-gradient(180deg, var(--ab-primary), color-mix(in srgb, var(--ab-primary) 45%, var(--ab-surface)))",
+                          borderRadius: 2,
+                          minWidth: 6,
+                        }}
+                      />
+                    </Tooltip>
+                  );
+                })}
+              </Flex>
+            </>
           )}
         </Card>
 
@@ -262,7 +327,7 @@ export function CostPage() {
             columns={columns}
             dataSource={summary?.sessions ?? []}
             pagination={false}
-            locale={{ emptyText: <Empty description="暂无会话成本记录" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+            locale={{ emptyText: <Empty title="还没有会话成本记录" hint="管家会按会话归集用量；有调用后这里会列出最贵的几条。" mascot={false} /> }}
           />
         </Card>
       </Flex>

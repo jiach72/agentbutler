@@ -1,6 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import type { ReactNode } from "react";
-import {
+import type { ReactNode } from "react";import {
   applyThemeCssBridge,
   initialThemeMode,
   themeConfigFor,
@@ -16,6 +15,26 @@ interface ThemeContextValue {
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
+/**
+ * 主题切换的交叉淡入（评审阶段 C · 动效体系）。
+ *
+ * 用 View Transitions API 让「旧主题整帧淡出、新主题整帧淡入」，
+ * 避免 setMode 触发的上百个 token 同时跳变造成的"闪变"。
+ * 三个安全阀：
+ *   · 浏览器不支持（Firefox / 旧 Safari）→ 直接切换，无动画也无害；
+ *   · 用户开了 prefers-reduced-motion → 不启动过渡（motion.css 里也已全局降级）；
+ *   · 过渡是纯合成器动画（只动 opacity），不触发布局。
+ */
+function withThemeTransition(apply: () => void): void {
+  const doc = document as Document & { startViewTransition?: (cb: () => void) => unknown };
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (typeof doc.startViewTransition !== "function" || reduced) {
+    apply();
+    return;
+  }
+  doc.startViewTransition(apply);
+}
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [mode, setModeState] = useState<ThemeMode>(() =>
     initialThemeMode(
@@ -24,13 +43,17 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     ),
   );
 
+  // setMode 只会被用户动作调用（初始主题由 useState 初始化器决定），
+  // 所以这里始终走过渡；首屏不会有动画。
   const setMode = useCallback((nextMode: ThemeMode) => {
-    setModeState(nextMode);
-    try {
-      if (typeof window !== "undefined") writeStoredThemeMode(window.localStorage, nextMode);
-    } catch {
-      // Private browsing and locked-down WebViews may reject storage access.
-    }
+    withThemeTransition(() => {
+      setModeState(nextMode);
+      try {
+        if (typeof window !== "undefined") writeStoredThemeMode(window.localStorage, nextMode);
+      } catch {
+        // Private browsing and locked-down WebViews may reject storage access.
+      }
+    });
   }, []);
 
   const toggleMode = useCallback(() => {

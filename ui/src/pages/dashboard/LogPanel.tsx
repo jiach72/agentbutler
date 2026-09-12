@@ -15,7 +15,6 @@ import {
   Card,
   Col,
   Drawer,
-  Empty,
   Flex,
   Input,
   Progress,
@@ -28,6 +27,7 @@ import {
   Typography,
 } from "antd";
 import { AiGeneratedNotice } from "../../components/AiGeneratedNotice.js";
+import { Empty } from "../../components/Empty.js";
 import {
   AlertOutlined,
   FileTextOutlined,
@@ -421,7 +421,7 @@ export function LogPanel({ open = true, onClose = () => undefined, embedded = fa
                   </Flex>
                 )}
                 {!loading && sources.length === 0 && error === null && (
-                  <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有可用的日志文件" />
+                  <Empty mascot={false} title="还没有可用的日志文件" />
                 )}
                 {activeLog !== null && (
                   <>
@@ -462,7 +462,11 @@ export function LogPanel({ open = true, onClose = () => undefined, embedded = fa
                     {activeLog.error !== undefined ? (
                       <Alert type="error" showIcon title={`读取失败：${activeLog.error}`} />
                     ) : filteredLines.length === 0 ? (
-                      <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前筛选条件下没有匹配的日志行" />
+                      <Empty
+                        mascot={false}
+                        title="当前筛选条件下没有匹配的日志行"
+                        hint="试试调整搜索关键词或日志级别筛选。"
+                      />
                     ) : (
                       <pre className="logs-stream-pre">
                         {filteredLines.map((line, index) => (

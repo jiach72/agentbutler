@@ -2,7 +2,8 @@
  * 版本页 · 当前使用的版本：受管实例卡片栅格。
  * 卡片/描述列表走 antd 原语，状态仍由 StatusBadge 呈现。
  */
-import { Card, Col, Descriptions, Empty, Flex, Row, Typography } from "antd";
+import { Card, Col, Descriptions, Flex, Row, Typography } from "antd";
+import { Empty } from "../../components/Empty.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { instanceLabel, instanceRuntimeLabel, instanceStateLabel, stateBadge } from "./helpers.js";
 import type { InstanceView } from "./types.js";
@@ -17,8 +18,8 @@ export function ManagedInstances({ instances }: ManagedInstancesProps) {
   if (instances.length === 0) {
     return (
       <Empty
-        image={Empty.PRESENTED_IMAGE_SIMPLE}
-        description="还没有发现可管理的管家。扫描完成后，这里会显示它当前使用的版本。"
+        title="还没有发现可管理的管家"
+        hint="扫描完成后，这里会显示它当前使用的版本。"
       />
     );
   }

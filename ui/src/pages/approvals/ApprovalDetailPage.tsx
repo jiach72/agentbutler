@@ -9,11 +9,16 @@
  * 2. 超时未处理按默认拒绝拦截，绝不因沉默而放行；
  * 3. 已升级的单必须在本页确认（通道侧一键放行会被服务端拒绝）。
  */
-import { Alert, Button, Card, Descriptions, Empty, Flex, Result, Space, Statistic, Tag, Typography } from "antd";
+import { Alert, Button, Card, Descriptions, Flex, Result, Space, Statistic, Tag, Typography } from "antd";
 import { CheckOutlined, CloseOutlined, ReloadOutlined } from "@ant-design/icons";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { ConclusionBar } from "../../components/ConclusionBar.js";
+import type { PageConclusionView } from "../../components/ConclusionBar.js";
+import { Empty } from "../../components/Empty.js";
 import { PageHeader } from "../../components/PageHeader.js";
+import { StatusBadge } from "../../components/StatusBadge.js";
+import type { SemanticTone } from "../../components/StatusBadge.js";
 import { loadJson, postJson } from "../../lib/api.js";
 import { usePolling } from "../../hooks/usePolling.js";
 import type { ApprovalItem } from "./ApprovalsPage.js";
@@ -28,11 +33,19 @@ const KIND_LABEL: Record<string, string> = {
   raw: "未归类动作",
 };
 
-const STATUS_META: Record<string, { color: string; label: string }> = {
-  pending: { color: "processing", label: "待处理" },
-  approved: { color: "green", label: "已批准" },
-  denied: { color: "red", label: "已拒绝" },
-  expired: { color: "default", label: "超时拦截" },
+/** 状态 → 品牌语义 tone（antd 预设色名 processing/green/red/default 与品牌信号色不是同一值，统一走 StatusBadge）。 */
+const STATUS_TONE: Record<string, SemanticTone> = {
+  pending: "warn",
+  approved: "ok",
+  denied: "error",
+  expired: "error",
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  pending: "待处理",
+  approved: "已批准",
+  denied: "已拒绝",
+  expired: "超时拦截",
 };
 
 /** 决策失败的友好文案：409/410 是「已经晚了」，不是系统故障。 */
@@ -98,7 +111,7 @@ export function ApprovalDetailPage() {
   if (error !== null && item === null) {
     return (
       <section className="approval-detail-page">
-        <PageHeader eyebrow="信任层" title="操作审批" description="确认一次高危动作是否放行。" />
+        <PageHeader title="操作审批" description="确认一次高危动作是否放行。" />
         <Result
           status="warning"
           title="找不到这条审批记录"
@@ -116,24 +129,46 @@ export function ApprovalDetailPage() {
   if (item === null) {
     return (
       <section className="approval-detail-page">
-        <PageHeader eyebrow="信任层" title="操作审批" description="确认一次高危动作是否放行。" />
+        <PageHeader title="操作审批" description="确认一次高危动作是否放行。" />
         <Card loading />
       </section>
     );
   }
 
-  const meta = STATUS_META[item.status] ?? { color: "default", label: item.status };
+  const meta = STATUS_TONE[item.status] ?? "unknown";
   const pending = item.status === "pending";
   const detail = typeof item.detail === "object" && item.detail !== null
     ? (item.detail as Record<string, unknown>)
     : {};
 
+  /**
+   * 页面结论条（规范 03 §2.3 ②「必须有」）：随终态切换，一句话说清「这条单现在什么状态、接下来会发生什么」。
+   * 超时分支与下方「已超时」Alert 是同一件事，那条 Alert 已删除，原因并入本条 copy。
+   */
+  const conclusion: PageConclusionView =
+    item.status === "pending"
+      ? {
+          tone: "warn",
+          title: "等待你处置这条高危动作",
+          copy: `批准只对该动作本次生效；15 分钟不处理按拒绝拦截${
+            item.escalateRequired ? "；此单已升级，必须在面板确认" : ""
+          }。`,
+        }
+      : item.status === "approved"
+        ? { tone: "ok", title: "已批准本次操作", copy: "放行只针对这一条动作，不改动后续审批要求。" }
+        : item.status === "denied"
+          ? { tone: "error", title: "已拒绝本次操作", copy: "该动作被拦下，不会执行。" }
+          : {
+              tone: "error",
+              title: "已超时，系统按默认拒绝拦截",
+              copy: item.reason ?? "15 分钟内没有人应答——管家宁可拦住，也不冒险放行。",
+            };
+
   return (
     <section className="approval-detail-page">
       <Flex vertical gap={16}>
         <PageHeader
-          eyebrow="信任层"
-          title="确认一次高危动作"
+          title="操作审批"
           description="看清楚它要做什么，再决定放不放行。"
           extra={
             <Space>
@@ -145,34 +180,26 @@ export function ApprovalDetailPage() {
           }
         />
 
-        {notice !== null && <Alert type="info" showIcon message={notice} />}
+        {/* §2.3 ② 结论条。 */}
+        <ConclusionBar tone={conclusion.tone} title={conclusion.title} copy={conclusion.copy} />
+
+        {notice !== null && <Alert type="info" showIcon title={notice} />}
 
         {pending && item.escalateRequired && (
           <Alert
             type="warning"
             showIcon
             message={`该动作今日已被请求 ${item.attempts} 次，已升级为需在面板确认`}
-            description="反复请求同一动作时，一键放行不再生效——请在本页核对目标后再决定，避免误触。"
-          />
-        )}
-
-        {item.status === "expired" && (
-          <Alert
-            type="error"
-            showIcon
-            message="已超时，系统按默认拒绝拦截了该动作"
-            description={item.reason ?? "15 分钟内没有人应答——管家宁可拦住，也不冒险放行。"}
+            description="同一动作被反复请求时，一键放行会失效。请在本页核对目标后再决定。"
           />
         )}
 
         <Card>
           <Flex vertical gap={16}>
             <Flex gap={16} wrap="wrap" align="center">
-              <Tag color={meta.color} style={{ fontSize: 14, padding: "2px 10px" }}>
-                {meta.label}
-              </Tag>
+              <StatusBadge tone={meta} label={STATUS_LABEL[item.status] ?? item.status} />
               <Tag>{KIND_LABEL[item.kind] ?? item.kind}</Tag>
-              {item.escalateRequired && <Tag color="orange">需面板确认</Tag>}
+              {item.escalateRequired && <StatusBadge tone="warn" label="需面板确认" />}
               {item.channel !== null && item.channel !== "" && (
                 <Typography.Text type="secondary">来源通道：{item.channel}</Typography.Text>
               )}
@@ -187,7 +214,7 @@ export function ApprovalDetailPage() {
                 title="剩余处理时限（超时按拒绝拦截）"
                 value={Math.max(0, Math.round(item.remainingMs / 1000))}
                 suffix="秒"
-                valueStyle={item.remainingMs < 120_000 ? { color: "#cf1322" } : undefined}
+                valueStyle={item.remainingMs < 120_000 ? { color: "var(--ab-error)" } : undefined}
               />
             )}
 
@@ -211,7 +238,7 @@ export function ApprovalDetailPage() {
                 <summary style={{ cursor: "pointer" }}>
                   <Typography.Text type="secondary">查看结构化摘要（已脱敏，不含对话正文）</Typography.Text>
                 </summary>
-                <pre style={{ marginTop: 8, maxHeight: 240, overflow: "auto", fontSize: 12 }}>
+                <pre style={{ marginTop: 8, maxHeight: 240, overflow: "auto", fontSize: "var(--ab-text-size-xs)" }}>
                   {JSON.stringify(detail, null, 2)}
                 </pre>
               </details>
@@ -234,12 +261,9 @@ export function ApprovalDetailPage() {
               </Flex>
             ) : (
               <Empty
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description={
-                  item.respondedAt === null
-                    ? "该审批单已终结"
-                    : `${meta.label} · ${new Date(item.respondedAt).toLocaleString()}`
-                }
+                mascotWidth={72}
+                title={item.respondedAt === null ? "该审批单已终结" : `${STATUS_LABEL[item.status] ?? item.status} · ${new Date(item.respondedAt).toLocaleString()}`}
+                hint="这不是待处理状态，不能再做决定。"
               />
             )}
 

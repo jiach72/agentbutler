@@ -10,7 +10,6 @@ import {
   Button,
   Card,
   Col,
-  Empty,
   Flex,
   Input,
   Modal,
@@ -38,6 +37,7 @@ import { ConclusionBar } from "../components/ConclusionBar.js";
 import { fetchBlob, loadJson, postJson } from "../lib/api.js";
 import { formatBytes, formatTime } from "../lib/format.js";
 import "./core-files.css";
+import { Empty } from "../components/Empty.js";
 
 const { Text } = Typography;
 
@@ -202,9 +202,8 @@ export function CoreFilesPage() {
     <section className="core-files-page">
       <Flex vertical gap={16}>
         <PageHeader
-          eyebrow="控制台"
           title="核心文件"
-          description="查看、编辑并回滚实例声明的 USER、AGENT、SOUL 与 MEMORY Markdown 文件；每次保存自动生成版本。"
+          description="查看、编辑并回滚实例的 USER、AGENT、SOUL、MEMORY 几个 Markdown 文件；每次保存自动生成版本。"
           extra={
             <Select
               aria-label="选择实例"
@@ -266,9 +265,9 @@ export function CoreFilesPage() {
                   <Spin />
                 </Flex>
               ) : files.length === 0 ? (
-                <Empty description="没有可管理的核心文件" />
+                <Empty mascot={false} title="还没有可管理的核心文件" />
               ) : filteredFiles.length === 0 ? (
-                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有匹配的文件" />
+                <Empty mascot={false} title="没有匹配的文件" />
               ) : (
                 <div>
                   {fileGroups.map((group) => (
@@ -327,7 +326,7 @@ export function CoreFilesPage() {
                   <Spin />
                 </Flex>
               ) : !selectedFile || !detail ? (
-                <Empty description="选择一个文件开始" />
+                <Empty title="还没选择文件" hint="在左侧文件清单里点一个，这里会显示内容和版本历史。" />
               ) : (
                 <Flex vertical gap={16}>
                   {(selectedFile.sensitivity === "contains-secret-pattern" || !selectedFile.editable) && (

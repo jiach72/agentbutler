@@ -48,7 +48,6 @@ export function TroubleshootPage() {
     <section className="troubleshoot-page">
       <Flex vertical gap={24}>
         <PageHeader
-          eyebrow="维护与升级"
           title="排查问题"
           description={
             wizard.stage === null

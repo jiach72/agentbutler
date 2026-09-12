@@ -1,7 +1,8 @@
 /**
  * 高级详情内的三块面板：一键处理方案、管家最近检查、经常出现的问题。
  */
-import { Button, Card, Descriptions, Empty, Flex, Table, Typography } from "antd";
+import { Button, Card, Descriptions, Flex, Table, Typography } from "antd";
+import { Empty } from "../../components/Empty.js";
 import type { ColumnsType } from "antd/es/table/interface.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
@@ -35,8 +36,8 @@ export function RunbooksPanel({
       )}
       {runbooks !== null && runbooks.reachable && available.length === 0 && (
         <Empty
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description="管家在线，但还没有可以一键处理的问题。"
+          mascot={false}
+          title="管家在线，但还没有可以一键处理的问题。"
         />
       )}
       {runbooks !== null && runbooks.reachable && (
@@ -83,10 +84,10 @@ export function InspectCard({
 }) {
   if (inspectStatus === null || !inspectStatus.reachable) {
     return (
-      <Empty
-        image={Empty.PRESENTED_IMAGE_SIMPLE}
-        description="管家服务暂时连不上：看不到最近检查，也无法开始新的检查。"
-      />
+    <Empty
+      mascot={false}
+      title="管家服务暂时连不上：看不到最近检查，也无法开始新的检查。"
+    />
     );
   }
   const criticalProbe = inspectStatus.criticalProbe;
@@ -174,10 +175,10 @@ export function FingerprintsTable({
 }) {
   if (fingerprints.length === 0) {
     return (
-      <Empty
-        image={Empty.PRESENTED_IMAGE_SIMPLE}
-        description="暂时没有经常出现的问题；如果以后出现，会显示在这里。"
-      />
+    <Empty
+      mascot={false}
+      title="暂时没有经常出现的问题；如果以后出现，会显示在这里。"
+    />
     );
   }
   return (

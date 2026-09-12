@@ -1,0 +1,129 @@
+/**
+ * 动效体系（评审阶段 C · 对标 Linear / Vercel / Raycast 级的克制运动语言）。
+ *
+ * 【五条铁律】
+ * 1. **只动合成器属性**：opacity 与 transform。绝不动画 width/height/top/left/margin ——
+ *    那会强制每帧重排，60fps 必掉。
+ * 2. **一套曲线家族**：入场用 easeOutExpo（快出慢停，"内容是等你的"），
+ *    微交互用 standard（对称、不抢戏）。品牌规范禁止弹性/回弹，所以没有 overshoot。
+ * 3. **时长随"距离"缩放**：微交互 120ms → 元素入场 220ms → 整个页面 320ms。
+ *    距离越远，动画越长。
+ * 4. **stagger 36ms/项**：让眼睛按顺序读，而不是同时砸过来。超过 8 项就不再加延迟
+ *    （否则最后一张卡要等 300ms 才出现，变成延迟而不是编排）。
+ * 5. **prefers-reduced-motion 是硬开关**：文件末尾一次性把所有动画归零，
+ *    不是每个规则自己记得降级 —— 忘一处就前功尽弃。
+ */
+
+:root {
+  /* 入场专用时长：比微交互长、比整页短。 */
+  --ab-dur-entrance: 220ms;
+  /* easeOutExpo：顶级产品最常用的入场曲线 —— 前 30% 完成大部分位移，尾段柔和收住。 */
+  --ab-ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  /* stagger 步长与最大项数（超过后不再增加延迟）。 */
+  --ab-stagger-step: 36ms;
+  --ab-stagger-max: 8;
+  /* 入场位移距离：4–6px 是"能感觉到但说不清"的区间，再大就变成抢戏。 */
+  --ab-motion-distance: 6px;
+}
+
+/* ---------- 关键帧 ---------- */
+
+@keyframes ab-fade-rise {
+  from {
+    opacity: 0;
+    transform: translateY(var(--ab-motion-distance));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ab-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* 用于小面积浮层（通知面板、下拉），scale 从 0.98 起 —— 大面积用 scale 会显得廉价。 */
+@keyframes ab-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---------- 页面级：路由切换 ---------- */
+
+/* 页面根节点在路由切换时重新挂载，因此这一条就是「页面过渡」——
+   不需要 JS、不需要 View Transitions API，任何浏览器都有。 */
+.content > section {
+  animation: ab-fade-rise var(--ab-dur-slow) var(--ab-ease-out-expo) both;
+}
+
+/* ---------- 元素级：成组入场 ---------- */
+
+/* 容器上加 .ab-stagger，子元素按声明顺序依次入场。
+   第 9 个起延迟封顶，避免"最后一张卡姗姗来迟"。 */
+.ab-stagger > * {
+  animation: ab-fade-rise var(--ab-dur-entrance) var(--ab-ease-out-expo) both;
+  animation-delay: calc(min(var(--ab-stagger-i, 0), var(--ab-stagger-max)) * var(--ab-stagger-step));
+}
+
+/* 单个元素的入场（例如懒加载完成后填充的区块）。 */
+.ab-rise {
+  animation: ab-fade-rise var(--ab-dur-entrance) var(--ab-ease-out-expo) both;
+}
+
+/* ---------- 微交互：按压反馈 ---------- */
+
+/* 实底/描边按钮按下时轻微收缩 —— 这是"控件回应了你"的最小信号。
+   文字按钮不加（它没有面积，缩了只会显得抖）。 */
+.ant-btn:not(.ant-btn-link):not(.ant-btn-text):not(.ant-btn-sm):active {
+  transform: scale(0.985);
+}
+
+/* antd 自己的过渡只覆盖颜色；把 transform 也接上，保证按压回弹是同一套曲线。 */
+.ant-btn {
+  transition:
+    color var(--ab-dur-fast) var(--ab-ease),
+    background-color var(--ab-dur-fast) var(--ab-ease),
+    border-color var(--ab-dur-fast) var(--ab-ease),
+    transform var(--ab-dur-fast) var(--ab-ease-out-expo);
+}
+
+/* ---------- 主题切换（View Transitions） ---------- */
+
+/* ThemeProvider 里用 document.startViewTransition 包住 setMode；
+   下面两条决定"怎么过渡"：旧帧淡出、新帧淡入，各 260ms。
+   只想淡入淡出，不做任何位移 —— 主题切换是"换灯"，不是"换房间"。 */
+::view-transition-old(root) {
+  animation: ab-fade-in var(--ab-dur-base) var(--ab-ease-standard) reverse both;
+}
+::view-transition-new(root) {
+  animation: ab-fade-in var(--ab-dur-base) var(--ab-ease-standard) both;
+}
+
+/* ---------- 硬开关：reduced-motion ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .content > section,
+  .ab-stagger > *,
+  .ab-rise {
+    animation: none;
+  }
+  .ant-btn:active {
+    transform: none;
+  }
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+  }
+}

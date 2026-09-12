@@ -2,7 +2,8 @@
  * 设置页右栏备份面板：手动备份入口、保留策略与备份记录时间线。
  * 备份/管家自检两路数据独立三态，失败时显示降级横幅与单源重试。
  */
-import { Button, Card, Divider, Empty, Flex, Space, Spin, Timeline, Tooltip, Typography } from "antd";
+import { Button, Card, Divider, Flex, Space, Spin, Timeline, Tooltip, Typography } from "antd";
+import { Empty } from "../../components/Empty.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { SectionHeader } from "../../components/SectionHeader.js";
@@ -213,8 +214,9 @@ export function BackupCenter({
       )}
       {backups.status === "ready" && backups.data.items.length === 0 && (
         <Empty
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description="还没有备份记录；点击「立即全量备份」开始第一次备份，之后管家每天自动备份。"
+          mascot={false}
+          title="还没有备份记录"
+          hint="点击「立即全量备份」开始第一次备份，之后管家每天自动备份。"
         />
       )}
     </Flex>

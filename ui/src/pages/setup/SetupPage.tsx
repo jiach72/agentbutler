@@ -263,7 +263,6 @@ export function SetupPage() {
     <section className="setup-page">
       <Flex vertical gap={24}>
         <PageHeader
-          eyebrow="维护与升级"
           title="连接设置"
           description={
             firstRun
@@ -338,7 +337,7 @@ export function SetupPage() {
                 tone={instanceTone}
                 statusLabel={
                   connections.length === 0 ? "未发现实例"
-                    : connectedCount > 0 ? `已连接 ${connectedCount}/${connections.length}`
+                    : connectedCount > 0 ? `在线 ${connectedCount}/${connections.length}`
                     : "未连接"
                 }
                 detail={
@@ -366,10 +365,10 @@ export function SetupPage() {
                 )}
               </LinkRow>
               {connections.length > 0 && (
-                <Flex vertical gap={4} style={{ marginTop: 4 }}>
+                <Flex vertical gap={4} style={{ marginTop: 4 }} className="setup-link-instances">
                   {connections.map((c) => (
                     <Flex key={c.instanceId} align="center" gap={8}>
-                      <RobotOutlined aria-hidden="true" style={{ color: "var(--ab-text-3)" }} />
+                      <RobotOutlined aria-hidden="true" style={{ color: "var(--ab-text-2)" }} />
                       <Text style={{ fontSize: 12.5 }}>{c.displayName ?? c.instanceId}</Text>
                       <Text type="secondary" style={{ fontSize: 12 }}>{c.version ?? "版本未知"}</Text>
                       <StatusBadge tone={c.connected ? "ok" : "offline"} label={c.connected ? "已连接" : c.connectionState ?? "待检查"} />

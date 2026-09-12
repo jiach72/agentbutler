@@ -46,30 +46,34 @@ const TONE_COLOR: Record<SemanticTone, string> = {
 
 export function StatStrip({ items }: { items: StatStripItem[] }) {
   return (
-    <Row gutter={[16, 16]} aria-label="概览统计">
-      {items.map((item) => {
+    <Row gutter={[16, 16]} aria-label="概览统计" className="ab-stagger">
+      {items.map((item, index) => {
         const Icon = item.icon;
         return (
-          <Col flex="1 1 220px" key={item.key} className={item.className}>
+          <Col
+            flex="1 1 220px"
+            key={item.key}
+            className={item.className}
+            /* stagger 序号交给 CSS（motion.css 里 36ms/项、第 9 项起封顶）。 */
+            style={{ "--ab-stagger-i": index } as React.CSSProperties}
+          >
             <Card size="small" style={{ height: "100%" }}>
               <Flex vertical gap={4} style={{ height: "100%" }}>
-                <Text type="secondary" style={{ fontSize: 12 }}>
+                <Text type="secondary" className="stat-strip-meta">
                   {Icon !== undefined && <Icon style={{ marginInlineEnd: 6 }} aria-hidden="true" />}
                   {item.label}
                 </Text>
                 <Flex align="baseline" gap={6} wrap="wrap">
+                  {/* 字号/字重/行高走类而不是内联样式：页面（如首页的证据层）才能在不写
+                      属性子串选择器的前提下把它收一档，也不用 !important 对抗内联。 */}
                   <span
-                    style={{
-                      fontSize: 24,
-                      fontWeight: 600,
-                      lineHeight: 1.2,
-                      color: item.tone === undefined ? undefined : TONE_COLOR[item.tone],
-                    }}
+                    className="stat-strip-value"
+                    style={{ color: item.tone === undefined ? undefined : TONE_COLOR[item.tone] }}
                   >
                     {item.value}
                   </span>
                   {item.unit !== undefined && (
-                    <Text type="secondary" style={{ fontSize: 12 }}>
+                    <Text type="secondary" className="stat-strip-meta">
                       {item.unit}
                     </Text>
                   )}
@@ -80,7 +84,7 @@ export function StatStrip({ items }: { items: StatStripItem[] }) {
                   )}
                 </Flex>
                 {item.sub !== undefined && (
-                  <Text type="secondary" style={{ fontSize: 12 }}>
+                  <Text type="secondary" className="stat-strip-meta">
                     {item.sub}
                   </Text>
                 )}

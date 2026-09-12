@@ -7,7 +7,7 @@
  */
 import { useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { App, Badge, Button, Card, Col, Collapse, Flex, Row } from "antd";
+import { App, Button, Card, Col, Collapse, Flex, Row } from "antd";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { PageHeader } from "../../components/PageHeader.js";
@@ -25,6 +25,7 @@ import { FingerprintsTable, InspectCard, RunbooksPanel } from "./AdvancedPanels.
 import { InstanceHealthCard } from "./InstanceHealthCard.js";
 import { useDashboardData } from "./useDashboardData.js";
 import type { RunbookView } from "./types.js";
+import "./dashboard.css";
 
 interface RuntimeDetailsProps {
   open: boolean;
@@ -200,7 +201,6 @@ export function DashboardPage() {
       <section className="dashboard-page">
         <Flex vertical gap={24}>
           <PageHeader
-            eyebrow="控制台"
             title="本地管家"
             description="正在汇总服务、检查结果和消息状态。"
           />
@@ -221,18 +221,9 @@ export function DashboardPage() {
     <section className="dashboard-page">
       <Flex vertical gap={24}>
         <PageHeader
-          eyebrow="控制台"
           title="本地管家"
           description="查看本机服务状态、连接情况和消息通知。"
-          extra={
-            <Flex align="center" gap={12}>
-              <Badge
-                status={inspectStatus?.reachable ? "success" : "error"}
-                text={inspectStatus?.reachable ? "管家服务已连接" : "管家服务暂时连不上"}
-              />
-              <Button size="small" onClick={() => navigate("/wall")}>大屏模式</Button>
-            </Flex>
-          }
+          extra={<Button size="small" onClick={() => navigate("/wall")}>大屏模式</Button>}
         />
 
         {criticalLoadFailed && (
@@ -248,32 +239,37 @@ export function DashboardPage() {
           />
         )}
 
-        <HeroConclusion
-          hero={hero}
-          inspectStatus={inspectStatus}
-          inspectRequested={inspectionRequested}
-          onInspect={() => void runInspect()}
-        />
+        {/* 三级视觉权重（评审 P2-10）：
+            ① 结论层 = 现在好不好；② 证据层 = 支撑结论的四个数字；③ 行动层 = 需要你做什么。
+            行动层只在真的有待办时才渲染，无事时首屏只有「结论 + 证据」。 */}
+        <div className="dashboard-tier-conclusion">
+          <HeroConclusion
+            hero={hero}
+            inspectStatus={inspectStatus}
+            inspectRequested={inspectionRequested}
+            onInspect={() => void runInspect()}
+          />
+        </div>
 
-        <StatusRail
-          attentionCount={attentionCount}
-          hasError={hasError}
-          hasWarn={hasWarn}
-          healthyInspectionCount={healthyInspectionCount}
-          instanceCount={instances.length}
-          downInstanceCount={downInstanceCount}
-          degradedInstanceCount={degradedInstanceCount}
-          inspectStatus={inspectStatus}
-          messageStats={messageStats}
-          runtimeDetailsOpen={runtimeDetailsOpen}
-          onOpenRuntimeDetails={() => openSection("runtime-details", true)}
-          onOpenIssues={() => openSection("dashboard-issues")}
-        />
-
-        <OnboardingContinuation />
+        <div className="dashboard-tier-evidence">
+          <StatusRail
+            attentionCount={attentionCount}
+            hasError={hasError}
+            hasWarn={hasWarn}
+            healthyInspectionCount={healthyInspectionCount}
+            instanceCount={instances.length}
+            downInstanceCount={downInstanceCount}
+            degradedInstanceCount={degradedInstanceCount}
+            inspectStatus={inspectStatus}
+            messageStats={messageStats}
+            runtimeDetailsOpen={runtimeDetailsOpen}
+            onOpenRuntimeDetails={() => openSection("runtime-details", true)}
+            onOpenIssues={() => openSection("dashboard-issues")}
+          />
+        </div>
 
         {attentionCount > 0 && (
-          <div id="dashboard-issues">
+          <div id="dashboard-issues" className="dashboard-tier-action">
             <IssuesSection
               issues={issues}
               attentionCount={attentionCount}
@@ -281,6 +277,9 @@ export function DashboardPage() {
             />
           </div>
         )}
+
+        {/* 引导收在行动之后：它是一次性提示，不该抢在「要处理的事」前面。 */}
+        <OnboardingContinuation />
 
         <RuntimeDetails open={runtimeDetailsOpen} onOpenChange={setRuntimeDetailsOpen}>
           <Flex vertical gap={24}>
