@@ -59,7 +59,12 @@ const healthUrls = (process.env["BUTLER_UPDATER_HEALTH_URLS"]
  * 访问口令：updater 会执行 git checkout、重建镜像、重启服务，是这个项目里破坏性最强的组件。
  * 没有口令时必须拒绝一切请求，否则容器网络内任何人都能触发它。
  */
-const accessToken = (process.env["BUTLER_ACCESS_TOKEN"] ?? "").trim();
+// updater 等于主机控制权（git checkout + 重建重启，可选 docker.sock）：
+// 优先使用独立口令 BUTLER_UPDATER_ACCESS_TOKEN，实现与面板口令的分层与轮换隔离；
+// 未设置时回退共享的 BUTLER_ACCESS_TOKEN（兼容既有部署，迁移后建议拆分）。
+const accessToken = (
+  process.env["BUTLER_UPDATER_ACCESS_TOKEN"] ?? process.env["BUTLER_ACCESS_TOKEN"] ?? ""
+).trim();
 
 function extractToken(request: IncomingMessage, url: URL): string {
   const auth = request.headers["authorization"];
@@ -405,6 +410,8 @@ function send(response: ServerResponse, statusCode: number, body: unknown): void
 const server = createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", "http://127.0.0.1");
   const path = url.pathname;
+  // 进程活性语义（liveness）：updater 无常驻状态可探测（任务状态落盘文件按需读取），
+  // 能响应即代表进程存活。这不等于「git/docker 后端可用」——后者由任务执行时的 fail-closed 校验兜底。
   if (request.method === "GET" && path === "/healthz") return send(response, 200, { ok: true });
 
   // 除健康检查外的一切接口都要求口令；未配置口令时一律拒绝，不做"无口令也能用"的兜底。

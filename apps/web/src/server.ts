@@ -25,6 +25,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import {
   CONTROL_API_SCHEMA_VERSION,
@@ -39,7 +40,7 @@ import {
 import { ensureButlerHome, resolveButlerHome, SqliteStore, type StoredEvent } from "@butler/core";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
-import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
+import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply } from "fastify";
 import { recentEventsAscending, selectNewEvents } from "./events-pump.js";
 
 export const WEB_VERSION = `web@0.1.0-beta.260911.13+${CONTRACT_VERSION}`;
@@ -170,19 +171,16 @@ function hostNameOf(value: string | undefined): string {
 }
 
 /**
- * 首次使用便利通道：从本机浏览器打开 127.0.0.1/localhost 时无需查找口令。
- * 局域网请求仍必须携带口令；Origin 存在时还要求它也是本机来源，
- * 没有 Origin 时要求浏览器 Fetch Metadata 标记为同源，避免普通请求伪造本机 Host。
+ * 首次使用便利通道：从本机发起的连接（TCP 对端为 loopback）无需查找口令。
+ * 信任源是连接层对端地址而非 Host / Sec-Fetch 等客户端可控头——后者可被
+ * 局域网攻击者伪造（审计 F-03：`Host: 127.0.0.1` + `Sec-Fetch-Site: same-origin`
+ * 即可绕过口令）。跨设备访问（portproxy/反代）的对端不是 loopback，仍须凭口令。
  */
-function isLocalBrowserRequest(request: {
-  headers: Record<string, unknown>;
-}): boolean {
-  const host = typeof request.headers.host === "string" ? hostNameOf(request.headers.host) : "";
-  if (!isLoopback(host)) return false;
-  const origin = request.headers.origin;
-  if (typeof origin === "string" && origin.trim() !== "") return isLoopbackOrigin(origin);
-  const fetchSite = request.headers["sec-fetch-site"];
-  return fetchSite === "same-origin" || fetchSite === "none";
+function isLoopbackConnection(socket: { remoteAddress?: string } | undefined): boolean {
+  const raw = socket?.remoteAddress ?? "";
+  // IPv4-mapped IPv6（::ffff:127.0.0.1）归一化为 IPv4 loopback。
+  const normalized = raw.replace(/^::ffff:/i, "").toLowerCase();
+  return normalized === "127.0.0.1" || normalized === "::1";
 }
 
 /** Origin 与当前请求 Host 相同即为同源请求，允许受口令保护的局域网面板正常写入。 */
@@ -231,6 +229,48 @@ function extractRequestToken(request: { headers: Record<string, unknown>; url: s
   }
   return "";
 }
+
+/** /ws 握手专用一次性短时凭据的 query 参数名与有效期。 */
+const WS_TICKET_TTL_MS = 60_000;
+
+/** 从 URL 提取 /ws 握手 ticket（?ticket=）。 */
+function extractRequestTicket(url: string | undefined): string {
+  const raw = url ?? "/";
+  const q = raw.indexOf("?");
+  if (q === -1) return "";
+  return new URLSearchParams(raw.slice(q + 1)).get("ticket")?.trim() ?? "";
+}
+
+/** 常量时间口令比较（对齐 gateway/updater，避免短路比较泄露前缀/长度信息）。 */
+function tokensMatch(presented: string, expected: string): boolean {
+  if (expected === "") return false;
+  const a = Buffer.from(presented, "utf8");
+  const b = Buffer.from(expected, "utf8");
+  if (a.length !== b.length) {
+    // 长度不同时也执行一次等价开销的比较，抹平错误路径的时序差异。
+    timingSafeEqual(b, b);
+    return false;
+  }
+  return timingSafeEqual(a, b);
+}
+
+/**
+ * 安全响应头（纵深防御）：
+ * - CSP 锁死资源来源：脚本/字体/图片仅本源（index.html 的主题引导已外置为本源
+ *   theme-boot.js，无需 'unsafe-inline'）；style 允许 inline（antd 运行时注入样式）；
+ *   connect 允许本源与 ws/wss（事件流）；
+ * - frame-ancestors 'none' + X-Frame-Options 防点击劫持（面板含急停/重启按钮）；
+ * - nosniff / Referrer-Policy 收窄浏览器默认行为。
+ */
+const SECURITY_HEADERS: Readonly<Record<string, string>> = {
+  "content-security-policy":
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+    "img-src 'self' data:; font-src 'self'; connect-src 'self' ws: wss:; " +
+    "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+  "x-frame-options": "DENY",
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "no-referrer",
+};
 
 /** /api/instances 返回的实例视图（capability 为解析后的摘要，null 表示尚无扫描报告）。 */
 export interface InstanceApiView {
@@ -1791,6 +1831,41 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   // /ws 轮询定时器登记：连接断开或服务关闭时统一清理。
   const wsTimers = new Set<ReturnType<typeof setInterval>>();
 
+  // WS 握手一次性 ticket：前端先 POST /api/ws-ticket 换短时凭据，再以 /ws?ticket=
+  // 握手，避免真实访问口令出现在 URL（会进浏览器历史/代理/访问日志）。
+  // 60 秒有效、一次性；未配置口令时 ticket 链路同样放行（便利通道语义不变）。
+  const wsTickets = new Map<string, number>();
+  const issueWsTicket = (): { ticket: string; expiresInSeconds: number } => {
+    const now = Date.now();
+    for (const [ticket, expiry] of wsTickets) if (expiry <= now) wsTickets.delete(ticket);
+    const ticket = randomUUID();
+    wsTickets.set(ticket, now + WS_TICKET_TTL_MS);
+    return { ticket, expiresInSeconds: WS_TICKET_TTL_MS / 1000 };
+  };
+  const consumeWsTicket = (candidate: string): boolean => {
+    if (candidate === "") return false;
+    const expiry = wsTickets.get(candidate);
+    if (expiry === undefined || expiry <= Date.now()) return false;
+    wsTickets.delete(candidate); // 一次性：用后即焚
+    return true;
+  };
+
+  // 安全响应头：对静态外壳与 API 一视同仁（onRequest 钩子对子作用域插件同样生效）。
+  app.addHook("onRequest", async (_request, reply) => {
+    for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
+      reply.header(name, value);
+    }
+  });
+
+  // 兜底防线（审计 F-14）：正常构建的 ui/dist 不含 sourcemap（tsc 输出已隔离在
+  // build-tsc/，镜像构建另有断言）；即便未来构建回归，也不把 .map 服务出去。
+  app.addHook("onRequest", async (request, reply) => {
+    if (pathOf(request.raw.url).endsWith(".map")) {
+      reply.code(404);
+      return reply.send({ error: "not-found" });
+    }
+  });
+
   /**
    * 访问口令校验：面板可执行重启实例、改配置、读写记忆等破坏性操作，
    * 一旦监听非回环地址就必须凭口令进入。健康检查放行，供容器 healthcheck 使用；
@@ -1803,15 +1878,33 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     if (AUTH_EXEMPT_PATHS.has(route)) return;
     if (!route.startsWith("/api/") && route !== "/ws") return;
 
-    if (isLocalBrowserRequest(request as unknown as { headers: Record<string, unknown> })) return;
+    if (isLoopbackConnection(request.socket)) return;
 
     const presented = extractRequestToken(
       request as unknown as { headers: Record<string, unknown>; url: string },
     );
-    if (presented === accessToken) return;
+    if (tokensMatch(presented, accessToken)) return;
+
+    // WS 握手一次性凭据：真实口令的替代物（POST /api/ws-ticket 签发）。
+    if (consumeWsTicket(extractRequestTicket(request.raw.url))) return;
 
     reply.code(401);
     return reply.send({ error: "unauthorized", reason: "需要访问口令" });
+  });
+
+  // 统一错误处理：Fastify 默认 500 不留日志（logger:false）；这里记 stderr。
+  // 4xx 保留原错误信息，5xx 返回脱敏的通用错误体（不向客户端泄露内部细节）。
+  app.setErrorHandler<FastifyError>((error, request, reply) => {
+    const route = pathOf(request.raw.url);
+    const status = typeof error.statusCode === "number" ? error.statusCode : 500;
+    if (status >= 500) {
+      process.stderr.write(
+        `[web] request-error method=${request.method} url=${route}: ${error.message}\n${error.stack ?? ""}\n`,
+      );
+      void reply.code(500).send({ error: "internal-error" });
+      return;
+    }
+    void reply.code(status).send({ error: error.message });
   });
 
   /**
@@ -1895,6 +1988,12 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
 
   app.get("/api/status", async () => serviceStatus());
 
+  /**
+   * WS 握手凭据签发：鉴权与 /api/* 相同（口令或本机便利通道）。签发的 ticket
+   * 只能用于 /ws?ticket=，60 秒有效、一次性——真实口令从此不出现在 URL 中。
+   */
+  app.post("/api/ws-ticket", async () => issueWsTicket());
+
   app.get("/api/instances", async () => {
     if (store === null) return { instances: [], degraded: ["db:unreachable"] };
     return { instances: toInstanceViews(store) };
@@ -1949,9 +2048,14 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     }
   };
 
-  /** gateway 访问口令头：配置了 BUTLER_ACCESS_TOKEN 时网关侧校验（内网不等于可信）。 */
-  const gatewayAuthHeaders = (): Record<string, string> =>
-    accessToken === "" ? {} : { "x-butler-token": accessToken };
+  /** gateway 访问口令头：配置了 BUTLER_ACCESS_TOKEN 时网关侧校验（内网不等于可信）。
+   *  另附内部操作口令 x-butler-internal-token（BUTLER_INTERNAL_TOKEN，审计 F-06）：
+   *  未配置访问口令的部署里，gateway 的消息控制写路径靠它保护。 */
+  const internalToken = (process.env["BUTLER_INTERNAL_TOKEN"] ?? "").trim();
+  const gatewayAuthHeaders = (): Record<string, string> => ({
+    ...(accessToken === "" ? {} : { "x-butler-token": accessToken }),
+    ...(internalToken === "" ? {} : { "x-butler-internal-token": internalToken }),
+  });
 
   /** Read-only gateway fetch with transport failures collapsed to null for partitioned degradation. */
   const fetchGateway = async (gatewayPath: string): Promise<Response | null> => {

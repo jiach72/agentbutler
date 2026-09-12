@@ -4,6 +4,10 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   plugins: [react()],
   build: {
+    // 显式钉死：sourcemap 不随上游默认漂移（生产产物泄露源码的前科高危项），
+    // 目标 es2022 对齐 Node≥22/现代浏览器的基线。
+    sourcemap: false,
+    target: "es2022",
     rollupOptions: {
       output: {
         // antd 的几十个 rc-* 内部依赖默认全部落在入口 chunk（2MB+）；按包名

@@ -54,12 +54,12 @@ describe("butler-web 访问口令", () => {
     expect(res.statusCode).not.toBe(401);
   });
 
-  it("配置口令后，没有口令的接口请求 → 401", async () => {
+  it("配置口令后，没有口令的接口请求 → 401（非 loopback 连接）", async () => {
     const app = build(tmp, { accessToken: "secret-token" });
     const res = await app.inject({
       method: "GET",
       url: "/api/instances",
-      headers: { host: "192.168.1.88:7531" },
+      remoteAddress: "192.168.1.88",
     });
     expect(res.statusCode).toBe(401);
     expect(res.json()).toMatchObject({ error: "unauthorized" });
@@ -70,39 +70,45 @@ describe("butler-web 访问口令", () => {
     const res = await app.inject({
       method: "GET",
       url: "/api/instances",
-      headers: { host: "127.0.0.1:7531", origin: "http://127.0.0.1:7531" },
+      remoteAddress: "127.0.0.1",
     });
     expect(res.statusCode).toBe(200);
   });
 
-  it("没有本机来源标记时，不因伪造 localhost Host 而绕过口令", async () => {
+  // 审计 F-03 回归：局域网连接伪造 loopback Host 与 Sec-Fetch 头不再能绕过口令——
+  // 便利通道只信任连接层对端地址。
+  it("局域网连接伪造 Host: 127.0.0.1 + Sec-Fetch-Site 仍被拒绝", async () => {
     const app = build(tmp, { accessToken: "secret-token", publishHost: "0.0.0.0" });
     const res = await app.inject({
       method: "GET",
       url: "/api/instances",
-      headers: { host: "127.0.0.1:7531" },
+      remoteAddress: "192.168.1.50",
+      headers: { host: "127.0.0.1:7531", "sec-fetch-site": "same-origin" },
     });
     expect(res.statusCode).toBe(401);
   });
 
-  it("浏览器同源 Fetch Metadata 足够时可免查口令", async () => {
+  it("局域网连接伪造 localhost Host + 同源 Fetch Metadata 仍被拒绝", async () => {
     const app = build(tmp, { accessToken: "secret-token", publishHost: "0.0.0.0" });
     const res = await app.inject({
       method: "GET",
       url: "/api/instances",
+      remoteAddress: "192.168.1.50",
       headers: { host: "localhost:7531", "sec-fetch-site": "same-origin" },
     });
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode).toBe(401);
   });
 
-  it("本机地址被跨站来源调用时仍不能绕过口令", async () => {
+  it("本机连接的跨站写请求被 CSRF 钩子拒绝（浏览器侧由 CORS 挡读）", async () => {
     const app = build(tmp, { accessToken: "secret-token", publishHost: "0.0.0.0" });
     const res = await app.inject({
-      method: "GET",
-      url: "/api/instances",
-      headers: { host: "127.0.0.1:7531", origin: "https://evil.example.com" },
+      method: "POST",
+      url: "/api/inspect/run",
+      remoteAddress: "127.0.0.1",
+      headers: { origin: "https://evil.example.com" },
     });
-    expect(res.statusCode).toBe(401);
+    // 不是口令 401（连接来自本机），而是来源校验 403。
+    expect(res.statusCode).toBe(403);
   });
 
   it("用 x-butler-token 头带上正确口令 → 放行", async () => {
@@ -110,6 +116,7 @@ describe("butler-web 访问口令", () => {
     const res = await app.inject({
       method: "GET",
       url: "/api/instances",
+      remoteAddress: "192.168.1.88",
       headers: { "x-butler-token": "secret-token" },
     });
     expect(res.statusCode).toBe(200);
@@ -120,6 +127,7 @@ describe("butler-web 访问口令", () => {
     const res = await app.inject({
       method: "GET",
       url: "/api/instances",
+      remoteAddress: "192.168.1.88",
       headers: { authorization: "Bearer secret-token" },
     });
     expect(res.statusCode).toBe(200);
@@ -130,7 +138,8 @@ describe("butler-web 访问口令", () => {
     const res = await app.inject({
       method: "GET",
       url: "/api/instances",
-      headers: { host: "192.168.1.88:7531", "x-butler-token": "wrong-token" },
+      remoteAddress: "192.168.1.88",
+      headers: { "x-butler-token": "wrong-token" },
     });
     expect(res.statusCode).toBe(401);
   });
@@ -152,6 +161,7 @@ describe("butler-web 访问口令", () => {
     const sameOrigin = await app.inject({
       method: "POST",
       url: "/api/inspect/run",
+      remoteAddress: "192.168.1.88",
       headers: {
         host: "192.168.1.88:7531",
         origin: "http://192.168.1.88:7531",
@@ -164,6 +174,7 @@ describe("butler-web 访问口令", () => {
     const crossSite = await app.inject({
       method: "POST",
       url: "/api/inspect/run",
+      remoteAddress: "192.168.1.88",
       headers: {
         host: "192.168.1.88:7531",
         origin: "https://evil.example.com",
@@ -175,6 +186,7 @@ describe("butler-web 访问口令", () => {
     const websocketCrossSite = await app.inject({
       method: "GET",
       url: "/ws?token=secret-token",
+      remoteAddress: "192.168.1.88",
       headers: { host: "192.168.1.88:7531", origin: "https://evil.example.com" },
     });
     expect(websocketCrossSite.statusCode).toBe(403);
@@ -190,6 +202,7 @@ describe("butler-web 访问口令", () => {
     const withToken = await tokenApp.inject({
       method: "GET",
       url: "/api/security-baseline",
+      remoteAddress: "192.168.1.88",
       headers: { "x-butler-token": "secret-token" },
     });
     expect(withToken.statusCode).toBe(200);

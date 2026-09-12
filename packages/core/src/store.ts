@@ -1084,6 +1084,8 @@ export class SqliteStore {
     fs.mkdirSync(path.dirname(dbFile), { recursive: true });
     this.db = new DatabaseSync(dbFile);
     this.db.exec("PRAGMA journal_mode=WAL;");
+    // 跨进程/跨容器共享同一 db 文件（web 直读、watch 写），并发写锁冲突时等待而非立即抛 SQLITE_BUSY。
+    this.db.exec("PRAGMA busy_timeout=5000;");
     this.db.exec(DDL);
     // 老库兼容：fingerprints.instance 列（错误指纹归属实例/影响组件）。
     const fpColumns = this.prepare("PRAGMA table_info(fingerprints)").all() as Array<{
@@ -1112,6 +1114,17 @@ export class SqliteStore {
     this.closed = true;
     this.statements.clear();
     this.db.close();
+  }
+
+  /** 健康检查真实探针：确认连接未关闭且能执行最简查询（而非固定返回 ok）。 */
+  ping(): boolean {
+    if (this.closed) return false;
+    try {
+      this.prepare("SELECT 1 AS ok").get();
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private prepare(sql: string): StatementSync {
@@ -2099,7 +2112,8 @@ export class SqliteStore {
       WHERE (? IS NULL OR instance_id = ?) AND (? IS NULL OR occurred_at >= ?)
       ORDER BY occurred_at ASC LIMIT ?`).all(
       filter.instanceId ?? null, filter.instanceId ?? null, filter.since ?? null, filter.since ?? null,
-      filter.limit ?? 50_000,
+      // 20k 已远超单用户 30 天回看窗口的量级；逐行 JSON.parse 同步跑在事件循环上，上限要收敛。
+      filter.limit ?? 20_000,
     ) as Record<string, unknown>[];
     return rows.map((row) => ({
       observationId: String(row["observation_id"]), instanceId: String(row["instance_id"]),
@@ -2183,6 +2197,26 @@ export class SqliteStore {
       filter.limit ?? 100,
     ) as Record<string, unknown>[];
     return rows.map((row) => this.mapEvolutionActionItem(row));
+  }
+
+  /**
+   * evolution 遥测保留期清理：observations 是原始观察（量最大），按 180 天删除；
+   * daily_metrics 是按日聚合快照，365 天足够回看。action_items 是待办清单、
+   * samples 是策展数据集（content_hash 去重、量有界），两者不清理。
+   */
+  pruneEvolutionHistory(
+    observationCutoff: string,
+    dailyMetricCutoff: string,
+  ): { observations: number; dailyMetrics: number } {
+    const observations = Number(
+      this.prepare("DELETE FROM evolution_observations WHERE occurred_at < ?")
+        .run(observationCutoff).changes,
+    );
+    const dailyMetrics = Number(
+      this.prepare("DELETE FROM evolution_daily_metrics WHERE date < ?").run(dailyMetricCutoff)
+        .changes,
+    );
+    return { observations, dailyMetrics };
   }
 
   updateEvolutionActionItemStatus(actionId: string, status: EvolutionActionStatus, resolvedAt?: string | null): EvolutionActionItemRow | undefined {

@@ -476,7 +476,9 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
         subtitle: "GitHub 公开项目",
         description: item.description ?? "公开技能项目，具体用途以仓库说明为准。",
         category: categorize({ name: item.name, description: item.description }),
-        avatarUrl: `https://avatars.githubusercontent.com/${encodeURIComponent(ownerOf(item.name))}?s=80`,
+        // 审计 F-15：不再外联 avatars.githubusercontent.com（离线硬需求 + 不向
+        // GitHub 泄露浏览行为），头像一律走首字母占位。
+        avatarUrl: null as string | null,
         tags: ["GitHub"] as string[],
         kind: "trend" as const,
         trend: item,
@@ -743,9 +745,7 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
       footerLeft={
         card.kind === "trend" ? (
           <Flex align="center" gap={6}>
-            <Avatar size={18} src={`https://avatars.githubusercontent.com/${encodeURIComponent(ownerOf(card.trend.name))}?s=40`}>
-              {ownerOf(card.trend.name).charAt(0).toUpperCase()}
-            </Avatar>
+            <Avatar size={18}>{ownerOf(card.trend.name).charAt(0).toUpperCase()}</Avatar>
             <Text type="secondary" className="wb-card-meta">
               {`⭐ ${card.trend.stars.toLocaleString()}`}
             </Text>

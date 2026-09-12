@@ -12,6 +12,10 @@ import { defaultTimerDriver, type TimerDriver } from "./scheduler.js";
 export const EVENT_RETENTION_DAYS = 45;
 /** audit 保留天数：审计用于事后追溯，保留更久。 */
 export const AUDIT_RETENTION_DAYS = 90;
+/** evolution observations 保留天数：原始观察遥测（量最大），聚合快照已留存。 */
+export const EVOLUTION_OBSERVATION_RETENTION_DAYS = 180;
+/** evolution daily metrics 保留天数：按日聚合快照，一年回看足够。 */
+export const EVOLUTION_DAILY_METRIC_RETENTION_DAYS = 365;
 /** 清理执行周期（6 小时）。 */
 export const RETENTION_PRUNE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
@@ -30,6 +34,11 @@ export interface RetentionPrunerOptions {
   pruneCanaryRuns?: (cutoff: string) => number;
   /** 进度声明核实记录（Trust Layer M3.3）：保留期由进度检测服务配置决定。 */
   pruneProgressClaims?: (cutoff: string) => number;
+  /** evolution 遥测（观察/日聚合）：core.store.pruneEvolutionHistory 的直通接线。 */
+  pruneEvolutionHistory?: (
+    observationCutoff: string,
+    dailyMetricCutoff: string,
+  ) => { observations: number; dailyMetrics: number };
   /** 可注入时钟（epoch 毫秒，与 WatchAppOptions.now 一致）。 */
   now?: () => number;
   driver?: TimerDriver;
@@ -123,6 +132,14 @@ export function createRetentionPruner(options: RetentionPrunerOptions): Retentio
     }
     try {
       progressClaims = options.pruneProgressClaims?.(cutoffIso(AUDIT_RETENTION_DAYS)) ?? 0;
+    } catch (error) {
+      onError(error);
+    }
+    try {
+      options.pruneEvolutionHistory?.(
+        cutoffIso(EVOLUTION_OBSERVATION_RETENTION_DAYS),
+        cutoffIso(EVOLUTION_DAILY_METRIC_RETENTION_DAYS),
+      );
     } catch (error) {
       onError(error);
     }

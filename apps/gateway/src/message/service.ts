@@ -2,7 +2,12 @@ import type { BridgeHealth, InstanceRef, MessagingAdapter, PolicySnapshot } from
 
 import { createPolicySnapshot } from "./config.js";
 import { MessageReconciler } from "./reconciler.js";
-import { MESSAGE_HISTORY_RETENTION_MS, MessagePolicyStore } from "./store.js";
+import {
+  MESSAGE_HISTORY_RETENTION_MS,
+  MESSAGE_OUTCOME_HISTORY_RETENTION_MS,
+  MESSAGE_PROJECTION_RETENTION_MS,
+  MessagePolicyStore,
+} from "./store.js";
 import type { RelayControlView } from "./store.js";
 import type { MessagePolicyConfig } from "./types.js";
 
@@ -292,6 +297,11 @@ export class MessageGatewayService {
         this.lastPruneAtMs = nowMs;
         this.options.store.pruneMessageHistory(
           new Date(nowMs - this.historyRetentionMs).toISOString(),
+        );
+        // 其余投影表（终态结果/任务流/入站）此前只增不删，随同一节流周期清理。
+        this.options.store.pruneProjectionHistory(
+          new Date(nowMs - MESSAGE_OUTCOME_HISTORY_RETENTION_MS).toISOString(),
+          new Date(nowMs - MESSAGE_PROJECTION_RETENTION_MS).toISOString(),
         );
       }
       this.bridgeConnected = true;

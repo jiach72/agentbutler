@@ -66,6 +66,9 @@ interface FileGroup {
 }
 
 const draftKey = (instanceId: string, fileId: string) => `agent-butler:markdown-draft:${instanceId}:${fileId}`;
+/** 草稿本地缓存的保留期与大小上限（审计 F-20：XSS 即读面最小化）。 */
+const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const DRAFT_MAX_CHARS = 200_000;
 
 export function CoreFilesPage() {
   const { message } = App.useApp();
@@ -114,8 +117,16 @@ export function CoreFilesPage() {
       const raw = localStorage.getItem(draftKey(result.data.file.instanceId, fileId));
       if (raw !== null) {
         try {
-          const parsed = JSON.parse(raw) as { content?: unknown; baseSha256?: unknown };
-          if (typeof parsed.content === "string" && parsed.baseSha256 === result.data.file.sha256) saved = parsed.content;
+          const parsed = JSON.parse(raw) as { content?: unknown; baseSha256?: unknown; savedAt?: unknown };
+          // 草稿落 localStorage 本身是 XSS 即读的敏感面（审计 F-20）：加 TTL 与大小上限，
+          // 异常退出残留的草稿最多保留 7 天，且只缓存有界大小的正文。
+          const expired =
+            typeof parsed.savedAt !== "number" || Date.now() - parsed.savedAt > DRAFT_TTL_MS;
+          if (expired) {
+            localStorage.removeItem(draftKey(result.data.file.instanceId, fileId));
+          } else if (typeof parsed.content === "string" && parsed.baseSha256 === result.data.file.sha256) {
+            saved = parsed.content;
+          }
         } catch {
           // 兼容旧版本只保存纯文本草稿，但不让它绕过新的哈希基线。
         }
@@ -128,7 +139,9 @@ export function CoreFilesPage() {
   useEffect(() => { if (selectedId) void loadDetail(selectedId); }, [selectedId, detailNonce, loadDetail]);
   useEffect(() => {
     if (!detail || draft === detail.content) return;
-    try { localStorage.setItem(draftKey(detail.file.instanceId, detail.file.fileId), JSON.stringify({ content: draft, baseSha256: detail.file.sha256 })); } catch { /* no-op */ }
+    // 大小上限：超长草稿不落本地存储（异常退出最多丢失一份可重新编辑的草稿）。
+    if (draft.length > DRAFT_MAX_CHARS) return;
+    try { localStorage.setItem(draftKey(detail.file.instanceId, detail.file.fileId), JSON.stringify({ content: draft, baseSha256: detail.file.sha256, savedAt: Date.now() })); } catch { /* no-op */ }
   }, [detail, draft]);
 
   const selectedFile = detail?.file;

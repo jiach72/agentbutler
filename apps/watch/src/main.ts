@@ -4,6 +4,21 @@
 import { pathToFileURL } from "node:url";
 import { createWatchApp, type WatchApp } from "./watch.js";
 
+/**
+ * 进程级兜底：未捕获异常/拒绝在 compose restart 兜底重启前必须留痕，
+ * 否则现场只剩「容器重启了」无从排查。记日志后 exit(1) 维持 crash-only 语义。
+ */
+function installCrashGuards(): void {
+  process.on("uncaughtException", (error) => {
+    console.error("[butler-watch] uncaughtException:", error);
+    process.exit(1);
+  });
+  process.on("unhandledRejection", (reason) => {
+    console.error("[butler-watch] unhandledRejection:", reason);
+    process.exit(1);
+  });
+}
+
 export async function run(): Promise<WatchApp> {
   const app = await createWatchApp();
   const { config } = app;
@@ -35,6 +50,7 @@ export async function run(): Promise<WatchApp> {
 const invokedDirectly =
   process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (invokedDirectly) {
+  installCrashGuards();
   void run().catch((error) => {
     console.error("[butler-watch] 启动失败:", error);
     process.exit(1);

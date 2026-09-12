@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
@@ -64,8 +65,11 @@ CREATE TABLE IF NOT EXISTS task_events_projection (
 );
 CREATE TABLE IF NOT EXISTS inbound_projection (
   inbound_message_id TEXT PRIMARY KEY,
-  payload_json TEXT NOT NULL
+  payload_json TEXT NOT NULL,
+  received_at TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_inbound_projection_received_at
+  ON inbound_projection(received_at);
 CREATE TABLE IF NOT EXISTS message_policy (
   singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
   version TEXT NOT NULL,
@@ -139,9 +143,12 @@ const MESSAGE_PRIORITIES = new Set(["urgent", "normal", "low"]);
 const DND_SCOPES = new Set(["global", "channel", "session"]);
 export const MESSAGE_HISTORY_RETENTION_DAYS = 7;
 export const MESSAGE_OUTCOME_HISTORY_RETENTION_DAYS = 365;
+/** 任务投影/事件流与入站投影的保留期：与 7 天投影保留期同族的本地视角清理。 */
+export const MESSAGE_PROJECTION_RETENTION_DAYS = 30;
 export const MESSAGE_HISTORY_RETENTION_MS = MESSAGE_HISTORY_RETENTION_DAYS * 24 * 60 * 60 * 1_000;
 export const MESSAGE_OUTCOME_HISTORY_RETENTION_MS =
   MESSAGE_OUTCOME_HISTORY_RETENTION_DAYS * 24 * 60 * 60 * 1_000;
+export const MESSAGE_PROJECTION_RETENTION_MS = MESSAGE_PROJECTION_RETENTION_DAYS * 24 * 60 * 60 * 1_000;
 
 export interface ProjectedMessageView extends OutboxMessageView {
   decisionId: string | null;
@@ -235,6 +242,7 @@ export class MessagePolicyStore {
     this.db.exec("PRAGMA busy_timeout=5000;");
     this.db.exec(DDL);
     this.migrateOutcomeHistoryChannel();
+    this.migrateInboundReceivedAt();
     this.backfillOutcomeHistory();
   }
 
@@ -1047,6 +1055,58 @@ export class MessagePolicyStore {
     });
   }
 
+  /**
+   * 清理 message_projection 之外的其余投影表（此前只增不删）：
+   * - message_outcome_history：终态投递结果按 365 天保留（channelMetrics 的聚合源）；
+   * - task_events_projection + task_projection：run 终态（done/failed）后按 30 天连带清理；
+   * - inbound_projection：按 30 天保留，无时间戳的遗留行视作最旧一并删除
+   *   （该表当前无读取方，仅存入站信封元数据副本，尽早清理符合隐私最小化）；
+   * - message_projection 滞留行（审计 F-02 缓解）：出站信封 content 是策略管线
+   *   （digest 合并/decision 生成）的工作数据，无法像入站侧那样直接剥离，但
+   *   非 30 天无活动的非终态行（且无待决审批）没有继续保留的价值，直接删除。
+   * Bridge outbox 仍是权威数据源，本地清理不影响 Bridge 侧行为。
+   */
+  pruneProjectionHistory(
+    outcomeCutoff = new Date(Date.now() - MESSAGE_OUTCOME_HISTORY_RETENTION_MS).toISOString(),
+    projectionCutoff = new Date(Date.now() - MESSAGE_PROJECTION_RETENTION_MS).toISOString(),
+  ): { outcomes: number; taskEvents: number; taskRuns: number; inbound: number; stale: number } {
+    requireIsoTimestamp(outcomeCutoff, "outcomeCutoff");
+    requireIsoTimestamp(projectionCutoff, "projectionCutoff");
+    return this.withImmediateTransaction(() => {
+      const outcomes = Number(
+        this.prepare("DELETE FROM message_outcome_history WHERE occurred_at < ?")
+          .run(outcomeCutoff).changes,
+      );
+      const staleRuns = this.prepare(
+          `SELECT run_id FROM task_projection WHERE updated_at < ? AND state IN ('done', 'failed')`,
+        )
+        .all(projectionCutoff) as Record<string, unknown>[];
+      let taskEvents = 0;
+      for (const row of staleRuns) {
+        const runId = String(row["run_id"]);
+        taskEvents += Number(
+          this.prepare("DELETE FROM task_events_projection WHERE run_id = ?").run(runId).changes,
+        );
+        this.prepare("DELETE FROM task_projection WHERE run_id = ?").run(runId);
+      }
+      const inbound = Number(
+        this.prepare("DELETE FROM inbound_projection WHERE received_at IS NULL OR received_at < ?")
+          .run(projectionCutoff).changes,
+      );
+      // 非 30 天无活动的非终态行（且无待决审批）没有继续保留的价值，直接删除。
+      const stale = Number(
+        this.prepare(
+            `DELETE FROM message_projection
+             WHERE updated_at < ?
+               AND pending_decision_json IS NULL
+               AND state NOT IN ('delivered', 'delivery_unknown', 'absorbed', 'policy_error', 'dead_letter', 'cancelled')`,
+          )
+          .run(projectionCutoff).changes,
+      );
+      return { outcomes, taskEvents, taskRuns: staleRuns.length, inbound, stale };
+    });
+  }
+
   private resolveBatchInstanceId(
     batch: OutboxChangeBatch,
     explicitInstanceId?: string,
@@ -1146,6 +1206,23 @@ export class MessagePolicyStore {
   }
 
   /**
+   * 旧库补列：inbound_projection.received_at。
+   * 入站投影此前无时间戳、只增不删；补列后保留期清理才能工作。
+   * 存量行 received_at 为 NULL，清理时视作最旧一并删除（入站投影当前无读取方，
+   * 删除仅影响「重复信封去重」这一隐含用途，ON CONFLICT 语义不变）。
+   */
+  private migrateInboundReceivedAt(): void {
+    const columns = this.prepare("PRAGMA table_info(inbound_projection)").all() as Array<
+      Record<string, unknown>
+    >;
+    if (columns.some((column) => String(column["name"]) === "received_at")) return;
+    this.db.exec("ALTER TABLE inbound_projection ADD COLUMN received_at TEXT");
+    this.db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_inbound_projection_received_at ON inbound_projection(received_at)",
+    );
+  }
+
+  /**
    * Persists only terminal delivery outcomes. Replaying the same terminal state
    * keeps its original occurrence time; a category change replaces the row.
    */
@@ -1223,12 +1300,25 @@ export class MessagePolicyStore {
     }
   }
 
+  /**
+   * 入站投影（隐私红线 F-01）：剥离 content 只留 contentSha256，并记录 received_at
+   * 供保留期清理。该表当前无读取方，仅作元数据轨迹；对话正文绝不落本地 SQLite。
+   */
   private upsertInbound(inbound: InboundEnvelope): void {
+    const receivedAt =
+      typeof inbound.receivedAt === "string" && inbound.receivedAt !== ""
+        ? inbound.receivedAt
+        : new Date().toISOString();
+    const { content, ...metadata } = inbound;
+    const payload = JSON.stringify({
+      ...metadata,
+      contentSha256: createHash("sha256").update(content, "utf8").digest("hex"),
+    });
     this.prepare(
-        `INSERT INTO inbound_projection (inbound_message_id, payload_json) VALUES (?, ?)
+        `INSERT INTO inbound_projection (inbound_message_id, payload_json, received_at) VALUES (?, ?, ?)
          ON CONFLICT(inbound_message_id) DO UPDATE SET payload_json = excluded.payload_json`,
       )
-      .run(inbound.inboundMessageId, JSON.stringify(inbound));
+      .run(inbound.inboundMessageId, payload, receivedAt);
   }
 
   private rebuildTaskProjection(runId: string, updatedAt: string): void {

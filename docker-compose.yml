@@ -49,6 +49,9 @@ services:
       # 网关能读全部消息正文并改策略；配置口令后所有业务路由要求鉴权（/healthz 与
       # /internal/hermes/* 豁免，后者单独限速）。Web 代理会自动携带同一口令。
       BUTLER_ACCESS_TOKEN: ${BUTLER_ACCESS_TOKEN:-}
+      # 内部操作口令（审计 F-06）：未配置访问口令时保护 /api/messages/* 写路径；
+      # Web 代理自动附加 x-butler-internal-token。留空 = 该防线关闭（纯本机部署）。
+      BUTLER_INTERNAL_TOKEN: ${BUTLER_INTERNAL_TOKEN:-}
     expose:
       - "7532"
     extra_hosts:
@@ -198,6 +201,9 @@ services:
       BUTLER_REPOSITORY_URL: ${BUTLER_REPOSITORY_URL:-https://github.com/jiach72/agentbutler}
       BUTLER_UPDATER_SERVICES: butler-gateway butler-watch butler-web
       # 必填。updater 会执行 git checkout、重建镜像、重启服务，没有口令时它拒绝一切请求。
+      # 审计 F-09：优先使用独立口令 BUTLER_UPDATER_ACCESS_TOKEN（可单独轮换），
+      # 未设置时回退共享口令 BUTLER_ACCESS_TOKEN。
+      BUTLER_UPDATER_ACCESS_TOKEN: ${BUTLER_UPDATER_ACCESS_TOKEN:-}
       BUTLER_ACCESS_TOKEN: ${BUTLER_ACCESS_TOKEN:-}
     expose:
       - "7540"
@@ -216,6 +222,15 @@ services:
   # 启用：docker compose --profile bridge-forward up -d
   # 链路：gateway → host.docker.internal:8755 →（host 网络）127.0.0.1:8754
   # 8755 是未鉴权的 TCP 转发入口，应由宿主防火墙限制为本机/Docker 网段。
+  #
+  # 收紧暴露面评估（2026-09 审计 F-27）：不能直接 bind=127.0.0.1——消费方是
+  # compose 网络里的容器，host.docker.internal 解析为 host-gateway IP
+  # （172.17.0.1 等），bind 到 loopback 会立刻打断 Bridge 链路。
+  # 可行做法是在 tcp-listen 上加 range= 限定来源网段；注意 socat 的多个
+  # range 选项是 AND 语义，无法表达「loopback ∪ 多个 docker 池」，只能选一个
+  # 主网段（如 range=172.16.0.0/12；compose 默认池 172.17-172.31，用户自定义
+  # 池可能落在 192.168.x，需先实测消费方源 IP）。在确认消费方源 IP 前保持
+  # 全接口监听 + 宿主防火墙兜底；WSL2 NAT 下这些端口对局域网不可达（除非另配 portproxy）。
   butler-bridge-forwarder:
     image: alpine/socat:latest
     network_mode: host

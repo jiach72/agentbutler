@@ -136,6 +136,51 @@ describe("MessagePolicyStore", () => {
     reopened.close();
   });
 
+  it("隐私红线：入站投影只落元数据，不保存消息正文", () => {
+    const store = new MessagePolicyStore(dbFile);
+    store.ingestBatch(BATCH);
+    store.close();
+
+    const raw = new DatabaseSync(dbFile);
+    const rows = raw
+      .prepare("SELECT inbound_message_id, payload_json, received_at FROM inbound_projection")
+      .all() as Array<Record<string, unknown>>;
+    expect(rows).toHaveLength(1);
+    const payload = JSON.parse(String(rows[0]!["payload_json"])) as Record<string, unknown>;
+    expect(payload["content"]).toBeUndefined();
+    expect(payload["contentSha256"]).toMatch(/^[0-9a-f]{64}$/);
+    // 元数据字段保留（channel/session/run 等动作元数据）。
+    expect(payload["channel"]).toBe("weixin");
+    expect(payload["sessionId"]).toBe("session-1");
+    expect(rows[0]!["received_at"]).toBe("2026-08-22T09:59:59.000Z");
+    raw.close();
+  });
+
+  it("保留期清理：删除长期无活动的非终态滞留行与过期入站投影", () => {
+    const store = new MessagePolicyStore(dbFile);
+    store.ingestBatch(BATCH); // captured 行 + inbound 投影
+    const staleCutoff = "2026-09-20T00:00:00.000Z"; // 晚于批次时间 → 全部命中
+    const result = store.pruneProjectionHistory(
+      "2026-09-20T00:00:00.000Z",
+      staleCutoff,
+    );
+    expect(result.stale).toBe(1);
+    expect(result.inbound).toBe(1);
+    expect(store.cursor("hermes-main")).toBe(BATCH.nextSequence); // cursor 不受清理影响
+    store.close();
+
+    const raw = new DatabaseSync(dbFile);
+    const remaining = raw.prepare("SELECT COUNT(*) AS n FROM message_projection").get() as {
+      n: number;
+    };
+    const inboundLeft = raw.prepare("SELECT COUNT(*) AS n FROM inbound_projection").get() as {
+      n: number;
+    };
+    expect(remaining.n).toBe(0);
+    expect(inboundLeft.n).toBe(0);
+    raw.close();
+  });
+
   it("accepts empty-text inbound records without blocking the ordered batch", () => {
     const store = new MessagePolicyStore(dbFile);
     const batch: OutboxChangeBatch = {

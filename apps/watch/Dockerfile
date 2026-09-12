@@ -50,12 +50,17 @@ WORKDIR /app
 # skills-manager CLI（中央技能库）：固定版本、构建参数可覆盖；ENV 供服务回报版本。
 # glibc 动态链接二进制，node:22-slim（Debian）直接可跑；git 供 CLI 的 git 安装源使用，
 # curl 仅下载期需要，装完即清除以保持镜像面最小。
+# 供应链：下载后必须通过 sha256 校验（fail-closed）——Release 被替换时构建直接失败。
+# 更新版本时同步更新 SKILLS_MANAGER_CLI_SHA256（来源：官方 Release 产物自行哈希后交叉核对）。
 ARG SKILLS_MANAGER_CLI_VERSION=v1.36.1
 ARG SKILLS_MANAGER_CLI_URL=https://github.com/xingkongliang/skills-manager/releases/download/${SKILLS_MANAGER_CLI_VERSION}/skills-manager-cli-Linux-x64
+# v1.36.1 skills-manager-cli-Linux-x64 (25099216 bytes)
+ARG SKILLS_MANAGER_CLI_SHA256=6c00468993aff8e8aafd56bbbbbe1f2ca5d7e61ff71b524f7c435d6c18e04bd8
 ENV SKILLS_MANAGER_CLI_VERSION=${SKILLS_MANAGER_CLI_VERSION}
 RUN apt-get update \
   && apt-get install -y --no-install-recommends git ca-certificates curl \
   && curl -fsSL "$SKILLS_MANAGER_CLI_URL" -o /usr/local/bin/skills-manager-cli \
+  && echo "${SKILLS_MANAGER_CLI_SHA256}  /usr/local/bin/skills-manager-cli" | sha256sum -c - \
   && chmod +x /usr/local/bin/skills-manager-cli \
   && apt-get purge -y curl \
   && apt-get autoremove -y \

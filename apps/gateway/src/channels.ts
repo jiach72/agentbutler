@@ -25,6 +25,22 @@ export interface AlertChannel {
   send(message: OutboundMessage): Promise<void>;
 }
 
+/**
+ * 上游错误响应体的安全摘录：截断到 200 字符并剥离控制字符。
+ * 该文本会被拼进 Error 并可能随告警正文转发到其他通道——上游内容不可信，
+ * 收窄长度与控制字符，避免二次注入与无界膨胀。
+ */
+function safeUpstreamExcerpt(text: string): string {
+  // 逐字符剥离控制字符（不用正则：控制字符字面类会触发 no-control-regex 规则）
+  const cleaned = Array.from(text, (ch) => {
+    const code = ch.charCodeAt(0);
+    return code < 0x20 || code === 0x7f ? " " : ch;
+  })
+    .join("")
+    .trim();
+  return cleaned.length > 200 ? `${cleaned.slice(0, 200)}…` : cleaned;
+}
+
 /** 面板通道：入队即可被 butler-web 渲染，发送本身是无副作用的隐含基线。 */
 export class NullChannel implements AlertChannel {
   readonly name = "panel";
@@ -120,7 +136,9 @@ export class TelegramChannel implements AlertChannel {
       signal: AbortSignal.timeout(this.timeoutMs),
     });
     if (!res.ok) {
-      throw new Error(`telegram answerCallbackQuery failed: HTTP ${res.status} ${await res.text()}`);
+      throw new Error(
+        `telegram answerCallbackQuery failed: HTTP ${res.status} ${safeUpstreamExcerpt(await res.text())}`,
+      );
     }
   }
 }
@@ -285,7 +303,9 @@ export class ServerChanChannel implements AlertChannel {
       signal: AbortSignal.timeout(this.timeoutMs),
     });
     if (!res.ok) {
-      throw new Error(`serverchan push failed: HTTP ${res.status} ${await res.text()}`);
+      throw new Error(
+        `serverchan push failed: HTTP ${res.status} ${safeUpstreamExcerpt(await res.text())}`,
+      );
     }
   }
 }

@@ -5,5 +5,10 @@
     "outDir": "dist"
   },
   "include": ["src"],
-  "references": [{ "path": "../../packages/contract" }, { "path": "../../packages/core" }]
+  "references": [
+    { "path": "../../packages/contract" },
+    { "path": "../../packages/core" },
+    { "path": "../../packages/adapters/hermes" },
+    { "path": "../../packages/adapters/openclaw" }
+  ]
 }

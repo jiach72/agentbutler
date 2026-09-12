@@ -46,6 +46,47 @@ describe("gateway 访问口令与 wake 限速", () => {
     }
   });
 
+  // 审计 F-06：未配置访问口令但配置了内部操作口令时，消息控制写路径强制鉴权。
+  it("内部操作口令：未配置访问口令时保护 /api/messages/* 写路径", async () => {
+    const app = createGatewayServer({
+      startLoop: false,
+      internalToken: "internal-secret",
+      messageService: {
+        wake: () => {},
+      } as unknown as MessageGatewayController,
+    });
+    try {
+      const denied = await app.inject({
+        method: "POST",
+        url: "/api/messages/reconnect",
+        payload: {},
+      });
+      expect(denied.statusCode).toBe(401);
+
+      const wrong = await app.inject({
+        method: "POST",
+        url: "/api/messages/reconnect",
+        payload: {},
+        headers: { "x-butler-internal-token": "wrong" },
+      });
+      expect(wrong.statusCode).toBe(401);
+
+      const ok = await app.inject({
+        method: "POST",
+        url: "/api/messages/reconnect",
+        payload: {},
+        headers: { "x-butler-internal-token": "internal-secret" },
+      });
+      expect(ok.statusCode).not.toBe(401);
+
+      // 非消息控制路径不受影响（保持原有内网语义）。
+      const other = await app.inject({ method: "GET", url: "/api/alerts" });
+      expect(other.statusCode).toBe(200);
+    } finally {
+      await app.close();
+    }
+  });
+
   it("/internal/hermes/* 不要求口令但按分钟窗口限速，超限 429", async () => {
     const wakeCalls: number[] = [];
     const app = createGatewayServer({

@@ -110,6 +110,21 @@ export function withHostHermesDefaults(env: NodeJS.ProcessEnv): NodeJS.ProcessEn
   };
 }
 
+/**
+ * 进程级兜底：未捕获异常/拒绝在 compose restart 兜底重启前必须留痕，
+ * 否则现场只剩「容器重启了」无从排查。记日志后 exit(1) 维持 crash-only 语义。
+ */
+function installCrashGuards(): void {
+  process.on("uncaughtException", (error) => {
+    console.error("[gateway] uncaughtException:", error);
+    process.exit(1);
+  });
+  process.on("unhandledRejection", (reason) => {
+    console.error("[gateway] unhandledRejection:", reason);
+    process.exit(1);
+  });
+}
+
 async function main(): Promise<void> {
   const env = process.env;
   const host = process.env["BUTLER_GATEWAY_HOST"]?.trim() || "127.0.0.1";
@@ -150,6 +165,7 @@ async function main(): Promise<void> {
 const isDirectRun =
   process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isDirectRun) {
+  installCrashGuards();
   main().catch((err) => {
     console.error("[gateway] 启动失败:", err);
     process.exit(1);

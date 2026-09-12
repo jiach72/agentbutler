@@ -329,6 +329,8 @@ export interface RunbookSummary {
 /** HTTP 层依赖（全部可注入）。 */
 export interface WatchHttpDeps {
   runtime?: () => ButlerRuntimeInfo;
+  /** SQLite 真实探针（SELECT 1）；未接线时 healthz 不做 db 判定。 */
+  dbProbe?: () => boolean;
   scheduler: {
     /** 立即巡检入口（在飞返回 false → 409）。 */
     runNow(): boolean;
@@ -1192,11 +1194,23 @@ async function handle(
   try {
     if (path === "/healthz") {
       if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
-      return sendJson(res, 200, {
-        ok: true,
+      // 真实健康语义：db 探针通过 + 独立 SLA 巡检未越过截止线。
+      // 纯静态 ok 会把「调度循环卡死 / 数据库损坏」伪装成 healthy，掩盖降级。
+      const dbOk = deps.dbProbe ? deps.dbProbe() : true;
+      const critical = deps.scheduler.status().criticalProbe;
+      const schedulerOk = critical ? !critical.overdue : true;
+      const ok = dbOk && schedulerOk;
+      return sendJson(res, ok ? 200 : 503, {
+        ok,
         service: "watch",
         serviceVersion: WATCH_SERVICE_VERSION,
         schemaVersion: CONTROL_API_SCHEMA_VERSION,
+        checks: {
+          db: dbOk,
+          scheduler: schedulerOk,
+          criticalOverdue: critical?.overdue ?? null,
+          lastCompletedAt: critical?.lastCompletedAt ?? null,
+        },
       });
     }
 

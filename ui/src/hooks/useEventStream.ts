@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { disposeWebSocket } from "../lib/websocket.js";
 import { getAccessToken } from "../lib/accessToken.js";
+import { postJson } from "../lib/api.js";
 
 export interface EventFrame {
   type?: unknown;
@@ -19,6 +20,8 @@ const RECONNECT_MS = 5000;
 let socket: WebSocket | null = null;
 let refCount = 0;
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+/** 连接尝试代际号：等待 ticket 的异步间隙里若出现更新尝试，旧结果直接丢弃。 */
+let connectGeneration = 0;
 const frameListeners = new Set<FrameListener>();
 const statusListeners = new Set<StatusListener>();
 
@@ -26,35 +29,54 @@ function notifyStatus(online: boolean): void {
   for (const listener of statusListeners) listener(online);
 }
 
+/**
+ * WS 握手凭据：优先向后端签发一次性短时 ticket（POST /api/ws-ticket），
+ * 真实口令从此不出现在 URL（浏览器历史/代理日志）；旧后端或签发失败时
+ * 退回口令 query，行为与旧版一致。
+ */
+async function handshakeSuffix(): Promise<string> {
+  const result = await postJson("/api/ws-ticket", {}, 5000);
+  const ticket =
+    result.ok && result.data !== null && typeof (result.data as { ticket?: unknown }).ticket === "string"
+      ? String((result.data as { ticket?: unknown }).ticket)
+      : "";
+  if (ticket !== "") return `?ticket=${encodeURIComponent(ticket)}`;
+  const token = getAccessToken();
+  return token === "" ? "" : `?token=${encodeURIComponent(token)}`;
+}
+
 function connect(): void {
   if (reconnectTimer !== undefined) {
     clearTimeout(reconnectTimer);
     reconnectTimer = undefined;
   }
+  const generation = ++connectGeneration;
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  // WebSocket 握手无法携带自定义请求头，访问口令只能通过 query 传递。
-  const token = getAccessToken();
-  const suffix = token === "" ? "" : `?token=${encodeURIComponent(token)}`;
-  socket = new WebSocket(`${protocol}://${window.location.host}/ws${suffix}`);
-  socket.onopen = () => notifyStatus(true);
-  socket.onmessage = (msg) => {
-    try {
-      const frame = JSON.parse(String(msg.data)) as EventFrame;
-      for (const listener of frameListeners) listener(frame);
-    } catch {
-      // 忽略无法解析的帧
-    }
-  };
-  socket.onerror = () => {
-    // onclose 会随后触发，由 onclose 统一安排重连
-  };
-  socket.onclose = () => {
-    socket = null;
-    notifyStatus(false);
-    if (refCount > 0 && reconnectTimer === undefined) {
-      reconnectTimer = setTimeout(connect, RECONNECT_MS);
-    }
-  };
+  // WebSocket 握手无法携带自定义请求头，凭据只能通过 query 传递（ticket 优先）。
+  void handshakeSuffix().then((suffix) => {
+    // 等待凭据期间订阅者全部退出或出现更新的连接尝试：丢弃本次结果。
+    if (generation !== connectGeneration || refCount === 0) return;
+    socket = new WebSocket(`${protocol}://${window.location.host}/ws${suffix}`);
+    socket.onopen = () => notifyStatus(true);
+    socket.onmessage = (msg) => {
+      try {
+        const frame = JSON.parse(String(msg.data)) as EventFrame;
+        for (const listener of frameListeners) listener(frame);
+      } catch {
+        // 忽略无法解析的帧
+      }
+    };
+    socket.onerror = () => {
+      // onclose 会随后触发，由 onclose 统一安排重连
+    };
+    socket.onclose = () => {
+      socket = null;
+      notifyStatus(false);
+      if (refCount > 0 && reconnectTimer === undefined) {
+        reconnectTimer = setTimeout(connect, RECONNECT_MS);
+      }
+    };
+  });
 }
 
 /** 订阅共享事件流；返回退订函数，最后一个订阅者退出时释放连接。 */

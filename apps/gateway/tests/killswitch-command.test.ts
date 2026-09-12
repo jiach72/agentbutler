@@ -413,6 +413,8 @@ describe("webhook：口令急停与审批回执", () => {
       startLoop: false,
       killswitchPassphrase: PASSPHRASE,
       killswitchAllowedChat: "424242",
+      // 审计 F-05 后 webhook 是 fail-closed 的：白名单测试需要显式配置密钥。
+      telegramWebhookSecret: "hook-secret",
       killswitchCommander: async (input) => {
         killed.push(input.command);
         return { ok: true, message: "ok" };
@@ -438,7 +440,9 @@ describe("webhook：口令急停与审批回执", () => {
     await strictApp.close();
   });
 
-  it("未配置 webhook 密钥时不校验（本地调试），但指令逻辑不变", async () => {
+  // 审计 F-05：webhook 是唯一面向公网的写入口，未配置密钥时必须整体关闭（fail-closed），
+  // 而不是为「本地调试」放行——伪造 callback_query 可驱动审批决定。
+  it("未配置 webhook 密钥时 fail-closed：路由关闭且不执行任何指令", async () => {
     const openApp = createGatewayServer({
       queue,
       channels: [],
@@ -454,8 +458,9 @@ describe("webhook：口令急停与审批回执", () => {
       url: "/api/channels/telegram/webhook",
       payload: { message: { text: `${PASSPHRASE} 恢复`, chat: { id: 1 } } },
     });
-    expect(res.statusCode).toBe(200);
-    expect(killed).toEqual(["release"]);
+    expect(res.statusCode).toBe(503);
+    expect(JSON.parse(res.body).error).toBe("webhook-secret-not-configured");
+    expect(killed).not.toContain("release");
     await openApp.close();
   });
 });

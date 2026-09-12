@@ -12,20 +12,9 @@
     <meta name="apple-mobile-web-app-title" content="Butler" />
     <meta name="mobile-web-app-capable" content="yes" />
     <title>Agent Butler</title>
-    <script>
-      (() => {
-        try {
-          const stored = localStorage.getItem("butler.theme");
-          const mode = stored === "light" || stored === "dark"
-            ? stored
-            : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-          document.documentElement.dataset.theme = mode;
-          document.documentElement.style.colorScheme = mode;
-        } catch {
-          document.documentElement.dataset.theme = "light";
-        }
-      })();
-    </script>
+    <!-- 主题引导外置（ui/public/theme-boot.js）：同步加载保证首帧不闪白，
+         同时让 CSP 的 script-src 'self' 无需 'unsafe-inline'。 -->
+    <script src="/theme-boot.js"></script>
   </head>
   <body>
     <div id="root"></div>

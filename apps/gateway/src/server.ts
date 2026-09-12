@@ -338,6 +338,8 @@ export interface GatewayServerOptions {
   approvalDecider?: ApprovalDecider;
   /** Telegram webhook 校验密钥（缺省读 BUTLER_TELEGRAM_WEBHOOK_SECRET；未配置则不校验）。 */
   telegramWebhookSecret?: string;
+  /** 内部操作口令（缺省读 BUTLER_INTERNAL_TOKEN；仅未配置访问口令时保护消息控制写路径）。 */
+  internalToken?: string;
   /** M1.3 通道口令急停：指令 → Watch killswitch 的桥接（缺省按 env 组装 HTTP 客户端）。 */
   killswitchCommander?: KillswitchCommander;
   /** M1.3 急停口令（缺省读 BUTLER_KILLSWITCH_PASSPHRASE；未配置则通道急停整体关闭）。 */
@@ -380,6 +382,20 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
 
   const app = Fastify({ logger: false, bodyLimit: MAX_BODY_BYTES }) as unknown as GatewayApp;
 
+  // 统一错误处理：Fastify 默认 500 不留日志（logger:false）；这里记 stderr。
+  // 4xx 保留原错误信息，5xx 返回脱敏的通用错误体（不向客户端泄露内部细节）。
+  app.setErrorHandler((error: Error & { statusCode?: number }, request, reply) => {
+    const status = typeof error.statusCode === "number" ? error.statusCode : 500;
+    if (status >= 500) {
+      process.stderr.write(
+        `[gateway] request-error method=${request.method} url=${request.url.split("?")[0] ?? request.url}: ${error.message}\n${error.stack ?? ""}\n`,
+      );
+      void reply.code(500).send({ error: "internal-error" });
+      return;
+    }
+    void reply.code(status).send({ error: error.message });
+  });
+
   /**
    * 访问口令（配置了 BUTLER_ACCESS_TOKEN 时启用）：网关能读全部消息正文、改策略与 DND，
    * 内网不等于可信。/healthz 与 /internal/hermes/* 豁免（后者仅触发 wake 且单独限速）。
@@ -399,8 +415,41 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
         expected.length !== receivedBytes.length ||
         !timingSafeEqual(expected, receivedBytes)
       ) {
+        // Fastify 关闭了 logger；鉴权失败是安全事件，至少打到 stderr 留痕。
+        process.stderr.write(
+          `[gateway] auth-failed method=${request.method} url=${request.url.split("?")[0] ?? request.url}\n`,
+        );
         reply.code(401);
         return reply.send({ error: "unauthorized", reason: "需要访问口令" });
+      }
+    });
+  }
+
+  /**
+   * 内部操作口令（审计 F-06）：未配置访问口令的部署里，gateway 的消息控制写路径
+   * （/api/messages/*）原先只靠「无 Origin 即放行」的 CSRF 校验兜底——Compose 内网
+   * 的任何进程都能改 ~/.hermes/config.yaml、切接管状态。配置 BUTLER_INTERNAL_TOKEN
+   * 后，这些写请求必须携带 x-butler-internal-token（web 代理自动附加）；已配置
+   * 访问口令的部署由上面的鉴权钩子全覆盖，此处不重复校验。
+   */
+  const internalToken = (options.internalToken ?? process.env["BUTLER_INTERNAL_TOKEN"] ?? "").trim();
+  if (accessToken === "" && internalToken !== "") {
+    app.addHook("onRequest", async (request, reply) => {
+      if (!STATE_CHANGING_METHODS.has(request.method)) return;
+      if (!request.url.startsWith("/api/messages/")) return;
+      const header = request.headers["x-butler-internal-token"];
+      const provided = (typeof header === "string" ? header : "").trim();
+      const expected = Buffer.from(internalToken, "utf8");
+      const receivedBytes = Buffer.from(provided, "utf8");
+      if (
+        expected.length !== receivedBytes.length ||
+        !timingSafeEqual(expected, receivedBytes)
+      ) {
+        process.stderr.write(
+          `[gateway] internal-auth-failed method=${request.method} url=${request.url.split("?")[0] ?? request.url}\n`,
+        );
+        reply.code(401);
+        return reply.send({ error: "unauthorized", reason: "需要内部操作口令" });
       }
     });
   }
@@ -565,14 +614,22 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
    * `apr:<approvalId>:approve|deny`；本端点把它桥接为 Watch 的审批决策。
    *
    * 安全：这是唯一面向公网的写入口，因此
-   * 1) 校验 X-Telegram-Bot-Api-Secret-Token（配置了密钥才启用校验）；
+   * 1) 强制校验 X-Telegram-Bot-Api-Secret-Token——未配置密钥时本路由直接关闭
+   *    （fail-closed）：伪造 callback_query 可驱动审批 decide，绝不能靠「没配密钥
+   *    就放行」把公网写入口裸奔在概率上；
    * 2) 只认 callback_query.data 前缀 apr:，其余一律忽略；
    * 3) 「批准已升级单」会被 Watch 侧拒绝——通道侧不具备放行升级单的权限。
    * 无论结果如何都返回 200，避免 Telegram 反复重投同一更新。
    */
   app.post("/api/channels/telegram/webhook", async (request, reply) => {
     const secret = (options.telegramWebhookSecret ?? process.env["BUTLER_TELEGRAM_WEBHOOK_SECRET"] ?? "").trim();
-    if (secret !== "") {
+    if (secret === "") {
+      return await reply.code(503).send({
+        error: "webhook-secret-not-configured",
+        detail: "未配置 BUTLER_TELEGRAM_WEBHOOK_SECRET，webhook 已关闭（fail-closed）。配置密钥并重启后启用。",
+      });
+    }
+    {
       const provided = String(request.headers["x-telegram-bot-api-secret-token"] ?? "");
       if (!timingSafeEqualString(provided, secret)) {
         return await reply.code(401).send({ error: "invalid-webhook-secret" });
@@ -689,9 +746,25 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
         .send({ error: "agent-api-unavailable", detail: "未找到智能体接口（api_server）配置" });
     }
     // bind 地址（0.0.0.0）不能直接访问；容器内优先走 host.docker.internal。
+    // SSRF 收窄：该请求会携带 Bearer api.key，绝不允许被导向配置之外的任意主机——
+    // 目标只允许本机/容器网/内网地址（api_server 的合理部署位置）。
+    const allowed = (host: string): boolean => {
+      const normalized = host.trim().toLowerCase();
+      if (["127.0.0.1", "localhost", "::1", "host.docker.internal"].includes(normalized)) return true;
+      // RFC1918 内网段：docker 网桥 / 局域网内 apiserver（含 IPv4 字面量，排除注入字符）。
+      return /^(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3})$/.test(
+        normalized,
+      );
+    };
     const hosts = [...new Set([api.host, "127.0.0.1", "host.docker.internal"])].filter(
-      (host) => host !== null && host !== "" && host !== "0.0.0.0",
+      (host) => host !== null && host !== "" && host !== "0.0.0.0" && allowed(host),
     );
+    if (hosts.length === 0) {
+      return reply.code(503).send({
+        error: "agent-api-host-not-allowed",
+        detail: `api_server.host 指向不允许的目标（仅限本机/容器网/内网地址），已拒绝转发`,
+      });
+    }
     let lastError = "unknown";
     for (const host of hosts) {
       let response: Response;
@@ -1353,10 +1426,21 @@ const CHANNEL_SECRET_FIELDS: Record<string, readonly string[]> = {
   wecom: ["secret"],
 };
 
+/** 兜底识别：显式名单未覆盖的新通道 secret 字段按名称特征掩码（宁多掩勿漏掩）。 */
+const CHANNEL_SECRET_NAME_PATTERN = /(secret|token|password|passwd)/i;
+
+function isSecretFieldName(name: string): boolean {
+  const lower = name.toLowerCase();
+  return lower === "key" || lower.endsWith("_key") || CHANNEL_SECRET_NAME_PATTERN.test(lower);
+}
+
 function maskConfigValues(channel: string, values: Record<string, string>): Record<string, string> {
   const secrets = CHANNEL_SECRET_FIELDS[channel] ?? [];
   return Object.fromEntries(
-    Object.entries(values).map(([name, value]) => [name, secrets.includes(name) ? "••••" : value]),
+    Object.entries(values).map(([name, value]) => [
+      name,
+      secrets.includes(name) || isSecretFieldName(name) ? "••••" : value,
+    ]),
   );
 }
 

@@ -128,6 +128,8 @@ export class AlertQueue {
     fs.mkdirSync(path.dirname(dbFile), { recursive: true });
     this.db = new DatabaseSync(dbFile);
     this.db.exec("PRAGMA journal_mode=WAL;");
+    // 与共享但ler.db 的其他进程（watch 写入）并发时等待锁，而不是立即抛 SQLITE_BUSY。
+    this.db.exec("PRAGMA busy_timeout=5000;");
     this.db.exec(DDL);
     // 兼容已存在的 gateway.db：DDL 不会为既有表补列，因此显式迁移一次。
     const columns = this.db.prepare("PRAGMA table_info(alerts)").all() as Record<string, unknown>[];

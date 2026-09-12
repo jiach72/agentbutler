@@ -2,8 +2,10 @@
  * 访问口令的浏览器侧存取。
  *
  * 面板能重启 AI、改配置、读写记忆，所以监听非回环地址时后端会要求访问口令。
- * 口令存在 localStorage，登录一次即可；登出或口令失效时清空。
- * 同时支持从地址栏 ?token=xxx 自动填充，方便把带口令的地址存成书签。
+ * 口令存 sessionStorage（审计 F-20）：仅当前标签页会话有效，关页即清——
+ * localStorage 里的常驻口令会把任意一次 XSS 变成永久控制权泄露。
+ * 升级兼容：老版本存在 localStorage 的口令会在首次读取时迁移进 sessionStorage
+ * 并从 localStorage 移除。
  */
 
 const STORAGE_KEY = "butler.accessToken";
@@ -11,9 +13,28 @@ const UNAUTHORIZED_EVENT = "butler:unauthorized";
 
 function storage(): Storage | null {
   try {
-    return typeof window === "undefined" ? null : window.localStorage;
+    return typeof window === "undefined" ? null : window.sessionStorage;
   } catch {
     return null;
+  }
+}
+
+/** 一次性迁移：localStorage 的存量口令搬进 sessionStorage 后即焚。 */
+let migrated = false;
+function migrateLegacyToken(): void {
+  if (migrated) return;
+  migrated = true;
+  try {
+    if (typeof window === "undefined" || storage() === null) return;
+    const legacy = window.localStorage.getItem(STORAGE_KEY);
+    if (legacy !== null && legacy !== "") {
+      if (storage()?.getItem(STORAGE_KEY) === null || storage()?.getItem(STORAGE_KEY) === "") {
+        storage()?.setItem(STORAGE_KEY, legacy);
+      }
+      window.localStorage.removeItem(STORAGE_KEY);
+    }
+  } catch {
+    // 迁移失败不阻塞登录流程
   }
 }
 
@@ -37,16 +58,18 @@ function consumeUrlToken(): void {
 /** 读取已保存的访问口令；地址栏 ?token= 优先一次，便于书签直达。 */
 export function getAccessToken(): string {
   consumeUrlToken();
+  migrateLegacyToken();
   return storage()?.getItem(STORAGE_KEY) ?? "";
 }
 
 export function setAccessToken(token: string): void {
   try {
+    migrateLegacyToken();
     const value = token.trim();
     if (value === "") storage()?.removeItem(STORAGE_KEY);
     else storage()?.setItem(STORAGE_KEY, value);
   } catch {
-    // 隐私模式下 localStorage 不可写，退化为仅本次会话有效
+    // 隐私模式下 sessionStorage 不可写，退化为仅内存有效
   }
 }
 

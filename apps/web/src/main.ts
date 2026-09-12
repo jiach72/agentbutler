@@ -44,6 +44,19 @@ function assertSafeBinding(): void {
 
 assertSafeBinding();
 
+/**
+ * 进程级兜底：未捕获异常/拒绝在 compose restart 兜底重启前必须留痕，
+ * 否则现场只剩「容器重启了」无从排查。记日志后 exit(1) 维持 crash-only 语义。
+ */
+process.on("uncaughtException", (error) => {
+  console.error("[butler-web] uncaughtException:", error);
+  process.exit(1);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[butler-web] unhandledRejection:", reason);
+  process.exit(1);
+});
+
 const app = createWebServer();
 
 let exiting = false;

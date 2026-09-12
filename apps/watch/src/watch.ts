@@ -1078,6 +1078,9 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     pruneActionApprovals: () => approvals?.prune() ?? 0,
     pruneCanaryRuns: () => canary?.prune() ?? 0,
     pruneProgressClaims: () => progress?.prune() ?? 0,
+    // evolution 遥测保留期：observations 180 天、daily metrics 365 天。
+    pruneEvolutionHistory: (observationCutoff, dailyMetricCutoff) =>
+      core.store.pruneEvolutionHistory(observationCutoff, dailyMetricCutoff),
     now: options.now,
     driver,
   });
@@ -2137,6 +2140,8 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     {
       runtime: () => runtime,
       scheduler,
+      // healthz 真实探针：db 可用性（调度器心跳已由 scheduler.status() 提供）。
+      dbProbe: () => core.store.ping(),
     connections,
     openclawInstall,
       runbooks: runbookSummaries,

@@ -58,6 +58,10 @@ COPY --from=build --chown=node:node /app/packages/adapters/hermes/manifest.json 
 COPY --from=build --chown=node:node /app/packages/adapters/openclaw/manifest.json ./packages/adapters/openclaw/manifest.json
 COPY --from=build --chown=node:node /app/apps/web/dist ./apps/web/dist
 COPY --from=build --chown=node:node /app/ui/dist ./ui/dist
+# 隐私/源码安全断言（审计 F-14）：UI 产物不允许携带 sourcemap——历史上 tsc 的
+# outDir 曾与 vite 产物同为 ui/dist，284 个 .js.map 连同未混淆源码一起进镜像。
+# ui/tsconfig 的 tsc 输出现在隔离在 ui/build-tsc（不进镜像），此处断言兜底防回归。
+RUN node -e "const fs=require('fs');const bad=[];(function walk(d){for(const e of fs.readdirSync(d,{withFileTypes:true})){const f=d+'/'+e.name;if(e.isDirectory())walk(f);else if(/\.map$/.test(e.name))bad.push(f);}})('/app/ui/dist');if(bad.length){console.error(bad.join('\n'));process.exit(1);}"
 RUN mkdir -p /home/butler/data && chown -R node:node /home/butler
 
 USER node
