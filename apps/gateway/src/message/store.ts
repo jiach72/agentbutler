@@ -68,8 +68,6 @@ CREATE TABLE IF NOT EXISTS inbound_projection (
   payload_json TEXT NOT NULL,
   received_at TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_inbound_projection_received_at
-  ON inbound_projection(received_at);
 CREATE TABLE IF NOT EXISTS message_policy (
   singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
   version TEXT NOT NULL,
@@ -1210,13 +1208,16 @@ export class MessagePolicyStore {
    * 入站投影此前无时间戳、只增不删；补列后保留期清理才能工作。
    * 存量行 received_at 为 NULL，清理时视作最旧一并删除（入站投影当前无读取方，
    * 删除仅影响「重复信封去重」这一隐含用途，ON CONFLICT 语义不变）。
+   * 索引必须在这里建而不是放 DDL：DDL 的 CREATE TABLE IF NOT EXISTS 不会给
+   * 既有旧表补列，若索引先于 ALTER 执行会直接抛「no such column」（生产实测）。
    */
   private migrateInboundReceivedAt(): void {
     const columns = this.prepare("PRAGMA table_info(inbound_projection)").all() as Array<
       Record<string, unknown>
     >;
-    if (columns.some((column) => String(column["name"]) === "received_at")) return;
-    this.db.exec("ALTER TABLE inbound_projection ADD COLUMN received_at TEXT");
+    if (!columns.some((column) => String(column["name"]) === "received_at")) {
+      this.db.exec("ALTER TABLE inbound_projection ADD COLUMN received_at TEXT");
+    }
     this.db.exec(
       "CREATE INDEX IF NOT EXISTS idx_inbound_projection_received_at ON inbound_projection(received_at)",
     );

@@ -136,8 +136,36 @@ describe("MessagePolicyStore", () => {
     reopened.close();
   });
 
-  it("隐私红线：入站投影只落元数据，不保存消息正文", () => {
-    const store = new MessagePolicyStore(dbFile);
+  // 生产事故回归（2026-09-12）：DDL 的 CREATE INDEX 引用迁移列时，老库上
+  // CREATE TABLE IF NOT EXISTS 不补列 → 建索引先于 ALTER 抛「no such column」，
+  // 消息运行时启动失败进降级。此用例用旧 schema 预建库锁定迁移顺序。
+  it("旧库迁移：inbound_projection 无 received_at 时自动补列并补索引", () => {
+    fs.mkdirSync(path.dirname(dbFile), { recursive: true });
+    const legacy = new DatabaseSync(dbFile);
+    legacy.exec(
+      "CREATE TABLE inbound_projection (inbound_message_id TEXT PRIMARY KEY, payload_json TEXT NOT NULL)",
+    );
+    legacy.close();
+
+    const store = new MessagePolicyStore(dbFile); // 构造不得抛 no such column
+    store.ingestBatch(BATCH); // 迁移后写入（含 received_at）
+    store.close();
+
+    const check = new DatabaseSync(dbFile);
+    const columns = check.prepare("PRAGMA table_info(inbound_projection)").all() as Array<
+      Record<string, unknown>
+    >;
+    expect(columns.some((column) => column["name"] === "received_at")).toBe(true);
+    const indexes = check.prepare("PRAGMA index_list(inbound_projection)").all() as Array<
+      Record<string, unknown>
+    >;
+    expect(
+      indexes.some((index) => index["name"] === "idx_inbound_projection_received_at"),
+    ).toBe(true);
+    check.close();
+  });
+
+  it("隐私红线：入站投影只落元数据，不保存消息正文", () => {    const store = new MessagePolicyStore(dbFile);
     store.ingestBatch(BATCH);
     store.close();
 
