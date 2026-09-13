@@ -53,6 +53,14 @@ export type MemoryProbeStatus = "pass" | "warn" | "fail" | "skipped";
 export interface MemoryProbeProviderOptions {
   now: () => number;
   removeOwn: boolean;
+  /**
+   * 探针档位：
+   * - full（默认）：写入→抽取→召回→清理，验证完整链路（hindsight/mem0 路径
+   *   会触发提供方侧的 LLM 抽取，有 API 成本）；
+   * - recall-only：只做服务健康 + 只读召回（本地嵌入检索，零 LLM 成本），
+   *   供高频关键探针使用；写入链路由低频 full 档覆盖。
+   */
+  mode?: "full" | "recall-only";
 }
 
 /**
@@ -252,7 +260,7 @@ export function createMemoryProbeStage(deps: MemoryProbeDeps = {}): InspectionSt
     async run(ctx) {
       if (deps.provider !== undefined) {
         try {
-          const provided = await deps.provider(ctx, { now, removeOwn });
+          const provided = await deps.provider(ctx, { now, removeOwn, mode: ctx.mode });
           return {
             id: MEMORY_PROBE_CHECK_ID,
             status: provided.status,

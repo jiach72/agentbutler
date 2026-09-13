@@ -1149,7 +1149,19 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
   });
 
   // M1 独立关键记忆探针：与整轮巡检分离，探针行即时清理，避免高频巡检污染用户记忆。
+  //
+  // 【成本控制】探针分两档（评审：hindsight 写入会触发提供方侧 LLM 事实抽取，
+  // 每分钟全量探针 ≈ 每小时 ¥1 的 deepseek 调用）：
+  // - recall-only（默认每 criticalProbeIntervalMin 一次，零 LLM 成本）：
+  //   服务健康 + 只读召回，覆盖「服务挂了/嵌入降级/检索异常」的主要故障形态；
+  // - full（每 fullMemoryProbeIntervalMin 一次，默认 30 分钟）：完整
+  //   写入→抽取→召回→清理，验证真实写入链路。
+  let lastFullProbeAtMs = 0; // 0 = 启动后首轮即为 full，先验证一次写入链路
   async function runCriticalMemoryProbe(): Promise<{ status: "pass" | "warn" | "fail" | "skipped"; detail?: string }> {
+    const nowMs = (options.now ?? Date.now)();
+    const mode: "full" | "recall-only" =
+      nowMs - lastFullProbeAtMs >= config.fullMemoryProbeIntervalMin * 60_000 ? "full" : "recall-only";
+    if (mode === "full") lastFullProbeAtMs = nowMs;
     const targets = core.instances
       .listInstances()
       .filter((record) => ["Serving", "Degraded", "Offline"].includes(record.state));
@@ -1166,6 +1178,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
           rootPath: record.rootPath,
           runtime: record.runtime,
           shared: {},
+          mode,
         });
       } catch (error) {
         result = {
@@ -1180,7 +1193,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
         actor: "butler-watch",
         action: "critical-memory-probe",
         target: record.instanceId,
-        detail: { status: result.status, detail, observedAt, source: "independent-sla-scheduler" },
+        detail: { status: result.status, detail, observedAt, mode, source: "independent-sla-scheduler" },
       });
       // 外部依赖分类（智能降级①）：账户/凭据/配额类失败在服务提供方侧，
       // 重启实例修不了——改发 external-dependency 告警并跳过自动重启（rb-restart）。

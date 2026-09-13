@@ -48,6 +48,8 @@ export interface InspectionContext {
   rootPath: string;
   runtime: "docker" | "process" | "unknown";
   shared: Record<string, unknown>;
+  /** memory-probe 档位（可选，仅记忆探针消费）：full（默认）| recall-only。 */
+  mode?: "full" | "recall-only";
 }
 
 export interface InspectionStage {

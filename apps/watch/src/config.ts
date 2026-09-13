@@ -70,6 +70,11 @@ export interface WatchConfig {
   inspectIntervalMin: number;
   /** 关键记忆探针间隔（分钟；独立于整轮巡检，最大 5 分钟）。 */
   criticalProbeIntervalMin: number;
+  /**
+   * 完整写入探针（含提供方侧 LLM 抽取，有 API 成本）间隔（分钟，默认 30）。
+   * 关键探针间隙跑只读召回档（零 LLM 成本），写入链路按本间隔低频验证。
+   */
+  fullMemoryProbeIntervalMin: number;
   /** 日志尾随轮询间隔（秒）。 */
   tailPollSec: number;
   /** 告警网关地址（POST /api/alerts）。 */
@@ -179,6 +184,10 @@ export const DEFAULT_CRITICAL_PROBE_INTERVAL_MIN = 1;
 export const MAX_CRITICAL_PROBE_INTERVAL_MIN = 5;
 /** M1 关键记忆探针 SLA deadline（分钟）；不允许被环境变量放宽。 */
 export const CRITICAL_PROBE_SLA_MIN = 10;
+/** 完整写入探针默认每 30 分钟一次（提供方侧 LLM 抽取有 API 成本，见 memory-providers）。 */
+export const DEFAULT_FULL_MEMORY_PROBE_INTERVAL_MIN = 30;
+export const MIN_FULL_MEMORY_PROBE_INTERVAL_MIN = 5;
+export const MAX_FULL_MEMORY_PROBE_INTERVAL_MIN = 1440;
 export const DEFAULT_TAIL_POLL_SEC = 10;
 export const DEFAULT_GATEWAY_URL = "http://127.0.0.1:7532";
 export const DEFAULT_DASHBOARD_URL = "http://127.0.0.1:9119";
@@ -301,6 +310,16 @@ export function loadWatchConfig(overrides: Partial<WatchConfig> = {}): WatchConf
       readIntEnv("BUTLER_INSPECT_INTERVAL_MIN", DEFAULT_INSPECT_INTERVAL_MIN),
     criticalProbeIntervalMin:
       overrides.criticalProbeIntervalMin ?? readCriticalProbeIntervalEnv(),
+    fullMemoryProbeIntervalMin:
+      overrides.fullMemoryProbeIntervalMin ??
+      (() => {
+        const raw = Number(process.env["BUTLER_FULL_MEMORY_PROBE_INTERVAL_MIN"]);
+        const parsed = Number.isFinite(raw) ? Math.floor(raw) : DEFAULT_FULL_MEMORY_PROBE_INTERVAL_MIN;
+        return Math.min(
+          MAX_FULL_MEMORY_PROBE_INTERVAL_MIN,
+          Math.max(MIN_FULL_MEMORY_PROBE_INTERVAL_MIN, parsed),
+        );
+      })(),
     tailPollSec: overrides.tailPollSec ?? readIntEnv("BUTLER_TAIL_POLL_SEC", DEFAULT_TAIL_POLL_SEC),
     gatewayUrl: overrides.gatewayUrl ?? readUrlEnv("BUTLER_GATEWAY_URL", DEFAULT_GATEWAY_URL),
     dashboardUrl:

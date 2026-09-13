@@ -197,11 +197,12 @@ export function createHindsightMemoryProbe(
       }
     });
   const timeoutMs = options.timeoutMs ?? DEFAULT_HINDSIGHT_TIMEOUT_MS;
-  return async (ctx) => {
+  return async (ctx, providerOptions) => {
     const resolved = resolveHindsightBaseUrl(ctx.rootPath, options, readTextFile);
     if ("error" in resolved) {
       return { status: "skipped", detail: resolved.error };
     }
+    const recallOnly = providerOptions?.mode === "recall-only";
     const base = resolved.baseUrl;
     const bankId = options.bankId ?? HINDSIGHT_PROBE_BANK_ID;
     const bank = `${base}/v1/default/banks/${encodeURIComponent(bankId)}`;
@@ -221,6 +222,32 @@ export function createHindsightMemoryProbe(
             "若管家在容器内而 hindsight 在宿主机，localhost 指向容器自身，请设置 BUTLER_HINDSIGHT_BASE_URL=http://host.docker.internal:<端口>",
         };
       }
+
+      // 1.5 recall-only 档（关键探针高频路径，零 LLM 成本）：
+      // 对用户 bank（config bank_id，默认 hermes）做一次只读召回——
+      // 验证服务可达 + 嵌入 + 检索链路；不写入、不触发抽取。
+      // 命中数不作为判据（查询词与用户记忆无关），拿到合法 results 即 pass。
+      if (recallOnly) {
+        const userBank = readConfigJson(ctx.rootPath, "hindsight/config.json", readTextFile);
+        const userBankId =
+          typeof userBank?.["bank_id"] === "string" && userBank["bank_id"] !== ""
+            ? String(userBank["bank_id"])
+            : "hermes";
+        const recalled = await requestJson(fetchFn, `${base}/v1/default/banks/${encodeURIComponent(userBankId)}/memories/recall`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ query: "最近的会话与工作记忆", budget: "low" }),
+          timeoutMs,
+        });
+        if (!recalled.ok) {
+          return { status: "fail", detail: `hindsight 只读召回失败（bank=${userBankId}）：${recalled.reason}` };
+        }
+        if (!Array.isArray(asRecord(recalled.data)?.["results"])) {
+          return { status: "fail", detail: `hindsight 只读召回响应异常（bank=${userBankId}，results 非数组）` };
+        }
+        return { status: "pass", detail: `只读召回探针通过（hindsight bank=${userBankId}，零写入）；写入链路探针按低频档执行` };
+      }
+
       // 2. 幂等创建探针 bank（PUT = create or update，不污染既有 bank）。
       const created = await requestJson(fetchFn, bank, {
         method: "PUT",
@@ -333,7 +360,7 @@ export function createMem0MemoryProbe(
     });
   const delay = options.delay ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const timeoutMs = options.timeoutMs ?? DEFAULT_MEM0_TIMEOUT_MS;
-  return async (ctx) => {
+  return async (ctx, providerOptions) => {
     const resolved = resolveMem0ApiKey(ctx.rootPath, options, readTextFile);
     if ("error" in resolved) {
       return { status: "skipped", detail: resolved.error };
@@ -341,6 +368,23 @@ export function createMem0MemoryProbe(
     const base = (options.baseUrl ?? "https://api.mem0.ai").replace(/\/+$/, "");
     const userId = options.userId ?? MEM0_PROBE_USER_ID;
     const headers = { authorization: `Token ${resolved.apiKey}` };
+    // recall-only 档：只做一次只读 search（mem0 侧计费极轻），验证服务与凭据可达；
+    // 不写入。命中数不作为判据。
+    if (providerOptions?.mode === "recall-only") {
+      const searched = await requestJson(fetchFn, `${base}/v2/memories/search/`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ query: "最近的工作记忆", filters: { user_id: userId }, limit: 1 }),
+        timeoutMs,
+      });
+      if (!searched.ok) {
+        return { status: "fail", detail: `mem0 只读检索失败：${searched.reason}` };
+      }
+      if (!Array.isArray(searched.data)) {
+        return { status: "fail", detail: "mem0 只读检索响应异常（非数组）" };
+      }
+      return { status: "pass", detail: "mem0 只读探针通过（零写入）；写入链路探针按低频档执行" };
+    }
     const marker = newMarker();
     let memoryId: string | null = null;
     try {
