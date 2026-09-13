@@ -3477,6 +3477,12 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     proxyWatchPost("/api/budget/check", request.body, reply, 15_000),
   );
 
+  // 记忆探针频率设置（GET 读当前值，POST 设置并持久化）。
+  app.get("/api/memory-probe/config", async (_request, reply) => proxyWatchGet("/api/memory-probe/config", reply));
+  app.post("/api/memory-probe/config", async (request, reply) =>
+    proxyWatchPost("/api/memory-probe/config", request.body, reply, 15_000),
+  );
+
   // 行为审计流（M1.2）：动作时间线 + 汇总（query 原样透传）。
   const forwardAuditQuery = (request: { query?: unknown }, watchPath: string): string => {
     const query = (request.query ?? {}) as Record<string, unknown>;

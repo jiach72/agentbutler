@@ -31,7 +31,7 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
   { key: "llm", label: "模型与密钥", icon: KeyOutlined },
   { key: "diagnostics", label: "诊断报告", icon: ReconciliationOutlined },
   { key: "preferences", label: "常规偏好", icon: ControlOutlined },
-  { key: "about", label: "关于", icon: InfoCircleOutlined },
+  { key: "about", label: "版本与升级", icon: InfoCircleOutlined },
   { key: "advanced", label: "进阶工具", icon: AppstoreOutlined },
 ];
 

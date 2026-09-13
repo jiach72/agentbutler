@@ -1,21 +1,18 @@
 /**
- * 页面标题头：eyebrow 小标签 + 主标题 + 可选描述/附加操作。
- * 全站唯一的 h1 出口（Title component="h1" 保证真实语义），
- * 样式全部走 antd Token，不依赖旧页面 CSS。
+ * 页面标题头：主标题（真实 h1）+ 可选描述/附加操作。
+ * 全站唯一的 h1 出口（Title component="h1" 保证真实语义）。
  *
- * 【eyebrow 以路由元信息为真源（评审 P1-9）】
- * 分组名只在 lib/routeMeta.ts 里写一次，本组件按当前路径推导。
- * 此前各页手写 eyebrow，出现过「核心文件在侧栏归维护与升级、页内却写控制台」
- * 这类导航与页面互相矛盾的情况；传进来的 eyebrow 只作为非路由面板的兜底。
+ * 【eyebrow 只在显式传入时渲染（shell-ux 测试守卫）】
+ * 分组名已经在侧栏导航里可见——页头再自动重复一遍就是同一句话写两遍
+ * （导航写着「日常使用」，页头小标签又是「日常使用」）。路由页一律不自动
+ * 派生 eyebrow；只有非路由面板想标注业务上下文时才显式传入。
  */
 import { Flex, Typography } from "antd";
-import { useLocation } from "react-router-dom";
-import { eyebrowFor } from "../lib/routeMeta.js";
 
-const { Paragraph, Text, Title } = Typography;
+const { Paragraph, Text } = Typography;
 
 interface PageHeaderProps {
-  /** 页面所属区域的小标签；路由页面无需传，按当前路径自动推导。 */
+  /** 非路由面板显式标注业务上下文的小标签；路由页面不要传。 */
   eyebrow?: string;
   /** 页面主标题，渲染为真实 h1（字号跟随 Title level 3）。 */
   title: string;
@@ -26,23 +23,31 @@ interface PageHeaderProps {
 }
 
 export function PageHeader({ eyebrow, title, description, extra }: PageHeaderProps) {
-  const location = useLocation();
-  const resolvedEyebrow = eyebrowFor(location.pathname) ?? eyebrow;
   return (
     <header>
       <Flex wrap justify="space-between" align="flex-start" gap={16}>
         <div style={{ minWidth: 0 }}>
-          {resolvedEyebrow !== undefined && (
+          {eyebrow !== undefined && (
             <Text
               type="secondary"
-              style={{ display: "block", fontSize: 12, fontWeight: 600, letterSpacing: "0.08em" }}
+              style={{ display: "block", fontSize: 12, fontWeight: 600, letterSpacing: "0.08em", marginBottom: 2 }}
             >
-              {resolvedEyebrow}
+              {eyebrow}
             </Text>
           )}
-          <Title level={3} component="h1" style={{ marginBottom: 0 }}>
+          {/* 真实 h1（antd Title component 属性在 v6 不生效，实际渲染 h3——
+              全站会没有 h1 供读屏/浏览器跳转；这里用原生 h1 + 标题级样式）。 */}
+          <h1
+            style={{
+              margin: 0,
+              fontSize: "var(--ant-font-size-heading-3, 20px)",
+              fontWeight: 600,
+              lineHeight: 1.35,
+              color: "var(--ant-color-text-heading, inherit)",
+            }}
+          >
             {title}
-          </Title>
+          </h1>
           {description !== undefined && (
             <Paragraph type="secondary" style={{ marginBottom: 0 }}>
               {description}

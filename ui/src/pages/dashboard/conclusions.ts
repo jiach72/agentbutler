@@ -96,7 +96,8 @@ function buildIssues(dashboard: DashboardPayload | null): IssueView[] {
       id: "all-ok",
       tone: "ok",
       title: "一切正常",
-      detail: `管家刚检查过 ${latestInspections.length} 个实例，没有发现需要处理的事。`,
+      // 结论只描述「本次实际检查到的本机运行时状态」，不涉及历史消息/全局业务判断。
+      detail: `管家本次检查了 ${latestInspections.length} 个实例，没有发现需要处理的事。`,
     });
   } else if (list.length === 0 && instances.length === 0 && inspectStatus?.reachable === true) {
     list.push({

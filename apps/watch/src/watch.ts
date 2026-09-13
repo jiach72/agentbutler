@@ -1156,11 +1156,23 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
   //   服务健康 + 只读召回，覆盖「服务挂了/嵌入降级/检索异常」的主要故障形态；
   // - full（每 fullMemoryProbeIntervalMin 一次，默认 30 分钟）：完整
   //   写入→抽取→召回→清理，验证真实写入链路。
+  // 间隔可由面板设置（app_config 持久化），每次 tick 时动态读取。
   let lastFullProbeAtMs = 0; // 0 = 启动后首轮即为 full，先验证一次写入链路
+  function getFullProbeIntervalMin(): number {
+    try {
+      const raw = core.store.getAppConfig("probe_full_interval_min");
+      if (raw !== null) {
+        const parsed = Number(raw);
+        if (Number.isFinite(parsed) && parsed >= 5 && parsed <= 1440) return Math.floor(parsed);
+      }
+    } catch { /* 读取失败走 env 默认值 */ }
+    return config.fullMemoryProbeIntervalMin;
+  }
   async function runCriticalMemoryProbe(): Promise<{ status: "pass" | "warn" | "fail" | "skipped"; detail?: string }> {
     const nowMs = (options.now ?? Date.now)();
+    const intervalMin = getFullProbeIntervalMin();
     const mode: "full" | "recall-only" =
-      nowMs - lastFullProbeAtMs >= config.fullMemoryProbeIntervalMin * 60_000 ? "full" : "recall-only";
+      nowMs - lastFullProbeAtMs >= intervalMin * 60_000 ? "full" : "recall-only";
     if (mode === "full") lastFullProbeAtMs = nowMs;
     const targets = core.instances
       .listInstances()
@@ -2177,6 +2189,11 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       // 信任层（Trust Layer）服务注册：M1 成本/审计/急停 + M2 事件中心/周报 + M2.3 会话索引。
       // ⚠️ 这些必须显式注入，否则断点端点在生产装配下返回 503（测试因直接传 deps 掩盖过该问题）。
       budget: budgetEngine,
+      // 探针完整写入档频率：get 每次读 app_config（面板可改），set 持久化。
+      probeConfig: {
+        get: () => getFullProbeIntervalMin(),
+        set: (min: number) => core.store.setAppConfig("probe_full_interval_min", String(min)),
+      },
       actionAudit: auditCollector,
       killswitch: killSwitch,
       trustEvents: trustEventsHub,

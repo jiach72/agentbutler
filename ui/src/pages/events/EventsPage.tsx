@@ -177,7 +177,6 @@ export function EventsPage() {
       <Flex vertical gap={16}>
         <PageHeader
           title="事件中心"
-          description="告警、回归和预算事件都汇总在这一页，处理进度也在这里更新。"
         />
 
         {/* §2.3 ② 结论条。 */}

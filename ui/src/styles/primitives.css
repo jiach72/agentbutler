@@ -50,7 +50,7 @@
   gap: 10px;
   padding: var(--ab-space-6) var(--ab-space-4);
   text-align: center;
-  border: 1px dashed var(--ab-border);
+  border: 0; /* 空态去虚线框（P0-9）：下沉底 surface-2 + 圆角已足够。 */
   border-radius: var(--ab-r-card);
   background: var(--ab-surface-2);
   color: var(--ab-text-3);
@@ -74,23 +74,22 @@
 
 /* ---- AI 生成内容标识（规范 03 §1 P3：必须标来源，且不与实测结论同层）---- */
 
+/* AI 生成内容标识（规范 03 §1 P3：必须标来源，且不与实测结论同层）。
+   P1-6：降为行内标识——去 border / brand-soft 底 / 块级 padding，改一行；
+   黄铜色「由模型生成」语义保留（来源标识，不是状态）。 */
 .ai-notice {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 6px;
   margin: 0 0 var(--ab-space-3);
-  padding: 6px 10px;
-  /* 黄铜而非状态色：它表达"来源"，不是"好坏"。 */
-  border: 1px solid var(--ab-brand-line);
-  border-radius: var(--ab-r-tag);
-  background: var(--ab-brand-soft);
+  padding: 0;
   font-size: var(--ab-text-size-xs);
   line-height: 1.5;
 }
 .ai-notice.is-compact {
   margin-bottom: var(--ab-space-2);
-  padding: 4px 8px;
+  padding: 0;
 }
 .ai-notice-mark {
   color: var(--ab-brand);
@@ -250,20 +249,19 @@ html body .dense-descriptions .ant-descriptions-item-content {
   display: inline-block;
 }
 
+/* macOS tint 徽标惯例：soft 底 + 彩字、无边框（soft 底 + 彩字已双通道达标）。
+   offline/unknown 例外：保留中性边框区分「无状态」。 */
 .status-badge[data-tone="ok"] {
   background: var(--ab-ok-soft);
   color: var(--ab-ok);
-  border: 1px solid color-mix(in srgb, var(--ab-ok) 26%, transparent);
 }
 .status-badge[data-tone="warn"] {
   background: var(--ab-warn-soft);
   color: var(--ab-warn);
-  border: 1px solid color-mix(in srgb, var(--ab-warn) 26%, transparent);
 }
 .status-badge[data-tone="error"] {
   background: var(--ab-error-soft);
   color: var(--ab-error);
-  border: 1px solid color-mix(in srgb, var(--ab-error) 26%, transparent);
 }
 /* 离线与未知同色（规范 02 §1.4），靠文案与图标区分。 */
 .status-badge[data-tone="offline"],
@@ -276,7 +274,6 @@ html body .dense-descriptions .ant-descriptions-item-content {
 .status-badge[data-tone="brand"] {
   background: var(--ab-brand-soft);
   color: var(--ab-brand);
-  border: 1px solid color-mix(in srgb, var(--ab-brand) 26%, transparent);
 }
 
 /* ---- 通知中心 ---- */

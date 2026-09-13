@@ -389,7 +389,7 @@ export function EvolutionPage() {
       <Flex vertical gap={24}>
         <PageHeader
           title="自进化"
-          description="定期分析运行日志，归纳重复问题并生成可审计的优化方向；先试运行，再由你确认应用。"
+          description="优化方案先试运行，确认后才会应用。"
           extra={
             <ConnectionChip
               reachable={error === null}

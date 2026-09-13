@@ -32,9 +32,9 @@ describe("关键页面组件渲染", () => {
     expect(html).toContain('href="/skills"');
     expect(html).toContain('href="/gateway"');
     expect(html).toContain('href="/settings"');
-    // IA 收敛后：信任层与维护与升级都是折叠 SubMenu——分组行常显，组内项进入分组才渲染。
-    expect(html).toContain("信任层");
-    expect(html).toContain("维护与升级");
+    // IA 收敛 + 分组改名后：两个折叠 SubMenu 的分组行常显，组内项进入分组才渲染。
+    expect(html).toContain("记录与审批");
+    expect(html).toContain("维护工具");
     expect(html).toContain('data-menu-id="rc-menu-uuid-trust"');
     expect(html).toContain('data-menu-id="rc-menu-uuid-maintain"');
     // 常显分组的项目仍然直接渲染

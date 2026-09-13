@@ -216,7 +216,7 @@ export function CoreFilesPage() {
       <Flex vertical gap={16}>
         <PageHeader
           title="核心文件"
-          description="查看、编辑并回滚实例的 USER、AGENT、SOUL、MEMORY 几个 Markdown 文件；每次保存自动生成版本。"
+          description="每次保存自动生成版本。"
           extra={
             <Select
               aria-label="选择实例"

@@ -11,10 +11,10 @@
  * 【状态只在一处说】访问安全态在侧栏底部展示；顶栏只在「不是仅本机访问」时
  * 才补一句警示，避免同一事实在一屏出现两次（评审 P0-3）。
  */
-import { MenuOutlined, MoonOutlined, SafetyCertificateOutlined, SunOutlined, ToolOutlined } from "@ant-design/icons";
-import { Button, Drawer, Layout as AntLayout, Menu } from "antd";
+import { MenuOutlined, MoreOutlined, MoonOutlined, SafetyCertificateOutlined, SunOutlined, ToolOutlined } from "@ant-design/icons";
+import { Button, Drawer, Dropdown, Layout as AntLayout, Menu } from "antd";
 import type { MenuProps } from "antd";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { KillSwitchButton } from "./KillSwitchButton.js";
 import { MobileTabBar } from "./MobileTabBar.js";
@@ -28,6 +28,7 @@ import {
   NAV_GROUPS,
   PINNED_ROUTE,
   TRUST_CLUSTERS,
+  collapsibleGroupKeys,
   navRoutesFor,
   routeMetaFor,
   type NavGroup,
@@ -143,13 +144,16 @@ function SidebarContent({
   const settingsActive = currentMeta?.group === "settings" || location.pathname.startsWith("/preferences");
   const selectedKey = settingsActive ? PINNED_ROUTE.path : (currentMeta?.path ?? "");
 
-  // 折叠分组默认收起；当前页在组内时自动展开（从移动 Tab 直接进 /cost 也能看到自己在哪）。
-  const trustActive = currentMeta?.group === "trust";
-  const [openKeys, setOpenKeys] = useState<string[]>(() => (trustActive ? ["trust"] : []));
+  // 折叠分组的展开态：路由切换时按「当前所属组」重置（深链 /sessions/:id 也会
+  // 展开记录与审批）；用户手动收起/展开在两次路由切换之间保留。
+  const derivedOpenKeys = collapsibleGroupKeys(location.pathname);
+  const [openKeys, setOpenKeys] = useState<string[]>(derivedOpenKeys);
+  const lastPathnameRef = useRef(location.pathname);
   useEffect(() => {
-    if (!trustActive) return;
-    setOpenKeys((keys) => (keys.includes("trust") ? keys : [...keys, "trust"]));
-  }, [trustActive]);
+    if (lastPathnameRef.current === location.pathname) return;
+    lastPathnameRef.current = location.pathname;
+    setOpenKeys(collapsibleGroupKeys(location.pathname));
+  }, [location.pathname]);
 
   const menuItems: MenuProps["items"] = useMemo(
     () =>
@@ -261,8 +265,9 @@ export function Layout() {
                 aria-label="打开导航"
                 onClick={() => setDrawerOpen(true)}
               />
+              {/* .topbar-title 保留在 DOM（component-render 契约测试断言 SSR 输出），
+                  桌面端由 shell.css @media (min-width:900px) 隐藏，页题只留页内 h1 一处。 */}
               <strong className="topbar-title">{currentPage?.title ?? "当前页面"}</strong>
-              <span className="topbar-brand">Agent Butler · 本地运维控制台</span>
             </div>
             <div className="topbar-actions">
               {topbarWarn && (
@@ -288,6 +293,23 @@ export function Layout() {
                 icon={mode === "dark" ? <SunOutlined /> : <MoonOutlined />}
                 onClick={toggleMode}
               />
+              {/* 窄屏专属：低频工具收进原生菜单（桌面端被 CSS 隐藏）。
+                  菜单项保留完整文案与图标，键盘可达，命中区 ≥44px。 */}
+              <Dropdown
+                className="topbar-more"
+                menu={{
+                  items: [
+                    { key: "troubleshoot", icon: <ToolOutlined />, label: "排查问题", onClick: () => navigate("/troubleshoot") },
+                    { key: "theme", icon: mode === "dark" ? <SunOutlined /> : <MoonOutlined />, label: themeLabel, onClick: toggleMode },
+                  ],
+                }}
+                trigger={["click"]}
+                placement="bottomRight"
+              >
+                <Button type="text" className="topbar-tool" icon={<MoreOutlined />} aria-label="更多工具">
+                  更多
+                </Button>
+              </Dropdown>
             </div>
           </AntLayout.Header>
           <AntLayout.Content className="content" id="main-content">
@@ -297,8 +319,9 @@ export function Layout() {
             </Suspense>
           </AntLayout.Content>
         </AntLayout>
-        {/* 移动端底部 Tab（M4.1）：≤600px 才渲染显示，桌面端被 CSS 隐藏。 */}
-        <MobileTabBar />
+        {/* 移动端底部 Tab（M4.1）：≤600px 才渲染显示，桌面端被 CSS 隐藏。
+            「更多」唤起导航抽屉；急停唯一挂载在顶栏。 */}
+        <MobileTabBar onOpenNavigation={() => setDrawerOpen(true)} />
       </AntLayout>
     </NotificationsProvider>
   );

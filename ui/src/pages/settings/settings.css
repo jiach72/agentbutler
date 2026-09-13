@@ -65,8 +65,31 @@
   font-weight: 500;
 }
 
-/* 数据源状态概览：小圆点 + 名称 + 降级状态。 */
+/* 数据源诊断：默认折叠的 <details>，点开才列出各源状态。 */
+.settings-source-details {
+  border: 1px solid var(--ab-border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: var(--ab-surface);
+  font-size: 13px;
+  color: var(--ab-text-2);
+}
+
+.settings-source-details > summary {
+  cursor: pointer;
+  user-select: none;
+  color: var(--ab-text);
+}
+
+.settings-source-details > summary:focus-visible {
+  outline: 2px solid var(--ab-primary);
+  outline-offset: 2px;
+}
+
 .settings-source-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -79,6 +102,38 @@
   gap: 8px;
   font-size: 13px;
   color: var(--ab-text-2);
+}
+
+.settings-source-name {
+  color: var(--ab-text);
+}
+
+.settings-source-state {
+  font-size: 12px;
+}
+
+.settings-source-state.secondary {
+  color: var(--ab-text-2);
+}
+
+.settings-source-state.warn {
+  color: var(--ab-warn);
+}
+
+.settings-source-retry {
+  border: 1px solid var(--ab-border);
+  background: var(--ab-surface);
+  border-radius: 6px;
+  padding: 1px 8px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  color: var(--ab-text);
+}
+
+.settings-source-retry:hover {
+  border-color: var(--ab-primary);
+  color: var(--ab-primary);
 }
 
 .settings-source-dot {

@@ -206,15 +206,16 @@ export interface SemanticPalette {
   focusRing: string;
 }
 
-/** 亮色：雪白卡片 + 管家蓝交互 + 黄铜记忆点 + 信号色状态；发丝线优先于投影。 */
+/** 亮色：雪白卡片 + 管家蓝交互 + 黄铜记忆点 + 信号色状态；发丝线优先于投影。
+ *  表面系统已中性化（macOS 灰，去蓝调）：不再引用 ink 阶；文字四档仍取自 ink。 */
 export const lightPalette: SemanticPalette = {
-  canvas: "#F7F9FC",
+  canvas: "#F5F5F7",
   surface: "#FFFFFF",
-  surface2: ink[50],
-  sunken: ink[50],
-  sider: "#FFFFFF",
-  border: ink[100],
-  borderStrong: ink[200],
+  surface2: "#EEEFF2",
+  sunken: "#EEEFF2",
+  sider: "#F5F5F7",
+  border: "#E4E4E9",
+  borderStrong: "#D2D2D7",
   borderControl: ink[300],
   text: ink[900],
   text2: ink[600],
@@ -238,22 +239,23 @@ export const lightPalette: SemanticPalette = {
   errorSoft: signal.errorSoft,
   offline: signal.offline,
   offlineSoft: signal.offlineSoft,
-  shadow1: "0 1px 2px rgb(11 23 40 / 5%), 0 4px 12px rgb(11 23 40 / 7%)",
-  shadow2: "0 18px 44px rgb(11 23 40 / 16%), 0 6px 16px rgb(11 23 40 / 8%)",
+  // 亮色阴影：发丝线 + 双层极淡（macOS「纸片浮在玻璃上」）；发丝线在亮色下承担卡片边界（P0-7）。
+  shadow1: "0 0 0 0.5px rgb(0 0 0 / 4%), 0 1px 2px rgb(0 0 0 / 5%), 0 4px 12px rgb(0 0 0 / 4%)",
+  shadow2: "0 0 0 0.5px rgb(0 0 0 / 8%), 0 2px 8px rgb(0 0 0 / 6%), 0 16px 48px rgb(0 0 0 / 12%)",
   focusRing: "0 0 0 3px rgb(27 79 122 / 30%)",
 };
 
-/** 暗色：午夜墨底 + 管家蓝交互（提亮版）+ 黄铜记忆点 + 信号色状态。 */
+/** 暗色：中性深灰面板（macOS 暗色，去深海军蓝）+ 管家蓝交互（提亮版）+ 黄铜记忆点 + 信号色状态。 */
 export const darkPalette: SemanticPalette = {
-  canvas: ink[900],
-  surface: "#132538",
-  surface2: "#1A2E44",
-  sunken: "#081220",
-  sider: "#0F2133",
-  border: "#22374D",
-  borderStrong: "#2E4760",
+  canvas: "#141519",
+  surface: "#1D1F24",
+  surface2: "#25272D",
+  sunken: "#101114",
+  sider: "#191B20",
+  border: "#31333A",
+  borderStrong: "#3E4148",
   borderControl: "#547699",
-  text: "#E9F0F7",
+  text: "#ECECEE",
   text2: "#AFC0D1",
   /**
    * 三级文字（暗）：必须对 surface(#132538) **和** elevated(#1A2E44) 都 ≥4.5:1——
@@ -280,8 +282,9 @@ export const darkPalette: SemanticPalette = {
   errorSoft: signalDark.errorSoft,
   offline: signalDark.offline,
   offlineSoft: signalDark.offlineSoft,
-  shadow1: "0 1px 2px rgb(0 0 0 / 45%), 0 4px 14px rgb(0 0 0 / 32%)",
-  shadow2: "0 18px 44px rgb(0 0 0 / 55%), 0 6px 16px rgb(0 0 0 / 38%)",
+  // 暗色阴影：发丝高光 + 深投影（暗色阴影要更深才能分离面板）。
+  shadow1: "0 0 0 0.5px rgb(255 255 255 / 5%), 0 2px 8px rgb(0 0 0 / 35%)",
+  shadow2: "0 0 0 0.5px rgb(255 255 255 / 7%), 0 8px 24px rgb(0 0 0 / 45%), 0 24px 64px rgb(0 0 0 / 40%)",
   focusRing: "0 0 0 3px rgb(91 155 209 / 35%)",
 };
 
@@ -291,25 +294,28 @@ export function paletteFor(mode: ThemeMode): SemanticPalette {
 
 /* ────────  3. 圆角 / 字体 / 字阶 / 间距 / 动效 / 布局（规范 02 §3/§5、03 §2）  ──────── */
 
-/** 圆角：卡片 14 / 控件 8 / 徽标与小标签 6。 */
+/** 圆角：卡片 16（macOS Big Sur 后 12–16 连续观感取中）/ 控件 8 / 徽标与小标签 6 / 浮层 20。 */
 export const radius = {
-  card: 14,
+  card: 16,
   control: 8,
   tag: 6,
+  /** Modal / Popover / Drawer / Dropdown 等浮层档。 */
+  float: 20,
 } as const;
 
 /**
- * 品牌字体栈：Inter/SF Pro 优先，中文回退苹方/雅黑。
- * 本机优先产品不依赖网络字体，Inter 缺失时回退必须仍然可读。
+ * 品牌字体栈：mac 系统字体最前（SF Pro / 苹方自动命中），Windows 命中 Segoe + 雅黑。
+ * Inter 不删，移到 Segoe 之后作 Windows 回退（装了 Inter 的 Windows 用户观感不变）。
+ * 本机优先产品不依赖网络字体，不新增 @font-face。
  */
 const fontStack =
-  '"Inter", "SF Pro Display", "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif';
+  '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Segoe UI Variable Text", "Segoe UI", "Inter", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif';
 
 export const fontFamily = fontStack;
 
 /** 等宽栈：只用于日志、版本串、ID/哈希、端口号、JSON、代码块、指标数值。 */
 export const monoFontFamily =
-  '"Cascadia Mono", ui-monospace, "SF Mono", Menlo, Consolas, "Courier New", monospace';
+  'ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, "Courier New", monospace';
 
 /** 字阶（px）。最小 12，正文 14，中文行高不低于 1.6。 */
 export const typeScale = {
@@ -428,6 +434,15 @@ export function themeConfigFor(mode: ThemeMode): ThemeConfig {
         colorErrorBg: p.errorSoft,
         colorInfoBg: p.primarySoft,
       },
+      // 卡片边界体系（P0-7）：亮色卡片 1px 边交还给 shadow1 的发丝线；
+      // 暗色发丝线是高光色，承担不了分隔，保留实体边。
+      Card: {
+        colorBorderSecondary: mode === "light" ? "transparent" : p.border,
+      },
+      // 显式钉住：Card 的 transparent 档不得波及表格线（表格线是结构边界）。
+      Table: {
+        colorBorderSecondary: p.border,
+      },
     },
   };
 }
@@ -519,6 +534,7 @@ export function applyThemeCssBridge(mode: ThemeMode): void {
   vars["--ab-r-card"] = r(radius.card);
   vars["--ab-r-ctl"] = r(radius.control);
   vars["--ab-r-tag"] = r(radius.tag);
+  vars["--ab-r-float"] = r(radius.float);
 
   vars["--ab-dur-fast"] = ms(motion.fast);
   vars["--ab-dur-base"] = ms(motion.base);

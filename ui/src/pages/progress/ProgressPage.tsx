@@ -283,7 +283,6 @@ export function ProgressPage() {
       <Flex vertical gap={16}>
         <PageHeader
           title="进度可信度"
-          description="对比 agent 声称的进度和它实际做过的动作，看看进度是不是可信。"
           extra={
             <Space>
               <Button icon={<ReloadOutlined />} onClick={refresh}>

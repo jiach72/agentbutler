@@ -402,6 +402,8 @@ export interface WatchHttpDeps {
   /* ------------------- 信任层（Trust Layer）服务 ------------------- */
   /** 预算引擎（M1.1；未接线时 /api/budget 返回 503）。 */
   budget?: BudgetEngine;
+  /** 记忆探针完整写入档频率（分钟；get 读当前值，set 持久化并生效）。 */
+  probeConfig?: { get(): number; set(min: number): void };
   /** 行为审计流（M1.2；未接线时 /api/audit/* 返回 503）。 */
   actionAudit?: ActionAuditService;
   /** 全局急停（M1.3；未接线时 /api/killswitch 返回 503）。 */
@@ -1758,6 +1760,27 @@ async function handle(
       if (deps.budget === undefined) return sendJson(res, 503, { error: "budget-unavailable" });
       const status: BudgetStatus = await deps.budget.checkNow();
       return sendJson(res, 200, status);
+    }
+
+    // 记忆探针频率（审计：完整写入探针触发提供方 LLM 抽取，有 API 成本）。
+    if (path === "/api/memory-probe/config") {
+      if (deps.probeConfig === undefined) return sendJson(res, 503, { error: "probe-config-unavailable" });
+      if (method === "GET") {
+        return sendJson(res, 200, { intervalMin: deps.probeConfig.get() });
+      }
+      if (method === "POST") {
+        if (!options.credentialWritesAllowed) return sendJson(res, 403, { error: "credential-writes-disabled" });
+        const body = await readJsonBody(req, res);
+        if (body === null) return;
+        const intervalMin = Number(body["intervalMin"]);
+        if (!Number.isFinite(intervalMin) || intervalMin < 5 || intervalMin > 1440) {
+          return sendJson(res, 400, { error: "invalid-interval", detail: "intervalMin 须在 5 ~ 1440 分钟之间" });
+        }
+        deps.probeConfig.set(Math.floor(intervalMin));
+        deps.audit?.append({ actor: "panel", action: "probe-interval-set", target: "memory", detail: { intervalMin } });
+        return sendJson(res, 200, { intervalMin: deps.probeConfig.get() });
+      }
+      return sendJson(res, 405, { error: "method-not-allowed" });
     }
 
     // 行为审计流（M1.2）：按时间窗过滤的动作时间线 + 汇总。

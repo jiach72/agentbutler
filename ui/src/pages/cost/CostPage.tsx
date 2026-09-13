@@ -250,7 +250,6 @@ export function CostPage() {
       <Flex vertical gap={16}>
         <PageHeader
           title="成本"
-          description="每笔花费都能查到用在哪个模型、哪次会话。"
           extra={
             <Button icon={<SettingOutlined />} onClick={openBudgetModal}>
               预算设置

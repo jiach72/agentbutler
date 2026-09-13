@@ -121,7 +121,6 @@ export function PreferencesPage() {
       <Flex vertical gap={24}>
         <PageHeader
           title="设置"
-          description="调整界面外观和重要通知的显示方式。"
         />
         <ConclusionBar
           tone="ok"

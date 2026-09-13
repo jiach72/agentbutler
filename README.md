@@ -57,6 +57,65 @@ node scripts/version.mjs check           # 校验全仓一致（CI 也跑这一�
 
 Web 是控制台入口，Gateway 负责消息运行时，Watch 负责巡检、版本和后台任务。Docker Compose 默认只发布 Web 的 `127.0.0.1:7531`；Gateway 和 Watch 保持在内部网络中。
 
+## 系统要求
+
+| 依赖 | 最低版本 | 说明 |
+|------|---------|------|
+| 操作系统 | Windows 10+ (WSL2) / Linux | WSL 用户须在 WSL ext4 内操作，禁止在 `/mnt/c` 下构建 |
+| Docker | 20.10+ | 含 Compose v2（`docker compose` 子命令可用） |
+| Git | 2.30+ | 克隆与版本管理 |
+| Hermes Agent | 最新版 | 被管理的 AI Agent 运行时（[安装指引](https://github.com/nousresearch/hermes-agent)） |
+| Python | 3.11+ | 仅启用 Hermes 消息接入时需要（Bridge 运行时） |
+
+> **没有 Hermes？** Agent Butler 仍可运行（巡检/版本/备份/日志等模块可用），但消息接入、记忆探针和技能管理功能会显示为降级或不可用。
+
+## 快速上手（5 步）
+
+> 以下步骤在 Linux 或 WSL2 终端中执行。Windows 用户请先打开 WSL 终端。
+
+**第 1 步 — 克隆仓库**
+
+```bash
+git clone https://github.com/jiach72/agentbutler.git
+cd agentbutler
+```
+
+**第 2 步 — 初始化配置**
+
+```bash
+cp -n .env.example .env
+```
+
+编辑 `.env`，按需修改以下关键项（其余保持默认即可首次启动）：
+
+```bash
+# 必看的三项：
+BUTLER_FRAMEWORK=hermes              # 被管框架：hermes 或 openclaw
+BUTLER_HERMES_HOST_PATH=/home/<你>/.hermes  # Hermes 安装目录
+# 跨设备访问时必须设置（本机使用可留空）：
+# BUTLER_ACCESS_TOKEN=$(openssl rand -base64 32)
+```
+
+**第 3 步 — 一键部署**
+
+```bash
+bash scripts/install.sh
+```
+
+脚本自动完成前置检查、配置初始化、主密钥生成、Hermes 预检、数据卷备份、镜像构建、滚动启动与健康等待。约 2 分钟。
+
+**第 4 步 — 打开面板**
+
+浏览器访问 `http://127.0.0.1:7531`，首次进入会引导你完成三步设置向导（环境体检 → 实例确认 → 连接验证）。
+
+**第 5 步 — 验证消息链路**（可选，启用 Hermes 消息接入时）
+
+```bash
+bash scripts/bridge-healthcheck.sh
+```
+
+看到 `0 个 FAIL` 即代表 Gateway ↔ Bridge 全链路畅通。
+
 ## 快速安装（Docker 部署）
 
 正式部署方式为 Docker Compose：三个面板服务（Web/Gateway/Watch）加一个内部 updater sidecar。**由智能体自动部署请直接阅读 [AGENTS.md](AGENTS.md)**，其中包含环境判定矩阵、分支步骤与部署后验证清单。

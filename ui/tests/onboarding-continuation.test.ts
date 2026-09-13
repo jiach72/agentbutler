@@ -28,4 +28,12 @@ describe("首次场景的持续入口", () => {
     expect(getScenarioTemplate("coding")?.destination).toBe("/skills");
     expect(getScenarioTemplate("unknown")).toBeNull();
   });
+
+  it("未选择场景时提供关闭/跳过，引导可纯前端关闭（不标记安装完成）", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(OnboardingContinuation, { preferences: null }),
+    );
+    expect(html).toContain('aria-label="关闭引导"');
+    expect(html).toContain("暂不设置");
+  });
 });

@@ -10,7 +10,6 @@ export function LogsPage() {
       <Flex vertical gap={16}>
         <PageHeader
           title="系统日志"
-          description="查看管家与智能体日志，按级别筛选；分析结论与修复建议在下方。"
         />
         <ConclusionBar
           tone="info"

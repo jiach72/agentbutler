@@ -698,3 +698,93 @@ export function historySummaryLine(content: string, max = 64): string {
   if (firstLine === "") return "（图片或语音消息，没有文字）";
   return firstLine.length > max ? `${firstLine.slice(0, max)}…` : firstLine;
 }
+
+/* ---- 网关页三标签导航与深链兼容 ---- */
+
+/** 三个并列标签的合法取值。 */
+export type GatewayTab = "messages" | "channels" | "rules";
+
+/** 标签的展示名（与页面 Tabs 文案保持一致，便于测试断言）。 */
+export const GATEWAY_TAB_LABELS: Record<GatewayTab, string> = {
+  messages: "消息记录",
+  channels: "通道设置",
+  rules: "通知规则",
+};
+
+/** 旧「提示词优化」深链的锚点 id：保留在规则标签的高级配置区，旧 hash 仍能滚动到位。 */
+export const PROMPT_OPTIMIZATION_ANCHOR = "prompt-optimization-panel";
+
+/** 旧深链中代表「提示词优化」的 tab 取值，统一映射到规则标签。 */
+const LEGACY_PROMPT_TAB = "prompt-optimization";
+
+/**
+ * 把 URL 查询（或字符串）解析为当前标签。
+ * 约定：messages / channels / rules 直用；prompt-optimization（旧深链）映射为 rules；
+ * 缺省、非法或空值一律回落 messages。hash 为旧 #prompt-optimization-panel 深链时，
+ * 即便没有 tab 参数也强制落到规则标签，保证跳转可达。
+ */
+export function resolveGatewayTab(
+  search: URLSearchParams | string,
+  hash?: string,
+): GatewayTab {
+  const params = typeof search === "string" ? new URLSearchParams(search) : search;
+  const tab = params.get("tab");
+  if (tab === "messages" || tab === "channels" || tab === "rules") return tab;
+  if (tab === LEGACY_PROMPT_TAB) return "rules";
+  if (hash === `#${PROMPT_OPTIMIZATION_ANCHOR}`) return "rules";
+  return "messages";
+}
+
+/* ---- 通道分区与三态展示 ---- */
+
+/**
+ * 把通道目录拆成「已添加」与「可添加」两组：
+ * - active：已配置凭据且已启用的通道排前（其余通道不混入）；
+ * - addable：未配置凭据或未启用的通道，统一放进显式的「添加通道」区域。
+ * 组内均按「已配置」优先排序，禁用/未配置沉底。
+ */
+export function partitionChannels<T extends ChannelDirectoryEntryView>(
+  channels: ReadonlyArray<T>,
+): { active: T[]; addable: T[] } {
+  const isActive = (c: T) => c.credentialsConfigured && c.enabled;
+  const byConfiguredFirst = (a: T, b: T) =>
+    Number(b.credentialsConfigured) - Number(a.credentialsConfigured);
+  const active = channels.filter(isActive).slice().sort(byConfiguredFirst);
+  const addable = channels.filter((c) => !isActive(c)).slice().sort(byConfiguredFirst);
+  return { active, addable };
+}
+
+/** 同一通道的三个独立事实：已配置凭据、连接正常（已登录）、已启用。 */
+export interface ChannelStatusFlags {
+  configured: boolean;
+  connected: boolean;
+  enabled: boolean;
+}
+
+/** 三个事实彼此独立换算，连接未知时 connected 必须为 false。 */
+export function channelStatusFlags(channel: ChannelDirectoryEntryView): ChannelStatusFlags {
+  return {
+    configured: channel.credentialsConfigured,
+    connected: channel.loginState === "logged_in",
+    enabled: channel.enabled,
+  };
+}
+
+/**
+ * 连接状态徽标：连接未知（loginState=unknown）时显式标为「连接状态未知」，
+ * 绝不可渲染成健康（ok）。返回 tone + 文案供 StatusBadge 消费。
+ */
+export function channelConnectionBadge(
+  channel: ChannelDirectoryEntryView,
+): { tone: "ok" | "warn" | "unknown"; label: string } {
+  switch (channel.loginState) {
+    case "logged_in":
+      return { tone: "ok", label: "连接正常" };
+    case "logged_out":
+      return { tone: "warn", label: "未登录" };
+    case "configuring":
+      return { tone: "warn", label: "待配置" };
+    default:
+      return { tone: "unknown", label: "连接状态未知" };
+  }
+}

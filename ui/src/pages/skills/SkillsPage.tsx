@@ -1,24 +1,20 @@
 /**
- * 技能与记忆页主编排：顶部全局概览带 + 技能市场（WorkBuddy 风格：SkillHub 目录 /
- * 推荐精选 / 本机已安装）/ 记忆库 分区。市场浏览与安装由 SkillsMarketplace 承载；
- * 插件为只读盘点，降级为折叠区。记忆检索独立于技能库。
+ * 技能与记忆页主编排：顶部结论条 + 管理标签页（技能库 / 插件 / 记忆）提前暴露，
+ * 下方单一紧凑计数摘要。市场浏览与安装由 SkillsMarketplace 承载；
+ * 插件管理由 PluginLibrary 承载（独立标签页，不再作为首屏折叠的只读盘点）。
+ * 记忆检索独立于技能库。
  */
-import { ApiOutlined, AppstoreOutlined, DatabaseOutlined } from "@ant-design/icons";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { App, Button, Flex, Tabs, Typography } from "antd";
-import { AdvancedDetails } from "../../components/AdvancedDetails.js";
+import { App, Button, Empty, Flex, Spin, Tabs, Typography } from "antd";
 import { ConclusionBar } from "../../components/ConclusionBar.js";
-import type { PageConclusionView } from "../../components/ConclusionBar.js";
 import { ConnectionChip } from "../../components/ConnectionChip.js";
 import { PageHeader } from "../../components/PageHeader.js";
 import { StatStrip } from "../../components/StatStrip.js";
-import type { StatStripItem } from "../../components/StatStrip.js";
 import { useUrlState } from "../../hooks/useUrlState.js";
 import { loadJson, postJson } from "../../lib/api.js";
 import type { FetchState } from "../../lib/api.js";
 import {
   buildSkillsUrl,
-  formatNumber,
   type MemoryPreview,
   type MemorySelfCheckView,
   type SkillsPayload,
@@ -26,6 +22,7 @@ import {
 import { MemoryPanel } from "./MemoryPanel.js";
 import { PluginLibrary } from "./PluginLibrary.js";
 import { SkillsMarketplace } from "./SkillsMarketplace.js";
+import { buildSkillsConclusion, buildSkillsOverview } from "./summary.js";
 
 const { Text } = Typography;
 
@@ -181,7 +178,6 @@ export function SkillsPage() {
 
   const libraryData = mainState.status === "ready" ? mainState.data : null;
   const refreshing = mainState.status === "loading" || searching;
-  const memoryStats = libraryData?.memory.stats ?? null;
   const enabledPluginCount = libraryData === null ? 0 : libraryData.plugins.items.filter((item) => item.enabled).length;
   const disabledPluginCount = libraryData === null ? 0 : libraryData.plugins.total - enabledPluginCount;
   /** 记忆写入被关掉时，页面必须说出来——否则用户会以为写进去了（P3 真实即边界）。 */
@@ -191,82 +187,24 @@ export function SkillsPage() {
    * 页面结论条（规范 03 §2.3 ②「必须有」）。
    * 结论只来自真实数据；读不到就说读不到，不猜、不填充（评审 P0-2）。
    */
-  const conclusion: PageConclusionView =
-    mainState.status === "loading"
-      ? {
-          tone: "unknown" as const,
-          title: "正在读取技能与记忆",
-          copy: "读取完成后这里会直接告诉你技能和记忆是否正常。",
-        }
-      : mainState.status === "failed"
-        ? {
-            tone: "offline" as const,
-            title: "技能与记忆暂时读不到",
-            copy: mainState.reason,
-            action: (
-              <Button onClick={() => void loadLibrary()}>重试</Button>
-            ),
-          }
-        : libraryData?.watchReachable === false
-          ? {
-              tone: "offline" as const,
-              title: "管家服务暂时连不上",
-              copy: "技能安装与记忆维护需要管家在线；恢复后页面会自动更新。",
-            }
-          : memoryWritesOff
-            ? {
-                tone: "warn" as const,
-                title: "记忆写入当前是关闭的",
-                copy: "技能与插件可以正常加载，但新的记忆不会被写回本机。",
-              }
-            : {
-                tone: "ok" as const,
-                title: `${formatNumber(libraryData?.skills.total ?? 0)} 个技能与 ${formatNumber(libraryData?.plugins.total ?? 0)} 个插件可加载`,
-                copy:
-                  disabledPluginCount > 0
-                    ? `记忆中累计 ${memoryStats === null ? "读取中" : formatNumber(memoryStats.totalEntries)} 条；另有 ${disabledPluginCount} 个插件未启用。`
-                    : `记忆中累计 ${memoryStats === null ? "读取中" : formatNumber(memoryStats.totalEntries)} 条记录。`,
-              };
+  const conclusion = buildSkillsConclusion(mainState, libraryData, memoryWritesOff);
+  const conclusionView =
+    mainState.status === "failed"
+      ? { ...conclusion, action: <Button onClick={() => void loadLibrary()}>重试</Button> }
+      : conclusion;
 
-  // 全局概览带：只保留技能、插件和记忆三库的当前规模。
-  // 走 StatStrip（全站唯一概览统计出口），不再手写 Row+Card+Statistic——
-  // 手写版本的字号、取色、副注位与其他页面不一致（评审 P1-6）。
-  const overview: StatStripItem[] = [
-    {
-      key: "skills",
-      icon: ApiOutlined,
-      label: "技能（Hermes 全量）",
-      value: libraryData === null ? "…" : formatNumber(libraryData.skills.total),
-      sub: libraryData === null ? "读取中" : "含内置/系统技能",
-    },
-    {
-      key: "plugins",
-      icon: AppstoreOutlined,
-      label: "插件",
-      value: libraryData === null ? "…" : formatNumber(libraryData.plugins.total),
-      tone: disabledPluginCount > 0 ? "warn" : undefined,
-      sub:
-        libraryData === null
-          ? "读取中"
-          : disabledPluginCount > 0
-            ? `共 ${enabledPluginCount} 启用 · ${disabledPluginCount} 未启用`
-            : "全部已启用",
-    },
-    {
-      key: "memory-entries",
-      icon: DatabaseOutlined,
-      label: "记忆条目",
-      value: memoryStats === null ? "…" : formatNumber(memoryStats.totalEntries),
-      tone: memoryWritesOff ? "warn" : undefined,
-      sub: memoryWritesOff ? "写入已关闭" : "累计入库",
-    },
-  ];
+  // 全局概览带：技能、插件、记忆三库的当前规模，收敛为「一个」紧凑计数摘要
+  // （库存计数只在这里说一次，不再与结论条、插件盘点卡重复）。
+  const overview = buildSkillsOverview(libraryData, {
+    enabledPluginCount,
+    disabledPluginCount,
+    memoryWritesOff,
+  });
 
   return (
     <section className="skills-page">
       <PageHeader
         title="智能体与记忆"
-        description="管理智能体技能的安装、更新与部署；查看插件状态，并检索、维护本机记忆。"
         extra={
           <Flex vertical align="flex-end" gap={4}>
             <ConnectionChip
@@ -284,18 +222,10 @@ export function SkillsPage() {
       />
 
       {/* §2.3 ② 结论条：进来先说「技能和记忆现在好不好」。 */}
-      <ConclusionBar tone={conclusion.tone} title={conclusion.title} copy={conclusion.copy} action={conclusion.action} />
+      <ConclusionBar tone={conclusionView.tone} title={conclusionView.title} copy={conclusionView.copy} action={conclusionView.action} />
 
-      <StatStrip items={overview} />
-
-      {mainState.status === "ready" && libraryData !== null && (
-        <AdvancedDetails
-          summary={`插件（只读盘点 · ${libraryData.plugins.items.filter((item) => item.enabled).length} 启用 / 共 ${libraryData.plugins.total}）`}
-        >
-          <PluginLibrary plugins={libraryData.plugins} />
-        </AdvancedDetails>
-      )}
-
+      {/* 管理标签页提前暴露：用户第一屏即可进管理操作，而不是先看汇总。
+          技能库（含「我安装的」管理入口）/ 插件 / 记忆。 */}
       <Tabs
         activeKey={activeTab}
         onChange={setActiveTab}
@@ -307,6 +237,25 @@ export function SkillsPage() {
             children: (
               <div id="skills-marketplace">
                 <SkillsMarketplace onInstalled={() => void loadLibrary({ silent: true })} />
+              </div>
+            ),
+          },
+          {
+            key: "plugins",
+            label: "插件",
+            forceRender: true,
+            children: (
+              <div id="plugins-panel">
+                {libraryData !== null ? (
+                  <PluginLibrary plugins={libraryData.plugins} />
+                ) : mainState.status === "failed" ? (
+                  <Empty description="插件清单暂时读不到；管家服务恢复后可重试。" />
+                ) : (
+                  <Flex justify="center" align="center" gap={8} style={{ padding: "48px 0" }}>
+                    <Spin />
+                    <Text type="secondary">正在读取插件清单…</Text>
+                  </Flex>
+                )}
               </div>
             ),
           },
@@ -336,6 +285,9 @@ export function SkillsPage() {
           },
         ]}
       />
+
+      {/* 单一紧凑计数摘要：库存计数只在这里说一次。 */}
+      <StatStrip items={overview} />
     </section>
   );
 }

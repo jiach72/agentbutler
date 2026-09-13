@@ -111,7 +111,7 @@ export function ApprovalDetailPage() {
   if (error !== null && item === null) {
     return (
       <section className="approval-detail-page">
-        <PageHeader title="操作审批" description="确认一次高危动作是否放行。" />
+        <PageHeader title="操作审批" />
         <Result
           status="warning"
           title="找不到这条审批记录"
@@ -129,7 +129,7 @@ export function ApprovalDetailPage() {
   if (item === null) {
     return (
       <section className="approval-detail-page">
-        <PageHeader title="操作审批" description="确认一次高危动作是否放行。" />
+        <PageHeader title="操作审批" />
         <Card loading />
       </section>
     );
@@ -169,7 +169,6 @@ export function ApprovalDetailPage() {
       <Flex vertical gap={16}>
         <PageHeader
           title="操作审批"
-          description="看清楚它要做什么，再决定放不放行。"
           extra={
             <Space>
               <Button icon={<ReloadOutlined />} onClick={refresh}>

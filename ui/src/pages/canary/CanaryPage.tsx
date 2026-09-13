@@ -370,7 +370,6 @@ export function CanaryPage() {
       <Flex vertical gap={16}>
         <PageHeader
           title="升级策略"
-          description="新版本先在影子环境跑一轮真实任务，确认没问题再切换。"
           extra={
             <Space>
               <Button icon={<ReloadOutlined />} onClick={refresh}>

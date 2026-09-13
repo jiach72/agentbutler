@@ -49,11 +49,6 @@ export function TroubleshootPage() {
       <Flex vertical gap={24}>
         <PageHeader
           title="排查问题"
-          description={
-            wizard.stage === null
-              ? "进来就先做一轮完整体检：正常直接告诉你没事，有问题给出原因和最快的处理方式。"
-              : "按现象一步步排查：先描述问题，管家收集证据并给出可执行的处理方案。"
-          }
           extra={
             wizard.stage !== null ? (
               <Flex>

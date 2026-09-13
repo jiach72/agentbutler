@@ -264,11 +264,8 @@ export function SetupPage() {
       <Flex vertical gap={24}>
         <PageHeader
           title="连接设置"
-          description={
-            firstRun
-              ? "第一次连接：确认下面三环都变绿，管家就准备就绪。"
-              : "三环链路体检：控制通道 → 智能体连接 → 受管模型。哪一环不绿修哪一环。"
-          }
+          /* P0-6：首跑指引保留（独有指引）；非首跑分支与侧栏 note 重复，删。 */
+          description={firstRun ? "第一次连接：确认下面三环都变绿，管家就准备就绪。" : undefined}
           extra={
             <Button onClick={() => void loadStatus()} loading={loading}>重新体检</Button>
           }

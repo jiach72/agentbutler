@@ -200,10 +200,7 @@ export function DashboardPage() {
     return (
       <section className="dashboard-page">
         <Flex vertical gap={24}>
-          <PageHeader
-            title="本地管家"
-            description="正在汇总服务、检查结果和消息状态。"
-          />
+          <PageHeader title="本地管家" />
           <PageProgress
             title="正在读取管家状态"
             detail="每一项完成后都会立即更新，不需要重复刷新页面。"
@@ -222,7 +219,6 @@ export function DashboardPage() {
       <Flex vertical gap={24}>
         <PageHeader
           title="本地管家"
-          description="查看本机服务状态、连接情况和消息通知。"
           extra={<Button size="small" onClick={() => navigate("/wall")}>大屏模式</Button>}
         />
 
@@ -331,15 +327,6 @@ export function DashboardPage() {
             </Row>
           </Flex>
         </RuntimeDetails>
-
-        {(inspectionRequested || inspectStatus?.inFlight === true) && (
-          <PageProgress
-            compact
-            indeterminate
-            title="正在检查本机服务"
-            detail="正在检查进程、接口、记忆、消息通道和模型连接，完成后本页会自动更新。"
-          />
-        )}
 
         <DangerConfirmModal
           open={runbookCandidate !== null}

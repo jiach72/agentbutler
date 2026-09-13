@@ -48,4 +48,27 @@ export default tseslint.config(
       },
     },
   },
+  {
+    // ui/public 下的浏览器内联脚本（如 theme-boot.js 主题防闪烁引导）直接跑在页面里，
+    // 显式声明浏览器全局，否则 no-undef 会把 window/document/localStorage 全部误报。
+    files: ["ui/public/**/*.js"],
+    languageOptions: {
+      globals: {
+        window: "readonly",
+        document: "readonly",
+        localStorage: "readonly",
+        sessionStorage: "readonly",
+        navigator: "readonly",
+        location: "readonly",
+        console: "readonly",
+        matchMedia: "readonly",
+        getComputedStyle: "readonly",
+        requestAnimationFrame: "readonly",
+        cancelAnimationFrame: "readonly",
+        Event: "readonly",
+        CustomEvent: "readonly",
+        MediaQueryList: "readonly",
+      },
+    },
+  },
 );

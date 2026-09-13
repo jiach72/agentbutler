@@ -7,7 +7,7 @@
  * - 每 10 秒轮询一次（后台标签页自动暂停），事件流命中时节流补刷。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 import {
   BellOutlined,
   ExclamationCircleOutlined,
@@ -15,13 +15,12 @@ import {
   SendOutlined,
   StopOutlined,
 } from "@ant-design/icons";
-import { App, Badge, Button, Card, Flex, Spin, Tooltip, Typography } from "antd";
+import { App, Badge, Button, Flex, Tabs, Tooltip, Typography } from "antd";
 import { AdvancedDetails } from "../../components/AdvancedDetails.js";
+import { ConclusionBar } from "../../components/ConclusionBar.js";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { PageHeader } from "../../components/PageHeader.js";
-import { ConclusionBar } from "../../components/ConclusionBar.js";
-import { SectionHeader } from "../../components/SectionHeader.js";
 import { StatStrip } from "../../components/StatStrip.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { PromptOptimizationPanel } from "./PromptOptimizationPanel.js";
@@ -41,13 +40,16 @@ import { RateLimitsTable } from "./RateLimitsTable.js";
 import { RelayControlCard } from "./RelayControlCard.js";
 import {
   COVERAGE_LABELS,
+  GATEWAY_TAB_LABELS,
   PARAM_LABELS,
+  PROMPT_OPTIMIZATION_ANCHOR,
   REFRESH_INTERVAL_MS,
   effectivePatchParams,
   deriveRecoveryState,
   instanceKeyOf,
   patchActionError,
   patchBusyKey,
+  resolveGatewayTab,
   seedDrafts,
   statusTone,
 } from "./helpers.js";
@@ -98,6 +100,24 @@ export function GatewayPage() {
     if (location.hash === "") return;
     document.getElementById(location.hash.slice(1))?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [location.hash]);
+
+  // URL 驱动三标签：?tab=messages|channels|rules；缺省/非法回落 messages，
+  // prompt-optimization（旧深链）→ rules，#prompt-optimization-panel 深链也落到规则标签。
+  const [searchParams, setSearchParams] = useSearchParams();
+  const promptDeepLinked =
+    searchParams.get("tab") === "prompt-optimization" ||
+    location.hash === `#${PROMPT_OPTIMIZATION_ANCHOR}`;
+  const activeTab = resolveGatewayTab(searchParams, location.hash);
+  const handleTabChange = (key: string) => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.set("tab", key);
+        return next;
+      },
+      { replace: true },
+    );
+  };
 
   const acquireBusy = useCallback((key: string) => {
     setBusyKeys((prev) => new Set(prev).add(key));
@@ -304,28 +324,6 @@ export function GatewayPage() {
     }
   };
 
-  if (data === null && messageData === null && loading) {
-    return (
-      <section className="gateway-page">
-        <Flex vertical gap={24}>
-          <PageHeader title="消息通知" />
-          {/* §2.3 ② 结论条。 */}
-          <ConclusionBar
-            tone={loading ? "info" : "ok"}
-            title={loading ? "正在读取消息状态" : "消息通道运行正常"}
-            copy={loading ? "同步中，稍候片刻。" : `通知按免打扰规则调度，最近更新 ${lastUpdated?.toLocaleTimeString("zh-CN", { hour12: false }) ?? "—"}。`}
-          />
-          <Card>
-            <Flex vertical align="center" gap={12} style={{ padding: "40px 0" }}>
-              <Spin />
-              <Typography.Text type="secondary">正在读取消息状态、发送记录和通知规则…</Typography.Text>
-            </Flex>
-          </Card>
-        </Flex>
-      </section>
-    );
-  }
-
   const overallBadge = statusTone(rateLimit?.overall ?? "unknown");
   const channelBadge =
     alerts === null
@@ -402,7 +400,6 @@ export function GatewayPage() {
       <Flex vertical gap={24}>
         <PageHeader
           title="消息通知"
-          description="记录消息发送结果，合并重复内容，并按免打扰规则调度；所有通知保留可追溯记录。"
           extra={
             <Flex wrap="wrap" justify="flex-end" align="center" gap={8}>
               <Badge status={loading ? "processing" : "success"} text={loading ? "正在同步" : "10 秒实时刷新"} />
@@ -420,6 +417,33 @@ export function GatewayPage() {
               </Button>
             </Tooltip>
             </Flex>
+          }
+        />
+
+        {/* §2.3 ② 结论条：跟随真实状态（桥接/恢复、待投递、失败），不恒定报平安。 */}
+        <ConclusionBar
+          tone={
+            recoveryState !== null
+              ? "warn"
+              : loading && messageData === null
+                ? "unknown"
+                : pendingAlerts > 0 || failedAlerts > 0
+                  ? "warn"
+                  : "ok"
+          }
+          title={
+            recoveryState !== null
+              ? recoveryState.title
+              : pendingAlerts === 0 && failedAlerts === 0
+                ? "通知链路正常，没有待处理的消息"
+                : `有 ${pendingAlerts + failedAlerts} 条消息需要留意`
+          }
+          copy={
+            recoveryState !== null
+              ? recoveryState.description
+              : pendingAlerts > 0 || failedAlerts > 0
+                ? `待投递 ${pendingAlerts} 条、发送失败 ${failedAlerts} 条；失败的消息可在列表里重发或忽略。`
+                : "发送结果、通道状态与限流情况都会实时更新在下方。"
           }
         />
 
@@ -506,93 +530,113 @@ export function GatewayPage() {
           />
         )}
 
-        <ChannelGrid onReconnect={() => void reconnectMessages()} />
+        <Tabs
+          activeKey={activeTab}
+          onChange={handleTabChange}
+          destroyOnHidden={false}
+          items={[
+            {
+              key: "messages",
+              label: GATEWAY_TAB_LABELS.messages,
+              children: (
+                <Flex vertical gap={24}>
+                  {/* 默认可见：需要关注的条目（告警/待处理）+ 消息记录，不再折叠。 */}
+                  <AlertQueuePanel alerts={alerts} />
+                  <ConnectionHealth
+                    messageBridge={messageBridge}
+                    bridgeReady={bridgeReady}
+                    messageCounts={messageCounts}
+                  />
+                  <DeliveryTrendCard />
+                  <MessageInspector
+                    messageBridge={messageBridge}
+                    coverageEntries={coverageEntries}
+                    messageCounts={messageCounts}
+                    messageItems={messageItems}
+                    messagesReachable={messagesReachable}
+                    selectedMessage={selectedMessage}
+                    onSelectMessage={setSelectedMessageId}
+                    taskData={taskData}
+                    taskLoading={taskLoading}
+                    activeStateFilter={messageStateFilter}
+                    onStateFilterChange={setMessageStateFilter}
+                    onRedeliver={(messageId) => setConfirmRedeliverId(messageId)}
+                    redeliverBusy={redeliverBusy}
+                    onExpedite={(messageId) => void expediteMessage(messageId)}
+                    expediteBusy={expediteBusy}
+                  />
+                </Flex>
+              ),
+            },
+            {
+              key: "channels",
+              label: GATEWAY_TAB_LABELS.channels,
+              children: <ChannelGrid onReconnect={() => void reconnectMessages()} />,
+            },
+            {
+              key: "rules",
+              label: GATEWAY_TAB_LABELS.rules,
+              children: (
+                <Flex vertical gap={24}>
+                  <DndRulesCard />
+                  <ChannelMetricsCard />
+                  <AdvancedDetails
+                    summary={
+                      <>
+                        <strong>频率与补丁参数</strong>
+                        <small>频率规则、消息参数和通知队列；普通用户通常不需要动</small>
+                      </>
+                    }
+                  >
+                    <Flex vertical gap={16}>
+                      <Flex wrap="wrap" gap={16} align="center" aria-label="观察面状态">
+                        <Typography.Text type="secondary">
+                          发送频率 <StatusBadge {...overallBadge} />
+                        </Typography.Text>
+                        <Typography.Text type="secondary">近 24 小时 {rateLimit?.last24h ?? "—"} 次</Typography.Text>
+                        <Typography.Text type="secondary">
+                          备用告警 <StatusBadge {...channelBadge} />
+                        </Typography.Text>
+                        <Typography.Text type="secondary">
+                          {pendingAlerts} 待投递 · {failedAlerts} 失败
+                        </Typography.Text>
+                      </Flex>
 
-        <ConnectionHealth
-          messageBridge={messageBridge}
-          bridgeReady={bridgeReady}
-          messageCounts={messageCounts}
+                      <RateLimitsTable rateLimit={rateLimit} onUseSuggestion={useSuggestion} />
+
+                      <PatchBoard
+                        patches={patches}
+                        drafts={drafts}
+                        driftReports={driftReports}
+                        watchUnreachable={data?.watchReachable === false}
+                        instanceValue={selectedInstance}
+                        patchErrors={patchErrors}
+                        busyKeys={busyKeys}
+                        onInstanceChange={setSelectedInstance}
+                        onUpdateDraft={updateDraft}
+                        onRunAction={(patch, action) => void runPatchAction(patch, action)}
+                      />
+                    </Flex>
+                  </AdvancedDetails>
+                  {/* 旧「提示词优化」深链锚点：保留在规则标签的高级配置区。 */}
+                  <div id={PROMPT_OPTIMIZATION_ANCHOR}>
+                    <AdvancedDetails
+                      defaultActive={promptDeepLinked}
+                      summary={
+                        <>
+                          <strong>提示词优化（高级配置）</strong>
+                          <small>消息整理对照历史、规则文件改进与候选版本采用</small>
+                        </>
+                      }
+                    >
+                      <PromptOptimizationPanel />
+                    </AdvancedDetails>
+                  </div>
+                </Flex>
+              ),
+            },
+          ]}
         />
-
-        <DeliveryTrendCard />
-
-        <DndRulesCard />
-
-        <ChannelMetricsCard />
-
-        <Card id="prompt-optimization-panel" title={<SectionHeader kicker="回复质量" title="提示词优化" compact />}>
-          <PromptOptimizationPanel />
-        </Card>
-
-        <AdvancedDetails
-          summary={
-            <>
-              <strong>消息明细</strong>
-              <small>发送前处理、通道状态和每一条消息的详细记录</small>
-            </>
-          }
-        >
-          <Flex vertical gap={16}>
-            <MessageInspector
-              messageBridge={messageBridge}
-              coverageEntries={coverageEntries}
-              messageCounts={messageCounts}
-              messageItems={messageItems}
-              messagesReachable={messagesReachable}
-              selectedMessage={selectedMessage}
-              onSelectMessage={setSelectedMessageId}
-              taskData={taskData}
-              taskLoading={taskLoading}
-              activeStateFilter={messageStateFilter}
-              onStateFilterChange={setMessageStateFilter}
-              onRedeliver={(messageId) => setConfirmRedeliverId(messageId)}
-              redeliverBusy={redeliverBusy}
-              onExpedite={(messageId) => void expediteMessage(messageId)}
-              expediteBusy={expediteBusy}
-            />
-          </Flex>
-        </AdvancedDetails>
-
-        <AdvancedDetails
-          summary={
-            <>
-              <strong>高级设置</strong>
-              <small>频率规则、消息参数和通知队列；普通用户通常不需要动</small>
-            </>
-          }
-        >
-          <Flex vertical gap={16}>
-            <Flex wrap="wrap" gap={16} align="center" aria-label="观察面状态">
-              <Typography.Text type="secondary">
-                发送频率 <StatusBadge {...overallBadge} />
-              </Typography.Text>
-              <Typography.Text type="secondary">近 24 小时 {rateLimit?.last24h ?? "—"} 次</Typography.Text>
-              <Typography.Text type="secondary">
-                备用告警 <StatusBadge {...channelBadge} />
-              </Typography.Text>
-              <Typography.Text type="secondary">
-                {pendingAlerts} 待投递 · {failedAlerts} 失败
-              </Typography.Text>
-            </Flex>
-
-            <RateLimitsTable rateLimit={rateLimit} onUseSuggestion={useSuggestion} />
-
-            <PatchBoard
-              patches={patches}
-              drafts={drafts}
-              driftReports={driftReports}
-              watchUnreachable={data?.watchReachable === false}
-              instanceValue={selectedInstance}
-              patchErrors={patchErrors}
-              busyKeys={busyKeys}
-              onInstanceChange={setSelectedInstance}
-              onUpdateDraft={updateDraft}
-              onRunAction={(patch, action) => void runPatchAction(patch, action)}
-            />
-
-            <AlertQueuePanel alerts={alerts} />
-          </Flex>
-        </AdvancedDetails>
 
         {pendingPatchAction !== null && (
           <DangerConfirmModal

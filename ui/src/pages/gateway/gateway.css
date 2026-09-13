@@ -19,3 +19,16 @@
 .channel-tile.tone-green { background: var(--ab-ok-soft); color: var(--ab-ok); border: 1px solid color-mix(in srgb, var(--ab-ok) 28%, transparent); }
 .channel-tile.tone-gold { background: var(--ab-warn-soft); color: var(--ab-warn); border: 1px solid color-mix(in srgb, var(--ab-warn) 28%, transparent); }
 .channel-tile.tone-gray { background: var(--ab-sunken); color: var(--ab-text-3); border: 1px solid var(--ab-border); }
+
+/* 通道分组：已添加的通道与「添加通道」区域各自成块，未配置/禁用明确下沉。 */
+.channel-group { margin-bottom: 8px; }
+.channel-add {
+  margin-top: 8px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--ab-border);
+}
+.channel-grid-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+}

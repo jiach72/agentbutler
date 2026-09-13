@@ -1,7 +1,7 @@
 /**
  * 应用外壳：antd Layout 骨架之上的少量结构样式。
  * 颜色、圆角、密度全部交给 antd v6 Design Token；这里只补 antd 不管的三件事：
- * 布局滚动关系（100dvh 双栏 + 内容独立滚动）、导航双行文案、响应式折叠。
+ * 布局滚动关系（100dvh 双栏，滚动容器在 .app-main 右栏整体，顶栏 sticky 悬浮毛玻璃）、导航双行文案、响应式折叠。
  */
 
 .app {
@@ -11,11 +11,13 @@
 
 .app-main {
   min-width: 0;
+  /* 唯一的纵向滚动容器（右栏整体）：滚动上移到 .app-main，顶栏得以 sticky 悬浮（毛玻璃的前提）。 */
+  overflow-y: auto;
 }
 
 .content {
   flex: 1;
-  overflow-y: auto;
+  /* 不再是滚动容器，只留 padding。 */
   padding: clamp(16px, 2.6vw, 28px);
 }
 
@@ -272,14 +274,13 @@ html body .app-nav .ant-menu-item-selected .anticon {
   height: 100%;
 }
 
+/* 侧栏底部安全态：去边框/底色/圆角，降级为两行安静的元信息（P1-5）；
+   warn/error 语义只靠图标色 + 文字色。 */
 .sidebar-meta {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  padding: 10px 12px;
-  border: 1px solid var(--ab-border);
-  border-radius: var(--ab-r-ctl);
-  background: var(--ab-surface-2);
+  padding: 6px 4px;
   color: var(--ab-text-3);
   font-size: var(--ab-text-size-xs);
   line-height: 1.45;
@@ -297,17 +298,15 @@ html body .app-nav .ant-menu-item-selected .anticon {
   opacity: 0.85;
 }
 
-/* 访问范围不是本机时，保留语义色提示：中性底 + 细彩色边框 + 彩色图标。 */
+/* 访问范围不是本机时，保留语义色提示：只改图标与文字颜色，不再有容器形态。 */
 .sidebar-meta.is-warn {
-  border-color: color-mix(in srgb, var(--ab-warn) 45%, var(--ab-border));
-  background: var(--ab-sunken);
+  color: var(--ab-warn);
 }
 .sidebar-meta.is-warn .anticon {
   color: var(--ab-warn);
 }
 .sidebar-meta.is-error {
-  border-color: color-mix(in srgb, var(--ab-error) 45%, var(--ab-border));
-  background: var(--ab-sunken);
+  color: var(--ab-error);
 }
 .sidebar-meta.is-error .anticon {
   color: var(--ab-error);
@@ -316,6 +315,11 @@ html body .app-nav .ant-menu-item-selected .anticon {
 /* ---- 顶栏 ---- */
 
 .app-topbar {
+  /* 滚动容器上移到 .app-main 后，顶栏 sticky 悬浮在内容之上（Q1 已拍板）。 */
+  position: sticky;
+  top: 0;
+  /* 规范 z-index 六档中的 10 档（浮层 > 顶栏 > 页内元素）。 */
+  z-index: 10;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -324,8 +328,34 @@ html body .app-nav .ant-menu-item-selected .anticon {
   padding-block: 0;
   padding-inline: clamp(16px, 2.6vw, 28px);
   line-height: normal;
-  background: var(--ab-surface);
-  border-bottom: 1px solid var(--ab-border);
+  /* 材质：72% surface + blur —— macOS 顶栏观感。 */
+  background: color-mix(in srgb, var(--ab-surface) 72%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(1.8);
+  backdrop-filter: blur(20px) saturate(1.8);
+  /* 1px 实线移入降级态；常态用半像素发丝线（macOS 观感）。 */
+  border-bottom: 0;
+  box-shadow: 0 0.5px 0 var(--ab-border);
+}
+
+/* 降级三保险 —— 模板（.mobile-tabbar 同构复用）：
+   ① 不支持 backdrop-filter：回落实色 + 1px 实线。 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .app-topbar {
+    background: var(--ab-surface);
+    border-bottom: 1px solid var(--ab-border);
+    box-shadow: none;
+  }
+}
+/* ② 用户系统要求降低透明度（对应 macOS「降低透明度」辅助功能）。
+   ③ reduced-motion 不涉及（毛玻璃不参与任何过渡，无动画可降）。 */
+@media (prefers-reduced-transparency: reduce) {
+  .app-topbar {
+    background: var(--ab-surface);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    border-bottom: 1px solid var(--ab-border);
+    box-shadow: none;
+  }
 }
 
 .topbar-leading {
@@ -342,12 +372,19 @@ html body .app-nav .ant-menu-item-selected .anticon {
   white-space: nowrap;
 }
 
-.topbar-brand {
-  color: var(--ab-text-3);
-  font-size: var(--ab-text-size-sm);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+/* 桌面端页题只留页内 h1 一处（h1 语义始终在 DOM，无障碍不受影响）。 */
+@media (min-width: 900px) {
+  .topbar-title {
+    display: none;
+  }
+}
+/* <900px 时反过来：页内 h1 隐藏，保顶栏单点（断点沿用 tokens breakpoints.drawer=900）。
+   注意：header 与 section 之间隔着 PageHeader 的 Flex 包裹层
+   （DOM 链：h1 < div < div.ant-flex < header < div.ant-flex < section），不能用 `>` 直接子代选择器。 */
+@media (max-width: 899px) {
+  .content section header h1 {
+    display: none;
+  }
 }
 
 .topbar-actions {
@@ -357,13 +394,25 @@ html body .app-nav .ant-menu-item-selected .anticon {
   flex-shrink: 0;
 }
 
+/* 顶栏操作分组分隔线（P1-3）：[通知] | [急停 · 排查 · 主题]。 */
+.topbar-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--ab-border-strong);
+  margin-inline: 4px;
+}
+
+/* 顶栏安全警示：去胶囊（去底、去圆角、去 padding），改纯文字弱化行。 */
 .topbar-note {
-  padding: 4px 10px;
-  border-radius: 6px; /* 规范仅 14/8/6 三档，999 胶囊应改成 6。 */
-  background: var(--ab-sunken);
-  color: var(--ab-text-3);
+  color: var(--ab-text-2);
   font-size: var(--ab-text-size-xs);
   white-space: nowrap;
+}
+.topbar-note.is-warn {
+  color: var(--ab-warn);
+}
+.topbar-note.is-error {
+  color: var(--ab-error);
 }
 
 .mobile-menu-button {
@@ -476,9 +525,6 @@ html body .app-nav .ant-menu-item-selected .anticon {
   .menu-copy small {
     display: none;
   }
-  .topbar-brand {
-    display: none;
-  }
 }
 
 @media (max-width: 768px) {
@@ -488,17 +534,35 @@ html body .app-nav .ant-menu-item-selected .anticon {
   .app-topbar {
     padding-inline: 16px;
   }
-  /* 顶栏在 390px 下只有 ~360px 可用，5 个元素放不下文字 ——「排查问题」收成纯图标，
-     它的完整入口仍在侧栏「维护与升级」分组里，不会丢功能。 */
+  /* 窄屏工具收纳：排查问题/主题切换收进「更多」原生菜单（含完整文案，键盘可达，
+     命中区 ≥44px）。急停与通知中心保留常驻——它们不是低频动作。 */
   .topbar-tool {
     padding-inline: 8px;
   }
   .topbar-tool > span:not(.ant-btn-icon) {
     display: none;
   }
+  .topbar-more {
+    display: none;
+  }
   .content {
     /* 规范 03 §2.1：≤768px 内容区 padding 16。 */
     padding: 16px;
+  }
+}
+
+@media (max-width: 600px) {
+  /* 390px 档：工具按钮全部收进「更多」菜单，给标题让位。 */
+  .topbar-actions > .topbar-tool,
+  .topbar-actions > .theme-toggle {
+    display: none;
+  }
+  .topbar-more {
+    display: inline-flex;
+  }
+  .topbar-actions > .topbar-more .ant-btn {
+    min-width: 44px;
+    min-height: 44px;
   }
 }
 
@@ -516,11 +580,30 @@ html body .app-nav .ant-menu-item-selected .anticon {
     inset-inline: 0;
     bottom: 0;
     z-index: 20;
-    background: var(--ab-surface);
+    /* 材质：72% surface + blur —— 与顶栏同款毛玻璃（内容天然从下方滚过）。 */
+    background: color-mix(in srgb, var(--ab-surface) 72%, transparent);
+    -webkit-backdrop-filter: blur(20px) saturate(1.8);
+    backdrop-filter: blur(20px) saturate(1.8);
     border-top: 1px solid var(--ab-border);
     /* 刘海屏安全区：不顶到 Home 指示条上，否则最后一个 Tab 点不准。 */
     padding-bottom: env(safe-area-inset-bottom, 0px);
     box-shadow: 0 -2px 12px rgb(15 33 51 / 6%);
+  }
+
+  /* 降级双保险（与 .app-topbar 同构）：
+     ① 不支持 backdrop-filter：回落实色。 */
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .mobile-tabbar {
+      background: var(--ab-surface);
+    }
+  }
+  /* ② 用户系统要求降低透明度。 */
+  @media (prefers-reduced-transparency: reduce) {
+    .mobile-tabbar {
+      background: var(--ab-surface);
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
   }
 
   .mobile-tab,

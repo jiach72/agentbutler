@@ -13,6 +13,7 @@ import {
   NAV_GROUPS,
   PINNED_ROUTE,
   ROUTES,
+  collapsibleGroupKeys,
   eyebrowFor,
   groupLabel,
   navRoutesFor,
@@ -55,15 +56,16 @@ describe("路由元信息单一事实源", () => {
 
   it("eyebrow 取自分组名，导航与页内标签不可能互相矛盾", () => {
     expect(eyebrowFor("/core-files")).toBe(groupLabel("maintain"));
-    expect(eyebrowFor("/core-files")).toBe("维护与升级");
-    expect(eyebrowFor("/cost")).toBe("信任层");
-    expect(eyebrowFor("/dashboard")).toBe("控制台");
+    expect(eyebrowFor("/core-files")).toBe("维护工具");
+    expect(eyebrowFor("/cost")).toBe("记录与审批");
+    expect(eyebrowFor("/dashboard")).toBe("日常使用");
     expect(eyebrowFor("/settings")).toBe("设置");
     // 未登记路径交由调用方兜底，不返回空串
     expect(eyebrowFor("/nope")).toBeUndefined();
   });
 
   it("移动 Tab 从同一份表取路径、图标与短标签", () => {
+    expect(MOBILE_TAB_PATHS).toEqual(["/dashboard", "/skills", "/gateway", "/settings"]);
     for (const path of MOBILE_TAB_PATHS) {
       const meta = ROUTES.find((route) => route.path === path);
       expect(meta, path).toBeDefined();
@@ -71,6 +73,17 @@ describe("路由元信息单一事实源", () => {
     }
     const report = ROUTES.find((route) => route.path === "/report")!;
     expect(shortTitleOf(report)).toBe("周报");
+  });
+
+  it("深链进入任意折叠组时只默认展开当前所属组", () => {
+    expect(collapsibleGroupKeys("/troubleshoot")).toEqual(["maintain"]);
+    expect(collapsibleGroupKeys("/core-files")).toEqual(["maintain"]);
+    expect(collapsibleGroupKeys("/setup")).toEqual(["maintain"]);
+    expect(collapsibleGroupKeys("/sessions/hermes-main-1")).toEqual(["trust"]);
+    expect(collapsibleGroupKeys("/dashboard")).toEqual([]);
+    expect(collapsibleGroupKeys("/settings")).toEqual([]);
+    expect(collapsibleGroupKeys("/not-a-route")).toEqual([]);
+    expect(collapsibleGroupKeys()).toEqual(["trust", "maintain"]);
   });
 
   it("侧栏可见项收敛到可预期的规模（两个大分组都折叠）", () => {

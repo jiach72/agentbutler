@@ -61,9 +61,9 @@ export interface NavGroup {
  * 口语化留给页面正文里真正需要解释边界的地方。
  */
 export const NAV_GROUPS: NavGroup[] = [
-  { key: "console", label: "控制台", collapsible: false },
-  { key: "trust", label: "信任层", collapsible: true, note: "成本、告警与审批" },
-  { key: "maintain", label: "维护与升级", collapsible: true, note: "体检、排障与自进化" },
+  { key: "console", label: "日常使用", collapsible: false },
+  { key: "trust", label: "记录与审批", collapsible: true, note: "成本、告警与审批" },
+  { key: "maintain", label: "维护工具", collapsible: true, note: "体检、排障与自进化" },
   { key: "settings", label: "设置", collapsible: false },
 ];
 
@@ -152,20 +152,28 @@ export function navRoutesFor(group: NavGroupKey): RouteMeta[] {
   return ROUTES.filter((route) => route.nav && route.group === group);
 }
 
-/** 折叠分组的默认展开键（= 分组 key），供 Layout 控制 openKeys。 */
-export function collapsibleGroupKeys(): string[] {
-  return NAV_GROUPS.filter((group) => group.collapsible).map((group) => group.key);
-}
-
 /**
- * 移动端底部 Tab 的路径（顺序即展示顺序）。
- * 与桌面侧栏同源于 ROUTES —— 不再另写一套一级信息架构（评审 P0-1）。
- *
- * 【必须有首页】原设计只放了 周报/事件/成本/急停 四格，结果是「回到首页」这个最高频动作
- * 只能靠左上角汉堡 —— 这违背了拇指可达区的本意。现在首页排第一。
+ * 移动端底部 Tab 的路径（顺序即展示顺序）：首页 / 智能体与记忆 / 消息通知 / 设置。
+ * 与桌面侧栏同源于 ROUTES——不再另写一套一级信息架构（评审 P0-1）。
+ * 更多导航由 Tab 尾部的「更多」按钮唤起抽屉（见 MobileTabBar）。
  */
-export const MOBILE_TAB_PATHS = ["/dashboard", "/report", "/events", "/cost"] as const;
+export const MOBILE_TAB_PATHS = ["/dashboard", "/skills", "/gateway", "/settings"] as const;
 
 export function shortTitleOf(route: RouteMeta): string {
   return route.short ?? route.title;
+}
+
+/**
+ * 折叠分组在当前路径下应处于展开状态的键。
+ * - 常显分组（console/settings）不参与折叠，返回时剔除；
+ * - 深链进入折叠组内页面时，只自动展开「当前所属组」；
+ * - 未传路径（初始态）时两个折叠组都展开。
+ * 用户手动收起/展开由 Layout 在两次路由切换之间保留。
+ */
+export function collapsibleGroupKeys(pathname?: string): string[] {
+  const all = NAV_GROUPS.filter((group) => group.collapsible).map((group) => group.key);
+  if (pathname === undefined) return all;
+  const meta = routeMetaFor(pathname);
+  if (meta === null) return [];
+  return all.filter((key) => key === meta.group);
 }

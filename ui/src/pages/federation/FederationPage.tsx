@@ -222,7 +222,6 @@ export function FederationPage() {
       <Flex vertical gap={16}>
         <PageHeader
           title="实例联邦"
-          description="多实例的成本、事件和急停状态汇总在一张表里，覆盖不全时会明确标出。"
           extra={
             <Button icon={<ReloadOutlined />} onClick={refresh}>
               刷新

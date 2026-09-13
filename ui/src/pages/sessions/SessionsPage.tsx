@@ -290,7 +290,6 @@ export function SessionsPage() {
       <Flex vertical gap={16}>
         <PageHeader
           title="会话追踪"
-          description="按会话回放 agent 的动作记录，不用对着原始日志一条条翻。"
           extra={
             <Space>
               <Button icon={<ReloadOutlined />} onClick={refresh}>

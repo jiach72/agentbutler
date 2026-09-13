@@ -1,19 +1,18 @@
 /**
  * 移动端底部 Tab（M4.1）。
  *
- * 只在 ≤600px 显示；把「在地铁上真正会点的四件事」放到拇指可达区：
- * 周报 / 事件 / 成本 + 急停。急停在最右侧并被视觉强化——它是唯一「出事了要马上按」
- * 的动作，不该藏在二级页面里。
+ * 只在 ≤600px 显示。拇指可达区放四个最高频目的地：首页 / 智能体与记忆 /
+ * 消息通知 / 设置；尾部的「更多」按钮唤起完整导航抽屉（含记录与审批、
+ * 维护工具等低频入口）。
  *
- * 为什么是这四个：周报＝本周发生了什么（结论层）；事件＝现在有没有事（告警层）；
- * 成本＝花了多少钱（钱的事最敏感）；急停＝立刻停手（逃生口）。
+ * 【与桌面同源（评审 P0-1）】Tab 的路径、图标、短标签全部取自 lib/routeMeta.ts，
+ * 不在这里另维护一份一级信息架构。
  *
- * 【与桌面同源（评审 P0-1）】三个 Tab 的路径、图标、短标签全部取自 lib/routeMeta.ts，
- * 不再在这里另维护一份一级信息架构——此前桌面首层是「首页/智能体/消息」，
- * 移动却是「周报/事件/成本」，同一产品两套心智。
+ * 【急停唯一挂载】急停只保留在顶栏（KillSwitchButton），底部 Tab 不再重复挂载——
+ * 同屏出现两个急停会让「唯一逃生口」变成两个需要分辨的按钮（shell-ux 测试守卫）。
  */
+import { MoreOutlined } from "@ant-design/icons";
 import { Link, useLocation } from "react-router-dom";
-import { KillSwitchButton } from "./KillSwitchButton.js";
 import { MOBILE_TAB_PATHS, ROUTES, shortTitleOf } from "../lib/routeMeta.js";
 
 const TABS = MOBILE_TAB_PATHS.map((path) => {
@@ -22,12 +21,17 @@ const TABS = MOBILE_TAB_PATHS.map((path) => {
   return { to: meta.path, icon: meta.icon, label: shortTitleOf(meta) };
 });
 
-export function MobileTabBar() {
+/** 活跃判定按路径段匹配：/skills/details 选中 /skills；/skills-other 不误选。 */
+function isActive(pathname: string, to: string): boolean {
+  return pathname === to || pathname.startsWith(`${to}/`);
+}
+
+export function MobileTabBar({ onOpenNavigation }: { onOpenNavigation?: () => void }) {
   const location = useLocation();
   return (
     <nav className="mobile-tabbar" aria-label="移动端主导航">
       {TABS.map((tab) => {
-        const active = location.pathname.startsWith(tab.to);
+        const active = isActive(location.pathname, tab.to);
         const Icon = tab.icon;
         return (
           <Link
@@ -43,10 +47,18 @@ export function MobileTabBar() {
           </Link>
         );
       })}
-      {/* 急停：复用顶栏同一个按钮组件，状态与两段确认逻辑完全一致（不另做一套）。 */}
-      <div className="mobile-tab is-emergency">
-        <KillSwitchButton variant="tab" />
-      </div>
+      {/* 更多：唤起完整导航抽屉（记录与审批、维护工具等低频入口都在抽屉里）。 */}
+      <button
+        type="button"
+        className="mobile-tab"
+        aria-label="更多导航"
+        onClick={onOpenNavigation}
+      >
+        <span className="mobile-tab-icon" aria-hidden="true">
+          <MoreOutlined />
+        </span>
+        <span className="mobile-tab-label">更多</span>
+      </button>
     </nav>
   );
 }

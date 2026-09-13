@@ -221,7 +221,6 @@ export function MemoryDiffPage() {
       <Flex vertical gap={16}>
         <PageHeader
           title="记忆变更"
-          description="列出最近一段时间记忆文件的新增、修改和删除。"
           extra={
             <Button icon={<ReloadOutlined />} onClick={refresh}>
               刷新
