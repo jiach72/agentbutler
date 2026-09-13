@@ -29,6 +29,8 @@ ls ~/.hermes/hermes-agent 2>/dev/null && echo HERMES=yes || echo HERMES=no
 
 > Windows + WSL 注意：仓库与构建必须在 WSL ext4 文件系统内（如 `~/agentbutler`）。**禁止**在 `/mnt/c` 下执行 pnpm install / docker build（NTFS 挂载上有系统性 EACCES 竞态）。
 
+> **macOS 强约束：安装与长期运行只能走 Docker（分支 A + 2.2）。** macOS 宿主上用 `pnpm` / `corepack` 裸跑**仅允许作为一次性本地验证（跑完即弃），禁止作为安装方式或长期运行方式**：裸跑进程簇挂在启动它的终端会话上，会话结束服务即消失；且生产运维路径（数据卷备份、一键升级、技能库 CLI 产物）均按容器设计。Apple Silicon 与 Intel 走同一分支，无需区分。
+
 ## 2. 部署前配置
 
 ### 分支 A：通用（Linux / WSL / macOS）
@@ -134,3 +136,16 @@ curl -s http://127.0.0.1:7531/api/health | grep -o '"connected":[a-z]*'  # 消�
 | UI 一键升级提示 Compose 不认识顶层 `name` | updater 仍在运行旧的 `docker-compose` v1；拉取修复后执行一次 `docker compose up -d --build --force-recreate butler-updater`，随后从 UI 重试 |
 
 更多细节见 `docs/docker-operations.md` 与 `docs/deployment-20260825.md`（含完整踩坑记录）。
+
+## 7. 已踩坑实录（agent 易复发，处置已固化）
+
+以下坑来自真实客户部署日志，均已修复或给出固化处置。遇到同类症状直接按表执行，不要重新排查：
+
+| # | 坑 | 症状 | 状态 / 处置 |
+|---|---|---|---|
+| 1 | main 曾漏提交 4 个文件（85241b9） | 干净克隆后 `tsc -b` 报 `summary.js` / `onboardingDismiss.js` / `MemoryProbeConfigCard.js` 找不到；README 引用的 `scripts/install.sh` 不存在 | 已修复（d5a05df 补提交 4 文件 + 6 测试）。再遇到构建缺文件：先 `git log --stat` 核对引用方与被引用文件是否同一提交，不要怀疑本机环境 |
+| 2 | skills-manager CLI 下载产物曾硬编码 `Linux-x64` | Apple Silicon（darwin+arm64）上技能库 502，日志有 `spawn ENOEXEC`（Linux ELF 在 mac 不可执行） | 已修复（d5a05df 改为按 `process.platform`+`process.arch` 映射产物，并新增落位前 `--version` 冒烟：错平台二进制不再落位，降级为 unavailable 提示不中断服务）。老版本镜像升级后技能库自动恢复，无需手动下载 CLI |
+| 3 | pnpm 会话子进程随父会话死亡 | 客户 agent 用 `pnpm start` 裸跑部署，终端会话结束/SSH 断开后服务全部消失，误判为「安装失败」 | 裸跑仅限一次性验证。长期运行必须走 Docker（`restart: unless-stopped`）；验证完执行 `corepack pnpm` 相关进程清理后改走分支 A |
+| 4 | Bridge 注入后需外部重启网关才激活 | 部署中向 Hermes 注入 Bridge 配置后，Gateway 侧连接一直 `connected:false`（注入不触发运行中的 Hermes 重载） | 注入完成后在宿主执行 `systemctl --user restart hermes-gateway`（或等价方式重启网关进程），再跑 `bash scripts/bridge-healthcheck.sh` 验证 |
+| 5 | 数据库锁定瞬态自愈 | 日志偶见 `SQLITE_BUSY` / `database is locked` | 瞬态：写路径带重试，通常自愈。仅在错误**持续**出现且面板数据停更时，`docker compose restart butler-watch`，并检查是否存在跨容器共享同一 SQLite 文件的非常规挂载 |
+| 6 | LLM 端点 401 预检建议 | 首次部署后探针/记忆写入整片失败，日志大量 401（`.env` 里模型 API Key 抄错或端点不通，部署时无校验） | 部署前用一条最小 `curl`（或等价请求）带 `.env` 中的 Key 打一次目标端点 `/models`（或最便宜端点）预检 200 再继续；避免带着坏 Key 走完全程再返工 |

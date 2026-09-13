@@ -61,7 +61,7 @@ Web 是控制台入口，Gateway 负责消息运行时，Watch 负责巡检、�
 
 | 依赖 | 最低版本 | 说明 |
 |------|---------|------|
-| 操作系统 | Windows 10+ (WSL2) / Linux | WSL 用户须在 WSL ext4 内操作，禁止在 `/mnt/c` 下构建 |
+| 操作系统 | Windows 10+ (WSL2) / Linux / **macOS（Docker Desktop 或 OrbStack）** | WSL 用户须在 WSL ext4 内操作，禁止在 `/mnt/c` 下构建；**macOS 只支持 Docker 部署**（pnpm 裸跑仅限一次性验证，见下方快速上手） |
 | Docker | 20.10+ | 含 Compose v2（`docker compose` 子命令可用） |
 | Git | 2.30+ | 克隆与版本管理 |
 | Hermes Agent | 最新版 | 被管理的 AI Agent 运行时（[安装指引](https://github.com/nousresearch/hermes-agent)） |
@@ -71,7 +71,7 @@ Web 是控制台入口，Gateway 负责消息运行时，Watch 负责巡检、�
 
 ## 快速上手（5 步）
 
-> 以下步骤在 Linux 或 WSL2 终端中执行。Windows 用户请先打开 WSL 终端。
+> 以下步骤在 Linux 或 WSL2 终端中执行。Windows 用户请先打开 WSL 终端。**macOS 用户同样走这 5 步**（Docker Desktop / OrbStack 环境，`.env` 额外两行见第 2 步）；macOS 上没有长期运行的 pnpm 裸跑形态。
 
 **第 1 步 — 克隆仓库**
 
@@ -95,6 +95,8 @@ BUTLER_HERMES_HOST_PATH=/home/<你>/.hermes  # Hermes 安装目录
 # 跨设备访问时必须设置（本机使用可留空）：
 # BUTLER_ACCESS_TOKEN=$(openssl rand -base64 32)
 ```
+
+> **macOS 用户**：`BUTLER_HERMES_HOST_PATH` 用 `/Users/<你>/.hermes`；若启用 Hermes 消息接入，再加 `BUTLER_HERMES_BRIDGE_URL=http://host.docker.internal:8754` 与 `BUTLER_HERMES_BRIDGE_ALLOW_NON_LOOPBACK=true`（Docker Desktop / OrbStack 直达宿主 loopback，不要启用 bridge-forward profile）。
 
 **第 3 步 — 一键部署**
 
@@ -201,7 +203,7 @@ curl http://127.0.0.1:7531/api/connections
 
 ## 开发与验证
 
-开发环境要求 Node.js 22+ 与 Corepack / pnpm 10.20.0。本地开发运行（非部署方式，长期运行请用上面的 Docker 部署）：
+开发环境要求 Node.js 22+ 与 Corepack / pnpm 10.20.0。本地开发运行（非部署方式，长期运行请用上面的 Docker 部署；**macOS 上同样只把这段当一次性验证，不要作为安装方式**）：
 
 ```bash
 git clone https://github.com/jiach72/agentbutler.git

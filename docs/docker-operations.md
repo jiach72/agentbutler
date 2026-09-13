@@ -128,3 +128,6 @@ Hermes Bridge 保持宿主 loopback，WSL 原生 Docker 必须经转发器接入
 | hermes-gateway 崩溃循环 `Bridge host must remain on loopback` | `~/.hermes/.env` 的 `HERMES_BUTLER_HOST` 必须是 `127.0.0.1` | 坑4 |
 | Windows 浏览器打不开但容器 healthy | portproxy 失效（WSL IP 变了），跑 `fix-portproxy.ps1`；系统代理类工具会被拦 | 坑8 |
 | UI 连接状态页转圈 | Web→Watch 代理超时降级为 `reachable:false` 属预期；用 bridge-healthcheck 定位真实断点 | 坑9 |
+| 技能库 502，watch 日志 `spawn ENOEXEC` | 旧镜像把 CLI 下载产物硬编码为 Linux-x64，Apple Silicon 上拿到不可执行的 ELF。升级到含平台映射修复的版本（d5a05df+）后重启即自愈；CLI 会重新按平台下载并通过 `--version` 冒烟后才落位 | AGENTS.md 第 7 节坑 2 |
+| 干净克隆后构建报 `summary.js` 等模块找不到 | 旧提交曾漏 add 4 个源文件；拉取 d5a05df+ 后消失。若在新提交再现，用 `git log --stat` 核对引用方与被引用文件是否同提交 | AGENTS.md 第 7 节坑 1 |
+| macOS 容器连不上宿主 Hermes Bridge | `BUTLER_HERMES_BRIDGE_URL` 应为 `http://host.docker.internal:8754` 且**不要**设 `COMPOSE_PROFILES=bridge-forward`（Mac 的 host 网络指向 VM） | AGENTS.md 2.2 |
