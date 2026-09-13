@@ -19,6 +19,12 @@
   padding: clamp(16px, 2.6vw, 28px);
 }
 
+/* 全局待审批横幅：贴住内容区顶部，宽度与页面对齐（评审：审批不用进页面才看到）。 */
+.pending-approvals-banner {
+  max-width: 1440px;
+  margin: 0 auto 14px;
+}
+
 /* 页面宽度约束。
    原先靠 `[class$="-page"]` 这个「类名以 -page 结尾」的隐式约定，新页面只要类名
    写成别的形状就静默失去约束（评审 P2-13）。现在按结构选：`<AntLayout.Content>`

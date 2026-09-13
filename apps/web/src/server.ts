@@ -3470,6 +3470,9 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
 
   // 预算引擎（M1.1）：状态 + 手动核算（正常节奏 15 分钟一轮，按钮即时刷新）。
   app.get("/api/budget", async (_request, reply) => proxyWatchGet("/api/budget", reply));
+  app.post("/api/budget", async (request, reply) =>
+    proxyWatchPost("/api/budget", request.body, reply, 15_000),
+  );
   app.post("/api/budget/check", async (request, reply) =>
     proxyWatchPost("/api/budget/check", request.body, reply, 15_000),
   );

@@ -8,7 +8,7 @@
  * 完整四步向导保留（含从告警深链 ?symptom= 直达），供想手动分诊的进阶用户。
  */
 import { useEffect, useRef } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Flex } from "antd";
 import { PageHeader } from "../../components/PageHeader.js";
 import { PageProgress } from "../../components/PageProgress.js";
@@ -68,7 +68,11 @@ export function TroubleshootPage() {
                   ← 回到体检总览
                 </a>
               </Flex>
-            ) : undefined
+            ) : (
+              <Link to="/logs" style={{ fontSize: 13 }}>
+                打开系统日志 →
+              </Link>
+            )
           }
         />
 

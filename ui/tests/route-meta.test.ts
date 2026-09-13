@@ -73,13 +73,19 @@ describe("路由元信息单一事实源", () => {
     expect(shortTitleOf(report)).toBe("周报");
   });
 
-  it("侧栏可见项收敛到可预期的规模（信任层折叠 + 两个常显分组）", () => {
+  it("侧栏可见项收敛到可预期的规模（两个大分组都折叠）", () => {
     const visible = (["console", "maintain"] as const).reduce(
       (total, key) => total + navRoutesFor(key).length,
-      1, // 折叠的信任层只占一行
+      2, // 信任层与维护与升级都是折叠分组，各只占一行
     );
+    // 评审收敛：侧栏首屏只剩 3 常显 + 2 折叠行 + 底部设置 = 6 行。
+    // 系统日志已收进「排查问题」页入口（nav:false），维护组从 5 项减到 4 项。
     expect(visible).toBe(9);
-    // 信任层本身必须是可折叠分组，否则 9 项平铺会把底部署推出首屏
+    // 两个大分组都必须可折叠，否则 9+4 项平铺会把底部署推出首屏
     expect(NAV_GROUPS.find((group) => group.key === "trust")?.collapsible).toBe(true);
+    expect(NAV_GROUPS.find((group) => group.key === "maintain")?.collapsible).toBe(true);
+    // 系统日志不进侧栏，但路由必须保留（排查问题页内有入口）
+    const logs = ROUTES.find((route) => route.path === "/logs")!;
+    expect(logs.nav).toBe(false);
   });
 });

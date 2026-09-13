@@ -7,12 +7,14 @@
  *
  * 数据真相原则：卡片里绝不出现对话正文——审批只针对「动作」，不看 agent 说了什么。
  */
-import { Alert, Button, Card, Flex, Segmented, Space, Table, Tag, Tooltip, Typography } from "antd";
+import { Alert, App, Button, Card, Flex, Popconfirm, Segmented, Space, Table, Tag, Tooltip, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import {
   CheckCircleOutlined,
+  CheckOutlined,
   ClockCircleOutlined,
   CloseCircleOutlined,
+  CloseOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined,
   StopOutlined,
@@ -27,7 +29,7 @@ import { StatStrip } from "../../components/StatStrip.js";
 import type { StatStripItem } from "../../components/StatStrip.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import type { SemanticTone } from "../../components/StatusBadge.js";
-import { loadJson } from "../../lib/api.js";
+import { loadJson, postJson } from "../../lib/api.js";
 import { usePolling } from "../../hooks/usePolling.js";
 import { useUrlState } from "../../hooks/useUrlState.js";
 
@@ -123,8 +125,10 @@ const detailTarget = (item: ApprovalItem): string => {
 };
 
 export function ApprovalsPage() {
+  const { message } = App.useApp();
   const [data, setData] = useState<ApprovalsPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
   // 过滤同步到 URL（规范 03 §3.12）：刷新/分享能还原同一视图（评审 P1-7）。
   const [filter, setFilter] = useUrlState<string>("filter", "pending");
 
@@ -150,6 +154,29 @@ export function ApprovalsPage() {
   }, [refresh]);
   // 15s 轮询：与后端超时结算节奏对齐，倒计时不会与真实状态脱节太久。
   usePolling(refresh, 15_000);
+
+  /** 列表行内快捷决策（与确认页同一 API）；升级单仍引导进详情页核对目标。 */
+  const decide = useCallback(
+    async (item: ApprovalItem, decision: "approve" | "deny") => {
+      setBusyId(item.id);
+      const result = await postJson(`/api/approvals/${encodeURIComponent(item.id)}/decide`, {
+        decision,
+        actor: "panel-user",
+        channel: "panel",
+      }, 30_000);
+      setBusyId(null);
+      if (result.ok) {
+        message.success(decision === "approve" ? "已批准本次操作" : "已拒绝本次操作");
+      } else {
+        const key = typeof result.data === "object" && result.data !== null
+          ? String((result.data as Record<string, unknown>)["error"] ?? "")
+          : "";
+        message.warning(key === "already-settled" ? "该审批单已被处理或已升级" : `操作失败（HTTP ${result.status}）`);
+      }
+      refresh();
+    },
+    [message, refresh],
+  );
 
   const columns: ColumnsType<ApprovalItem> = [
     {
@@ -177,12 +204,12 @@ export function ApprovalsPage() {
       title: "状态",
       dataIndex: "status",
       key: "status",
-      width: 150,
+      width: 190,
       render: (status: string, row) => {
         const tone = STATUS_TONE[status] ?? "unknown";
         const label = STATUS_LABEL[status] ?? status;
         return (
-          <Space size={4}>
+          <Flex gap={4} wrap="wrap">
             <StatusBadge tone={tone} label={label} />
             {row.escalateRequired && row.status === "pending" && (
               <Tooltip title={`同一动作今日已被请求 ${row.attempts} 次，需在面板确认后才可放行`}>
@@ -191,7 +218,7 @@ export function ApprovalsPage() {
                 </span>
               </Tooltip>
             )}
-          </Space>
+          </Flex>
         );
       },
     },
@@ -221,6 +248,60 @@ export function ApprovalsPage() {
             )}
           </span>
         ),
+    },
+    {
+      title: "快捷处理",
+      key: "quick",
+      width: 150,
+      fixed: "right",
+      render: (_: unknown, row) => {
+        if (row.status !== "pending") {
+          return (
+            <Link to={`/approvals/${encodeURIComponent(row.id)}`}>
+              <Typography.Text type="secondary">查看详情</Typography.Text>
+            </Link>
+          );
+        }
+        // 升级单要求逐条核对目标，不给一键放行（服务端也会拒绝通道侧放行）。
+        const buttons = (
+          <Space size={6}>
+            <Button
+              size="small"
+              type="primary"
+              icon={<CheckOutlined />}
+              loading={busyId === row.id}
+              onClick={() => void decide(row, "approve")}
+            >
+              批准
+            </Button>
+            <Popconfirm
+              title="拒绝这条动作？"
+              description="拒绝后动作不会执行，并计入审计流。"
+              okText="拒绝"
+              cancelText="取消"
+              okButtonProps={{ danger: true }}
+              onConfirm={() => void decide(row, "deny")}
+            >
+              <Button size="small" danger icon={<CloseOutlined />} disabled={busyId === row.id}>
+                拒绝
+              </Button>
+            </Popconfirm>
+          </Space>
+        );
+        return row.escalateRequired ? (
+          <Tooltip title="该单已升级：请点开详情核对目标后在本页确认，不支持一键放行">
+            <span>
+              <Link to={`/approvals/${encodeURIComponent(row.id)}`}>
+                <Button size="small" type="primary">
+                  去确认
+                </Button>
+              </Link>
+            </span>
+          </Tooltip>
+        ) : (
+          buttons
+        );
+      },
     },
   ];
 
@@ -381,7 +462,7 @@ export function ApprovalsPage() {
               dataSource={data?.items ?? []}
               loading={data === null}
               pagination={{ pageSize: 20, showSizeChanger: false }}
-              scroll={{ x: 1150 }}
+              scroll={{ x: 1300 }}
             />
           )}
         </Card>

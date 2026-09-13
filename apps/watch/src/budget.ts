@@ -55,6 +55,8 @@ export interface BudgetEngine {
   status(): BudgetStatus;
   /** 立即核算一轮（返回核算后的状态；供 HTTP 与调度共用）。 */
   checkNow(): Promise<BudgetStatus>;
+  /** 面板运行时改预算：内存生效 + 持久化（重启后仍生效，优先于 env 默认值）。 */
+  setConfig(next: { monthlyUsd: number; action: BudgetActionConfig }): BudgetStatus;
   start(): void;
   stop(): void;
 }
@@ -74,12 +76,33 @@ export function createBudgetEngine(options: BudgetEngineOptions): BudgetEngine {
   const now = options.now ?? (() => Date.now());
   const driver = options.driver ?? defaultTimerDriver;
   const intervalMs = options.intervalMs ?? BUDGET_CHECK_INTERVAL_MS;
-  const { monthlyUsd, action } = options.config;
+  // 配置优先级：面板写入（app_config 持久化）> env 默认值。面板改一次，重启后仍生效。
+  const persistedConfig = readPersistedConfig();
+  const initial = persistedConfig ?? options.config;
+  let monthlyUsd = initial.monthlyUsd;
+  let action = initial.action;
   let handle: unknown;
   let running = false;
   let lastStatus: BudgetStatus | null = null;
   /** 燃速估算（USD/天，trailing 7d）：触线日预测用；核算时刷新。 */
   const dailyBurnUsd: number | null = null;
+
+  function readPersistedConfig(): { monthlyUsd: number; action: BudgetActionConfig } | null {
+    try {
+      const raw = options.store.getAppConfig("budget_config");
+      if (raw === null) return null;
+      const parsed = JSON.parse(raw) as { monthlyUsd?: unknown; action?: unknown };
+      const monthlyUsd = typeof parsed.monthlyUsd === "number" && parsed.monthlyUsd >= 0 ? parsed.monthlyUsd : null;
+      const action =
+        parsed.action === "alert" || parsed.action === "downgrade" || parsed.action === "pause"
+          ? parsed.action
+          : null;
+      if (monthlyUsd === null || action === null) return null;
+      return { monthlyUsd, action };
+    } catch {
+      return null;
+    }
+  }
 
   function baseStatus(): BudgetStatus {
     const date = new Date(now());
@@ -98,6 +121,22 @@ export function createBudgetEngine(options: BudgetEngineOptions): BudgetEngine {
       lastCheckedAt: persisted?.updatedAt ?? null,
       projectedExhaustedAt: null,
     };
+  }
+
+  function setConfig(next: { monthlyUsd: number; action: BudgetActionConfig }): BudgetStatus {
+    if (!Number.isFinite(next.monthlyUsd) || next.monthlyUsd < 0) {
+      throw new Error("monthlyUsd must be a non-negative number");
+    }
+    monthlyUsd = next.monthlyUsd;
+    action = next.action;
+    options.store.setAppConfig("budget_config", JSON.stringify({ monthlyUsd, action }));
+    // 重置本月通知去重：新阈值下 80%/100% 告警需要重新判定。
+    const month = monthKey(new Date(now()));
+    const persisted = options.store.getBudgetState(month);
+    if (persisted !== undefined && persisted.notified.length > 0) {
+      options.store.saveBudgetState({ ...persisted, notified: [] });
+    }
+    return baseStatus();
   }
 
   async function checkNow(): Promise<BudgetStatus> {
@@ -195,6 +234,7 @@ export function createBudgetEngine(options: BudgetEngineOptions): BudgetEngine {
       return lastStatus ?? baseStatus();
     },
     checkNow,
+    setConfig,
     start() {
       if (running) return;
       running = true;

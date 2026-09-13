@@ -226,6 +226,13 @@ export function SettingsPage() {
     ? sources.security.data.watchReachable !== false
     : true;
 
+  /** 数据源失败清单：结论条据此说真话，而不是恒定一句「一切正常」。 */
+  const failedSources = SOURCE_KEYS.filter((key) => sources[key].status === "failed");
+  const lastBackupAt =
+    sources.backups.status === "ready"
+      ? (sources.backups.data.items?.[0]?.createdAt ?? sources.backups.data.status?.lastFullAt ?? null)
+      : null;
+
   /** 右侧内容区：按当前分类渲染对应面板（数据流与旧六签完全一致）。 */
   function renderCategory(key: string) {
     switch (key) {
@@ -290,6 +297,14 @@ export function SettingsPage() {
                     复制体检命令
                   </Button>
                 </Tooltip>
+              </Flex>
+            </Card>
+            <Card size="small" title="预算设置">
+              <Flex justify="space-between" align="center" gap={16} wrap="wrap">
+                <Text type="secondary">设置每月模型成本上限；80% 告警、100% 触发建议动作。</Text>
+                <Button icon={<ThunderboltOutlined />} onClick={() => navigate("/cost")}>
+                  打开预算设置
+                </Button>
               </Flex>
             </Card>
             <Card size="small" title="升级策略">
@@ -381,11 +396,25 @@ export function SettingsPage() {
           }
         />
 
-        {/* §2.3 ② 结论条。 */}
+        {/* §2.3 ② 结论条：跟随真实状态（数据源失败 / 最近备份），不再恒定报平安。 */}
         <ConclusionBar
-          tone={securityOnline ? "ok" : "offline"}
-          title={securityOnline ? "管家在线，各项设置实时生效" : "管家暂时连不上，部分设置只读"}
-          copy={securityOnline ? "改动会立即写入配置并自动备份。" : "等服务恢复后重试；当前界面仅供查看。"}
+          tone={!securityOnline ? "offline" : failedSources.length > 0 ? "warn" : "ok"}
+          title={
+            !securityOnline
+              ? "管家暂时连不上，部分设置只读"
+              : failedSources.length > 0
+                ? `${failedSources.length} 个数据源读取失败：${failedSources.join("、")}`
+                : "管家在线，各项设置实时生效"
+          }
+          copy={
+            !securityOnline
+              ? "等服务恢复后重试；当前界面仅供查看。"
+              : failedSources.length > 0
+                ? "失败的数据源对应面板会显示降级内容，可到对应分区点「重试」。"
+                : lastBackupAt !== null
+                  ? `改动会立即写入配置并自动备份；最近一次备份 ${formatTime(lastBackupAt)}。`
+                  : "改动会立即写入配置并自动备份；还没有备份记录，建议先跑一次全量备份。"
+          }
         />
 
         <SourceStatusBar sources={sources} />

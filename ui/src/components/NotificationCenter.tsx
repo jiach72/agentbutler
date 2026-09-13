@@ -11,11 +11,12 @@
  *
  * 容量：规范要求保留最近 50 条（原为 12 条）。
  */
-import { BellOutlined, CheckOutlined, ReloadOutlined } from "@ant-design/icons";
-import { Badge, Button, Popover, Spin } from "antd";
-import { useState } from "react";
+import { App, Badge, Button, Popconfirm, Popover, Spin } from "antd";
+import { BellOutlined, CheckOutlined, CloseOutlined, ReloadOutlined } from "@ant-design/icons";
+import { useCallback, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { usePreferences } from "../lib/preferences.js";
+import { postJson } from "../lib/api.js";
 import {
   countUnread,
   useNotifications,
@@ -28,6 +29,13 @@ import type { SemanticTone } from "./StatusBadge.js";
 
 /** 规范 §3.8：通知中心保留最近 50 条。 */
 const MAX_ITEMS = 50;
+
+/** 审批卡片正文里带的处理入口（/approvals/<id>）——提取审批单 id 供行内快捷决策。 */
+function approvalIdOf(item: NotificationItem): string | null {
+  if (item.kind !== "action-approval") return null;
+  const match = /approvals\/([^)\s]+)/.exec(item.body);
+  return match?.[1] ?? null;
+}
 
 const SEVERITY_META: Record<NotificationItem["severity"], { tone: SemanticTone; label: string }> = {
   critical: { tone: "error", label: "紧急" },
@@ -84,6 +92,7 @@ function useVisibleNotifications() {
 /**
  * 通知预览列表：每条三行 —— 严重度 + 时间 / 标题 / 正文摘要（+ 合并次数、失败原因）。
  * 未读用小圆点 + `aria-label="未读"` 表达，不依赖颜色单独传达（规范 §6）。
+ * 审批卡片（kind=action-approval）额外给行内「批准 / 拒绝」，不用进页面就能处置。
  */
 export function NotificationPreviewList({
   items,
@@ -92,12 +101,36 @@ export function NotificationPreviewList({
   items: NotificationItem[];
   onRead: (item: NotificationItem) => void;
 }) {
+  const { message } = App.useApp();
+  // 刻意不依赖 NotificationsProvider：本组件也被独立渲染（测试/外部复用）。
+  // 决策后的到达态由通知轮询（10s）带回，这里不需要手动 refresh。
+  const [decidingId, setDecidingId] = useState<string | null>(null);
+
+  const decide = useCallback(
+    async (item: NotificationItem, approvalId: string, decision: "approve" | "deny") => {
+      setDecidingId(approvalId);
+      const result = await postJson(`/api/approvals/${encodeURIComponent(approvalId)}/decide`, {
+        decision,
+        actor: "panel-user",
+        channel: "panel-notification",
+      }, 30_000);
+      setDecidingId(null);
+      if (result.ok) {
+        message.success(decision === "approve" ? "已批准本次操作" : "已拒绝本次操作");
+      } else {
+        message.warning("该审批单已被处理、升级或已超时");
+      }
+    },
+    [message],
+  );
+
   return (
     <ul className="notification-list">
       {items.map((item) => {
         const severity = SEVERITY_META[item.severity];
         const merged = item.mergedCount ?? 0;
         const failed = item.status === "failed";
+        const approvalId = approvalIdOf(item);
         return (
           <li key={item.id} className={`notification-item${item.readAt === null ? " is-unread" : ""}`}>
             <button type="button" className="notification-item-main" onClick={() => onRead(item)}>
@@ -115,6 +148,38 @@ export function NotificationPreviewList({
                 </span>
               ) : null}
             </button>
+            {approvalId !== null && (
+              <span className="notification-item-actions" onClick={(event) => event.stopPropagation()}>
+                {item.body.includes("已升级为") ? (
+                  <Link to={`/approvals/${encodeURIComponent(approvalId)}`} onClick={() => onRead(item)}>
+                    <Button size="small" type="primary">去面板确认</Button>
+                  </Link>
+                ) : (
+                  <>
+                    <Button
+                      size="small"
+                      type="primary"
+                      loading={decidingId === approvalId}
+                      onClick={() => void decide(item, approvalId, "approve")}
+                    >
+                      批准
+                    </Button>
+                    <Popconfirm
+                      title="拒绝这条动作？"
+                      description="拒绝后动作不会执行，并计入审计流。"
+                      okText="拒绝"
+                      cancelText="取消"
+                      okButtonProps={{ danger: true }}
+                      onConfirm={() => void decide(item, approvalId, "deny")}
+                    >
+                      <Button size="small" danger icon={<CloseOutlined />} disabled={decidingId === approvalId}>
+                        拒绝
+                      </Button>
+                    </Popconfirm>
+                  </>
+                )}
+              </span>
+            )}
             {item.readAt === null && <span className="notification-unread-dot" aria-label="未读" />}
           </li>
         );

@@ -7,10 +7,10 @@
  * 数据真相原则：Hermes 未提供成本列时显示「还没有金额字段」而非 0——不伪造。
  */
 import { money, USD_TO_CNY } from "../../lib/format.js";
-import { Button, Card, Flex, Progress, Segmented, Table, Tooltip, Typography } from "antd";
+import { App, Button, Card, Flex, Form, InputNumber, Modal, Progress, Segmented, Select, Table, Tooltip, Typography } from "antd";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ThunderboltOutlined, WalletOutlined } from "@ant-design/icons";
+import { SettingOutlined, ThunderboltOutlined, WalletOutlined } from "@ant-design/icons";
 import { ConclusionBar } from "../../components/ConclusionBar.js";
 import type { PageConclusionView } from "../../components/ConclusionBar.js";
 import { Empty } from "../../components/Empty.js";
@@ -19,7 +19,7 @@ import { StatStrip } from "../../components/StatStrip.js";
 import type { StatStripItem } from "../../components/StatStrip.js";
 import { useUrlState } from "../../hooks/useUrlState.js";
 import { usePolling } from "../../hooks/usePolling.js";
-import { loadJson } from "../../lib/api.js";
+import { loadJson, postJson } from "../../lib/api.js";
 
 interface CostSummary {
   rangeDays: number;
@@ -50,11 +50,15 @@ const RANGES = [
 ];
 
 export function CostPage() {
+  const { message } = App.useApp();
   // 时间区间同步到 URL（规范 03 §3.12），刷新/分享链接能还原同一视图（评审 P1-7）。
   const [rangeDays, setRangeDays] = useUrlState<number>("range", 30);
   const [summary, setSummary] = useState<CostSummary | null>(null);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [budget, setBudget] = useState<BudgetStatus | null>(null);
+  const [budgetModalOpen, setBudgetModalOpen] = useState(false);
+  const [budgetSaving, setBudgetSaving] = useState(false);
+  const [budgetForm] = Form.useForm<{ monthlyCny: number; action: "alert" | "downgrade" | "pause" }>();
   const navigate = useNavigate();
 
   const refresh = useCallback(() => {
@@ -75,6 +79,30 @@ export function CostPage() {
     refresh();
   }, [refresh]);
   usePolling(refresh, 60_000);
+
+  const openBudgetModal = useCallback(() => {
+    // 输入单位是元，存储是 USD：打开时按当前预算折算，方便直接改数字。
+    budgetForm.setFieldsValue({
+      monthlyCny: budget !== null && budget.budgetUsd > 0 ? Math.round(budget.budgetUsd * USD_TO_CNY * 100) / 100 : undefined,
+      action: (budget?.action as "alert" | "downgrade" | "pause") ?? "alert",
+    });
+    setBudgetModalOpen(true);
+  }, [budget, budgetForm]);
+
+  const saveBudget = useCallback(async () => {
+    const values = await budgetForm.validateFields();
+    setBudgetSaving(true);
+    const monthlyUsd = Math.round((values.monthlyCny / USD_TO_CNY) * 100) / 100;
+    const result = await postJson("/api/budget", { monthlyUsd, action: values.action }, 15_000);
+    setBudgetSaving(false);
+    if (result.ok) {
+      setBudgetModalOpen(false);
+      message.success(values.monthlyCny > 0 ? `预算已设置为 ${values.monthlyCny} 元/月` : "预算已关闭");
+      refresh();
+      return;
+    }
+    message.error(`预算保存失败（HTTP ${result.status}）`);
+  }, [budgetForm, message, refresh]);
 
   const totalCost = summary?.total.actualUsd ?? summary?.total.estimatedUsd ?? null;
   const dayCount = summary?.days.length ?? 0;
@@ -174,10 +202,10 @@ export function CostPage() {
                 : {
                     /* 结论说判断，下面的数字卡说数值 —— 不要把同一句话写两遍。 */
                     tone: "ok",
-                    title: budgetEnabled ? "花费在预算之内" : "还没有设置预算，所以只能看到已花金额",
+                    title: budgetEnabled ? "花费在预算之内" : "还没有设置预算，只能看到已花金额",
                     copy: budgetEnabled
                       ? `预算余量 ${money(budgetLeft)}（已用 ${budgetRatioPct ?? "—"}%），按当前速度不会触线。`
-                      : "设置一个月度预算后，这里会给出余量和触线预测。",
+                      : "点右上「预算设置」，设一个数字就能看到余量和触线预测。",
                   };
 
   const costStats: StatStripItem[] = [
@@ -205,7 +233,7 @@ export function CostPage() {
         : budgetEnabled && budget.threshold === "80%"
           ? "warn"
           : undefined,
-      sub: budgetRatioPct === null ? "设置预算后可看到余量" : `本月已用 ${budgetRatioPct}%`,
+      sub: budgetRatioPct === null ? "点右上「预算设置」开始" : `本月已用 ${budgetRatioPct}%`,
     },
     {
       key: "daily-burn",
@@ -220,7 +248,15 @@ export function CostPage() {
   return (
     <section className="cost-page">
       <Flex vertical gap={16}>
-        <PageHeader title="成本" description="每笔花费都能查到用在哪个模型、哪次会话。" />
+        <PageHeader
+          title="成本"
+          description="每笔花费都能查到用在哪个模型、哪次会话。"
+          extra={
+            <Button icon={<SettingOutlined />} onClick={openBudgetModal}>
+              预算设置
+            </Button>
+          }
+        />
 
         {/* §2.3 ② 结论条：把「花了多少、会不会超」放在数字之前。 */}
         <ConclusionBar
@@ -330,6 +366,55 @@ export function CostPage() {
             locale={{ emptyText: <Empty title="还没有会话成本记录" hint="管家会按会话归集用量；有调用后这里会列出最贵的几条。" mascot={false} /> }}
           />
         </Card>
+
+        <Modal
+          title="预算设置"
+          open={budgetModalOpen}
+          onCancel={() => setBudgetModalOpen(false)}
+          onOk={() => void saveBudget()}
+          okText="保存"
+          confirmLoading={budgetSaving}
+          destroyOnHidden
+        >
+          <Flex vertical gap={8} style={{ marginBottom: 12 }}>
+            <Typography.Text type="secondary">
+              按自然月核算（优先真实账单，缺失时用估算）。达到 80% 告警一次，达到 100% 触发下方动作；
+              填 0 表示关闭预算。
+            </Typography.Text>
+          </Flex>
+          <Form form={budgetForm} layout="vertical" requiredMark={false}>
+            <Form.Item
+              name="monthlyCny"
+              label="月度预算（元）"
+              rules={[
+                { required: true, message: "请输入月度预算（0 为关闭）" },
+                { type: "number", min: 0, max: 720_000, message: "请输入 0 ~ 720,000 之间的金额" },
+              ]}
+            >
+              <InputNumber
+                style={{ width: "100%" }}
+                min={0}
+                max={720_000}
+                step={50}
+                precision={2}
+                addonAfter="元 / 月"
+                placeholder="例如 200"
+              />
+            </Form.Item>
+            <Form.Item name="action" label="达到 100% 时的建议动作" initialValue="alert">
+              <Select
+                options={[
+                  { value: "alert", label: "仅告警（推荐）" },
+                  { value: "downgrade", label: "建议切换降级模型白名单" },
+                  { value: "pause", label: "建议进入全局急停" },
+                ]}
+              />
+            </Form.Item>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              动作是「建议」而非自动执行——真正停掉 agent 仍需你在急停页确认。预算保存后立即生效，重启后仍保留。
+            </Typography.Text>
+          </Form>
+        </Modal>
       </Flex>
     </section>
   );

@@ -20,6 +20,7 @@ import { KillSwitchButton } from "./KillSwitchButton.js";
 import { MobileTabBar } from "./MobileTabBar.js";
 import { NotificationCenter } from "./NotificationCenter.js";
 import { PageProgress } from "./PageProgress.js";
+import { PendingApprovalsBanner } from "./PendingApprovalsBanner.js";
 import { NotificationsProvider } from "../hooks/useNotifications.js";
 import { useTheme } from "../theme/ThemeProvider.js";
 import { loadJson } from "../lib/api.js";
@@ -290,6 +291,7 @@ export function Layout() {
             </div>
           </AntLayout.Header>
           <AntLayout.Content className="content" id="main-content">
+            <PendingApprovalsBanner />
             <Suspense fallback={<PageProgress title="正在打开页面" detail="本机资源正在加载。" compact indeterminate />}>
               <Outlet />
             </Suspense>

@@ -72,6 +72,7 @@ const OUTCOME_TONE: Record<string, SemanticTone> = {
   ok: "ok",
   error: "error",
   running: "brand",
+  aborted: "warn",
   unknown: "unknown",
 };
 
@@ -79,6 +80,7 @@ const OUTCOME_LABEL: Record<string, string> = {
   ok: "正常结束",
   error: "错误结束",
   running: "进行中",
+  aborted: "中断",
   unknown: "未知",
 };
 
@@ -89,6 +91,7 @@ const ANOMALY_TONE: Record<SessionAnomaly["severity"], SemanticTone> = {
 
 const ANOMALY_LABEL: Record<string, string> = {
   "error-terminated": "错误结束",
+  "orphan-reaped": "中断",
   "context-truncated": "上下文截断",
   "long-running": "长会话",
   "high-risk-actions": "高危动作",
@@ -346,6 +349,7 @@ export function SessionsPage() {
                   { value: "all", label: "全部终态" },
                   { value: "ok", label: "正常结束" },
                   { value: "error", label: "错误结束" },
+                  { value: "aborted", label: "中断" },
                   { value: "running", label: "进行中" },
                   { value: "unknown", label: "未知" },
                 ]}

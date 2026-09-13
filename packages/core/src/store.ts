@@ -910,6 +910,13 @@ CREATE TABLE IF NOT EXISTS budget_state (
   updated_at TEXT NOT NULL
 );
 
+-- 面板可写的轻量配置（键值对；重启后仍生效）。
+CREATE TABLE IF NOT EXISTS app_config (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS killswitch_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   engaged_at TEXT NOT NULL,
@@ -2253,6 +2260,21 @@ export class SqliteStore {
       notified: fromJson<string[]>(row["notified_json"] as string | null, []),
       updatedAt: String(row["updated_at"]),
     };
+  }
+
+  /** 面板写入的轻量配置（如预算）；无值返回 null。 */
+  getAppConfig(key: string): string | null {
+    const row = this.prepare("SELECT value FROM app_config WHERE key = ?").get(key) as
+      | { value?: unknown }
+      | undefined;
+    return row === undefined ? null : String(row["value"]);
+  }
+
+  setAppConfig(key: string, value: string): void {
+    this.prepare(
+      `INSERT INTO app_config (key, value, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    ).run(key, value, nowIso());
   }
 
   saveBudgetState(input: Omit<BudgetStateRow, "updatedAt">): BudgetStateRow {

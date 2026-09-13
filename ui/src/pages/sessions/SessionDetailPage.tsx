@@ -63,6 +63,7 @@ const OUTCOME_TONE: Record<string, SemanticTone> = {
   ok: "ok",
   error: "error",
   running: "brand",
+  aborted: "warn",
   unknown: "unknown",
 };
 
@@ -70,6 +71,7 @@ const OUTCOME_LABEL: Record<string, string> = {
   ok: "正常结束",
   error: "错误结束",
   running: "进行中",
+  aborted: "中断",
   unknown: "未知",
 };
 

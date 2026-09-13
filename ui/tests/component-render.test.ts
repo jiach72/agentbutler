@@ -31,14 +31,14 @@ describe("关键页面组件渲染", () => {
     expect(html).toContain('href="/dashboard"');
     expect(html).toContain('href="/skills"');
     expect(html).toContain('href="/gateway"');
-    expect(html).toContain('href="/core-files"');
-    expect(html).toContain('href="/evolution"');
-    expect(html).toContain('href="/troubleshoot"');
-    expect(html).toContain('href="/logs"');
-    expect(html).toContain('href="/setup"');
     expect(html).toContain('href="/settings"');
-    expect(html).not.toContain('href="/assets"');
-    expect(html).not.toContain('href="/versions"');
+    // IA 收敛后：信任层与维护与升级都是折叠 SubMenu——分组行常显，组内项进入分组才渲染。
+    expect(html).toContain("信任层");
+    expect(html).toContain("维护与升级");
+    expect(html).toContain('data-menu-id="rc-menu-uuid-trust"');
+    expect(html).toContain('data-menu-id="rc-menu-uuid-maintain"');
+    // 常显分组的项目仍然直接渲染
+    expect(html).toContain("自进化");
     expect(html).toContain('aria-label="开始排查问题"');
     expect(html).toContain("排查问题");
     expect(html).toContain('class="topbar-title">自进化</strong>');

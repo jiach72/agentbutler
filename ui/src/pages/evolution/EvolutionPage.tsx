@@ -21,6 +21,7 @@ import {
   BulbOutlined,
   ExclamationCircleOutlined,
   FileSearchOutlined,
+  FundProjectionScreenOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined,
   ThunderboltOutlined,
@@ -409,6 +410,34 @@ export function EvolutionPage() {
               sub: data?.coverage ? `${data.coverage.sources} 个来源文件` : "暂无分析数据",
             },
             {
+              key: "success-rate",
+              icon: FundProjectionScreenOutlined,
+              label: "会话成功率",
+              value:
+                overview?.totals.successRate === null || overview?.totals.successRate === undefined
+                  ? "—"
+                  : `${Math.round(overview.totals.successRate * 100)}%`,
+              tone:
+                overview?.totals.successRate !== null && overview?.totals.successRate !== undefined && overview.totals.successRate < 0.9
+                  ? "warn"
+                  : undefined,
+              sub:
+                overview === null
+                  ? "读取中"
+                  : `${overview.totals.completedSessions} 正常 / ${overview.totals.failedSessions} 失败 / ${overview.totals.terminalSessions} 已结束`,
+            },
+            {
+              key: "health-score",
+              icon: SafetyCertificateOutlined,
+              label: "健康分",
+              value: overview?.totals.healthScore === null || overview?.totals.healthScore === undefined ? "—" : overview.totals.healthScore,
+              tone:
+                overview?.totals.healthScore !== null && overview?.totals.healthScore !== undefined && overview.totals.healthScore < 80
+                  ? "warn"
+                  : "ok",
+              sub: overview?.statusDetail ?? "可靠性 × 完成度 × 覆盖率综合",
+            },
+            {
               key: "directions",
               icon: BulbOutlined,
               label: "改进方向",
@@ -437,20 +466,34 @@ export function EvolutionPage() {
         {/* §2.3 ② 结论条：3 秒读清"现在好不好、要不要点一下"。 */}
         {!error && (
           <ConclusionBar
-            tone={pendingCount > 0 ? "warn" : startedCount > 0 ? "info" : "ok"}
+            tone={
+              overview?.status === "blocked"
+                ? "error"
+                : pendingCount > 0 || overview?.status === "watch"
+                  ? "warn"
+                  : startedCount > 0
+                    ? "info"
+                    : "ok"
+            }
             title={
               pendingCount > 0
                 ? `有 ${pendingCount} 项改进方向待你确认`
                 : startedCount > 0
                   ? `有 ${startedCount} 项已进入试运行`
-                  : "当前运行平稳，没有待处理的改进方向"
+                  : overview?.status === "healthy"
+                    ? "运行平稳，没有待处理的改进方向"
+                    : overview?.status === "watch"
+                      ? "有些指标值得留意，但还不到动手的时候"
+                      : "等待更多运行数据"
             }
             copy={
               pendingCount > 0
                 ? "先看方向详情与优化说明，确认后再试运行。"
                 : startedCount > 0
                   ? "试运行通过评估后，回到这里确认应用。"
-                  : "系统会在新一轮日志分析后更新改进方向。"
+                  : (overview?.failures?.[0] !== undefined
+                      ? `最常出问题的是「${overview.failures[0].title}」（${overview.failures[0].count} 次）——系统会持续观察，攒够样本后生成改进方向。`
+                      : "系统会在新一轮日志分析后更新改进方向。")
             }
           />
         )}

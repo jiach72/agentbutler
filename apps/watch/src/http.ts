@@ -203,7 +203,7 @@ import type { DiagnosticSummary } from "./diagnostics.js";
 import { classifyRuntimeState } from "./runtime-diagnosis.js";
 import type { HostMetricsService } from "./host-metrics.js";
 import type { LlmUsageService } from "./llm-usage.js";
-import type { BudgetEngine, BudgetStatus } from "./budget.js";
+import type { BudgetActionConfig, BudgetEngine, BudgetStatus } from "./budget.js";
 import type { ActionAuditService } from "./action-audit.js";
 import type { KillSwitchService } from "./killswitch.js";
 import type { TrustEventHub } from "./trust-events.js";
@@ -1716,11 +1716,42 @@ async function handle(
       return sendJson(res, 200, view);
     }
 
-    // 预算引擎（M1.1）：状态查询 + 手动核算（正常节奏 15 分钟一轮）。
+    // 预算引擎（M1.1）：状态查询 + 手动核算（正常节奏 15 分钟一轮）+ 面板设置入口。
     if (path === "/api/budget") {
-      if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
       if (deps.budget === undefined) return sendJson(res, 503, { error: "budget-unavailable" });
-      return sendJson(res, 200, deps.budget.status());
+      if (method === "GET") return sendJson(res, 200, deps.budget.status());
+      if (method === "POST") {
+        // 面板设置预算：monthlyUsd（0 = 关闭预算）+ 超限动作；持久化，重启仍生效。
+        if (!options.credentialWritesAllowed) {
+          return sendJson(res, 403, { error: "credential-writes-disabled" });
+        }
+        const body = await readJsonBody(req, res);
+        if (body === null) return;
+        const monthlyUsd = Number(body["monthlyUsd"]);
+        const action = body["action"];
+        if (!Number.isFinite(monthlyUsd) || monthlyUsd < 0 || monthlyUsd > 100_000) {
+          return sendJson(res, 400, { error: "invalid-monthly-usd" });
+        }
+        if (action !== undefined && action !== "alert" && action !== "downgrade" && action !== "pause") {
+          return sendJson(res, 400, { error: "invalid-action" });
+        }
+        try {
+          const status = deps.budget.setConfig({
+            monthlyUsd,
+            action: (action as BudgetActionConfig | undefined) ?? "alert",
+          });
+          deps.audit?.append({
+            actor: "panel",
+            action: "budget-config-set",
+            target: status.month,
+            detail: { monthlyUsd, action: status.action },
+          });
+          return sendJson(res, 200, status);
+        } catch (error) {
+          return sendJson(res, 400, { error: "invalid-budget-config", detail: String(error instanceof Error ? error.message : error) });
+        }
+      }
+      return sendJson(res, 405, { error: "method-not-allowed" });
     }
     if (path === "/api/budget/check") {
       if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });

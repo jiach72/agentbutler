@@ -32,7 +32,7 @@ export const SESSION_INDEX_INTERVAL_MS = 5 * 60 * 1000;
 /** 长会话阈值（30 分钟）。 */
 export const LONG_SESSION_MS = 30 * 60 * 1000;
 
-export type SessionAnomalyKind = "error-terminated" | "context-truncated" | "long-running" | "high-risk-actions";
+export type SessionAnomalyKind = "error-terminated" | "orphan-reaped" | "context-truncated" | "long-running" | "high-risk-actions";
 
 export interface SessionAnomaly {
   kind: SessionAnomalyKind;
@@ -138,7 +138,8 @@ const SESSION_COLUMN_CANDIDATES = {
   startedAt: ["started_at", "created_at", "start_time", "startedAt"],
   endedAt: ["ended_at", "finished_at", "end_time", "updated_at", "last_seen"],
   status: ["status", "outcome", "state", "result"],
-  taskType: ["task_type", "taskType", "type", "kind", "title"],
+  endReason: ["end_reason", "endReason"],
+  taskType: ["source", "task_type", "taskType", "type", "kind", "title"],
   model: ["model", "model_id"],
 } as const;
 
@@ -180,6 +181,7 @@ function probeSessionSource(db: InstanceType<typeof DatabaseSync>): { table: str
       startedAt: pick(SESSION_COLUMN_CANDIDATES.startedAt),
       endedAt: pick(SESSION_COLUMN_CANDIDATES.endedAt),
       status: pick(SESSION_COLUMN_CANDIDATES.status),
+      endReason: pick(SESSION_COLUMN_CANDIDATES.endReason),
       taskType: pick(SESSION_COLUMN_CANDIDATES.taskType),
       model: pick(SESSION_COLUMN_CANDIDATES.model),
     };
@@ -216,6 +218,37 @@ export function normalizeOutcome(status: unknown): string {
   if (/^(ok|success|succeeded|completed|complete|done|finished)$/.test(text)) return "ok";
   if (/^(running|active|in_progress|in-progress|pending|started)$/.test(text)) return "running";
   return "unknown";
+}
+
+/**
+ * Hermes sessions 表真实信号（生产 schema 实测，2026-09-12）：
+ * 无 status/outcome 列；终态要靠 `ended_at`（NULL = 进行中）+ `end_reason` 推导。
+ * end_reason 实测取值：cron_complete / agent_close / cli_close / tui_close /
+ * tui_shutdown / daily / new_session / session_reset / resume_pending_expired /
+ * cron_incomplete_no_output / startup_orphan_reap。
+ */
+const END_REASON_OK = new Set([
+  "cron_complete",
+  "agent_close",
+  "cli_close",
+  "tui_close",
+  "tui_shutdown",
+  "daily",
+  "new_session",
+  "session_reset",
+  "resume_pending_expired",
+]);
+const END_REASON_ERROR = new Set(["cron_incomplete_no_output"]);
+
+/** 行级终态派生：ended_at 为空 = 进行中；end_reason 分档；aborted = 网关重启时被回收。 */
+export function outcomeFromRow(status: unknown, endedAt: unknown, endReason: unknown): string {
+  if (endedAt === null || endedAt === undefined) return "running";
+  const reason = endReason === null || endReason === undefined ? "" : String(endReason).trim().toLowerCase();
+  if (END_REASON_ERROR.has(reason)) return "error";
+  if (END_REASON_OK.has(reason)) return "ok";
+  if (reason === "startup_orphan_reap") return "aborted";
+  const normalized = normalizeOutcome(status);
+  return normalized === "unknown" ? normalizeOutcome(reason) : normalized;
 }
 
 function numericOrNull(value: unknown): number | null {
@@ -324,6 +357,7 @@ export function createSessionIndexService(options: SessionIndexServiceOptions): 
           `${quoted(columns.startedAt)} AS started_at,`,
           `${quoted(columns.endedAt)} AS ended_at,`,
           `${quoted(columns.status)} AS status,`,
+          `${quoted(columns.endReason)} AS end_reason,`,
           `${quoted(columns.taskType)} AS task_type,`,
           `${quoted(columns.model)} AS model`,
           `FROM "${table}"`,
@@ -335,7 +369,7 @@ export function createSessionIndexService(options: SessionIndexServiceOptions): 
           empty.sessions.set(sessionId, {
             startedAt: toIso(row["started_at"]),
             endedAt: toIso(row["ended_at"]),
-            outcome: normalizeOutcome(row["status"]),
+            outcome: outcomeFromRow(row["status"], row["ended_at"], row["end_reason"]),
             taskType: row["task_type"] === null || row["task_type"] === undefined ? null : String(row["task_type"]),
             model: row["model"] === null || row["model"] === undefined ? null : String(row["model"]),
           });
@@ -389,6 +423,9 @@ export function createSessionIndexService(options: SessionIndexServiceOptions): 
       const anomalies: SessionAnomaly[] = [];
       if (outcome === "error") {
         anomalies.push({ kind: "error-terminated", severity: "critical", detail: "会话以错误结束" });
+      }
+      if (outcome === "aborted") {
+        anomalies.push({ kind: "orphan-reaped", severity: "warn", detail: "网关重启时会话被回收中断（非自身失败）" });
       }
       if (overflowSessions.has(sessionId)) {
         anomalies.push({ kind: "context-truncated", severity: "warn", detail: "出现上下文超限/截断特征" });

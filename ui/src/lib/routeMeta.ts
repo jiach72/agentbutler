@@ -63,7 +63,7 @@ export interface NavGroup {
 export const NAV_GROUPS: NavGroup[] = [
   { key: "console", label: "控制台", collapsible: false },
   { key: "trust", label: "信任层", collapsible: true, note: "成本、告警与审批" },
-  { key: "maintain", label: "维护与升级", collapsible: false },
+  { key: "maintain", label: "维护与升级", collapsible: true, note: "体检、排障与自进化" },
   { key: "settings", label: "设置", collapsible: false },
 ];
 
@@ -106,11 +106,11 @@ export const ROUTES: RouteMeta[] = [
   { path: "/progress", group: "trust", cluster: "审计与管控", title: "进度可信度", note: "进度声明核对", icon: FundProjectionScreenOutlined, nav: true },
   { path: "/federation", group: "trust", cluster: "审计与管控", title: "实例联邦", note: "多实例汇总", icon: ClusterOutlined, nav: true },
 
-  /* ---- 维护与升级 ---- */
+  /* ---- 维护与升级（可折叠；系统日志不进侧栏，入口在「排查问题」页内） ---- */
   { path: "/core-files", group: "maintain", title: "核心文件", note: "查看、编辑与回滚 Markdown", icon: FileMarkdownOutlined, nav: true },
   { path: "/troubleshoot", group: "maintain", title: "排查问题", note: "按现象一步步处理", icon: ToolOutlined, nav: true },
   { path: "/evolution", group: "maintain", title: "自进化", note: "分析日志与优化方案", icon: ExperimentOutlined, nav: true },
-  { path: "/logs", group: "maintain", title: "系统日志", note: "查看记录与修复建议", icon: FileSearchOutlined, nav: true },
+  { path: "/logs", group: "maintain", title: "系统日志", note: "查看记录与修复建议", icon: FileSearchOutlined, nav: false },
   { path: "/setup", group: "maintain", title: "连接体检", note: "链路三环体检与修复", icon: DeploymentUnitOutlined, nav: true },
 
   /* ---- 设置（侧栏底部钉住，不参与分组渲染） ---- */

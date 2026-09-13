@@ -342,6 +342,12 @@ html body .dense-descriptions .ant-descriptions-item-content {
   cursor: pointer;
   color: inherit;
 }
+/* 审批卡片行内快捷操作（批准/拒绝）：紧凑排一行，不与主按钮的点击区冲突。 */
+.notification-item-actions {
+  display: flex;
+  gap: 6px;
+  padding: 0 10px 10px;
+}
 .notification-item-main strong {
   font-size: var(--ab-text-size-sm);
   font-weight: 550;
