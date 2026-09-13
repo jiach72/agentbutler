@@ -58,6 +58,22 @@ const TONE_DOT_COLOR: Record<string, string> = {
   muted: "var(--ant-color-text-quaternary)",
 };
 
+/**
+ * 消息计数 chips 覆盖的状态与顺序（按投递流程排列）。
+ * 关键补齐：delivery_unknown（结果未知）与 cancelled（已取消）此前没有入口，
+ * 处于这两种状态的消息对用户不可见，会被误认为「漏消息」。
+ * 计数为 0 时照常显示（与既有 chips 行为一致），点击后可查看空列表提示。
+ */
+export const MESSAGE_CHIP_STATES = [
+  "captured",
+  "held_dnd",
+  "ready",
+  "delivered",
+  "delivery_unknown",
+  "dead_letter",
+  "cancelled",
+] as const;
+
 const chipStyle = {
   border: "1px solid var(--ant-color-border-secondary)",
   borderRadius: 8,
@@ -164,7 +180,7 @@ export function MessageInspector({
           </Typography.Paragraph>
         </div>
         <Flex wrap="wrap" gap={8} align="center" aria-label="消息关键状态计数（点击可筛选）">
-          {(["captured", "held_dnd", "ready", "delivered", "dead_letter"] as const).map((state) => {
+          {MESSAGE_CHIP_STATES.map((state) => {
             const active = activeStateFilter === state;
             return (
               <Button
@@ -414,6 +430,15 @@ export function MessageInspector({
                       }
                     />
                   )}
+
+                {selectedMessage.state === "delivery_unknown" && (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    title="这条消息的发送结果未知"
+                    description="发送请求已经发出，但通道没有返回回执（常见于请求超时或通道中断），无法确认对方是否收到。管家会在通道恢复后继续核实结果，请勿重复发送；如确认对方没收到，可在会话里补发一条相同内容。"
+                  />
+                )}
 
                 {selectedMessage.state === "dead_letter" && onRedeliver !== undefined && (
                   <Alert

@@ -32,3 +32,11 @@
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 16px;
 }
+
+/* 页面底部留白：.content 的 padding 底边只有 clamp(16px,2.6vw,28px)，消息记录是
+   固定高度卡片内滚动，滚到最底时最后一张卡片紧贴 padding 边，视觉像被截断。
+   只在本页补一屏底缓冲（与页面卡片间距同量级）；纯加法，不触碰 .content，
+   移动端 tabbar 的 calc(64px + env(safe-area-inset-bottom)) 叠加生效不受影响。 */
+.gateway-page {
+  padding-bottom: 24px;
+}

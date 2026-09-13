@@ -350,10 +350,14 @@ export const MESSAGE_STATE_LABELS: Record<string, string> = {
   delivering: "发送中",
   retry_wait: "等待重试",
   delivered: "已送达",
+  // 结果未知（delivery_unknown）：请求已发出但未拿到通道回执，不代表失败，
+  // 不能写成「投递失败」；文案保持与死信（dead_letter=发送失败）的语义边界。
   delivery_unknown: "结果未知",
   absorbed: "已合并",
   policy_error: "判断异常",
   dead_letter: "发送失败",
+  // 已取消：终态的主动放弃（被新回复/新任务取代时策略决策的产物），正常现象，
+  // 不带错误语义；终态列表 7 天后随保留策略清理。
   cancelled: "已取消",
   pending: "等待发送",
   failed: "发送失败",
@@ -491,6 +495,11 @@ export function statusTone(status: string): { tone: SemanticTone; label: string 
     ].includes(normalized)
   ) {
     return { tone: "error", label: MESSAGE_STATE_LABELS[status] ?? "其他" };
+  }
+  // 已取消是终态的主动放弃（如被新回复/新任务取代），非故障：用中性 tone 与文案，
+  // 不带任何错误暗示；详细说明见文案映射 cancelled 的注释。
+  if (normalized === "cancelled") {
+    return { tone: "unknown", label: MESSAGE_STATE_LABELS[status] ?? "其他" };
   }
   if (
     [
