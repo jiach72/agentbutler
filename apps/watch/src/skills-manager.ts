@@ -98,7 +98,36 @@ const defaultFs: SkillsManagerFs = {
   renameSync: (from, to) => renameSyncReal(from, to),
 };
 
-const SKILLS_MANAGER_DOWNLOAD_ARTIFACT = "skills-manager-cli-Linux-x64";
+/**
+ * CLI 下载产物名按「平台-架构」映射。产物清单以 v1.36.1 release 实测为准
+ * （https://github.com/xingkongliang/skills-manager/releases/tag/v1.36.1），
+ * 该 release 提供 skills-manager-cli-{Linux-x64, Linux-arm64, macOS-x64,
+ * macOS-arm64, Windows-x64.exe} 五个产物，全部按此命名，无缺省回退产物。
+ */
+const SKILLS_MANAGER_DOWNLOAD_ARTIFACTS: Readonly<Record<string, string>> = {
+  "darwin-arm64": "skills-manager-cli-macOS-arm64",
+  "darwin-x64": "skills-manager-cli-macOS-x64",
+  "linux-x64": "skills-manager-cli-Linux-x64",
+  "linux-arm64": "skills-manager-cli-Linux-arm64",
+  "win32-x64": "skills-manager-cli-Windows-x64.exe",
+};
+
+/** 未覆盖「平台-架构」组合（如 freebsd）的回退产物：生产主形态是 Linux 容器。 */
+const SKILLS_MANAGER_DOWNLOAD_ARTIFACT_FALLBACK = "skills-manager-cli-Linux-x64";
+
+/** 按 process.platform / process.arch 解析 CLI 下载产物名（参数可注入便于测试）。 */
+export function skillsManagerDownloadArtifact(
+  platform: NodeJS.Platform = process.platform,
+  arch: string = process.arch,
+): string {
+  return SKILLS_MANAGER_DOWNLOAD_ARTIFACTS[`${platform}-${arch}`] ?? SKILLS_MANAGER_DOWNLOAD_ARTIFACT_FALLBACK;
+}
+
+/** 版本号形态（如 1.36.1）：--version 冒烟输出至少含这一形态才认为是可用二进制。 */
+const VERSION_LIKE = /\d+\.\d+/;
+
+/** 下载冒烟校验超时：--version 是本地即时执行，15s 远大于 ENOEXEC 等格式错误的失败耗时。 */
+const DOWNLOAD_SMOKE_TIMEOUT_MS = 15_000;
 
 export interface SkillsManagerCliDeps {
   /** CLI 二进制路径（默认镜像内固定路径；缺失时按 cliDownloadDir 自动下载）。 */
@@ -291,12 +320,29 @@ export function createSkillsManagerCli(deps: SkillsManagerCliDeps = {}): SkillsM
   const autoDownload = deps.autoDownload ?? true;
 
   /**
+   * 落位前对临时文件做 --version 冒烟校验：非本平台二进制（如 Linux ELF
+   * 在 macOS 上）会以 ENOEXEC 失败，版本号形态校验同时拦住 HTML 错误页、
+   * 截断或损坏的下载。任一失败删除临时文件返回 false，落位决策交给调用方。
+   */
+  const smokeTestDownloadedCli = async (tmpPath: string): Promise<boolean> => {
+    try {
+      const probe = await exec(tmpPath, ["--version"], {
+        env: { ...process.env, HOME: cliHome },
+        timeout: DOWNLOAD_SMOKE_TIMEOUT_MS,
+      });
+      return VERSION_LIKE.test(`${probe.stdout}\n${probe.stderr}`);
+    } catch {
+      return false;
+    }
+  };
+
+  const configuredPath = deps.cliPath ?? SKILLS_MANAGER_CLI_PATH;
+  /**
    * 解析 CLI 可执行路径：镜像内置（/usr/local/bin）存在则优先；
    * 否则允许上一次运行时已下载到数据卷的副本；都没有且允许自动下载时，
    * 从 GitHub 下载到 <downloadDir>（原子落位 + 0755），规避「updater 升级
    * 未重建镜像导致 CLI 缺失」的反馈闭环——只要代码切到新版即可自愈。
    */
-  const configuredPath = deps.cliPath ?? SKILLS_MANAGER_CLI_PATH;
   const resolveCliPath = async (): Promise<string> => {
     // 显式/镜像路径存在时直接使用（测试注入与生产镜像内置都走这条）。
     if (fs.existsSync(configuredPath)) return configuredPath;
@@ -304,7 +350,8 @@ export function createSkillsManagerCli(deps: SkillsManagerCliDeps = {}): SkillsM
     if (!autoDownload) return configuredPath;
     try {
       const version = resolveCliVersion(deps);
-      const url = `https://github.com/xingkongliang/skills-manager/releases/download/${version}/${SKILLS_MANAGER_DOWNLOAD_ARTIFACT}`;
+      const artifact = skillsManagerDownloadArtifact();
+      const url = `https://github.com/xingkongliang/skills-manager/releases/download/${version}/${artifact}`;
       const response = await fetchImpl(url, {
         redirect: "follow",
         signal: AbortSignal.timeout(120_000),
@@ -316,6 +363,12 @@ export function createSkillsManagerCli(deps: SkillsManagerCliDeps = {}): SkillsM
       const tmp = join(downloadDir, `.skills-manager-cli.${process.pid}.tmp`);
       fs.writeFileSync(tmp, bytes);
       fs.chmodSync(tmp, 0o755);
+      // 冒烟不过（平台错配 / 损坏文件）不落位：清掉临时文件走 unavailable 提示，
+      // 不中断服务；下次运行会按当前平台产物重新下载。
+      if (!(await smokeTestDownloadedCli(tmp))) {
+        fs.unlinkSync(tmp);
+        return fallbackPath;
+      }
       fs.renameSync(tmp, fallbackPath);
       return fallbackPath;
     } catch {

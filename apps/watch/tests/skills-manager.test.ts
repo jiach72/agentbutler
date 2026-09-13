@@ -9,6 +9,7 @@ import { join, resolve, dirname } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   createSkillsManagerCli,
+  skillsManagerDownloadArtifact,
   SkillsManagerError,
   SKILLS_MANAGER_CLI_PATH,
   SKILLS_MANAGER_DEPLOY_AGENT,
@@ -419,7 +420,10 @@ describe("createSkillsManagerCli", () => {
 
     it("镜像/配置路径缺失时从 GitHub 下载到 cliDownloadDir 并落位", async () => {
       const dir = join(tmp, "dl");
-      const { exec, calls } = makeExec([{ stdout: '{"skill_count":1}' + String.fromCharCode(10) }]);
+      const { exec, calls } = makeExec([
+        { stdout: "skills-manager-cli 1.36.1" }, // 落位前 --version 冒烟
+        { stdout: '{"skill_count":1}' + String.fromCharCode(10) },
+      ]);
       const fakeBody = new Uint8Array(2_000_000);
       fakeBody.fill(0x7f);
       const cli = createSkillsManagerCli({
@@ -431,7 +435,10 @@ describe("createSkillsManagerCli", () => {
       });
       const result = await cli.run(["repo", "status"]);
       expect(result).toEqual({ skill_count: 1 });
-      expect(calls[0]!.file).toBe(join(dir, "skills-manager-cli"));
+      // 第一次 exec 是冒烟 --version（执行的是临时文件路径），rename 落位后业务调用走正式文件。
+      expect(calls[0]!.args).toEqual(["--version"]);
+      expect(calls[0]!.file).toContain(`${join(dir, ".skills-manager-cli.")}`);
+      expect(calls[1]!.file).toBe(join(dir, "skills-manager-cli"));
       expect(existsSync(join(dir, "skills-manager-cli"))).toBe(true);
     });
 
@@ -466,6 +473,109 @@ describe("createSkillsManagerCli", () => {
       const status = await cli.status();
       expect(status).toMatchObject({ available: true });
       expect(fetched).toBe(false);
+    });
+
+    it("按当前平台选择下载产物（macOS arm64 → macOS-arm64，不再下载 Linux ELF）", async () => {
+      const dir = join(tmp, "dl-plat");
+      let requestedUrl = "";
+      const { exec, calls } = makeExec([
+        { stdout: "skills-manager-cli 1.36.1" }, // 冒烟 --version
+        { stdout: '{"skill_count":1}' }, // 业务调用 repo status --json
+      ]);
+      const cli = createSkillsManagerCli({
+        cliHome: join(tmp, "home"),
+        cliDownloadDir: dir,
+        execFile: exec,
+        fetchImpl: (async (url: string | URL | globalThis.Request) => {
+          requestedUrl = String(url);
+          return makeFakeResponse(200, new Uint8Array(2_000_000));
+        }) as unknown as typeof fetch,
+        autoDownload: true,
+      });
+      const result = await cli.run(["repo", "status"]);
+      expect(result).toEqual({ skill_count: 1 });
+      // 下载产物按运行平台取自映射表；冒烟先走 --version（无 --json）。
+      expect(requestedUrl).toContain(`releases/download/${SKILLS_MANAGER_DEFAULT_VERSION}/`);
+      expect(requestedUrl.endsWith(skillsManagerDownloadArtifact())).toBe(true);
+      expect(calls[0]!.args).toEqual(["--version"]);
+    });
+
+    it("下载后先冒烟 --version 再落位；通过则 rename 到位且 CLI 正常调用", async () => {
+      const dir = join(tmp, "dl-smoke-ok");
+      const { exec, calls } = makeExec([
+        { stdout: "skills-manager-cli 1.36.1" }, // 冒烟 --version
+        { stdout: '{"skill_count":1}' }, // 业务调用 repo status --json
+      ]);
+      const cli = createSkillsManagerCli({
+        cliHome: join(tmp, "home"),
+        cliDownloadDir: dir,
+        execFile: exec,
+        fetchImpl: (async () => makeFakeResponse(200, new Uint8Array(2_000_000))) as unknown as typeof fetch,
+        autoDownload: true,
+      });
+      const result = await cli.run(["repo", "status"]);
+      expect(result).toEqual({ skill_count: 1 });
+      // 第一次调用是冒烟（--version，无 --json），第二次才是业务调用。
+      expect(calls[0]!.args).toEqual(["--version"]);
+      expect(calls[0]!.options.timeout).toBe(15_000);
+      expect(calls[1]!.file).toBe(join(dir, "skills-manager-cli"));
+      expect(existsSync(join(dir, "skills-manager-cli"))).toBe(true);
+    });
+
+    it("冒烟失败（Linux ELF 在 macOS 触发 ENOEXEC 的等价场景）时删除临时文件不落位", async () => {
+      const dir = join(tmp, "dl-smoke-enoexec");
+      // execFile 抛 ENOEXEC：非本平台 ELF 的真实失败形态。
+      const { exec, calls } = makeExec([
+        { error: Object.assign(new Error("spawn ENOEXEC"), { code: "ENOEXEC" }) },
+      ]);
+      const cli = createSkillsManagerCli({
+        cliHome: join(tmp, "home"),
+        cliDownloadDir: dir,
+        execFile: exec,
+        fetchImpl: (async () => makeFakeResponse(200, new Uint8Array(2_000_000))) as unknown as typeof fetch,
+        autoDownload: true,
+      });
+      // 走 unavailable 提示，不抛错、不中断服务。
+      const status = await cli.status();
+      expect(status).toEqual({ available: false, installHint: SKILLS_MANAGER_INSTALL_HINT });
+      expect(calls.map((call) => call.args)).toEqual([["--version"]]);
+      // 临时文件已被清理，正式落位文件不存在。
+      expect(existsSync(join(dir, ".skills-manager-cli.0.tmp"))).toBe(false);
+      expect(existsSync(join(dir, "skills-manager-cli"))).toBe(false);
+    });
+
+    it("冒烟输出无版本号数字（如 HTML 错误页文本）同样拒绝落位", async () => {
+      const dir = join(tmp, "dl-smoke-noise");
+      const { exec, calls } = makeExec([
+        { stdout: "<html>Not Found</html>", stderr: "" },
+      ]);
+      const cli = createSkillsManagerCli({
+        cliHome: join(tmp, "home"),
+        cliDownloadDir: dir,
+        execFile: exec,
+        fetchImpl: (async () => makeFakeResponse(200, new Uint8Array(2_000_000))) as unknown as typeof fetch,
+        autoDownload: true,
+      });
+      const status = await cli.status();
+      expect(status).toMatchObject({ available: false });
+      expect(calls.map((call) => call.args)).toEqual([["--version"]]);
+      expect(existsSync(join(dir, "skills-manager-cli"))).toBe(false);
+    });
+  });
+
+  /** 产物名映射表与 v1.36.1 release 实测清单逐一对应。 */
+  describe("skillsManagerDownloadArtifact", () => {
+    it("覆盖五个官方产物：darwin/linux 各两种架构 + Windows x64", () => {
+      expect(skillsManagerDownloadArtifact("darwin", "arm64")).toBe("skills-manager-cli-macOS-arm64");
+      expect(skillsManagerDownloadArtifact("darwin", "x64")).toBe("skills-manager-cli-macOS-x64");
+      expect(skillsManagerDownloadArtifact("linux", "x64")).toBe("skills-manager-cli-Linux-x64");
+      expect(skillsManagerDownloadArtifact("linux", "arm64")).toBe("skills-manager-cli-Linux-arm64");
+      expect(skillsManagerDownloadArtifact("win32", "x64")).toBe("skills-manager-cli-Windows-x64.exe");
+    });
+
+    it("默认参数取当前运行平台，未知平台回退 Linux-x64 并注明取舍", () => {
+      expect(skillsManagerDownloadArtifact()).toBe(skillsManagerDownloadArtifact(process.platform, process.arch));
+      expect(skillsManagerDownloadArtifact("freebsd", "arm64")).toBe("skills-manager-cli-Linux-x64");
     });
   });
 
