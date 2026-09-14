@@ -255,4 +255,102 @@ describe("SqliteStore", () => {
       vi.useRealTimers();
     }
   });
+
+  /**
+   * 审批升级计数的三个底层方法此前全仓没有直接用例，只被 approvals.test.ts
+   * 间接覆盖（且只跑到第 2 轮，没踩到计数膨胀区间）。这里直接钉住契约。
+   */
+  const insertApproval = (
+    over: Partial<{
+      id: string;
+      actionId: string;
+      fingerprint: string;
+      attempts: number;
+      escalateRequired: boolean;
+      at: string;
+    }> = {},
+  ) =>
+    store.insertActionApproval({
+      id: over.id ?? `ap-${over.actionId ?? "evt"}`,
+      actionId: over.actionId ?? "evt",
+      fingerprint: over.fingerprint ?? "file-delete|/tmp/a",
+      kind: "file-delete",
+      title: "删除文件",
+      attempts: over.attempts ?? 1,
+      escalateRequired: over.escalateRequired ?? false,
+      expiresAt: "2026-09-12T00:00:00.000Z",
+      at: over.at ?? "2026-09-11T00:00:00.000Z",
+    });
+
+  it("审批：getOpenActionApprovalByFingerprint 只认 pending，结算后不再被复用", () => {
+    const row = insertApproval({ id: "ap-1", actionId: "evt-1" });
+    expect(row.status).toBe("pending");
+    expect(store.getOpenActionApprovalByFingerprint("file-delete|/tmp/a")?.id).toBe("ap-1");
+
+    store.decideActionApproval("ap-1", { status: "denied", at: "2026-09-11T00:01:00.000Z" });
+    expect(store.getOpenActionApprovalByFingerprint("file-delete|/tmp/a")).toBeUndefined();
+
+    // 指纹隔离：同 target 不同 kind 不复用
+    insertApproval({ id: "ap-2", actionId: "evt-2", fingerprint: "file-write|/tmp/a" });
+    expect(store.getOpenActionApprovalByFingerprint("file-delete|/tmp/a")).toBeUndefined();
+    expect(store.getOpenActionApprovalByFingerprint("file-write|/tmp/a")?.id).toBe("ap-2");
+  });
+
+  it("审批：bumpActionApprovalAttempts 递增计数、升级只置位不撤销；结算/不存在 → undefined", () => {
+    insertApproval({ id: "ap-3", actionId: "evt-3", attempts: 1 });
+
+    const bumped = store.bumpActionApprovalAttempts("ap-3", {
+      attempts: 2,
+      escalateRequired: true,
+      at: "2026-09-11T00:01:00.000Z",
+    })!;
+    expect(bumped.attempts).toBe(2);
+    expect(bumped.escalateRequired).toBe(true);
+
+    // 升级位一旦成立不可撤销：后续 bump 传 false 也保持 true。
+    const second = store.bumpActionApprovalAttempts("ap-3", {
+      attempts: 3,
+      escalateRequired: false,
+      at: "2026-09-11T00:02:00.000Z",
+    })!;
+    expect(second.attempts).toBe(3);
+    expect(second.escalateRequired).toBe(true);
+
+    expect(
+      store.bumpActionApprovalAttempts("nope", {
+        attempts: 1,
+        escalateRequired: false,
+        at: "2026-09-11T00:03:00.000Z",
+      }),
+    ).toBeUndefined();
+
+    store.decideActionApproval("ap-3", { status: "approved", at: "2026-09-11T00:04:00.000Z" });
+    expect(
+      store.bumpActionApprovalAttempts("ap-3", {
+        attempts: 4,
+        escalateRequired: true,
+        at: "2026-09-11T00:05:00.000Z",
+      }),
+    ).toBeUndefined();
+  });
+
+  it("审批：countApprovalRequestsByAction 是 SUM(attempts) 口径，且只统计窗口内的行", () => {
+    insertApproval({ id: "ap-4", actionId: "evt-4", attempts: 1, at: "2026-09-11T00:00:00.000Z" });
+    insertApproval({ id: "ap-5", actionId: "evt-5", attempts: 3, at: "2026-09-11T01:00:00.000Z" });
+    insertApproval({
+      id: "ap-6",
+      actionId: "evt-6",
+      attempts: 5,
+      fingerprint: "file-write|/tmp/a",
+      at: "2026-09-11T01:00:00.000Z",
+    });
+
+    // 1 + 3 = 4（按「本单吸收的请求数」求和，不是按行数）
+    expect(store.countApprovalRequestsByAction("file-delete|/tmp/a", "2026-09-10T00:00:00.000Z")).toBe(4);
+    // 窗口收窄到 00:30 之后 → 只剩 01:00 那行
+    expect(store.countApprovalRequestsByAction("file-delete|/tmp/a", "2026-09-11T00:30:00.000Z")).toBe(3);
+    // 指纹隔离 + 无匹配返回 0（不抛异常）
+    expect(store.countApprovalRequestsByAction("file-write|/tmp/a", "2026-09-10T00:00:00.000Z")).toBe(5);
+    expect(store.countApprovalRequestsByAction("none|none", "2026-09-10T00:00:00.000Z")).toBe(0);
+  });
 });

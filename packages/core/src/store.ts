@@ -2103,6 +2103,29 @@ export class SqliteStore {
     return this.prepare("DELETE FROM llm_bindings WHERE binding_id = ?").run(bindingId).changes > 0;
   }
 
+  /** 删除模型配置的全部版本行。返回删除的行数。 */
+  deleteLlmProfileVersions(profileId: string): number {
+    return Number(this.prepare("DELETE FROM llm_profile_versions WHERE profile_id = ?").run(profileId).changes);
+  }
+
+  /**
+   * 删除模型配置本体。llm_* 三表之间没有外键约束（见建表语句），
+   * 必须先删依赖行再删本体；调用方负责先删 versions 与 bindings，本方法
+   * 只删 llm_profiles 一行，包事务由调用方决定范围。
+   */
+  deleteLlmProfile(profileId: string): boolean {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.deleteLlmProfileVersions(profileId);
+      const changes = Number(this.prepare("DELETE FROM llm_profiles WHERE profile_id = ?").run(profileId).changes);
+      this.db.exec("COMMIT");
+      return changes > 0;
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   saveEvolutionObservation(input: EvolutionObservationRow): void {
     this.prepare(`INSERT OR IGNORE INTO evolution_observations
       (observation_id, instance_id, session_id, run_id, kind, name, outcome, failure_category,
@@ -2535,6 +2558,8 @@ export class SqliteStore {
       /** 只取 last_seen 在该时刻之后的活跃事件（金丝雀观察窗回归判定用）。 */
       lastSeenSince?: string;
       limit?: number;
+      /** 分页偏移（与 ORDER BY 一致排序配套，翻页用；默认 0）。 */
+      offset?: number;
     } = {},
   ): TrustEventRow[] {
     const rows = this.prepare(
@@ -2544,7 +2569,7 @@ export class SqliteStore {
          AND (? IS NULL OR last_seen >= ?)
        ORDER BY CASE status WHEN 'regressed' THEN 0 WHEN 'active' THEN 1 WHEN 'acknowledged' THEN 2 ELSE 3 END,
          CASE severity WHEN 'critical' THEN 0 WHEN 'warn' THEN 1 ELSE 2 END, last_seen DESC
-       LIMIT ?`,
+       LIMIT ? OFFSET ?`,
     ).all(
       filter.status ?? null,
       filter.status ?? null,
@@ -2555,6 +2580,7 @@ export class SqliteStore {
       filter.lastSeenSince ?? null,
       filter.lastSeenSince ?? null,
       filter.limit ?? 100,
+      Math.max(0, Math.floor(filter.offset ?? 0)),
     ) as Record<string, unknown>[];
     return rows.map((row) => this.mapTrustEvent(row));
   }
@@ -2803,6 +2829,38 @@ export class SqliteStore {
     return row === undefined ? undefined : this.mapActionApproval(row);
   }
 
+  /** 同一指纹的未决审批单（重试风暴去重：同一高危动作只允许一张 open 单）。 */
+  getOpenActionApprovalByFingerprint(fingerprint: string): ActionApprovalRow | undefined {
+    const row = this.prepare(
+      "SELECT * FROM action_approvals WHERE fingerprint = ? AND status = 'pending' ORDER BY created_at DESC LIMIT 1",
+    ).get(fingerprint) as Record<string, unknown> | undefined;
+    return row === undefined ? undefined : this.mapActionApproval(row);
+  }
+
+  /**
+   * 在未决单上累计重试计数（指纹去重后的升级推进）。仅 pending 行可更新；
+   * 返回 undefined 表示单已被结算或不存在。attempts 单调递增，escalate_required
+   * 只置位不撤销（升级状态一旦成立，面板/通道闸门立即生效）。
+   */
+  bumpActionApprovalAttempts(
+    id: string,
+    input: { attempts: number; escalateRequired: boolean; at: string },
+  ): ActionApprovalRow | undefined {
+    this.prepare(
+      `UPDATE action_approvals
+         SET attempts = ?, escalate_required = CASE WHEN escalate_required = 1 THEN 1 ELSE ? END,
+             updated_at = ?
+       WHERE id = ? AND status = 'pending'`,
+    ).run(
+      Math.max(1, Math.floor(input.attempts)),
+      input.escalateRequired ? 1 : 0,
+      input.at,
+      id,
+    );
+    const row = this.getActionApproval(id);
+    return row !== undefined && row.status === "pending" ? row : undefined;
+  }
+
   listActionApprovals(
     filter: {
       status?: string;
@@ -2851,10 +2909,17 @@ export class SqliteStore {
     };
   }
 
-  /** 同一动作指纹在给定时间窗内的审批请求次数（24h 第 3 次触发升级）。 */
+  /**
+   * 同一动作指纹在给定时间窗内的审批请求次数（24h 第 3 次触发升级）。
+   *
+   * 用 SUM(attempts) 而非行数：指纹去重（B2）后窗口内的重试不开新行，
+   * 而是在既有 open 单上累计 attempts——每一行的 attempts 就是该单吸收的
+   * 请求次数，求和才是窗口内的真实请求次数；行数口径会漏掉去重合并的次数，
+   * 导致「拒了再重试」永远从 1 重新数，第 3 次升级形同虚设。
+   */
   countApprovalRequestsByAction(fingerprint: string, since: string): number {
     const row = this.prepare(
-      "SELECT COUNT(*) AS n FROM action_approvals WHERE fingerprint = ? AND created_at >= ?",
+      "SELECT COALESCE(SUM(attempts), 0) AS n FROM action_approvals WHERE fingerprint = ? AND created_at >= ?",
     ).get(fingerprint, since) as { n: number | bigint };
     return Number(row.n);
   }

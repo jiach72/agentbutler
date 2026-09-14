@@ -5,17 +5,26 @@
  *   · 控制台 / 维护与升级：常显分组；
  *   · 信任层：可折叠分组（9 项），展开后按「花了什么 / 管得住吗」分簇。
  *     折叠是为了把侧栏内容压进 768px 首屏——此前 18 项平铺约 1030px，
- *     底部的「设置」与访问安全态在短屏上默认掉出视野（评审 P0-1）。
+ *     底部的「设置」与侧栏状态块在短屏上默认掉出视野（评审 P0-1）。
  *   · 设置：底部钉住，不随导航滚动。
  *
- * 【状态只在一处说】访问安全态在侧栏底部展示；顶栏只在「不是仅本机访问」时
- * 才补一句警示，避免同一事实在一屏出现两次（评审 P0-3）。
+ * 【状态只在一处说】侧栏底部现在是「高危动作放行模式」开关（逐条确认 / 全部
+ * 允许）；访问安全态不再在侧栏重复展示，顶栏只在「不是仅本机访问」时补一句
+ * 警示，避免同一事实在一屏出现两次（评审 P0-3）。
  */
-import { MenuOutlined, MoreOutlined, MoonOutlined, SafetyCertificateOutlined, SunOutlined, ToolOutlined } from "@ant-design/icons";
+import {
+  MenuOutlined,
+  MoreOutlined,
+  MoonOutlined,
+  SafetyCertificateOutlined,
+  SunOutlined,
+  ToolOutlined,
+} from "@ant-design/icons";
 import { Button, Drawer, Dropdown, Layout as AntLayout, Menu } from "antd";
 import type { MenuProps } from "antd";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { ApprovalModeSwitch } from "./ApprovalModeSwitch.js";
 import { KillSwitchButton } from "./KillSwitchButton.js";
 import { MobileTabBar } from "./MobileTabBar.js";
 import { NotificationCenter } from "./NotificationCenter.js";
@@ -66,8 +75,8 @@ function toNavItem(route: RouteMeta): NavItem {
 }
 
 /**
- * 侧栏底部那句「仅本机访问」必须来自真实监听地址。
- * 读不到数据时显示"读取中"而不是默认宣称安全 —— 不确定的时候不能装作确定。
+ * 访问安全态的口径：现在只用于顶栏的「非仅本机访问」警示（侧栏底部已换成放行模式开关）。
+ * 读不到数据时按 warn 处理而不是默认宣称安全 —— 不确定的时候不能装作确定。
  */
 function baselineTone(baseline: SecurityBaselinePayload | null): "ok" | "warn" | "error" {
   if (baseline === null) return "warn";
@@ -79,14 +88,6 @@ function baselineTitle(baseline: SecurityBaselinePayload | null): string {
   if (baseline === null) return "正在读取访问方式";
   if (baseline.loopback) return "仅本机访问";
   return baseline.auth ? "同一网络可访问" : "任何人都可以访问";
-}
-
-function baselineNote(baseline: SecurityBaselinePayload | null): string {
-  if (baseline === null) return "稍等一下";
-  if (baseline.loopback) {
-    return baseline.auth ? "数据只保存在你的电脑上，已设置访问口令" : "数据只保存在你的电脑上";
-  }
-  return baseline.auth ? "已设访问口令" : "未设访问口令，请尽快处理";
 }
 
 /** 常显分组：标题 + 直接列出子项。 */
@@ -132,13 +133,7 @@ function collapsibleGroupItem(
   };
 }
 
-function SidebarContent({
-  onNavigate,
-  baseline,
-}: {
-  onNavigate?: () => void;
-  baseline: SecurityBaselinePayload | null;
-}) {
+function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const location = useLocation();
   const currentMeta = routeMetaFor(location.pathname);
   const settingsActive = currentMeta?.group === "settings" || location.pathname.startsWith("/preferences");
@@ -201,13 +196,9 @@ function SidebarContent({
             <small>{PINNED_ROUTE.note}</small>
           </span>
         </Link>
-        <div className={`sidebar-meta${baselineTone(baseline) !== "ok" ? ` is-${baselineTone(baseline)}` : ""}`}>
-          <SafetyCertificateOutlined aria-hidden="true" />
-          <span>
-            {baselineTitle(baseline)}
-            <small>{baselineNote(baseline)}</small>
-          </span>
-        </div>
+        {/* 侧栏底部改放放行模式开关（客户：同样的操作不想一条条处理）。
+            访问安全态不再在这里重复展示，顶栏在非仅本机访问时仍会警示。 */}
+        <ApprovalModeSwitch />
       </div>
     </>
   );
@@ -231,7 +222,8 @@ export function Layout() {
   }, []);
   const currentPage = routeMetaFor(location.pathname);
   const themeLabel = mode === "dark" ? "切换到亮色主题" : "切换到暗色主题";
-  // 访问安全态在侧栏底部已说明；顶栏只在「不是仅本机访问」时补一句警示（评审 P0-3）。
+  // 侧栏底部已换成放行模式开关，访问安全态只在这里（顶栏）说一次：
+  // 仅「不是仅本机访问」时才出现，避免同一事实一屏两次（评审 P0-3）。
   const topbarWarn = baselineTone(baseline) !== "ok";
 
   return (
@@ -241,7 +233,7 @@ export function Layout() {
       </a>
       <AntLayout className="app">
         <AntLayout.Sider className="app-sider" width={240} theme="light">
-          <SidebarContent baseline={baseline} />
+          <SidebarContent />
         </AntLayout.Sider>
         <Drawer
           open={drawerOpen}
@@ -252,7 +244,7 @@ export function Layout() {
           className="mobile-nav-drawer"
         >
           <div className="sidebar-mobile">
-            <SidebarContent onNavigate={() => setDrawerOpen(false)} baseline={baseline} />
+            <SidebarContent onNavigate={() => setDrawerOpen(false)} />
           </div>
         </Drawer>
         <AntLayout className="app-main">

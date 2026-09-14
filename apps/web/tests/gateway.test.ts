@@ -55,7 +55,9 @@ const PATCHES = [
 ];
 
 const ALERTS = {
-  counts: { pending: 2, delivering: 1, delivered: 8, failed: 1 },
+  // counts 必须与真值来源（apps/gateway/src/queue.ts counts()）同构：缺任一
+  // 键会被 parseAlertsView 判为畸形响应 → 整块降级成「不可达」（CI 存量债）。
+  counts: { pending: 2, delivering: 1, delivered: 8, failed: 1, resolved: 3 },
   unreadCount: 2,
   degradedChannels: ["smtp:missing-credentials"],
   items: [

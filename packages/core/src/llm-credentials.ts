@@ -265,6 +265,40 @@ export class LlmCredentialService {
     return profile;
   }
 
+  /**
+   * 删除模型配置：连同全部版本与其绑定一并移除（不可恢复，密文随行删除）。
+   * 不存在返回 false；成功审计一条 llm-profile-deleted（含被一并移除的绑定数）。
+   */
+  deleteProfile(profileId: string): boolean {
+    const profile = this.store.getLlmProfile(profileId);
+    if (profile === undefined) return false;
+    const bindings = this.store.listLlmBindings({ profileId });
+    for (const binding of bindings) this.store.deleteLlmBinding(binding.bindingId);
+    this.store.deleteLlmProfile(profileId);
+    this.audit("llm-profile-deleted", profileId, {
+      provider: profile.provider,
+      protocol: profile.protocol,
+      model: profile.model,
+      removedBindingCount: bindings.length,
+    });
+    return true;
+  }
+
+  /**
+   * 启用模型配置：复用 probeProfile 的真实连接测试语义——通过才置 active
+   * （协议不被 Hermes 支持时置 unsupported），不通过保持 disabled。
+   * 返回 (profile, enabled)：enabled=false 表示探针未通过，配置仍为禁用。
+   */
+  async enableProfile(profileId: string): Promise<{ profile: LlmProfileView; enabled: boolean }> {
+    const profile = this.store.getLlmProfile(profileId);
+    if (!profile) throw new Error("profile-not-found");
+    await this.probeProfile(profileId);
+    const updated = this.listProfiles().find((item) => item.profileId === profileId);
+    if (!updated) throw new Error("profile-not-found");
+    this.audit("llm-profile-enabled", profileId, { protocol: updated.protocol, provider: updated.provider, model: updated.model, probeStatus: updated.probe?.status ?? "unknown" });
+    return { profile: updated, enabled: updated.status === "active" };
+  }
+
   listBindings(): LlmBindingRow[] { return this.store.listLlmBindings(); }
   addBinding(input: import("./store.js").LlmBindingInput): LlmBindingRow {
     if (!this.store.getLlmProfile(input.profileId)) throw new Error("profile-not-found");

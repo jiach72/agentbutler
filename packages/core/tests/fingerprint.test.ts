@@ -2,7 +2,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { LogSource } from "@butler/contract";
 import { EventBus, type FingerprintAggregatedPayload, type FingerprintEscalatedPayload } from "../src/events";
-import { FingerprintEngine, normalizeErrorLine } from "../src/fingerprint";
+import { defaultIsError, FingerprintEngine, normalizeErrorLine } from "../src/fingerprint";
 import { SqliteStore } from "../src/store";
 import { makeTempDir, rmTempDir } from "./helpers";
 
@@ -156,6 +156,29 @@ describe("FingerprintEngine", () => {
     engine.ingest({ source: JSONL_SOURCE, raw: JSON.stringify({ level: "error", msg: "bad" }), ts: T0 });
     expect(store.listFingerprints()).toHaveLength(3); // info 被过滤，warn/fatal/error 各一签名
     expect(store.listFingerprints().reduce((n, f) => n + f.count, 0)).toBe(3);
+  });
+
+  it("defaultIsError：Hermes `<TS>,<NUM> LEVEL logger:` 前缀按级别判定，正文关键词不再误伤", () => {
+    // 带级别 token 的结构化行：WARNING 是错误、INFO 不是（即使正文含 error 字样）。
+    expect(defaultIsError({
+      source: TEXT_SOURCE,
+      raw: "2026-08-30 11:04:48,123 WARNING telegram: network slow, last error kept",
+    })).toBe(true);
+    expect(defaultIsError({
+      source: TEXT_SOURCE,
+      raw: "2026-08-30 11:04:48,123 INFO telegram: Discovering Telegram API fallback IPs",
+    })).toBe(false);
+    expect(defaultIsError({
+      source: TEXT_SOURCE,
+      raw: "2026-08-30 11:04:49,001 CRITICAL gateway: fatal loop detected",
+    })).toBe(true);
+
+    // 缺级别前缀的行仍走关键词路径，不回归。
+    expect(defaultIsError({ source: TEXT_SOURCE, raw: "plain text with error keyword" })).toBe(true);
+    // 正文出现裸 "ERROR" 但不匹配级别前缀结构 → 走关键词路径命中（不改原有语义）。
+    expect(defaultIsError({ source: TEXT_SOURCE, raw: "INFO service: see ERROR handling docs" })).toBe(true);
+    // 有级别前缀时正文关键词不再决定结果。
+    expect(defaultIsError({ source: TEXT_SOURCE, raw: "2026-08-30 11:04:48,123 INFO service: see ERROR handling docs" })).toBe(false);
   });
 
   it("总线事件经 onAny 落 events 表持久化（模拟 createCore 接线）", () => {

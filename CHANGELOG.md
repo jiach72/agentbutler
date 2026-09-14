@@ -3,6 +3,35 @@
 本项目遵循 [Semantic Versioning](https://semver.org/)；开发预览版本可能包含不兼容调整。
 版本规则：`0.1-beta.YYMMDD.构建号`（构建号=CI 流水线号；详见 README「版本规则」）。
 
+## [0.1-beta.260914.x] - 2026-09-14 — 客户缺陷批次修复（A1/B1-B12）+ 全部允许模式 + 事件中心可读化
+
+### Added
+
+- **全部允许模式 + 批量批准（需求 C）**：`approval.mode`（`ask` | `allow-all`）持久化到 `runtime_settings`；`allow-all` 下高危动作跳过推卡自动放行（审批单、审计、事件中心留痕一条不少），**不绕过急停**（killswitch 走 `stopInstance()` 独立管线）。新增 `normalizeMode`/`setMode`/`bulkDecide`（单次上限 100，部分失败逐条带回原因不抛异常）；`GET/POST /api/approvals/mode`、`POST /api/approvals/bulk-decide`；web BFF 代理 + 面板侧栏左下角常驻 `ApprovalModeSwitch`（切换带 Popconfirm、pending 条数 30s 轮询）。通知中心快捷决策三分支：成功提示、传输层失败（0/5xx）报错引导重试、业务竞态（409/410/404）静默 + 立即刷新（不再 toast 堆叠）。
+- **事件中心可读性（需求 A）**：新增 `kindCopy.ts`——41 个事件 kind 的中文标签 + 一句话解释 + 处理建议（未命中回退原 kind，绝不渲染空白）；`EventsPage` 详情区 kind 解释块 + 状态引导文案；证据链从原始 JSON 改为键值摊平（`EVIDENCE_KEY_LABEL` 中文映射，复杂值折叠进「原始数据」，dedupeKey 挪进折叠区）。
+- **模型配置启用/删除（需求 B）**：`llm-profiles` 支持启用（复用真实探针，通过才置 active，协议不支持置 unsupported）与删除（事务连带版本与绑定，审计留痕，不存在的返回 false）；`POST /api/llm/profiles/:id/enable`、`DELETE /api/llm/profiles/:id`（守 `credentialWritesAllowed`）+ web 代理；面板配置表新增状态列与启用/删除操作（删除 Popconfirm 按绑定数变化提示）。
+
+### Fixed
+
+- **A1（P0，今日生效）**：Hermes 兼容垫片 `hermes_hooks.py` 的 turn 路径改为优先 `gateway.run_turn_runner`、旧 `gateway.run.TurnRunner` 回退——垫片到期日 2026-09-14 起旧路径移除不再崩溃。
+- **B1 行为审计 file-delete 误杀真阳性**：B1 修误报时收紧的正则把「删除文件：/tmp/a.txt」这类名词+冒号句式整体丢弃（捕获组停在「文件」上）。规则 1/2 补可选名词连接词 + 捕获组纳入冒号（Windows 盘符路径不再截断成 "C"）；`PATH_LIKE_TARGET` 全匹配守卫保留。新增 `action-audit.test.ts` 12 例（真阳性 5 + 误报方向 4 + 其他规则 3），反向验证通过（摘掉修复 3 例变红）。
+- **审批升级计数虚高（客户可见数字谎报）**：旧 `SUM(attempts)` 口径把「窗口内序号」当「本单吸收数」反复累计，4 轮 12 次真实请求会显示 45 次。语义拆分：`attempts`=本单吸收数（新单从 1 起）、`sequence`=窗口内累计序号（升级判定用）、`windowCount`=客户可见「今日已被请求 N 次」（实时算）。全仓 18 处消费点逐一核对无漏改；4 轮计数测试反向验证通过。
+- **B2 审批重复开单**：同指纹已有未结算单时复用（`getOpenActionApprovalByFingerprint`）并推进计数，不再重试风暴式重复推卡。
+- **B3 假阳性指纹**：`fingerprint.ts` 裸 warn 子串误判为 error；`watch.ts` 构造点补 `isError` 注入（吸收客户 Telegram 三类白名单补丁）。
+- **B5/B10 信任事件分页**：`/api/trust/events` 补 `offset`（原 limit 1-500 无翻页）。
+- **B7/B8 macOS 部署兼容**：`deploy.sh` compose() 空数组守卫；watch Dockerfile `TARGETPLATFORM` 感知（吸收客户 linux/amd64 平台补丁）+ 构建冒烟校验。
+- **B9/B11/B12**：恢复/诊断端点 web 代理（原只收 POST 且不代理）；skills-manager `database is locked` 首次调用瞬态错误重试。
+- **web 测试 fixture 契约过期**：`/api/gateway` mock counts 缺 `resolved` 键致 2 例假失败（`parseAlertsView` 已要求 5 键同构）。
+
+### Changed
+
+- 面板侧栏左下角原局域网访问展示块移除；访问安全态只在顶栏「非仅本机访问」时警示一次（`Layout.tsx` 同步修正过期注释）。
+- `apps/web/src/server.ts` 兜底 counts 维持 4 态：不可达时 UI 直接空态，`resolved` 与 gateway counts 一起按需补齐（注释已说明）。
+
+### Tests
+
+- core 117、watch（approvals 35 + action-audit 12 + trust/skills 回归）、web 111、UI 188 全绿；tsc -b 0 error、eslint 0 error。
+
 ## [0.1-beta.260911.13] - 2026-09-11 — 版本体系切换 + 信任层（Trust Layer）全量（M1-M4）
 
 ### Changed（CI 与发版）

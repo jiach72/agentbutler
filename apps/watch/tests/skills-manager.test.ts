@@ -583,7 +583,14 @@ describe("createSkillsManagerCli", () => {
     it("CLI 可用：返回 repo/skills/deployAgent(claude_code)/deployTarget，并确保 symlink", async () => {
       const hermes = join(tmp, "hermes-skills");
       mkdirSync(hermes, { recursive: true });
+      // exec 队列按调用顺序消费：status() 前置解析 + 三路 run() 各自的
+      // resolveCliPath 都会先冒烟 --version → 4 条版本响应，随后才是
+      // repo/skills/agents 三条数据响应。
       const { exec } = makeExec([
+        { stdout: "skills-manager-cli 1.36.1" },
+        { stdout: "skills-manager-cli 1.36.1" },
+        { stdout: "skills-manager-cli 1.36.1" },
+        { stdout: "skills-manager-cli 1.36.1" },
         { stdout: '{"base_dir":"/home/x/.skills-manager","skill_count":2}' },
         { stdout: '[{"skill_id":"s1","name":"demo"}]' },
         { stdout: '[{"key":"codex"},{"key":"claude_code","display_name":"Claude Code","installed":true}]' },

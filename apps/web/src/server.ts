@@ -68,6 +68,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function degradedAlerts(): AlertsView {
   return {
     reachable: false,
+    // 不可达兜底不经过 parseAlertsView，且与 UI 当前展示的 4 个状态对齐；
+    // 若后续面板要展示 resolved，再与 gateway counts() 一起补齐。
     counts: { pending: 0, delivering: 0, delivered: 0, failed: 0 },
     unreadCount: 0,
     degradedChannels: ["gateway:unreachable"],
@@ -2370,6 +2372,36 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     return reply.status(res.status).send(parsed);
   };
 
+  /** PUT 代理：与 POST 代理同款错误语义（审批放行模式等幂等写入用）。 */
+  const proxyWatchPut = async (
+    watchPath: string,
+    body: unknown,
+    reply: FastifyReply,
+    timeoutMs = 5_000,
+  ): Promise<FastifyReply> => {
+    let res: Response;
+    try {
+      res = await doFetch(`${watchUrl}${watchPath}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body ?? {}),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch {
+      return reply.status(502).send({ error: "watch-unreachable" });
+    }
+    const raw = await res.text();
+    let parsed: unknown = {};
+    if (raw !== "") {
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        parsed = { raw };
+      }
+    }
+    return reply.status(res.status).send(parsed);
+  };
+
   /** 巡检状态代理（/api/inspect/status 与 /api/dashboard 聚合共用）；不可达 → reachable:false。 */
   const inspectStatusFromWatch = async (): Promise<Record<string, unknown>> => {
     const res = await fetchWatch("/api/inspect/status");
@@ -2436,6 +2468,14 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   app.post("/api/recovery/diagnose", async (request, reply) =>
     proxyWatchPost("/api/recovery/diagnose", request.body, reply),
   );
+
+  // 客户反馈 B11：诊断为只读盘点，补 GET 代理（instanceId 经查询串透传），
+  // 面板/脚本无需构造 POST body 即可探测。
+  app.get("/api/recovery/diagnose", async (request, reply) => {
+    const instanceId = (request.query as { instanceId?: string })["instanceId"] ?? "";
+    const suffix = instanceId.trim() !== "" ? `?instanceId=${encodeURIComponent(instanceId.trim())}` : "";
+    return proxyWatchGet(`/api/recovery/diagnose${suffix}`, reply);
+  });
 
   app.post("/api/recovery/sessions", async (request, reply) =>
     proxyWatchPost("/api/recovery/sessions", request.body, reply),
@@ -3578,6 +3618,14 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     const body = { ...(request.body as Record<string, unknown> | undefined ?? {}), source: "panel" };
     return proxyWatchPost(`/api/approvals/${id}/decide`, body, reply, 30_000);
   });
+  // 批量批准 / 拒绝：面板「全部批准」一次结算当前待处理（跳过项由 watch 带回原因）。
+  app.post("/api/approvals/bulk-decide", async (request, reply) =>
+    proxyWatchPost("/api/approvals/bulk-decide", request.body, reply, 30_000),
+  );
+  // 放行模式：ask 逐条确认（默认）/ allow-all 全部允许（自动放行但仍全量留痕）。
+  app.put("/api/approvals/mode", async (request, reply) =>
+    proxyWatchPut("/api/approvals/mode", request.body, reply, 30_000),
+  );
   // M3.2 升级金丝雀：列表 / 详情 / 抽样计划 / 执行 / 策略读写 / 手动巡检。
   app.get("/api/canary", async (request, reply) => {
     const query = request.query as Record<string, unknown>;
@@ -3646,8 +3694,26 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   });
   app.post("/api/llm/profiles/:id/:action", async (request, reply) => {
     const params = request.params as { id?: string; action?: string };
-    if (!["rotate", "probe", "disable"].includes(params.action ?? "")) return reply.status(404).send({ error: "not-found" });
+    if (!["rotate", "probe", "disable", "enable"].includes(params.action ?? "")) return reply.status(404).send({ error: "not-found" });
     return proxyWatchPost(`/api/llm/profiles/${encodeURIComponent(params.id ?? "")}/${params.action}`, request.body, reply, 30_000);
+  });
+  app.delete("/api/llm/profiles/:id", async (request, reply) => {
+    const id = encodeURIComponent((request.params as { id?: string }).id ?? "");
+    let res: Response;
+    try {
+      res = await doFetch(`${watchUrl}/api/llm/profiles/${id}`, { method: "DELETE", signal: AbortSignal.timeout(15_000) });
+    } catch {
+      return reply.status(502).send({ error: "watch-unreachable" });
+    }
+    if (res.status === 204) return reply.status(204).send();
+    const raw = await res.text();
+    let parsed: unknown = {};
+    try {
+      parsed = raw === "" ? {} : (JSON.parse(raw) as unknown);
+    } catch {
+      parsed = { raw };
+    }
+    return reply.status(res.status).send(parsed);
   });
   app.delete("/api/llm/bindings/:id", async (request, reply) => {
     const id = encodeURIComponent((request.params as { id?: string }).id ?? "");

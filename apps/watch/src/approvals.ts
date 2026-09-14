@@ -29,6 +29,20 @@ export const APPROVAL_RETENTION_MIN_DAYS = 7;
 export const APPROVAL_RETENTION_MAX_DAYS = 90;
 export const APPROVAL_RETENTION_DEFAULT_DAYS = 30;
 
+/** 放行模式持久化键（落 runtime_settings 表，与 canary 策略同机制）。 */
+export const APPROVAL_MODE_SETTING_KEY = "approval.mode";
+/**
+ * 放行模式：
+ * - ask：逐条确认（默认）——每条高危动作都开单并推送卡片等应答；
+ * - allow-all：全部允许——开单后立即自动批准，**但审计、事件中心、审批单
+ *   记录一条都不少**（下面 request 里有说明）。
+ */
+export type ApprovalMode = "ask" | "allow-all";
+/** 模式切换的审计动作名。 */
+export const APPROVAL_MODE_CHANGED_ACTION = "approval-mode-changed";
+/** 批量批准单次上限：与列表最大 limit 对齐，避免一次扫全表。 */
+export const APPROVAL_BULK_LIMIT = 500;
+
 export const APPROVAL_REQUESTED_ACTION = "approval-requested";
 export const APPROVAL_APPROVED_ACTION = "approval-approved";
 export const APPROVAL_DENIED_ACTION = "approval-denied";
@@ -52,7 +66,17 @@ export interface ActionApprovalItem {
   detail: unknown;
   status: string;
   channel: string | null;
+  /**
+   * 本单吸收的请求次数（每次请求 +1：新单初值 1，指纹复用的单在 bump 时 +1）。
+   * 注意语义：它**不是**「升级窗口内该动作被请求的总次数」——结算后重开的单
+   * 会从 1 重新数。要对外说「今日已被请求 N 次」，请用 windowCount。
+   */
   attempts: number;
+  /**
+   * 升级窗口内该动作（同指纹）被请求的真实累计次数，实时算出。
+   * 客户可见的「今日已被请求 N 次」一律用这个数，不能用 attempts。
+   */
+  windowCount: number;
   escalateRequired: boolean;
   expiresAt: string;
   respondedAt: string | null;
@@ -106,6 +130,15 @@ export interface ApprovalScanView {
   ttlMs: number;
   escalationThreshold: number;
   retentionDays: number;
+  /** 当前放行模式（面板一次请求即可拿到列表与模式）。 */
+  mode: ApprovalMode;
+}
+
+/** 批量批准结果：跳过（已结算/超时/不存在）的单带原因返回，不抛异常。 */
+export interface BulkDecisionResult {
+  total: number;
+  succeeded: number;
+  failed: Array<{ id: string; reason: string }>;
 }
 
 export interface ApprovalService {
@@ -116,6 +149,20 @@ export interface ApprovalService {
     id: string,
     input: { decision: ApprovalDecision; actor?: string; channel?: string; reason?: string; allowEscalatedInline?: boolean },
   ): ApprovalDecisionOutcome;
+  /**
+   * 批量批准 / 拒绝。all=true 时作用于当前全部 pending（上限 APPROVAL_BULK_LIMIT）。
+   * 面板发起即等于 web 确认，故内部带 allowEscalatedInline，不被升级闸门挡住。
+   */
+  bulkDecide(input: {
+    ids?: string[];
+    all?: boolean;
+    decision: ApprovalDecision;
+    actor?: string;
+  }): BulkDecisionResult;
+  /** 当前放行模式。 */
+  mode(): ApprovalMode;
+  /** 切换放行模式并落库 + 审计，返回生效后的模式。 */
+  setMode(mode: ApprovalMode): ApprovalMode;
   list(filter?: { status?: string; escalateOnly?: boolean; limit?: number; offset?: number }): {
     items: ActionApprovalItem[];
     summary: ApprovalSummary;
@@ -163,6 +210,14 @@ export interface ApprovalServiceOptions {
 export function actionFingerprint(kind: string, target: string): string {
   const normalized = target.trim();
   return `${kind}|${(normalized === "" ? "unknown" : normalized).slice(0, 200)}`;
+}
+
+/**
+ * 放行模式归一化：合法值直通，null / 空串 / 未知值一律回退 null，
+ * 由调用方决定「写回默认」。非法值不静默当 ask 处理，避免脏值长期潜伏。
+ */
+export function normalizeMode(raw: string | null | undefined): ApprovalMode | null {
+  return raw === "ask" || raw === "allow-all" ? raw : null;
 }
 
 /** 动作类型 → 人话标题（不猜细节，只描述类型与目标）。 */
@@ -215,11 +270,33 @@ export function createApprovalService(options: ApprovalServiceOptions): Approval
   let lastScanAt: string | null = null;
   let lastScanned = 0;
   let lastCreated = 0;
+  /** 放行模式：启动时读一次，之后以 setMode 写入的值为准。 */
+  let currentMode = readMode();
+
+  function readMode(): ApprovalMode {
+    const normalized = normalizeMode(store.getRuntimeSetting(APPROVAL_MODE_SETTING_KEY));
+    if (normalized !== null) return normalized;
+    // 首次运行（库里没有）或历史脏值：写回缺省值，避免「面板显示 ask、库里没有」的漂移。
+    store.setRuntimeSetting(APPROVAL_MODE_SETTING_KEY, "ask", iso());
+    return "ask";
+  }
 
   // 基址未配置时返回相对路径：网关/面板同源部署下仍可用；外发通道会因无主机而
   // 省略 url 按钮（serializeActions 只存完整链接），不会发出点不开的裸链接。
   const confirmUrlOf = (id: string): string =>
     baseUrl === "" ? `/approvals/${id}` : `${baseUrl}/approvals/${id}`;
+
+  /**
+   * 升级窗口内该动作被请求的真实次数（对外展示口径）。
+   *
+   * 只统计窗口内的行：早于窗口的单已脱离计数周期，其 attempts 不再变动，
+   * 用「本单吸收数」作为历史值展示比用当前窗口数（可能是 0）更诚实。
+   */
+  function windowCountOf(row: ActionApprovalRow): number {
+    const since = new Date(now() - escalationWindowMs).toISOString();
+    if (row.createdAt < since) return row.attempts;
+    return store.countApprovalRequestsByAction(row.fingerprint, since);
+  }
 
   function toItem(row: ActionApprovalRow): ActionApprovalItem {
     const active = row.status === "pending";
@@ -236,6 +313,7 @@ export function createApprovalService(options: ApprovalServiceOptions): Approval
       status: row.status,
       channel: row.channel,
       attempts: row.attempts,
+      windowCount: windowCountOf(row),
       escalateRequired: row.escalateRequired,
       expiresAt: row.expiresAt,
       respondedAt: row.respondedAt,
@@ -265,8 +343,11 @@ export function createApprovalService(options: ApprovalServiceOptions): Approval
   /** 卡片正文：说清「要做什么、多久不管就按拒绝处理」，不放对话内容。 */
   function buildCard(item: ActionApprovalItem): GatewayAlertBody {
     const minutes = Math.max(1, Math.round(ttlMs / 60_000));
+    // 次数用窗口内真实累计数（item.windowCount），不用 item.attempts：后者是
+    // 「本单吸收的请求数」，在「结算后重开单」的场景会远小于真实累计，直接
+    // 显示会把 12 次说成 1 次（产品红线：客户可见数字不许谎报）。
     const escalateNote = item.escalateRequired
-      ? `同一动作今日已被请求 ${item.attempts} 次，已升级为「需在面板确认」，请打开面板核对后再放行。`
+      ? `同一动作今日已被请求 ${item.windowCount} 次，已升级为「需在面板确认」，请打开面板核对后再放行。`
       : `批准后该动作才会执行；${minutes} 分钟内未应答将按「拒绝」拦截。`;
     const link = `${item.confirmUrl}`;
     return {
@@ -310,11 +391,61 @@ export function createApprovalService(options: ApprovalServiceOptions): Approval
     if (existing !== undefined) return toItem(existing);
 
     const fingerprint = input.fingerprint ?? actionFingerprint(input.kind, extractTarget(input));
+
+    // 同一指纹（同 kind+target）的未决单去重：上游重试常携带新 actionId 重复
+    // 请求同一动作，仅按 actionId 去重挡不住重试风暴。复用既有单并在其上
+    // 推进 attempts；跨过升级阈值时原单升级并补发一次「前往面板确认」卡
+    // （M3.1「24h 内第 3 次升级」语义保留，但风暴期间不再每单每卡打扰）。
+    const openByFingerprint = store.getOpenActionApprovalByFingerprint(fingerprint);
+    // 仅复用「升级窗口内」开出的未决单：窗口已滑过的 open 单属于旧计数周期，
+    // 继续复用会让 attempts 永不归零（破坏「超出升级窗口后计数重置」），
+    // 落到新单路径按窗口内真实请求次数重新计数。
     const since = new Date(now() - escalationWindowMs).toISOString();
-    // 计数在插入前进行：priorCount 不含本次，故本次序号为 priorCount + 1。
-    const priorCount = store.countApprovalRequestsByAction(fingerprint, since);
-    const attempts = priorCount + 1;
-    const escalateRequired = attempts >= escalationThreshold;
+    // 本次请求在窗口内的序号：必须在插入 / bump **之前**取，否则会把本次算进去。
+    //
+    // 两个语义曾混在同一列里导致数字虚高：attempts 既表示「窗口内累计序号」
+    // （新单 priorCount+1），又表示「本单吸收的请求数」（bump +1），改成
+    // SUM(attempts) 口径后每轮的历史被反复计入，4 轮 12 次真实请求会算出 45。
+    // 现在拆开：attempts 只记「本单吸收数」，序号与升级判定一律用 sequence。
+    const windowCount = store.countApprovalRequestsByAction(fingerprint, since);
+    const sequence = windowCount + 1;
+    if (openByFingerprint !== undefined && openByFingerprint.createdAt >= since) {
+      const attempts = openByFingerprint.attempts + 1;
+      const escalateRequired =
+        openByFingerprint.escalateRequired || sequence >= escalationThreshold;
+      const bumped = store.bumpActionApprovalAttempts(openByFingerprint.id, {
+        attempts,
+        escalateRequired,
+        at: iso(),
+      });
+      if (bumped === undefined) return toItem(openByFingerprint);
+      const item = toItem(bumped);
+      options.audit?.append({
+        actor: "action-approval",
+        action: APPROVAL_REQUESTED_ACTION,
+        target: item.id,
+        detail: {
+          actionId: input.actionId,
+          kind: item.kind,
+          attempts: item.attempts,
+          sequence,
+          escalateRequired,
+          deduped: true,
+        },
+      });
+      // 全部允许模式：重试命中的既有单同样要放行——这条路径不会新开单，
+      // 不放行就会让它一直卡在 pending，形成「没人问也过不去」的死单。
+      if (currentMode === "allow-all") return autoApprove(item);
+      if (escalateRequired && !openByFingerprint.escalateRequired && options.poster !== undefined) {
+        // 跨阈值那一次才补发升级卡（撤掉内联按钮，仅留面板入口）。
+        void options.poster.post(buildCard(item));
+      }
+      return item;
+    }
+
+    // 新单的 attempts 初值为 1（语义：本单吸收的请求数），不再承载「窗口内
+    // 序号」；升级判定用上面的 sequence，保证「拒了再重试不把计数洗回 1」。
+    const escalateRequired = sequence >= escalationThreshold;
     const row = store.insertActionApproval({
       id: idFactory(),
       actionId: input.actionId,
@@ -327,7 +458,7 @@ export function createApprovalService(options: ApprovalServiceOptions): Approval
         ...(typeof input.detail === "object" && input.detail !== null ? (input.detail as object) : {}),
         target: extractTarget(input),
       },
-      attempts,
+      attempts: 1,
       escalateRequired,
       expiresAt: new Date(now() + ttlMs).toISOString(),
       at: iso(),
@@ -338,20 +469,48 @@ export function createApprovalService(options: ApprovalServiceOptions): Approval
       actor: "action-approval",
       action: APPROVAL_REQUESTED_ACTION,
       target: item.id,
-      detail: { actionId: item.actionId, kind: item.kind, attempts: item.attempts, escalateRequired },
+      detail: { actionId: item.actionId, kind: item.kind, attempts: item.attempts, sequence, escalateRequired },
     });
-    options.trustEvents.record({
-      kind: APPROVAL_EVENT_KIND,
-      severity: escalateRequired ? "warn" : "info",
-      title: escalateRequired
-        ? `高危动作需面板确认（今日第 ${item.attempts} 次）：${item.title}`
-        : `等待你确认的高危动作：${item.title}`,
-      evidence: [{ approvalId: item.id, actionId: item.actionId, kind: item.kind, expiresAt: item.expiresAt }],
-      relatedIds: [item.id],
-      dedupeKey: `approval:${item.id}`,
-    });
+    // 逐条确认模式才需要「等你确认」这条事件。全部允许模式下紧接着就自动放行了，
+    // 再留一条「等待你确认」会与终态自相矛盾；放行那条由 autoApprove 写入。
+    if (currentMode !== "allow-all") {
+      options.trustEvents.record({
+        kind: APPROVAL_EVENT_KIND,
+        severity: escalateRequired ? "warn" : "info",
+        title: escalateRequired
+          ? `高危动作需面板确认（今日第 ${sequence} 次）：${item.title}`
+          : `等待你确认的高危动作：${item.title}`,
+        evidence: [{ approvalId: item.id, actionId: item.actionId, kind: item.kind, expiresAt: item.expiresAt }],
+        relatedIds: [item.id],
+        dedupeKey: `approval:${item.id}`,
+      });
+    }
+    // 全部允许模式：跳过推卡（不打扰），直接自动放行——留痕一条不少。
+    if (currentMode === "allow-all") return autoApprove(item);
     if (options.poster !== undefined) void options.poster.post(buildCard(item));
     return item;
+  }
+
+  /**
+   * 全部允许模式下的自动放行。
+   *
+   * 关键取舍：allow-all **不是静默放行**——审批单照建、审计（settle 内的
+   * approval-approved）、事件中心照记，只是不推卡片、不打断人；执行侧拿到的
+   * 仍是正常的已批准审批单，可据其放行动作，事后也能在事件中心逐条回溯。
+   */
+  function autoApprove(item: ActionApprovalItem): ActionApprovalItem {
+    // 事件标题走 settle 的覆盖参数：事件中心同键合并时以最后写入为准
+    // （upsert 冲突会覆盖 title），若这里再单独 record 一次，既会被覆盖、
+    // 又会让同一件事的 count 虚增为 2。
+    const settled = settle(
+      item,
+      "approved",
+      "system:allow-all",
+      "policy",
+      "全部允许模式：自动放行",
+      `全部允许模式自动放行：${item.title}`,
+    );
+    return settled.item ?? item;
   }
 
   function extractTarget(input: ApprovalRequestInput): string {
@@ -369,6 +528,8 @@ export function createApprovalService(options: ApprovalServiceOptions): Approval
     actor: string,
     channel: string,
     reason: string,
+    /** 事件中心标题覆盖（全部允许模式用）；不传则用各状态的默认文案。 */
+    eventTitle?: string,
   ): ApprovalDecisionOutcome {
     const updated = store.decideActionApproval(item.id, {
       status,
@@ -399,11 +560,12 @@ export function createApprovalService(options: ApprovalServiceOptions): Approval
       kind: status === "approved" ? APPROVAL_EVENT_KIND : APPROVAL_BLOCKED_EVENT_KIND,
       severity: status === "approved" ? "info" : "warn",
       title:
-        status === "approved"
+        eventTitle ??
+        (status === "approved"
           ? `你已批准高危动作：${settled.title}`
           : status === "denied"
             ? `已拒绝高危动作：${settled.title}`
-            : `超时未应答，已按默认拒绝拦截：${settled.title}`,
+            : `超时未应答，已按默认拒绝拦截：${settled.title}`),
       evidence: [
         {
           approvalId: settled.id,
@@ -454,6 +616,51 @@ export function createApprovalService(options: ApprovalServiceOptions): Approval
       input.channel ?? "panel",
       input.reason ?? (status === "approved" ? "用户在通知中批准一次" : "用户在通知中拒绝"),
     );
+  }
+
+  /**
+   * 批量批准 / 拒绝：面板侧一次处理多条。
+   * 已结算 / 超时 / 不存在的单跳过并逐条带回原因，**不抛异常**——
+   * 部分失败不影响其余条目，调用方按 succeeded/failed 汇报即可。
+   */
+  function bulkDecide(input: {
+    ids?: string[];
+    all?: boolean;
+    decision: ApprovalDecision;
+    actor?: string;
+  }): BulkDecisionResult {
+    const ids =
+      input.all === true
+        ? store.listActionApprovals({ status: "pending", limit: APPROVAL_BULK_LIMIT }).map((row) => row.id)
+        : (input.ids ?? []);
+    let succeeded = 0;
+    const failed: Array<{ id: string; reason: string }> = [];
+    for (const id of ids) {
+      const outcome = decide(id, {
+        decision: input.decision,
+        actor: input.actor ?? "panel-user",
+        channel: "panel",
+        // 面板发起本身就等于 web 确认，不应再被「已升级单需面板确认」闸门挡住。
+        allowEscalatedInline: true,
+      });
+      if (outcome.ok === true) succeeded += 1;
+      else failed.push({ id, reason: outcome.reason ?? "unknown" });
+    }
+    return { total: ids.length, succeeded, failed };
+  }
+
+  /** 切换放行模式：落库 + 审计一条（from/to），返回生效后的模式。 */
+  function setMode(next: ApprovalMode): ApprovalMode {
+    const from = currentMode;
+    currentMode = next;
+    store.setRuntimeSetting(APPROVAL_MODE_SETTING_KEY, next, iso());
+    options.audit?.append({
+      actor: "action-approval",
+      action: APPROVAL_MODE_CHANGED_ACTION,
+      target: next,
+      detail: { from, to: next },
+    });
+    return next;
   }
 
   function sweep(): number {
@@ -511,6 +718,9 @@ export function createApprovalService(options: ApprovalServiceOptions): Approval
   return {
     request,
     decide,
+    bulkDecide,
+    mode: () => currentMode,
+    setMode,
     list(filter = {}) {
       const rows = store.listActionApprovals({
         ...(filter.status !== undefined ? { status: filter.status } : {}),
@@ -536,6 +746,7 @@ export function createApprovalService(options: ApprovalServiceOptions): Approval
         ttlMs,
         escalationThreshold,
         retentionDays,
+        mode: currentMode,
       };
     },
     prune() {

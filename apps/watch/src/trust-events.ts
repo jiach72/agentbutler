@@ -45,6 +45,8 @@ export interface TrustEventHub {
     status?: TrustEventRow["status"];
     severity?: TrustEventRow["severity"];
     limit?: number;
+    /** 分页偏移（默认 0）。 */
+    offset?: number;
   }): TrustEventRow[];
   get(id: number): TrustEventRow | undefined;
   setStatus(id: number, status: TrustEventRow["status"]): TrustEventRow | undefined;

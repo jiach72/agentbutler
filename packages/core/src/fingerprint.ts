@@ -46,8 +46,25 @@ const ERROR_TEXT_RE = /error|fail|exception|traceback|fatal|warn|⚠/i;
 /** jsonl 级别字段（level/severity）的错误判定值。 */
 const ERROR_LEVELS = new Set(["error", "warn", "warning", "fatal"]);
 
-/** 默认错误行判定：text 按关键词；jsonl 解析后按 level/severity 字段。 */
+/**
+ * Hermes 结构化日志前缀的 LEVEL token：`<TS>,<NUM> LEVEL logger:`（如
+ * `2026-08-30 11:04:48,123 WARNING telegram: ...`；<TS> 自身含空格，
+ * 故前缀以最后一个逗号+毫秒锚定）。严格要求级别 token 后紧跟空格 +
+ * logger 名 + 冒号，避免消息正文里出现裸 "ERROR" 等词被误判。
+ */
+const HERMES_LOG_PREFIX_RE = /^[^,]+,\d+\s+(DEBUG|INFO|NOTICE|WARNING|WARN|ERROR|CRITICAL|FATAL)\s+\S+:/i;
+
+/** 默认错误行判定：Hermes 级别前缀 > jsonl 级别字段 > text 关键词。 */
 export function defaultIsError(line: FingerprintLineInput): boolean {
+  // Hermes text 日志自带结构化级别 token（`<TS>,<NUM> WARNING logger:`），
+  // 优先按级别判定——正文提到 "error" 的 INFO 行不应再被关键词命中。
+  // CRITICAL 与 FATAL 同级，显式并入（ERROR_LEVELS 原为 jsonl 级别集合，
+  // 不含 critical，此处不改动 jsonl 判定语义）。
+  const levelToken = HERMES_LOG_PREFIX_RE.exec(line.raw)?.[1];
+  if (levelToken !== undefined) {
+    const levelKey = levelToken.toLowerCase();
+    return ERROR_LEVELS.has(levelKey) || levelKey === "critical";
+  }
   if (line.source.format === "jsonl") {
     try {
       const parsed = JSON.parse(line.raw) as Record<string, unknown>;

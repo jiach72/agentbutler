@@ -43,6 +43,7 @@ import {
 import { createOpenClawAdapter } from "@butler/adapter-openclaw";
 import {
   createCore,
+  defaultIsError,
   FingerprintEngine,
   LogTailer,
   LlmCredentialService,
@@ -676,10 +677,17 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
   refreshLogSources();
 
   // FingerprintEngine：tail 出的错误行按窗口聚合。
+  // 良性白名单：Telegram 适配器的启动握手输出（Connected/Connecting attempt/
+  // Discovering fallback IPs）是 INFO 级连接生命周期日志，但正文含
+  // "fallback"/"attempt" 等词且部分构建缺级别前缀，历史上被 ERROR_TEXT_RE
+  // 误判为错误行刷告警；显式放行，其余仍走 defaultIsError。
+  const benignLogLineRe =
+    /\[Telegram\] (?:Connected to Telegram \(|Connecting to Telegram \(attempt |Discovering Telegram API fallback IPs)/;
   const engine = new FingerprintEngine({
     store: core.store,
     bus: core.bus,
     windowMs: config.fingerprintWindowMs,
+    isError: (line) => !benignLogLineRe.test(line.raw) && defaultIsError(line),
   });
   async function handleTailBatch(batch: TailedBatch): Promise<void> {
     const instanceId = sourceOwners.get(batch.source.id);
@@ -1581,23 +1589,30 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
   function checksFromReport(report: NonNullable<InstanceRecord["capability"]>, durationMs: number) {
     const checks: ConnectionMemory["checks"] = [];
     for (const [id, value] of Object.entries(report.capabilities)) {
-      const status: "pass" | "warn" | "fail" =
-        value === "ok"
+      // 客户反馈 B9：probe=unavailable 是「该运行方式不暴露兼容 HTTP 探针」
+      // 的能力缺席（N/A），不是故障——外部/只读部署 control 常态为 degraded，
+      // 旧逻辑 probe && control!=="ok" 一律 fail 会把健康实例压成「不通过」。
+      // 探针缺席一律按 warn 呈现，不计入不通过；实例可达性仍由流水线的
+      // process-alive / api-connectivity 检查兜底。
+      const probeUnavailable = id === "probe" && value === "unavailable";
+      const status: "pass" | "warn" | "fail" = probeUnavailable
+        ? "warn"
+        : value === "ok"
           ? "pass"
-          : id === "probe" && report.capabilities["control"] !== "ok"
-            ? "fail"
-            : "warn";
+          : "warn";
       checks.push({
         id,
         label: connectionCapabilityLabels[id] ?? id,
         status,
         detail:
-          value === "ok"
+          probeUnavailable
+            ? report.capabilities["control"] === "ok"
+              ? "当前运行方式未暴露兼容 HTTP 探针（不视作异常）；管家控制通道可用"
+              : "当前运行方式未暴露兼容 HTTP 探针（不视作异常）；控制通道经 Bridge 维持"
+            : value === "ok"
             ? "可用"
-            : id === "probe" && report.capabilities["control"] === "ok"
-              ? "当前运行方式未暴露兼容 HTTP 探针；管家控制通道仍可用"
-              : id === "messaging" && value === "not-implemented"
-                ? "由消息 Bridge 单独监测，不代表消息投递异常"
+            : id === "messaging" && value === "not-implemented"
+              ? "由消息 Bridge 单独监测，不代表消息投递异常"
             : value === "not-implemented"
               ? "当前适配器未提供"
               : value === "unavailable"

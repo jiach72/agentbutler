@@ -338,14 +338,24 @@ export function createSkillsManagerCli(deps: SkillsManagerCliDeps = {}): SkillsM
 
   const configuredPath = deps.cliPath ?? SKILLS_MANAGER_CLI_PATH;
   /**
+   * 镜像内置路径的冒烟探测：arm64 镜像若误装了 x64 二进制，文件存在但
+   * --version 以 ENOEXEC 失败（Apple Silicon 客户实测：技能库整页 502）。
+   * 这里跑一次 --version（15s 超时）确认可执行；失败按 false 处理，
+   * 落位/自愈决策交给 resolveCliPath 的下载路径。
+   */
+  const smokeTestConfiguredCli = async (): Promise<boolean> => smokeTestDownloadedCli(configuredPath);
+
+  /**
    * 解析 CLI 可执行路径：镜像内置（/usr/local/bin）存在则优先；
    * 否则允许上一次运行时已下载到数据卷的副本；都没有且允许自动下载时，
    * 从 GitHub 下载到 <downloadDir>（原子落位 + 0755），规避「updater 升级
    * 未重建镜像导致 CLI 缺失」的反馈闭环——只要代码切到新版即可自愈。
    */
   const resolveCliPath = async (): Promise<string> => {
-    // 显式/镜像路径存在时直接使用（测试注入与生产镜像内置都走这条）。
-    if (fs.existsSync(configuredPath)) return configuredPath;
+    // 显式/镜像路径存在时先做 --version 冒烟：只挡「存在但不可执行」
+    // （错架构 ENOEXEC、损坏/截断文件），可正常执行的内置二进制直接放行；
+    // 冒烟失败则 fall through 到下载自愈路径，按当前平台产物重新下载。
+    if (fs.existsSync(configuredPath) && (await smokeTestConfiguredCli())) return configuredPath;
     if (fs.existsSync(fallbackPath)) return fallbackPath;
     if (!autoDownload) return configuredPath;
     try {

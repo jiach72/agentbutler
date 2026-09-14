@@ -231,6 +231,91 @@ describe("审批服务：决策链路", () => {
     expect(audit.list({ action: APPROVAL_REQUESTED_ACTION }).length).toBe(1);
     expect(store.countActionApprovals().total).toBe(1);
   });
+
+  it("指纹去重：同 kind+target 的未决单挡住携带新 actionId 的重试风暴，跨阈值时原单升级", () => {
+    // 客户反馈 B2：上游重试常生成新 actionId，仅按 actionId 去重挡不住；
+    // 同指纹已有 pending 单时复用并推进 attempts，不再新开单/重复推卡。
+    const { service, store, posts, audit } = makeService();
+    const first = service.request(DELETE_INPUT);
+    const retry = service.request({ ...DELETE_INPUT, actionId: "evt-100-retry" });
+
+    expect(retry.id).toBe(first.id);
+    expect(retry.attempts).toBe(2); // 复用单上累计，不重置
+    expect(posts.length).toBe(1); // 未跨阈值不补发卡片
+    expect(audit.list({ action: APPROVAL_REQUESTED_ACTION }).length).toBe(2); // 重试留痕（deduped 标记）
+
+    // 结算后同指纹的新事件允许重新开单（不误伤合法新请求）；但升级窗口内的
+    // 请求次数仍计入（本次窗口内序号 3 ——「拒了就重试」不能把升级计数洗回 1，
+    // 否则第 3 次升级形同虚设）。
+    expect(service.decide(first.id, { decision: "deny", actor: "u1" }).ok).toBe(true);
+    const fresh = service.request({ ...DELETE_INPUT, actionId: "evt-100-after" });
+    expect(fresh.id).not.toBe(first.id);
+    // attempts 是「本单吸收的请求数」，新单从 1 开始；对外说的次数看 windowCount。
+    expect(fresh.attempts).toBe(1);
+    expect(fresh.windowCount).toBe(3);
+    expect(fresh.escalateRequired).toBe(true);
+    expect(store.countActionApprovals().total).toBe(2);
+  });
+
+  it("指纹去重下升级仍然可达：同一未决单第 3 次请求 → escalateRequired + 补发升级卡", () => {
+    // M3.1 验收语义在新去重路径上的等价形态：第 3 次重试跨过阈值时，
+    // 原单升级（内联按钮撤下，仅留面板入口）并补发一次升级卡。
+    const { service, posts } = makeService();
+    const first = service.request({ ...DELETE_INPUT, actionId: "evt-1" });
+    expect(first.escalateRequired).toBe(false);
+
+    const second = service.request({ ...DELETE_INPUT, actionId: "evt-2" });
+    expect(second.id).toBe(first.id);
+    expect(second.escalateRequired).toBe(false);
+
+    const third = service.request({ ...DELETE_INPUT, actionId: "evt-3" });
+    expect(third.id).toBe(first.id);
+    expect(third.attempts).toBe(3);
+    expect(third.escalateRequired).toBe(true);
+
+    // 卡片：初始 1 张 + 跨阈值补发 1 张（共 2 张，不是每单 1 张的风暴形态）。
+    expect(posts.length).toBe(2);
+    const escalatedCard = posts[1]!;
+    expect(escalatedCard.dedupeKey).toBe(`approval:${first.id}`);
+    expect(escalatedCard.actions?.map((action) => action.label)).toEqual(["前往面板确认"]);
+    expect(escalatedCard.body).toContain("需在面板确认");
+
+    // 第 4 次重试：已升级，不再补发第三张卡。
+    const fourth = service.request({ ...DELETE_INPUT, actionId: "evt-4" });
+    expect(fourth.attempts).toBe(4);
+    expect(fourth.escalateRequired).toBe(true);
+    expect(posts.length).toBe(2);
+  });
+});
+
+describe("审批服务：升级计数不虚高（多轮结算）", () => {
+  it("4 轮「3 次请求 → 结算 → 再开单」：对外次数是 1…12，不是复合膨胀后的 45", () => {
+    // 回归根因：attempts 一列曾同时表示「窗口内序号」与「本单吸收数」，
+    // 配 SUM(attempts) 口径后每轮历史被反复计入（第 3/4 轮算出 10/11/12 与
+    // 22/23/24）。客户在卡片和面板上看到的是这个数，必须是真的。
+    const { service, store, trustEvents, posts, clock } = makeService();
+    const observed: number[] = [];
+
+    for (let round = 1; round <= 4; round += 1) {
+      let openId = "";
+      for (let i = 1; i <= 3; i += 1) {
+        const item = service.request({ ...DELETE_INPUT, actionId: `evt-r${round}-${i}` });
+        observed.push(item.windowCount);
+        openId = item.id;
+      }
+      expect(service.decide(openId, { decision: "deny", actor: "u1" }).ok).toBe(true);
+    }
+
+    expect(observed).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+
+    // 底层口径不变式：窗口内 SUM(attempts) 恒等于真实请求数。
+    const since = new Date(clock.now() - 24 * 60 * 60 * 1000).toISOString();
+    expect(store.countApprovalRequestsByAction(actionFingerprint("file-delete", "/home/u/data.db"), since)).toBe(12);
+
+    // 卡片与事件中心的「第 N 次」也是真数字（第 4 轮首单 = 第 10 次）。
+    expect(posts[posts.length - 1]?.body).toContain("已被请求 10 次");
+    expect(trustEvents.list({ limit: 50 }).map((event) => event.title).join("\n")).toContain("今日第 10 次");
+  });
 });
 
 describe("审批服务：超时默认拒绝（验收硬指标）", () => {
@@ -277,7 +362,8 @@ describe("审批服务：超时默认拒绝（验收硬指标）", () => {
 describe("审批服务：24h 内第 3 次升级", () => {
   it("同一动作指纹第 3 次请求 → escalateRequired，卡片改为「前往面板确认」", () => {
     const { service, posts } = makeService();
-    // 三个不同的 action event，打同一目标 → 同一指纹。
+    // 指纹去重后升级语义落在同一张单上：前两次 pending 不升级，第三次
+    // 复用单跨过阈值 → escalateRequired + 补发升级卡（详见 B2 用例）。
     const a = service.request({ ...DELETE_INPUT, actionId: "evt-1" });
     const b = service.request({ ...DELETE_INPUT, actionId: "evt-2" });
     const c = service.request({ ...DELETE_INPUT, actionId: "evt-3" });
@@ -287,8 +373,8 @@ describe("审批服务：24h 内第 3 次升级", () => {
     expect(c.escalateRequired).toBe(true);
     expect(c.attempts).toBe(3);
 
-    // 第 3 张卡片只剩一个链接按钮：内联一键放行被撤下。
-    const escalatedCard = posts[2]!;
+    // 初始卡 + 跨阈值补发的升级卡：升级卡只剩一个链接按钮。
+    const escalatedCard = posts[1]!;
     expect(escalatedCard.actions?.map((action) => action.label)).toEqual(["前往面板确认"]);
     expect(escalatedCard.body).toContain("需在面板确认");
   });
@@ -334,6 +420,107 @@ describe("审批服务：24h 内第 3 次升级", () => {
     const later = service.request({ ...DELETE_INPUT, actionId: "evt-3" });
     expect(later.attempts).toBe(1);
     expect(later.escalateRequired).toBe(false);
+  });
+});
+
+describe("审批服务：全部允许模式与批量批准", () => {
+  it("全部允许模式：开单即自动批准、不推卡片，但审计与事件一条不少", () => {
+    const { service, posts, audit, trustEvents } = makeService();
+    expect(service.mode()).toBe("ask");
+    expect(service.setMode("allow-all")).toBe("allow-all");
+
+    const item = service.request(DELETE_INPUT);
+    expect(item.status).toBe("approved");
+    expect(item.actor).toBe("system:allow-all");
+    expect(item.channel).toBe("policy");
+    // 不打扰：一张卡片都不推。
+    expect(posts.length).toBe(0);
+    // 留痕不省：请求与批准两条审计都在，事件中心有自动放行记录。
+    expect(audit.list({ action: APPROVAL_REQUESTED_ACTION }).length).toBe(1);
+    expect(audit.list({ action: APPROVAL_APPROVED_ACTION }).length).toBe(1);
+    const titles = trustEvents.list({}).map((event) => event.title);
+    expect(titles.some((title) => title.includes("全部允许模式自动放行"))).toBe(true);
+    // 自动放行的单不该再留「等待你确认」这种与终态矛盾的事件。
+    expect(titles.some((title) => title.includes("等待你确认"))).toBe(false);
+
+    // 切回逐条确认后恢复等待应答（模式是可逆的）。
+    expect(service.setMode("ask")).toBe("ask");
+    const pending = service.request({ ...DELETE_INPUT, actionId: "evt-ask-again" });
+    expect(pending.status).toBe("pending");
+    expect(posts.length).toBe(1);
+  });
+
+  it("全部允许模式：重试命中既有未决单也会被放行（不会卡成死单）", () => {
+    const { service, posts } = makeService();
+    // 先在逐条确认模式下留一张 pending 单，构成「重试命中」的前提。
+    const first = service.request({ ...DELETE_INPUT, actionId: "evt-1" });
+    expect(first.status).toBe("pending");
+    expect(posts.length).toBe(1);
+
+    service.setMode("allow-all");
+    const retry = service.request({ ...DELETE_INPUT, actionId: "evt-2" });
+    expect(retry.id).toBe(first.id); // 复用同一张单
+    expect(retry.status).toBe("approved");
+    expect(service.get(first.id)?.status).toBe("approved");
+    expect(posts.length).toBe(1); // 放行路径不补发升级卡
+  });
+
+  it("批量批准：成功的批准、已结算与不存在的单计入 failed 且不抛异常", () => {
+    const { service } = makeService();
+    const a = service.request({ ...DELETE_INPUT, actionId: "evt-a" });
+    const b = service.request({
+      actionId: "evt-b",
+      kind: "shell-exec",
+      title: describeAction("shell-exec", "rm -rf /tmp/cache"),
+      detail: { target: "rm -rf /tmp/cache" },
+    });
+    const c = service.request({
+      actionId: "evt-c",
+      kind: "api-call",
+      title: describeAction("api-call", "https://example.com"),
+      detail: { target: "https://example.com" },
+    });
+    expect(service.decide(c.id, { decision: "deny" }).ok).toBe(true);
+
+    const result = service.bulkDecide({ ids: [a.id, b.id, c.id, "missing"], decision: "approve", actor: "u1" });
+    expect(result.total).toBe(4);
+    expect(result.succeeded).toBe(2);
+    expect(result.failed.map((entry) => entry.id).sort()).toEqual([c.id, "missing"].sort());
+    expect(result.failed.every((entry) => entry.reason !== "")).toBe(true);
+    expect(service.get(a.id)?.status).toBe("approved");
+    expect(service.get(b.id)?.status).toBe("approved");
+    expect(service.get(c.id)?.status).toBe("denied"); // 已结算的不被翻案
+  });
+
+  it("批量批准 all:true 只作用于待处理单", () => {
+    const { service } = makeService();
+    const pending = service.request({ ...DELETE_INPUT, actionId: "evt-p" });
+    const settled = service.request({
+      actionId: "evt-s",
+      kind: "shell-exec",
+      title: describeAction("shell-exec", "sudo reboot"),
+      detail: { target: "sudo reboot" },
+    });
+    expect(service.decide(settled.id, { decision: "deny" }).ok).toBe(true);
+
+    const result = service.bulkDecide({ all: true, decision: "approve" });
+    expect(result.total).toBe(1); // 库里只剩那一条 pending
+    expect(result.succeeded).toBe(1);
+    expect(result.failed.length).toBe(0);
+    expect(service.get(pending.id)?.status).toBe("approved");
+    expect(service.get(settled.id)?.status).toBe("denied");
+  });
+
+  it("批量批准可放行已升级单（面板发起即等于面板确认）", () => {
+    const { service } = makeService();
+    const first = service.request({ ...DELETE_INPUT, actionId: "evt-1" });
+    service.request({ ...DELETE_INPUT, actionId: "evt-2" });
+    const third = service.request({ ...DELETE_INPUT, actionId: "evt-3" });
+    expect(third.escalateRequired).toBe(true);
+    // 单条通道侧会被挡，批量（面板侧）应当放行。
+    const result = service.bulkDecide({ ids: [third.id], decision: "approve" });
+    expect(result.succeeded).toBe(1);
+    expect(service.get(first.id)?.status).toBe("approved");
   });
 });
 
@@ -397,6 +584,8 @@ describe("审批服务：列表与统计", () => {
   it("summary 分状态计数 + escalateOnly 过滤", () => {
     const { service, audit } = makeService();
     void audit;
+    // 中间单先结算，让 evt-4 能作为独立新单开出来（指纹去重后同指纹
+    // pending 单会复用，见 B2 用例）。
     service.request({ ...DELETE_INPUT, actionId: "evt-1" });
     service.request({ ...DELETE_INPUT, actionId: "evt-2" });
     const third = service.request({ ...DELETE_INPUT, actionId: "evt-3" });
@@ -405,8 +594,9 @@ describe("审批服务：列表与统计", () => {
     service.decide(third.id, { decision: "deny" });
 
     const all = service.list({});
-    expect(all.summary.total).toBe(4);
-    expect(all.summary.pending).toBe(3);
+    // total/denied 按去重后的行数口径：evt-1/2/3 合并为 1 行（denied）+ evt-9 = 2 行。
+    expect(all.summary.total).toBe(2);
+    expect(all.summary.pending).toBe(1);
     expect(all.summary.denied).toBe(1);
     expect(all.summary.escalated).toBe(0); // 唯一升级单已结算（escalated 只计待办）
 
@@ -416,7 +606,8 @@ describe("审批服务：列表与统计", () => {
     // 不带 status 时，已结算的升级单仍会出现（可按状态二次筛选）。
     expect(service.list({ escalateOnly: true }).items.length).toBe(1);
 
-    service.request({ ...DELETE_INPUT, actionId: "evt-4" }); // 窗口内第 4 次 → 升级
+    const fourth = service.request({ ...DELETE_INPUT, actionId: "evt-4" }); // 结算后新单（第 4 次窗口内请求）
+    expect(fourth.escalateRequired).toBe(true); // SUM(attempts)=3 已含前 3 次 → 本次序号 4
     const nowEscalated = service.list({ escalateOnly: true, status: "pending" });
     expect(nowEscalated.items.length).toBe(1);
     expect(nowEscalated.summary.escalated).toBe(1);
@@ -551,11 +742,12 @@ describe("审批 HTTP 端点", () => {
     expect(timedOutBody.error).toBe("expired");
     expect(timedOutBody.item.status).toBe("expired");
 
-    // 升级单：同一指纹第三次 → 通道侧放行被拒。
+    // 升级单：同一指纹第三次 → 通道侧放行被拒（B2 去重后升级落在复用单上）。
     const { service: service2 } = await boot(true, 30_000);
     service2.request({ ...DELETE_INPUT, actionId: "e1" });
     service2.request({ ...DELETE_INPUT, actionId: "e2" });
     const third = service2.request({ ...DELETE_INPUT, actionId: "e3" });
+    expect(third.escalateRequired).toBe(true);
     const escalated = await fetch(`${base}/api/approvals/${third.id}/decide`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -575,6 +767,53 @@ describe("审批 HTTP 端点", () => {
       body: JSON.stringify({ decision: "approve" }),
     });
     expect(decide.status).toBe(503);
+  });
+
+  it("PUT /api/approvals/mode → 200；非法值 → 400；列表接口同时回传 mode", async () => {
+    await boot();
+    const bad = await fetch(`${base}/api/approvals/mode`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode: "yolo" }),
+    });
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { error: string }).error).toBe("invalid-approval-mode");
+
+    const ok = await fetch(`${base}/api/approvals/mode`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode: "allow-all" }),
+    });
+    expect(ok.status).toBe(200);
+    expect(((await ok.json()) as { mode: string }).mode).toBe("allow-all");
+
+    // 面板一次请求即可同时拿到列表与模式。
+    const listed = await fetch(`${base}/api/approvals?status=pending&limit=1`);
+    expect(((await listed.json()) as { mode: string }).mode).toBe("allow-all");
+  });
+
+  it("POST /api/approvals/bulk-decide → 200；非法 decision → 400", async () => {
+    const { service } = await boot();
+    service.request(DELETE_INPUT);
+
+    const bad = await fetch(`${base}/api/approvals/bulk-decide`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ decision: "maybe" }),
+    });
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { error: string }).error).toBe("invalid-bulk-decision");
+
+    const ok = await fetch(`${base}/api/approvals/bulk-decide`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ all: true, decision: "approve" }),
+    });
+    expect(ok.status).toBe(200);
+    const body = (await ok.json()) as { total: number; succeeded: number; failed: unknown[] };
+    expect(body.total).toBe(1);
+    expect(body.succeeded).toBe(1);
+    expect(body.failed.length).toBe(0);
   });
 
   it("GET /api/approvals/decide-like-path 不会误伤列表路由（method-not-allowed）", async () => {

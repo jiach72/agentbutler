@@ -90,7 +90,10 @@ if [[ -n "$hindsight_url" ]]; then
   fi
 fi
 
-compose() { docker compose "${compose_args[@]}" "$@"; }
+# macOS 自带的 bash 3.2 在 set -u 下展开空数组（"${compose_args[@]}"）会报
+# unbound variable；`${arr[@]+"${arr[@]}"}` 写法在数组为空时整体省略该参数，
+# 非空时逐元素展开，两种 bash 语义下都与 Linux 行为一致。
+compose() { docker compose ${compose_args[@]+"${compose_args[@]}"} "$@"; }
 
 # Docker Desktop's Buildx plugin can be unavailable in WSL when its mounted
 # binary reports an I/O error. Compose can still build through the classic

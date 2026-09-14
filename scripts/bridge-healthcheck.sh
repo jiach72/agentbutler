@@ -35,8 +35,15 @@ else
 fi
 
 # 2. 宿主 Bridge 健康接口（5 秒超时）
+# macOS 探测降级：host.docker.internal 只有在 Docker VM 内可解析，宿主 macOS
+# 直接 curl 常以解析失败告终（OrbStack/Docker Desktop 均如此），误报 FAIL。
+# 宿主 Darwin 上一律降级为 SKIP（不算失败），真实连通性由第 6 步的
+# Gateway 容器内探测承担——容器里 host.docker.internal 才是权威语义。
+host_os="$(uname -s 2>/dev/null || echo unknown)"
 if [[ -z "$BRIDGE_URL" ]]; then
   :
+elif [[ "$host_os" == "Darwin" ]]; then
+  echo "SKIP  macOS 宿主无法可靠解析 ${BRIDGE_URL}（host.docker.internal 仅容器内可解析），跳过宿主直连探测；连通性以第 6 步 Gateway 容器内探测为准"
 elif command -v curl >/dev/null 2>&1 && [[ -r "$TOKEN_FILE" ]]; then
   TOKEN=$(cat "$TOKEN_FILE")
   bridge_health_url="$BRIDGE_URL"

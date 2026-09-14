@@ -7,7 +7,7 @@
  * 结论只来自真实数据（评审 P0-2）；筛选落 URL 便于把「你看这个」贴给同事（评审 P1-7）；
  * 选中态与分隔线走品牌令牌，不再用 antd 默认蓝与半透明灰（评审 P1-2 / P2-4）。
  */
-import { Button, Card, Col, Flex, Row, Segmented, Typography } from "antd";
+import { Button, Card, Col, Collapse, Descriptions, Flex, Row, Segmented, Typography } from "antd";
 import { CheckOutlined, FlagOutlined } from "@ant-design/icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -20,6 +20,7 @@ import type { SemanticTone } from "../../components/StatusBadge.js";
 import { useUrlState } from "../../hooks/useUrlState.js";
 import { loadJson, postJson } from "../../lib/api.js";
 import { usePolling } from "../../hooks/usePolling.js";
+import { eventKindCopy } from "./kindCopy.js";
 import "./events.css";
 
 interface TrustEvent {
@@ -63,6 +64,147 @@ function evidenceText(event: TrustEvent): string {
     return JSON.stringify(event.evidence, null, 2);
   } catch {
     return "";
+  }
+}
+
+/**
+ * 证据链可读化：evidence 通常是「一条对象」或「对象数组」，把一层键值
+ * 摊平成可读描述；键走平实映射，复杂值（对象/数组）折叠进原始 JSON。
+ * 解析失败或结构意外时回退原始 JSON 文本，绝不渲染空白。
+ */
+const EVIDENCE_KEY_LABEL: Record<string, string> = {
+  approvalId: "审批单",
+  actionId: "动作记录",
+  kind: "动作类型",
+  target: "目标",
+  path: "路径",
+  command: "命令",
+  expiresAt: "应答截止",
+  status: "状态",
+  channel: "渠道",
+  actor: "操作人",
+  reason: "原因",
+  respondedAt: "应答时间",
+  detail: "详情",
+  source: "来源",
+  fingerprint: "指纹",
+  sessionId: "会话",
+  count: "次数",
+  template: "告警模板",
+  body: "内容",
+  probe: "探针",
+  endpoint: "端点",
+  category: "类别",
+  // ── 复盘补全（2026-09-14）：逐一核对 watch 全部 trustEvents.record 产出的
+  //    evidence 键，以下键此前缺映射、界面上显示英文裸键。未命中仍回退原键。
+  at: "时间",
+  version: "版本",
+  changedAt: "变更时间",
+  seenAt: "发现时间",
+  signature: "错误指纹",
+  instanceId: "实例",
+  runId: "运行记录",
+  regressions: "回归事件",
+  rollbackNote: "回滚说明",
+  spentUsd: "已花费（美元）",
+  budgetUsd: "预算（美元）",
+  trigger: "触发方式",
+  stoppedInstanceIds: "已停止实例",
+  stopFailures: "停止失败",
+  snapshotId: "状态快照",
+  snapshotError: "快照错误",
+  failedToRestart: "重启失败",
+  streak: "连续次数",
+  lastClaimAt: "最后声明时间",
+  outcome: "会话结果",
+  actionCount: "动作数",
+  observable: "可观测",
+  note: "说明",
+};
+
+function isPlainValue(value: unknown): value is string | number | boolean | null {
+  return value === null || ["string", "number", "boolean"].includes(typeof value);
+}
+
+function EvidenceReadable({ event }: { event: TrustEvent }) {
+  const raw = event.evidence;
+  const entries: Array<{ record: Record<string, unknown>; index: number; total: number }> = [];
+  if (Array.isArray(raw)) {
+    raw.forEach((item, index) => {
+      if (item !== null && typeof item === "object" && !Array.isArray(item)) {
+        entries.push({ record: item as Record<string, unknown>, index, total: raw.length });
+      }
+    });
+  } else if (raw !== null && typeof raw === "object" && !Array.isArray(raw)) {
+    entries.push({ record: raw as Record<string, unknown>, index: 0, total: 1 });
+  }
+
+  // 结构不是「对象（数组）」：原样给 JSON，不猜。
+  if (entries.length === 0) {
+    return <pre className="events-evidence">{evidenceText(event) || "（无证据记录）"}</pre>;
+  }
+
+  return (
+    <Flex vertical gap={8}>
+      {entries.map(({ record, index, total }) => {
+        const keys = Object.keys(record);
+        const simple = keys.filter((key) => isPlainValue(record[key]));
+        const complex = keys.filter((key) => !isPlainValue(record[key]));
+        return (
+          <div key={index}>
+            {total > 1 && (
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                记录 {index + 1} / {total}
+              </Typography.Text>
+            )}
+            {simple.length > 0 && (
+              <Descriptions size="small" column={1} className="events-evidence-kv">
+                {simple.map((key) => (
+                  <Descriptions.Item key={key} label={EVIDENCE_KEY_LABEL[key] ?? key}>
+                    {String(record[key])}
+                  </Descriptions.Item>
+                ))}
+              </Descriptions>
+            )}
+            {complex.length > 0 && (
+              <Collapse
+                size="small"
+                ghost
+                items={complex.map((key) => ({
+                  key,
+                  label: <Typography.Text type="secondary" style={{ fontSize: 12 }}>{EVIDENCE_KEY_LABEL[key] ?? key}（原始数据）</Typography.Text>,
+                  children: (
+                    <pre className="events-evidence">
+                      {(() => {
+                        try {
+                          return JSON.stringify(record[key], null, 2);
+                        } catch {
+                          return String(record[key]);
+                        }
+                      })()}
+                    </pre>
+                  ),
+                }))}
+              />
+            )}
+          </div>
+        );
+      })}
+    </Flex>
+  );
+}
+
+/** 「要不要标记已解决」的状态引导：随事件状态变化的一句话。 */
+function statusGuidance(status: TrustEvent["status"]): string {
+  switch (status) {
+    case "active":
+      return "这条正在发生。实际问题解决后再标记已解决；只是先认下、还没处理完，就先标记已确认。";
+    case "acknowledged":
+      return "已有人认领但还没解决。问题真正修好后请标记已解决，否则它会一直留在未解决列表里。";
+    case "resolved":
+      return "已标记为解决。同样的情况再出现时，这条会自动回到进行中（回归）。";
+    case "regressed":
+      return "同样的问题又出现了，请重新处理后再次标记已解决。";
   }
 }
 
@@ -208,6 +350,7 @@ export function EventsPage() {
                 <Flex vertical>
                   {visible.map((event) => {
                     const tone = SEVERITY_TONE[event.severity];
+                    const kindCopy = eventKindCopy(event.kind);
                     const isSelected = selected?.id === event.id;
                     return (
                       <button
@@ -218,6 +361,9 @@ export function EventsPage() {
                         className={`events-row${isSelected ? " is-selected" : ""}`}
                       >
                         <Flex gap={6} align="center" wrap="wrap" style={{ marginBottom: 4 }}>
+                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                            {kindCopy.label}
+                          </Typography.Text>
                           {tone === null ? (
                             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                               {SEVERITY_LABEL[event.severity]}
@@ -290,6 +436,27 @@ export function EventsPage() {
               ) : (
                 <Flex vertical gap={12}>
                   <Typography.Title level={5} style={{ marginTop: 0 }}>{selected.title}</Typography.Title>
+                  {(() => {
+                    const kindCopy = eventKindCopy(selected.kind);
+                    return (
+                      <div
+                        className="events-kind-explain"
+                        style={{
+                          padding: "8px 12px",
+                          borderRadius: 8,
+                          background: "var(--ab-surface-2, rgba(127,127,127,0.08))",
+                        }}
+                      >
+                        <Typography.Text strong style={{ fontSize: 13 }}>{kindCopy.label}</Typography.Text>
+                        <Typography.Paragraph type="secondary" style={{ margin: "2px 0 0", fontSize: 12 }}>
+                          {kindCopy.what}
+                        </Typography.Paragraph>
+                        <Typography.Paragraph style={{ margin: 0, fontSize: 12 }}>
+                          {kindCopy.action}
+                        </Typography.Paragraph>
+                      </div>
+                    );
+                  })()}
                   <Flex gap={6} wrap="wrap" align="center">
                     {SEVERITY_TONE[selected.severity] === null ? (
                       <Typography.Text type="secondary" style={{ fontSize: 12 }}>
@@ -301,7 +468,10 @@ export function EventsPage() {
                         label={SEVERITY_LABEL[selected.severity]}
                       />
                     )}
-                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>{selected.kind}</Typography.Text>
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      {eventKindCopy(selected.kind).label}
+                      <small style={{ marginLeft: 4, opacity: 0.7 }}>{selected.kind}</small>
+                    </Typography.Text>
                     {selected.status === "regressed" ? (
                       <StatusBadge tone="error" label={STATUS_LABEL.regressed} />
                     ) : (
@@ -315,6 +485,10 @@ export function EventsPage() {
                       </Typography.Text>
                     )}
                   </Flex>
+                  {/* 「要不要标记已解决」的引导（客户：不知道要不要标记）。 */}
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    {statusGuidance(selected.status)}
+                  </Typography.Text>
                   <div className="events-evidence-timeline">
                     <Typography.Text type="secondary" style={{ fontSize: 12 }}>时间线</Typography.Text>
                     <dl className="kv">
@@ -327,13 +501,28 @@ export function EventsPage() {
                     </dl>
                   </div>
                   <Typography.Text type="secondary">证据链（脱敏）</Typography.Text>
-                  <pre className="events-evidence">{evidenceText(selected) || "（无证据记录）"}</pre>
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                    事件键：{selected.dedupeKey}
-                    {selected.status === "resolved"
-                      ? "。同类问题再次出现会自动标为回归并置顶。"
-                      : ""}
-                  </Typography.Text>
+                  <EvidenceReadable event={selected} />
+                  {/* 原始事件键挪进折叠区：排查对照有用，但不该占主视觉。 */}
+                  <Collapse
+                    size="small"
+                    ghost
+                    items={[
+                      {
+                        key: "dedupe",
+                        label: <Typography.Text type="secondary" style={{ fontSize: 12 }}>排查信息（事件键）</Typography.Text>,
+                        children: (
+                          <Typography.Text type="secondary" style={{ fontSize: 12 }} copyable>
+                            事件键：{selected.dedupeKey}
+                          </Typography.Text>
+                        ),
+                      },
+                    ]}
+                  />
+                  {selected.status === "resolved" && (
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      同类问题再次出现会自动标为回归并置顶。
+                    </Typography.Text>
+                  )}
                 </Flex>
               )}
             </Card>

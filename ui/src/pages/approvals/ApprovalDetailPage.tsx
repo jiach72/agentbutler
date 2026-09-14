@@ -188,7 +188,7 @@ export function ApprovalDetailPage() {
           <Alert
             type="warning"
             showIcon
-            message={`该动作今日已被请求 ${item.attempts} 次，已升级为需在面板确认`}
+            message={`该动作今日已被请求 ${item.windowCount} 次，已升级为需在面板确认`}
             description="同一动作被反复请求时，一键放行会失效。请在本页核对目标后再决定。"
           />
         )}
@@ -226,7 +226,7 @@ export function ApprovalDetailPage() {
               </Descriptions.Item>
               <Descriptions.Item label="请求时间">{new Date(item.createdAt).toLocaleString()}</Descriptions.Item>
               <Descriptions.Item label="超时时刻">{new Date(item.expiresAt).toLocaleString()}</Descriptions.Item>
-              <Descriptions.Item label="今日请求次数">{item.attempts}</Descriptions.Item>
+              <Descriptions.Item label="今日请求次数">{item.windowCount}</Descriptions.Item>
               <Descriptions.Item label="应答者">{item.actor ?? "—"}</Descriptions.Item>
               <Descriptions.Item label="关联动作">{item.actionId}</Descriptions.Item>
               <Descriptions.Item label="会话">{item.sessionId ?? "—"}</Descriptions.Item>

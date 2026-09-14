@@ -228,10 +228,16 @@ describe("动作解析与采集（M1.2）", () => {
     // 启动对齐末尾：无历史事件。
     collector.tick();
     expect(collector.summary(24).total).toBe(0);
-    // 追加新动作行 → 解析入库。
+    // 追加新动作行 → 解析入库。行内时间戳取「当前时钟 − 1 分钟」，
+    // 避免写死日期跨过 summary 的 24h 窗口后用例失效（定时炸弹）。
+    const stamp = (minute: number): string => {
+      const d = new Date(Date.now() - 60_000 * minute);
+      const pad = (n: number): string => String(n).padStart(2, "0");
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    };
     content += [
-      "2026-09-11T10:00:00 file deleted /home/u/data.db session=sess-abc123\n",
-      "2026-09-11T10:01:00 wrote file /home/u/out.json\n",
+      `${stamp(2)} file deleted /home/u/data.db session=sess-abc123\n`,
+      `${stamp(1)} wrote file /home/u/out.json\n`,
       "just a log line with no action\n",
     ].join("");
     collector.tick();

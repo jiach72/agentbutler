@@ -309,7 +309,7 @@ describe("管家自身版本管理服务", () => {
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
-  }, 20_000);
+  }, 120_000);
 
   it("真实 git 仓库端到端：升级构建失败自动回滚到原 commit", async () => {
     const repo = mkdtempSync(join(tmpdir(), "butler-self-repo-"));

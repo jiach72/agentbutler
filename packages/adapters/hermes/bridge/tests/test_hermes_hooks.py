@@ -1,8 +1,10 @@
 import asyncio
 import hashlib
 import json
+import sys
 import tempfile
 import threading
+import types
 import unittest
 from concurrent.futures import Future
 from dataclasses import dataclass
@@ -1071,6 +1073,94 @@ class HermesHooksTest(unittest.IsolatedAsyncioTestCase):
         event = SimpleNamespace(text="帮我写周报")
 
         self.assertIs(_apply_inbound_optimization(runtime, "inbound-err-1", event), event)
+
+
+class ResolveDefaultTurnRunnerTest(unittest.TestCase):
+    """TurnRunner 默认解析路径回归（A1）：拆分模块优先、兼容层回退。"""
+
+    def _install_and_resolve(self) -> type:
+        """走 install_gateway_runtime_hooks 的真实默认解析入口并返回解析类。"""
+
+        from agent_butler_bridge.hermes_hooks import (
+            _resolve_default_turn_runner,
+            install_gateway_runtime_hooks,
+        )
+
+        class GatewayRunner:
+            async def start(self):
+                return True
+
+            async def stop(self):
+                return None
+
+            async def _connect_adapter_with_timeout(self, adapter, platform, **kwargs):
+                return True
+
+            async def _run_agent_inner(self, *args, **kwargs):
+                return {"final_response": "ok"}
+
+        install_gateway_runtime_hooks(GatewayRunner, runtime_provider=lambda: None)
+        turn_runner = _resolve_default_turn_runner()
+        self.assertTrue(getattr(turn_runner, "_agent_butler_progress_hooks_v1", False))
+        return turn_runner
+
+    def _fake_gateway_layout(self, split_module: types.ModuleType | None) -> dict[str, types.ModuleType]:
+        gateway = types.ModuleType("gateway")
+        run = types.ModuleType("gateway.run")
+        modules = {"gateway": gateway, "gateway.run": run}
+        if split_module is not None:
+            modules["gateway.run_turn_runner"] = split_module
+        return modules
+
+    def test_prefers_split_run_turn_runner_module(self) -> None:
+        class TurnRunner:
+            def progress_callback(self, *args, **kwargs):
+                return None
+
+        run = types.ModuleType("gateway.run")
+        run.TurnRunner = TurnRunner
+        split = types.ModuleType("gateway.run_turn_runner")
+        split.TurnRunner = TurnRunner
+        modules = self._fake_gateway_layout(split)
+        modules["gateway"].run = run
+
+        with mock.patch.dict(sys.modules, modules):
+            resolved = self._install_and_resolve()
+
+        self.assertIs(resolved, TurnRunner)
+
+    def test_falls_back_to_gateway_run_when_split_module_missing(self) -> None:
+        class TurnRunner:
+            def progress_callback(self, *args, **kwargs):
+                return None
+
+        run = types.ModuleType("gateway.run")
+        run.TurnRunner = TurnRunner
+        modules = self._fake_gateway_layout(split_module=None)
+        modules["gateway"].run = run
+
+        with mock.patch.dict(sys.modules, modules):
+            resolved = self._install_and_resolve()
+
+        self.assertIs(resolved, TurnRunner)
+
+    def test_falls_back_when_split_module_lacks_turn_runner(self) -> None:
+        class TurnRunner:
+            def progress_callback(self, *args, **kwargs):
+                return None
+
+        run = types.ModuleType("gateway.run")
+        run.TurnRunner = TurnRunner
+        split = types.ModuleType("gateway.run_turn_runner")
+        split.ProgressOnly = object
+        modules = self._fake_gateway_layout(split)
+        modules["gateway"].run = run
+
+        with mock.patch.dict(sys.modules, modules):
+            resolved = self._install_and_resolve()
+
+        self.assertIs(resolved, TurnRunner)
+
 
 if __name__ == "__main__":
     unittest.main()

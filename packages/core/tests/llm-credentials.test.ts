@@ -105,4 +105,47 @@ describe("LlmCredentialService", () => {
       "discovered-runtime-observation",
     );
   });
+
+  it("删除配置连带版本与绑定，审计留痕；删除不存在的返回 false", async () => {
+    const status = 200;
+    const vault = new SecretVault("9".repeat(64));
+    const service = new LlmCredentialService(store, vault, async () => ({ status }));
+    await service.createProfile({ profileId: "p-del", provider: "OpenAI", protocol: "openai-compatible", endpoint: "https://llm.test/v1", model: "m", apiKey: "sk-x" });
+    service.addBinding({ bindingId: "b-1", scope: "instance", instanceId: "hermes-main", frameworkId: "hermes", profileId: "p-del" });
+    service.addBinding({ bindingId: "b-2", scope: "skill", instanceId: "hermes-main", frameworkId: "hermes", targetRef: "demo", profileId: "p-del" });
+    expect(store.listLlmProfileVersions("p-del").length).toBeGreaterThan(0);
+
+    expect(service.deleteProfile("p-del")).toBe(true);
+    expect(store.getLlmProfile("p-del")).toBeUndefined();
+    expect(store.listLlmProfileVersions("p-del")).toHaveLength(0);
+    expect(store.listLlmBindings({ profileId: "p-del" })).toHaveLength(0);
+    const deleted = store.listAudit({ action: "llm-profile-deleted", target: "p-del" })[0];
+    expect(deleted).toBeDefined();
+    expect(deleted?.detail).toMatchObject({ removedBindingCount: 2 });
+
+    expect(service.deleteProfile("p-del")).toBe(false);
+    expect(service.deleteProfile("never-existed")).toBe(false);
+  });
+
+  it("启用走真实探针：通过置 active，失败保持 disabled", async () => {
+    let status = 401;
+    const vault = new SecretVault("a1".repeat(32).slice(0, 64));
+    const service = new LlmCredentialService(store, vault, async () => ({ status }));
+    const created = await service.createProfile({ profileId: "p-en", provider: "OpenAI", protocol: "openai-compatible", endpoint: "https://llm.test/v1", model: "m", apiKey: "sk-y" });
+    expect(created.status).toBe("disabled");
+    service.disableProfile("p-en");
+
+    const failed = await service.enableProfile("p-en");
+    expect(failed.enabled).toBe(false);
+    expect(failed.profile.status).toBe("disabled");
+
+    status = 200;
+    const ok = await service.enableProfile("p-en");
+    expect(ok.enabled).toBe(true);
+    expect(ok.profile.status).toBe("active");
+    const enabled = store.listAudit({ action: "llm-profile-enabled", target: "p-en" })[0];
+    expect(enabled).toBeDefined();
+
+    await expect(service.enableProfile("missing")).rejects.toThrow("profile-not-found");
+  });
 });

@@ -30,6 +30,13 @@ import { SectionHeader } from "../../components/SectionHeader.js";
 
 const { Paragraph } = Typography;
 
+/** 配置状态的人话标签（status 来自 LlmProfileView：active/disabled/unsupported）。 */
+const PROFILE_STATUS: Record<Profile["status"], { label: string; tone: "ok" | "warn" | "unknown" }> = {
+  active: { label: "已启用", tone: "ok" },
+  disabled: { label: "已禁用", tone: "unknown" },
+  unsupported: { label: "协议不支持", tone: "warn" },
+};
+
 interface Profile {
   profileId: string;
   instanceId: string | null;
@@ -183,6 +190,29 @@ export function LlmProfileManager({ seed }: LlmProfileManagerProps = {}) {
     else message.error("禁用失败");
     await refresh();
   };
+  const enable = async (id: string) => {
+    const result = await postJson(`/api/llm/profiles/${encodeURIComponent(id)}/enable`, {}, 30_000);
+    if (!result.ok) {
+      message.error("启用失败，请检查管家服务。");
+    } else {
+      const outcome = (result.data ?? {}) as { profile?: Profile; enabled?: boolean };
+      if (outcome.enabled === true) {
+        message.success("连接测试通过，配置已启用。");
+      } else {
+        message.warning("连接测试未通过，配置仍为禁用。可查看连接列的失败原因。");
+      }
+    }
+    await refresh();
+  };
+  const remove = async (id: string) => {
+    const result = await deleteJson(`/api/llm/profiles/${encodeURIComponent(id)}`);
+    if (!result.ok) {
+      message.error(result.status === 404 ? "配置不存在，可能已被删除。" : "删除失败，请检查管家服务。");
+    } else {
+      message.success("模型配置已删除");
+      await refresh();
+    }
+  };
   const rotate = async () => {
     const values = await rotateForm.validateFields();
     if (!rotateId) return;
@@ -287,6 +317,13 @@ export function LlmProfileManager({ seed }: LlmProfileManagerProps = {}) {
             pagination={false}
             columns={[
               { title: "提供商 / 模型", render: (_, row) => <div><strong>{row.provider}</strong><br />{row.model}</div> },
+              {
+                title: "状态",
+                render: (_, row) => {
+                  const meta = PROFILE_STATUS[row.status] ?? PROFILE_STATUS.disabled;
+                  return <StatusBadge tone={meta.tone} label={meta.label} />;
+                },
+              },
               { title: "端点", dataIndex: "endpoint", ellipsis: true },
               { title: "Key", dataIndex: "maskedKey" },
               {
@@ -305,13 +342,24 @@ export function LlmProfileManager({ seed }: LlmProfileManagerProps = {}) {
               { title: "绑定", dataIndex: "bindingCount" },
               {
                 title: "操作",
-                width: 220,
+                width: 300,
                 render: (_, row) => (
                   <Space size={4} wrap>
                     <Button size="small" onClick={() => void probe(row.profileId)}>测试连接</Button>
                     <Button size="small" onClick={() => { setRotateId(row.profileId); rotateForm.resetFields(); }}>轮换</Button>
-                    <Popconfirm title="禁用此配置？" onConfirm={() => void disable(row.profileId)}>
-                      <Button size="small" danger>禁用</Button>
+                    {row.status !== "active" && (
+                      <Button size="small" onClick={() => void enable(row.profileId)}>启用</Button>
+                    )}
+                    {row.status !== "disabled" && (
+                      <Popconfirm title="禁用此配置？" onConfirm={() => void disable(row.profileId)}>
+                        <Button size="small" danger>禁用</Button>
+                      </Popconfirm>
+                    )}
+                    <Popconfirm
+                      title={row.bindingCount > 0 ? `删除此配置？它的 ${row.bindingCount} 个绑定会一并移除` : "删除此配置？"}
+                      onConfirm={() => void remove(row.profileId)}
+                    >
+                      <Button size="small" danger icon={<DeleteOutlined />} aria-label={`删除 ${row.provider} ${row.model}`} />
                     </Popconfirm>
                   </Space>
                 ),

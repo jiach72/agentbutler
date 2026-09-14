@@ -97,13 +97,18 @@ function useVisibleNotifications() {
 export function NotificationPreviewList({
   items,
   onRead,
+  onSettled,
 }: {
   items: NotificationItem[];
   onRead: (item: NotificationItem) => void;
+  /** 决策（批准/拒绝）完成后的处置回调：由持有轮询与 refresh 的父层提供，
+   *  让已归档的通知立即从面板消失，而不是干等 10s 轮询带回旧条目。 */
+  onSettled?: (decision: "approve" | "deny") => void;
 }) {
   const { message } = App.useApp();
-  // 刻意不依赖 NotificationsProvider：本组件也被独立渲染（测试/外部复用）。
-  // 决策后的到达态由通知轮询（10s）带回，这里不需要手动 refresh。
+  // 决策成功后：后端（watch settle/sweep → gateway resolveByDedupeKey）已把告警
+  // 置 resolved+read，但本地仍缓存着旧条目——等 10s 轮询会让「批准过的审批」
+  // 留在面板里（缺陷反馈截图 2）。改由调用方在成功后触发 refresh 立即拉取。
   const [decidingId, setDecidingId] = useState<string | null>(null);
 
   const decide = useCallback(
@@ -117,11 +122,22 @@ export function NotificationPreviewList({
       setDecidingId(null);
       if (result.ok) {
         message.success(decision === "approve" ? "已批准本次操作" : "已拒绝本次操作");
+      } else if (result.status === 0 || result.status >= 500) {
+        // 传输层失败必须出声：请求没到后端（网络/超时）或后端自己挂了（5xx），
+        // 静默会让用户以为「点到了」——其实什么都没发生，也不知道要重试。
+        message.error(
+          result.status === 0
+            ? "没连上管家服务，这次操作没生效，请稍后重试"
+            : `管家服务异常（${result.status}），这次操作没生效，请稍后重试`,
+        );
       } else {
-        message.warning("该审批单已被处理、升级或已超时");
+        // 业务上已被处理的竞态（409 already-settled / 410 expired / 404 等）：
+        // 不是故障，刷新让本地陈旧条目消失即可，不再弹 toast 堆叠（缺陷反馈截图 1）。
       }
+      // 无论成败都立即拉取：成功让该条归档消失，失败让面板与真实状态对齐。
+      onSettled?.(decision);
     },
-    [message],
+    [message, onSettled],
   );
 
   return (
@@ -265,7 +281,7 @@ function NotificationContent({ onClose }: { onClose: () => void }) {
           />
         </div>
       ) : (
-        <NotificationPreviewList items={shown} onRead={openItem} />
+        <NotificationPreviewList items={shown} onRead={openItem} onSettled={() => void refresh()} />
       )}
       {items.length > shown.length && (
         <p className="notification-panel-more">仅显示最近 {shown.length} 条，更早的在通知队列里。</p>

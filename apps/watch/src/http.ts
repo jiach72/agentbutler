@@ -126,6 +126,9 @@
  * 信任层（Trust Layer，docs/trust-layer-upgrade-plan-2026-09-11.md）：
  * - GET  /api/llm/cost/summary → query { days?=30 }；CostSummaryView
  *      （total/days/models/sessions TOP10；成本列缺失 → costAvailable=false，金额 null）
+ * - POST /api/llm/profiles/:id/(rotate|probe|disable|enable)；enable 探针通过才置 active
+ * - DELETE /api/llm/profiles/:id → 204；连带删除版本与绑定；未知 id → 404
+ *      （rotate/enable/disable/delete 均受 credentialWritesAllowed 门禁保护）
  * - GET  /api/budget → BudgetStatus（{ enabled, budgetUsd, spentUsd, ratio,
  *      threshold, lastAction, projectedExhaustedAt }）；未接线 → 503
  * - POST /api/budget/check → 立即核算一轮 → BudgetStatus
@@ -139,7 +142,8 @@
  * - POST /api/killswitch/release → body { actor? }；200 State |
  *      409 { error: "killswitch-not-engaged" }
  *      急停期间：/api/connections/:id/connect 与 /api/upgrade/run → 409 killswitch-engaged
- * - GET  /api/trust/events → query { status?, severity?, limit?=100 }；
+ * - GET  /api/trust/events → query { status?, severity?, limit?=100(1-500), offset?=0 }；
+ *      limit 越界 → 400 { error: "limit-out-of-range", max: 500 }；
  *      { events: [{ id, kind, severity, title, firstSeen, lastSeen, count, status,
  *        evidence[], relatedIds[] }] }（regressed/active 置顶）
  * - GET  /api/trust/events/:id → { event }；未知 id → 404
@@ -157,9 +161,14 @@
  * - POST /api/sessions/reindex → 立即重建索引 { scanned, indexed, stateDbAvailable, reason }
  * - GET  /api/approvals → query { status?, escalateOnly?, limit?=100, offset?=0 }；
  *      { items: [{ id, actionId, kind, title, status, attempts, escalateRequired, expiresAt,
- *        remainingMs, confirmUrl }], summary, scan }
+ *        remainingMs, confirmUrl }], summary, scan, mode }
  * - POST /api/approvals → body { actionId, kind, title, detail?, instance?, sessionId? }；
  *      显式登记审批单（幂等）→ 201 { item }
+ * - POST /api/approvals/bulk-decide → body { ids?, all?, decision, actor? }；
+ *      批量批准/拒绝 → 200 { total, succeeded, failed[] }；
+ *      decision 非 approve|deny 或 ids 与 all 皆缺 → 400 invalid-bulk-decision
+ * - PUT  /api/approvals/mode → body { mode: ask|allow-all } → 200 { mode }；
+ *      非法值 → 400 invalid-approval-mode（allow-all 下开单自动放行但仍全量留痕）
  * - GET  /api/approvals/:id → { item }；未知 id → 404
  * - POST /api/approvals/:id/decide → body { decision: approve|deny, actor?, channel?, source? }；
  *      已升级单仅 source=panel|web 可放行（409 requires-web-confirm）；超时 → 410 expired
@@ -209,7 +218,7 @@ import type { KillSwitchService } from "./killswitch.js";
 import type { TrustEventHub } from "./trust-events.js";
 import type { WeeklyReportService } from "./weekly-report.js";
 import type { SessionIndexService } from "./session-index.js";
-import type { ApprovalService } from "./approvals.js";
+import { normalizeMode, type ApprovalService } from "./approvals.js";
 import type { CanaryService } from "./canary.js";
 import type { ProgressIntegrityService } from "./progress-integrity.js";
 import type { MemoryDiffService } from "./memory-diff.js";
@@ -1469,13 +1478,20 @@ async function handle(
       return sendJson(res, 200, await deps.hostMetrics.snapshot());
     }
 
+    // 客户反馈 B11：诊断是只读能力盘点，GET 与 POST 同一处理；GET 允许
+    // ?instanceId= 查询参数，POST 仍优先取 body。面板/脚本可直接 GET 探测。
     if (path === "/api/recovery/diagnose") {
-      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
-      const body = await readJsonBody(req, res);
-      if (body === null) return;
-      const instanceId = typeof body["instanceId"] === "string" && body["instanceId"].trim() !== ""
-        ? body["instanceId"].trim()
-        : undefined;
+      if (method !== "POST" && method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (method === "POST") {
+        const body = await readJsonBody(req, res);
+        if (body === null) return;
+        const instanceId = typeof body["instanceId"] === "string" && body["instanceId"].trim() !== ""
+          ? body["instanceId"].trim()
+          : undefined;
+        return sendJson(res, 200, await diagnoseRecovery(deps, instanceId));
+      }
+      const queryInstance = url.searchParams.get("instanceId");
+      const instanceId = queryInstance !== null && queryInstance.trim() !== "" ? queryInstance.trim() : undefined;
       return sendJson(res, 200, await diagnoseRecovery(deps, instanceId));
     }
 
@@ -1856,9 +1872,22 @@ async function handle(
       if (url.searchParams.get("severity") !== null && severity === undefined) {
         return sendJson(res, 400, { error: "invalid-severity" });
       }
+      const limitRaw = url.searchParams.get("limit");
+      if (limitRaw !== null) {
+        // 客户反馈 B10：越界 limit 不再静默夹取——夹取会让调用方误以为拿到
+        // 全量数据；显式 400 交还调用方修正分页参数。
+        const limitValue = Number(limitRaw);
+        if (!Number.isInteger(limitValue) || limitValue < 1 || limitValue > 500) {
+          return sendJson(res, 400, { error: "limit-out-of-range", max: 500 });
+        }
+      }
       const limit = readBoundedNumber(url, "limit", 1, 500, 100);
+      // 客户反馈 B5：分页偏移。非负整数，缺省 0；负数/非数字一律按 0 处理。
+      const offsetRaw = url.searchParams.get("offset");
+      const offsetValue = offsetRaw === null ? 0 : Number(offsetRaw);
+      const offset = Number.isInteger(offsetValue) && offsetValue > 0 ? offsetValue : 0;
       return sendJson(res, 200, {
-        events: deps.trustEvents.list({ status, severity, limit }).map(serializeTrustEvent),
+        events: deps.trustEvents.list({ status, severity, limit, offset }).map(serializeTrustEvent),
       });
     }
     const trustEventMatch = /^\/api\/trust\/events\/(\d+)$/.exec(path);
@@ -2133,6 +2162,7 @@ async function handle(
             offset,
           }),
           scan: deps.approvals.scanView(),
+          mode: deps.approvals.mode(),
         });
       }
       if (method === "POST") {
@@ -2163,6 +2193,48 @@ async function handle(
         return sendJson(res, 201, { item });
       }
       return sendJson(res, 405, { error: "method-not-allowed" });
+    }
+    // ── 批量批准 / 拒绝（面板「全部批准」按钮） ──
+    // 已结算 / 超时 / 不存在的单跳过并带回原因，200 正常返回（部分失败不算请求错误）。
+    if (path === "/api/approvals/bulk-decide") {
+      if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.approvals === undefined) return sendJson(res, 503, { error: "approvals-unavailable" });
+      const body = await readJsonBody(req, res);
+      if (body === null) return;
+      const decision = readNonEmptyString(body["decision"]);
+      const all = body["all"] === true;
+      const rawIds = body["ids"];
+      const ids = Array.isArray(rawIds)
+        ? rawIds.filter((item): item is string => typeof item === "string")
+        : [];
+      if (decision !== "approve" && decision !== "deny") {
+        return sendJson(res, 400, { error: "invalid-bulk-decision" });
+      }
+      if (!all && ids.length === 0) {
+        // ids 与 all 都没给：没有可作用的对象，按无效请求处理（不是空操作）。
+        return sendJson(res, 400, { error: "invalid-bulk-decision" });
+      }
+      return sendJson(
+        res,
+        200,
+        deps.approvals.bulkDecide({
+          decision,
+          ...(all ? { all: true } : { ids }),
+          ...(readNonEmptyString(body["actor"]) === null
+            ? {}
+            : { actor: readNonEmptyString(body["actor"])! }),
+        }),
+      );
+    }
+    // ── 放行模式（ask 逐条确认 / allow-all 全部允许） ──
+    if (path === "/api/approvals/mode") {
+      if (method !== "PUT") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.approvals === undefined) return sendJson(res, 503, { error: "approvals-unavailable" });
+      const body = await readJsonBody(req, res);
+      if (body === null) return;
+      const next = normalizeMode(typeof body["mode"] === "string" ? body["mode"] : null);
+      if (next === null) return sendJson(res, 400, { error: "invalid-approval-mode" });
+      return sendJson(res, 200, { mode: deps.approvals.setMode(next) });
     }
     // decide 必须先于 :id 判断（approval id 为任意字符串）。
     const approveDecide = /^\/api\/approvals\/([^/]+)\/decide$/.exec(path);
@@ -3287,7 +3359,7 @@ async function handle(
       return deps.llm === undefined ? sendJson(res, 503, { error: "llm-manager-unavailable" }) : sendJson(res, 200, deps.llm.status());
     }
 
-    const llmProfileAction = /^\/api\/llm\/profiles\/([^/]+)\/(rotate|probe|disable)$/.exec(path);
+    const llmProfileAction = /^\/api\/llm\/profiles\/([^/]+)\/(rotate|probe|disable|enable)$/.exec(path);
     if (llmProfileAction !== null) {
       if (method !== "POST") return sendJson(res, 405, { error: "method-not-allowed" });
       if (!options.credentialWritesAllowed) return sendJson(res, 403, { error: "credential-writes-require-loopback" });
@@ -3301,11 +3373,26 @@ async function handle(
           return sendJson(res, 200, { profile: await deps.llm.rotateProfile(profileId, body["apiKey"]) });
         }
         if (llmProfileAction[2] === "probe") return sendJson(res, 200, { probe: await deps.llm.probeProfile(profileId) });
+        if (llmProfileAction[2] === "enable") {
+          const outcome = await deps.llm.enableProfile(profileId);
+          return sendJson(res, 200, outcome);
+        }
         return sendJson(res, 200, { profile: deps.llm.disableProfile(profileId) });
       } catch (error) {
         const code = error instanceof Error ? error.message : "llm-profile-action-failed";
         return sendJson(res, code === "profile-not-found" || code === "profile-version-not-found" ? 404 : code === "secret-vault-unavailable" ? 503 : 409, { error: code });
       }
+    }
+
+    // 删除模型配置（连带版本与绑定；删凭据必须守 credentialWritesAllowed 门禁）。
+    const llmProfileDelete = /^\/api\/llm\/profiles\/([^/]+)$/.exec(path);
+    if (llmProfileDelete !== null) {
+      if (method !== "DELETE") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (!options.credentialWritesAllowed) return sendJson(res, 403, { error: "credential-writes-require-loopback" });
+      if (deps.llm === undefined) return sendJson(res, 503, { error: "llm-manager-unavailable" });
+      return deps.llm.deleteProfile(decodeURIComponent(llmProfileDelete[1]!))
+        ? sendJson(res, 204, null)
+        : sendJson(res, 404, { error: "llm-profile-not-found" });
     }
 
     const llmBindingMatch = /^\/api\/llm\/bindings\/([^/]+)$/.exec(path);

@@ -103,15 +103,25 @@ function truncate(text: string, max: number): string {
 /** 危险 shell 命令特征（高危信号边）。 */
 const DANGEROUS_SHELL = /\brm\s+(-[a-z]*r[a-z]*f|-[a-z]*f[a-z]*r)\b|\bsudo\b|\bmkfs\b|\bdd\s+if=|\bdel\s+\/[sq]\b|\bformat\b\s+[a-z]:|\bshutdown\b|\breboot\b/i;
 
+/**
+ * 目标必须本身像路径：绝对路径、~ 展开、盘符、内含分隔符，或带扩展名的裸文件名。
+ * 旧版行级守卫（\bfile\b|文件|path|\.|\/）会被 "HermesPluginCompatWarning ...
+ * removed on 2026-09-14, old path ..." 这类告警行穿透（行尾的 "path" 即满足），
+ * 造成严重度 high 的 file-delete 误报，故收紧到对捕获组本身做全匹配。
+ */
+const PATH_LIKE_TARGET = /^(?:[A-Za-z]:[\\/].|[\\/~].|[^\s]*[\\/][^\s]+|[\w~.\u4e00-\u9fff][\w~\-.\\/\u4e00-\u9fff]*\.[A-Za-z0-9]{1,12})$/;
+
 /** 每行按优先级匹配一个动作类型；全不匹配 → null（跳过，不猜测）。 */
 export function parseActionLine(line: string): ParsedAction | null {
   const text = line.trim();
   if (text.length < 8) return null;
   const scrubbed = scrub(text);
 
-  // 1) 文件删除
-  let match = /(?:删除|已删除|deleted?|removed?|unlink(?:ed)?)\s*[:：]?\s*(\/?[\w./\\\-~\u4e00-\u9fff]{2,180})/i.exec(scrubbed);
-  if (match !== null && /\bfile\b|文件|path|\.|\//i.test(scrubbed)) {
+  // 1) 文件删除（允许 "删除文件：xxx" / "deleted file /tmp/x" 这类名词连接词：
+  //    早期版本缺这一段，"删除文件：/tmp/a.txt" 的捕获组只拿到"文件"（停在冒号），
+  //    真阳性被 PATH_LIKE_TARGET 判为不像路径而整体丢弃——B1 修误报时引入的漏报。）
+  let match = /(?:删除|已删除|deleted?|removed?|unlink(?:ed)?)\s*(?:file\b|文件|路径)?\s*[:：]?\s*(\/?[\w.:/\\\-~\u4e00-\u9fff]{2,180})/i.exec(scrubbed);
+  if (match !== null && PATH_LIKE_TARGET.test(match[1] ?? "")) {
     return {
       kind: "file-delete",
       severity: "high",
@@ -120,8 +130,12 @@ export function parseActionLine(line: string): ParsedAction | null {
     };
   }
   // 2) 文件写入 / 修改（允许 "wrote file xxx" / "写入 文件 xxx" 的连接词）
-  match = /(?:写入|已写入|创建|保存|wrote|written|created|saved|modified)\s+(?:file\b|文件|路径)?\s*[:：]?\s*(\/?[\w./\\\-~\u4e00-\u9fff]{2,180})/i.exec(scrubbed);
-  if (match !== null && /\bfile\b|文件|path|\.|\//i.test(scrubbed)) {
+  //    - 触发词后用 \s* 而非 \s+：中文「写入文件：xxx」冒号/名词前没有空格，
+  //      要求空白会让整条写入规则在中文日志上形同虚设；
+  //    - 捕获组含 ":" 是为了盘符路径（C:\Users\…\a.log）：缺了它，Windows 目标
+  //      会在冒号处截断成 "C"（长度不足 2，整体不匹配）。
+  match = /(?:写入|已写入|创建|保存|wrote|written|created|saved|modified)\s*(?:file\b|文件|路径)?\s*[:：]?\s*(\/?[\w.:/\\\-~\u4e00-\u9fff]{2,180})/i.exec(scrubbed);
+  if (match !== null && PATH_LIKE_TARGET.test(match[1] ?? "")) {
     return {
       kind: "file-write",
       severity: "info",

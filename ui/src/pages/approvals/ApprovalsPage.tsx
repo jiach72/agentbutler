@@ -44,7 +44,10 @@ export interface ApprovalItem {
   detail: unknown;
   status: string;
   channel: string | null;
+  /** 本单吸收的请求次数；对外展示用 windowCount，别用它。 */
   attempts: number;
+  /** 升级窗口内该动作被请求的真实次数（客户可见数字一律取这个）。 */
+  windowCount: number;
   escalateRequired: boolean;
   expiresAt: string;
   respondedAt: string | null;
@@ -212,7 +215,7 @@ export function ApprovalsPage() {
           <Flex gap={4} wrap="wrap">
             <StatusBadge tone={tone} label={label} />
             {row.escalateRequired && row.status === "pending" && (
-              <Tooltip title={`同一动作今日已被请求 ${row.attempts} 次，需在面板确认后才可放行`}>
+              <Tooltip title={`同一动作今日已被请求 ${row.windowCount} 次，需在面板确认后才可放行`}>
                 <span>
                   <StatusBadge tone="warn" label="需面板确认" />
                 </span>
