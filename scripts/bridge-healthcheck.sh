@@ -6,6 +6,13 @@ set -uo pipefail
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT_DIR"
 
+# 端口监听探测（平台感知）：Linux 用 ss/netstat，Darwin 用 lsof，都没有就返回
+# 「无工具」，由调用方降级为 WARN —— 不能把「探测不了」当成「没在监听」。
+if [[ -f "$ROOT_DIR/scripts/lib/port-probe.sh" ]]; then
+  # shellcheck source=scripts/lib/port-probe.sh
+  . "$ROOT_DIR/scripts/lib/port-probe.sh"
+fi
+
 env_value() {
   local key="$1"
   [[ -f .env ]] || return 0
@@ -67,18 +74,22 @@ fi
 forwarder_ok=false
 needs_forwarder=false
 [[ "$BRIDGE_URL" == *":8755" ]] && needs_forwarder=true
+# 平台差异（A3）：BSD/macOS 的 netstat 与 Linux 不同源——`-l` 是 loopback 不是
+# listening、`-t` 不存在、地址写成 `.8755`，旧写法在 macOS 上会确定性误报 FAIL。
+# 现在统一走 probe_port_listening 的三态结果：0=在听 / 1=没在听 / 2=探测不了。
 if [[ "$needs_forwarder" != true ]]; then
   :
-elif command -v ss >/dev/null 2>&1; then
-  ss -ltn 2>/dev/null | grep -q ":8755 " \
-    && { pass "转发器正在监听 :8755"; forwarder_ok=true; } \
-    || fail "没有进程监听 :8755（转发器未运行，gateway 链路会断）"
-elif command -v netstat >/dev/null 2>&1; then
-  netstat -ltn 2>/dev/null | grep -q ":8755 " \
-    && { pass "转发器正在监听 :8755"; forwarder_ok=true; } \
-    || fail "没有进程监听 :8755（转发器未运行，gateway 链路会断）"
 else
-  warn "ss/netstat 均不可用，跳过端口检查"
+  probe_port_listening 8755
+  probe_state=$?
+  if [[ "$probe_state" -eq 0 ]]; then
+    pass "转发器正在监听 :8755"
+    forwarder_ok=true
+  elif [[ "$probe_state" -eq 1 ]]; then
+    fail "没有进程监听 :8755（转发器未运行，gateway 链路会断）"
+  else
+    warn "没有可用的端口探测工具（Linux 需 ss/netstat，macOS 需 lsof），跳过 :8755 监听检查"
+  fi
 fi
 
 # 4. 转发器归属状态

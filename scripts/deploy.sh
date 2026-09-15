@@ -4,6 +4,13 @@ set -euo pipefail
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT_DIR"
 
+# 端口监听探测（与 bridge-healthcheck.sh 共用同一份平台感知实现）：
+# Linux 用 ss/netstat，Darwin 用 lsof，都没有才视为「无监听」。
+if [[ -f "$ROOT_DIR/scripts/lib/port-probe.sh" ]]; then
+  # shellcheck source=scripts/lib/port-probe.sh
+  . "$ROOT_DIR/scripts/lib/port-probe.sh"
+fi
+
 command -v docker >/dev/null 2>&1 || { echo "Docker is required." >&2; exit 1; }
 docker compose version >/dev/null
 
@@ -72,7 +79,7 @@ if [[ "$bridge_url" == *":8755" ]]; then
   if command -v systemctl >/dev/null 2>&1 &&
      [[ "$(systemctl --user is-active agent-butler-bridge-forward.service 2>/dev/null || true)" == "active" ]]; then
     echo "Using existing systemd bridge forwarder on :8755."
-  elif command -v ss >/dev/null 2>&1 && ss -ltn 2>/dev/null | grep -q ':8755 '; then
+  elif probe_port_listening 8755; then
     echo "Using an existing listener on :8755; Compose bridge-forward profile is skipped."
   else
     compose_args+=(--profile bridge-forward)
@@ -83,7 +90,7 @@ fi
 # 配置了探针地址且 9178 尚无监听时由 Compose 托管该 profile。
 hindsight_url="${BUTLER_HINDSIGHT_BASE_URL:-$(env_value BUTLER_HINDSIGHT_BASE_URL)}"
 if [[ -n "$hindsight_url" ]]; then
-  if command -v ss >/dev/null 2>&1 && ss -ltn 2>/dev/null | grep -q ':9178 '; then
+  if probe_port_listening 9178; then
     echo "Using an existing listener on :9178; Compose hindsight-forward profile is skipped."
   else
     compose_args+=(--profile hindsight-forward)
