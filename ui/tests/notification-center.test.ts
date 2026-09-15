@@ -10,6 +10,12 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import {
+  APPROVAL_CHANNEL_NOTIFICATION,
+  decisionFeedback,
+  runApprovalDecision,
+  type ApprovalDecision,
+} from "../src/lib/approval-decision.js";
 import { NotificationPreviewList, notificationTarget } from "../src/components/NotificationCenter.js";
 import { countUnread, visibleForPreference } from "../src/hooks/useNotifications.js";
 import type { NotificationItem } from "../src/hooks/useNotifications.js";
@@ -88,5 +94,92 @@ describe("顶部通知中心", () => {
     expect(notificationTarget(item({ kind: "memory-write", source: "watch" })).to).toBe("/memory-diff");
     // 映射不到时必须有一个确定的落点，不能让用户点了没反应
     expect(notificationTarget(item({ kind: "something-new", source: "unknown" })).to).toBe("/events");
+  });
+});
+
+/**
+ * 行内「批准 / 拒绝」的决策反馈（客户截图两个缺陷的回归闸）：
+ * - 截图 1：已被处理的单子每条都弹提示，左上角堆成一摞 → 业务竞态必须静默；
+ * - 截图 2：决策后该条通知不消失 → 无论成败都要触发刷新。
+ *
+ * 这两条此前零覆盖（UI 测试环境是 node，无 DOM，点不了按钮），故把分支抽成
+ * 纯函数 + 注入式执行器，在这里直接钉住。
+ */
+describe("通知中心：行内审批决策的反馈与刷新", () => {
+  it("业务竞态（409 已处理 / 410 已超时 / 404）不弹任何提示，消除左上角 toast 堆叠", () => {
+    for (const status of [409, 410, 404, 400]) {
+      expect(decisionFeedback("approve", { ok: false, status })).toBeNull();
+    }
+  });
+
+  it("成功只给一条成功提示，批准/拒绝文案不同", () => {
+    expect(decisionFeedback("approve", { ok: true, status: 200 })).toEqual({
+      level: "success",
+      text: "已批准本次操作",
+    });
+    expect(decisionFeedback("deny", { ok: true, status: 200 })).toEqual({
+      level: "success",
+      text: "已拒绝本次操作",
+    });
+  });
+
+  it("传输层失败必须出声：网络中断与 5xx 各一条错误提示，且说清「没生效」", () => {
+    const offline = decisionFeedback("approve", { ok: false, status: 0 });
+    expect(offline).toEqual({
+      level: "error",
+      text: "没连上管家服务，这次操作没生效，请稍后重试",
+    });
+    const broken = decisionFeedback("approve", { ok: false, status: 503 });
+    expect(broken?.level).toBe("error");
+    expect(broken?.text).toContain("503");
+    expect(broken?.text).toContain("没生效");
+  });
+
+  /** 记录一次决策产生的全部副作用（URL、上报体、提示、刷新）。 */
+  async function run(status: { ok: boolean; status: number }, decision: ApprovalDecision = "approve") {
+    const toasts: string[] = [];
+    const settled: ApprovalDecision[] = [];
+    let requestedUrl = "";
+    let requestedBody: Record<string, unknown> = {};
+    await runApprovalDecision(
+      {
+        postJson: async (url, body) => {
+          requestedUrl = url;
+          requestedBody = body as Record<string, unknown>;
+          return status;
+        },
+        onToast: (_level, text) => {
+          toasts.push(text);
+        },
+        onSettled: (value) => {
+          settled.push(value);
+        },
+        channel: APPROVAL_CHANNEL_NOTIFICATION,
+      },
+      "ap-1",
+      decision,
+    );
+    return { toasts, settled, requestedUrl, requestedBody };
+  }
+
+  it("决策后必定触发刷新：成功让该条归档消失，竞态也让面板与真实状态对齐", async () => {
+    const ok = await run({ ok: true, status: 200 });
+    expect(ok.settled).toEqual(["approve"]);
+    expect(ok.toasts).toHaveLength(1);
+    expect(ok.requestedUrl).toBe("/api/approvals/ap-1/decide");
+    // 通道必须是通知中心自己的，与列表页（panel）在审计里分得开
+    expect(ok.requestedBody["channel"]).toBe(APPROVAL_CHANNEL_NOTIFICATION);
+    expect(ok.requestedBody["decision"]).toBe("approve");
+
+    // 已被处理：不弹提示，但刷新照旧（该条才会从面板消失）
+    const stale = await run({ ok: false, status: 409 }, "deny");
+    expect(stale.toasts).toHaveLength(0);
+    expect(stale.settled).toEqual(["deny"]);
+  });
+
+  it("一次决策最多一条提示：传输层失败也只弹一次，不会叠加", async () => {
+    const offline = await run({ ok: false, status: 0 });
+    expect(offline.toasts).toHaveLength(1);
+    expect(offline.settled).toEqual(["approve"]);
   });
 });

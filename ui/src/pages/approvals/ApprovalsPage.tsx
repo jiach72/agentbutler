@@ -33,6 +33,7 @@ import { StatStrip } from "../../components/StatStrip.js";
 import type { StatStripItem } from "../../components/StatStrip.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { approvalStatusLabel, approvalStatusTone, isAuditApproval } from "./helpers.js";
+import { runInlineDecision, type ApprovalDecision } from "./decision.js";
 import { loadJson, postJson } from "../../lib/api.js";
 import { usePolling } from "../../hooks/usePolling.js";
 import { useUrlState } from "../../hooks/useUrlState.js";
@@ -147,25 +148,26 @@ export function ApprovalsPage() {
   // 15s 轮询：与后端超时结算节奏对齐，倒计时不会与真实状态脱节太久。
   usePolling(refresh, 15_000);
 
-  /** 列表行内快捷决策（与确认页同一 API）；升级单仍引导进详情页核对目标。 */
+  /**
+   * 列表行内快捷决策（与确认页同一 API）；升级单仍引导进详情页核对目标。
+   *
+   * 反馈口径走 ./decision.ts → lib/approval-decision，与顶部通知中心同源：
+   * 409/410/404（单子已被处理或已升级）一律静默，只靠 refresh 把陈旧行收走；
+   * 只有「真的没生效」的传输层失败与 5xx 才出声，且一次最多一条。
+   */
   const decide = useCallback(
-    async (item: ApprovalItem, decision: "approve" | "deny") => {
+    async (item: ApprovalItem, decision: ApprovalDecision) => {
       setBusyId(item.id);
-      const result = await postJson(`/api/approvals/${encodeURIComponent(item.id)}/decide`, {
+      await runInlineDecision(
+        {
+          postJson,
+          onToast: (level, text) => message[level](text),
+          onSettled: () => refresh(),
+        },
+        item.id,
         decision,
-        actor: "panel-user",
-        channel: "panel",
-      }, 30_000);
+      );
       setBusyId(null);
-      if (result.ok) {
-        message.success(decision === "approve" ? "已批准本次操作" : "已拒绝本次操作");
-      } else {
-        const key = typeof result.data === "object" && result.data !== null
-          ? String((result.data as Record<string, unknown>)["error"] ?? "")
-          : "";
-        message.warning(key === "already-settled" ? "该审批单已被处理或已升级" : `操作失败（HTTP ${result.status}）`);
-      }
-      refresh();
     },
     [message, refresh],
   );

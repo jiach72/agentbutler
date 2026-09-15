@@ -9,6 +9,10 @@
  * 3. 条目可处置：点击不再只标记已读，而是标记已读 + 跳到对应页面（映射见 notificationTarget）。
  *    在服务端给通知项补 target 字段之前，先按 kind/source 做前端映射，映射不到就回落到事件中心。
  *
+ * 4. 卡片里行内「批准 / 拒绝」的反馈口径与审批列表页共用 lib/approval-decision：
+ *    成功一条提示、传输层失败（0/5xx）一条错误提示、业务竞态（409/410/404）静默
+ *    ——分类只在那一个地方，避免两处各改一半（此前列表页漏改，toast 堆了一摞）。
+ *
  * 容量：规范要求保留最近 50 条（原为 12 条）。
  */
 import { App, Badge, Button, Popconfirm, Popover, Spin } from "antd";
@@ -17,6 +21,7 @@ import { useCallback, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { usePreferences } from "../lib/preferences.js";
 import { postJson } from "../lib/api.js";
+import { APPROVAL_CHANNEL_NOTIFICATION, runApprovalDecision, type ApprovalDecision } from "../lib/approval-decision.js";
 import {
   countUnread,
   useNotifications,
@@ -103,7 +108,7 @@ export function NotificationPreviewList({
   onRead: (item: NotificationItem) => void;
   /** 决策（批准/拒绝）完成后的处置回调：由持有轮询与 refresh 的父层提供，
    *  让已归档的通知立即从面板消失，而不是干等 10s 轮询带回旧条目。 */
-  onSettled?: (decision: "approve" | "deny") => void;
+  onSettled?: (decision: ApprovalDecision) => void;
 }) {
   const { message } = App.useApp();
   // 决策成功后：后端（watch settle/sweep → gateway resolveByDedupeKey）已把告警
@@ -112,30 +117,19 @@ export function NotificationPreviewList({
   const [decidingId, setDecidingId] = useState<string | null>(null);
 
   const decide = useCallback(
-    async (item: NotificationItem, approvalId: string, decision: "approve" | "deny") => {
+    async (item: NotificationItem, approvalId: string, decision: ApprovalDecision) => {
       setDecidingId(approvalId);
-      const result = await postJson(`/api/approvals/${encodeURIComponent(approvalId)}/decide`, {
+      await runApprovalDecision(
+        {
+          postJson,
+          onToast: (level, text) => message[level](text),
+          onSettled,
+          channel: APPROVAL_CHANNEL_NOTIFICATION,
+        },
+        approvalId,
         decision,
-        actor: "panel-user",
-        channel: "panel-notification",
-      }, 30_000);
+      );
       setDecidingId(null);
-      if (result.ok) {
-        message.success(decision === "approve" ? "已批准本次操作" : "已拒绝本次操作");
-      } else if (result.status === 0 || result.status >= 500) {
-        // 传输层失败必须出声：请求没到后端（网络/超时）或后端自己挂了（5xx），
-        // 静默会让用户以为「点到了」——其实什么都没发生，也不知道要重试。
-        message.error(
-          result.status === 0
-            ? "没连上管家服务，这次操作没生效，请稍后重试"
-            : `管家服务异常（${result.status}），这次操作没生效，请稍后重试`,
-        );
-      } else {
-        // 业务上已被处理的竞态（409 already-settled / 410 expired / 404 等）：
-        // 不是故障，刷新让本地陈旧条目消失即可，不再弹 toast 堆叠（缺陷反馈截图 1）。
-      }
-      // 无论成败都立即拉取：成功让该条归档消失，失败让面板与真实状态对齐。
-      onSettled?.(decision);
     },
     [message, onSettled],
   );
