@@ -44,7 +44,7 @@ export function PendingApprovalsBanner() {
       showIcon
       message={
         <span>
-          有 <strong>{pending}</strong> 条高危操作等待你批准或拒绝（超时将按拒绝拦截）。
+          有 <strong>{pending}</strong> 条高危操作等待你批准或拒绝（超时未处理将自动关闭）。
         </span>
       }
       action={

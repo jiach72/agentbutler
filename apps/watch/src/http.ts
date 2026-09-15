@@ -161,14 +161,16 @@
  * - POST /api/sessions/reindex → 立即重建索引 { scanned, indexed, stateDbAvailable, reason }
  * - GET  /api/approvals → query { status?, escalateOnly?, limit?=100, offset?=0 }；
  *      { items: [{ id, actionId, kind, title, status, attempts, escalateRequired, expiresAt,
- *        remainingMs, confirmUrl }], summary, scan, mode }
+ *        remainingMs, confirmUrl }], summary, scan }
  * - POST /api/approvals → body { actionId, kind, title, detail?, instance?, sessionId? }；
- *      显式登记审批单（幂等）→ 201 { item }
+ *      显式登记审批单（幂等）→ 201 { item }。
+ *      两条路径语义不同：gate（事前放行）= 执行器在动作落地前请求放行，
+ *      批准/拒绝阻塞执行、超时按拒绝拦截；audit（事后确认）= 从 Hermes 已执行
+ *      日志自动补开（scanHighRisk，detail.origin=auto-detect），不阻塞执行，
+ *      超时自动关闭（不拦截）
  * - POST /api/approvals/bulk-decide → body { ids?, all?, decision, actor? }；
  *      批量批准/拒绝 → 200 { total, succeeded, failed[] }；
  *      decision 非 approve|deny 或 ids 与 all 皆缺 → 400 invalid-bulk-decision
- * - PUT  /api/approvals/mode → body { mode: ask|allow-all } → 200 { mode }；
- *      非法值 → 400 invalid-approval-mode（allow-all 下开单自动放行但仍全量留痕）
  * - GET  /api/approvals/:id → { item }；未知 id → 404
  * - POST /api/approvals/:id/decide → body { decision: approve|deny, actor?, channel?, source? }；
  *      已升级单仅 source=panel|web 可放行（409 requires-web-confirm）；超时 → 410 expired
@@ -218,7 +220,7 @@ import type { KillSwitchService } from "./killswitch.js";
 import type { TrustEventHub } from "./trust-events.js";
 import type { WeeklyReportService } from "./weekly-report.js";
 import type { SessionIndexService } from "./session-index.js";
-import { normalizeMode, type ApprovalService } from "./approvals.js";
+import type { ApprovalService } from "./approvals.js";
 import type { CanaryService } from "./canary.js";
 import type { ProgressIntegrityService } from "./progress-integrity.js";
 import type { MemoryDiffService } from "./memory-diff.js";
@@ -2162,11 +2164,12 @@ async function handle(
             offset,
           }),
           scan: deps.approvals.scanView(),
-          mode: deps.approvals.mode(),
         });
       }
       if (method === "POST") {
-        // 显式登记一张审批单（供执行侧在动作落地前请求放行）。
+        // 显式登记一张审批单（供执行侧在动作落地前请求放行 = gate 路径；
+        // 从 Hermes 已执行日志自动补开的 audit 路径走 scanHighRisk，
+        // 其 detail.origin=auto-detect，卡片/事件按事后确认语义分流，不阻塞执行）。
         const body = await readJsonBody(req, res);
         if (body === null) return;
         const actionId = readNonEmptyString(body["actionId"]);
@@ -2225,16 +2228,6 @@ async function handle(
             : { actor: readNonEmptyString(body["actor"])! }),
         }),
       );
-    }
-    // ── 放行模式（ask 逐条确认 / allow-all 全部允许） ──
-    if (path === "/api/approvals/mode") {
-      if (method !== "PUT") return sendJson(res, 405, { error: "method-not-allowed" });
-      if (deps.approvals === undefined) return sendJson(res, 503, { error: "approvals-unavailable" });
-      const body = await readJsonBody(req, res);
-      if (body === null) return;
-      const next = normalizeMode(typeof body["mode"] === "string" ? body["mode"] : null);
-      if (next === null) return sendJson(res, 400, { error: "invalid-approval-mode" });
-      return sendJson(res, 200, { mode: deps.approvals.setMode(next) });
     }
     // decide 必须先于 :id 判断（approval id 为任意字符串）。
     const approveDecide = /^\/api\/approvals\/([^/]+)\/decide$/.exec(path);

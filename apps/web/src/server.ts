@@ -2372,36 +2372,6 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     return reply.status(res.status).send(parsed);
   };
 
-  /** PUT 代理：与 POST 代理同款错误语义（审批放行模式等幂等写入用）。 */
-  const proxyWatchPut = async (
-    watchPath: string,
-    body: unknown,
-    reply: FastifyReply,
-    timeoutMs = 5_000,
-  ): Promise<FastifyReply> => {
-    let res: Response;
-    try {
-      res = await doFetch(`${watchUrl}${watchPath}`, {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body ?? {}),
-        signal: AbortSignal.timeout(timeoutMs),
-      });
-    } catch {
-      return reply.status(502).send({ error: "watch-unreachable" });
-    }
-    const raw = await res.text();
-    let parsed: unknown = {};
-    if (raw !== "") {
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
-        parsed = { raw };
-      }
-    }
-    return reply.status(res.status).send(parsed);
-  };
-
   /** 巡检状态代理（/api/inspect/status 与 /api/dashboard 聚合共用）；不可达 → reachable:false。 */
   const inspectStatusFromWatch = async (): Promise<Record<string, unknown>> => {
     const res = await fetchWatch("/api/inspect/status");
@@ -3621,10 +3591,6 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   // 批量批准 / 拒绝：面板「全部批准」一次结算当前待处理（跳过项由 watch 带回原因）。
   app.post("/api/approvals/bulk-decide", async (request, reply) =>
     proxyWatchPost("/api/approvals/bulk-decide", request.body, reply, 30_000),
-  );
-  // 放行模式：ask 逐条确认（默认）/ allow-all 全部允许（自动放行但仍全量留痕）。
-  app.put("/api/approvals/mode", async (request, reply) =>
-    proxyWatchPut("/api/approvals/mode", request.body, reply, 30_000),
   );
   // M3.2 升级金丝雀：列表 / 详情 / 抽样计划 / 执行 / 策略读写 / 手动巡检。
   app.get("/api/canary", async (request, reply) => {

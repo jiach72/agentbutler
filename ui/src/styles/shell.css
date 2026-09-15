@@ -274,8 +274,8 @@ html body .app-nav .ant-menu-item-selected .anticon {
   height: 100%;
 }
 
-/* 侧栏底部放行模式开关（替代原「局域网访问」展示）：模式行 + 一句说明 +
-   待处理数量与「全部批准」。沿用安静的两行元信息形态，不抢主导航注意力。 */
+/* 侧栏底部待处理审批卡片（有积压时出现）：条数 + 「全部批准」。沿用安静的
+   元信息形态，不抢主导航注意力。 */
 .sidebar-approval-mode {
   display: flex;
   flex-direction: column;
@@ -285,47 +285,11 @@ html body .app-nav .ant-menu-item-selected .anticon {
   font-size: var(--ab-text-size-xs);
   line-height: 1.45;
 }
-.sidebar-approval-mode-head {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-}
-.sidebar-approval-mode-icon {
-  margin-top: 2px;
-  font-size: 13px;
-  color: var(--ab-ok);
-}
-.sidebar-approval-mode-copy {
-  flex: 1;
-  min-width: 0;
-}
-.sidebar-approval-mode-title {
-  display: flex;
-  flex-direction: column;
-}
-.sidebar-approval-mode-title small {
-  opacity: 0.85;
-}
-/* 21px = 图标 13px + gap 8px，让说明文字与标题左对齐。 */
-.sidebar-approval-mode-note {
-  margin: 0;
-  padding-left: 21px;
-  opacity: 0.85;
-}
 .sidebar-approval-mode-pending {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding-left: 21px;
-}
-
-/* 全部允许态用提醒色：这是「少问你」，不是「更安全」，不该看起来像一切正常。 */
-.sidebar-approval-mode.is-warn {
-  color: var(--ab-warn);
-}
-.sidebar-approval-mode.is-warn .sidebar-approval-mode-icon {
-  color: var(--ab-warn);
 }
 
 /* ---- 顶栏 ---- */

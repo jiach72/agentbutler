@@ -156,7 +156,8 @@ const FINGERPRINT_COLUMNS = (onOpenLogs: () => void): ColumnsType<FingerprintVie
   },
   {
     title: "日志",
-    width: 88,
+    width: 96,
+    fixed: "right",
     render: () => (
       <Button type="link" style={{ paddingInline: 0 }} onClick={onOpenLogs}>
         查看日志
@@ -188,6 +189,7 @@ export function FingerprintsTable({
       pagination={false}
       dataSource={fingerprints}
       columns={FINGERPRINT_COLUMNS(onOpenLogs)}
+      scroll={{ x: 680 }}
     />
   );
 }

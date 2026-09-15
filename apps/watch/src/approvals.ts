@@ -7,6 +7,12 @@
  *    内联按钮不再放行，强制回 Web 端确认（防打扰也防误触）；
  * 3. **操作全留痕**：请求 / 批准 / 拒绝 / 超时四类动作全部入审计流与事件中心。
  *
+ * 两条开单路径，语义不同，文案必须分流（见 isAuditApproval）：
+ * - **gate（事前放行）**：执行器在动作落地前调 POST /api/approvals 请求放行，
+ *   批准/拒绝真正阻塞执行，超时按拒绝拦截——卡片与事件按「拦截」语义写；
+ * - **audit（事后确认）**：scanHighRisk 从 Hermes 已执行日志自动补开审批单，
+ *   动作已经发生，按钮不阻塞任何事——卡片与事件按「追认/存疑/自动关闭」语义写。
+ *
  * 边界诚实：本服务只登记与流转「审批单」，不代替执行器执行动作；也不猜测动作是否真的
  * 被拦住——拦截结果由调用方在决策后落地，本服务不虚构成功。
  */
@@ -29,17 +35,6 @@ export const APPROVAL_RETENTION_MIN_DAYS = 7;
 export const APPROVAL_RETENTION_MAX_DAYS = 90;
 export const APPROVAL_RETENTION_DEFAULT_DAYS = 30;
 
-/** 放行模式持久化键（落 runtime_settings 表，与 canary 策略同机制）。 */
-export const APPROVAL_MODE_SETTING_KEY = "approval.mode";
-/**
- * 放行模式：
- * - ask：逐条确认（默认）——每条高危动作都开单并推送卡片等应答；
- * - allow-all：全部允许——开单后立即自动批准，**但审计、事件中心、审批单
- *   记录一条都不少**（下面 request 里有说明）。
- */
-export type ApprovalMode = "ask" | "allow-all";
-/** 模式切换的审计动作名。 */
-export const APPROVAL_MODE_CHANGED_ACTION = "approval-mode-changed";
 /** 批量批准单次上限：与列表最大 limit 对齐，避免一次扫全表。 */
 export const APPROVAL_BULK_LIMIT = 500;
 
@@ -130,8 +125,6 @@ export interface ApprovalScanView {
   ttlMs: number;
   escalationThreshold: number;
   retentionDays: number;
-  /** 当前放行模式（面板一次请求即可拿到列表与模式）。 */
-  mode: ApprovalMode;
 }
 
 /** 批量批准结果：跳过（已结算/超时/不存在）的单带原因返回，不抛异常。 */
@@ -159,10 +152,6 @@ export interface ApprovalService {
     decision: ApprovalDecision;
     actor?: string;
   }): BulkDecisionResult;
-  /** 当前放行模式。 */
-  mode(): ApprovalMode;
-  /** 切换放行模式并落库 + 审计，返回生效后的模式。 */
-  setMode(mode: ApprovalMode): ApprovalMode;
   list(filter?: { status?: string; escalateOnly?: boolean; limit?: number; offset?: number }): {
     items: ActionApprovalItem[];
     summary: ApprovalSummary;
@@ -213,12 +202,19 @@ export function actionFingerprint(kind: string, target: string): string {
 }
 
 /**
- * 放行模式归一化：合法值直通，null / 空串 / 未知值一律回退 null，
- * 由调用方决定「写回默认」。非法值不静默当 ask 处理，避免脏值长期潜伏。
+ * 判断审批单是否为「audit（事后确认）」路径：由 scanHighRisk 从已执行日志自动补开。
+ *
+ * origin 标记持久化在 detailJson 里（request() 会把 input.detail 合并进 detail，
+ * settle/list 时从 item.detail 读回），不新增数据库列、不改 API 形状。
+ * detail 非对象或未带 origin 标记 → 一律按 gate（事前放行）语义处理。
  */
-export function normalizeMode(raw: string | null | undefined): ApprovalMode | null {
-  return raw === "ask" || raw === "allow-all" ? raw : null;
+export function isAuditApproval(item: { detail: unknown }): boolean {
+  if (typeof item.detail !== "object" || item.detail === null) return false;
+  return (item.detail as Record<string, unknown>)["origin"] === "auto-detect";
 }
+
+/** audit 路径的 origin 标记值（scanHighRisk 写入 item.detail.origin）。 */
+export const AUDIT_ORIGIN = "auto-detect";
 
 /** 动作类型 → 人话标题（不猜细节，只描述类型与目标）。 */
 export function describeAction(kind: string, target: string): string {
@@ -270,16 +266,6 @@ export function createApprovalService(options: ApprovalServiceOptions): Approval
   let lastScanAt: string | null = null;
   let lastScanned = 0;
   let lastCreated = 0;
-  /** 放行模式：启动时读一次，之后以 setMode 写入的值为准。 */
-  let currentMode = readMode();
-
-  function readMode(): ApprovalMode {
-    const normalized = normalizeMode(store.getRuntimeSetting(APPROVAL_MODE_SETTING_KEY));
-    if (normalized !== null) return normalized;
-    // 首次运行（库里没有）或历史脏值：写回缺省值，避免「面板显示 ask、库里没有」的漂移。
-    store.setRuntimeSetting(APPROVAL_MODE_SETTING_KEY, "ask", iso());
-    return "ask";
-  }
 
   // 基址未配置时返回相对路径：网关/面板同源部署下仍可用；外发通道会因无主机而
   // 省略 url 按钮（serializeActions 只存完整链接），不会发出点不开的裸链接。
@@ -343,12 +329,17 @@ export function createApprovalService(options: ApprovalServiceOptions): Approval
   /** 卡片正文：说清「要做什么、多久不管就按拒绝处理」，不放对话内容。 */
   function buildCard(item: ActionApprovalItem): GatewayAlertBody {
     const minutes = Math.max(1, Math.round(ttlMs / 60_000));
+    const audit = isAuditApproval(item);
     // 次数用窗口内真实累计数（item.windowCount），不用 item.attempts：后者是
     // 「本单吸收的请求数」，在「结算后重开单」的场景会远小于真实累计，直接
     // 显示会把 12 次说成 1 次（产品红线：客户可见数字不许谎报）。
     const escalateNote = item.escalateRequired
-      ? `同一动作今日已被请求 ${item.windowCount} 次，已升级为「需在面板确认」，请打开面板核对后再放行。`
-      : `批准后该动作才会执行；${minutes} 分钟内未应答将按「拒绝」拦截。`;
+      ? audit
+        ? `同一动作今日已被请求 ${item.windowCount} 次，已升级为「需在面板确认」，请打开面板核对后再追认。`
+        : `同一动作今日已被请求 ${item.windowCount} 次，已升级为「需在面板确认」，请打开面板核对后再放行。`
+      : audit
+        ? `该动作已由 Hermes 执行完毕，本条为事后确认（不阻塞执行）；点「追认」表示已知悉，点「存疑」标记待核查；${minutes} 分钟内未处理将自动关闭。`
+        : `批准后该动作才会执行；${minutes} 分钟内未应答将按「拒绝」拦截。`;
     const link = `${item.confirmUrl}`;
     return {
       kind: "action-approval",
@@ -359,11 +350,17 @@ export function createApprovalService(options: ApprovalServiceOptions): Approval
       dedupeKey: `approval:${item.id}`,
       actions: item.escalateRequired
         ? [{ label: "前往面板确认", url: link }]
-        : [
-            { label: "批准一次", callbackData: `apr:${item.id}:approve` },
-            { label: "拒绝", callbackData: `apr:${item.id}:deny` },
-            { label: "查看详情", url: link },
-          ],
+        : audit
+          ? [
+              { label: "追认", callbackData: `apr:${item.id}:approve` },
+              { label: "存疑", callbackData: `apr:${item.id}:deny` },
+              { label: "查看详情", url: link },
+            ]
+          : [
+              { label: "批准一次", callbackData: `apr:${item.id}:approve` },
+              { label: "拒绝", callbackData: `apr:${item.id}:deny` },
+              { label: "查看详情", url: link },
+            ],
     };
   }
 
@@ -433,9 +430,8 @@ export function createApprovalService(options: ApprovalServiceOptions): Approval
           deduped: true,
         },
       });
-      // 全部允许模式：重试命中的既有单同样要放行——这条路径不会新开单，
-      // 不放行就会让它一直卡在 pending，形成「没人问也过不去」的死单。
-      if (currentMode === "allow-all") return autoApprove(item);
+      // 全部允许模式的自动放行已下线（客户要求删除该开关）：重试命中的既有单
+      // 一律保持 pending 等应答，升级卡照常补发。
       if (escalateRequired && !openByFingerprint.escalateRequired && options.poster !== undefined) {
         // 跨阈值那一次才补发升级卡（撤掉内联按钮，仅留面板入口）。
         void options.poster.post(buildCard(item));
@@ -471,46 +467,26 @@ export function createApprovalService(options: ApprovalServiceOptions): Approval
       target: item.id,
       detail: { actionId: item.actionId, kind: item.kind, attempts: item.attempts, sequence, escalateRequired },
     });
-    // 逐条确认模式才需要「等你确认」这条事件。全部允许模式下紧接着就自动放行了，
-    // 再留一条「等待你确认」会与终态自相矛盾；放行那条由 autoApprove 写入。
-    if (currentMode !== "allow-all") {
-      options.trustEvents.record({
-        kind: APPROVAL_EVENT_KIND,
-        severity: escalateRequired ? "warn" : "info",
-        title: escalateRequired
-          ? `高危动作需面板确认（今日第 ${sequence} 次）：${item.title}`
+    // 「等你确认」这条事件：每张新单都该在事件中心有一行入口，随后由 settle
+    // 的终态事件（同键不同 dedupe）补上结果，不存在与终态自相矛盾的情况。
+    // gate/audit 文案分流：audit 单是事后确认，不说「等待确认」也不提拦截。
+    const requestAudit = isAuditApproval(item);
+    options.trustEvents.record({
+      kind: APPROVAL_EVENT_KIND,
+      severity: escalateRequired ? "warn" : "info",
+      title: escalateRequired
+        ? requestAudit
+          ? `已执行的高危动作需面板确认（今日第 ${sequence} 次）：${item.title}`
+          : `高危动作需面板确认（今日第 ${sequence} 次）：${item.title}`
+        : requestAudit
+          ? `已执行的高危动作等你确认：${item.title}`
           : `等待你确认的高危动作：${item.title}`,
-        evidence: [{ approvalId: item.id, actionId: item.actionId, kind: item.kind, expiresAt: item.expiresAt }],
-        relatedIds: [item.id],
-        dedupeKey: `approval:${item.id}`,
-      });
-    }
-    // 全部允许模式：跳过推卡（不打扰），直接自动放行——留痕一条不少。
-    if (currentMode === "allow-all") return autoApprove(item);
+      evidence: [{ approvalId: item.id, actionId: item.actionId, kind: item.kind, expiresAt: item.expiresAt }],
+      relatedIds: [item.id],
+      dedupeKey: `approval:${item.id}`,
+    });
     if (options.poster !== undefined) void options.poster.post(buildCard(item));
     return item;
-  }
-
-  /**
-   * 全部允许模式下的自动放行。
-   *
-   * 关键取舍：allow-all **不是静默放行**——审批单照建、审计（settle 内的
-   * approval-approved）、事件中心照记，只是不推卡片、不打断人；执行侧拿到的
-   * 仍是正常的已批准审批单，可据其放行动作，事后也能在事件中心逐条回溯。
-   */
-  function autoApprove(item: ActionApprovalItem): ActionApprovalItem {
-    // 事件标题走 settle 的覆盖参数：事件中心同键合并时以最后写入为准
-    // （upsert 冲突会覆盖 title），若这里再单独 record 一次，既会被覆盖、
-    // 又会让同一件事的 count 虚增为 2。
-    const settled = settle(
-      item,
-      "approved",
-      "system:allow-all",
-      "policy",
-      "全部允许模式：自动放行",
-      `全部允许模式自动放行：${item.title}`,
-    );
-    return settled.item ?? item;
   }
 
   function extractTarget(input: ApprovalRequestInput): string {
@@ -528,8 +504,6 @@ export function createApprovalService(options: ApprovalServiceOptions): Approval
     actor: string,
     channel: string,
     reason: string,
-    /** 事件中心标题覆盖（全部允许模式用）；不传则用各状态的默认文案。 */
-    eventTitle?: string,
   ): ApprovalDecisionOutcome {
     const updated = store.decideActionApproval(item.id, {
       status,
@@ -556,16 +530,24 @@ export function createApprovalService(options: ApprovalServiceOptions): Approval
       target: settled.id,
       detail: { actionId: settled.actionId, channel, reason, actor },
     });
+    // 终态事件标题按 gate/audit 分流（kind 不动：approved 仍走 action-approval、
+    // denied/expired 仍走 action-blocked，周报统计口径不变，只改标题文字）。
+    const settledAudit = isAuditApproval(settled);
     options.trustEvents.record({
       kind: status === "approved" ? APPROVAL_EVENT_KIND : APPROVAL_BLOCKED_EVENT_KIND,
       severity: status === "approved" ? "info" : "warn",
       title:
-        eventTitle ??
-        (status === "approved"
-          ? `你已批准高危动作：${settled.title}`
+        status === "approved"
+          ? settledAudit
+            ? `你已追认已执行的高危动作：${settled.title}`
+            : `你已批准高危动作：${settled.title}`
           : status === "denied"
-            ? `已拒绝高危动作：${settled.title}`
-            : `超时未应答，已按默认拒绝拦截：${settled.title}`),
+            ? settledAudit
+              ? `你已将高危动作标记存疑：${settled.title}`
+              : `已拒绝高危动作：${settled.title}`
+            : settledAudit
+              ? `超时未处理，已自动关闭：${settled.title}`
+              : `超时未应答，已按默认拒绝拦截：${settled.title}`,
       evidence: [
         {
           approvalId: settled.id,
@@ -604,8 +586,16 @@ export function createApprovalService(options: ApprovalServiceOptions): Approval
       return { ok: false, reason: "requires-web-confirm", item };
     }
     if (Date.parse(row.expiresAt) <= now()) {
-      // 恰好踩在超时点：按默认拒绝结算，不给「迟到的批准」开口子。
-      const expired = settle(item, "expired", "system:timeout", input.channel ?? "panel", "超时未应答，按默认拒绝拦截");
+      // 恰好踩在超时点：gate 单按默认拒绝结算，不给「迟到的批准」开口子；
+      // audit 单（动作已执行，不存在「拦不拦」）按自动关闭结算。
+      const audit = isAuditApproval(item);
+      const expired = settle(
+        item,
+        "expired",
+        "system:timeout",
+        input.channel ?? "panel",
+        audit ? "超时未处理，自动关闭" : "超时未应答，按默认拒绝拦截",
+      );
       return { ok: false, reason: "expired", item: expired.item };
     }
     const status = input.decision === "approve" ? "approved" : "denied";
@@ -649,34 +639,26 @@ export function createApprovalService(options: ApprovalServiceOptions): Approval
     return { total: ids.length, succeeded, failed };
   }
 
-  /** 切换放行模式：落库 + 审计一条（from/to），返回生效后的模式。 */
-  function setMode(next: ApprovalMode): ApprovalMode {
-    const from = currentMode;
-    currentMode = next;
-    store.setRuntimeSetting(APPROVAL_MODE_SETTING_KEY, next, iso());
-    options.audit?.append({
-      actor: "action-approval",
-      action: APPROVAL_MODE_CHANGED_ACTION,
-      target: next,
-      detail: { from, to: next },
-    });
-    return next;
-  }
-
   function sweep(): number {
-    const expired = store.expireActionApprovals(iso());
+    // gate/audit 分流：audit 单的动作已执行，「超时」只是没确认，reason/事件
+    // 不再说「拦截」；reason 经回调在 store 层按行落库（终态留痕即正确文案）。
+    const expired = store.expireActionApprovals(iso(), (row) =>
+      isAuditApproval(toItem(row)) ? "超时未处理，自动关闭" : "超时未应答，按默认拒绝拦截",
+    );
     for (const row of expired) {
       const item = toItem(row);
+      const audit = isAuditApproval(item);
+      const timeoutReason = audit ? "超时未处理，自动关闭" : "超时未应答，按默认拒绝拦截";
       options.audit?.append({
         actor: "action-approval",
         action: APPROVAL_EXPIRED_ACTION,
         target: item.id,
-        detail: { actionId: item.actionId, reason: "超时未应答，按默认拒绝拦截", ttlMs },
+        detail: { actionId: item.actionId, reason: timeoutReason, ttlMs },
       });
       options.trustEvents.record({
         kind: APPROVAL_BLOCKED_EVENT_KIND,
         severity: "warn",
-        title: `超时未应答，已按默认拒绝拦截：${item.title}`,
+        title: `${timeoutReason.split("，")[0]}，${audit ? "已自动关闭" : "已按默认拒绝拦截"}：${item.title}`,
         evidence: [{ approvalId: item.id, actionId: item.actionId, expiresAt: item.expiresAt, channel: null }],
         relatedIds: [item.id],
         dedupeKey: `approval:${item.id}:expired`,
@@ -705,7 +687,9 @@ export function createApprovalService(options: ApprovalServiceOptions): Approval
         actionId: String(row.id),
         kind: row.kind,
         title: describeAction(row.kind, row.target),
-        detail: { target: row.target, detail: safeParse(row.detailJson) },
+        // origin=auto-detect 标记 audit（事后确认）路径：动作已由 Hermes 执行，
+        // 卡片/事件按「追认/存疑/自动关闭」语义分流（见 isAuditApproval）。
+        detail: { target: row.target, detail: safeParse(row.detailJson), origin: AUDIT_ORIGIN },
         ...(row.sessionId !== null ? { sessionId: row.sessionId } : {}),
         fingerprint,
       });
@@ -719,8 +703,6 @@ export function createApprovalService(options: ApprovalServiceOptions): Approval
     request,
     decide,
     bulkDecide,
-    mode: () => currentMode,
-    setMode,
     list(filter = {}) {
       const rows = store.listActionApprovals({
         ...(filter.status !== undefined ? { status: filter.status } : {}),
@@ -746,7 +728,6 @@ export function createApprovalService(options: ApprovalServiceOptions): Approval
         ttlMs,
         escalationThreshold,
         retentionDays,
-        mode: currentMode,
       };
     },
     prune() {

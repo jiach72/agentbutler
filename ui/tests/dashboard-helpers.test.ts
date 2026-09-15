@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  checkBadge,
   fingerprintBadge,
   formatUptime,
   instanceShortName,
@@ -106,5 +107,18 @@ describe("fingerprintBadge 徽标语义", () => {
 
   it("未知状态回退 unknown", () => {
     expect(fingerprintBadge("whatever")).toEqual({ tone: "unknown", label: "whatever" });
+  });
+});
+
+describe("checkBadge 徽标语义", () => {
+  // skipped ≠ 故障：多为部署形态使然（容器内看不到宿主进程等），明确表达「不适用」。
+  it("skipped 显示为「不适用」（unknown），不再误读为「已跳过没执行」", () => {
+    expect(checkBadge("skipped")).toEqual({ tone: "unknown", label: "不适用" });
+  });
+
+  it("pass/warn/fail 维持原有语义", () => {
+    expect(checkBadge("pass")).toEqual({ tone: "ok", label: "正常" });
+    expect(checkBadge("warn")).toEqual({ tone: "warn", label: "需要留意" });
+    expect(checkBadge("fail")).toEqual({ tone: "error", label: "异常" });
   });
 });

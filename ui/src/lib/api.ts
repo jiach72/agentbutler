@@ -116,29 +116,6 @@ export async function fetchBlob(
   }
 }
 
-/** PUT（幂等写入，如放行模式）；与 postJson 一样区分状态码、不吞错误。 */
-export async function putJson(url: string, body?: unknown, timeoutMs = 5000): Promise<PostResult> {
-  try {
-    const res = await fetch(url, {
-      method: "PUT",
-      cache: "no-store",
-      headers: { "content-type": "application/json", ...authHeaders() },
-      body: JSON.stringify(body ?? {}),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    handleUnauthorized(res);
-    let data: unknown = null;
-    try {
-      data = await res.json();
-    } catch {
-      // 空 body / 非 JSON 响应忽略
-    }
-    return { ok: res.ok, status: res.status, data };
-  } catch {
-    return { ok: false, status: 0, data: null };
-  }
-}
-
 /** DELETE 等其他方法；与 postJson 一样区分状态码。 */
 export async function deleteJson(url: string, timeoutMs = 5000): Promise<PostResult> {
   try {

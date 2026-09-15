@@ -100,8 +100,11 @@ export function InstanceHealthCard({ instances, inspections }: InstanceHealthCar
                   <ul className="check-list">
                     {inspection.checks.map((check) => {
                       const badge = checkBadge(check.status);
+                      // skipped 是「该项与当前部署形态不适用」（如容器内看不到宿主进程），
+                      // 不是故障：允许原因文案两行换行展示，并整体降噪（弱化标签色）。
+                      const skipped = check.status === "skipped";
                       return (
-                        <li className="check-row" key={check.id}>
+                        <li className={`check-row${skipped ? " is-skipped" : ""}`} key={check.id}>
                           <Text className="check-row-label" title={check.id}>
                             {CHECK_LABELS[check.id] ?? "其他检查"}
                           </Text>

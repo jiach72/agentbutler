@@ -2955,8 +2955,17 @@ export class SqliteStore {
     return this.getActionApproval(id);
   }
 
-  /** 超时批量置为 expired（默认拒绝）。返回受影响的行，供调用方补事件与审计。 */
-  expireActionApprovals(now: string): ActionApprovalRow[] {
+  /**
+   * 超时批量置为 expired（默认拒绝）。返回受影响的行，供调用方补事件与审计。
+   *
+   * reasonOf 允许调用方按行分流 reason 文案（gate 事前放行=「超时未应答，按默认拒绝拦截」；
+   * audit 事后确认=「超时未处理，自动关闭」）：审批服务在补事件时才知道每行的来源，
+   * 因此以回调形式传入，缺省保持原文案（向后兼容）。
+   */
+  expireActionApprovals(
+    now: string,
+    reasonOf?: (row: ActionApprovalRow) => string,
+  ): ActionApprovalRow[] {
     const due = this.prepare(
       "SELECT * FROM action_approvals WHERE status = 'pending' AND expires_at <= ? ORDER BY expires_at ASC",
     ).all(now) as Record<string, unknown>[];
@@ -2966,7 +2975,7 @@ export class SqliteStore {
       const updated = this.decideActionApproval(row.id, {
         status: "expired",
         actor: "system:timeout",
-        reason: "超时未应答，按默认拒绝拦截",
+        reason: reasonOf === undefined ? "超时未应答，按默认拒绝拦截" : reasonOf(row),
         at: now,
       });
       if (updated !== undefined) expired.push(updated);

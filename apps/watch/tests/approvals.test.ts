@@ -16,6 +16,7 @@ import {
   actionFingerprint,
   createApprovalService,
   describeAction,
+  isAuditApproval,
   APPROVAL_APPROVED_ACTION,
   APPROVAL_BLOCKED_EVENT_KIND,
   APPROVAL_DENIED_ACTION,
@@ -423,48 +424,123 @@ describe("审批服务：24h 内第 3 次升级", () => {
   });
 });
 
-describe("审批服务：全部允许模式与批量批准", () => {
-  it("全部允许模式：开单即自动批准、不推卡片，但审计与事件一条不少", () => {
-    const { service, posts, audit, trustEvents } = makeService();
-    expect(service.mode()).toBe("ask");
-    expect(service.setMode("allow-all")).toBe("allow-all");
+describe("审批服务：来源分流文案（gate 事前放行 / audit 事后确认）", () => {
+  const AUDIT_INPUT = {
+    ...DELETE_INPUT,
+    detail: { target: DELETE_INPUT.detail["target"], origin: "auto-detect" },
+  };
 
-    const item = service.request(DELETE_INPUT);
-    expect(item.status).toBe("approved");
-    expect(item.actor).toBe("system:allow-all");
-    expect(item.channel).toBe("policy");
-    // 不打扰：一张卡片都不推。
-    expect(posts.length).toBe(0);
-    // 留痕不省：请求与批准两条审计都在，事件中心有自动放行记录。
-    expect(audit.list({ action: APPROVAL_REQUESTED_ACTION }).length).toBe(1);
-    expect(audit.list({ action: APPROVAL_APPROVED_ACTION }).length).toBe(1);
+  it("isAuditApproval：仅 detail.origin=auto-detect 判真；detail 非对象判假", () => {
+    expect(isAuditApproval({ detail: { origin: "auto-detect" } })).toBe(true);
+    expect(isAuditApproval({ detail: { origin: "explicit" } })).toBe(false);
+    expect(isAuditApproval({ detail: { target: "/a" } })).toBe(false);
+    expect(isAuditApproval({ detail: "raw-string" })).toBe(false);
+    expect(isAuditApproval({ detail: null })).toBe(false);
+    expect(isAuditApproval({ detail: undefined })).toBe(false);
+  });
+
+  it("audit 单：卡片是事后确认语义（已执行/事后确认/追认/存疑），不是 gate 语义", () => {
+    const { service, posts, trustEvents } = makeService({});
+    const item = service.request(AUDIT_INPUT);
+
+    expect(isAuditApproval(item)).toBe(true);
+    expect(posts.length).toBe(1);
+    const card = posts[0]!;
+    // 正文：已执行 + 事后确认 + 自动关闭，绝不说「批准后才会执行」。
+    expect(card.body).toContain("已由 Hermes 执行完毕");
+    expect(card.body).toContain("事后确认");
+    expect(card.body).toContain("自动关闭");
+    expect(card.body).not.toContain("批准后该动作才会执行");
+    // 按钮：追认/存疑（callbackData 仍是 approve/deny，通道协议不变）。
+    expect(card.actions?.map((action) => action.label)).toEqual(["追认", "存疑", "查看详情"]);
+    expect(card.actions?.[0]?.callbackData).toBe(`apr:${item.id}:approve`);
+    expect(card.actions?.[1]?.callbackData).toBe(`apr:${item.id}:deny`);
+
+    // 请求事件标题：audit 语义（「已执行…等你确认」，不是「等待你确认」）。
+    const requested = trustEvents.list({ kind: "action-approval" }).map((event) => event.title);
+    expect(requested.join("\n")).toContain("已执行的高危动作等你确认");
+    expect(requested.join("\n")).not.toContain("等待你确认的高危动作");
+  });
+
+  it("audit 单 deny → 事件标题是「标记存疑」，不是「已拒绝」", () => {
+    const { service, trustEvents } = makeService({});
+    const item = service.request(AUDIT_INPUT);
+    const outcome = service.decide(item.id, { decision: "deny", actor: "u1", channel: "panel" });
+    expect(outcome.ok).toBe(true);
+
+    const titles = trustEvents.list({ severity: "warn" }).map((event) => event.title);
+    expect(titles.join("\n")).toContain("你已将高危动作标记存疑");
+    expect(titles.join("\n")).not.toContain("已拒绝高危动作");
+  });
+
+  it("audit 单 approve → 事件标题是「追认」，不是「批准」", () => {
+    const { service, trustEvents } = makeService({});
+    const item = service.request(AUDIT_INPUT);
+    expect(service.decide(item.id, { decision: "approve", actor: "u1", channel: "panel" }).ok).toBe(true);
+
     const titles = trustEvents.list({}).map((event) => event.title);
-    expect(titles.some((title) => title.includes("全部允许模式自动放行"))).toBe(true);
-    // 自动放行的单不该再留「等待你确认」这种与终态矛盾的事件。
-    expect(titles.some((title) => title.includes("等待你确认"))).toBe(false);
-
-    // 切回逐条确认后恢复等待应答（模式是可逆的）。
-    expect(service.setMode("ask")).toBe("ask");
-    const pending = service.request({ ...DELETE_INPUT, actionId: "evt-ask-again" });
-    expect(pending.status).toBe("pending");
-    expect(posts.length).toBe(1);
+    expect(titles.join("\n")).toContain("你已追认已执行的高危动作");
+    expect(titles.join("\n")).not.toContain("你已批准高危动作");
   });
 
-  it("全部允许模式：重试命中既有未决单也会被放行（不会卡成死单）", () => {
-    const { service, posts } = makeService();
-    // 先在逐条确认模式下留一张 pending 单，构成「重试命中」的前提。
-    const first = service.request({ ...DELETE_INPUT, actionId: "evt-1" });
-    expect(first.status).toBe("pending");
-    expect(posts.length).toBe(1);
+  it("audit 单超时 sweep → 事件标题「自动关闭」，绝无「拦截」字样", () => {
+    const { service, trustEvents, clock } = makeService({ ttlMs: 60_000 });
+    const item = service.request(AUDIT_INPUT);
+    clock.advance(60_001);
+    expect(service.sweep()).toBe(1);
 
-    service.setMode("allow-all");
-    const retry = service.request({ ...DELETE_INPUT, actionId: "evt-2" });
-    expect(retry.id).toBe(first.id); // 复用同一张单
-    expect(retry.status).toBe("approved");
-    expect(service.get(first.id)?.status).toBe("approved");
-    expect(posts.length).toBe(1); // 放行路径不补发升级卡
+    const titles = trustEvents.list({ severity: "warn" }).map((event) => event.title);
+    expect(titles.join("\n")).toContain("超时未处理，已自动关闭");
+    expect(titles.join("\n")).not.toContain("拦截");
+    // 终态 reason 也按 audit 语义落库。
+    expect(service.get(item.id)?.reason).toBe("超时未处理，自动关闭");
   });
 
+  it("audit 单踩线 decide → 同样按「自动关闭」结算", () => {
+    const { service, trustEvents, clock } = makeService({ ttlMs: 60_000 });
+    const item = service.request(AUDIT_INPUT);
+    clock.advance(60_000);
+    const outcome = service.decide(item.id, { decision: "approve" });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.reason).toBe("expired");
+
+    const titles = trustEvents.list({ severity: "warn" }).map((event) => event.title);
+    expect(titles.join("\n")).toContain("超时未处理，已自动关闭");
+    expect(outcome.item?.reason).toBe("超时未处理，自动关闭");
+  });
+
+  it("回归：gate 单（不带 origin）文案与现状逐字一致", () => {
+    const { service, posts, trustEvents, clock } = makeService({ ttlMs: 60_000 });
+    const item = service.request(DELETE_INPUT);
+
+    expect(isAuditApproval(item)).toBe(false);
+    // 卡片：gate 三按钮 + 「批准后才会执行」正文（分钟数随 TTL=60s 为「1 分钟」）。
+    const card = posts[0]!;
+    expect(card.actions?.map((action) => action.label)).toEqual(["批准一次", "拒绝", "查看详情"]);
+    expect(card.body).toContain("批准后该动作才会执行；1 分钟内未应答将按「拒绝」拦截。");
+    // 请求事件：gate 标题原样。
+    const requested = trustEvents.list({ kind: "action-approval" }).map((event) => event.title);
+    expect(requested.join("\n")).toContain("等待你确认的高危动作");
+
+    // 拒绝 → 「已拒绝高危动作」原样；audit 词汇零出现。
+    expect(service.decide(item.id, { decision: "deny", actor: "u1", channel: "panel" }).ok).toBe(true);
+    const titles = trustEvents.list({}).map((event) => event.title);
+    expect(titles.join("\n")).toContain("已拒绝高危动作");
+    expect(titles.join("\n")).not.toContain("追认");
+    expect(titles.join("\n")).not.toContain("存疑");
+
+    // 超时 sweep → gate 标题「超时未应答，已按默认拒绝拦截」+ reason 原样。
+    const second = service.request({ ...DELETE_INPUT, actionId: "evt-100-b" });
+    clock.advance(120_000);
+    expect(service.sweep()).toBe(1);
+    const timeoutTitles = trustEvents.list({ severity: "warn" }).map((event) => event.title);
+    expect(timeoutTitles.join("\n")).toContain("超时未应答，已按默认拒绝拦截");
+    expect(service.get(second.id)?.reason).toBe("超时未应答，按默认拒绝拦截");
+  });
+
+});
+
+describe("审批服务：批量批准", () => {
   it("批量批准：成功的批准、已结算与不存在的单计入 failed 且不抛异常", () => {
     const { service } = makeService();
     const a = service.request({ ...DELETE_INPUT, actionId: "evt-a" });
@@ -767,29 +843,6 @@ describe("审批 HTTP 端点", () => {
       body: JSON.stringify({ decision: "approve" }),
     });
     expect(decide.status).toBe(503);
-  });
-
-  it("PUT /api/approvals/mode → 200；非法值 → 400；列表接口同时回传 mode", async () => {
-    await boot();
-    const bad = await fetch(`${base}/api/approvals/mode`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ mode: "yolo" }),
-    });
-    expect(bad.status).toBe(400);
-    expect(((await bad.json()) as { error: string }).error).toBe("invalid-approval-mode");
-
-    const ok = await fetch(`${base}/api/approvals/mode`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ mode: "allow-all" }),
-    });
-    expect(ok.status).toBe(200);
-    expect(((await ok.json()) as { mode: string }).mode).toBe("allow-all");
-
-    // 面板一次请求即可同时拿到列表与模式。
-    const listed = await fetch(`${base}/api/approvals?status=pending&limit=1`);
-    expect(((await listed.json()) as { mode: string }).mode).toBe("allow-all");
   });
 
   it("POST /api/approvals/bulk-decide → 200；非法 decision → 400", async () => {

@@ -207,6 +207,20 @@ html body .dense-descriptions .ant-descriptions-item-content {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* skipped = 「不适用」行：原因文案允许两行换行（完整读得到），整体降噪。
+   ellipsis 的行高补偿：两行时高度仍是行框撑开，不破坏对齐。 */
+.check-row.is-skipped .check-row-detail {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  text-overflow: clip;
+  overflow: hidden;
+  opacity: 0.85;
+}
+.check-row.is-skipped .check-row-label {
+  opacity: 0.85;
+}
 .check-row-duration {
   flex: 0 0 auto;
   min-width: 3.5em;

@@ -8,8 +8,8 @@
  *     底部的「设置」与侧栏状态块在短屏上默认掉出视野（评审 P0-1）。
  *   · 设置：底部钉住，不随导航滚动。
  *
- * 【状态只在一处说】侧栏底部现在是「高危动作放行模式」开关（逐条确认 / 全部
- * 允许）；访问安全态不再在侧栏重复展示，顶栏只在「不是仅本机访问」时补一句
+ * 【状态只在一处说】侧栏底部现在是「待处理审批」卡片（N 条待处理 + 全部批准）；
+ * 访问安全态不再在侧栏重复展示，顶栏只在「不是仅本机访问」时补一句
  * 警示，避免同一事实在一屏出现两次（评审 P0-3）。
  */
 import {
@@ -24,7 +24,7 @@ import { Button, Drawer, Dropdown, Layout as AntLayout, Menu } from "antd";
 import type { MenuProps } from "antd";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { ApprovalModeSwitch } from "./ApprovalModeSwitch.js";
+import { PendingApprovalsCard } from "./PendingApprovalsCard.js";
 import { KillSwitchButton } from "./KillSwitchButton.js";
 import { MobileTabBar } from "./MobileTabBar.js";
 import { NotificationCenter } from "./NotificationCenter.js";
@@ -75,7 +75,7 @@ function toNavItem(route: RouteMeta): NavItem {
 }
 
 /**
- * 访问安全态的口径：现在只用于顶栏的「非仅本机访问」警示（侧栏底部已换成放行模式开关）。
+ * 访问安全态的口径：现在只用于顶栏的「非仅本机访问」警示（侧栏底部已是待处理审批卡片）。
  * 读不到数据时按 warn 处理而不是默认宣称安全 —— 不确定的时候不能装作确定。
  */
 function baselineTone(baseline: SecurityBaselinePayload | null): "ok" | "warn" | "error" {
@@ -196,9 +196,9 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             <small>{PINNED_ROUTE.note}</small>
           </span>
         </Link>
-        {/* 侧栏底部改放放行模式开关（客户：同样的操作不想一条条处理）。
+        {/* 侧栏底部放待处理审批卡片（有积压时显示条数 + 全部批准）。
             访问安全态不再在这里重复展示，顶栏在非仅本机访问时仍会警示。 */}
-        <ApprovalModeSwitch />
+        <PendingApprovalsCard />
       </div>
     </>
   );
@@ -222,7 +222,7 @@ export function Layout() {
   }, []);
   const currentPage = routeMetaFor(location.pathname);
   const themeLabel = mode === "dark" ? "切换到亮色主题" : "切换到暗色主题";
-  // 侧栏底部已换成放行模式开关，访问安全态只在这里（顶栏）说一次：
+  // 侧栏底部已是待处理审批卡片，访问安全态只在这里（顶栏）说一次：
   // 仅「不是仅本机访问」时才出现，避免同一事实一屏两次（评审 P0-3）。
   const topbarWarn = baselineTone(baseline) !== "ok";
 

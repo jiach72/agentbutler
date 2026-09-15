@@ -1,9 +1,13 @@
 /**
  * 操作审批列表（Trust Layer M3.1）：
- * - 结论条：一句话说清「有多少待你处理、多少已超时拦截」这两个最关键信号；
- * - 概览：待处理 / 需面板确认 / 已批准 / 已拒绝 / 超时拦截（StatStrip，色走品牌语义）；
+ * - 结论条：一句话说清「有多少待你处理、多少已超时未处理」这两个最关键信号；
+ * - 概览：待处理 / 需面板确认 / 已批准（追认）/ 已拒绝（存疑）/ 超时未处理（StatStrip，色走品牌语义）；
  * - 过滤：全部 / 仅待处理 / 仅已升级；
  * - 表格：动作类型 + 目标 + 剩余时限倒计时 + 状态，点击进入 /approvals/:id 确认页。
+ *
+ * 高危动作两类确认（文案按来源分流，见 ./helpers.ts）：
+ * gate（事前放行）阻塞执行、超时按拒绝拦截；audit（事后确认，detail.origin=auto-detect）
+ * 不阻塞已执行的动作，按钮是追认/存疑表态、超时自动关闭。
  *
  * 数据真相原则：卡片里绝不出现对话正文——审批只针对「动作」，不看 agent 说了什么。
  */
@@ -28,7 +32,7 @@ import { PageHeader } from "../../components/PageHeader.js";
 import { StatStrip } from "../../components/StatStrip.js";
 import type { StatStripItem } from "../../components/StatStrip.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
-import type { SemanticTone } from "../../components/StatusBadge.js";
+import { approvalStatusLabel, approvalStatusTone, isAuditApproval } from "./helpers.js";
 import { loadJson, postJson } from "../../lib/api.js";
 import { usePolling } from "../../hooks/usePolling.js";
 import { useUrlState } from "../../hooks/useUrlState.js";
@@ -81,21 +85,6 @@ interface ApprovalsPayload {
     retentionDays: number;
   };
 }
-
-/** 状态 → 品牌语义 tone（antd 预设色名 processing/green/red/default 与品牌信号色不是同一值，统一走 StatusBadge）。 */
-const STATUS_TONE: Record<string, SemanticTone> = {
-  pending: "warn",
-  approved: "ok",
-  denied: "error",
-  expired: "error",
-};
-
-const STATUS_LABEL: Record<string, string> = {
-  pending: "待处理",
-  approved: "已批准",
-  denied: "已拒绝",
-  expired: "超时拦截",
-};
 
 const KIND_LABEL: Record<string, string> = {
   "file-delete": "删除文件",
@@ -209,13 +198,13 @@ export function ApprovalsPage() {
       key: "status",
       width: 190,
       render: (status: string, row) => {
-        const tone = STATUS_TONE[status] ?? "unknown";
-        const label = STATUS_LABEL[status] ?? status;
+        const tone = approvalStatusTone(status);
+        const label = approvalStatusLabel(status, isAuditApproval(row));
         return (
           <Flex gap={4} wrap="wrap">
             <StatusBadge tone={tone} label={label} />
             {row.escalateRequired && row.status === "pending" && (
-              <Tooltip title={`同一动作今日已被请求 ${row.windowCount} 次，需在面板确认后才可放行`}>
+              <Tooltip title={`同一动作今日已被请求 ${row.windowCount} 次，需在面板确认后才可处理`}>
                 <span>
                   <StatusBadge tone="warn" label="需面板确认" />
                 </span>
@@ -265,8 +254,33 @@ export function ApprovalsPage() {
             </Link>
           );
         }
-        // 升级单要求逐条核对目标，不给一键放行（服务端也会拒绝通道侧放行）。
-        const buttons = (
+        // 升级单要求逐条核对目标，不给一键处理（服务端也会拒绝通道侧放行）。
+        // gate 单=批准/拒绝（阻塞执行）；audit 单=追认/存疑（对已执行动作表态）。
+        const buttons = isAuditApproval(row) ? (
+          <Space size={6}>
+            <Button
+              size="small"
+              type="primary"
+              icon={<CheckOutlined />}
+              loading={busyId === row.id}
+              onClick={() => void decide(row, "approve")}
+            >
+              追认
+            </Button>
+            <Popconfirm
+              title="将这条动作标记存疑？"
+              description="动作已执行，存疑只是标记待核查，并计入审计流。"
+              okText="存疑"
+              cancelText="取消"
+              okButtonProps={{ danger: true }}
+              onConfirm={() => void decide(row, "deny")}
+            >
+              <Button size="small" danger icon={<CloseOutlined />} disabled={busyId === row.id}>
+                存疑
+              </Button>
+            </Popconfirm>
+          </Space>
+        ) : (
           <Space size={6}>
             <Button
               size="small"
@@ -313,8 +327,8 @@ export function ApprovalsPage() {
 
   /**
    * 页面结论条（规范 03 §2.3 ②「必须有」）。
-   * 审批页最关键两个信号：待审批数量、超时（超时默认拒绝）。pending > 0 走 warn，
-   * 并一并点出需面板确认与已超时拦截的条数；无待处理时再陈述已处理分布。
+   * 审批页最关键两个信号：待审批数量、超时未处理。pending > 0 走 warn，
+   * 并一并点出需面板确认与已超时未处理的条数；无待处理时再陈述已处理分布。
    */
   const conclusion: PageConclusionView =
     error !== null
@@ -332,15 +346,15 @@ export function ApprovalsPage() {
               title: `有 ${summary.pending} 条待你处理${
                 summary.escalated > 0 ? `，其中 ${summary.escalated} 条需面板确认` : ""
               }`,
-              copy: `15 分钟内不处理会按拒绝拦住${
-                summary.expired > 0 ? `；另有 ${summary.expired} 条已超时拦截` : ""
-              }。点开逐条决定放行还是拦下。`,
+              copy: `15 分钟内不处理会自动关闭（事后确认类不影响已执行的动作）${
+                summary.expired > 0 ? `；另有 ${summary.expired} 条超时未处理` : ""
+              }。点开逐条处理。`,
             }
           : summary !== undefined && summary.expired > 0
             ? {
                 tone: "warn",
-                title: `近窗口有 ${summary.expired} 条超时拦截`,
-                copy: "这些动作因你（或系统）超时未应答，已被默认拒绝；可在审计流查看明细。",
+                title: `近窗口有 ${summary.expired} 条超时未处理`,
+                copy: "这些条目因超时未应答已自动关闭；自动发现的动作本身已执行，可在审计流查看明细。",
               }
             : {
                 tone: "ok",
@@ -382,17 +396,17 @@ export function ApprovalsPage() {
           {
             key: "denied",
             icon: CloseCircleOutlined,
-            label: "已拒绝",
+            label: "已拒绝/存疑",
             value: summary.denied,
-            sub: "动作被拦下",
+            sub: "人已表态",
           },
           {
             key: "expired",
             icon: StopOutlined,
-            label: "超时拦截",
+            label: "超时未处理",
             value: summary.expired,
             tone: summary.expired > 0 ? "warn" : undefined,
-            sub: "默认按拒绝处理",
+            sub: "自动关闭，不再等应答",
           },
         ];
 
@@ -401,7 +415,7 @@ export function ApprovalsPage() {
       <Flex vertical gap={16}>
         <PageHeader
           title="操作审批"
-          description="agent 要删文件、跑命令或对外发消息时，先在这里确认。15 分钟不处理会按拒绝拦截。"
+          description="高危动作两类确认：执行器落地前请求放行的会阻塞执行；从 Hermes 日志自动发现的是事后确认，不阻塞执行。15 分钟未处理自动关闭。"
           extra={
             <Button icon={<ReloadOutlined />} onClick={refresh}>
               刷新
@@ -419,7 +433,7 @@ export function ApprovalsPage() {
             type="info"
             showIcon
             icon={<SafetyCertificateOutlined />}
-            message={`保护已就绪：超时 ${Math.round(scan.ttlMs / 60_000)} 分钟默认拒绝，同一动作第 ${scan.escalationThreshold} 次自动升级为面板确认`}
+            message={`保护已就绪：15 分钟未处理自动关闭，同一动作第 ${scan.escalationThreshold} 次自动升级为面板确认`}
             description={
               <Flex vertical gap={4}>
                 <span>
@@ -444,7 +458,7 @@ export function ApprovalsPage() {
                 { label: "全部", value: "all" },
               ]}
               value={filter}
-              onChange={(value) => setFilter(value as string)}
+              onChange={(value: unknown) => setFilter(String(value))}
             />
           }
         >

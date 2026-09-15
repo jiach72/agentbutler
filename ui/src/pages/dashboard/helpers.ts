@@ -102,7 +102,7 @@ export function overallBadge(overall: string | null): ToneBadge {
   }
 }
 
-/** 检查项状态徽标：通过绿 / 提醒黄 / 异常红 / 跳过灰。 */
+/** 检查项状态徽标：通过绿 / 提醒黄 / 异常红 / 不适用灰（skipped ≠ 故障，多为部署形态使然）。 */
 export function checkBadge(status: string): ToneBadge {
   switch (status) {
     case "pass":
@@ -112,7 +112,7 @@ export function checkBadge(status: string): ToneBadge {
     case "fail":
       return { tone: "error", label: "异常" };
     case "skipped":
-      return { tone: "unknown", label: "已跳过" };
+      return { tone: "unknown", label: "不适用" };
     default:
       return { tone: "unknown", label: status };
   }
