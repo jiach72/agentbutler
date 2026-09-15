@@ -1,4 +1,5 @@
-import { Flex } from "antd";
+import { Button, Flex } from "antd";
+import { AdvancedEvidence } from "../components/AdvancedEvidence.js";
 import { PageHeader } from "../components/PageHeader.js";
 import { ConclusionBar } from "../components/ConclusionBar.js";
 import { LogPanel } from "./dashboard/LogPanel.js";
@@ -13,10 +14,11 @@ export function LogsPage() {
         />
         <ConclusionBar
           tone="info"
-          title="日志实时滚动，分析结论看下方「智能分析」面板"
-          copy="分析结论由模型归纳，修复操作都会先确认再执行。"
+          title="日志记录不等于当前故障"
+          copy="先检查当前影响与修复建议；历史日志只用于核实原因。"
+          action={<Button href="/troubleshoot">排查当前问题</Button>}
         />
-        <LogPanel embedded />
+        <AdvancedEvidence title="原始日志与分析记录"><LogPanel embedded /></AdvancedEvidence>
       </Flex>
     </section>
   );

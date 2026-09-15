@@ -1,15 +1,11 @@
-/**
- * 大屏（/wall）数据获取：全部走既有 /api 端点，分层轮询（15s 快照 /
- * 30s 状态 / 60s 聚合），复用 lib/api 的 fetchJson（失败吞并为 null，
- * 页面按「无数据」降级，绝不伪造数值）。
- *
- * Token 用量三件套（K7/堆叠面积/环形占比）依赖 Watch llm-probe 的
- * model/prompt_tokens/completion_tokens 采集，尚未落地：接口层预留
- * fetchLlmUsage，404/不可达时页面渲染「待接入」灰态。
- */
-import { useCallback, useEffect, useRef, useState } from "react";
+/** Wall health shares the homepage snapshot; only host and message trends are extra reads. */
+import { useCallback, useEffect, useState } from "react";
 import { fetchJson } from "../../lib/api.js";
 import { usePolling } from "../../hooks/usePolling.js";
+import { isActionableAlert } from "@butler/contract";
+import { useUserHealthData } from "../dashboard/useUserHealthData.js";
+import { deriveHealthView, type HealthSources } from "../dashboard/userHealth.js";
+import type { DashboardPayload } from "../dashboard/types.js";
 
 /* ────────────────────────────── 类型（字段对齐服务端） ───────────────────────────── */
 
@@ -70,6 +66,8 @@ export interface WallMessageStatus {
 export interface WallDashboard {
   instances?: Array<WallInstance>;
   fingerprints?: Array<Record<string, unknown>>;
+  latestInspections?: DashboardPayload["latestInspections"];
+  inspectStatus?: DashboardPayload["inspectStatus"];
 }
 
 export interface WallAlerts {
@@ -197,6 +195,8 @@ export interface WallData {
   versions: WallVersions | null;
   backups: WallBackups | null;
   lastRefreshAt: Date | null;
+  approvals?: HealthSources["approvals"];
+  userHealth?: ReturnType<typeof deriveHealthView>;
 }
 
 function sameJson(a: unknown, b: unknown): boolean {
@@ -206,97 +206,38 @@ function sameJson(a: unknown, b: unknown): boolean {
 function usePolledState<T>(): [T | null, (next: T | null) => void] {
   const [value, setValue] = useState<T | null>(null);
   const update = useCallback((next: T | null) => {
-    if (next === null) return;
     setValue((current) => (sameJson(current, next) ? current : next));
   }, []);
   return [value, update];
 }
 
-export function useWallData(): WallData & { refreshAll: () => void } {
-  const [dashboard, setDashboard] = usePolledState<WallDashboard>();
-  const [messageStatus, setMessageStatus] = usePolledState<WallMessageStatus>();
-  const [alerts, setAlerts] = usePolledState<WallAlerts>();
+export function useWallData() {
+  const shared = useUserHealthData();
   const [hostMetrics, setHostMetrics] = usePolledState<WallHostMetrics>();
-  const [connections, setConnections] = usePolledState<Array<WallConnection>>();
-  const [health, setHealth] = usePolledState<WallHealth>();
   const [metrics, setMetrics] = usePolledState<WallMessageMetrics>();
-  const [skillUsage, setSkillUsage] = usePolledState<WallSkillUsage>();
-  const [proposals, setProposals] = usePolledState<WallProposals>();
-  const [costSummary, setCostSummary] = usePolledState<WallCostSummary>();
-  const [budget, setBudget] = usePolledState<WallBudget>();
-  const [versions, setVersions] = usePolledState<WallVersions>();
-  const [backups, setBackups] = usePolledState<WallBackups>();
-  const [llmUsage, setLlmUsage] = useState<WallLlmUsage | null | "unavailable">(null);
-  const [lastRefreshAt, setLastRefreshAt] = useState<Date | null>(null);
-  const llmUnavailableRef = useRef(false);
-
-  const refreshFast = useCallback(() => {
-    void Promise.all([
-      fetchJson<WallDashboard>("/api/dashboard", 8_000).then(setDashboard),
-      fetchJson<WallMessageStatus>("/api/messages/status", 8_000).then(setMessageStatus),
-      fetchJson<WallAlerts>("/api/alerts", 8_000).then(setAlerts),
-      fetchJson<WallHostMetrics>("/api/host/metrics", 8_000).then(setHostMetrics),
-    ]).then(() => setLastRefreshAt(new Date()));
-  }, [setAlerts, setDashboard, setHostMetrics, setMessageStatus]);
-
-  const refreshMedium = useCallback(() => {
-    void Promise.all([
-      fetchJson<{ reachable: boolean; connections?: Array<WallConnection> }>("/api/connections", 12_000)
-        .then((payload) => setConnections(payload?.connections ?? null)),
-      fetchJson<WallHealth>("/api/health", 8_000).then(setHealth),
-    ]);
-  }, [setConnections, setHealth]);
-
-  const refreshSlow = useCallback(() => {
+  const refreshMetrics = useCallback(() => {
     void Promise.all([
       fetchJson<WallMessageMetrics>("/api/messages/metrics?days=7", 12_000).then(setMetrics),
-      fetchJson<WallSkillUsage>("/api/skills/usage?range=30&granularity=day", 12_000).then(setSkillUsage),
-      fetchJson<WallProposals>("/api/evolution/proposals", 12_000).then(setProposals),
-      fetchJson<WallCostSummary>("/api/llm/cost/summary?days=30", 12_000).then(setCostSummary),
-      fetchJson<WallBudget>("/api/budget", 12_000).then(setBudget),
-      fetchJson<WallVersions>("/api/versions", 12_000).then(setVersions),
-      fetchJson<WallBackups>("/api/backups", 12_000).then(setBackups),
+      fetchJson<WallHostMetrics>("/api/host/metrics", 8_000).then(setHostMetrics),
     ]);
-    // Token 用量：llm-probe 未落地前端点不存在，确认 404 后不再反复请求。
-    if (!llmUnavailableRef.current) {
-      void fetchJson<WallLlmUsage>("/api/llm/usage?days=7", 8_000).then((result) => {
-        if (result === null) {
-          llmUnavailableRef.current = true;
-          setLlmUsage("unavailable");
-        } else {
-          setLlmUsage(result);
-        }
-      });
-    }
-  }, [setBackups, setBudget, setCostSummary, setMetrics, setProposals, setSkillUsage, setVersions]);
-
-  useEffect(() => {
-    refreshFast();
-    refreshMedium();
-    refreshSlow();
-  }, [refreshFast, refreshMedium, refreshSlow]);
-
-  usePolling(refreshFast, 15_000);
-  usePolling(refreshMedium, 30_000);
-  usePolling(refreshSlow, 60_000);
-
+  }, [setMetrics, setHostMetrics]);
+  useEffect(refreshMetrics, [refreshMetrics]);
+  usePolling(refreshMetrics, 30_000);
+  const data: WallData = {
+    dashboard: shared.sources.dashboard as WallDashboard | null,
+    connections: shared.sources.connections?.reachable
+      ? shared.sources.connections.connections as WallConnection[] ?? [] : null,
+    messageStatus: shared.sources.messageStatus,
+    alerts: shared.sources.alerts,
+    approvals: shared.sources.approvals,
+    hostMetrics, metrics, userHealth: shared,
+    lastRefreshAt: shared.sources.observedAt ? new Date(shared.sources.observedAt) : null,
+    health: null, skillUsage: null, proposals: null, llmUsage: null,
+    costSummary: null, budget: null, versions: null, backups: null,
+  };
   return {
-    dashboard,
-    connections,
-    metrics,
-    messageStatus,
-    alerts,
-    hostMetrics,
-    health,
-    skillUsage,
-    proposals,
-    llmUsage,
-    costSummary,
-    budget,
-    versions,
-    backups,
-    lastRefreshAt,
-    refreshAll: refreshFast,
+    ...data, shared,
+    refreshAll: () => { void shared.refresh(); refreshMetrics(); },
   };
 }
 
@@ -304,8 +245,13 @@ export function useWallData(): WallData & { refreshAll: () => void } {
 export function deriveWallView(data: WallData) {
   const { dashboard, metrics, messageStatus, alerts, hostMetrics, skillUsage } = data;
 
-  const instances = dashboard?.instances ?? [];
-  const onlineInstances = instances.filter((item) => item.state === "running" || item.state === "healthy").length;
+  const userHealth = data.userHealth ?? deriveHealthView({
+    dashboard: dashboard as DashboardPayload | null,
+    connections: data.connections === null ? null : { reachable: true, connections: data.connections },
+    messageStatus, alerts, approvals: data.approvals ?? null,
+    observedAt: data.lastRefreshAt?.toISOString() ?? "",
+  });
+  const onlineInstances = userHealth.onlineInstances;
 
   const channelAgg = (metrics?.channels ?? []).reduce(
     (acc, item) => {
@@ -338,7 +284,7 @@ export function deriveWallView(data: WallData) {
   );
 
   const alertItems = alerts?.items ?? [];
-  const openAlerts = alertItems.filter((item) => item.status !== "resolved").length;
+  const openAlerts = alertItems.filter(isActionableAlert).length;
 
   const machine = hostMetrics?.machine;
   const cpuPercent = machine?.cpuPercent ?? null;
@@ -411,8 +357,10 @@ export function deriveWallView(data: WallData) {
   const upgradeJob = data.versions?.upgradeJob ?? null;
 
   return {
+    healthSummary: userHealth.health,
+    healthInput: userHealth.input,
     onlineInstances,
-    totalInstances: instances.length,
+    totalInstances: userHealth.totalInstances,
     successRate,
     p95Ms: metrics?.latency.p95Ms ?? null,
     pendingMessages,
@@ -431,7 +379,7 @@ export function deriveWallView(data: WallData) {
     channels,
     fingerprints: dashboard?.fingerprints?.length ?? null,
     relayEnabled: messageStatus?.status?.relay?.enabled ?? null,
-    alertEvents: alertItems.slice(0, 5),
+    alertEvents: alertItems.filter(isActionableAlert).slice(0, 5),
     costAvailable,
     costTotalUsd,
     costDays,

@@ -711,13 +711,14 @@ export function historySummaryLine(content: string, max = 64): string {
 /* ---- 网关页三标签导航与深链兼容 ---- */
 
 /** 三个并列标签的合法取值。 */
-export type GatewayTab = "messages" | "channels" | "rules";
+export type GatewayTab = "messages" | "channels" | "rules" | "history";
 
 /** 标签的展示名（与页面 Tabs 文案保持一致，便于测试断言）。 */
 export const GATEWAY_TAB_LABELS: Record<GatewayTab, string> = {
-  messages: "消息记录",
+  messages: "待处理",
   channels: "通道设置",
   rules: "通知规则",
+  history: "发送历史",
 };
 
 /** 旧「提示词优化」深链的锚点 id：保留在规则标签的高级配置区，旧 hash 仍能滚动到位。 */
@@ -738,7 +739,7 @@ export function resolveGatewayTab(
 ): GatewayTab {
   const params = typeof search === "string" ? new URLSearchParams(search) : search;
   const tab = params.get("tab");
-  if (tab === "messages" || tab === "channels" || tab === "rules") return tab;
+  if (tab === "messages" || tab === "channels" || tab === "rules" || tab === "history") return tab;
   if (tab === LEGACY_PROMPT_TAB) return "rules";
   if (hash === `#${PROMPT_OPTIMIZATION_ANCHOR}`) return "rules";
   return "messages";

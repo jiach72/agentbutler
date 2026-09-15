@@ -129,6 +129,23 @@ export interface TrendPoint {
   failed: number;
 }
 
+/** Native-size wall chart: fixed readable type, no scaled 4K canvas. */
+export function messageTrendOption(points: TrendPoint[], c: WallPalette): EChartsOption {
+  return {
+    animation: false,
+    textStyle: { fontFamily: c.font, fontSize: 14 },
+    grid: { left: 42, right: 16, top: 36, bottom: 28 },
+    legend: { top: 0, textStyle: { color: c.text2, fontSize: 13 } },
+    tooltip: { trigger: "axis" },
+    xAxis: { type: "category", data: points.map((point) => point.date), axisLabel: { color: c.text2, fontSize: 12 } },
+    yAxis: { type: "value", minInterval: 1, axisLabel: { color: c.text2, fontSize: 12 }, splitLine: { lineStyle: { color: c.gridLine } } },
+    series: [
+      { name: "送达", type: "line", data: points.map((point) => point.delivered), itemStyle: { color: c.ok }, symbolSize: 5 },
+      { name: "失败", type: "line", data: points.map((point) => point.failed), itemStyle: { color: c.error }, lineStyle: { type: "dashed" }, symbolSize: 5 },
+    ],
+  };
+}
+
 export function trendOption(points: TrendPoint[], c: WallPalette): EChartsOption {
   return {
     textStyle: { fontFamily: c.font },

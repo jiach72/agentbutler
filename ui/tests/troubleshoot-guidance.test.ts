@@ -19,7 +19,7 @@ function diagnosis(detail: string): RecoveryDiagnosisView {
 describe("排查下一步引导", () => {
   it("模型凭据问题直接指向模型设置", () => {
     expect(guidanceForDiagnosis(diagnosis("LLM API Key 鉴权失败"))).toMatchObject({
-      to: "/settings",
+      to: "/settings?tab=llm",
       label: "检查模型与 API Key",
     });
   });

@@ -1,23 +1,27 @@
-/**
- * 消息明细面板：数据面覆盖状态 + 消息列表 + 所选消息详情（含技术编号二级折叠）。
- * 通道卡片与「重新连接通道」入口已迁移至 ChannelGrid。
- */
-import { AdvancedDetails } from "../../components/AdvancedDetails.js";
+import { useState } from "react";
+import {
+  Alert,
+  Button,
+  Descriptions,
+  Drawer,
+  Flex,
+  Pagination,
+  Select,
+  Timeline,
+  Typography,
+} from "antd";
+import { AdvancedEvidence } from "../../components/AdvancedEvidence.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
-import { Alert, Button, Card, Col, Descriptions, Flex, Row, Timeline, Typography } from "antd";
 import { Empty } from "../../components/Empty.js";
 import { formatRelative } from "../../lib/format.js";
+import { ACTIONABLE_MESSAGE_STATES, isActionableMessage, messageSummary } from "./attention.js";
 import {
-  COVERAGE_LABELS,
   MESSAGE_STATE_LABELS,
   channelLabel,
   formatTimestamp,
-  messageKindLabel,
-  shortId,
   statusTone,
   taskEventLabel,
   transformTraceLabel,
-  transportLabel,
 } from "./helpers.js";
 import type {
   MessageBridgeView,
@@ -33,490 +37,292 @@ interface MessageInspectorProps {
   messageItems: MessageItemView[];
   messagesReachable: boolean;
   selectedMessage: MessageItemView | null;
-  onSelectMessage: (messageId: string) => void;
+  onSelectMessage: (messageId: string | null) => void;
   taskData: MessageTaskView | null;
   taskLoading: boolean;
-  /** 当前状态过滤（all = 不过滤）；点击计数 chips 切换。 */
+  pendingOnly?: boolean;
   activeStateFilter?: MessageStateFilter;
   onStateFilterChange?: (filter: MessageStateFilter) => void;
-  /** 死信重投入口；提供后 dead_letter 详情会显示「重新投递」。 */
   onRedeliver?: (messageId: string) => void;
   redeliverBusy?: boolean;
-  /** 立即发送入口；提供后等待中的消息详情会显示「立即发送」。 */
   onExpedite?: (messageId: string) => void;
   expediteBusy?: boolean;
 }
 
-/** 列表与详情两栏的固定高度：超出部分卡片内部滚动，避免长列表把页面拉长。 */
-const MESSAGE_LIST_HEIGHT = 560;
-
-/** tone → 圆点颜色（全部走 antd CSS 变量，不硬编码色值）。 */
-const TONE_DOT_COLOR: Record<string, string> = {
-  ok: "var(--ant-color-success)",
-  warn: "var(--ant-color-warning)",
-  error: "var(--ant-color-error)",
-  muted: "var(--ant-color-text-quaternary)",
-};
-
-/**
- * 消息计数 chips 覆盖的状态与顺序（按投递流程排列）。
- * 关键补齐：delivery_unknown（结果未知）与 cancelled（已取消）此前没有入口，
- * 处于这两种状态的消息对用户不可见，会被误认为「漏消息」。
- * 计数为 0 时照常显示（与既有 chips 行为一致），点击后可查看空列表提示。
- */
 export const MESSAGE_CHIP_STATES = [
   "captured",
+  "policy_pending",
   "held_dnd",
+  "held_pacing",
   "ready",
+  "delivering",
+  "retry_wait",
   "delivered",
   "delivery_unknown",
+  "policy_error",
   "dead_letter",
+  "absorbed",
   "cancelled",
 ] as const;
 
-const chipStyle = {
-  border: "1px solid var(--ant-color-border-secondary)",
-  borderRadius: 8,
-  padding: "4px 10px",
-} as const;
+type DetailProps = Pick<
+  MessageInspectorProps,
+  "taskData" | "taskLoading" | "onRedeliver" | "redeliverBusy" | "onExpedite" | "expediteBusy"
+> & { message: MessageItemView };
 
-export function MessageInspector({
-  messageBridge,
-  coverageEntries,
-  messageCounts,
-  messageItems,
-  messagesReachable,
-  selectedMessage,
-  onSelectMessage,
+export function MessageDetail({
+  message,
   taskData,
   taskLoading,
-  activeStateFilter = "all",
-  onStateFilterChange,
   onRedeliver,
-  redeliverBusy = false,
+  redeliverBusy,
   onExpedite,
-  expediteBusy = false,
-}: MessageInspectorProps) {
+  expediteBusy,
+}: DetailProps) {
   return (
-    <>
-      <Card
-        title={
-          <Flex vertical gap={2}>
-            <Typography.Text
-              type="secondary"
-              style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.08em" }}
-            >
-              消息处理
-            </Typography.Text>
-            <Typography.Title level={4} component="h2" style={{ marginBottom: 0 }}>
-              发送前会先经过这里
-            </Typography.Title>
-          </Flex>
-        }
-        extra={
-          <Flex wrap="wrap" justify="flex-end" gap={12}>
-            <Typography.Text type="secondary" title={messageBridge?.bridgeVersion ?? "接管组件既未就绪"}>
-              接管组件{" "}
-              {messageBridge?.bridgeVersion === null || messageBridge?.bridgeVersion === undefined
-                ? "未就绪"
-                : "已就绪"}
-            </Typography.Text>
-            <Typography.Text type="secondary" title={messageBridge?.policyVersion ?? "未启用规则"}>
-              消息规则{" "}
-              {messageBridge?.policyVersion === null || messageBridge?.policyVersion === undefined
-                ? "未启用"
-                : "已启用"}
-            </Typography.Text>
-            <Typography.Text type="secondary">
-              最近处理 {formatRelative(messageBridge?.lastCycleAt)}
-            </Typography.Text>
-          </Flex>
-        }
-      >
-        <Flex vertical gap={16}>
-          <Flex wrap="wrap" gap={8} aria-label="运行路径覆盖">
-            {coverageEntries.length === 0 ? (
-              <Empty
-                mascot={false}
-                title="还没有消息处理路径"
-                hint="消息接管后，这里会显示真实经过处理的路径。"
-              />
-            ) : (
-              coverageEntries.map(([path, status]) => {
-                const badge = statusTone(status);
-                return (
-                  <Flex key={path} align="center" gap={6} style={chipStyle}>
-                    <span
-                      aria-hidden
-                      style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: "50%",
-                        display: "inline-block",
-                        background: TONE_DOT_COLOR[badge.tone] ?? TONE_DOT_COLOR.muted,
-                      }}
-                    />
-                    <Typography.Text style={{ fontSize: 13 }}>
-                      {COVERAGE_LABELS[path] ?? "其他路径"}
-                    </Typography.Text>
-                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                      {badge.label}
-                    </Typography.Text>
-                  </Flex>
-                );
-              })
-            )}
-          </Flex>
-        </Flex>
-      </Card>
-
-      <Flex wrap="wrap" justify="space-between" align="flex-end" gap={16}>
-        <div>
-          <Typography.Title level={4} component="h2" style={{ marginBottom: 4 }}>
-            最近发送的消息
-          </Typography.Title>
-          <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-            选择一条消息，可以查看它是否按时送达、被合并或暂存过；不会显示演示数据。
-          </Typography.Paragraph>
-        </div>
-        <Flex wrap="wrap" gap={8} align="center" aria-label="消息关键状态计数（点击可筛选）">
-          {MESSAGE_CHIP_STATES.map((state) => {
-            const active = activeStateFilter === state;
-            return (
-              <Button
-                key={state}
-                type="text"
-                size="small"
-                aria-pressed={active}
-                title={active ? "点击清除筛选" : `只看${MESSAGE_STATE_LABELS[state] ?? state}`}
-                onClick={() => onStateFilterChange?.(active ? "all" : state)}
-                style={{
-                  height: "auto",
-                  padding: "2px 8px",
-                  border: "1px solid",
-                  borderColor: active ? "var(--ant-color-primary-border)" : "transparent",
-                  ...(active ? { background: "var(--ant-color-primary-bg)" } : {}),
-                }}
-              >
-                <Typography.Text style={{ fontSize: 13 }}>
-                  {MESSAGE_STATE_LABELS[state] ?? state}
-                  <Typography.Text strong>{" "}{messageCounts[state] ?? 0}</Typography.Text>
-                </Typography.Text>
+    <Flex vertical gap={16} style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+      <StatusBadge {...statusTone(message.state)} />
+      <Typography.Paragraph style={{ whiteSpace: "pre-wrap", margin: 0 }}>
+        {message.content || "（空消息内容）"}
+      </Typography.Paragraph>
+      <Descriptions
+        size="small"
+        column={1}
+        items={[
+          { key: "channel", label: "通道", children: channelLabel(message.channel) },
+          { key: "captured", label: "收到时间", children: formatTimestamp(message.capturedAt) },
+          { key: "delivered", label: "送达时间", children: formatTimestamp(message.deliveredAt) },
+        ]}
+      />
+      {message.state === "delivery_unknown" && (
+        <Alert
+          type="warning"
+          showIcon
+          title="这条消息的发送结果未知"
+          description="请先在接收通道核实是否收到，请勿重复发送。恢复连接后重新检查送达记录；结果未知不等于发送失败。"
+        />
+      )}
+      {message.state === "dead_letter" && (
+        <Alert
+          type="warning"
+          showIcon
+          title="这条消息发送失败，已被搁置"
+          description="先检查通道连接。确认重新投递后，消息会按当前规则再次发送给对方。"
+          action={
+            onRedeliver && (
+              <Button danger loading={redeliverBusy} onClick={() => onRedeliver(message.messageId)}>
+                重新投递
               </Button>
-            );
-          })}
-          {activeStateFilter !== "all" && onStateFilterChange !== undefined && (
-            <Button type="link" size="small" onClick={() => onStateFilterChange("all")}>
-              清除筛选
+            )
+          }
+        />
+      )}
+      {message.state === "policy_error" && (
+        <Alert
+          type="warning"
+          showIcon
+          title="消息规则未能完成处理"
+          description="检查通知规则和通道连接，修正后刷新发送结果。"
+          action={<Button href="/gateway?tab=rules">检查通知规则</Button>}
+        />
+      )}
+      {["held_dnd", "held_pacing", "ready"].includes(message.state) && onExpedite && (
+        <Alert
+          type="info"
+          showIcon
+          title="这条消息正在排队"
+          description="立即发送会跳过剩余等待，按队列顺序尽快投递。"
+          action={
+            <Button loading={expediteBusy} onClick={() => onExpedite(message.messageId)}>
+              立即发送
             </Button>
-          )}
-        </Flex>
+          }
+        />
+      )}
+      <AdvancedEvidence>
+        <Descriptions
+          size="small"
+          column={1}
+          items={[
+            { key: "message", label: "消息编号", children: message.messageId },
+            { key: "session", label: "会话编号", children: message.sessionId },
+            { key: "run", label: "任务编号", children: message.runId ?? "未关联" },
+            {
+              key: "inbound",
+              label: "相关消息编号",
+              children: message.inboundMessageId ?? "未关联",
+            },
+            {
+              key: "provider",
+              label: "平台消息编号",
+              children: message.providerMessageId ?? "未返回",
+            },
+            { key: "state", label: "原始状态", children: message.state },
+            {
+              key: "transport",
+              label: "发送方式",
+              children: `${message.transport} · ${message.messageKind}`,
+            },
+            { key: "attempts", label: "尝试次数", children: message.attemptCount },
+          ]}
+        />
+        {[message.lastError, message.lastPolicyError, message.metadata.summaryError]
+          .filter((error): error is string => typeof error === "string")
+          .map((error, index) => (
+            <Typography.Paragraph key={index} style={{ whiteSpace: "pre-wrap" }}>
+              {error}
+            </Typography.Paragraph>
+          ))}
+        <Typography.Title level={5}>消息处理步骤</Typography.Title>
+        <Timeline
+          items={message.transformTrace.map((step, index) => ({
+            key: index,
+            children: <span title={step}>{transformTraceLabel(step)}</span>,
+          }))}
+        />
+        <Typography.Title level={5}>相关任务进度</Typography.Title>
+        {taskLoading ? (
+          <Typography.Text>正在读取任务事件</Typography.Text>
+        ) : taskData === null || taskData.runId !== message.runId ? (
+          <Typography.Text>没有关联的任务记录</Typography.Text>
+        ) : (
+          <Timeline
+            items={taskData.events.map((event) => ({
+              key: event.sequence,
+              children: (
+                <span>
+                  {event.summary ?? taskEventLabel(event.kind)} ·{" "}
+                  {formatTimestamp(event.occurredAt)}
+                </span>
+              ),
+            }))}
+          />
+        )}
+      </AdvancedEvidence>
+    </Flex>
+  );
+}
+
+export function MessageInspector(props: MessageInspectorProps) {
+  const {
+    selectedMessage,
+    pendingOnly = false,
+    activeStateFilter = "all",
+    onStateFilterChange,
+  } = props;
+  const messageItems = pendingOnly
+    ? props.messageItems.filter(isActionableMessage)
+    : props.messageItems;
+  const [page, setPage] = useState(1);
+  const currentPage = Math.min(page, Math.max(1, Math.ceil(messageItems.length / 8)));
+  const states = pendingOnly ? ACTIONABLE_MESSAGE_STATES : MESSAGE_CHIP_STATES;
+  return (
+    <Flex vertical gap={16}>
+      <Flex wrap gap={12} justify="space-between" align="center">
+        <Typography.Title level={4} style={{ margin: 0 }}>
+          {pendingOnly ? "需要处理的消息" : "消息记录"}
+        </Typography.Title>
+        {!pendingOnly && (
+          <Select<MessageStateFilter>
+            aria-label="消息状态"
+            value={activeStateFilter}
+            onChange={onStateFilterChange}
+            style={{ width: 200, maxWidth: "100%" }}
+            options={[
+              { value: "all", label: "全部记录" },
+              ...states.map((state) => ({
+                value: state,
+                label: `${MESSAGE_STATE_LABELS[state]} (${props.messageCounts[state] ?? 0})`,
+              })),
+            ]}
+          />
+        )}
       </Flex>
-
-      <Row gutter={[16, 16]}>
-        <Col xs={24} lg={10}>
-          <Card
-            size="small"
-            aria-label="消息列表"
-            title={
-              <Typography.Text>
-                {activeStateFilter !== "all"
-                  ? `${MESSAGE_STATE_LABELS[activeStateFilter] ?? activeStateFilter} · ${messageItems.length} 条`
-                  : `最近 ${messageItems.length} 条`}
-              </Typography.Text>
-            }
-            extra={
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                按时间从新到旧
-              </Typography.Text>
-            }
-            style={{ height: MESSAGE_LIST_HEIGHT, display: "flex", flexDirection: "column" }}
-            styles={{ body: { flex: 1, minHeight: 0, overflowY: "auto" } }}
-          >
-            {messageItems.length === 0 ? (
-              <Empty
-                mascot={false}
-                title={
-                  !messagesReachable
-                    ? "暂时读不到消息"
-                    : activeStateFilter !== "all"
-                      ? "没有处于该状态的消息"
-                      : "还没有消息记录"
-                }
-                hint="真实消息经过管家后会出现在这里；不会生成演示数据。"
-              />
-            ) : (
-              <Flex vertical gap={8}>
-                {messageItems.map((msg) => {
-                  const badge = statusTone(msg.state);
-                  const isSelected = selectedMessage?.messageId === msg.messageId;
-                  return (
-                    <Button
-                      type="text"
-                      block
-                      key={msg.messageId}
-                      aria-pressed={isSelected}
-                      onClick={() => onSelectMessage(msg.messageId)}
-                      style={{
-                        height: "auto",
-                        minHeight: 0,
-                        padding: "8px 12px",
-                        textAlign: "left",
-                        whiteSpace: "normal",
-                        border: "1px solid",
-                        borderColor: isSelected ? "var(--ant-color-primary-border)" : "transparent",
-                        ...(isSelected ? { background: "var(--ant-color-primary-bg)" } : {}),
-                      }}
-                    >
-                      <Flex vertical gap={4} style={{ width: "100%" }}>
-                        <Flex justify="space-between" align="center" gap={8}>
-                          <StatusBadge tone={badge.tone} label={badge.label} />
-                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                            {formatRelative(msg.updatedAt)}
-                          </Typography.Text>
-                        </Flex>
-                        <Typography.Text strong ellipsis style={{ width: "100%" }}>
-                          {msg.content || "（空消息内容）"}
-                        </Typography.Text>
-                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                          {channelLabel(msg.channel)}
-                        </Typography.Text>
-                      </Flex>
-                    </Button>
-                  );
-                })}
+      {!props.messagesReachable ? (
+        <Empty
+          mascot={false}
+          title="暂时读不到消息"
+          hint="恢复连接后请刷新，当前无法确认待处理数量。"
+        />
+      ) : messageItems.length === 0 ? (
+        <Empty mascot={false} title={pendingOnly ? "没有需要处理的消息" : "没有符合条件的记录"} />
+      ) : (
+        <Flex vertical gap={8} aria-label="消息列表">
+          {messageItems.slice((currentPage - 1) * 8, currentPage * 8).map((message) => (
+            <Button
+              key={message.messageId}
+              type="text"
+              block
+              onClick={() => props.onSelectMessage(message.messageId)}
+              style={{
+                height: "auto",
+                minHeight: 72,
+                padding: 12,
+                whiteSpace: "normal",
+                textAlign: "left",
+                border: "1px solid var(--ant-color-border-secondary)",
+              }}
+            >
+              <Flex vertical gap={6} style={{ width: "100%", minWidth: 0 }}>
+                <Flex justify="space-between" wrap gap={8}>
+                  <StatusBadge {...statusTone(message.state)} />
+                  <Typography.Text type="secondary">
+                    {channelLabel(message.channel)} · {formatRelative(message.updatedAt)}
+                  </Typography.Text>
+                </Flex>
+                <span style={{ overflowWrap: "anywhere" }}>{messageSummary(message.content)}</span>
               </Flex>
-            )}
-          </Card>
-        </Col>
-        <Col xs={24} lg={14}>
-          <Card
+            </Button>
+          ))}
+        </Flex>
+      )}
+      {messageItems.length > 8 && (
+        <Pagination
+          size="small"
+          current={currentPage}
+          pageSize={8}
+          total={messageItems.length}
+          onChange={setPage}
+          showSizeChanger={false}
+        />
+      )}
+      {messageItems.length > 0 && (
+        <Typography.Text type="secondary">已载入最近 {messageItems.length} 条记录</Typography.Text>
+      )}
+      {!pendingOnly && (
+        <AdvancedEvidence title="消息链路与覆盖">
+          <Descriptions
             size="small"
-            aria-label="所选消息详情"
-            style={{ height: MESSAGE_LIST_HEIGHT, display: "flex", flexDirection: "column" }}
-            styles={{ body: { flex: 1, minHeight: 0, overflowY: "auto" } }}
-          >
-            {selectedMessage === null ? (
-              <Empty
-                mascot={false}
-                title="选择一条消息查看完整轨迹"
-                hint="这里会显示发送状态、是否被合并、是否暂存以及最终结果。"
-              />
-            ) : (
-              <Flex vertical gap={16}>
-                <Flex wrap="wrap" justify="space-between" align="flex-start" gap={12}>
-                  <Flex vertical gap={2}>
-                    <Typography.Text
-                      type="secondary"
-                      style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.08em" }}
-                    >
-                      第 {selectedMessage.sequence} 条消息
-                    </Typography.Text>
-                    <Typography.Title level={5} component="h3" style={{ marginBottom: 0 }}>
-                      {MESSAGE_STATE_LABELS[selectedMessage.state] ?? "其他状态"}
-                    </Typography.Title>
-                  </Flex>
-                  <StatusBadge {...statusTone(selectedMessage.priority)} />
-                </Flex>
-
-                <Typography.Paragraph
-                  style={{
-                    background: "var(--ant-color-fill-tertiary)",
-                    padding: 12,
-                    borderRadius: 8,
-                    marginBottom: 0,
-                    whiteSpace: "pre-wrap",
-                  }}
-                >
-                  {selectedMessage.content || "（空消息内容）"}
-                </Typography.Paragraph>
-
-                {(selectedMessage.transformTrace.includes("task:awaiting-terminal") ||
-                  selectedMessage.metadata.summaryStatus !== undefined ||
-                  selectedMessage.metadata.summaryError !== undefined) && (
-                  <div
-                    role="status"
-                    aria-live="polite"
-                    style={{
-                      background: "var(--ant-color-info-bg)",
-                      border: "1px solid var(--ant-color-info-border)",
-                      borderRadius: 8,
-                      padding: "8px 12px",
-                    }}
-                  >
-                    <Typography.Text strong>
-                      {selectedMessage.transformTrace.includes("task:awaiting-terminal")
-                        ? "等待任务完成"
-                        : selectedMessage.metadata.summaryStatus === "success"
-                          ? "已生成任务总结"
-                          : selectedMessage.metadata.summaryStatus === "fallback"
-                            ? "已发送原始结果"
-                            : "正在生成总结"}
-                    </Typography.Text>
-                    {typeof selectedMessage.metadata.summaryError === "string" && (
-                      <Typography.Text type="secondary" style={{ display: "block", fontSize: 12 }}>
-                        总结未使用：{selectedMessage.metadata.summaryError}
-                      </Typography.Text>
-                    )}
-                  </div>
-                )}
-
-                <Descriptions size="small" column={1}>
-                  <Descriptions.Item label="会话 / 通道">
-                    {shortId(selectedMessage.sessionId)} · {channelLabel(selectedMessage.channel)}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="发送方式">
-                    {transportLabel(selectedMessage.transport)} ·{" "}
-                    {messageKindLabel(selectedMessage.messageKind)}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="收到 / 送达">
-                    {formatTimestamp(selectedMessage.capturedAt)} /{" "}
-                    {formatTimestamp(selectedMessage.deliveredAt)}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="尝试次数">{selectedMessage.attemptCount}</Descriptions.Item>
-                </Descriptions>
-
-                <AdvancedDetails summary="技术编号">
-                  <Descriptions size="small" column={1}>
-                    <Descriptions.Item label="消息编号">
-                      <Typography.Text title={selectedMessage.messageId}>
-                        {shortId(selectedMessage.messageId, 18)}
-                      </Typography.Text>
-                    </Descriptions.Item>
-                    <Descriptions.Item label="任务编号">
-                      <Typography.Text title={selectedMessage.runId ?? undefined}>
-                        {shortId(selectedMessage.runId, 18)}
-                      </Typography.Text>
-                    </Descriptions.Item>
-                    <Descriptions.Item label="相关消息编号">
-                      <Typography.Text title={selectedMessage.inboundMessageId ?? undefined}>
-                        {shortId(selectedMessage.inboundMessageId, 18)}
-                      </Typography.Text>
-                    </Descriptions.Item>
-                    <Descriptions.Item label="平台消息编号">
-                      <Typography.Text title={selectedMessage.providerMessageId ?? undefined}>
-                        {shortId(selectedMessage.providerMessageId ?? undefined, 18)}
-                      </Typography.Text>
-                    </Descriptions.Item>
-                  </Descriptions>
-                </AdvancedDetails>
-
-                {(selectedMessage.lastError !== null || selectedMessage.lastPolicyError !== null) && (
-                  <Alert
-                    type="error"
-                    showIcon
-                    title="需要处理"
-                    description={selectedMessage.lastPolicyError ?? selectedMessage.lastError}
-                  />
-                )}
-
-                {(selectedMessage.state === "held_dnd" ||
-                  selectedMessage.state === "held_pacing" ||
-                  selectedMessage.state === "ready") &&
-                  onExpedite !== undefined && (
-                    <Alert
-                      type="info"
-                      showIcon
-                      title="这条消息正在按发送节奏排队"
-                      description="为避免刷屏，消息会按频率控制逐步发出。点「立即发送」可跳过这条消息的剩余等待，按当前队列顺序尽快投递。"
-                      action={
-                        <Button
-                          size="small"
-                          loading={expediteBusy}
-                          onClick={() => onExpedite(selectedMessage.messageId)}
-                        >
-                          立即发送
-                        </Button>
-                      }
-                    />
-                  )}
-
-                {selectedMessage.state === "delivery_unknown" && (
-                  <Alert
-                    type="warning"
-                    showIcon
-                    title="这条消息的发送结果未知"
-                    description="发送请求已经发出，但通道没有返回回执（常见于请求超时或通道中断），无法确认对方是否收到。管家会在通道恢复后继续核实结果，请勿重复发送；如确认对方没收到，可在会话里补发一条相同内容。"
-                  />
-                )}
-
-                {selectedMessage.state === "dead_letter" && onRedeliver !== undefined && (
-                  <Alert
-                    type="warning"
-                    showIcon
-                    title="这条消息发送失败，已被搁置"
-                    description="确认后可以重新投递：消息会按当前策略重新走一遍投递流程，并再次发送给对方。"
-                    action={
-                      <Button
-                        size="small"
-                        danger
-                        loading={redeliverBusy}
-                        onClick={() => onRedeliver(selectedMessage.messageId)}
-                      >
-                        重新投递
-                      </Button>
-                    }
-                  />
-                )}
-
-                <Flex vertical gap={8}>
-                  <Typography.Title level={5} component="h4" style={{ marginBottom: 0 }}>
-                    消息处理步骤
-                  </Typography.Title>
-                  {selectedMessage.transformTrace.length === 0 ? (
-                    <Typography.Text type="secondary">没有记录处理步骤</Typography.Text>
-                  ) : (
-                    <Timeline
-                      items={selectedMessage.transformTrace.map((step, index) => ({
-                        children: (
-                          <Typography.Text title={step} style={{ fontSize: 13 }}>
-                            {transformTraceLabel(step)}
-                          </Typography.Text>
-                        ),
-                        key: `${step}:${String(index)}`,
-                      }))}
-                    />
-                  )}
-                </Flex>
-
-                <Flex vertical gap={8}>
-                  <Typography.Title level={5} component="h4" style={{ marginBottom: 0 }}>
-                    相关任务进度
-                  </Typography.Title>
-                  {selectedMessage.runId === undefined || selectedMessage.runId === null ? (
-                    <Typography.Text type="secondary">
-                      这条消息没有关联正在运行的 AI 任务
-                    </Typography.Text>
-                  ) : taskLoading ? (
-                    <Typography.Text type="secondary">正在读取任务事件…</Typography.Text>
-                  ) : taskData === null || taskData.runId !== selectedMessage.runId ? (
-                    <Typography.Text type="secondary">没有找到相关任务进度</Typography.Text>
-                  ) : (
-                    <Timeline
-                      items={taskData.events.map((event) => ({
-                        children: (
-                          <Flex vertical gap={2}>
-                            <Typography.Text strong>
-                              {event.summary ?? taskEventLabel(event.kind)}
-                            </Typography.Text>
-                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                              {taskEventLabel(event.kind)} · 管家已记录
-                            </Typography.Text>
-                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                              {formatTimestamp(event.occurredAt)}
-                            </Typography.Text>
-                          </Flex>
-                        ),
-                        key: `${event.runId}:${String(event.sequence)}`,
-                      }))}
-                    />
-                  )}
-                </Flex>
-              </Flex>
-            )}
-          </Card>
-        </Col>
-      </Row>
-    </>
+            column={1}
+            items={[
+              {
+                key: "bridge",
+                label: "接管组件版本",
+                children: props.messageBridge?.bridgeVersion ?? "未知",
+              },
+              {
+                key: "policy",
+                label: "消息规则版本",
+                children: props.messageBridge?.policyVersion ?? "未知",
+              },
+              ...props.coverageEntries.map(([path, status]) => ({
+                key: path,
+                label: path,
+                children: status,
+              })),
+            ]}
+          />
+        </AdvancedEvidence>
+      )}
+      <Drawer
+        title="消息详情"
+        open={selectedMessage !== null}
+        onClose={() => props.onSelectMessage(null)}
+        size={640}
+        styles={{ wrapper: { maxWidth: "100vw" }, body: { overflowWrap: "anywhere" } }}
+      >
+        {selectedMessage !== null && <MessageDetail {...props} message={selectedMessage} />}
+      </Drawer>
+    </Flex>
   );
 }

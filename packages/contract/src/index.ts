@@ -8,6 +8,8 @@ export * from "./messaging.js";
 export * from "./channels.js";
 export * from "./drivers.js";
 export * from "./operations.js";
+export * from "./scheduled-tasks.js";
+export * from "./attention.js";
 
 import type { ControlAdapter } from "./control.js";
 import type { DiscoveryAdapter } from "./discovery.js";

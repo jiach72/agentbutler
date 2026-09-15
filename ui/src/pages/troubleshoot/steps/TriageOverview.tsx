@@ -9,8 +9,10 @@
  * 产品原则：用户带着焦虑来，第一屏必须是答案而不是选择题。
  * 现象选择不删除——降级为「按我的感受重新聚焦」，只影响排序不隐藏信息。
  */
-import { CaretRightOutlined, ExclamationCircleOutlined, CheckCircleOutlined, CloseCircleOutlined, ReloadOutlined } from "@ant-design/icons";
-import { Button, Card, Collapse, Flex, Progress, Space, Typography } from "antd";
+import { CaretRightOutlined, ReloadOutlined } from "@ant-design/icons";
+import { Button, Card, Flex, Progress, Skeleton, Space, Typography } from "antd";
+import { IssueCard } from "../../../components/IssueCard.js";
+import { AdvancedEvidence } from "../../../components/AdvancedEvidence.js";
 import { StatusBadge } from "../../../components/StatusBadge.js";
 import { formatRelative } from "../../../lib/format.js";
 import type { RecoveryActionView, RecoveryDiagnosisView } from "../../dashboard/types.js";
@@ -27,7 +29,10 @@ const PROBE_STATUS: Record<string, { label: string; tone: "ok" | "warn" | "error
 };
 
 /** 推荐动作卡：风险用后果说（会中断服务），不用等级说（high risk）。 */
-const RISK_LABEL: Record<RecoveryActionView["risk"], { text: string; tone: "ok" | "warn" | "error" }> = {
+const RISK_LABEL: Record<
+  RecoveryActionView["risk"],
+  { text: string; tone: "ok" | "warn" | "error" }
+> = {
   low: { text: "不影响使用", tone: "ok" },
   medium: { text: "会有短暂影响", tone: "warn" },
   high: { text: "会中断服务", tone: "error" },
@@ -73,14 +78,16 @@ export function TriageOverview({
               <Paragraph type="secondary" style={{ marginBottom: 0 }}>
                 正在做一轮完整体检（进程、接口、记忆、消息通道、模型连接），完成后自动出结论，不用刷新页面。
               </Paragraph>
-              <Progress percent={60} status="active" showInfo={false} style={{ width: 240 }} />
+              <Skeleton active paragraph={{ rows: 2 }} title={false} />
             </>
           ) : (
             <>
               <Paragraph type="secondary" style={{ marginBottom: 0 }}>
                 刚才这轮体检没有读到结果，可能是管家服务暂时不可用。
               </Paragraph>
-              <Button type="primary" icon={<ReloadOutlined />} onClick={onRerun}>再试一次</Button>
+              <Button type="primary" icon={<ReloadOutlined />} onClick={onRerun}>
+                再试一次
+              </Button>
             </>
           )}
         </Flex>
@@ -93,61 +100,29 @@ export function TriageOverview({
 
   return (
     <Flex vertical gap={16}>
- {/* 结论块：一眼定性 */}
-      <Flex className={`ts-result ${tone === "ok" ? "is-ok" : tone === "warn" ? "is-warn" : "is-fail"}`} gap={12}>
-        {tone === "ok" ? (
-          <CheckCircleOutlined className="ts-result-icon" aria-hidden="true" />
-        ) : tone === "warn" ? (
-          <ExclamationCircleOutlined className="ts-result-icon" aria-hidden="true" />
-        ) : (
-          <CloseCircleOutlined className="ts-result-icon" aria-hidden="true" />
-        )}
-        <Flex vertical gap={2} style={{ minWidth: 0, flex: 1 }}>
-          <Text strong style={{ fontSize: 15 }}>{triage.title}</Text>
-          {triage.rootCause !== null && (
-            <Text style={{ fontSize: 13 }}>
-              最可能的原因：<Text strong>{triage.rootCause}</Text>
-            </Text>
-          )}
-          <Text type="secondary" style={{ fontSize: 13 }}>{triage.detail}</Text>
-          {diagnosis !== null && (
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              检查时间：{formatRelative(diagnosis.checkedAt)} · 共 {diagnosis.probes.length} 项检查
-            </Text>
-          )}
-        </Flex>
-        <Button size="small" type="text" icon={<ReloadOutlined />} aria-label="重新体检" onClick={onRerun} loading={triageBusy || busy} />
-      </Flex>
-
-      {/* 动作执行中：进度条 + 实时说明 */}
-      {jobRunning && (
-        <Card size="small">
-          <Flex vertical gap={8}>
-            <Text strong>正在执行处理动作…</Text>
-            <Text type="secondary">{jobDetail}</Text>
-            <Progress percent={jobProgress} status="active" />
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              执行前已自动创建状态快照，不会把状态搞得更糟。完成后会自动复查并更新上方的结论。
-            </Text>
-          </Flex>
-        </Card>
-      )}
-
-      {/* 有问题/有提醒：推荐动作直达 */}
-      {tone !== "ok" && recommended !== null && !jobRunning && (
-        <Card size="small" className="ts-reco-card" styles={{ body: { padding: "14px 16px" } }}>
-          <Flex vertical gap={12}>
-            <Flex align="center" gap={8} wrap>
-              <Text strong style={{ fontSize: 14 }}>建议先试：</Text>
-              <StatusBadge tone="brand" label="推荐" />
-              <Text strong>{recommended.label}</Text>
-              <StatusBadge tone={RISK_LABEL[recommended.risk].tone} label={RISK_LABEL[recommended.risk].text} />
-            </Flex>
-            <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-              {recommended.description} · 约 {recommended.estimatedSeconds} 秒。
-              {recommended.requiresConfirmation ? " 执行前会再让你确认一次。" : " 不会打断现有使用。"}
-            </Paragraph>
-            <Space wrap>
+      <IssueCard
+        title={
+          tone === "ok"
+            ? "本次检查未发现需要处理的问题"
+            : tone === "warn"
+              ? "本次检查发现需要核实的提醒"
+              : "本次检查发现影响使用的问题"
+        }
+        impact={tone === "ok" ? "当前检查范围内未发现使用受阻。" : guidance.detail}
+        suggestion={
+          tone === "ok"
+            ? "无需处理；使用仍有异常时可以按现象继续排查。"
+            : (recommended?.label ?? "没有可自动执行的修复建议，请按现象排查或导出报告核实。")
+        }
+        risk={
+          tone === "ok" || recommended === null
+            ? "查看与复查不会修改运行配置。"
+            : `${RISK_LABEL[recommended.risk].text}；${recommended.impact}`
+        }
+        verification="完成操作后重新体检，并在原来的会话或通道确认功能恢复。"
+        action={
+          <Space wrap>
+            {tone !== "ok" && recommended !== null && !jobRunning && (
               <Button
                 type="primary"
                 icon={<CaretRightOutlined />}
@@ -156,53 +131,68 @@ export function TriageOverview({
               >
                 执行「{recommended.label}」
               </Button>
-              {alternatives.length > 0 && (
-                <Button onClick={onOpenWizard}>还有 {alternatives.length + 1} 个办法可选</Button>
-              )}
-            </Space>
+            )}
+            <Button icon={<ReloadOutlined />} onClick={onRerun} loading={triageBusy || busy}>
+              重新体检
+            </Button>
+            {alternatives.length > 0 && <Button onClick={onOpenWizard}>其他处理方式</Button>}
+          </Space>
+        }
+        evidence={
+          <>
+            <Paragraph>
+              {triage.title} · {triage.rootCause} · {triage.detail}
+            </Paragraph>
+            {diagnosis !== null && (
+              <Text>
+                检查时间：{formatRelative(diagnosis.checkedAt)} · 共 {diagnosis.probes.length}{" "}
+                项检查
+              </Text>
+            )}
+            {(diagnosis?.probes ?? []).map((probe) => {
+              const status = PROBE_STATUS[probe.status] ?? {
+                label: "未知",
+                tone: "unknown" as const,
+              };
+              return (
+                <Flex key={probe.id} vertical gap={4}>
+                  <StatusBadge {...status} />
+                  <Text strong>{probe.label}</Text>
+                  <Text>{probe.detail}</Text>
+                </Flex>
+              );
+            })}
+          </>
+        }
+      />
+
+      {/* 动作执行中：进度条 + 实时说明 */}
+      {jobRunning && (
+        <Card size="small">
+          <Flex vertical gap={8}>
+            <Text strong>正在执行处理动作…</Text>
+            <AdvancedEvidence>
+              <Text>{jobDetail}</Text>
+            </AdvancedEvidence>
+            <Progress percent={jobProgress} status="active" />
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              完成后会自动复查。请以复查结果判断是否恢复，不要重复发起操作。
+            </Text>
           </Flex>
         </Card>
       )}
 
-      {/* 检查明细 + 其他出口：收进折叠，不抢主结论的戏 */}
-      <Collapse
-        size="small"
-        items={[
-          {
-            key: "probes",
-            label: (
-              <span className="ts-collapse-label">
-                <span>检查明细</span>
-                <span className="ts-collapse-extra">
-                  {diagnosis === null ? "" : `${diagnosis.probes.filter((p) => p.status === "pass").length}/${diagnosis.probes.length} 项通过`}
-                </span>
-              </span>
-            ),
-            children: (
-              <Flex vertical gap={8}>
-                {(diagnosis?.probes ?? []).map((probe) => {
-                  const status = PROBE_STATUS[probe.status] ?? { label: probe.status, tone: "unknown" as const };
-                  return (
-                    <Flex align="flex-start" gap={10} key={probe.id} className="ts-probe-row">
-                      <StatusBadge tone={status.tone} label={status.label} />
-                      <Flex vertical style={{ minWidth: 0 }}>
-                        <Text strong>{probe.label}</Text>
-                        <Text type="secondary" style={{ fontSize: 12 }}>{probe.detail}</Text>
-                      </Flex>
-                    </Flex>
-                  );
-                })}
-              </Flex>
-            ),
-          },
-        ]}
-      />
-
       {/* 底部出口：主次分明，向导入口弱化为文字链 */}
       <div className="ts-footer-links">
-        <Button type="primary" ghost onClick={onOpenWizard}>按现象仔细查（完整向导）</Button>
-        {tone !== "ok" && <Button onClick={() => window.location.assign(guidance.to)}>{guidance.label}</Button>}
-        <Button type="text" onClick={() => void exportReport()}>下载诊断报告</Button>
+        <Button type="primary" ghost onClick={onOpenWizard}>
+          按现象仔细查（完整向导）
+        </Button>
+        {tone !== "ok" && (
+          <Button onClick={() => window.location.assign(guidance.to)}>{guidance.label}</Button>
+        )}
+        <Button type="text" onClick={() => void exportReport()}>
+          下载诊断报告
+        </Button>
       </div>
     </Flex>
   );

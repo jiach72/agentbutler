@@ -1,30 +1,12 @@
-/**
- * 管家首页编排层：组装数据流（useDashboardData）、
- * OpenClaw 安装（useOpenClawInstall）与各展示子组件；本文件不承载取数与轮询细节。
- *
- * - 「立即检查」触发即走（202 提示已启动，结果经事件流观察，不阻塞）；
- * - 管家控制通道离线（reachable:false）时如实展示降级，不伪造健康结论。
- */
-import { useMemo, useState, type ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
-import { App, Button, Card, Col, Collapse, Flex, Row } from "antd";
-import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
-import { DegradedBanner } from "../../components/DegradedBanner.js";
-import { PageHeader } from "../../components/PageHeader.js";
-import { PageProgress } from "../../components/PageProgress.js";
+import { type ReactNode, useState } from "react";
+import { Link } from "react-router-dom";
+import { App, Button, Collapse, Skeleton } from "antd";
+import { DashboardOutlined, ReloadOutlined, SafetyCertificateOutlined } from "@ant-design/icons";
 import { postJson } from "../../lib/api.js";
-import { isRecord } from "../../lib/format.js";
-import { buildConclusions } from "./conclusions.js";
-import { HeroConclusion } from "./HeroConclusion.js";
-import { StatusRail } from "./StatusRail.js";
-import { IssuesSection } from "./IssuesSection.js";
-import { ReadinessSection } from "./ReadinessSection.js";
-import { OnboardingContinuation } from "./OnboardingContinuation.js";
-import { ConnectionSection } from "./ConnectionSection.js";
-import { FingerprintsTable, InspectCard, RunbooksPanel } from "./AdvancedPanels.js";
-import { InstanceHealthCard } from "./InstanceHealthCard.js";
-import { useDashboardData } from "./useDashboardData.js";
-import type { RunbookView } from "./types.js";
+import { PageHeader } from "../../components/PageHeader.js";
+import { AttentionList, TaskPreview } from "./HealthOverview.js";
+import { capabilityLabel } from "./userHealth.js";
+import { useUserHealthData } from "./useUserHealthData.js";
 import "./dashboard.css";
 
 interface RuntimeDetailsProps {
@@ -33,318 +15,59 @@ interface RuntimeDetailsProps {
   children: ReactNode;
 }
 
-/** 将资源、连接和实例检查统一放在默认关闭的运行详情中。 */
+/** Retained for existing consumers; operational controls live in expert views. */
 export function RuntimeDetails({ open, onOpenChange, children }: RuntimeDetailsProps) {
-  return (
-    <div id="runtime-details">
-      <Collapse
-        className="advanced-details runtime-details"
-        size="small"
-        activeKey={open ? ["runtime"] : []}
-        onChange={(keys) => onOpenChange(Array.isArray(keys) && keys.includes("runtime"))}
-        items={[
-          {
-            key: "runtime",
-            label: (
-              <span className="advanced-details-summary">
-                <span>运行详情</span>
-                <span className="advanced-details-extra">资源、连接与实例检查</span>
-              </span>
-            ),
-            children,
-          },
-        ]}
-      />
-    </div>
-  );
+  return <div id="runtime-details"><Collapse
+    className="advanced-details runtime-details"
+    activeKey={open ? ["runtime"] : []}
+    onChange={(keys) => onOpenChange(Array.isArray(keys) && keys.includes("runtime"))}
+    items={[{ key: "runtime", label: "运行详情", children }]}
+  /></div>;
 }
 
 export function DashboardPage() {
+  const data = useUserHealthData();
   const { message } = App.useApp();
-  const navigate = useNavigate();
-  const {
-    dashboard,
-    connections,
-    openClawStatus,
-    alerts,
-    initialLoad,
-    refresh,
-    refreshConnections,
-    criticalLoadFailed,
-    inspectionHistory,
-    runbooks,
-    llmStatus,
-    discoveredModels,
-    readinessRefreshing,
-    refreshReadiness,
-    hostMetrics,
-    serviceHealth,
-    runtime,
-  } = useDashboardData();
-
-  const [inspectionRequested, setInspectionRequested] = useState(false);
-  const [connectionBusy, setConnectionBusy] = useState<string | null>(null);
-  const [runbookCandidate, setRunbookCandidate] = useState<RunbookView | null>(null);
-  const [runbookBusy, setRunbookBusy] = useState(false);
-  const [runtimeDetailsOpen, setRuntimeDetailsOpen] = useState(false);
-
-  const openSection = (id: string, expandRuntime = false) => {
-    if (expandRuntime) setRuntimeDetailsOpen(true);
-    window.requestAnimationFrame(() => {
-      document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
-  };
-
-  const runInspect = async () => {
-    setInspectionRequested(true);
+  const [inspecting, setInspecting] = useState(false);
+  const inspect = async () => {
+    setInspecting(true);
     try {
       const result = await postJson("/api/inspect/run");
-      if (result.status === 202) {
-        message.success("已开始检查，完成后页面会自动更新");
-        await refresh();
-      } else if (result.status === 409) {
-        message.error("检查正在进行中，请稍后再试");
-      } else if (result.status === 502) {
-        message.error("管家检查通道连接不上，无法开始检查");
-      } else {
-        message.error("开始检查失败，请稍后重试");
-      }
-    } finally {
-      setInspectionRequested(false);
-    }
+      if (result.status === 202) { message.success("已开始检查，结果会自动更新"); await data.refresh(); }
+      else if (result.status === 409) message.info("检查正在进行中");
+      else message.error("暂时无法开始检查，请检查管家连接");
+    } finally { setInspecting(false); }
   };
-
-  const runConnectionCheck = async (instanceId?: string) => {
-    const key = instanceId ?? "all";
-    setConnectionBusy(`check-${key}`);
-    const targets = instanceId
-      ? [instanceId]
-      : (connections?.connections ?? []).map((item) => item.instanceId);
-    if (targets.length === 0) {
-      setConnectionBusy(null);
-      message.error("还没有发现可检查的 Hermes 或 OpenClaw 实例");
-      return;
-    }
-    const results = await Promise.all(
-      targets.map((target) => postJson("/api/connections/check", { instanceId: target }, 15_000)),
-    );
-    await refreshConnections();
-    setConnectionBusy(null);
-    const passed = results.every((result) => {
-      if (!result.ok || !isRecord(result.data)) return false;
-      return result.data.status === "checked";
-    });
-    if (passed) {
-      message.success("连接检查已完成，状态信息已更新");
-    } else {
-      message.error("部分连接检查失败，请查看实例卡片中的原因");
-    }
-  };
-
-  const runConnectionAction = async (instanceId: string, action: "connect" | "disconnect") => {
-    setConnectionBusy(`${action}-${instanceId}`);
-    const result = await postJson(
-      `/api/connections/${encodeURIComponent(instanceId)}/${action}`,
-      {},
-      70_000,
-    );
-    await refreshConnections();
-    setConnectionBusy(null);
-    if (result.ok) {
-      message.success(action === "connect" ? "已发起连接并完成复核" : "已断开连接并完成复核");
-    } else if (result.status === 409) {
-      message.error("操作未完成，请查看实例卡片中的错误原因");
-    } else if (result.status === 502) {
-      message.error("管家控制通道暂时连不上");
-    } else {
-      message.error(action === "connect" ? "连接失败，请先检查配置和服务" : "断开失败，请稍后重试");
-    }
-  };
-
-  const runRunbook = async () => {
-    if (runbookCandidate === null) return;
-    setRunbookBusy(true);
-    const result = await postJson(
-      `/api/runbooks/${encodeURIComponent(runbookCandidate.id)}/execute`,
-      { confirmed: true },
-      70_000,
-    );
-    setRunbookBusy(false);
-    setRunbookCandidate(null);
-    await refresh();
-    if (result.ok) {
-      message.success(`已开始执行「${runbookCandidate.label}」，完成后会自动更新。`);
-    } else if (result.status === 409) {
-      message.error("这个处理方案暂时被保护机制暂停，请稍后再试。");
-    } else {
-      message.error("处理方案没有启动成功，请查看检查明细后重试。");
-    }
-  };
-
-  const instances = dashboard?.instances ?? [];
-  const inspectStatus = dashboard?.inspectStatus ?? null;
-  const conclusions = useMemo(() => buildConclusions(dashboard, alerts), [alerts, dashboard]);
-  const {
-    issues,
-    hero,
-    attentionCount,
-    hasError,
-    hasWarn,
-    healthyInspectionCount,
-    downInstanceCount,
-    degradedInstanceCount,
-    messageStats,
-  } = conclusions;
-
-  if (!initialLoad.finished) {
-    return (
-      <section className="dashboard-page">
-        <Flex vertical gap={24}>
-          <PageHeader title="本地管家" />
-          <PageProgress
-            title="正在读取管家状态"
-            detail="每一项完成后都会立即更新，不需要重复刷新页面。"
-            steps={[
-              { label: "运行与检查", state: initialLoad.dashboard ? "done" : "active" },
-              { label: "消息状态", state: initialLoad.alerts ? "done" : initialLoad.dashboard ? "active" : "pending" },
-            ]}
-          />
-        </Flex>
-      </section>
-    );
-  }
-
+  const { health, input, onlineInstances, totalInstances } = data;
+  const messageState = input.messages?.connected === true
+    && input.messages.failed === 0 && input.messages.unknown === 0 ? "可用"
+    : input.messages?.connected === false ? "连接中断"
+      : (input.messages?.failed ?? 0) + (input.messages?.unknown ?? 0) > 0 ? "需核对投递" : "待确认";
   return (
-    <section className="dashboard-page">
-      <Flex vertical gap={24}>
-        <PageHeader
-          title="本地管家"
-          extra={<Button size="small" onClick={() => navigate("/wall")}>大屏模式</Button>}
-        />
-
-        {criticalLoadFailed && (
-          <DegradedBanner
-            severity="critical"
-            message="关键状态暂时读不到"
-            description="管家服务可能暂时不可用；页面显示的可能是旧数据，点击右侧按钮重新检查。"
-            action={
-              <Button type="primary" onClick={() => { void refresh(); void refreshConnections(); }}>
-                重新检查
-              </Button>
-            }
-          />
-        )}
-
-        {/* 三级视觉权重（评审 P2-10）：
-            ① 结论层 = 现在好不好；② 证据层 = 支撑结论的四个数字；③ 行动层 = 需要你做什么。
-            行动层只在真的有待办时才渲染，无事时首屏只有「结论 + 证据」。 */}
-        <div className="dashboard-tier-conclusion">
-          <HeroConclusion
-            hero={hero}
-            inspectStatus={inspectStatus}
-            inspectRequested={inspectionRequested}
-            onInspect={() => void runInspect()}
-          />
+    <section className="dashboard-page dashboard-simple">
+      <PageHeader title="首页" extra={<Link className="health-wall-link" to="/wall"><DashboardOutlined />大屏模式</Link>} />
+      {data.loading ? <Skeleton active paragraph={{ rows: 4 }} /> : <>
+        <section className="health-conclusion" data-status={health.status} aria-labelledby="health-headline">
+          <div><h2 id="health-headline">{health.headline}</h2><p>{health.explanation}</p></div>
+          <Button icon={<SafetyCertificateOutlined />} loading={inspecting} onClick={() => { void inspect(); }}>立即检查</Button>
+        </section>
+        <div className="health-main">
+          <section className="health-issues" aria-labelledby="health-attention-title">
+            <div className="health-section-heading"><h2 id="health-attention-title">需要处理 <span>{health.attention.length}</span></h2><Button icon={<ReloadOutlined />} loading={data.refreshing} onClick={() => { void data.refresh(); }}>刷新</Button></div>
+            <AttentionList attention={health.attention} />
+          </section>
+          <TaskPreview tasks={data.tasks} />
         </div>
-
-        <div className="dashboard-tier-evidence">
-          <StatusRail
-            attentionCount={attentionCount}
-            hasError={hasError}
-            hasWarn={hasWarn}
-            healthyInspectionCount={healthyInspectionCount}
-            instanceCount={instances.length}
-            downInstanceCount={downInstanceCount}
-            degradedInstanceCount={degradedInstanceCount}
-            inspectStatus={inspectStatus}
-            messageStats={messageStats}
-            runtimeDetailsOpen={runtimeDetailsOpen}
-            onOpenRuntimeDetails={() => openSection("runtime-details", true)}
-            onOpenIssues={() => openSection("dashboard-issues")}
-          />
-        </div>
-
-        {attentionCount > 0 && (
-          <div id="dashboard-issues" className="dashboard-tier-action">
-            <IssuesSection
-              issues={issues}
-              attentionCount={attentionCount}
-              onInspect={() => void runInspect()}
-            />
-          </div>
-        )}
-
-        {/* 引导收在行动之后：它是一次性提示，不该抢在「要处理的事」前面。 */}
-        <OnboardingContinuation />
-
-        <RuntimeDetails open={runtimeDetailsOpen} onOpenChange={setRuntimeDetailsOpen}>
-          <Flex vertical gap={24}>
-            <ReadinessSection
-              connections={connections}
-              llmStatus={llmStatus}
-              discoveredModels={discoveredModels}
-              refreshing={readinessRefreshing}
-              onRefresh={() => void refreshReadiness()}
-              hostMetrics={hostMetrics}
-              serviceHealth={serviceHealth}
-              runtime={runtime}
-              inspectStatus={inspectStatus}
-              inspectionHistory={inspectionHistory}
-              latestInspections={dashboard?.latestInspections ?? []}
-            />
-            <ConnectionSection
-              connections={connections}
-              openClawStatus={openClawStatus}
-              connectionBusy={connectionBusy}
-              onCheckAll={() => void runConnectionCheck()}
-              onCheckOne={(instanceId) => void runConnectionCheck(instanceId)}
-              onToggleConnection={(instanceId, action) => void runConnectionAction(instanceId, action)}
-            />
-            <InstanceHealthCard
-              instances={instances}
-              inspections={dashboard?.latestInspections ?? []}
-            />
-            {/* 高级面板：三张并排小卡（原来是再嵌一层的 Collapse，这里拍平成单层结构）。 */}
-            <Row gutter={[16, 16]}>
-              <Col xs={24} lg={8}>
-                <Card size="small" title="检查安排" id="dashboard-schedule">
-                  <InspectCard inspectStatus={inspectStatus} onInspect={() => void runInspect()} />
-                </Card>
-              </Col>
-              <Col xs={24} lg={8}>
-                <Card size="small" title="可用的处理方案">
-                  <RunbooksPanel runbooks={runbooks} onRepair={setRunbookCandidate} />
-                </Card>
-              </Col>
-              <Col xs={24} lg={8}>
-                <Card size="small" title="经常出现的问题">
-                  <FingerprintsTable
-                    fingerprints={dashboard?.fingerprints ?? []}
-                    onOpenLogs={() => navigate("/logs")}
-                  />
-                </Card>
-              </Col>
-            </Row>
-          </Flex>
-        </RuntimeDetails>
-
-        <DangerConfirmModal
-          open={runbookCandidate !== null}
-          title="确认开始处理"
-          confirmLabel="确认处理"
-          cancelLabel="先不处理"
-          busy={runbookBusy}
-          onCancel={() => setRunbookCandidate(null)}
-          onConfirm={() => void runRunbook()}
-          impact={runbookCandidate?.impact ?? "该操作会修改本机服务状态，完成后会自动复核。"}
-          reversible="多数处理方案可回退；执行后可在「设置 → 备份」还原到操作前状态。"
-          duration="通常几十秒内完成，期间面板仍可用。"
-        >
-          管家将执行「<strong>{runbookCandidate?.label ?? "处理方案"}</strong>」。
-          确认后才会开始执行。
-        </DangerConfirmModal>
-
-      </Flex>
+        <section aria-labelledby="health-capabilities-title" className="health-capabilities">
+          <h2 id="health-capabilities-title">核心能力</h2>
+          <dl className="health-capability-list">
+            <div><dt><Link to="/setup">智能体</Link></dt><dd>{totalInstances === null ? "待确认" : `${onlineInstances}/${totalInstances} 在线`}</dd></div>
+            <div><dt><Link to="/gateway">消息</Link></dt><dd>{messageState}</dd></div>
+            <div><dt><Link to="/setup">模型</Link></dt><dd>{capabilityLabel(input.model)}</dd></div>
+            <div><dt><Link to="/skills?tab=memory">记忆</Link></dt><dd>{capabilityLabel(input.memory)}</dd></div>
+          </dl>
+        </section>
+      </>}
     </section>
   );
 }

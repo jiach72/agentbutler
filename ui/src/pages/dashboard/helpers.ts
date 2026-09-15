@@ -4,6 +4,7 @@
  */
 import type { SemanticTone } from "../../components/StatusBadge.js";
 import type { InspectionView, InspectStatusView } from "./types.js";
+import { normalizeInstanceState } from "@butler/contract";
 
 /** 事件流节流刷新间隔（收到相关事件后最多每 5s 拉一次聚合端点）。 */
 export const REFRESH_THROTTLE_MS = 5000;
@@ -69,7 +70,7 @@ export function connectionStateLabel(state: string): string {
 export function stateDotClass(state: string): string {
   const s = state.toLowerCase();
   if (s.includes("crash")) return "down";
-  if (["serving", "running", "active"].includes(s)) return "up";
+  if (normalizeInstanceState(s) === "online") return "up";
   if (["stopped", "stopped.", "removed", "idle"].includes(s)) return "idle";
   return "warn";
 }
@@ -78,7 +79,7 @@ export function stateDotClass(state: string): string {
 export function instanceStateLabel(state: string): string {
   const s = state.toLowerCase();
   if (s.includes("crash")) return "异常（可能已崩溃）";
-  if (["serving", "running", "active"].includes(s)) return "运行正常";
+  if (normalizeInstanceState(s) === "online") return "运行正常";
   if (["stopped", "stopped.", "removed", "idle"].includes(s)) return "已停止";
   return state || "未知";
 }

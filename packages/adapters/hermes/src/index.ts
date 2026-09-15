@@ -90,6 +90,7 @@ export function createHermesAdapter(options: HermesAdapterOptions = {}): Adapter
 }
 
 export { hermesManifest } from "./manifest.js";
+export { HermesCronClient, readScheduledTaskJson } from "./cron.js";
 export { readHermesConfig, type HermesConfig, type HermesApiServerConfig } from "./config.js";
 export {
   DEFAULT_API_PORT,

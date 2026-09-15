@@ -24,6 +24,7 @@ import { initialThemeMode, applyThemeCssBridge } from "./theme/tokens.js";
 import "./styles.css";
 
 const DashboardPage = lazy(() => import("./pages/dashboard/DashboardPage.js").then(({ DashboardPage: Page }) => ({ default: Page })));
+const TasksPage = lazy(() => import("./pages/tasks/TasksPage.js").then(({ TasksPage: Page }) => ({ default: Page })));
 const EvolutionPage = lazy(() => import("./pages/evolution/EvolutionPage.js").then(({ EvolutionPage: Page }) => ({ default: Page })));
 const GatewayPage = lazy(() => import("./pages/gateway/GatewayPage.js").then(({ GatewayPage: Page }) => ({ default: Page })));
 const SettingsPage = lazy(() => import("./pages/settings/SettingsPage.js").then(({ SettingsPage: Page }) => ({ default: Page })));
@@ -113,6 +114,7 @@ function ThemedApp({ locale }: { locale: React.ComponentProps<typeof ConfigProvi
             <Route element={<Layout />}>
               <Route index element={<Navigate to="/dashboard" replace />} />
               <Route path="/dashboard" element={<DashboardPage />} />
+              <Route path="/tasks" element={<TasksPage />} />
               <Route path="/versions" element={<Navigate to="/settings?tab=about" replace />} />
               <Route path="/gateway" element={<GatewayPage />} />
               <Route path="/evolution" element={<EvolutionPage />} />

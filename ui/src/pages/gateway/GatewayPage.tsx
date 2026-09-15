@@ -7,7 +7,7 @@
  * - 每 10 秒轮询一次（后台标签页自动暂停），事件流命中时节流补刷。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import {
   BellOutlined,
   ExclamationCircleOutlined,
@@ -17,6 +17,7 @@ import {
 } from "@ant-design/icons";
 import { App, Badge, Button, Flex, Tabs, Tooltip, Typography } from "antd";
 import { AdvancedDetails } from "../../components/AdvancedDetails.js";
+import { AdvancedEvidence } from "../../components/AdvancedEvidence.js";
 import { ConclusionBar } from "../../components/ConclusionBar.js";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
@@ -38,6 +39,12 @@ import { MessageInspector } from "./MessageInspector.js";
 import { PatchBoard } from "./PatchBoard.js";
 import { RateLimitsTable } from "./RateLimitsTable.js";
 import { RelayControlCard } from "./RelayControlCard.js";
+import {
+  ACTIONABLE_MESSAGE_STATES,
+  actionableApprovals,
+  loadMessageOverview,
+  type PendingMessageApprovals,
+} from "./attention.js";
 import {
   COVERAGE_LABELS,
   GATEWAY_TAB_LABELS,
@@ -76,6 +83,10 @@ export function GatewayPage() {
   const location = useLocation();
   const [data, setData] = useState<GatewayPayload | null>(null);
   const [messageData, setMessageData] = useState<MessageOverviewPayload | null>(null);
+  const [approvalData, setApprovalData] = useState<PendingMessageApprovals | null>(null);
+  const [approvalsFailed, setApprovalsFailed] = useState(false);
+  const [loadedView, setLoadedView] = useState<string | null>(null);
+  const refreshSequence = useRef(0);
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
   const [messageStateFilter, setMessageStateFilter] = useState<MessageStateFilter>("all");
   const [confirmRedeliverId, setConfirmRedeliverId] = useState<string | null>(null);
@@ -98,7 +109,9 @@ export function GatewayPage() {
   // 自进化页「在提示词工作台处理」会带 hash 跳转到提示词优化卡片。
   useEffect(() => {
     if (location.hash === "") return;
-    document.getElementById(location.hash.slice(1))?.scrollIntoView({ behavior: "smooth", block: "start" });
+    document
+      .getElementById(location.hash.slice(1))
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [location.hash]);
 
   // URL 驱动三标签：?tab=messages|channels|rules；缺省/非法回落 messages，
@@ -108,7 +121,10 @@ export function GatewayPage() {
     searchParams.get("tab") === "prompt-optimization" ||
     location.hash === `#${PROMPT_OPTIMIZATION_ANCHOR}`;
   const activeTab = resolveGatewayTab(searchParams, location.hash);
+  const pendingOnly = activeTab !== "history";
+  const messageView = pendingOnly ? "pending" : messageStateFilter;
   const handleTabChange = (key: string) => {
+    setSelectedMessageId(null);
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev);
@@ -133,34 +149,49 @@ export function GatewayPage() {
   }, []);
 
   const refresh = useCallback(async () => {
+    const sequence = ++refreshSequence.current;
     if (prevRefreshFailedRef.current) setLoading(true);
-    const stateQuery = messageStateFilter === "all" ? "" : `&state=${messageStateFilter}`;
-    const [payload, messages] = await Promise.all([
+    const [payload, messages, approvals] = await Promise.all([
       fetchJson<GatewayPayload>("/api/gateway"),
-      fetchJson<MessageOverviewPayload>(`/api/messages/overview?limit=60${stateQuery}`),
+      loadMessageOverview(
+        (url) => fetchJson<MessageOverviewPayload>(url),
+        pendingOnly,
+        messageStateFilter,
+      ),
+      fetchJson<PendingMessageApprovals>("/api/approvals?status=pending&limit=60"),
     ]);
+    if (sequence !== refreshSequence.current) return;
     if (payload !== null) {
       setData(payload);
       setDrafts((current) => seedDrafts(current, payload.patches ?? []));
     }
     if (messages !== null) {
       setMessageData(messages);
+      setLoadedView(messageView);
       setSelectedMessageId((current) => {
-        if (current !== null && messages.messages.items.some((item) => item.messageId === current)) {
+        if (
+          current !== null &&
+          messages.messages.items.some((item) => item.messageId === current)
+        ) {
           return current;
         }
-        return messages.messages.items[0]?.messageId ?? null;
+        return null;
       });
     }
-    const failed = payload === null || messages === null;
+    if (approvals !== null) setApprovalData(approvals);
+    setApprovalsFailed(approvals === null);
+    const failed = payload === null || messages === null || approvals === null;
     if (payload !== null || messages !== null) setLastUpdated(new Date());
     prevRefreshFailedRef.current = failed;
     setLoadError(failed);
     setLoading(false);
-  }, [messageStateFilter]);
+  }, [messageStateFilter, pendingOnly, messageView]);
 
   useEffect(() => {
     void refresh();
+    return () => {
+      refreshSequence.current += 1;
+    };
   }, [refresh]);
   usePolling(() => void refresh(), REFRESH_INTERVAL_MS);
   useEventStream({ prefixes: EVENT_PREFIXES, onSignal: () => void refresh() });
@@ -168,12 +199,11 @@ export function GatewayPage() {
   const patches = data?.patches ?? [];
   const rateLimit = data?.rateLimit ?? null;
   const alerts = data?.alerts ?? null;
-  const messageItems = messageData?.messages.items ?? [];
+  const messageItems = loadedView === messageView ? (messageData?.messages.items ?? []) : [];
   const messageCounts = messageData?.messages.counts ?? messageData?.status?.counts ?? {};
   const messageBridge = messageData?.status?.bridge ?? null;
-  const messagesReachable = messageData === null || messageData.reachable;
-  const selectedMessage =
-    messageItems.find((item) => item.messageId === selectedMessageId) ?? messageItems[0] ?? null;
+  const messagesReachable = loadedView === messageView && messageData?.reachable === true;
+  const selectedMessage = messageItems.find((item) => item.messageId === selectedMessageId) ?? null;
 
   useEffect(() => {
     const runId = selectedMessage?.runId;
@@ -278,11 +308,21 @@ export function GatewayPage() {
       message.error(crossError);
       return;
     }
-    const previewBody = selectedInstance.trim() === "" ? { params: resolved } : { params: resolved, instanceId: selectedInstance.trim() };
-    const previewResult = await postJson(`/api/gateway/patches/${encodeURIComponent(patch.id)}/preview`, previewBody, 10_000);
-    const preview = previewResult.status === 200 && previewResult.data !== null && typeof previewResult.data === "object"
-      ? (previewResult.data as { preview?: ConfigChangeSetView }).preview
-      : undefined;
+    const previewBody =
+      selectedInstance.trim() === ""
+        ? { params: resolved }
+        : { params: resolved, instanceId: selectedInstance.trim() };
+    const previewResult = await postJson(
+      `/api/gateway/patches/${encodeURIComponent(patch.id)}/preview`,
+      previewBody,
+      10_000,
+    );
+    const preview =
+      previewResult.status === 200 &&
+      previewResult.data !== null &&
+      typeof previewResult.data === "object"
+        ? (previewResult.data as { preview?: ConfigChangeSetView }).preview
+        : undefined;
     if (preview === undefined) {
       message.error("无法生成配置变更预览，已阻止写入");
       return;
@@ -301,7 +341,9 @@ export function GatewayPage() {
     const verb = pending.action === "apply" ? "应用" : "重打";
     acquireBusy(pending.busyKey);
     try {
-      const body: { params: Record<string, number>; instanceId?: string } = { params: pending.params };
+      const body: { params: Record<string, number>; instanceId?: string } = {
+        params: pending.params,
+      };
       if (pending.instanceId !== undefined) body.instanceId = pending.instanceId;
       const result = await postJson(
         `/api/gateway/patches/${encodeURIComponent(pending.patch.id)}/${pending.action}`,
@@ -333,6 +375,13 @@ export function GatewayPage() {
         : { tone: "ok" as const, label: "就绪" };
   const pendingAlerts = alerts?.counts["pending"] ?? 0;
   const failedAlerts = alerts?.counts["failed"] ?? 0;
+  const actionableMessageCount = ACTIONABLE_MESSAGE_STATES.reduce(
+    (sum, state) => sum + (messageCounts[state] ?? 0),
+    0,
+  );
+  const pendingApprovals = actionableApprovals(approvalData?.items ?? []);
+  const attentionCount =
+    actionableMessageCount + failedAlerts + (approvalData?.summary.pending ?? 0);
   const coverageEntries = Object.entries(messageBridge?.coverage ?? {}).filter(
     ([path]) => COVERAGE_LABELS[path] !== undefined,
   );
@@ -402,20 +451,23 @@ export function GatewayPage() {
           title="消息通知"
           extra={
             <Flex wrap="wrap" justify="flex-end" align="center" gap={8}>
-              <Badge status={loading ? "processing" : "success"} text={loading ? "正在同步" : "10 秒实时刷新"} />
+              <Badge
+                status={loading ? "processing" : "success"}
+                text={loading ? "正在同步" : "10 秒实时刷新"}
+              />
               <Typography.Text type="secondary">
                 更新于 {lastUpdated?.toLocaleTimeString("zh-CN", { hour12: false }) ?? "—"}
               </Typography.Text>
               <Tooltip title="正在刷新消息数据">
-              <Button
-                type="primary"
-                icon={<ReloadOutlined />}
-                disabled={loading}
-                onClick={() => void refresh()}
-              >
-                {loading ? "刷新中" : "刷新"}
-              </Button>
-            </Tooltip>
+                <Button
+                  type="primary"
+                  icon={<ReloadOutlined />}
+                  disabled={loading}
+                  onClick={() => void refresh()}
+                >
+                  {loading ? "刷新中" : "刷新"}
+                </Button>
+              </Tooltip>
             </Flex>
           }
         />
@@ -427,23 +479,27 @@ export function GatewayPage() {
               ? "warn"
               : loading && messageData === null
                 ? "unknown"
-                : pendingAlerts > 0 || failedAlerts > 0
+                : attentionCount > 0
                   ? "warn"
                   : "ok"
           }
           title={
             recoveryState !== null
               ? recoveryState.title
-              : pendingAlerts === 0 && failedAlerts === 0
-                ? "通知链路正常，没有待处理的消息"
-                : `有 ${pendingAlerts + failedAlerts} 条消息需要留意`
+              : messageData === null || approvalData === null
+                ? "正在确认消息与审批状态"
+                : attentionCount === 0
+                  ? "当前没有需要处理的消息或审批"
+                  : `有 ${attentionCount} 项需要处理`
           }
           copy={
             recoveryState !== null
               ? recoveryState.description
-              : pendingAlerts > 0 || failedAlerts > 0
-                ? `待投递 ${pendingAlerts} 条、发送失败 ${failedAlerts} 条；失败的消息可在列表里重发或忽略。`
-                : "发送结果、通道状态与限流情况都会实时更新在下方。"
+              : attentionCount > 0
+                ? "先核实结果未知的消息，再检查失败原因；待审批动作需逐项确认。"
+                : pendingAlerts > 0
+                  ? `另有 ${pendingAlerts} 条通知正在排队，暂时无需操作。`
+                  : "已送达记录保留在发送历史中。"
           }
         />
 
@@ -471,20 +527,31 @@ export function GatewayPage() {
               unit: "次",
             },
             {
-              key: "pendingAlerts",
+              key: "unknown",
               icon: ExclamationCircleOutlined,
-              label: "待投递提醒",
-              value: pendingAlerts,
+              label: "结果未知",
+              value: messageData === null ? "—" : (messageCounts.delivery_unknown ?? 0),
               unit: "条",
-              tone: pendingAlerts > 0 ? "warn" : "ok",
+              tone: (messageCounts.delivery_unknown ?? 0) > 0 ? "warn" : undefined,
             },
             {
               key: "failedAlerts",
               icon: StopOutlined,
               label: "发送失败",
-              value: failedAlerts,
+              value:
+                messageData === null
+                  ? "—"
+                  : failedAlerts +
+                    (messageCounts.dead_letter ?? 0) +
+                    (messageCounts.policy_error ?? 0),
               unit: "条",
-              tone: failedAlerts > 0 ? "error" : "ok",
+              tone:
+                failedAlerts +
+                  (messageCounts.dead_letter ?? 0) +
+                  (messageCounts.policy_error ?? 0) >
+                0
+                  ? "error"
+                  : undefined,
             },
           ]}
         />
@@ -509,7 +576,12 @@ export function GatewayPage() {
             />
             {recoveryState.details.length > 0 && (
               <AdvancedDetails
-                summary={<><strong>另有 {recoveryState.details.length} 项受影响</strong><small>不影响当前恢复操作</small></>}
+                summary={
+                  <>
+                    <strong>另有 {recoveryState.details.length} 项受影响</strong>
+                    <small>不影响当前恢复操作</small>
+                  </>
+                }
               >
                 <Flex vertical gap={8}>
                   {recoveryState.details.map((detail) => (
@@ -524,10 +596,7 @@ export function GatewayPage() {
         )}
 
         {messageData?.status?.relay !== undefined && messageData.status.relay !== null && (
-          <RelayControlCard
-            relay={messageData.status.relay}
-            onChanged={() => void refresh()}
-          />
+          <RelayControlCard relay={messageData.status.relay} onChanged={() => void refresh()} />
         )}
 
         <Tabs
@@ -540,32 +609,48 @@ export function GatewayPage() {
               label: GATEWAY_TAB_LABELS.messages,
               children: (
                 <Flex vertical gap={24}>
-                  {/* 默认可见：需要关注的条目（告警/待处理）+ 消息记录，不再折叠。 */}
                   <AlertQueuePanel alerts={alerts} />
+                  {approvalsFailed && (
+                    <DegradedBanner
+                      severity="warn"
+                      message="待审批记录暂时无法读取"
+                      action={<Button onClick={() => void refresh()}>重试</Button>}
+                    />
+                  )}
+                  {pendingApprovals.length > 0 && (
+                    <Flex vertical gap={12}>
+                      <Typography.Title level={4} style={{ margin: 0 }}>
+                        等待审批与用户确认
+                      </Typography.Title>
+                      {pendingApprovals.map((item) => (
+                        <Flex key={item.id} justify="space-between" wrap gap={8}>
+                          <Typography.Text style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+                            {item.title}
+                          </Typography.Text>
+                          <Link to={`/approvals/${encodeURIComponent(item.id)}`}>
+                            {item.escalateRequired ? "核对并确认" : "查看待审批动作"}
+                          </Link>
+                        </Flex>
+                      ))}
+                      <Link to="/approvals">查看全部待处理审批</Link>
+                    </Flex>
+                  )}
+                </Flex>
+              ),
+            },
+            {
+              key: "history",
+              label: GATEWAY_TAB_LABELS.history,
+              children: (
+                <AdvancedEvidence title="通知历史与送达趋势">
+                  <AlertQueuePanel alerts={alerts} history />
                   <ConnectionHealth
                     messageBridge={messageBridge}
                     bridgeReady={bridgeReady}
                     messageCounts={messageCounts}
                   />
                   <DeliveryTrendCard />
-                  <MessageInspector
-                    messageBridge={messageBridge}
-                    coverageEntries={coverageEntries}
-                    messageCounts={messageCounts}
-                    messageItems={messageItems}
-                    messagesReachable={messagesReachable}
-                    selectedMessage={selectedMessage}
-                    onSelectMessage={setSelectedMessageId}
-                    taskData={taskData}
-                    taskLoading={taskLoading}
-                    activeStateFilter={messageStateFilter}
-                    onStateFilterChange={setMessageStateFilter}
-                    onRedeliver={(messageId) => setConfirmRedeliverId(messageId)}
-                    redeliverBusy={redeliverBusy}
-                    onExpedite={(messageId) => void expediteMessage(messageId)}
-                    expediteBusy={expediteBusy}
-                  />
-                </Flex>
+                </AdvancedEvidence>
               ),
             },
             {
@@ -593,7 +678,9 @@ export function GatewayPage() {
                         <Typography.Text type="secondary">
                           发送频率 <StatusBadge {...overallBadge} />
                         </Typography.Text>
-                        <Typography.Text type="secondary">近 24 小时 {rateLimit?.last24h ?? "—"} 次</Typography.Text>
+                        <Typography.Text type="secondary">
+                          近 24 小时 {rateLimit?.last24h ?? "—"} 次
+                        </Typography.Text>
                         <Typography.Text type="secondary">
                           备用告警 <StatusBadge {...channelBadge} />
                         </Typography.Text>
@@ -638,6 +725,30 @@ export function GatewayPage() {
           ]}
         />
 
+        {(activeTab === "messages" || activeTab === "history") && (
+          <MessageInspector
+            messageBridge={messageBridge}
+            coverageEntries={coverageEntries}
+            messageCounts={messageCounts}
+            messageItems={messageItems}
+            messagesReachable={messagesReachable}
+            selectedMessage={selectedMessage}
+            onSelectMessage={setSelectedMessageId}
+            taskData={taskData}
+            taskLoading={taskLoading}
+            pendingOnly={pendingOnly}
+            activeStateFilter={messageStateFilter}
+            onStateFilterChange={(filter) => {
+              setSelectedMessageId(null);
+              setMessageStateFilter(filter);
+            }}
+            onRedeliver={(messageId) => setConfirmRedeliverId(messageId)}
+            redeliverBusy={redeliverBusy}
+            onExpedite={(messageId) => void expediteMessage(messageId)}
+            expediteBusy={expediteBusy}
+          />
+        )}
+
         {pendingPatchAction !== null && (
           <DangerConfirmModal
             open
@@ -681,7 +792,12 @@ export function GatewayPage() {
                 <Typography.Text strong>将要修改：</Typography.Text>
                 {pendingPatchAction.preview.changes.length === 0
                   ? "参数没有变化"
-                  : pendingPatchAction.preview.changes.map((change) => `${change.path}：${String(change.before)} → ${String(change.after)}`).join("；")}
+                  : pendingPatchAction.preview.changes
+                      .map(
+                        (change) =>
+                          `${change.path}：${String(change.before)} → ${String(change.after)}`,
+                      )
+                      .join("；")}
               </Typography.Paragraph>
             )}
           </DangerConfirmModal>

@@ -22,21 +22,22 @@ describe("公共界面的任务入口", () => {
     expect(html.match(/aria-label="读取急停状态"/g)).toHaveLength(1);
   });
 
-  it("手机常用导航包含智能体、消息、设置与更多入口", () => {
-    const html = renderAt("/skills", <MobileTabBar onOpenNavigation={() => undefined} />);
-    for (const path of ["/dashboard", "/skills", "/gateway", "/settings"]) {
+  it("手机只有首页、任务、消息、设置四个入口", () => {
+    const html = renderAt("/tasks", <MobileTabBar />);
+    for (const path of ["/dashboard", "/tasks", "/gateway", "/settings"]) {
       expect(html).toContain(`href="${path}"`);
     }
-    expect(html).toContain('aria-label="更多导航"');
+    expect(html).not.toContain('aria-label="更多导航"');
+    expect(html.match(/href="/g)).toHaveLength(4);
     expect(html).toContain('aria-current="page"');
     expect(html).not.toContain("急停");
   });
 
   it("详情路径仍选中对应手机主入口，前缀相似但不同的路由不误选", () => {
-    const nested = renderAt("/skills/details", <MobileTabBar onOpenNavigation={() => undefined} />);
-    expect(nested).toMatch(/href="\/skills"[^>]*aria-current="page"|aria-current="page"[^>]*href="\/skills"/);
-    const unknown = renderAt("/skills-other", <MobileTabBar onOpenNavigation={() => undefined} />);
-    expect(unknown).not.toMatch(/href="\/skills"[^>]*aria-current="page"|aria-current="page"[^>]*href="\/skills"/);
+    const nested = renderAt("/tasks/details", <MobileTabBar />);
+    expect(nested).toMatch(/href="\/tasks"[^>]*aria-current="page"|aria-current="page"[^>]*href="\/tasks"/);
+    const unknown = renderAt("/tasks-other", <MobileTabBar />);
+    expect(unknown).not.toContain('aria-current="page"');
   });
 
   it("页标题不自动重复已经在导航里的分组名", () => {

@@ -40,6 +40,7 @@
   align-items: center;
   gap: 10px;
   width: 100%;
+  min-height: 44px;
   border: none;
   background: transparent;
   border-radius: 6px;
@@ -61,8 +62,12 @@
 .settings-rail-item.active {
   background: var(--ab-primary-soft);
   color: var(--ab-primary);
-  box-shadow: inset 3px 0 0 var(--ab-primary);
   font-weight: 500;
+}
+
+.settings-rail-item:focus-visible {
+  outline: 2px solid var(--ab-primary);
+  outline-offset: 2px;
 }
 
 /* 数据源诊断：默认折叠的 <details>，点开才列出各源状态。 */
@@ -167,8 +172,13 @@
   }
 
   .settings-rail-list {
-    flex-direction: row;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .settings-rail-item {
+    overflow-wrap: anywhere;
+    padding: 8px;
   }
 
   .settings-rail-item.active {

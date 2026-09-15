@@ -1,0 +1,59 @@
+.tasks-page { min-width: 0; }
+.tasks-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 24px;
+  padding: 20px 0;
+  border-block: 1px solid var(--ab-border);
+}
+.tasks-summary > div { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.tasks-summary span, .task-muted, .task-timezone { color: var(--ab-text-2); }
+.tasks-summary strong { font-size: 20px; overflow-wrap: anywhere; }
+.tasks-list-section { min-width: 0; }
+.tasks-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-bottom: 16px; }
+.tasks-toolbar .ant-input-search { width: 320px; max-width: 100%; }
+.task-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.6fr) minmax(130px, 1fr) minmax(140px, 1fr) 56px 156px;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--ab-border);
+}
+.task-row > * { min-width: 0; overflow-wrap: anywhere; }
+.task-row-heading { color: var(--ab-text-2); padding-block: 10px; font-weight: 600; }
+.task-name-cell h2 { font-size: 16px; line-height: 1.5; margin: 0 0 4px; }
+.task-row p { margin: 4px 0; line-height: 1.5; }
+.task-name-cell p { color: var(--ab-text-2); }
+.task-muted { font-size: 13px; }
+.task-failure { color: var(--ab-error); font-size: 13px; }
+.task-mobile-label { display: none; }
+.task-editor .ant-drawer-body, .task-history .ant-drawer-body { min-width: 0; }
+.task-editor-fields, .task-schedule-fields { display: flex; flex-direction: column; gap: 10px; }
+.task-editor-fields > label { margin-top: 12px; font-weight: 600; }
+.task-schedule-fields { margin-block: 12px; }
+.task-schedule-fields .ant-input-number { width: 100%; }
+.task-delivery-control { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding-block: 12px; }
+.task-preview { padding-block: 16px; border-top: 1px solid var(--ab-border); overflow-wrap: anywhere; }
+.task-preview p { margin: 8px 0 0; line-height: 1.6; }
+.task-run-list { padding: 0; margin: 0; list-style: none; }
+.task-run-list li { padding: 16px 0; border-bottom: 1px solid var(--ab-border); overflow-wrap: anywhere; }
+.task-run-list p { margin: 8px 0 0; }
+@media (max-width: 1199px) {
+  .task-row { grid-template-columns: minmax(160px, 1.5fr) minmax(120px, 1fr) minmax(100px, 1fr) 48px; }
+  .task-actions { grid-column: 1 / -1; justify-self: end; }
+  .task-row-heading > :last-child { display: none; }
+}
+@media (max-width: 767px) {
+  .tasks-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  .tasks-summary strong { font-size: 18px; }
+  .task-row { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding-block: 20px; }
+  .task-row-heading { display: none; }
+  .task-name-cell, .task-next-cell { grid-column: 1 / -1; }
+  .task-mobile-label { display: inline; margin-right: 8px; color: var(--ab-text-2); }
+  .task-actions { justify-self: start; }
+  .task-actions .ant-btn { width: 44px; height: 44px; }
+  .task-editor .ant-input, .task-editor .ant-select, .task-editor .ant-input-number { font-size: 16px; }
+  .task-schedule-fields .ant-checkbox-wrapper { min-height: 44px; align-items: center; }
+  .tasks-toolbar .ant-input-search { width: 100%; }
+}

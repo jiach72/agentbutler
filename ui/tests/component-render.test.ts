@@ -15,7 +15,7 @@ import { SymptomStep } from "../src/pages/troubleshoot/steps/SymptomStep.js";
 import { DiagnosticsCenter } from "../src/pages/settings/DiagnosticsCenter.js";
 
 describe("关键页面组件渲染", () => {
-  it("侧栏保留高频入口，并把维护功能收进维护与升级分组", () => {
+  it("侧栏只保留五个高频入口，旧页面仍可从深链进入", () => {
     const html = renderToStaticMarkup(
       React.createElement(
         ThemeProvider,
@@ -32,13 +32,10 @@ describe("关键页面组件渲染", () => {
     expect(html).toContain('href="/skills"');
     expect(html).toContain('href="/gateway"');
     expect(html).toContain('href="/settings"');
-    // IA 收敛 + 分组改名后：两个折叠 SubMenu 的分组行常显，组内项进入分组才渲染。
-    expect(html).toContain("记录与审批");
-    expect(html).toContain("维护工具");
-    expect(html).toContain('data-menu-id="rc-menu-uuid-trust"');
-    expect(html).toContain('data-menu-id="rc-menu-uuid-maintain"');
-    // 常显分组的项目仍然直接渲染
-    expect(html).toContain("自进化");
+    expect(html).toContain("定时任务");
+    expect(html).not.toContain("记录与审批");
+    expect(html).not.toContain("维护工具");
+    expect(html).not.toContain('data-menu-id="rc-menu-uuid-/evolution"');
     expect(html).toContain('aria-label="开始排查问题"');
     expect(html).toContain("排查问题");
     expect(html).toContain('class="topbar-title">自进化</strong>');

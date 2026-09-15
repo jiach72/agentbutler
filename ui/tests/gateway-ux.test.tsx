@@ -71,7 +71,8 @@ function tabCount(html: string): number {
 }
 
 describe("标签解析与深链兼容（resolveGatewayTab）", () => {
-  const cases: Array<[string, string | undefined, "messages" | "channels" | "rules"]> = [
+  const cases: Array<[string, string | undefined, "messages" | "channels" | "rules" | "history"]> = [
+    ["?tab=history", undefined, "history"],
     ["?tab=messages", undefined, "messages"],
     ["?tab=channels", undefined, "channels"],
     ["?tab=rules", undefined, "rules"],
@@ -122,7 +123,7 @@ describe("通道分区与三态（helpers）", () => {
 describe("网关页：URL 驱动三标签", () => {
   it("默认进入渲染出三个标签，且消息标签为激活态", () => {
     const html = renderGateway("/gateway");
-    expect(tabCount(html)).toBe(3);
+    expect(tabCount(html)).toBe(4);
     expect(activeTabLabel(html)).toBe(GATEWAY_TAB_LABELS.messages);
   });
 
@@ -151,8 +152,8 @@ describe("验收点 2：默认可见消息记录与需要关注条目（不再�
   const html = renderGateway("/gateway");
 
   it("消息标签含「待处理通知」（需要关注）与「最近发送的消息」（消息记录）", () => {
-    expect(html).toContain("待处理通知");
-    expect(html).toContain("最近发送的消息");
+    expect(html).toContain("发送失败的通知");
+    expect(html).toContain("需要处理的消息");
   });
 
   it("不再把消息折叠在「消息明细」高级折叠区里", () => {
@@ -207,7 +208,7 @@ describe("验收点 4 & 5：通道排序、添加通道区与三态（ChannelGri
 describe("验收点 3：标签独立且切换不丢状态、确认弹窗始终可达（结构保证）", () => {
   it("三标签并行存在且互不嵌套", () => {
     const html = renderGateway("/gateway");
-    expect(tabCount(html)).toBe(3);
+    expect(tabCount(html)).toBe(4);
     for (const label of Object.values(GATEWAY_TAB_LABELS)) {
       expect(html).toContain(label);
     }

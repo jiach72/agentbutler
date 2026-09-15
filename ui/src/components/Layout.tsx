@@ -136,7 +136,7 @@ function collapsibleGroupItem(
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const location = useLocation();
   const currentMeta = routeMetaFor(location.pathname);
-  const settingsActive = currentMeta?.group === "settings" || location.pathname.startsWith("/preferences");
+  const settingsActive = currentMeta?.group === "settings" || currentMeta?.nav === false || location.pathname.startsWith("/preferences");
   const selectedKey = settingsActive ? PINNED_ROUTE.path : (currentMeta?.path ?? "");
 
   // 折叠分组的展开态：路由切换时按「当前所属组」重置（深链 /sessions/:id 也会
@@ -152,7 +152,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
   const menuItems: MenuProps["items"] = useMemo(
     () =>
-      NAV_GROUPS.filter((group) => group.key !== "settings").map((group) =>
+      NAV_GROUPS.filter((group) => navRoutesFor(group.key).length > 0).map((group) =>
         group.collapsible ? collapsibleGroupItem(group, onNavigate) : groupItem(group, onNavigate),
       ),
     [onNavigate],
@@ -171,7 +171,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         </span>
         <span className="brand-copy">
           Agent Butler
-          <small>本地运维控制台</small>
+          <small>本地智能体管家</small>
         </span>
       </div>
       <Menu
@@ -313,7 +313,7 @@ export function Layout() {
         </AntLayout>
         {/* 移动端底部 Tab（M4.1）：≤600px 才渲染显示，桌面端被 CSS 隐藏。
             「更多」唤起导航抽屉；急停唯一挂载在顶栏。 */}
-        <MobileTabBar onOpenNavigation={() => setDrawerOpen(true)} />
+        <MobileTabBar />
       </AntLayout>
     </NotificationsProvider>
   );

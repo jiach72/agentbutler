@@ -10,7 +10,7 @@ describe("classifyRuntimeState", () => {
     ]);
     expect(result.stateCode).toBe("healthy");
     expect(result.severity).toBe("warn");
-    expect(result.summary).toContain("当前运行正常");
+    expect(result.summary).toContain("运行检查已通过");
   });
 
   it("classifies a missing token as non-retryable", () => {
@@ -18,6 +18,22 @@ describe("classifyRuntimeState", () => {
     expect(result.stateCode).toBe("auth_missing");
     expect(result.safeToRetry).toBe(false);
     expect(result.evidence[0]?.source).toBe("auth");
+    expect(result.summary).not.toContain("gateway token");
+    expect(result.summary).toContain("访问凭据");
+  });
+
+  it("does not report healthy when no runtime checks are available", () => {
+    const result = classifyRuntimeState([]);
+    expect(result.stateCode).toBe("unknown");
+    expect(result.severity).toBe("unknown");
+    expect(result.safeToRetry).toBe(false);
+  });
+
+  it("keeps raw paths and internal errors in evidence, not the user conclusion", () => {
+    const result = classifyRuntimeState([{ id: "config", status: "fail", detail: "config JSON /home/user/private.json invalid" }]);
+    expect(result.summary).not.toContain("/home");
+    expect(result.summary).not.toContain("JSON");
+    expect(result.evidence[0]?.message).toContain("/home/user/private.json");
   });
 });
 

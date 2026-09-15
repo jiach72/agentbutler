@@ -29,7 +29,6 @@ function source(relativePath: string): string {
  * 键是路由页文件，值里任一个文件出现 `ConclusionBar` 即视为满足模板。
  */
 const ROUTE_PAGES: Array<{ route: string; files: string[] }> = [
-  { route: "/dashboard", files: ["pages/dashboard/DashboardPage.tsx", "pages/dashboard/HeroConclusion.tsx"] },
   { route: "/skills", files: ["pages/skills/SkillsPage.tsx"] },
   { route: "/gateway", files: ["pages/gateway/GatewayPage.tsx"] },
   { route: "/cost", files: ["pages/cost/CostPage.tsx"] },
@@ -51,13 +50,25 @@ const ROUTE_PAGES: Array<{ route: string; files: string[] }> = [
 ];
 
 /** 自定义结论块：页面自带更丰富的形态（携带通用结论条装不下的信息），保留但显式登记。 */
-const BESPOKE_CONCLUSION: Record<string, { marker: string; reason: string }> = {
+const BESPOKE_CONCLUSION: Record<string, { marker: string; content: RegExp; reason: string }> = {
+  "pages/dashboard/DashboardPage.tsx": {
+    marker: 'className="health-conclusion"',
+    content: /<h2[^>]*>\{health\.headline\}<\/h2>/,
+    reason: "首页使用统一健康摘要，验证实际渲染路径而不是未使用的旧组件",
+  },
+  "pages/tasks/TasksPage.tsx": {
+    marker: 'className="tasks-summary"',
+    content: /<span>调度状态<\/span><strong>/,
+    reason: "任务摘要展示 Hermes 实际调度状态与下次执行时间",
+  },
   "pages/troubleshoot/steps/TriageOverview.tsx": {
-    marker: "ts-result",
-    reason: "体检结论块额外承载「最可能的原因」，通用结论条的 copy 装不下这个层级",
+    marker: "<IssueCard",
+    content: /title=\{/,
+    reason: "问题卡同时说明影响、建议动作、操作风险与验证步骤",
   },
   "pages/setup/SetupPage.tsx": {
     marker: "setup-verdict",
+    content: /<Text strong/,
     reason: "三环链路体检结论块带每环进度，属页面专有形态",
   },
 };
@@ -66,7 +77,7 @@ const BESPOKE_CONCLUSION: Record<string, { marker: string; reason: string }> = {
 const STANDALONE = ["pages/wall/WallPage.tsx"];
 
 describe("页面模板：每个路由页都必须有结论条（规范 03 §2.3 ②）", () => {
-  it("20 个路由页都能在其自身或委托组件里找到 ConclusionBar", () => {
+  it("使用通用模板的路由页仍有实际结论条", () => {
     const missing: string[] = [];
     for (const page of ROUTE_PAGES) {
       const satisfied = page.files.some((file) => source(file).includes("ConclusionBar"));
@@ -82,7 +93,7 @@ describe("页面模板：每个路由页都必须有结论条（规范 03 §2.3 
         spec.marker,
       );
       // 自定义块也不许退回「只有色点」：必须有文案标签
-      expect(text).toMatch(/<Text strong/);
+      expect(text).toMatch(spec.content);
     }
   });
 

@@ -693,3 +693,12 @@
 - **修复范围：** 恢复“维护与升级”侧栏分组及五个原有入口；保留顶栏“排查问题”快捷入口；未改变页面实现、路由或权限边界。
 - **回归测试：** `ui/tests/component-render.test.ts` 重新覆盖高频入口、维护分组入口和历史重定向入口。
 - **验证命令：** `corepack pnpm --filter @butler/ui exec vitest run --config vitest.config.ts tests/component-render.test.ts --reporter=dot`（5 passed）；`corepack pnpm exec vitest run --maxWorkers=1 --minWorkers=1 --reporter=dot`（150 files passed, 1 skipped；1264 tests passed, 4 skipped）；Web runtime 重建与浏览器复验待本次导航修复部署完成后补充。
+
+## 2026-09-15 - 产品减法与 Hermes 定时任务控制面
+
+- **问题：** 首页、大屏和消息页混合展示服务在线、通知送达、任务失败及内部诊断状态，容易把“进程在线”误报为“系统正常”；定时任务也没有 Butler 的真实只读视图和安全控制面。
+- **风险/影响：** 用户可能漏掉消息结果未知、记忆/模型不可用或 Hermes 任务失败；直接开放 `hermes cron run` 会同步执行 prompt，不符合“只请求下一次调度”的安全边界；任意 CLI 参数透传还可能扩大宿主执行权限。
+- **修复范围：** 新增共享 `UserHealthSummary` 和实例/消息/告警语义归一化：首页与大屏共用同一健康结论，首页最多显示 5 项待处理，大屏收敛为 6 项 KPI；默认导航收敛为首页、定时任务、消息通知、智能体与记忆、设置，旧路由保留深链。新增 `/api/scheduled-tasks*` 契约、宿主 Hermes 结构化只读适配和 Web→Watch→控制桥代理；列表不返回 prompt、URL 或错误正文，脚本和高级任务只读。创建、编辑、暂停、恢复、删除均固定 argv、写前备份、持久化请求幂等、删除名称确认并回读验证；结果未知时禁止自动重试。设置页归并任务默认值、专家工具和实验功能；消息正文与原始日志进入折叠详情。Hermes 当前版本的 `cron run` 已核实为同步执行，因此 `runSupported=false` 并在 UI 中禁用立即运行。
+- **回归测试：** 共享健康契约、定时任务契约/适配器、宿主桥、Watch/Web HTTP、导航、首页/大屏、消息/诊断和设置测试；隔离浏览器 smoke 覆盖任务 CRUD 反馈与移动布局；WSL host integration 覆盖真实 Hermes 13 个任务只读一致性、隔离 CRUD、备份、幂等和敏感字段脱敏。
+- **验证命令：** `corepack pnpm exec tsc -b --pretty false`；`corepack pnpm exec eslint .`；`corepack pnpm build`；定向 Vitest 58 项通过；`wsl.exe -d Ubuntu-24.04 -- bash -lc 'cd /mnt/c/Users/jiach/Documents/Agent\\ Butler && HERMES_LIVE_READ=1 /home/jiach/.local/bin/node --test scripts/hermes-cron-host.integration.mjs'`（7 项通过）；隔离 Playwright 任务 smoke 7 项断言通过；`docker compose config --quiet`；`git diff --check`。
+- **部署/runtime：** 当前分支尚未替换运行中的 WSL 容器；现有容器健康状态保持不变。提交并推送当前分支后，需从 `/home/jiach/agentbutler` 使用 Compose 重建，随后核验 `/api/health`、`/api/scheduled-tasks/status`、`/api/scheduled-tasks` 与 `docker compose ps`。未对真实用户任务执行任何写操作。

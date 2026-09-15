@@ -17,6 +17,7 @@ import {
   AlertOutlined,
   ApiOutlined,
   AuditOutlined,
+  CalendarOutlined,
   ClusterOutlined,
   DashboardOutlined,
   DeploymentUnitOutlined,
@@ -89,29 +90,30 @@ export const TRUST_CLUSTERS = ["费用与记录", "审计与管控"] as const;
 
 export const ROUTES: RouteMeta[] = [
   /* ---- 控制台 ---- */
-  { path: "/dashboard", group: "console", title: "首页", note: "运行总览与一键检查", icon: DashboardOutlined, nav: true },
+  { path: "/dashboard", group: "console", title: "首页", note: "当前状态与待处理事项", icon: DashboardOutlined, nav: true },
+  { path: "/tasks", group: "console", title: "定时任务", note: "执行时间与最近结果", icon: CalendarOutlined, nav: true, short: "任务" },
+  { path: "/gateway", group: "console", title: "消息通知", note: "待处理消息与通道", icon: NotificationOutlined, nav: true, short: "消息" },
   { path: "/skills", group: "console", title: "智能体与记忆", note: "技能、插件与记忆", icon: ApiOutlined, nav: true },
-  { path: "/gateway", group: "console", title: "消息通知", note: "频率控制与送达记录", icon: NotificationOutlined, nav: true },
 
   /* ---- 信任层 · 费用与记录 ---- */
-  { path: "/cost", group: "trust", cluster: "费用与记录", title: "成本", note: "模型成本与预算", icon: DollarOutlined, nav: true, short: "成本" },
-  { path: "/report", group: "trust", cluster: "费用与记录", title: "Agent 周报", note: "每周自动汇总推送", icon: FileTextOutlined, nav: true, short: "周报" },
-  { path: "/sessions", group: "trust", cluster: "费用与记录", title: "会话追踪", note: "按会话查看动作记录", icon: HistoryOutlined, nav: true },
-  { path: "/memory-diff", group: "trust", cluster: "费用与记录", title: "记忆变更", note: "记忆文件改动明细", icon: DiffOutlined, nav: true },
+  { path: "/cost", group: "trust", cluster: "费用与记录", title: "成本", note: "模型成本与预算", icon: DollarOutlined, nav: false, short: "成本" },
+  { path: "/report", group: "trust", cluster: "费用与记录", title: "Agent 周报", note: "每周自动汇总推送", icon: FileTextOutlined, nav: false, short: "周报" },
+  { path: "/sessions", group: "trust", cluster: "费用与记录", title: "会话追踪", note: "按会话查看动作记录", icon: HistoryOutlined, nav: false },
+  { path: "/memory-diff", group: "trust", cluster: "费用与记录", title: "记忆变更", note: "记忆文件改动明细", icon: DiffOutlined, nav: false },
 
   /* ---- 信任层 · 审计与管控 ---- */
-  { path: "/audit", group: "trust", cluster: "审计与管控", title: "行为审计", note: "全部动作时间线", icon: FileDoneOutlined, nav: true },
-  { path: "/events", group: "trust", cluster: "审计与管控", title: "事件中心", note: "告警与回归汇总", icon: AlertOutlined, nav: true, short: "事件" },
-  { path: "/approvals", group: "trust", cluster: "审计与管控", title: "操作审批", note: "高危动作确认与超时拒绝", icon: AuditOutlined, nav: true },
-  { path: "/progress", group: "trust", cluster: "审计与管控", title: "进度可信度", note: "进度声明核对", icon: FundProjectionScreenOutlined, nav: true },
-  { path: "/federation", group: "trust", cluster: "审计与管控", title: "实例联邦", note: "多实例汇总", icon: ClusterOutlined, nav: true },
+  { path: "/audit", group: "trust", cluster: "审计与管控", title: "行为审计", note: "全部动作时间线", icon: FileDoneOutlined, nav: false },
+  { path: "/events", group: "trust", cluster: "审计与管控", title: "事件中心", note: "告警与回归汇总", icon: AlertOutlined, nav: false, short: "事件" },
+  { path: "/approvals", group: "trust", cluster: "审计与管控", title: "操作审批", note: "高危动作确认与超时拒绝", icon: AuditOutlined, nav: false },
+  { path: "/progress", group: "trust", cluster: "审计与管控", title: "进度可信度", note: "进度声明核对", icon: FundProjectionScreenOutlined, nav: false },
+  { path: "/federation", group: "trust", cluster: "审计与管控", title: "实例联邦", note: "多实例汇总", icon: ClusterOutlined, nav: false },
 
   /* ---- 维护与升级（可折叠；系统日志不进侧栏，入口在「排查问题」页内） ---- */
-  { path: "/core-files", group: "maintain", title: "核心文件", note: "查看、编辑与回滚 Markdown", icon: FileMarkdownOutlined, nav: true },
-  { path: "/troubleshoot", group: "maintain", title: "排查问题", note: "按现象一步步处理", icon: ToolOutlined, nav: true },
-  { path: "/evolution", group: "maintain", title: "自进化", note: "分析日志与优化方案", icon: ExperimentOutlined, nav: true },
+  { path: "/core-files", group: "maintain", title: "核心文件", note: "查看、编辑与回滚 Markdown", icon: FileMarkdownOutlined, nav: false },
+  { path: "/troubleshoot", group: "maintain", title: "排查问题", note: "按现象一步步处理", icon: ToolOutlined, nav: false },
+  { path: "/evolution", group: "maintain", title: "自进化", note: "分析日志与优化方案", icon: ExperimentOutlined, nav: false },
   { path: "/logs", group: "maintain", title: "系统日志", note: "查看记录与修复建议", icon: FileSearchOutlined, nav: false },
-  { path: "/setup", group: "maintain", title: "连接体检", note: "链路三环体检与修复", icon: DeploymentUnitOutlined, nav: true },
+  { path: "/setup", group: "maintain", title: "连接体检", note: "链路三环体检与修复", icon: DeploymentUnitOutlined, nav: false },
 
   /* ---- 设置（侧栏底部钉住，不参与分组渲染） ---- */
   { path: "/settings", group: "settings", title: "设置", note: "本机安全、备份与偏好", icon: SettingOutlined, nav: true },
@@ -157,7 +159,7 @@ export function navRoutesFor(group: NavGroupKey): RouteMeta[] {
  * 与桌面侧栏同源于 ROUTES——不再另写一套一级信息架构（评审 P0-1）。
  * 更多导航由 Tab 尾部的「更多」按钮唤起抽屉（见 MobileTabBar）。
  */
-export const MOBILE_TAB_PATHS = ["/dashboard", "/skills", "/gateway", "/settings"] as const;
+export const MOBILE_TAB_PATHS = ["/dashboard", "/tasks", "/gateway", "/settings"] as const;
 
 export function shortTitleOf(route: RouteMeta): string {
   return route.short ?? route.title;

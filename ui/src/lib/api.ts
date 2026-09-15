@@ -39,6 +39,29 @@ export interface PostResult {
   data: unknown;
 }
 
+/** Mutations keep their request identity in the body across transport retries. */
+export async function mutateJson(
+  method: "POST" | "PATCH" | "DELETE",
+  url: string,
+  body: unknown,
+  timeoutMs = 30_000,
+): Promise<PostResult> {
+  try {
+    const res = await fetch(url, {
+      method,
+      cache: "no-store",
+      headers: { "content-type": "application/json", ...authHeaders() },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    handleUnauthorized(res);
+    const data: unknown = await res.json().catch(() => null);
+    return { ok: res.ok, status: res.status, data };
+  } catch {
+    return { ok: false, status: 0, data: null };
+  }
+}
+
 /**
  * 统一 POST 封装（Task 10 大盘控制动作用）：
  * 网络失败不抛异常（status=0），非 2xx 也不吞并 —— 调用方需要区分 202/409/502 等分支。

@@ -4,9 +4,8 @@
  * 展示层为「市场风」：PageHeader + 数据源状态概览条 + 左侧分类导航 + 右侧内容区。
  */
 import { useCallback, useEffect, useState } from "react";
-import { BugOutlined, ExperimentOutlined, FileMarkdownOutlined, FileSearchOutlined, MedicineBoxOutlined, ThunderboltOutlined } from "@ant-design/icons";
-import { Alert, App, Button, Card, Flex, Tooltip, Typography } from "antd";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Alert, App, Flex, Tabs } from "antd";
+import { Link, useSearchParams } from "react-router-dom";
 import { ConnectionChip } from "../../components/ConnectionChip.js";
 import { ConclusionBar } from "../../components/ConclusionBar.js";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
@@ -40,11 +39,10 @@ import { SettingsCategoryNav, resolveCategoryKey } from "./SettingsCategoryNav.j
 import { SourceStatusBar } from "./SourceStatusBar.js";
 import { PreferencesPanel } from "../preferences/PreferencesPage.js";
 import { LlmProfileManager } from "./LlmProfileManager.js";
-import { MemoryProbeConfigCard } from "./MemoryProbeConfigCard.js";
+import { ExpertTools } from "./ExpertTools.js";
+import { TaskDefaultsPanel } from "./TaskDefaultsPanel.js";
 import { VersionsPanel } from "../versions/VersionsPage.js";
 import "./settings.css";
-
-const { Paragraph, Text } = Typography;
 
 export function SettingsPage() {
   const { message } = App.useApp();
@@ -53,7 +51,6 @@ export function SettingsPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<SettingsConfirmAction | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
-  const navigate = useNavigate();
   const activeTab = resolveCategoryKey(searchParams.get("tab"));
   const setActiveTab = (key: string) => {
     setSearchParams(key === "security" ? {} : { tab: key }, { replace: true });
@@ -61,13 +58,14 @@ export function SettingsPage() {
 
   const applyResult = useCallback((key: SettingsSourceKey, result: LoadResult<unknown>) => {
     if (result.ok) setCheckedAt((prev) => ({ ...prev, [key]: Date.now() }));
-    setSources((prev) =>
-      ({
-        ...prev,
-        [key]: result.ok
-          ? { status: "ready", data: result.data }
-          : { status: "failed", reason: result.reason },
-      }) as SourcesState,
+    setSources(
+      (prev) =>
+        ({
+          ...prev,
+          [key]: result.ok
+            ? { status: "ready", data: result.data }
+            : { status: "failed", reason: result.reason },
+        }) as SourcesState,
     );
   }, []);
 
@@ -76,7 +74,10 @@ export function SettingsPage() {
     async (key: SettingsSourceKey): Promise<void> => {
       switch (key) {
         case "baseline":
-          applyResult(key, await loadJson<SecurityBaselinePayload>("/api/security-baseline", 5_000));
+          applyResult(
+            key,
+            await loadJson<SecurityBaselinePayload>("/api/security-baseline", 5_000),
+          );
           break;
         case "alerts":
           applyResult(key, await loadJson<AlertsPayload>("/api/alerts", 5_000));
@@ -183,7 +184,9 @@ export function SettingsPage() {
       const result = await postJson("/api/backups/verify", {}, 35_000);
       if (result.ok) {
         const data = (result.data ?? {}) as { checkedFiles?: number; checkedDatabases?: number };
-        message.success(`验证完成：检查 ${data.checkedFiles ?? 0} 个文件、${data.checkedDatabases ?? 0} 个数据库。`);
+        message.success(
+          `验证完成：检查 ${data.checkedFiles ?? 0} 个文件、${data.checkedDatabases ?? 0} 个数据库。`,
+        );
       } else {
         message.error("备份未通过验证；不会影响当前运行数据，请查看备份记录后重试。");
       }
@@ -225,9 +228,8 @@ export function SettingsPage() {
     }
   }
 
-  const securityOnline = sources.security.status === "ready"
-    ? sources.security.data.watchReachable !== false
-    : true;
+  const securityOnline =
+    sources.security.status === "ready" && sources.security.data.watchReachable !== false;
 
   /** 失败的数据源清单：结论条只在有失败时说「哪里没读到」，不恒定报平安。 */
   const failedSources = SOURCE_KEYS.filter((key) => sources[key].status === "failed");
@@ -235,121 +237,70 @@ export function SettingsPage() {
   /** 右侧内容区：按当前分类渲染对应面板（数据流与旧六签完全一致）。 */
   function renderCategory(key: string) {
     switch (key) {
+      case "tasks":
+        return <TaskDefaultsPanel />;
       case "backups":
         return (
-          <BackupCenter
-            backups={sources.backups}
-            butlerSelf={sources.butlerSelf}
-            busy={busy}
-            onRetry={retrySource}
-            onRunBackup={onRunBackup}
-            onVerifyBackup={onVerifyBackup}
-            onRequestRestore={onRequestRestore}
+          <Tabs
+            key="maintenance"
+            activeKey={searchParams.get("tab") === "about" ? "about" : "backups"}
+            onChange={setActiveTab}
+            destroyOnHidden={false}
+            items={[
+              {
+                key: "backups",
+                label: "备份与还原",
+                children: (
+                  <BackupCenter
+                    backups={sources.backups}
+                    butlerSelf={sources.butlerSelf}
+                    busy={busy}
+                    onRetry={retrySource}
+                    onRunBackup={onRunBackup}
+                    onVerifyBackup={onVerifyBackup}
+                    onRequestRestore={onRequestRestore}
+                  />
+                ),
+              },
+              { key: "about", label: "版本与升级", children: <VersionsPanel /> },
+            ]}
           />
         );
       case "llm":
-        return <LlmProfileManager />;
-      case "diagnostics":
         return (
-          <>
-            <DiagnosticsCenter actionBusy={busy !== null} />
-            <AuditLog audit={sources.audit} onRetry={() => retrySource("audit")} />
-            <div
-              style={{
-                borderTop: "1px dashed var(--ant-color-border)",
-                paddingTop: 16,
-              }}
-            >
-              <Text strong>目前能做到</Text>
-              <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                本页展示真实的安全状态、备份、操作记录和脱敏的凭据管理状态。
-              </Paragraph>
-            </div>
-          </>
+          <Tabs
+            key="preferences"
+            activeKey={
+              searchParams.get("tab") === "preferences"
+                ? "preferences"
+                : searchParams.get("section") === "channels"
+                  ? "channels"
+                  : "llm"
+            }
+            onChange={(key) => {
+              setSearchParams(
+                key === "channels" ? { tab: "llm", section: "channels" } : { tab: key },
+                { replace: true },
+              );
+            }}
+            destroyOnHidden={false}
+            items={[
+              { key: "llm", label: "模型与密钥", children: <LlmProfileManager /> },
+              { key: "preferences", label: "通知与偏好", children: <PreferencesPanel /> },
+              {
+                key: "channels",
+                label: "消息通道",
+                children: <Link to="/gateway?tab=channels">管理消息通道</Link>,
+              },
+            ]}
+          />
         );
-      case "preferences":
-        return <PreferencesPanel />;
-      case "about":
-        return <VersionsPanel />;
       case "advanced":
         return (
-          <Flex vertical gap={12}>
-            <Typography.Title level={4} style={{ margin: 0 }}>
-              进阶工具
-            </Typography.Title>
-            <Paragraph type="secondary" style={{ marginBottom: 4 }}>
-              这些功能用于分析、配置或恢复；日常使用从首页、消息通知和排查问题开始即可。
-            </Paragraph>
-            <Card size="small" title="安装医生">
-              <Flex justify="space-between" align="center" gap={16} wrap="wrap">
-                <Text type="secondary">
-                  一键体检：运行环境、端口、网关链路与常见坑位；输出可整段复制的脱敏诊断与修复命令。
-                </Text>
-                <Tooltip title="node scripts/doctor.mjs —— 在部署机仓库根目录执行">
-                  <Button
-                    icon={<MedicineBoxOutlined />}
-                    onClick={() => {
-                      void navigator.clipboard?.writeText("node scripts/doctor.mjs").catch(() => undefined);
-                      navigate("/setup");
-                    }}
-                  >
-                    复制体检命令
-                  </Button>
-                </Tooltip>
-              </Flex>
-            </Card>
-            <Card size="small" title="预算设置">
-              <Flex justify="space-between" align="center" gap={16} wrap="wrap">
-                <Text type="secondary">设置每月模型成本上限；80% 告警、100% 触发建议动作。</Text>
-                <Button icon={<ThunderboltOutlined />} onClick={() => navigate("/cost")}>
-                  打开预算设置
-                </Button>
-              </Flex>
-            </Card>
-            <MemoryProbeConfigCard />
-            <Card size="small" title="升级策略">
-              <Flex justify="space-between" align="center" gap={16} wrap="wrap">
-                <Text type="secondary">
-                  新版本先在影子环境跑一轮真实任务，三指标全过才切换；观察窗内检出回归自动回滚。
-                </Text>
-                <Button icon={<ExperimentOutlined />} onClick={() => navigate("/canary")}>
-                  打开升级策略
-                </Button>
-              </Flex>
-            </Card>
-            <Card size="small" title="自进化">
-              <Flex justify="space-between" align="center" gap={16} wrap="wrap">
-                <Text type="secondary">根据真实日志生成候选方案，并经验证后再应用。</Text>
-                <Button icon={<ThunderboltOutlined />} onClick={() => navigate("/evolution")}>
-                  打开自进化
-                </Button>
-              </Flex>
-            </Card>
-            <Card size="small" title="核心文件">
-              <Flex justify="space-between" align="center" gap={16} wrap="wrap">
-                <Text type="secondary">查看、预览修改并恢复 Agent 的受管 Markdown 文件。</Text>
-                <Button icon={<FileMarkdownOutlined />} onClick={() => navigate("/core-files")}>
-                  管理核心文件
-                </Button>
-              </Flex>
-            </Card>
-            <Card size="small" title="系统日志">
-              <Flex justify="space-between" align="center" gap={16} wrap="wrap">
-                <Text type="secondary">在排查建议不足时查看原始记录和历史问题。</Text>
-                <Button icon={<FileSearchOutlined />} onClick={() => navigate("/logs")}>
-                  查看系统日志
-                </Button>
-              </Flex>
-            </Card>
-            <Card size="small" title="重新设置连接">
-              <Flex justify="space-between" align="center" gap={16} wrap="wrap">
-                <Text type="secondary">重新检测本机实例、模型配置和常用使用场景。</Text>
-                <Button icon={<BugOutlined />} onClick={() => navigate("/setup")}>
-                  打开连接设置
-                </Button>
-              </Flex>
-            </Card>
-          </Flex>
+          <ExpertTools>
+            <DiagnosticsCenter actionBusy={busy !== null} />
+            <AuditLog audit={sources.audit} onRetry={() => retrySource("audit")} />
+          </ExpertTools>
         );
       case "security":
       default:
@@ -390,7 +341,9 @@ export function SettingsPage() {
             <ConnectionChip
               reachable={securityOnline}
               onlineText="安全状态已读取"
-              offlineText="服务暂时连不上"
+              offlineText={
+                sources.security.status === "loading" ? "正在读取安全状态" : "服务暂时连不上"
+              }
             />
           }
         />
@@ -400,7 +353,7 @@ export function SettingsPage() {
             不占用首屏。
             结论条（模板覆盖测试要求）：只在「管家离线」或「有数据源失败」时出现，
             均为真实状态；一切正常时不渲染恒定的报平安横幅。 */}
-        {!securityOnline && (
+        {sources.security.status !== "loading" && !securityOnline && (
           <ConclusionBar
             tone="offline"
             title="管家暂时连不上，部分设置只读"
@@ -410,7 +363,7 @@ export function SettingsPage() {
         {securityOnline && failedSources.length > 0 && (
           <ConclusionBar
             tone="warn"
-            title={`${failedSources.length} 个数据源读取失败：${failedSources.join("、")}`}
+            title={`${failedSources.length} 项设置暂时无法读取`}
             copy="失败的数据源对应面板会显示降级内容；展开下方「数据源状态」可逐源重试。"
           />
         )}
@@ -419,7 +372,9 @@ export function SettingsPage() {
         <div className="settings-layout">
           <SettingsCategoryNav active={activeTab} onSelect={setActiveTab} />
           <div className="settings-content">
-            <Flex vertical gap={16}>{renderCategory(activeTab)}</Flex>
+            <Flex vertical gap={16}>
+              {renderCategory(activeTab)}
+            </Flex>
           </div>
         </div>
 
@@ -461,11 +416,7 @@ export function SettingsPage() {
                     "允许后续巡检再次触发它",
                     "继续记录执行结果，失败时仍会再次暂停",
                   ]
-                : [
-                    "先为当前状态创建一份操作前备份",
-                    "还原选中的备份文件",
-                    "刷新安全状态和操作记录",
-                  ]
+                : ["先为当前状态创建一份操作前备份", "还原选中的备份文件", "刷新安全状态和操作记录"]
             }
           >
             {confirmAction.kind === "reset" ? (

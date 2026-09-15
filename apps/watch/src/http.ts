@@ -183,6 +183,11 @@
  * gateway 网关面板服务 / promptOptimization 提示词 Registry），测试经回环真实端口验证。
  */
 import { createServer, type Server } from "node:http";
+import {
+  SCHEDULED_TASK_MAX_BODY, parseScheduledTaskResponse, scheduledTaskFailure,
+  scheduledTaskHttpStatus, scheduledTaskRouteRequest,
+} from "@butler/contract";
+import type { ScheduledTaskService } from "./scheduled-tasks.js";
 import { randomUUID } from "node:crypto";
 import { CONTROL_API_SCHEMA_VERSION, CONTRACT_VERSION } from "@butler/contract";
 import type {
@@ -339,6 +344,7 @@ export interface RunbookSummary {
 
 /** HTTP 层依赖（全部可注入）。 */
 export interface WatchHttpDeps {
+  scheduledTasks?: ScheduledTaskService;
   runtime?: () => ButlerRuntimeInfo;
   /** SQLite 真实探针（SELECT 1）；未接线时 healthz 不做 db 判定。 */
   dbProbe?: () => boolean;
@@ -1205,6 +1211,23 @@ async function handle(
   }
 
   try {
+    if (path === "/api/scheduled-tasks" || path.startsWith("/api/scheduled-tasks/")) {
+      res.setHeader("cache-control", "no-store");
+      const body = method === "GET" ? {} : await readJsonBody(req, res, SCHEDULED_TASK_MAX_BODY);
+      if (body === null) return;
+      const query = scheduledTaskRouteRequest(method, url, body);
+      if (!query) return sendJson(res, 400, { error: "invalid_request" });
+      let result;
+      try {
+        result = deps.scheduledTasks
+          ? parseScheduledTaskResponse(query.action, await deps.scheduledTasks.request(query))
+          : scheduledTaskFailure(query, "bridge_not_configured");
+      } catch { result = scheduledTaskFailure(query, "bridge_unreachable"); }
+      result ??= scheduledTaskFailure(query, "invalid_response");
+      if ("requestId" in query && (!("requestId" in result) || result.requestId !== query.requestId ||
+        ("id" in query && result.taskId !== query.id))) result = scheduledTaskFailure(query, "invalid_response");
+      return sendJson(res, scheduledTaskHttpStatus(result), result);
+    }
     if (path === "/healthz") {
       if (method !== "GET") return sendJson(res, 405, { error: "method-not-allowed" });
       // 真实健康语义：db 探针通过 + 独立 SLA 巡检未越过截止线。

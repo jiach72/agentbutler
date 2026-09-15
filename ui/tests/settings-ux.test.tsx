@@ -99,10 +99,10 @@ describe("② 措辞诚实", () => {
 });
 
 describe("⑤ 关于分类改名与查询键兼容", () => {
-  it("about 显示名改为「版本与升级」", () => {
-    const about = SETTINGS_CATEGORIES.find((c) => c.key === "about");
+  it("about 归入「备份与升级」", () => {
+    const about = SETTINGS_CATEGORIES.find((c) => c.key === resolveCategoryKey("about"));
     expect(about).toBeDefined();
-    expect(about!.label).toBe("版本与升级");
+    expect(about!.label).toBe("备份与升级");
   });
 
   it("所有历史 ?tab= 键仍映射到对应分类", () => {
@@ -110,7 +110,9 @@ describe("⑤ 关于分类改名与查询键兼容", () => {
       expect(resolveCategoryKey(category.key)).toBe(category.key);
     }
     // about 仍是合法深链值。
-    expect(resolveCategoryKey("about")).toBe("about");
+    expect(resolveCategoryKey("about")).toBe("backups");
+    expect(resolveCategoryKey("preferences")).toBe("llm");
+    expect(resolveCategoryKey("diagnostics")).toBe("advanced");
   });
 
   it("未知 tab 回落到第一个分类（本机安全）", () => {
@@ -118,11 +120,11 @@ describe("⑤ 关于分类改名与查询键兼容", () => {
     expect(resolveCategoryKey(null)).toBe(SETTINGS_CATEGORIES[0].key);
   });
 
-  it("导航渲染「版本与升级」而非「关于」", () => {
+  it("导航渲染「备份与升级」而非「关于」", () => {
     const html = renderToStaticMarkup(
-      React.createElement(SettingsCategoryNav, { active: "about", onSelect: () => undefined }),
+      React.createElement(SettingsCategoryNav, { active: "backups", onSelect: () => undefined }),
     );
-    expect(html).toContain("版本与升级");
+    expect(html).toContain("备份与升级");
     expect(html).not.toContain(">关于<");
   });
 });

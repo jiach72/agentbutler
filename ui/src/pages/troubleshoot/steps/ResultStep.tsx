@@ -12,6 +12,7 @@ import type { RecoveryDiagnosisView, RecoveryJobView } from "../../dashboard/typ
 import type { WizardOutcome } from "../useTroubleshoot.js";
 import { useExportReport } from "../exportReport.js";
 import { guidanceForDiagnosis } from "../guidance.js";
+import { AdvancedEvidence } from "../../../components/AdvancedEvidence.js";
 
 const { Text, Paragraph } = Typography;
 
@@ -39,7 +40,9 @@ export function ResultStep({ job, outcome, diagnosis, busy, onBack, onRestart }:
 
         {running && job !== null && (
           <Flex vertical gap={12}>
-            <Paragraph type="secondary" style={{ marginBottom: 0 }}>{job.detail}</Paragraph>
+            <AdvancedEvidence>
+              <Paragraph>{job.detail}</Paragraph>
+            </AdvancedEvidence>
             <Progress percent={job.progress} status="active" />
             <Text type="secondary" role="status">
               这一步大概需要一点时间，页面会自动更新结果，不用手动刷新。
@@ -56,7 +59,9 @@ export function ResultStep({ job, outcome, diagnosis, busy, onBack, onRestart }:
             )}
             <Flex vertical gap={2} style={{ minWidth: 0 }}>
               <Text strong>{outcome.label}</Text>
-              <Text type="secondary" style={{ fontSize: 13 }}>{outcome.detail}</Text>
+              <AdvancedEvidence>
+                <Text>{outcome.detail}</Text>
+              </AdvancedEvidence>
             </Flex>
           </Flex>
         )}
@@ -79,7 +84,9 @@ export function ResultStep({ job, outcome, diagnosis, busy, onBack, onRestart }:
               <Space wrap>
                 {outcome?.state === "unresolved" && (
                   <>
-                    <Button type="primary" onClick={onBack}>换个办法再试</Button>
+                    <Button type="primary" onClick={onBack}>
+                      换个办法再试
+                    </Button>
                     <Button href={guidance.to}>{guidance.label}</Button>
                   </>
                 )}
@@ -91,8 +98,10 @@ export function ResultStep({ job, outcome, diagnosis, busy, onBack, onRestart }:
                 </Button>
               </Space>
               <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 0 }}>
-                没修好也不用担心：管家在每个动作执行前都做了快照，不会把状态搞得更糟。
-                {outcome?.state === "unresolved" ? ` ${guidance.detail}` : " 下载报告后贴到项目的 Issue 里，能帮你的人一眼就能看到全貌。"}
+                请以复查结果为准；问题仍存在时，可以更换处理方式或导出报告核实。
+                {outcome?.state === "unresolved"
+                  ? ` ${guidance.detail}`
+                  : " 下载报告后贴到项目的 Issue 里，能帮你的人一眼就能看到全貌。"}
               </Paragraph>
             </Flex>
           </div>

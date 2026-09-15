@@ -16,7 +16,7 @@ export function guidanceForDiagnosis(diagnosis: RecoveryDiagnosisView | null): R
   ].filter((value): value is string => typeof value === "string").join(" ").toLowerCase();
 
   if (/(llm|模型|api key|凭据|鉴权|credential|token)/i.test(text)) {
-    return { to: "/settings", label: "检查模型与 API Key", detail: "确认端点、模型名、探针结果和实例绑定。" };
+    return { to: "/settings?tab=llm", label: "检查模型与 API Key", detail: "模型连接可能影响回复或记忆处理，请核实模型设置与连接结果。" };
   }
   if (/(消息|通道|channel|gateway|送达)/i.test(text)) {
     return { to: "/gateway", label: "检查消息通知", detail: "查看通道连接、发送节流和最近送达记录。" };

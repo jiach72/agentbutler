@@ -36,6 +36,7 @@ import {
   createHindsightMemoryDriver,
   detectMemoryBackend,
   HermesControlBridgeClient,
+  HermesCronClient,
   createPatchManager,
   type CommandExecutor,
   type PortProber,
@@ -145,6 +146,7 @@ import {
 import { createMemoryDiffService, type MemoryDiffService } from "./memory-diff.js";
 import { createFederationService, type FederationService } from "./federation.js";
 import { createShadowRunner } from "./shadow-runner.js";
+import { createScheduledTaskService } from "./scheduled-tasks.js";
 
 const DEFAULT_BUTLER_REPOSITORY = "https://github.com/jiach72/agentbutler";
 
@@ -532,6 +534,15 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
           tokenFile: config.hermesControlTokenFile ?? "/home/butler/hermes/agent-butler/control.token",
         })
       : undefined;
+  const scheduledTasks = createScheduledTaskService({
+    framework: config.framework,
+    client: config.framework === "hermes" && config.hermesControlUrl
+      ? new HermesCronClient({
+          baseUrl: config.hermesControlUrl,
+          tokenFile: config.hermesControlTokenFile ?? "/home/butler/hermes/agent-butler/control.token",
+        })
+      : undefined,
+  });
 
   // 控制面复用 core 的 store/snapshotsDir，避免适配器自建第二连接。
   const adapter =
@@ -2178,6 +2189,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
 
   const watchHttp = startWatchHttp(
     {
+      scheduledTasks,
       runtime: () => runtime,
       scheduler,
       // healthz 真实探针：db 可用性（调度器心跳已由 scheduler.status() 提供）。
