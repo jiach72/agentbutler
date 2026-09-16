@@ -27,7 +27,7 @@ const payloads = {
   },
   "/api/connections": { reachable: true, connections: [{ instanceId: "hermes-main", frameworkId: "hermes", displayName: "Hermes 主实例", state: "Serving", connected: true }] },
   "/api/messages/status": { reachable: true, status: { bridge: { connected: true, running: true, attached: true, outboxWritable: true }, counts: { delivery_unknown: 3, failed: 1 }, relay: { enabled: true, pending: false } } },
-  "/api/scheduled-tasks/status": { schemaVersion: 1, supported: true, reachable: true, schedulerRunning: true, activeCount: 2, nextRunAt: future, heartbeatAgeSeconds: 3, timezone: "Asia/Shanghai", writesSupported: false, runSupported: false },
+  "/api/scheduled-tasks/status": { schemaVersion: 1, supported: true, reachable: true, schedulerRunning: true, activeCount: 2, todayRunCount: 12, failedTaskCount: 1, nextRunAt: future, heartbeatAgeSeconds: 3, timezone: "Asia/Shanghai", writesSupported: false, runSupported: false },
   "/api/scheduled-tasks": { schemaVersion: 1, supported: true, reachable: true, items: [
     { id: "daily", name: "每日项目进展与待处理事项汇总", enabled: true, scheduleLabel: "每日", nextRunAt: future, lastRunAt: null, lastStatus: "success", failureStreak: 0, deliveryEnabled: true, editable: false },
   ] },
@@ -66,6 +66,7 @@ try {
         attentionRows: [...document.querySelectorAll(".health-attention li")].filter(visible).length,
         textSize: getComputedStyle(document.querySelector(".health-attention strong")).fontSize,
         tasksTop: document.querySelector(".health-tasks").getBoundingClientRect().top,
+        taskStats: document.querySelector(".health-task-stats")?.textContent ?? null,
         wallScroll: wall ? wall.scrollHeight - wall.clientHeight : 0,
         canvasInk: [...document.querySelectorAll(".wall-chart canvas")].filter(visible).map((canvas) => {
           const pixels = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data;
@@ -82,6 +83,8 @@ try {
     if (route === "/wall" && width >= 1024) assert.equal(layout.wallScroll, 0, "desktop wall must fit");
     if (route === "/wall" && width >= 1024) assert.ok(layout.canvasInk.some((ink) => ink > 100), "chart must render real pixels");
     if (route === "/dashboard" && width >= 1024) assert.ok(layout.tasksTop < height, "next task must be in first viewport");
+    if (route === "/dashboard") assert.equal(layout.taskStats, "今日执行 12 次 · 失败任务 1 个");
+    if (route === "/wall") assert.equal(layout.taskStats, null);
     assert.deepEqual(errors, []);
     await page.screenshot({ path: path.join(output, `phase-a-${route.slice(1)}-${width}.png`), fullPage: false });
     results.push({ route, width, height, ...layout });

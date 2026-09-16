@@ -54,7 +54,8 @@ describe("dashboard and wall share factual health", () => {
 
 describe("Hermes task preview", () => {
   const now = Date.parse(sources.observedAt);
-  const status: PreviewTaskStatus = { supported: true, reachable: true, schedulerRunning: true, activeCount: 3, nextRunAt: null };
+  const status: PreviewTaskStatus = { supported: true, reachable: true, schedulerRunning: true, activeCount: 3,
+    todayRunCount: 5, failedTaskCount: 2, nextRunAt: null };
   const task = (id: string, nextRunAt: string | null, enabled = true): PreviewTask => ({ id, name: id, enabled, nextRunAt, lastStatus: "never" });
   const list = (items: PreviewTask[]): PreviewTaskList => ({ supported: true, reachable: true, items });
   it("uses Hermes timestamps and excludes paused, past and >24h tasks from the wall window", () => {
@@ -71,5 +72,11 @@ describe("Hermes task preview", () => {
     expect(deriveTaskPreview({ ...status, supported: false, reason: "unsupported_framework" }, list([]), now).label).toBe("当前仅 Hermes 支持");
     expect(deriveTaskPreview({ ...status, schedulerRunning: null }, list([]), now).label).toBe("任务调度状态待确认");
     expect(deriveTaskPreview(status, { ...list([]), reachable: false }, now).known).toBe(false);
+  });
+  it("passes Hermes execution counts through and never invents them for unknown data", () => {
+    expect(deriveTaskPreview(status, list([]), now)).toMatchObject({ todayRunCount: 5, failedTaskCount: 2 });
+    expect(deriveTaskPreview(null, list([]), now)).toMatchObject({ todayRunCount: 0, failedTaskCount: 0 });
+    // Counts come from Hermes status alone; the renderer only shows them once the list is known.
+    expect(deriveTaskPreview(status, null, now)).toMatchObject({ known: false, todayRunCount: 5, failedTaskCount: 2 });
   });
 });

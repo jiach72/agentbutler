@@ -156,6 +156,47 @@ c.close()
   assert.deepEqual(readdirSync(join(root, "cron")).sort(), ["executions.db", "jobs.json"]);
 });
 
+test("status counts only today's runs and only real run failures", () => {
+  const root = home();
+  mkdirSync(join(root, "cron"));
+  const job = (id, lastStatus) => ({ id, name: id, prompt: "PRIVATE_PROMPT_" + id, enabled: true,
+    schedule: { kind: "interval", minutes: 30 }, last_status: lastStatus, last_run_at: "2026-09-15T00:00:00Z" });
+  writeFileSync(join(root, "cron", "jobs.json"), JSON.stringify({ jobs: [
+    job("jobok0001", "ok"), job("jobdely001", "delivery_failed"),
+    job("joberr0001", "error"), job("joblegacy1", "failed"), job("jobdetfm01", "ok"),
+  ] }));
+  const fixture = spawnSync(join(bin, "python"), ["-c", `
+import sqlite3, sys
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+now = datetime.now(ZoneInfo("Asia/Shanghai"))
+conn = sqlite3.connect(sys.argv[1])
+conn.execute("CREATE TABLE executions(id TEXT,job_id TEXT,status TEXT,claimed_at TEXT,started_at TEXT,finished_at TEXT,error TEXT)")
+for row in (
+    ("run-today-a", "jobok0001", "completed", now),
+    ("run-today-b", "jobdely001", "completed", now - timedelta(hours=1)),
+    ("run-latest-failed", "jobdetfm01", "failed", now - timedelta(days=2)),
+    ("run-older-ok", "jobdetfm01", "completed", now - timedelta(days=3)),
+    ("run-yesterday", "joberr0001", "failed", now - timedelta(days=1)),
+):
+    conn.execute("INSERT INTO executions VALUES(?,?,?,?,?,?,?)",
+                 (row[0], row[1], row[2], row[3].isoformat(), row[3].isoformat(), row[3].isoformat(), None))
+conn.commit()
+conn.close()
+`, join(root, "cron", "executions.db")], { encoding: "utf8" });
+  assert.equal(fixture.status, 0, fixture.stderr);
+  const before = readFileSync(join(root, "cron", "executions.db"));
+  const status = call(root, { action: "status" });
+  assert.equal(status.supported, true);
+  assert.equal(status.todayRunCount, 2);
+  assert.equal(status.failedTaskCount, 3);
+  const list = call(root, { action: "list" });
+  assert.equal(list.items.filter((item) => item.lastStatus === "failed").length, status.failedTaskCount);
+  // Delivery failure means the run itself succeeded, so it must not be counted as a failed task.
+  assert.equal(list.items.find((item) => item.id === "jobdely001").lastStatus, "delivery_failed");
+  assert.ok(!JSON.stringify([status, list]).includes("PRIVATE"));
+  assert.deepEqual(readFileSync(join(root, "cron", "executions.db")), before);
+});
 test("live read-only bridge matches installed Hermes jobs and never exposes task content", {
   skip: process.env.HERMES_LIVE_READ !== "1",
 }, async () => {
@@ -183,6 +224,8 @@ test("live read-only bridge matches installed Hermes jobs and never exposes task
     assert.equal(list.items.length, records.length);
     assert.equal(status.activeCount, records.filter((j) => j.enabled !== false).length);
     assert.equal(status.runSupported, false);
+    assert.equal(status.failedTaskCount, list.items.filter((item) => item.lastStatus === "failed").length);
+    assert.ok(Number.isInteger(status.todayRunCount) && status.todayRunCount >= 0);
     if (records.length) await request({ action: "runs", id: records[0].id, limit: 20 });
     await request({ action: "incidents" });
     assert.deepEqual(readFileSync(join(root, "cron", "jobs.json")), before);

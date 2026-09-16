@@ -2,7 +2,7 @@ import type { ScheduledTaskList, ScheduledTaskStatus, ScheduledTaskSummary } fro
 
 /** Read-only projections of the shared contract; Hermes owns scheduling timestamps. */
 export type PreviewTask = Pick<ScheduledTaskSummary, "id" | "name" | "enabled" | "nextRunAt" | "lastStatus">;
-export type PreviewTaskStatus = Pick<ScheduledTaskStatus, "supported" | "reachable" | "schedulerRunning" | "activeCount" | "nextRunAt" | "reason">;
+export type PreviewTaskStatus = Pick<ScheduledTaskStatus, "supported" | "reachable" | "schedulerRunning" | "activeCount" | "todayRunCount" | "failedTaskCount" | "nextRunAt" | "reason">;
 export type PreviewTaskList = Pick<ScheduledTaskList, "supported" | "reachable" | "reason"> & { items: PreviewTask[] };
 
 export function deriveTaskPreview(status: PreviewTaskStatus | null, list: PreviewTaskList | null, now: number) {
@@ -21,5 +21,8 @@ export function deriveTaskPreview(status: PreviewTaskStatus | null, list: Previe
         : tasks.some((task) => Date.parse(task.nextRunAt!) < now) ? "有任务时间待更新"
           : next === null ? (status.activeCount > 0 ? "下次执行时间待确认" : "暂无启用的任务")
             : next.name;
-  return { known, next, upcoming, label, running: known && status?.schedulerRunning === true };
+  return {
+    known, next, upcoming, label, running: known && status?.schedulerRunning === true,
+    todayRunCount: status?.todayRunCount ?? 0, failedTaskCount: status?.failedTaskCount ?? 0,
+  };
 }

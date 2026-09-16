@@ -64,7 +64,8 @@ const reason = z.enum(scheduledTaskReasons);
 const base = {
   schemaVersion: z.literal(1), supported: z.boolean(), reachable: z.boolean(), reason: reason.optional(),
 };
-const lastStatus = z.enum(["success", "failed", "running", "never", "unknown"]);
+// Hermes keeps "delivery_failed" separate: the run succeeded, only the notification did not arrive.
+const lastStatus = z.enum(["success", "failed", "delivery_failed", "running", "never", "unknown"]);
 export const scheduledTaskSummarySchema = z.object({
   id: scheduledTaskIdSchema, name,
   enabled: z.boolean(), scheduleLabel: text(160),
@@ -76,6 +77,7 @@ export const scheduledTaskSummarySchema = z.object({
 export type ScheduledTaskSummary = z.infer<typeof scheduledTaskSummarySchema>;
 const statusSchema = z.object({
   ...base, schedulerRunning: z.boolean().nullable(), activeCount: z.number().int().nonnegative(),
+  todayRunCount: z.number().int().nonnegative(), failedTaskCount: z.number().int().nonnegative(),
   nextRunAt: timestamp, heartbeatAgeSeconds: z.number().finite().nonnegative().nullable(),
   timezone: timezone.nullable(), writesSupported: z.boolean(), runSupported: z.literal(false),
 });
@@ -144,7 +146,8 @@ export function scheduledTaskFailure(
 ): ScheduledTaskResponse {
   const envelope = { schemaVersion: 1 as const, supported, reachable, reason: why };
   if (request.action === "status") return { ...envelope, schedulerRunning: null, activeCount: 0,
-    nextRunAt: null, heartbeatAgeSeconds: null, timezone: null, writesSupported: false, runSupported: false };
+    todayRunCount: 0, failedTaskCount: 0, nextRunAt: null, heartbeatAgeSeconds: null, timezone: null,
+    writesSupported: false, runSupported: false };
   if (request.action === "detail") return { ...envelope, editable: false, draft: null };
   if (request.action === "preview") return { ...envelope, scheduleLabel: null, nextRunAt: null, timezone: null };
   if ("requestId" in request) return { ...envelope, requestId: request.requestId, taskId: "id" in request ? request.id : null,

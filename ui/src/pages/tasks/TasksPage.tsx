@@ -59,6 +59,8 @@ export function TasksPage() {
   const items: TaskView[] = [...(data?.items ?? [])].sort(compareTasks);
   const visible = items.filter((task) => task.name.toLocaleLowerCase().includes(filter.toLocaleLowerCase()));
   const failureFor = (task: TaskView) => {
+    // Hermes reports the delivery error itself; there is no run failure to look up.
+    if (task.lastStatus === "delivery_failed") return taskFailureLabel("delivery");
     if (task.lastStatus !== "failed") return null;
     const incident = incidents?.items.filter((item) => item.taskId === task.id && item.state !== "closed")
       .sort((a, b) => (b.lastSeenAt ?? "").localeCompare(a.lastSeenAt ?? ""))[0];
@@ -122,7 +124,7 @@ export function TasksPage() {
       : status && <section className="tasks-summary" aria-label="定时任务概况">
         <div><span>调度状态</span><strong>{status.schedulerRunning ? "正在运行" : "未确认运行"}</strong></div>
         <div><span>已启用</span><strong>{status.activeCount}</strong></div>
-        <div><span>需要关注</span><strong>{items.filter((task) => ["failed", "unknown"].includes(task.lastStatus)).length}</strong></div>
+        <div><span>需要关注</span><strong>{items.filter((task) => ["failed", "delivery_failed", "unknown"].includes(task.lastStatus)).length}</strong></div>
         <div><span>下一次执行</span><strong>{taskTime(status.nextRunAt, timezone)}</strong></div>
       </section>}
     {supported && reachable && !writable && <Alert type="info" showIcon title="当前为只读模式"
@@ -145,7 +147,8 @@ export function TasksPage() {
               {!task.deliveryEnabled && <span className="task-muted">不发送完成通知</span>}</div>
             <div className="task-next-cell"><span className="task-mobile-label">下一次执行</span>
               {task.enabled ? taskTime(task.nextRunAt, timezone) : "已暂停"}</div>
-            <div><Tag color={task.lastStatus === "failed" ? "error" : task.lastStatus === "success" ? "success" : "default"}>
+            <div><Tag color={task.lastStatus === "failed" ? "error" : task.lastStatus === "delivery_failed" ? "warning"
+              : task.lastStatus === "success" ? "success" : "default"}>
               {taskStatusLabel(task.lastStatus)}</Tag>
               <p className="task-muted">{task.lastRunAt ? taskTime(task.lastRunAt, timezone) : ""}</p>
               {failureFor(task) && <p className="task-failure">{failureFor(task)}</p>}

@@ -12,6 +12,15 @@ describe("scheduled task presentation", () => {
     expect(items.sort(compareTasks).map((task) => task.id)).toEqual(["failed", "next", "later", "paused"]);
   });
 
+  it("keeps a delivery failure distinct from a failed run", () => {
+    expect(taskStatusLabel("delivery_failed")).toBe("通知未送达");
+    const items = [
+      { id: "ok", enabled: true, lastStatus: "success", nextRunAt: null },
+      { id: "undelivered", enabled: true, lastStatus: "delivery_failed", nextRunAt: "2026-09-18T01:00:00Z" },
+    ];
+    expect(items.sort(compareTasks).map((task) => task.id)).toEqual(["undelivered", "ok"]);
+  });
+
   it("does not pretend unknown or never run is successful", () => {
     expect(taskStatusLabel("unknown")).toBe("结果待确认");
     expect(taskStatusLabel("never")).toBe("尚未执行");

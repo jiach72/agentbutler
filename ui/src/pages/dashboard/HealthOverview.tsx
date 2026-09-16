@@ -32,6 +32,7 @@ export function TaskPreview({ tasks, wall = false }: { tasks: ReturnType<typeof 
       <div className="health-section-heading"><h2 id="health-tasks-title">{wall ? "未来 24 小时任务" : "下一条定时任务"}</h2><Link to="/tasks">查看任务</Link></div>
       {(!wall || !tasks.running || tasks.upcoming.length === 0) && <p className="health-task-title">{tasks.label}</p>}
       {!wall && tasks.next && tasks.running && <p><time dateTime={tasks.next.nextRunAt ?? undefined}>{taskTime(tasks.next.nextRunAt)}</time></p>}
+      {!wall && tasks.known && <p className="health-task-stats">今日执行 {tasks.todayRunCount} 次 · 失败任务 {tasks.failedTaskCount} 个</p>}
       {!tasks.known && <p className="health-muted">尚未获得任务列表，无法确认下次执行时间。</p>}
       {tasks.known && !tasks.running && <p className="health-muted">请检查任务调度状态，再核对执行时间。</p>}
       {wall && tasks.running && <ul className="health-task-list">

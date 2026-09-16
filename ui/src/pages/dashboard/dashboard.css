@@ -22,6 +22,7 @@
 .health-more { margin-top: 12px; }
 .health-more summary { cursor: pointer; min-height: 44px; display: list-item; align-content: center; }
 .health-task-title { font-size: 18px; font-weight: 600; overflow-wrap: anywhere; }
+.health-task-stats { margin: 8px 0 0; color: var(--ab-text-2); font-size: 13px; }
 .health-task-list li { display: flex; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--ab-border); }
 .health-task-list li span { overflow-wrap: anywhere; min-width: 0; }
 .health-task-list time { flex-shrink: 0; font-variant-numeric: tabular-nums; }

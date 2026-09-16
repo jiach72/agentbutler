@@ -33,6 +33,7 @@ async (page) => {
     const body = request.method() === "GET" ? null : request.postDataJSON();
     const send = (value, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(value) });
     if (path === "/status") return send({ ...base, schedulerRunning: true, activeCount: items.filter((item) => item.enabled).length,
+      todayRunCount: 3, failedTaskCount: 1,
       nextRunAt: task.nextRunAt, heartbeatAgeSeconds: 4, timezone: "Asia/Shanghai", writesSupported: true, runSupported: false });
     if (path === "/incidents") return send({ ...base, items: [] });
     if (path === "/preview") return send({ ...base, scheduleLabel: "每天 09:00", nextRunAt: task.nextRunAt, timezone: "Asia/Shanghai" });

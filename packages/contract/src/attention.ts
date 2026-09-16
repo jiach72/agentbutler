@@ -156,6 +156,6 @@ export function deriveUserHealthSummary(input: UserHealthInput): UserHealthSumma
 
 export interface WallAttentionSummary {
   health: UserHealthSummary;
-  nextTasks: Array<{ id: string; name: string; nextRunAt: string; lastStatus: "success" | "failed" | "running" | "never" | "unknown" }>;
+  nextTasks: Array<{ id: string; name: string; nextRunAt: string; lastStatus: "success" | "failed" | "delivery_failed" | "running" | "never" | "unknown" }>;
   messageHealth: { pending: number; failed: number; unknown: number; p95Ms: number | null };
 }

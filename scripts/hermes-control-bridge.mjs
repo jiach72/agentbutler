@@ -136,7 +136,7 @@ def failure(q, code):
  if code == "unsupported_version": base["supported"] = False
  if code == "data_unavailable": base["reachable"] = False
  a = q.get("action")
- if a == "status": return dict(base, schedulerRunning=None, activeCount=0, nextRunAt=None,
+ if a == "status": return dict(base, schedulerRunning=None, activeCount=0, todayRunCount=0, failedTaskCount=0, nextRunAt=None,
    heartbeatAgeSeconds=None, timezone=None, writesSupported=False, runSupported=False)
  if a == "detail": return dict(base, editable=False, draft=None)
  if a == "preview": return dict(base, scheduleLabel=None, nextRunAt=None, timezone=None)
@@ -248,7 +248,9 @@ def summary(j, latest=None):
  raw = j.get("last_status")
  state = "never" if raw is None and j.get("last_run_at") is None else "unknown"
  if raw == "ok": state = "success"
- if raw in ("error","failed","delivery_failed"): state = "failed"
+ if raw in ("error","failed"): state = "failed"
+ # Hermes keeps this distinct: the run succeeded, only the delivery failed (not green, not a run failure).
+ if raw == "delivery_failed": state = "delivery_failed"
  if latest and latest["status"] in ("failed","unknown"): state = "failed" if latest["status"]=="failed" else "unknown"
  if latest and latest["status"] in ("claimed","running"): state = "running"
  # delivery_queued is not proof of successful delivery.
@@ -278,6 +280,29 @@ def detail(j):
  if advanced: draft["advanced"]=advanced
  validate_request(dict(action="create",requestId="validate-12345678",draft=draft))
  return envelope(editable=True,draft=draft)
+def latest_execution_states(ids):
+ if not ids: return {}
+ rows=db_rows("SELECT id,job_id,status FROM (SELECT id,job_id,status,ROW_NUMBER() OVER(PARTITION BY job_id ORDER BY claimed_at DESC,id DESC) AS rn FROM executions WHERE job_id IN ("+",".join("?" for _ in ids)+")) WHERE rn=1",ids)
+ return {r["job_id"]:r["status"] for r in rows}
+def hermes_tz():
+ from hermes_time import get_timezone
+ return get_timezone()
+def status_counts(jobs):
+ # Hermes records "delivery_failed" for a run that SUCCEEDED but could not be delivered
+ # (failure_streak stays untouched), so only real agent-run failures count as failed tasks.
+ latest=latest_execution_states([j["id"] for j in jobs])
+ failed=sum(1 for j in jobs if j.get("last_status") in ("error","failed") or latest.get(j["id"])=="failed")
+ tz=hermes_tz()
+ today=(datetime.now(tz) if tz is not None else datetime.now().astimezone()).date()
+ runs=0
+ for row in db_rows("SELECT started_at,claimed_at FROM executions ORDER BY claimed_at DESC LIMIT 5000"):
+  stamp=row.get("started_at") or row.get("claimed_at")
+  if not isinstance(stamp,str): continue
+  try: at=datetime.fromisoformat(stamp.replace("Z","+00:00"))
+  except ValueError: continue
+  if at.tzinfo is None: at=at.replace(tzinfo=tz) if tz is not None else at.astimezone()
+  if at.astimezone(tz).date()==today: runs+=1
+ return runs,failed
 def read_action(q):
  a=q["action"]
  if a=="preview": return preview(q["schedule"])
@@ -292,10 +317,8 @@ def read_action(q):
  jobs=read_jobs()
  if a=="detail": return detail(find_job(q,jobs))
  if a=="list":
-  ids=[j["id"] for j in jobs]
-  latest=db_rows("SELECT id,job_id,status FROM (SELECT id,job_id,status,ROW_NUMBER() OVER(PARTITION BY job_id ORDER BY claimed_at DESC,id DESC) AS rn FROM executions WHERE job_id IN ("+",".join("?" for _ in ids)+")) WHERE rn=1",ids) if ids else []
-  by_id={r["job_id"]:r for r in latest}
-  return envelope(items=[summary(j,by_id.get(j["id"])) for j in jobs])
+  states=latest_execution_states([j["id"] for j in jobs])
+  return envelope(items=[summary(j,{"status":states[j["id"]]} if j["id"] in states else None) for j in jobs])
  from cron.jobs import get_ticker_heartbeat_age, get_ticker_success_age, TICKER_INTERVAL_SECONDS
  hb=get_ticker_heartbeat_age(); ok=get_ticker_success_age()
  if hb is not None and not math.isfinite(hb): reject("data_unavailable")
@@ -311,8 +334,9 @@ def read_action(q):
  running=(alive is True and hb is not None and hb <= TICKER_INTERVAL_SECONDS*3+20 and
    (ok is None or ok <= TICKER_INTERVAL_SECONDS*3+20)) if builtin else None
  active=[j for j in jobs if j.get("enabled",True)]
+ today_runs,failed_tasks=status_counts(jobs)
  times=[iso(j["next_run_at"]) for j in active if j.get("next_run_at")]
- return envelope(schedulerRunning=running,activeCount=len(active),
+ return envelope(schedulerRunning=running,activeCount=len(active),todayRunCount=today_runs,failedTaskCount=failed_tasks,
    nextRunAt=min(times,key=lambda v:datetime.fromisoformat(v).timestamp()) if times else None,
    heartbeatAgeSeconds=hb,timezone=tz_name(),writesSupported=builtin,runSupported=False,
    **({} if builtin else {"reason":"unsupported_scheduler"}))
@@ -512,7 +536,8 @@ function cronResponse(q, raw) {
   }
   if ((!base.supported || !base.reachable) && !base.reason) throw new Error("invalid_response");
   if (q.action === "status") return { ...base, ...pickCron(raw, {
-    schedulerRunning: (v) => v === null || cronBool(v), activeCount: cronCount, nextRunAt: cronTime,
+    schedulerRunning: (v) => v === null || cronBool(v), activeCount: cronCount,
+    todayRunCount: cronCount, failedTaskCount: cronCount, nextRunAt: cronTime,
     heartbeatAgeSeconds: (v) => v === null || (typeof v === "number" && Number.isFinite(v) && v >= 0),
     timezone: (v) => v === null || (typeof v === "string" && /^[A-Za-z0-9_+/-]{1,80}$/.test(v)),
     writesSupported: cronBool, runSupported: (v) => v === false,
@@ -536,7 +561,7 @@ function cronResponse(q, raw) {
   if (!Array.isArray(raw.items) || raw.items.length > (q.action === "runs" ? q.limit : 1000)) throw new Error("invalid_response");
   const shapes = {
     list: { id: cronId, name: cronName, enabled: cronBool, scheduleLabel: (v) => cronText(v, 160),
-      nextRunAt: cronTime, lastRunAt: cronTime, lastStatus: (v) => ["success","failed","running","never","unknown"].includes(v),
+      nextRunAt: cronTime, lastRunAt: cronTime, lastStatus: (v) => ["success","failed","delivery_failed","running","never","unknown"].includes(v),
       failureStreak: cronCount, deliveryEnabled: cronBool, editable: cronBool },
     runs: { id: cronId, taskId: (v) => v === q.id, status: (v) => ["claimed","running","completed","failed","unknown"].includes(v),
       claimedAt: cronTime, startedAt: cronTime, finishedAt: cronTime },

@@ -2,6 +2,7 @@ export function taskStatusLabel(status: string): string {
   return ({
     success: "执行成功",
     failed: "执行失败",
+    delivery_failed: "通知未送达",
     running: "正在执行",
     never: "尚未执行",
     unknown: "结果待确认",
@@ -24,7 +25,7 @@ export function taskTime(value: string | null | undefined, timezone?: string | n
 
 type SortableTask = { enabled: boolean; lastStatus: string; nextRunAt: string | null };
 export function compareTasks(left: SortableTask, right: SortableTask): number {
-  const rank = (task: SortableTask) => !task.enabled ? 2 : ["failed", "unknown"].includes(task.lastStatus) ? 0 : 1;
+  const rank = (task: SortableTask) => !task.enabled ? 2 : ["failed", "delivery_failed", "unknown"].includes(task.lastStatus) ? 0 : 1;
   const timestamp = (task: SortableTask) => task.nextRunAt && Number.isFinite(Date.parse(task.nextRunAt))
     ? Date.parse(task.nextRunAt) : Number.MAX_SAFE_INTEGER;
   return rank(left) - rank(right) || timestamp(left) - timestamp(right);
