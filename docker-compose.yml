@@ -171,6 +171,7 @@ services:
       BUTLER_WATCH_URL: http://butler-watch:7533
       # 面板发布到非回环地址时必填；留空则只允许本机访问。
       BUTLER_ACCESS_TOKEN: ${BUTLER_ACCESS_TOKEN:-}
+      BUTLER_GIT_COMMIT: ${BUTLER_GIT_COMMIT:-}
     depends_on:
       butler-gateway:
         condition: service_healthy

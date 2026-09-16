@@ -99,7 +99,7 @@ describe("Hermes control bridge", () => {
       const result = await call(server, "secret", "restart-hermes");
       expect(result.status).toBe(200);
       expect(calls).toEqual([["restart", "hermes-gateway.service"], ["is-active", "hermes-gateway.service"]]);
-      expect(result.body).toEqual({ active: true, unit: "hermes-gateway.service" });
+      expect(result.body).toEqual({ active: true, unit: "hermes-gateway.service", supervisor: "systemd" });
     } finally { server.close(); }
   });
 
@@ -129,7 +129,7 @@ describe("Hermes control bridge", () => {
     try {
       const result = await call(server, "secret", "cleanup-orphan-gateways");
       expect(result.status).toBe(200);
-      expect(result.body).toEqual({ active: true, unit: "hermes-gateway.service", cleanedPids: [202], mainPid: 101 });
+      expect(result.body).toEqual({ active: true, unit: "hermes-gateway.service", supervisor: "systemd", cleanedPids: [202], mainPid: 101 });
       expect(systemctlCalls).toEqual([["is-active", "hermes-gateway.service"]]);
       expect(processCalls).toEqual([
         ["pgrep", ["-f", "hermes_cli.main gateway run"]],
@@ -139,6 +139,79 @@ describe("Hermes control bridge", () => {
     } finally {
       server.close();
       rmSync(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("reports active:null and rejects mutations with 422 when supervisor is unavailable (macOS)", async () => {
+    const server = createHermesControlBridgeServer({
+      unit: "hermes-gateway.service",
+      readToken: () => "secret",
+      runSystemctl: async () => ({ code: 1, stdout: "", stderr: "command not found", notFound: true }),
+    });
+    await new Promise((resolve) => server.listen(0, resolve));
+    try {
+      const statusRes = await call(server, "secret", "status");
+      expect(statusRes.status).toBe(200);
+      expect(statusRes.body).toEqual({
+        active: null,
+        unit: "hermes-gateway.service",
+        supervisor: "unavailable",
+        supervisorReason: "systemctl_missing",
+      });
+
+      const restartRes = await call(server, "secret", "restart-hermes");
+      expect(restartRes.status).toBe(422);
+      expect(restartRes.body).toEqual({ error: "supervisor_unavailable" });
+    } finally {
+      server.close();
+    }
+  });
+
+  it("exposes /v1/health endpoint with token protection and supervisor info", async () => {
+    const server = createHermesControlBridgeServer({
+      unit: "hermes-gateway.service",
+      readToken: () => "secret",
+      runSystemctl: async () => ({ code: 0, stdout: "active\n", stderr: "" }),
+    });
+    await new Promise((resolve) => server.listen(0, resolve));
+    try {
+      const unauth = await new Promise((resolve, reject) => {
+        const req = request({ hostname: "127.0.0.1", port: server.address().port, path: "/v1/health", method: "GET" }, (res) => {
+          let body = "";
+          res.on("data", (chunk) => { body += chunk; });
+          res.on("end", () => resolve({ status: res.statusCode, body: JSON.parse(body) }));
+        });
+        req.on("error", reject);
+        req.end();
+      });
+      expect(unauth.status).toBe(401);
+
+      const health = await new Promise((resolve, reject) => {
+        const req = request({
+          hostname: "127.0.0.1",
+          port: server.address().port,
+          path: "/v1/health",
+          method: "GET",
+          headers: { authorization: "Bearer secret" },
+        }, (res) => {
+          let body = "";
+          res.on("data", (chunk) => { body += chunk; });
+          res.on("end", () => resolve({ status: res.statusCode, body: JSON.parse(body) }));
+        });
+        req.on("error", reject);
+        req.end();
+      });
+      expect(health.status).toBe(200);
+      expect(health.body).toMatchObject({
+        ok: true,
+        bridgeVersion: "0.1.0-beta.260911.13",
+        supervisor: "systemd",
+        active: true,
+        unit: "hermes-gateway.service",
+        expectedRevision: "hermes-f94a7a1-cron-v1",
+      });
+    } finally {
+      server.close();
     }
   });
 });

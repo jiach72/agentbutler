@@ -203,7 +203,7 @@ export function ToolsPage() {
                 宿主机一键体检命令
               </Title>
               <Text type="secondary" style={{ fontSize: 13 }}>
-                在 WSL 或 Linux 宿主终端直接执行，自动核验 Docker 容器、8754 回环端口与 Token 权限
+                在宿主终端（Linux / WSL / macOS）直接执行，自动核验 Docker 容器、8754/8756 回环端口与 Token 权限
               </Text>
             </div>
             <Flex align="center" gap={12} wrap="wrap">

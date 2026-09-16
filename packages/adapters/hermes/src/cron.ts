@@ -25,10 +25,16 @@ export class HermesCronClient {
           method: "POST", redirect: "error",
           headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
           body: JSON.stringify(request),
-          signal: AbortSignal.timeout(request.action === "run" ? Math.max(65_000, this.options.timeoutMs ?? 65_000) : (this.options.timeoutMs ?? 45_000)),
+          signal: AbortSignal.timeout(request.action === "run" ? Math.max(75_000, this.options.timeoutMs ?? 75_000) : (this.options.timeoutMs ?? 45_000)),
         },
       );
+      if (response.status === 401 || response.status === 403) {
+        return scheduledTaskFailure(request, "unauthorized");
+      }
       const body = await readScheduledTaskJson(response);
+      if (response.status === 503 && typeof body === "object" && body !== null && (body as { error?: string }).error === "token_unavailable") {
+        return scheduledTaskFailure(request, "token_unavailable");
+      }
       const parsed = parseScheduledTaskResponse(request.action, body);
       if (!parsed || ("requestId" in request && (!("requestId" in parsed) || parsed.requestId !== request.requestId)) ||
         ("id" in request && "taskId" in parsed && parsed.taskId !== request.id)) {

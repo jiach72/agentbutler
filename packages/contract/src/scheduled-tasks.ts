@@ -80,6 +80,10 @@ const statusSchema = z.object({
   todayRunCount: z.number().int().nonnegative(), failedTaskCount: z.number().int().nonnegative(),
   nextRunAt: timestamp, heartbeatAgeSeconds: z.number().finite().nonnegative().nullable(),
   timezone: timezone.nullable(), writesSupported: z.boolean(), runSupported: z.boolean(),
+  bridgeVersion: z.string().optional(),
+  expectedRevision: z.string().optional(),
+  detectedRevision: z.string().optional(),
+  supervisor: z.enum(["systemd", "launchd", "none", "unavailable"]).optional(),
 });
 export type ScheduledTaskStatus = z.infer<typeof statusSchema>;
 const listSchema = z.object({ ...base, items: z.array(scheduledTaskSummarySchema).max(1000) });

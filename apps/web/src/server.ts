@@ -1989,6 +1989,7 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
       serviceVersion: WEB_VERSION,
       schemaVersion: CONTROL_API_SCHEMA_VERSION,
       bundleVersion,
+      gitCommit: process.env.BUTLER_GIT_COMMIT || null,
       services: {
         gateway: gatewayHealth,
         watch: watchHealth,

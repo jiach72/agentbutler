@@ -615,10 +615,11 @@ function defaultCron(rootPath, repoPath) {
     const venv = ["venv", ".venv"].map((dir) => join(repoPath, dir, "bin"))
       .find((dir) => existsSync(join(dir, "python")) && existsSync(join(dir, "hermes")));
     if (!venv) throw new Error("cron_unavailable");
+    const timeoutMs = body && body.action === "run" ? 70_000 : 40_000;
     return new Promise((resolve, reject) => {
       const child = execFile(join(venv, "python"),
         ["-c", HERMES_CRON_PYTHON, repoPath, rootPath, join(venv, "hermes")],
-        { timeout: 40_000, maxBuffer: 2 * 1024 * 1024, windowsHide: true, shell: false },
+        { timeout: timeoutMs, maxBuffer: 2 * 1024 * 1024, windowsHide: true, shell: false },
         (error, stdout) => {
           if (error) return reject(new Error("cron_unavailable"));
           try { resolve(JSON.parse(stdout)); } catch { reject(new Error("cron_invalid_response")); }
@@ -649,10 +650,12 @@ function defaultSystemctl(timeoutMs) {
   return (args) =>
     new Promise((resolve) => {
       execFile("systemctl", ["--user", ...args], { timeout: timeoutMs }, (error, stdout, stderr) => {
+        const notFound = Boolean(error && ("code" in error && (error.code === "ENOENT" || error.code === 127)));
         resolve({
           code: error ? (typeof error.code === "number" ? error.code : 1) : 0,
           stdout: stdout ?? "",
           stderr: stderr ?? "",
+          notFound,
         });
       });
     });
@@ -717,8 +720,14 @@ export function createHermesControlBridgeServer(options) {
   const runCron = options.runCron ?? defaultCron(rootPath, options.hermesRepoPath ?? join(homedir(), ".hermes", "hermes-agent"));
 
   async function status() {
+    if (options.supervisor === "unavailable") {
+      return { active: null, unit: options.unit, supervisor: "unavailable", supervisorReason: options.supervisorReason ?? "systemctl_missing" };
+    }
     const result = await runSystemctl(["is-active", options.unit]);
-    return { active: result.code === 0 && result.stdout.trim() === "active", unit: options.unit };
+    if (result.notFound || result.code === 127) {
+      return { active: null, unit: options.unit, supervisor: "unavailable", supervisorReason: "systemctl_missing" };
+    }
+    return { active: result.code === 0 && result.stdout.trim() === "active", unit: options.unit, supervisor: options.supervisor ?? "systemd" };
   }
 
   async function action(name) {
@@ -727,13 +736,48 @@ export function createHermesControlBridgeServer(options) {
       const cleanup = await cleanupOrphanGateways(rootPath, runProcess);
       return { ...(await status()), ...cleanup };
     }
+    if (options.supervisor === "unavailable") {
+      const err = new Error("supervisor_unavailable");
+      err.code = "supervisor_unavailable";
+      throw err;
+    }
     const command = name.replace("-hermes", "");
     const result = await runSystemctl([command, options.unit]);
+    if (result.notFound || result.code === 127) {
+      const err = new Error("supervisor_unavailable");
+      err.code = "supervisor_unavailable";
+      throw err;
+    }
     if (result.code !== 0) throw new Error("systemctl failed");
     return status();
   }
 
   return createServer(async (req, res) => {
+    if (req.method === "GET" && req.url === "/v1/health") {
+      let expected;
+      try {
+        expected = readToken();
+      } catch {
+        return json(res, 503, { error: "token_unavailable" });
+      }
+      const supplied = bearerToken(req.headers.authorization);
+      if (!expected || !supplied || !tokenMatches(expected, supplied)) return json(res, 401, { error: "unauthorized" });
+      const currentStatus = await status();
+      const hermesRepo = options.hermesRepoPath ?? join(homedir(), ".hermes", "hermes-agent");
+      const cronCapable = Boolean(
+        existsSync(join(hermesRepo, "cron", "jobs.py")) ||
+        existsSync(join(rootPath, "hermes-agent", "cron", "jobs.py"))
+      );
+      return json(res, 200, {
+        ok: true,
+        bridgeVersion: "0.1.0-beta.260911.13",
+        supervisor: currentStatus.supervisor,
+        active: currentStatus.active,
+        unit: options.unit,
+        cronCapable,
+        expectedRevision: "hermes-f94a7a1-cron-v1",
+      });
+    }
     if (req.method !== "POST" || !["/v1/control", "/v1/cron"].includes(req.url)) return json(res, 404, { error: "not_found" });
     const cron = req.url === "/v1/cron";
 
@@ -779,7 +823,10 @@ export function createHermesControlBridgeServer(options) {
 
     try {
       return json(res, 200, await action(name));
-    } catch {
+    } catch (err) {
+      if (err?.code === "supervisor_unavailable" || err?.message === "supervisor_unavailable") {
+        return json(res, 422, { error: "supervisor_unavailable" });
+      }
       return json(res, 502, { error: "control_failed" });
     }
   });

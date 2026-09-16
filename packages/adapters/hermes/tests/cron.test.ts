@@ -49,4 +49,16 @@ describe("Hermes cron client", () => {
     expect(await client({ ...response, requestId: "request-other-0001" }).api.request(input)).toMatchObject({ outcome: "unknown" });
     expect(await client(response, 503).api.request(input)).toMatchObject({ outcome: "unknown" });
   });
+  it("maps 401/403 to unauthorized and 503 token_unavailable to token_unavailable", async () => {
+    const listInput = { action: "list" as const };
+    expect(await client({ error: "unauthorized" }, 401).api.request(listInput)).toMatchObject({
+      reachable: false, reason: "unauthorized",
+    });
+    expect(await client({ error: "forbidden" }, 403).api.request(listInput)).toMatchObject({
+      reachable: false, reason: "unauthorized",
+    });
+    expect(await client({ error: "token_unavailable" }, 503).api.request(listInput)).toMatchObject({
+      reachable: false, reason: "token_unavailable",
+    });
+  });
 });

@@ -72,6 +72,8 @@ ARG SKILLS_MANAGER_CLI_ARM64_SHA256=4f229d931a2e2d4a3ceed3aa13c2f27e5e21cc9385cd
 # arm64 分支同时收 `linux/arm64/v8` 这类带 variant 的写法（部分 buildkit/旧
 # builder 会把 variant 拼进 TARGETPLATFORM）：漏掉它会让 Apple Silicon 构建静默
 # 装成 x64 二进制（x64 的 sha 校验照样通过，靠运行时冒烟才自愈）。
+# BuildKit 预定义平台参数在多阶段构建中必须在 stage 内显式声明 ARG 才能读取。
+ARG TARGETPLATFORM
 RUN case "$TARGETPLATFORM" in \
       linux/arm64|linux/arm64/*) \
         SKILLS_CLI_URL="https://github.com/xingkongliang/skills-manager/releases/download/${SKILLS_MANAGER_CLI_VERSION}/skills-manager-cli-Linux-arm64"; \

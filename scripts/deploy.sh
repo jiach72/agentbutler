@@ -114,6 +114,7 @@ fi
 if ! git diff --quiet || [[ -n "$(git ls-files --others --exclude-standard)" ]]; then
   echo "WARNING: deploying from a dirty worktree; record the commit and local diff before release." >&2
 fi
+export BUTLER_GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)"
 
 # ---- 预检：提前暴露两类已知事故（见 docs/deployment-20260825.md 踩坑记录）----
 
@@ -161,19 +162,33 @@ fi
 control_url="${BUTLER_HERMES_CONTROL_URL:-$(env_value BUTLER_HERMES_CONTROL_URL)}"
 control_token_container="${BUTLER_HERMES_CONTROL_TOKEN_FILE:-$(env_value BUTLER_HERMES_CONTROL_TOKEN_FILE)}"
 control_token_container="${control_token_container:-/home/butler/hermes/agent-butler/control.token}"
-if [[ "$hermes_host_path" == "$HOME/.hermes" ]] && command -v systemctl >/dev/null 2>&1 &&
-   systemctl --user cat hermes-gateway.service >/dev/null 2>&1; then
-  bash scripts/install-hermes-control-bridge.sh
-  if [[ -z "$control_url" ]]; then
-    control_url="http://host.docker.internal:8757"
-    env_set BUTLER_HERMES_CONTROL_URL "$control_url"
+latest_backup="none"
+if [[ "$hermes_host_path" == "$HOME/.hermes" ]]; then
+  if command -v systemctl >/dev/null 2>&1 && systemctl --user cat hermes-gateway.service >/dev/null 2>&1; then
+    bash scripts/install-hermes-control-bridge.sh
+    if [[ -z "$control_url" ]]; then
+      control_url="http://host.docker.internal:8757"
+      env_set BUTLER_HERMES_CONTROL_URL "$control_url"
+    fi
+    if [[ -z "$(env_value BUTLER_HERMES_CONTROL_TOKEN_FILE)" ]]; then
+      env_set BUTLER_HERMES_CONTROL_TOKEN_FILE "$control_token_container"
+    fi
+    export BUTLER_HERMES_CONTROL_URL="$control_url"
+    export BUTLER_HERMES_CONTROL_TOKEN_FILE="$control_token_container"
+    echo "Hermes 宿主控制桥已安装；Watch 将通过受限白名单接口执行一键修复。"
+  elif [[ "$(uname -s)" == "Darwin" && -d "$hermes_host_path/hermes-agent" ]]; then
+    bash scripts/install-hermes-control-bridge.sh
+    if [[ -z "$control_url" ]]; then
+      control_url="http://host.docker.internal:8756"
+      env_set BUTLER_HERMES_CONTROL_URL "$control_url"
+    fi
+    if [[ -z "$(env_value BUTLER_HERMES_CONTROL_TOKEN_FILE)" ]]; then
+      env_set BUTLER_HERMES_CONTROL_TOKEN_FILE "$control_token_container"
+    fi
+    export BUTLER_HERMES_CONTROL_URL="$control_url"
+    export BUTLER_HERMES_CONTROL_TOKEN_FILE="$control_token_container"
+    echo "Hermes macOS 宿主控制桥已安装；Watch 将通过受限白名单接口执行一键修复。"
   fi
-  if [[ -z "$(env_value BUTLER_HERMES_CONTROL_TOKEN_FILE)" ]]; then
-    env_set BUTLER_HERMES_CONTROL_TOKEN_FILE "$control_token_container"
-  fi
-  export BUTLER_HERMES_CONTROL_URL="$control_url"
-  export BUTLER_HERMES_CONTROL_TOKEN_FILE="$control_token_container"
-  echo "Hermes 宿主控制桥已安装；Watch 将通过受限白名单接口执行一键修复。"
 fi
 if [[ "$control_url" == *":8757" ]]; then
   compose_args+=(--profile hermes-control-forward)
@@ -182,6 +197,7 @@ fi
 if [[ -n "$bridge_url" && ! -s "$hermes_host_path/agent-butler/bridge.token" ]]; then
   echo "ERROR: BUTLER_HERMES_BRIDGE_URL is configured but token is missing: $hermes_host_path/agent-butler/bridge.token" >&2
   echo "       Set BUTLER_HERMES_HOST_PATH to the Linux Hermes state directory." >&2
+  echo "DEPLOY_RESULT=failed step=preflight_token" >&2
   exit 1
 fi
 
@@ -199,7 +215,8 @@ if docker volume inspect "$DATA_VOLUME" >/dev/null 2>&1; then
   fi
   if docker run --rm -v "$DATA_VOLUME:/data:ro" -v "$PWD/backups:/backup" alpine \
       tar czf "/backup/$backup_name" --exclude "./backups" -C /data .; then
-    echo "Backup OK."
+    latest_backup="backups/$backup_name"
+    echo "Backup OK: $latest_backup"
     # 备份保留策略：只留最近 BUTLER_BACKUP_KEEP 份（默认 4），防止每次部署 +数 GB 永久累积。
     backup_keep="${BUTLER_BACKUP_KEEP:-4}"
     ls -1t backups/butler-data-*.tgz 2>/dev/null | tail -n +"$((backup_keep + 1))" | while IFS= read -r old; do
@@ -249,6 +266,8 @@ for _ in {1..30}; do
         echo "         Gateway 会每秒自动重试，Bridge 就绪后自动接回；排查: bash scripts/bridge-healthcheck.sh" >&2
       fi
     fi
+    deploy_sha=$(git rev-parse HEAD 2>/dev/null || echo unknown)
+    echo "DEPLOY_RESULT=ok sha=$deploy_sha backup=$latest_backup"
     exit 0
   fi
   sleep 2
@@ -266,4 +285,6 @@ for pair in "butler-web:$web_ok" "butler-gateway:$gateway_ok" "butler-watch:$wat
   fi
 done
 echo "Full logs: docker compose logs --tail=200" >&2
+deploy_sha=$(git rev-parse HEAD 2>/dev/null || echo unknown)
+echo "DEPLOY_RESULT=failed step=healthcheck sha=$deploy_sha backup=$latest_backup" >&2
 exit 1

@@ -15,7 +15,8 @@
  * 退出码：0 = 全绿；1 = 有失败项。输出可整段复制给支持渠道（已脱敏）。
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 const argv = process.argv.slice(2);
@@ -119,14 +120,77 @@ const bridgeDirect = await probeTcp("127.0.0.1", 8754);
 const bridgeForward = await probeTcp("127.0.0.1", 8755);
 if (bridgeDirect || bridgeForward) {
   pass(
-    "Hermes Bridge 链路",
+    "Hermes 消息桥链路 (8754/8755)",
     bridgeDirect ? "8754 直连可达" : "8755 转发器可达（8754 经转发）",
   );
 } else {
   warn(
-    "Hermes Bridge 链路",
+    "Hermes 消息桥链路 (8754/8755)",
     "8754/8755 均不可达——若你未启用消息网关（Hermes 消息面）可忽略本项",
     "启用消息面时：宿主先启动 hermes-gateway；容器内配置 BUTLER_HERMES_BRIDGE_URL=http://host.docker.internal:8755",
+  );
+}
+
+/* ------------------ 4b. Hermes Host Control Bridge ------------------ */
+
+const controlDirect = await probeTcp("127.0.0.1", 8756);
+const controlForward = await probeTcp("127.0.0.1", 8757);
+const defaultHermesHome = join(process.env.HOME || homedir() || "", ".hermes");
+const controlTokenPath = join(defaultHermesHome, "agent-butler", "control.token");
+
+if (controlDirect || controlForward) {
+  pass(
+    "Hermes 控制桥链路 (8756/8757)",
+    controlDirect ? "8756 直连可达（宿主控制桥）" : "8757 转发器可达（WSL 转发模式）",
+  );
+
+  if (existsSync(controlTokenPath)) {
+    try {
+      const stats = statSync(controlTokenPath);
+      const mode = (stats.mode & 0o777).toString(8);
+      if (process.platform !== "win32" && (stats.mode & 0o077) !== 0) {
+        warn(
+          "control.token 权限",
+          `文件权限为 ${mode}（非 600，过于宽松）`,
+          `执行 chmod 600 "${controlTokenPath}" 锁定权限`,
+        );
+      } else {
+        pass("control.token 权限", "权限正常（600）");
+      }
+
+      // 探 /v1/health
+      const token = readFileSync(controlTokenPath, "utf8").trim();
+      const port = controlDirect ? 8756 : 8757;
+      try {
+        const healthRes = await fetch(`http://127.0.0.1:${port}/v1/health`, {
+          headers: { authorization: `Bearer ${token}` },
+          signal: AbortSignal.timeout(4000),
+        });
+        if (healthRes.ok) {
+          const healthData = await healthRes.json().catch(() => ({}));
+          pass("控制桥健康状态", `版本 ${healthData.bridgeVersion || "ok"}，主管器 ${healthData.supervisor || "n/a"}，cron能力 ${healthData.cronCapable ? "具备" : "缺失"}`);
+        } else if (healthRes.status === 401) {
+          fail("控制桥健康状态", "401 Unauthorized：control.token 与控制桥不匹配", "重新执行 bash scripts/install-hermes-control-bridge.sh");
+        }
+      } catch (err) {
+        // 健康检查端点失败不阻断 doctor 主流程
+        void err;
+      }
+    } catch (e) {
+      warn("control.token 读取", e.message);
+    }
+  } else {
+    warn(
+      "control.token 存在性",
+      `${controlTokenPath} 不存在`,
+      "执行 bash scripts/install-hermes-control-bridge.sh 自动生成 token 并安装控制桥",
+    );
+  }
+} else {
+  warn(
+    "Hermes 控制桥链路 (8756/8757)",
+    "8756/8757 均不可达——若未启用「定时任务」新功能可忽略本项",
+    "执行 bash scripts/install-hermes-control-bridge.sh 安装宿主控制桥（Linux / macOS）",
   );
 }
 
