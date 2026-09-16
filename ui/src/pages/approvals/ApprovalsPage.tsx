@@ -11,7 +11,7 @@
  *
  * 数据真相原则：卡片里绝不出现对话正文——审批只针对「动作」，不看 agent 说了什么。
  */
-import { Alert, App, Button, Card, Flex, Popconfirm, Segmented, Space, Table, Tag, Tooltip, Typography } from "antd";
+import { Alert, App, Button, Card, Drawer, Flex, Popconfirm, Segmented, Space, Table, Tag, Tooltip, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import {
   CheckCircleOutlined,
@@ -34,9 +34,19 @@ import type { StatStripItem } from "../../components/StatStrip.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { approvalStatusLabel, approvalStatusTone, isAuditApproval } from "./helpers.js";
 import { runInlineDecision, type ApprovalDecision } from "./decision.js";
-import { loadJson, postJson } from "../../lib/api.js";
+import { deleteJson, loadJson, postJson } from "../../lib/api.js";
 import { usePolling } from "../../hooks/usePolling.js";
 import { useUrlState } from "../../hooks/useUrlState.js";
+
+export interface ActionFingerprintRule {
+  fingerprint: string;
+  kind: string;
+  target: string;
+  rule: "block" | "trust";
+  reason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface ApprovalItem {
   id: string;
@@ -100,7 +110,7 @@ const KIND_LABEL: Record<string, string> = {
 /** 剩余时限：仅对 pending 有意义（服务端已按状态归零）。 */
 const remainingText = (item: ApprovalItem): string => {
   if (item.status !== "pending") return "—";
-  if (item.remainingMs <= 0) return "即将超时";
+  if (item.remainingMs <= 0) return isAuditApproval(item) ? "已过窗口" : "即将拦截";
   const totalSec = Math.round(item.remainingMs / 1000);
   const min = Math.floor(totalSec / 60);
   const sec = totalSec % 60;
@@ -122,8 +132,17 @@ export function ApprovalsPage() {
   const [data, setData] = useState<ApprovalsPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-  // 过滤同步到 URL（规范 03 §3.12）：刷新/分享能还原同一视图（评审 P1-7）。
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  // 动作指纹规则库抽屉与数据
+  const [rulesOpen, setRulesOpen] = useState(false);
+  const [rules, setRules] = useState<ActionFingerprintRule[]>([]);
+  const [rulesLoading, setRulesLoading] = useState(false);
+
+  // 过滤同步到 URL
+  const [category, setCategory] = useUrlState<string>("category", "all");
   const [filter, setFilter] = useUrlState<string>("filter", "pending");
+  const [timeWindow, setTimeWindow] = useUrlState<string>("time", "24h");
 
   const refresh = useCallback(() => {
     const params = new URLSearchParams({ limit: "200" });
@@ -142,35 +161,111 @@ export function ApprovalsPage() {
     });
   }, [filter]);
 
+  const loadRules = useCallback(() => {
+    setRulesLoading(true);
+    void loadJson<{ rules: ActionFingerprintRule[] }>("/api/approvals/rules", 10_000).then((result) => {
+      setRulesLoading(false);
+      if (result.ok && Array.isArray(result.data.rules)) {
+        setRules(result.data.rules);
+      }
+    });
+  }, []);
+
+  const removeRule = async (fingerprint: string) => {
+    const result = await deleteJson(`/api/approvals/rules/${encodeURIComponent(fingerprint)}`, 10_000);
+    if (result.ok) {
+      message.success("已解除该指纹规则");
+      loadRules();
+    } else {
+      message.error("解除规则失败");
+    }
+  };
+
   useEffect(() => {
     refresh();
   }, [refresh]);
   // 15s 轮询：与后端超时结算节奏对齐，倒计时不会与真实状态脱节太久。
   usePolling(refresh, 15_000);
 
+  useEffect(() => {
+    loadRules();
+  }, [loadRules]);
+
   /**
    * 列表行内快捷决策（与确认页同一 API）；升级单仍引导进详情页核对目标。
-   *
-   * 反馈口径走 ./decision.ts → lib/approval-decision，与顶部通知中心同源：
-   * 409/410/404（单子已被处理或已升级）一律静默，只靠 refresh 把陈旧行收走；
-   * 只有「真的没生效」的传输层失败与 5xx 才出声，且一次最多一条。
    */
   const decide = useCallback(
-    async (item: ApprovalItem, decision: ApprovalDecision) => {
+    async (
+      item: ApprovalItem,
+      decision: ApprovalDecision,
+      options?: { blockFingerprint?: boolean; trustFingerprint?: boolean },
+    ) => {
       setBusyId(item.id);
       await runInlineDecision(
         {
           postJson,
           onToast: (level, text) => message[level](text),
-          onSettled: () => refresh(),
+          onSettled: () => {
+            refresh();
+            loadRules();
+          },
         },
         item.id,
         decision,
+        {
+          isAudit: isAuditApproval(item),
+          blockFingerprint: options?.blockFingerprint,
+          trustFingerprint: options?.trustFingerprint,
+        },
       );
       setBusyId(null);
     },
-    [message, refresh],
+    [loadRules, message, refresh],
   );
+
+  // 列表过滤与折叠
+  const allItems = data?.items ?? [];
+  const now = Date.now();
+  const filteredByCategory = allItems.filter((item) => {
+    if (category === "gate") return !isAuditApproval(item);
+    if (category === "audit") return isAuditApproval(item);
+    return true;
+  });
+
+  const filteredItems = filteredByCategory.filter((item) => {
+    if (timeWindow === "24h") {
+      return now - new Date(item.createdAt).getTime() <= 24 * 3600 * 1000;
+    }
+    if (timeWindow === "3d") {
+      return now - new Date(item.createdAt).getTime() <= 72 * 3600 * 1000;
+    }
+    return true;
+  });
+
+  const hiddenByTimeCount = filteredByCategory.length - filteredItems.length;
+  const pendingInView = filteredItems.filter((i) => i.status === "pending");
+  const hasGateInPending = pendingInView.some((i) => !isAuditApproval(i));
+
+  const handleBulkDecide = async (decision: "approve" | "deny") => {
+    if (pendingInView.length === 0) return;
+    setBulkBusy(true);
+    const result = await postJson(
+      "/api/approvals/bulk-decide",
+      { ids: pendingInView.map((i) => i.id), decision },
+      20_000,
+    );
+    setBulkBusy(false);
+    if (result.ok) {
+      message.success(
+        hasGateInPending
+          ? `已批量放行 ${pendingInView.length} 条动作`
+          : `已批量确认 ${pendingInView.length} 条异动为已知`,
+      );
+      refresh();
+    } else {
+      message.error("批量处理失败，请重试");
+    }
+  };
 
   const columns: ColumnsType<ApprovalItem> = [
     {
@@ -179,6 +274,23 @@ export function ApprovalsPage() {
       key: "title",
       ellipsis: true,
       render: (title: string, row) => <Link to={`/approvals/${encodeURIComponent(row.id)}`}>{title}</Link>,
+    },
+    {
+      title: "类别",
+      key: "category",
+      width: 110,
+      render: (_: unknown, row) => {
+        const audit = isAuditApproval(row);
+        return audit ? (
+          <Tooltip title="事后核验：动作已由 Hermes 执行完毕，不阻塞后续流程。可确认已知或存疑拉黑。">
+            <Tag color="default">📋 事后核验</Tag>
+          </Tooltip>
+        ) : (
+          <Tooltip title="事前放行：动作在落地前被管家拦截，等待您批准放行。超时将自动拒绝。">
+            <Tag color="processing">🛡️ 事前放行</Tag>
+          </Tooltip>
+        );
+      },
     },
     {
       title: "类型",
@@ -191,7 +303,7 @@ export function ApprovalsPage() {
       title: "目标",
       key: "target",
       ellipsis: true,
-      width: 260,
+      width: 250,
       render: (_: unknown, row) => <Typography.Text code>{detailTarget(row)}</Typography.Text>,
     },
     {
@@ -200,7 +312,7 @@ export function ApprovalsPage() {
       key: "status",
       width: 190,
       render: (status: string, row) => {
-        const tone = approvalStatusTone(status);
+        const tone = approvalStatusTone(status, isAuditApproval(row));
         const label = approvalStatusLabel(status, isAuditApproval(row));
         return (
           <Flex gap={4} wrap="wrap">
@@ -225,28 +337,9 @@ export function ApprovalsPage() {
       render: (value: string) => new Date(value).toLocaleString(),
     },
     {
-      title: "应答",
-      key: "responded",
-      width: 180,
-      render: (_: unknown, row) =>
-        row.respondedAt === null ? (
-          <Typography.Text type="secondary">等待中</Typography.Text>
-        ) : (
-          <span>
-            {new Date(row.respondedAt).toLocaleString()}
-            {row.actor !== null && row.actor !== "" && (
-              <Typography.Text type="secondary" style={{ fontSize: "var(--ab-text-size-xs)" }}>
-                {" "}
-                · {row.actor}
-              </Typography.Text>
-            )}
-          </span>
-        ),
-    },
-    {
       title: "快捷处理",
       key: "quick",
-      width: 150,
+      width: 160,
       fixed: "right",
       render: (_: unknown, row) => {
         if (row.status !== "pending") {
@@ -256,9 +349,21 @@ export function ApprovalsPage() {
             </Link>
           );
         }
-        // 升级单要求逐条核对目标，不给一键处理（服务端也会拒绝通道侧放行）。
-        // gate 单=批准/拒绝（阻塞执行）；audit 单=追认/存疑（对已执行动作表态）。
-        const buttons = isAuditApproval(row) ? (
+        if (row.escalateRequired) {
+          return (
+            <Tooltip title="该单已升级：请点开详情核对目标后确认，不支持快捷操作">
+              <span>
+                <Link to={`/approvals/${encodeURIComponent(row.id)}`}>
+                  <Button size="small" type="primary">
+                    去确认
+                  </Button>
+                </Link>
+              </span>
+            </Tooltip>
+          );
+        }
+        const audit = isAuditApproval(row);
+        return audit ? (
           <Space size={6}>
             <Button
               size="small"
@@ -267,12 +372,12 @@ export function ApprovalsPage() {
               loading={busyId === row.id}
               onClick={() => void decide(row, "approve")}
             >
-              追认
+              已知
             </Button>
             <Popconfirm
-              title="将这条动作标记存疑？"
-              description="动作已执行，存疑只是标记待核查，并计入审计流。"
-              okText="存疑"
+              title="标记存疑？"
+              description="动作已执行，存疑将标记待核查并记入审计。如需阻断未来同类操作，请在详情页选择「存疑并阻断」。"
+              okText="标记存疑"
               cancelText="取消"
               okButtonProps={{ danger: true }}
               onConfirm={() => void decide(row, "deny")}
@@ -291,34 +396,21 @@ export function ApprovalsPage() {
               loading={busyId === row.id}
               onClick={() => void decide(row, "approve")}
             >
-              批准
+              放行
             </Button>
             <Popconfirm
-              title="拒绝这条动作？"
-              description="拒绝后动作不会执行，并计入审计流。"
-              okText="拒绝"
+              title="拦截这条动作？"
+              description="拦截后该高危动作不会执行，并记入审计流。"
+              okText="拦截"
               cancelText="取消"
               okButtonProps={{ danger: true }}
               onConfirm={() => void decide(row, "deny")}
             >
               <Button size="small" danger icon={<CloseOutlined />} disabled={busyId === row.id}>
-                拒绝
+                拦截
               </Button>
             </Popconfirm>
           </Space>
-        );
-        return row.escalateRequired ? (
-          <Tooltip title="该单已升级：请点开详情核对目标后在本页确认，不支持一键放行">
-            <span>
-              <Link to={`/approvals/${encodeURIComponent(row.id)}`}>
-                <Button size="small" type="primary">
-                  去确认
-                </Button>
-              </Link>
-            </span>
-          </Tooltip>
-        ) : (
-          buttons
         );
       },
     },
@@ -327,10 +419,11 @@ export function ApprovalsPage() {
   const summary = data?.summary;
   const scan = data?.scan;
 
+  const gatePendingCount = allItems.filter((i) => i.status === "pending" && !isAuditApproval(i)).length;
+  const auditPendingCount = allItems.filter((i) => i.status === "pending" && isAuditApproval(i)).length;
+
   /**
-   * 页面结论条（规范 03 §2.3 ②「必须有」）。
-   * 审批页最关键两个信号：待审批数量、超时未处理。pending > 0 走 warn，
-   * 并一并点出需面板确认与已超时未处理的条数；无待处理时再陈述已处理分布。
+   * 页面结论条：真实说清待放行与待核验的分别
    */
   const conclusion: PageConclusionView =
     error !== null
@@ -342,30 +435,38 @@ export function ApprovalsPage() {
         }
       : data === null
         ? { tone: "unknown", title: "正在读取审批单", copy: "刚打开页面，稍等片刻。" }
-        : summary !== undefined && summary.pending > 0
+        : gatePendingCount > 0 && auditPendingCount > 0
           ? {
               tone: "warn",
-              title: `有 ${summary.pending} 条待你处理${
-                summary.escalated > 0 ? `，其中 ${summary.escalated} 条需面板确认` : ""
-              }`,
-              copy: `15 分钟内不处理会自动关闭（事后确认类不影响已执行的动作）${
-                summary.expired > 0 ? `；另有 ${summary.expired} 条超时未处理` : ""
-              }。点开逐条处理。`,
+              title: `有 ${gatePendingCount} 条动作等待放行，另有 ${auditPendingCount} 条高危异动待核验`,
+              copy: "待放行单正阻塞执行，超时将自动拦截；事后核验单已由 Hermes 执行，可确认已知或设为拉黑阻断。",
             }
-          : summary !== undefined && summary.expired > 0
+          : gatePendingCount > 0
             ? {
                 tone: "warn",
-                title: `近窗口有 ${summary.expired} 条超时未处理`,
-                copy: "这些条目因超时未应答已自动关闭；自动发现的动作本身已执行，可在审计流查看明细。",
+                title: `有 ${gatePendingCount} 条动作正在等待你批准放行（阻塞执行中）`,
+                copy: "管家已拦截此高危动作，15 分钟内不处理将按拒绝拦截。",
               }
-            : {
-                tone: "ok",
-                title: "当前没有待处理的审批",
-                copy:
-                  summary !== undefined && summary.total > 0
-                    ? `近窗口共 ${summary.total} 条均已处理（批准 ${summary.approved} / 拒绝 ${summary.denied}）。`
-                    : "近期没有高危动作需要你点头。",
-              };
+            : auditPendingCount > 0
+              ? {
+                  tone: "warn",
+                  title: `有 ${auditPendingCount} 条高危异动待核验（动作已由 Hermes 执行）`,
+                  copy: "这是事后发现的高危行为留痕。点击「已知」确认归档，或选择「存疑并阻断」将指纹永久拉黑。",
+                }
+              : summary !== undefined && summary.expired > 0
+                ? {
+                    tone: "unknown",
+                    title: `近窗口有 ${summary.expired} 条超时已关闭`,
+                    copy: "超时条目已自动归档结案；事前放行类已被系统拦截，事后核验类已归档可查审计流。",
+                  }
+                : {
+                    tone: "ok",
+                    title: "当前没有待处理的审批或异动",
+                    copy:
+                      summary !== undefined && summary.total > 0
+                        ? `近窗口共 ${summary.total} 条均已处理（已放行/已知 ${summary.approved} / 已拦截/存疑 ${summary.denied}）。`
+                        : "近期没有高危动作需要你点头。",
+                  };
 
   const stats: StatStripItem[] =
     summary === undefined
@@ -374,15 +475,15 @@ export function ApprovalsPage() {
           {
             key: "pending",
             icon: ClockCircleOutlined,
-            label: "待你处理",
+            label: "待处理",
             value: summary.pending,
             tone: summary.pending > 0 ? "warn" : undefined,
-            sub: "需点头或拒绝",
+            sub: gatePendingCount > 0 ? `${gatePendingCount} 待放行 / ${auditPendingCount} 待核验` : "需确认或拦截",
           },
           {
             key: "escalated",
             icon: SafetyCertificateOutlined,
-            label: "其中需面板确认",
+            label: "需面板确认",
             value: summary.escalated,
             tone: summary.escalated > 0 ? "warn" : undefined,
             sub: "一键放行不生效",
@@ -390,25 +491,25 @@ export function ApprovalsPage() {
           {
             key: "approved",
             icon: CheckCircleOutlined,
-            label: "已批准",
+            label: "已放行 / 已知",
             value: summary.approved,
             tone: "ok",
-            sub: "本次动作已放行",
+            sub: "已批准执行或确认已知",
           },
           {
             key: "denied",
             icon: CloseCircleOutlined,
-            label: "已拒绝/存疑",
+            label: "已拦截 / 存疑",
             value: summary.denied,
-            sub: "人已表态",
+            sub: "已拒绝或存疑留痕",
           },
           {
             key: "expired",
             icon: StopOutlined,
-            label: "超时未处理",
+            label: "超时关闭",
             value: summary.expired,
             tone: summary.expired > 0 ? "warn" : undefined,
-            sub: "自动关闭，不再等应答",
+            sub: "放行类拦截 / 异动自动关闭",
           },
         ];
 
@@ -417,15 +518,26 @@ export function ApprovalsPage() {
       <Flex vertical gap={16}>
         <PageHeader
           title="操作审批"
-          description="高危动作两类确认：执行器落地前请求放行的会阻塞执行；从 Hermes 日志自动发现的是事后确认，不阻塞执行。15 分钟未处理自动关闭。"
+          description="区分事前放行与事后核验：gate 类动作阻塞等待放行；audit 类动作为 Hermes 已执行的高危异动，供核验与处置。15 分钟未处理自动关闭。"
           extra={
-            <Button icon={<ReloadOutlined />} onClick={refresh}>
-              刷新
-            </Button>
+            <Space>
+              <Button
+                icon={<SafetyCertificateOutlined />}
+                onClick={() => {
+                  setRulesOpen(true);
+                  loadRules();
+                }}
+              >
+                指纹规则库 {rules.length > 0 ? `(${rules.length})` : ""}
+              </Button>
+              <Button icon={<ReloadOutlined />} onClick={refresh}>
+                刷新
+              </Button>
+            </Space>
           }
         />
 
-        {/* §2.3 ② 结论条。原「审批服务不可用」Alert 与离线结论同一件事，已并入此条。 */}
+        {/* 结论条 */}
         <ConclusionBar tone={conclusion.tone} title={conclusion.title} copy={conclusion.copy} action={conclusion.action} />
 
         <StatStrip items={stats} />
@@ -435,15 +547,15 @@ export function ApprovalsPage() {
             type="info"
             showIcon
             icon={<SafetyCertificateOutlined />}
-            message={`保护已就绪：15 分钟未处理自动关闭，同一动作第 ${scan.escalationThreshold} 次自动升级为面板确认`}
+            message={`高危保护机制：15 分钟未应答自动结案，同一动作第 ${scan.escalationThreshold} 次触发强制面板确认`}
             description={
               <Flex vertical gap={4}>
                 <span>
-                  自动侦测：{scan.enabled ? "开启" : "关闭"}（侦测到高危动作即自动开单）
+                  异动自动侦测：{scan.enabled ? "开启" : "关闭"}（侦测到高危动作即自动开单）
                   {scan.lastScanAt !== null && ` · 上次扫描 ${new Date(scan.lastScanAt).toLocaleTimeString()}`}
                 </span>
                 <span>
-                  审批单保留 {scan.retentionDays} 天；批准/拒绝/超时全部进审计流与事件中心。
+                  记录保留 {scan.retentionDays} 天；放行、拦截、核验与规则变动全部记入审计流与信任事件。
                 </span>
               </Flex>
             }
@@ -451,40 +563,179 @@ export function ApprovalsPage() {
         )}
 
         <Card
-          title="审批单"
+          title="审批与核验列表"
           extra={
-            <Segmented
-              options={[
-                { label: "待处理", value: "pending" },
-                { label: "需面板确认", value: "escalated" },
-                { label: "全部", value: "all" },
-              ]}
-              value={filter}
-              onChange={(value: unknown) => setFilter(String(value))}
-            />
+            <Flex gap={10} wrap="wrap" align="center">
+              <Segmented
+                options={[
+                  { label: "全部类别", value: "all" },
+                  { label: "🛡️ 待放行", value: "gate" },
+                  { label: "📋 异动核验", value: "audit" },
+                ]}
+                value={category}
+                onChange={(value: unknown) => setCategory(String(value))}
+              />
+              <Segmented
+                options={[
+                  { label: "待处理", value: "pending" },
+                  { label: "需面板确认", value: "escalated" },
+                  { label: "全部状态", value: "all" },
+                ]}
+                value={filter}
+                onChange={(value: unknown) => setFilter(String(value))}
+              />
+              <Segmented
+                options={[
+                  { label: "近 24 小时", value: "24h" },
+                  { label: "近 3 天", value: "3d" },
+                  { label: "全部时间", value: "all" },
+                ]}
+                value={timeWindow}
+                onChange={(value: unknown) => setTimeWindow(String(value))}
+              />
+              {pendingInView.length > 0 && (
+                <Popconfirm
+                  title={
+                    hasGateInPending
+                      ? `确认全部放行当前 ${pendingInView.length} 条动作？`
+                      : `确认将当前 ${pendingInView.length} 条异动全部标记为已知？`
+                  }
+                  description={
+                    hasGateInPending
+                      ? "列表中含有阻塞等待中的动作，批准后将通知执行器放行。"
+                      : "动作已由 Hermes 执行，点击全部已知将这些异动确认归档并记入审计。"
+                  }
+                  okText={hasGateInPending ? "全部放行" : "全部已知"}
+                  cancelText="取消"
+                  onConfirm={() => void handleBulkDecide("approve")}
+                >
+                  <Button size="small" type="primary" loading={bulkBusy}>
+                    {hasGateInPending ? `全部放行 (${pendingInView.length})` : `全部已知 (${pendingInView.length})`}
+                  </Button>
+                </Popconfirm>
+              )}
+            </Flex>
           }
         >
-          {data !== null && data.items.length === 0 ? (
+          {hiddenByTimeCount > 0 && (
+            <Alert
+              type="info"
+              showIcon
+              message={
+                <span>
+                  当前视图已折叠近 {timeWindow === "24h" ? "24 小时" : "3 天"} 之前的 <strong>{hiddenByTimeCount}</strong> 条历史记录。{" "}
+                  <Button type="link" size="small" style={{ padding: 0 }} onClick={() => setTimeWindow("all")}>
+                    查看全部时间
+                  </Button>
+                </span>
+              }
+              style={{ marginBottom: 12 }}
+            />
+          )}
+
+          {data !== null && filteredItems.length === 0 ? (
             <Empty
               title={
                 filter === "pending"
-                  ? "当前没有待处理的审批请求——说明 agent 没伸手去碰高危动作"
-                  : "窗口内没有审批记录"
+                  ? "当前筛选下没有待处理项"
+                  : "当前窗口内没有匹配的记录"
               }
-              hint="换一个筛选看看，或等 agent 发起新的高危动作。"
+              hint="可尝试切换类别、状态或时间窗口查看更多。"
               mascotWidth={72}
             />
           ) : (
             <Table<ApprovalItem>
               rowKey="id"
               columns={columns}
-              dataSource={data?.items ?? []}
+              dataSource={filteredItems}
               loading={data === null}
               pagination={{ pageSize: 20, showSizeChanger: false }}
               scroll={{ x: 1300 }}
             />
           )}
         </Card>
+
+        {/* 动作指纹规则库抽屉 */}
+        <Drawer
+          title="动作指纹规则库"
+          placement="right"
+          width={700}
+          open={rulesOpen}
+          onClose={() => setRulesOpen(false)}
+          extra={
+            <Button icon={<ReloadOutlined />} onClick={loadRules} size="small" loading={rulesLoading}>
+              刷新
+            </Button>
+          }
+        >
+          <Flex vertical gap={16}>
+            <Alert
+              type="info"
+              showIcon
+              message="指纹规则闭环"
+              description="在审批详情中选择「存疑并拉黑」或「信任免核验」时，动作指纹将自动沉淀为规则。被阻断的指纹未来触发时直接拦截；被信任的指纹事后自动放行归档，不再产生待核验卡片打扰。"
+            />
+            <Table<ActionFingerprintRule>
+              rowKey="fingerprint"
+              dataSource={rules}
+              loading={rulesLoading}
+              pagination={{ pageSize: 10 }}
+              columns={[
+                {
+                  title: "规则类型",
+                  dataIndex: "rule",
+                  key: "rule",
+                  width: 120,
+                  render: (r: string) =>
+                    r === "block" ? (
+                      <Tag color="error">🛑 阻断拦截</Tag>
+                    ) : (
+                      <Tag color="success">✅ 信任免核验</Tag>
+                    ),
+                },
+                {
+                  title: "动作类型",
+                  dataIndex: "kind",
+                  key: "kind",
+                  width: 100,
+                  render: (kind: string) => KIND_LABEL[kind] ?? kind,
+                },
+                {
+                  title: "目标",
+                  dataIndex: "target",
+                  key: "target",
+                  ellipsis: true,
+                  render: (t: string) => <Typography.Text code>{t}</Typography.Text>,
+                },
+                {
+                  title: "生效原因",
+                  dataIndex: "reason",
+                  key: "reason",
+                  ellipsis: true,
+                  render: (r: string | undefined) => r || "—",
+                },
+                {
+                  title: "操作",
+                  key: "action",
+                  width: 90,
+                  render: (_: unknown, ruleRow) => (
+                    <Popconfirm
+                      title="确定解除该规则？"
+                      description="解除后该动作将恢复默认的审批核验流程。"
+                      okText="解除"
+                      cancelText="取消"
+                      onConfirm={() => void removeRule(ruleRow.fingerprint)}
+                    >
+                      <Button size="small" type="link" danger>
+                        解除
+                      </Button>
+                    </Popconfirm>
+                  ),
+                },
+              ]}
+            />
+          </Flex>
+        </Drawer>
       </Flex>
     </section>
   );

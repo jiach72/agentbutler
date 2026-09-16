@@ -36,9 +36,21 @@ const DECIDE_TIMEOUT_MS = 30_000;
  * 决策结果 → 用户反馈分类（纯函数，供回归测试直接钉住）。
  * 一次决策最多产生一条反馈：成功一条、失败一条、业务竞态零条。
  */
-export function decisionFeedback(decision: ApprovalDecision, result: DecisionResult): DecisionFeedback {
+export function decisionFeedback(
+  decision: ApprovalDecision,
+  result: DecisionResult,
+  options?: { isAudit?: boolean; blockFingerprint?: boolean; trustFingerprint?: boolean },
+): DecisionFeedback {
   if (result.ok) {
-    return { level: "success", text: decision === "approve" ? "已批准本次操作" : "已拒绝本次操作" };
+    if (decision === "approve") {
+      if (options?.trustFingerprint) return { level: "success", text: "已确认已知，并设为信任免核验" };
+      if (options?.isAudit) return { level: "success", text: "已确认已知该异动" };
+      return { level: "success", text: "已批准本次操作" };
+    } else {
+      if (options?.blockFingerprint) return { level: "success", text: "已标记存疑并拉黑阻断该动作指纹" };
+      if (options?.isAudit) return { level: "success", text: "已将该异动标记存疑" };
+      return { level: "success", text: "已拒绝本次操作" };
+    }
   }
   if (result.status === 0) {
     return { level: "error", text: "没连上管家服务，这次操作没生效，请稍后重试" };
@@ -68,6 +80,12 @@ export async function runApprovalDecision(
   deps: ApprovalDecisionDeps,
   approvalId: string,
   decision: ApprovalDecision,
+  options?: {
+    isAudit?: boolean;
+    blockFingerprint?: boolean;
+    trustFingerprint?: boolean;
+    reason?: string;
+  },
 ): Promise<void> {
   const result = await deps.postJson(
     `/api/approvals/${encodeURIComponent(approvalId)}/decide`,
@@ -75,10 +93,13 @@ export async function runApprovalDecision(
       decision,
       actor: "panel-user",
       channel: deps.channel ?? APPROVAL_CHANNEL_PANEL,
+      blockFingerprint: options?.blockFingerprint === true,
+      trustFingerprint: options?.trustFingerprint === true,
+      ...(options?.reason ? { reason: options.reason } : {}),
     },
     DECIDE_TIMEOUT_MS,
   );
-  const feedback = decisionFeedback(decision, result);
+  const feedback = decisionFeedback(decision, result, options);
   if (feedback !== null) deps.onToast(feedback.level, feedback.text);
   deps.onSettled?.(decision);
 }

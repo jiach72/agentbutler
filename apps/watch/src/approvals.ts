@@ -127,6 +127,17 @@ export interface ApprovalScanView {
   retentionDays: number;
 }
 
+/** 动作指纹防御规则：拉黑阻断或信任免核验。 */
+export interface ActionFingerprintRule {
+  fingerprint: string;
+  kind: string;
+  target: string;
+  rule: "block" | "trust";
+  reason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /** 批量批准结果：跳过（已结算/超时/不存在）的单带原因返回，不抛异常。 */
 export interface BulkDecisionResult {
   total: number;
@@ -137,10 +148,18 @@ export interface BulkDecisionResult {
 export interface ApprovalService {
   /** 登记一张审批单并推送卡片；同一动作幂等（返回既有单）。 */
   request(input: ApprovalRequestInput): ActionApprovalItem;
-  /** 应答（批准 / 拒绝）。仅 pending 可流转；已升级的单拒绝内联应答。 */
+  /** 应答（批准 / 拒绝）。仅 pending 可流转；已升级的单拒绝内联应答。支持拉黑或信任动作指纹。 */
   decide(
     id: string,
-    input: { decision: ApprovalDecision; actor?: string; channel?: string; reason?: string; allowEscalatedInline?: boolean },
+    input: {
+      decision: ApprovalDecision;
+      actor?: string;
+      channel?: string;
+      reason?: string;
+      allowEscalatedInline?: boolean;
+      blockFingerprint?: boolean;
+      trustFingerprint?: boolean;
+    },
   ): ApprovalDecisionOutcome;
   /**
    * 批量批准 / 拒绝。all=true 时作用于当前全部 pending（上限 APPROVAL_BULK_LIMIT）。
@@ -162,6 +181,20 @@ export interface ApprovalService {
   /** 高危动作增量侦测：新出现的高危 action_events 自动开单。返回新建条数。 */
   scanHighRisk(): number;
   scanView(): ApprovalScanView;
+  /** 获取动作指纹规则列表。 */
+  listRules(): ActionFingerprintRule[];
+  /** 获取特定动作指纹规则。 */
+  getRule(fingerprint: string): ActionFingerprintRule | null;
+  /** 设置动作指纹规则（拉黑阻断 / 信任免核验）。 */
+  setRule(input: {
+    fingerprint: string;
+    kind: string;
+    target: string;
+    rule: "block" | "trust";
+    reason?: string;
+  }): ActionFingerprintRule;
+  /** 删除特定动作指纹规则。 */
+  deleteRule(fingerprint: string): boolean;
   prune(): number;
   start(): void;
   stop(): void;
@@ -266,6 +299,64 @@ export function createApprovalService(options: ApprovalServiceOptions): Approval
   let lastScanAt: string | null = null;
   let lastScanned = 0;
   let lastCreated = 0;
+
+  function loadRules(): Map<string, ActionFingerprintRule> {
+    const raw = store.getAppConfig("action_fingerprint_rules");
+    if (!raw) return new Map();
+    try {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) {
+        return new Map(arr.map((r: ActionFingerprintRule) => [r.fingerprint, r]));
+      }
+    } catch {
+      // ignore
+    }
+    return new Map();
+  }
+
+  const rulesMap = loadRules();
+
+  function saveRules(): void {
+    const arr = Array.from(rulesMap.values());
+    store.setAppConfig("action_fingerprint_rules", JSON.stringify(arr));
+  }
+
+  function getRule(fingerprint: string): ActionFingerprintRule | null {
+    return rulesMap.get(fingerprint) ?? null;
+  }
+
+  function listRules(): ActionFingerprintRule[] {
+    return Array.from(rulesMap.values());
+  }
+
+  function setRule(input: {
+    fingerprint: string;
+    kind: string;
+    target: string;
+    rule: "block" | "trust";
+    reason?: string;
+  }): ActionFingerprintRule {
+    const nowStr = iso();
+    const existing = rulesMap.get(input.fingerprint);
+    const ruleObj: ActionFingerprintRule = {
+      fingerprint: input.fingerprint,
+      kind: input.kind,
+      target: input.target,
+      rule: input.rule,
+      ...(input.reason !== undefined ? { reason: input.reason } : {}),
+      createdAt: existing?.createdAt ?? nowStr,
+      updatedAt: nowStr,
+    };
+    rulesMap.set(input.fingerprint, ruleObj);
+    saveRules();
+    return ruleObj;
+  }
+
+  function deleteRule(fingerprint: string): boolean {
+    const existed = rulesMap.delete(fingerprint);
+    if (existed) saveRules();
+    return existed;
+  }
 
   // 基址未配置时返回相对路径：网关/面板同源部署下仍可用；外发通道会因无主机而
   // 省略 url 按钮（serializeActions 只存完整链接），不会发出点不开的裸链接。
@@ -388,6 +479,69 @@ export function createApprovalService(options: ApprovalServiceOptions): Approval
     if (existing !== undefined) return toItem(existing);
 
     const fingerprint = input.fingerprint ?? actionFingerprint(input.kind, extractTarget(input));
+
+    // 检查黑名单规则：若已被拉黑，直接拦截拒绝并记录拦截事件
+    const matchedRule = getRule(fingerprint);
+    if (matchedRule?.rule === "block") {
+      const row = store.insertActionApproval({
+        id: idFactory(),
+        actionId: input.actionId,
+        fingerprint,
+        ...(input.instance !== undefined ? { instance: input.instance } : {}),
+        sessionId: input.sessionId ?? null,
+        kind: input.kind,
+        title: input.title,
+        detail: {
+          ...(typeof input.detail === "object" && input.detail !== null ? (input.detail as object) : {}),
+          target: extractTarget(input),
+          ruleBlocked: true,
+        },
+        attempts: 1,
+        escalateRequired: false,
+        expiresAt: new Date(now() + ttlMs).toISOString(),
+        at: iso(),
+      });
+      const item = toItem(row);
+      settle(
+        item,
+        "denied",
+        "system:rule-block",
+        "rule",
+        `命中阻断规则（指纹已拉黑）：${matchedRule.reason ?? "用户标记存疑并阻断"}`,
+      );
+      return toItem(store.getActionApproval(item.id)!);
+    }
+
+    // 检查信任规则：若为 audit 单且已被用户设为信任，自动标记为已确认并归档，不推卡片
+    if (matchedRule?.rule === "trust" && isAuditApproval({ detail: input.detail })) {
+      const row = store.insertActionApproval({
+        id: idFactory(),
+        actionId: input.actionId,
+        fingerprint,
+        ...(input.instance !== undefined ? { instance: input.instance } : {}),
+        sessionId: input.sessionId ?? null,
+        kind: input.kind,
+        title: input.title,
+        detail: {
+          ...(typeof input.detail === "object" && input.detail !== null ? (input.detail as object) : {}),
+          target: extractTarget(input),
+          ruleTrusted: true,
+        },
+        attempts: 1,
+        escalateRequired: false,
+        expiresAt: new Date(now() + ttlMs).toISOString(),
+        at: iso(),
+      });
+      const item = toItem(row);
+      settle(
+        item,
+        "approved",
+        "system:rule-trust",
+        "rule",
+        `命中信任规则（免核验）：${matchedRule.reason ?? "用户设为信任免核验"}`,
+      );
+      return toItem(store.getActionApproval(item.id)!);
+    }
 
     // 同一指纹（同 kind+target）的未决单去重：上游重试常携带新 actionId 重复
     // 请求同一动作，仅按 actionId 去重挡不住重试风暴。复用既有单并在其上
@@ -575,6 +729,8 @@ export function createApprovalService(options: ApprovalServiceOptions): Approval
       channel?: string;
       reason?: string;
       allowEscalatedInline?: boolean;
+      blockFingerprint?: boolean;
+      trustFingerprint?: boolean;
     },
   ): ApprovalDecisionOutcome {
     const row = store.getActionApproval(id);
@@ -599,6 +755,23 @@ export function createApprovalService(options: ApprovalServiceOptions): Approval
       return { ok: false, reason: "expired", item: expired.item };
     }
     const status = input.decision === "approve" ? "approved" : "denied";
+    if (input.blockFingerprint) {
+      setRule({
+        fingerprint: item.fingerprint,
+        kind: item.kind,
+        target: describeTarget(item),
+        rule: "block",
+        reason: input.reason ?? "用户标记存疑并阻断",
+      });
+    } else if (input.trustFingerprint) {
+      setRule({
+        fingerprint: item.fingerprint,
+        kind: item.kind,
+        target: describeTarget(item),
+        rule: "trust",
+        reason: input.reason ?? "用户设为信任免核验",
+      });
+    }
     return settle(
       item,
       status,
@@ -730,6 +903,10 @@ export function createApprovalService(options: ApprovalServiceOptions): Approval
         retentionDays,
       };
     },
+    listRules,
+    getRule,
+    setRule,
+    deleteRule,
     prune() {
       const cutoff = new Date(now() - retentionDays * 86_400_000).toISOString();
       return store.pruneActionApprovals(cutoff);

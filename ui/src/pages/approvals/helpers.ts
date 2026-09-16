@@ -12,13 +12,16 @@ import type { SemanticTone } from "../../components/StatusBadge.js";
 export const AUDIT_ORIGIN = "auto-detect";
 
 /** 判断审批单是否来自自动侦测（事后确认路径）；detail 非对象时视为 gate。 */
-export function isAuditApproval(item: { detail: unknown }): boolean {
+export function isAuditApproval(item: { detail?: unknown }): boolean {
   if (typeof item.detail !== "object" || item.detail === null) return false;
   return (item.detail as Record<string, unknown>)["origin"] === AUDIT_ORIGIN;
 }
 
 /** 状态 → 品牌语义 tone（antd 预设色名与品牌信号色不是同一值，统一走 StatusBadge）。 */
-export const approvalStatusTone = (status: string): SemanticTone => {
+export const approvalStatusTone = (status: string, isAudit = false): SemanticTone => {
+  if (status === "expired" && isAudit) {
+    return "unknown";
+  }
   const tone: Record<string, SemanticTone> = {
     pending: "warn",
     approved: "ok",
@@ -30,13 +33,13 @@ export const approvalStatusTone = (status: string): SemanticTone => {
 
 /**
  * 状态文案按来源分流：
- * pending=待处理；approved=已批准/已追认；denied=已拒绝/已标记存疑；
+ * pending=待放行(gate) / 待核验(audit)；approved=已批准/已追认；denied=已拒绝/已标记存疑；
  * expired=超时拦截/超时未确认。
  */
 export function approvalStatusLabel(status: string, isAudit: boolean): string {
   switch (status) {
     case "pending":
-      return "待处理";
+      return isAudit ? "待核验" : "待放行";
     case "approved":
       return isAudit ? "已追认" : "已批准";
     case "denied":

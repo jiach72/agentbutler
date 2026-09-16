@@ -120,4 +120,20 @@ describe("审批列表页：行内快捷决策", () => {
       }
     }
   });
+
+  it("支持 isAudit、trustFingerprint 与 blockFingerprint 参数且透传正确反馈文案", async () => {
+    // 异动核验
+    expect(decisionFeedback("approve", { ok: true, status: 200 }, { isAudit: true })?.text).toBe("已确认已知该异动");
+    expect(decisionFeedback("deny", { ok: true, status: 200 }, { isAudit: true })?.text).toBe("已将该异动标记存疑");
+
+    // 信任免核验
+    expect(
+      decisionFeedback("approve", { ok: true, status: 200 }, { trustFingerprint: true })?.text,
+    ).toBe("已确认已知，并设为信任免核验");
+
+    // 阻断拉黑
+    expect(
+      decisionFeedback("deny", { ok: true, status: 200 }, { blockFingerprint: true })?.text,
+    ).toBe("已标记存疑并拉黑阻断该动作指纹");
+  });
 });

@@ -11,8 +11,8 @@
  *
  * gate/audit 两类确认的文案分流见 ./helpers.ts。
  */
-import { Alert, Button, Card, Descriptions, Flex, Result, Space, Statistic, Tag, Typography } from "antd";
-import { CheckOutlined, CloseOutlined, ReloadOutlined } from "@ant-design/icons";
+import { Alert, Button, Card, Descriptions, Flex, Popconfirm, Result, Space, Statistic, Tag, Typography } from "antd";
+import { CheckOutlined, CloseOutlined, ReloadOutlined, SafetyCertificateOutlined, StopOutlined } from "@ant-design/icons";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ConclusionBar } from "../../components/ConclusionBar.js";
@@ -72,37 +72,57 @@ export function ApprovalDetailPage() {
   }, 10_000);
 
   const decide = useCallback(
-    async (decision: "approve" | "deny") => {
+    async (
+      decision: "approve" | "deny",
+      options?: { blockFingerprint?: boolean; trustFingerprint?: boolean; reason?: string },
+    ) => {
       setBusy(true);
       setNotice(null);
-      // 成功提示按来源分流：audit 单是表态（追认/存疑），gate 单才是放行/拦截。
       const auditNow = item === null ? false : isAuditApproval(item);
-      const result = await postJson(`/api/approvals/${encodeURIComponent(id)}/decide`, {
-        decision,
-        actor: "panel-user",
-        channel: "panel",
-      }, 30_000);
+      const result = await postJson(
+        `/api/approvals/${encodeURIComponent(id)}/decide`,
+        {
+          decision,
+          actor: "panel-user",
+          channel: "panel",
+          blockFingerprint: options?.blockFingerprint === true,
+          trustFingerprint: options?.trustFingerprint === true,
+          ...(options?.reason ? { reason: options.reason } : {}),
+        },
+        30_000,
+      );
       setBusy(false);
       if (result.ok) {
-        setNotice(
-          auditNow
-            ? decision === "approve"
-              ? "已追认该动作"
-              : "已将该动作标记存疑"
-            : decision === "approve"
-              ? "已批准本次操作"
-              : "已拒绝本次操作",
-        );
+        if (auditNow) {
+          if (options?.trustFingerprint) {
+            setNotice("已确认已知，并设为信任免核验（未来同类动作不再产生待核验卡片）");
+          } else if (decision === "approve") {
+            setNotice("已确认已知该异动");
+          } else if (options?.blockFingerprint) {
+            setNotice("已存疑并拉黑阻断该动作指纹（未来再次执行将直接拦截）");
+          } else {
+            setNotice("已将该异动标记存疑");
+          }
+        } else {
+          if (options?.blockFingerprint) {
+            setNotice("已拦截并拉黑阻断该动作指纹（未来再次尝试直接拦截）");
+          } else if (decision === "approve") {
+            setNotice("已放行本次操作");
+          } else {
+            setNotice("已拦截本次操作");
+          }
+        }
         refresh();
         return;
       }
-      const key = typeof result.data === "object" && result.data !== null
-        ? String((result.data as Record<string, unknown>)["error"] ?? "")
-        : "";
+      const key =
+        typeof result.data === "object" && result.data !== null
+          ? String((result.data as Record<string, unknown>)["error"] ?? "")
+          : "";
       setNotice(DECIDE_FAILURE[key] ?? `操作失败（HTTP ${result.status}）`);
       refresh();
     },
-    [id, refresh],
+    [id, item, refresh],
   );
 
   if (error !== null && item === null) {
@@ -132,12 +152,13 @@ export function ApprovalDetailPage() {
     );
   }
 
-  const meta = approvalStatusTone(item.status);
+  const meta = approvalStatusTone(item.status, isAuditApproval(item));
   const pending = item.status === "pending";
   const audit = isAuditApproval(item);
-  const detail = typeof item.detail === "object" && item.detail !== null
-    ? (item.detail as Record<string, unknown>)
-    : {};
+  const detail =
+    typeof item.detail === "object" && item.detail !== null
+      ? (item.detail as Record<string, unknown>)
+      : {};
 
   /**
    * 页面结论条（规范 03 §2.3 ②「必须有」）：随终态切换，一句话说清「这条单现在什么状态、接下来会发生什么」。
@@ -148,30 +169,30 @@ export function ApprovalDetailPage() {
       ? audit
         ? {
             tone: "warn",
-            title: "该高危动作已执行，等你确认",
-            copy: `这是事后确认（不阻塞执行）：追认表示已知悉，存疑标记待核查；15 分钟不处理自动关闭${
+            title: "该高危动作已由 Hermes 执行，等待你核验",
+            copy: `核验是对已发生动作进行审阅。您可以确认已知、设为信任免核验（后续不再打扰），或存疑并拉黑阻断；15 分钟不处理将自动归档${
               item.escalateRequired ? "；此单已升级，必须在面板确认" : ""
             }。`,
           }
         : {
             tone: "warn",
-            title: "等待你处置这条高危动作",
-            copy: `批准只对该动作本次生效；15 分钟不处理按拒绝拦截${
+            title: "动作已拦截，等待你批准放行",
+            copy: `放行只对本次生效；若怀疑有风险可拦截本次或拉黑阻断；15 分钟不处理将按拒绝拦截${
               item.escalateRequired ? "；此单已升级，必须在面板确认" : ""
             }。`,
           }
       : item.status === "approved"
         ? audit
-          ? { tone: "ok", title: "已追认该动作", copy: "追认表示已知悉这条已执行的动作，不改动后续审批要求。" }
-          : { tone: "ok", title: "已批准本次操作", copy: "放行只针对这一条动作，不改动后续审批要求。" }
+          ? { tone: "ok", title: "已确认已知该动作", copy: "已完成核验归档，记入审计日志与信任事件。" }
+          : { tone: "ok", title: "已放行本次操作", copy: "放行只针对这一条动作，已通知执行侧继续。" }
         : item.status === "denied"
           ? audit
-            ? { tone: "error", title: "已将该动作标记存疑", copy: "动作已执行，存疑表示待核查；明细可在审计流查看。" }
-            : { tone: "error", title: "已拒绝本次操作", copy: "该动作被拦下，不会执行。" }
+            ? { tone: "error", title: "已将该动作标记存疑", copy: "动作已由 Hermes 执行，存疑表示待核查；若已拉黑指纹，后续将自动拦截。" }
+            : { tone: "error", title: "已拦截本次操作", copy: "该动作已被管家拦截，未予执行。" }
           : audit
             ? {
-                tone: "error",
-                title: "超时未处理，已自动关闭",
+                tone: "unknown",
+                title: "超时未核验，已自动归档关闭",
                 copy: item.reason ?? "15 分钟内没有确认——动作本身已执行，明细可在审计流查看。",
               }
             : {
@@ -262,7 +283,7 @@ export function ApprovalDetailPage() {
 
             {pending ? (
               audit ? (
-                <Flex gap={12}>
+                <Flex gap={12} wrap="wrap">
                   <Button
                     type="primary"
                     size="large"
@@ -270,14 +291,41 @@ export function ApprovalDetailPage() {
                     loading={busy}
                     onClick={() => void decide("approve")}
                   >
-                    追认
+                    确认已知
                   </Button>
-                  <Button danger size="large" icon={<CloseOutlined />} loading={busy} onClick={() => void decide("deny")}>
-                    存疑
+                  <Popconfirm
+                    title="设为信任免核验？"
+                    description={`未来具有相同指纹 (${item.fingerprint}) 的高危异动将自动信任放行，不再发送待核验卡片打扰。`}
+                    okText="设为信任"
+                    cancelText="取消"
+                    onConfirm={() => void decide("approve", { trustFingerprint: true })}
+                  >
+                    <Button size="large" icon={<SafetyCertificateOutlined />} loading={busy}>
+                      设为信任免核验
+                    </Button>
+                  </Popconfirm>
+                  <Popconfirm
+                    title="存疑并拉黑阻断？"
+                    description={`将此动作标记存疑，并拉黑指纹 (${item.fingerprint})。未来再次尝试执行同类目标时将被直接拦截阻断！`}
+                    okText="存疑并阻断"
+                    cancelText="取消"
+                    okButtonProps={{ danger: true }}
+                    onConfirm={() => void decide("deny", { blockFingerprint: true, reason: "用户核验存疑并拉黑" })}
+                  >
+                    <Button danger size="large" icon={<StopOutlined />} loading={busy}>
+                      存疑并阻断
+                    </Button>
+                  </Popconfirm>
+                  <Button
+                    size="large"
+                    loading={busy}
+                    onClick={() => void decide("deny")}
+                  >
+                    仅标记存疑
                   </Button>
                 </Flex>
               ) : (
-                <Flex gap={12}>
+                <Flex gap={12} wrap="wrap">
                   <Button
                     type="primary"
                     size="large"
@@ -285,11 +333,23 @@ export function ApprovalDetailPage() {
                     loading={busy}
                     onClick={() => void decide("approve")}
                   >
-                    批准一次
+                    放行本次
                   </Button>
                   <Button danger size="large" icon={<CloseOutlined />} loading={busy} onClick={() => void decide("deny")}>
-                    拒绝
+                    拦截本次
                   </Button>
+                  <Popconfirm
+                    title="拦截并拉黑阻断？"
+                    description={`拦截本次动作，并拉黑指纹 (${item.fingerprint})。未来再次请求将直接阻断拦截。`}
+                    okText="拦截并拉黑"
+                    cancelText="取消"
+                    okButtonProps={{ danger: true }}
+                    onConfirm={() => void decide("deny", { blockFingerprint: true, reason: "用户审批拦截并拉黑" })}
+                  >
+                    <Button danger size="large" icon={<StopOutlined />} loading={busy}>
+                      拦截并阻断
+                    </Button>
+                  </Popconfirm>
                 </Flex>
               )
             ) : (
@@ -304,11 +364,11 @@ export function ApprovalDetailPage() {
               <Alert
                 type="info"
                 showIcon
-                message={audit ? "「追认 / 存疑」的含义" : "「批准一次」的含义"}
+                message={audit ? "事后核验与闭环规则说明" : "事前放行与阻断规则说明"}
                 description={
                   audit
-                    ? "动作已由 Hermes 执行，这里的表态只是知悉记录：追认表示已知悉，存疑表示待核查；都不会改变已发生的事，也不给 agent 长期授权。"
-                    : "只对当前这一条动作生效，不会给 agent 长期授权，也不改变后续动作的审批要求。"
+                    ? "动作已由 Hermes 执行，核验是对其进行审阅。您可以点击「确认已知」将其归档；若这是安全日常操作，可选择「设为信任免核验」，后续同类操作自动信任不打扰；若动作异常，请选择「存疑并阻断」，管家将拉黑指纹并在未来自动拦截阻断。"
+                    : "事前放行会阻塞动作落地执行。您可以放行本次、拦截本次，或选择「拦截并阻断」将指纹永久拉黑，未来再次尝试时直接被系统拦截。"
                 }
               />
             )}

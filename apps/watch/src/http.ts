@@ -2252,6 +2252,43 @@ async function handle(
         }),
       );
     }
+    // ── 动作指纹防御规则管理 ──
+    if (path === "/api/approvals/rules") {
+      if (deps.approvals === undefined) return sendJson(res, 503, { error: "approvals-unavailable" });
+      if (method === "GET") {
+        return sendJson(res, 200, { rules: deps.approvals.listRules() });
+      }
+      if (method === "POST") {
+        const body = await readJsonBody(req, res);
+        if (body === null) return;
+        const fingerprint = readNonEmptyString(body["fingerprint"]);
+        const kind = readNonEmptyString(body["kind"]) ?? "action";
+        const target = readNonEmptyString(body["target"]) ?? "";
+        const rule = readNonEmptyString(body["rule"]);
+        if (fingerprint === null || (rule !== "block" && rule !== "trust")) {
+          return sendJson(res, 400, { error: "fingerprint and rule ('block' | 'trust') are required" });
+        }
+        const created = deps.approvals.setRule({
+          fingerprint,
+          kind,
+          target,
+          rule,
+          ...(readNonEmptyString(body["reason"]) === null
+            ? {}
+            : { reason: readNonEmptyString(body["reason"])! }),
+        });
+        return sendJson(res, 200, { rule: created });
+      }
+      return sendJson(res, 405, { error: "method-not-allowed" });
+    }
+    const ruleDeleteMatch = /^\/api\/approvals\/rules\/([^/]+)$/.exec(path);
+    if (ruleDeleteMatch !== null) {
+      if (method !== "DELETE") return sendJson(res, 405, { error: "method-not-allowed" });
+      if (deps.approvals === undefined) return sendJson(res, 503, { error: "approvals-unavailable" });
+      const fingerprint = decodeURIComponent(ruleDeleteMatch[1]!);
+      const deleted = deps.approvals.deleteRule(fingerprint);
+      return sendJson(res, 200, { ok: true, deleted });
+    }
     // decide 必须先于 :id 判断（approval id 为任意字符串）。
     const approveDecide = /^\/api\/approvals\/([^/]+)\/decide$/.exec(path);
     if (approveDecide !== null) {
@@ -2269,6 +2306,8 @@ async function handle(
         ...(readNonEmptyString(body["actor"]) === null ? {} : { actor: readNonEmptyString(body["actor"])! }),
         ...(readNonEmptyString(body["channel"]) === null ? {} : { channel: readNonEmptyString(body["channel"])! }),
         ...(readNonEmptyString(body["reason"]) === null ? {} : { reason: readNonEmptyString(body["reason"])! }),
+        blockFingerprint: body["blockFingerprint"] === true,
+        trustFingerprint: body["trustFingerprint"] === true,
         // 仅面板来源（panel / web）允许对已升级单放行；通道侧一键放行被拒。
         allowEscalatedInline: body["source"] === "panel" || body["source"] === "web",
       });

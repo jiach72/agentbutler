@@ -11,19 +11,26 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { loadJson } from "../lib/api.js";
 import { usePolling } from "../hooks/usePolling.js";
+import { isAuditApproval } from "../pages/approvals/helpers.js";
 
 interface PendingPayload {
+  items?: Array<{ id: string; detail?: unknown }>;
   summary: { pending: number };
 }
 
 export function PendingApprovalsBanner() {
   const location = useLocation();
   const [pending, setPending] = useState<number | null>(null);
+  const [hasGate, setHasGate] = useState(false);
   const [dismissedCount, setDismissedCount] = useState<number | null>(null);
 
   const refresh = useCallback(() => {
-    void loadJson<PendingPayload>("/api/approvals?status=pending&limit=1", 8_000).then((result) => {
-      if (result.ok) setPending(result.data.summary.pending);
+    void loadJson<PendingPayload>("/api/approvals?status=pending&limit=10", 8_000).then((result) => {
+      if (result.ok) {
+        setPending(result.data.summary.pending);
+        const items = result.data.items ?? [];
+        setHasGate(items.some((it) => !isAuditApproval(it)));
+      }
     });
   }, []);
 
@@ -44,14 +51,22 @@ export function PendingApprovalsBanner() {
       showIcon
       message={
         <span>
-          有 <strong>{pending}</strong> 条高危操作等待你批准或拒绝（超时未处理将自动关闭）。
+          {hasGate ? (
+            <>
+              有 <strong>{pending}</strong> 条高危操作等待你放行或拦截（超时未处理将自动拦截）。
+            </>
+          ) : (
+            <>
+              侦测到 <strong>{pending}</strong> 条高危异动记录待你核验（动作已由 Hermes 执行，可确认已知或存疑阻断）。
+            </>
+          )}
         </span>
       }
       action={
         <span style={{ display: "flex", gap: 8 }}>
           <Link to="/approvals">
             <Button size="small" type="primary">
-              去处理
+              {hasGate ? "去放行" : "去核验"}
             </Button>
           </Link>
           <Button size="small" type="text" onClick={() => setDismissedCount(pending)}>

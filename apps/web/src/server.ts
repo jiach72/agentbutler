@@ -3669,6 +3669,26 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   app.post("/api/approvals/bulk-decide", async (request, reply) =>
     proxyWatchPost("/api/approvals/bulk-decide", request.body, reply, 30_000),
   );
+  // 动作指纹防御规则代理（拉黑阻断 / 信任免核验）
+  app.get("/api/approvals/rules", async (_request, reply) =>
+    proxyWatchGet("/api/approvals/rules", reply, 30_000),
+  );
+  app.post("/api/approvals/rules", async (request, reply) =>
+    proxyWatchPost("/api/approvals/rules", request.body, reply, 30_000),
+  );
+  app.delete("/api/approvals/rules/:fingerprint", async (request, reply) => {
+    const rawFp = String((request.params as Record<string, string>)["fingerprint"] ?? "");
+    let res: Response;
+    try {
+      res = await doFetch(`${watchUrl}/api/approvals/rules/${encodeURIComponent(rawFp)}`, {
+        method: "DELETE",
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch {
+      return reply.status(502).send({ error: "watch-unreachable" });
+    }
+    return reply.status(res.status).send(await res.json().catch(() => ({})));
+  });
   // M3.2 升级金丝雀：列表 / 详情 / 抽样计划 / 执行 / 策略读写 / 手动巡检。
   app.get("/api/canary", async (request, reply) => {
     const query = request.query as Record<string, unknown>;

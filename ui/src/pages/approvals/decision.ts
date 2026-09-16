@@ -22,6 +22,12 @@ export async function runInlineDecision(
   deps: Omit<ApprovalDecisionDeps, "channel">,
   approvalId: string,
   decision: ApprovalDecision,
+  options?: {
+    isAudit?: boolean;
+    blockFingerprint?: boolean;
+    trustFingerprint?: boolean;
+    reason?: string;
+  },
 ): Promise<void> {
-  await runApprovalDecision({ ...deps, channel: INLINE_DECIDE_CHANNEL }, approvalId, decision);
+  await runApprovalDecision({ ...deps, channel: INLINE_DECIDE_CHANNEL }, approvalId, decision, options);
 }

@@ -24,15 +24,15 @@ describe("isAuditApproval（audit=事后确认来源判定）", () => {
 });
 
 describe("approvalStatusLabel（gate 事前放行 / audit 事后确认 文案分流）", () => {
-  it("gate 文案：待处理 / 已批准 / 已拒绝 / 超时拦截", () => {
-    expect(approvalStatusLabel("pending", false)).toBe("待处理");
+  it("gate 文案：待放行 / 已批准 / 已拒绝 / 超时拦截", () => {
+    expect(approvalStatusLabel("pending", false)).toBe("待放行");
     expect(approvalStatusLabel("approved", false)).toBe("已批准");
     expect(approvalStatusLabel("denied", false)).toBe("已拒绝");
     expect(approvalStatusLabel("expired", false)).toBe("超时拦截");
   });
 
-  it("audit 文案：待处理 / 已追认 / 已标记存疑 / 超时未确认", () => {
-    expect(approvalStatusLabel("pending", true)).toBe("待处理");
+  it("audit 文案：待核验 / 已追认 / 已标记存疑 / 超时未确认", () => {
+    expect(approvalStatusLabel("pending", true)).toBe("待核验");
     expect(approvalStatusLabel("approved", true)).toBe("已追认");
     expect(approvalStatusLabel("denied", true)).toBe("已标记存疑");
     expect(approvalStatusLabel("expired", true)).toBe("超时未确认");
@@ -44,12 +44,17 @@ describe("approvalStatusLabel（gate 事前放行 / audit 事后确认 文案分
   });
 });
 
-describe("approvalStatusTone（色语义与来源无关）", () => {
+describe("approvalStatusTone（语义色映射）", () => {
   it("四态映射稳定，未知回退 unknown", () => {
     expect(approvalStatusTone("pending")).toBe("warn");
     expect(approvalStatusTone("approved")).toBe("ok");
     expect(approvalStatusTone("denied")).toBe("error");
     expect(approvalStatusTone("expired")).toBe("error");
     expect(approvalStatusTone("whatever")).toBe("unknown");
+  });
+
+  it("audit 的 expired 降级为中性 unknown（非红色的警报）", () => {
+    expect(approvalStatusTone("expired", true)).toBe("unknown");
+    expect(approvalStatusTone("expired", false)).toBe("error");
   });
 });
