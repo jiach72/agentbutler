@@ -10,21 +10,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  Alert,
   App,
   Button,
   Card,
-  Col,
   Flex,
-  Row,
-  Space,
   Switch,
   Tag,
-  Tooltip,
   Typography,
 } from "antd";
 import {
-  AppstoreOutlined,
   AuditOutlined,
   CheckOutlined,
   ClusterOutlined,
@@ -51,7 +45,7 @@ import { routeMetaFor } from "../../lib/routeMeta.js";
 import { settingsToolPaths } from "../settings/categories.js";
 import "./tools.css";
 
-const { Paragraph, Text, Title } = Typography;
+const { Text, Title } = Typography;
 const EXPERIMENTS_KEY = "butler.experiments.enabled";
 const DOCTOR_COMMAND = "node scripts/doctor.mjs";
 
@@ -62,10 +56,9 @@ interface ToolCardProps {
   tag?: string;
   tagColor?: string;
   description: string;
-  actionText?: string;
 }
 
-function ToolCard({ to, icon, title, tag, tagColor = "blue", description, actionText = "打开工具" }: ToolCardProps) {
+function ToolCard({ to, icon, title, tag, tagColor = "blue", description }: ToolCardProps) {
   return (
     <div className="tool-card">
       <div className="tool-card-header">

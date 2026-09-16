@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, App, Button, Empty, Input, Modal, Segmented, Skeleton, Space, Switch, Tag, Tooltip } from "antd";
 import {
-  AlertOutlined,
   CheckCircleOutlined,
   ClockCircleOutlined,
   DashboardOutlined,
@@ -153,11 +152,6 @@ export function TasksPage() {
     }
     setEditor({ key: crypto.randomUUID(), taskId: task.id, initialDraft: result.data.draft });
   };
-  const run = (task: TaskView) => modal.confirm({
-    title: `立即运行“${task.name}”？`,
-    content: "Hermes 将在下一轮调度执行任务。任务可能调用模型、修改文件或发送通知。",
-    okText: "确认运行", cancelText: "取消", onOk: () => mutate(task, "run"),
-  });
   const toggle = (task: TaskView, enabled: boolean) => modal.confirm({
     title: `${enabled ? "恢复" : "暂停"}“${task.name}”？`,
     content: enabled ? "Hermes 将恢复此任务的计划执行。" : "暂停后不再自动执行，已经开始的执行不会被终止。",
