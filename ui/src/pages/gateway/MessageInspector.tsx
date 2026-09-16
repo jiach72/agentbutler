@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Alert,
   Button,
@@ -6,15 +6,31 @@ import {
   Drawer,
   Flex,
   Pagination,
+  Popconfirm,
+  Segmented,
   Select,
+  Tag,
   Timeline,
+  Tooltip,
   Typography,
 } from "antd";
 import { AdvancedEvidence } from "../../components/AdvancedEvidence.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { Empty } from "../../components/Empty.js";
 import { formatRelative } from "../../lib/format.js";
-import { ACTIONABLE_MESSAGE_STATES, isActionableMessage, messageSummary } from "./attention.js";
+import {
+  ACTIONABLE_MESSAGE_STATES,
+  ACTIONABLE_TIME_OPTIONS,
+  isActionableMessage,
+  isMessageWithinHours,
+  messageSummary,
+} from "./attention.js";
+import type { ActionableTimeFilter } from "./attention.js";
+import {
+  dismissMessageId,
+  dismissMessageIds,
+  readDismissedMessageIds,
+} from "./actionableDismiss.js";
 import {
   MESSAGE_STATE_LABELS,
   channelLabel,
@@ -47,6 +63,8 @@ interface MessageInspectorProps {
   redeliverBusy?: boolean;
   onExpedite?: (messageId: string) => void;
   expediteBusy?: boolean;
+  onDismiss?: (messageId: string) => void;
+  defaultTimeFilter?: ActionableTimeFilter;
 }
 
 export const MESSAGE_CHIP_STATES = [
@@ -67,7 +85,13 @@ export const MESSAGE_CHIP_STATES = [
 
 type DetailProps = Pick<
   MessageInspectorProps,
-  "taskData" | "taskLoading" | "onRedeliver" | "redeliverBusy" | "onExpedite" | "expediteBusy"
+  | "taskData"
+  | "taskLoading"
+  | "onRedeliver"
+  | "redeliverBusy"
+  | "onExpedite"
+  | "expediteBusy"
+  | "onDismiss"
 > & { message: MessageItemView };
 
 export function MessageDetail({
@@ -78,6 +102,7 @@ export function MessageDetail({
   redeliverBusy,
   onExpedite,
   expediteBusy,
+  onDismiss,
 }: DetailProps) {
   return (
     <Flex vertical gap={16} style={{ minWidth: 0, overflowWrap: "anywhere" }}>
@@ -100,6 +125,13 @@ export function MessageDetail({
           showIcon
           title="这条消息的发送结果未知"
           description="请先在接收通道核实是否收到，请勿重复发送。恢复连接后重新检查送达记录；结果未知不等于发送失败。"
+          action={
+            onDismiss && (
+              <Button size="small" onClick={() => onDismiss(message.messageId)}>
+                已核实并忽略
+              </Button>
+            )
+          }
         />
       )}
       {message.state === "dead_letter" && (
@@ -109,11 +141,18 @@ export function MessageDetail({
           title="这条消息发送失败，已被搁置"
           description="先检查通道连接。确认重新投递后，消息会按当前规则再次发送给对方。"
           action={
-            onRedeliver && (
-              <Button danger loading={redeliverBusy} onClick={() => onRedeliver(message.messageId)}>
-                重新投递
-              </Button>
-            )
+            <Flex gap={8} wrap>
+              {onRedeliver && (
+                <Button danger loading={redeliverBusy} onClick={() => onRedeliver(message.messageId)}>
+                  重新投递
+                </Button>
+              )}
+              {onDismiss && (
+                <Button size="small" onClick={() => onDismiss(message.messageId)}>
+                  忽略此条
+                </Button>
+              )}
+            </Flex>
           }
         />
       )}
@@ -123,7 +162,16 @@ export function MessageDetail({
           showIcon
           title="消息规则未能完成处理"
           description="检查通知规则和通道连接，修正后刷新发送结果。"
-          action={<Button href="/gateway?tab=rules">检查通知规则</Button>}
+          action={
+            <Flex gap={8} wrap>
+              <Button href="/gateway?tab=rules">检查通知规则</Button>
+              {onDismiss && (
+                <Button size="small" onClick={() => onDismiss(message.messageId)}>
+                  忽略此条
+                </Button>
+              )}
+            </Flex>
+          }
         />
       )}
       {["held_dnd", "held_pacing", "ready"].includes(message.state) && onExpedite && (
@@ -210,19 +258,103 @@ export function MessageInspector(props: MessageInspectorProps) {
     activeStateFilter = "all",
     onStateFilterChange,
   } = props;
-  const messageItems = pendingOnly
-    ? props.messageItems.filter(isActionableMessage)
-    : props.messageItems;
+
+  const [timeFilter, setTimeFilter] = useState<ActionableTimeFilter>(
+    props.defaultTimeFilter ?? "24h",
+  );
+  const [dismissedVersion, setDismissedVersion] = useState(0);
+
+  const dismissedSet = useMemo(() => readDismissedMessageIds(), [dismissedVersion]);
+
+  const actionableItems = useMemo(
+    () => props.messageItems.filter(isActionableMessage),
+    [props.messageItems],
+  );
+
+  const activeTimeOption =
+    ACTIONABLE_TIME_OPTIONS.find((o) => o.value === timeFilter) ?? ACTIONABLE_TIME_OPTIONS[0];
+
+  const messageItems = useMemo(() => {
+    if (!pendingOnly) return props.messageItems;
+    return actionableItems.filter((item) => {
+      if (dismissedSet.has(item.messageId)) return false;
+      return isMessageWithinHours(item.updatedAt, activeTimeOption.hours);
+    });
+  }, [pendingOnly, props.messageItems, actionableItems, dismissedSet, activeTimeOption.hours]);
+
+  const hiddenOlderCount = useMemo(() => {
+    if (!pendingOnly || activeTimeOption.hours === Infinity) return 0;
+    return actionableItems.filter(
+      (item) =>
+        !dismissedSet.has(item.messageId) &&
+        !isMessageWithinHours(item.updatedAt, activeTimeOption.hours),
+    ).length;
+  }, [pendingOnly, actionableItems, dismissedSet, activeTimeOption.hours]);
+
+  const handleDismissOne = (messageId: string) => {
+    dismissMessageId(messageId);
+    setDismissedVersion((v) => v + 1);
+    props.onSelectMessage(null);
+    props.onDismiss?.(messageId);
+  };
+
+  const handleDismissAll = () => {
+    dismissMessageIds(messageItems.map((m) => m.messageId));
+    setDismissedVersion((v) => v + 1);
+    props.onSelectMessage(null);
+  };
+
   const [page, setPage] = useState(1);
   const currentPage = Math.min(page, Math.max(1, Math.ceil(messageItems.length / 8)));
   const states = pendingOnly ? ACTIONABLE_MESSAGE_STATES : MESSAGE_CHIP_STATES;
   return (
     <Flex vertical gap={16}>
       <Flex wrap gap={12} justify="space-between" align="center">
-        <Typography.Title level={4} style={{ margin: 0 }}>
-          {pendingOnly ? "需要处理的消息" : "消息记录"}
-        </Typography.Title>
-        {!pendingOnly && (
+        <Flex align="center" gap={8} wrap>
+          <Typography.Title level={4} style={{ margin: 0 }}>
+            {pendingOnly ? "需要处理的消息" : "消息记录"}
+          </Typography.Title>
+          {pendingOnly && hiddenOlderCount > 0 && (
+            <Tooltip
+              title={`当前时间范围为「${activeTimeOption.label}」，已自动收纳 ${hiddenOlderCount} 条更早的历史异常。可切换为「全部未决」或前往「发送历史」查看。`}
+            >
+              <Tag
+                color="default"
+                style={{ margin: 0, cursor: "pointer" }}
+                onClick={() => setTimeFilter("all")}
+              >
+                已收纳 {hiddenOlderCount} 条更早记录
+              </Tag>
+            </Tooltip>
+          )}
+        </Flex>
+        {pendingOnly ? (
+          <Flex align="center" gap={8} wrap>
+            <Segmented
+              size="small"
+              value={timeFilter}
+              onChange={(val) => {
+                setPage(1);
+                setTimeFilter(val as ActionableTimeFilter);
+              }}
+              options={ACTIONABLE_TIME_OPTIONS.map((opt) => ({
+                label: opt.label,
+                value: opt.value,
+              }))}
+            />
+            {messageItems.length > 0 && (
+              <Popconfirm
+                title="确认全部忽略？"
+                description="将当前列表中的待处理记录标记为已核实，不再在待处理列表中提醒。"
+                okText="全部忽略"
+                cancelText="取消"
+                onConfirm={handleDismissAll}
+              >
+                <Button size="small">全部忽略</Button>
+              </Popconfirm>
+            )}
+          </Flex>
+        ) : (
           <Select<MessageStateFilter>
             aria-label="消息状态"
             value={activeStateFilter}
@@ -245,7 +377,21 @@ export function MessageInspector(props: MessageInspectorProps) {
           hint="恢复连接后请刷新，当前无法确认待处理数量。"
         />
       ) : messageItems.length === 0 ? (
-        <Empty mascot={false} title={pendingOnly ? "没有需要处理的消息" : "没有符合条件的记录"} />
+        <Empty
+          mascot={false}
+          title={
+            pendingOnly
+              ? timeFilter === "all"
+                ? "没有需要处理的消息"
+                : `${activeTimeOption.label}没有需要处理的消息`
+              : "没有符合条件的记录"
+          }
+          hint={
+            pendingOnly && hiddenOlderCount > 0
+              ? `已有 ${hiddenOlderCount} 条更早的历史记录被收纳，可切换为「全部未决」或前往「发送历史」查阅。`
+              : undefined
+          }
+        />
       ) : (
         <Flex vertical gap={8} aria-label="消息列表">
           {messageItems.slice((currentPage - 1) * 8, currentPage * 8).map((message) => (
@@ -321,7 +467,9 @@ export function MessageInspector(props: MessageInspectorProps) {
         size={640}
         styles={{ wrapper: { maxWidth: "100vw" }, body: { overflowWrap: "anywhere" } }}
       >
-        {selectedMessage !== null && <MessageDetail {...props} message={selectedMessage} />}
+        {selectedMessage !== null && (
+          <MessageDetail {...props} message={selectedMessage} onDismiss={handleDismissOne} />
+        )}
       </Drawer>
     </Flex>
   );

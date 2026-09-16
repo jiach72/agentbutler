@@ -46,7 +46,7 @@ function item(state: string, id = state): MessageItemView {
     lastError: "SQLITE_BUSY /private/logs",
     transformTrace: [],
     lastPolicyError: null,
-    updatedAt: "2026-09-15T00:00:00Z",
+    updatedAt: new Date().toISOString(),
   };
 }
 
@@ -160,6 +160,46 @@ describe("progressive message detail and evidence", () => {
     expect(html).not.toContain("完整消息尾部");
     expect(html).toContain("发送失败");
     expect(html).not.toContain("消息链路与覆盖");
+  });
+
+  it("folds stale actionable messages (>24h) into older records count by default", () => {
+    const oldItem = {
+      ...item("delivery_unknown", "old-1"),
+      updatedAt: new Date(Date.now() - 48 * 3600 * 1000).toISOString(),
+    };
+    const defaultHtml = renderToStaticMarkup(
+      <MessageInspector
+        messageBridge={null}
+        coverageEntries={[]}
+        messageCounts={{ delivery_unknown: 1 }}
+        messageItems={[oldItem]}
+        messagesReachable
+        selectedMessage={null}
+        onSelectMessage={() => undefined}
+        taskData={null}
+        taskLoading={false}
+        pendingOnly
+      />,
+    );
+    expect(defaultHtml).toContain("已收纳 1 条更早记录");
+    expect(defaultHtml).not.toContain("结果未知");
+
+    const allHtml = renderToStaticMarkup(
+      <MessageInspector
+        messageBridge={null}
+        coverageEntries={[]}
+        messageCounts={{ delivery_unknown: 1 }}
+        messageItems={[oldItem]}
+        messagesReachable
+        selectedMessage={null}
+        onSelectMessage={() => undefined}
+        taskData={null}
+        taskLoading={false}
+        pendingOnly
+        defaultTimeFilter="all"
+      />,
+    );
+    expect(allHtml).toContain("结果未知");
   });
 
   it("does not hide a known failed notification behind a false empty conclusion", () => {

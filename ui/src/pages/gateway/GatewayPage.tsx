@@ -42,9 +42,12 @@ import { RelayControlCard } from "./RelayControlCard.js";
 import {
   ACTIONABLE_MESSAGE_STATES,
   actionableApprovals,
+  isActionableMessage,
+  isMessageWithinHours,
   loadMessageOverview,
   type PendingMessageApprovals,
 } from "./attention.js";
+import { readDismissedMessageIds } from "./actionableDismiss.js";
 import {
   COVERAGE_LABELS,
   GATEWAY_TAB_LABELS,
@@ -375,10 +378,27 @@ export function GatewayPage() {
         : { tone: "ok" as const, label: "就绪" };
   const pendingAlerts = alerts?.counts["pending"] ?? 0;
   const failedAlerts = alerts?.counts["failed"] ?? 0;
-  const actionableMessageCount = ACTIONABLE_MESSAGE_STATES.reduce(
-    (sum, state) => sum + (messageCounts[state] ?? 0),
-    0,
+  const dismissedSet = readDismissedMessageIds();
+  const recentActionableMessages = (messageData?.messages.items ?? []).filter(
+    (item) =>
+      isActionableMessage(item) &&
+      !dismissedSet.has(item.messageId) &&
+      isMessageWithinHours(item.updatedAt, 24),
   );
+  const olderActionableCount = (messageData?.messages.items ?? []).filter(
+    (item) =>
+      isActionableMessage(item) &&
+      !dismissedSet.has(item.messageId) &&
+      !isMessageWithinHours(item.updatedAt, 24),
+  ).length;
+
+  const actionableMessageCount =
+    messageData !== null
+      ? recentActionableMessages.length
+      : ACTIONABLE_MESSAGE_STATES.reduce(
+          (sum, state) => sum + (messageCounts[state] ?? 0),
+          0,
+        );
   const pendingApprovals = actionableApprovals(approvalData?.items ?? []);
   const attentionCount =
     actionableMessageCount + failedAlerts + (approvalData?.summary.pending ?? 0);
@@ -497,9 +517,11 @@ export function GatewayPage() {
               ? recoveryState.description
               : attentionCount > 0
                 ? "先核实结果未知的消息，再检查失败原因；待审批动作需逐项确认。"
-                : pendingAlerts > 0
-                  ? `另有 ${pendingAlerts} 条通知正在排队，暂时无需操作。`
-                  : "已送达记录保留在发送历史中。"
+                : olderActionableCount > 0
+                  ? `近 24 小时运行正常，另有 ${olderActionableCount} 条历史异常已收纳至发送历史。`
+                  : pendingAlerts > 0
+                    ? `另有 ${pendingAlerts} 条通知正在排队，暂时无需操作。`
+                    : "已送达记录保留在发送历史中。"
           }
         />
 
@@ -532,7 +554,9 @@ export function GatewayPage() {
               label: "结果未知",
               value: messageData === null ? "—" : (messageCounts.delivery_unknown ?? 0),
               unit: "条",
-              tone: (messageCounts.delivery_unknown ?? 0) > 0 ? "warn" : undefined,
+              tone: recentActionableMessages.some((m) => m.state === "delivery_unknown")
+                ? "warn"
+                : undefined,
             },
             {
               key: "failedAlerts",

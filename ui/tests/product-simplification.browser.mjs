@@ -45,7 +45,7 @@ export async function checkProductSimplification(page, baseUrl) {
     lastError: "RAW_ERROR /private/logs",
     transformTrace: [],
     lastPolicyError: null,
-    updatedAt: "2026-09-15T00:00:00Z",
+    updatedAt: new Date().toISOString(),
   });
   await page.route("**/api/**", async (route) => {
     const request = route.request();

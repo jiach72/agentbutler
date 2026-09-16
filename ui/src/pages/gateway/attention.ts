@@ -11,6 +11,26 @@ export function isActionableMessage(message: Pick<MessageItemView, "state">): bo
   return ACTIONABLE_MESSAGE_STATES.some((state) => state === message.state);
 }
 
+export const ACTIONABLE_TIME_OPTIONS = [
+  { label: "近 24 小时", value: "24h", hours: 24 },
+  { label: "近 3 天", value: "3d", hours: 72 },
+  { label: "全部未决", value: "all", hours: Infinity },
+] as const;
+
+export type ActionableTimeFilter = (typeof ACTIONABLE_TIME_OPTIONS)[number]["value"];
+
+export function isMessageWithinHours(
+  updatedAt: string | null | undefined,
+  hours: number,
+  now = Date.now(),
+): boolean {
+  if (hours === Infinity) return true;
+  if (!updatedAt) return true;
+  const time = new Date(updatedAt).getTime();
+  if (isNaN(time)) return true;
+  return now - time <= hours * 60 * 60 * 1000;
+}
+
 export function messageSummary(content: string): string {
   const text = content.replace(/\s+/g, " ").trim();
   return text.length > 120 ? `${text.slice(0, 120)}…` : text || "（空消息内容）";
