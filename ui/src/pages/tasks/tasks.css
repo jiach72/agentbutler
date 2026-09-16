@@ -68,92 +68,179 @@
   margin-bottom: 16px;
 }
 
-/* 3. 任务卡片 */
+/* 3. 任务卡片网格与卡片组件 */
 .tasks-grid-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
 }
+
 .task-rich-card {
+  --card-status-color: var(--ab-ok);
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 20px 22px;
+  padding: 18px 20px;
   background: var(--ab-surface);
   border: 1px solid var(--ab-border);
+  border-left: 4px solid var(--card-status-color);
   border-radius: var(--ab-r-card, 14px);
   box-shadow: var(--ab-shadow-1);
-  transition: all 0.2s ease;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.2s ease;
+  position: relative;
 }
+
 .task-rich-card:hover {
   border-color: var(--ab-primary-soft-border);
   box-shadow: var(--ab-shadow-2);
-  transform: translateY(-1px);
+  transform: translateY(-2px);
 }
+
 .task-rich-card[data-status="paused"] {
-  opacity: 0.82;
+  --card-status-color: var(--ab-border);
+  opacity: 0.86;
   background: var(--ab-surface-2);
 }
+
+.task-rich-card[data-status="failed"] {
+  --card-status-color: var(--ab-error);
+}
+
+.task-rich-card[data-status="delivery_failed"] {
+  --card-status-color: var(--ab-warn);
+}
+
+/* 卡片头部 */
 .task-card-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 16px;
+  gap: 12px;
 }
-.task-card-title-group {
+
+.task-card-title-col {
   display: flex;
   flex-direction: column;
   gap: 6px;
   min-width: 0;
+  flex: 1;
 }
-.task-card-title-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.task-card-title-row h2 {
+
+.task-card-name {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
   color: var(--ab-text);
   line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.task-schedule-line {
+
+.task-card-badges {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--ab-text-2);
+  gap: 6px;
 }
-.task-schedule-badge {
-  font-weight: 500;
-  color: var(--ab-text);
+
+.task-card-badges .ant-tag {
+  margin-inline-end: 0;
+  font-size: 11px;
 }
-.task-next-run-badge {
-  color: var(--ab-primary);
-  font-weight: 500;
-}
+
 .task-switch-container {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+  padding-top: 2px;
 }
+
 .switch-label {
   font-size: 12px;
   color: var(--ab-text-2);
 }
-.task-card-footer {
+
+/* 排程与下一次运行面板 */
+.task-schedule-panel {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--ab-border);
+  flex-direction: column;
+  gap: 8px;
+  background: var(--ab-surface-2);
+  border: 1px solid var(--ab-border);
+  border-radius: 8px;
+  padding: 10px 12px;
 }
+
+.task-schedule-expr {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ab-text);
+}
+
+.task-schedule-icon {
+  font-size: 14px;
+  color: var(--ab-primary);
+  flex-shrink: 0;
+}
+
+.task-schedule-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-next-run-box {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.task-next-label {
+  color: var(--ab-text-2);
+}
+
+.task-next-time-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.task-next-time {
+  font-weight: 500;
+  color: var(--ab-text);
+}
+
+.task-countdown-pill {
+  background: var(--ab-primary-soft, rgba(59, 130, 246, 0.12));
+  color: var(--ab-primary);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.task-paused-text {
+  color: var(--ab-text-2);
+}
+
+/* 状态与告警栏 */
+.task-status-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .task-result-status {
   display: flex;
   align-items: center;
@@ -161,11 +248,48 @@
   gap: 8px;
   font-size: 12px;
 }
+
+.task-result-status .ant-tag {
+  margin-inline-end: 0;
+}
+
 .last-run-time {
   color: var(--ab-text-2);
 }
+
 .task-failure {
   color: var(--ab-error);
+}
+
+.task-failure-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(239, 68, 68, 0.08);
+  color: var(--ab-error);
+  border: 1px solid rgba(239, 68, 68, 0.22);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 底部操作按钮 */
+.task-card-footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  margin-top: auto;
+  padding-top: 14px;
+  border-top: 1px solid var(--ab-border);
+}
+
+.task-card-footer .task-actions {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
 }
 
 /* 4. 侧边栏辅助卡片 */
@@ -315,21 +439,28 @@
 .task-run-list { padding: 0; margin: 0; list-style: none; }
 .task-run-list li { padding: 16px 0; border-bottom: 1px solid var(--ab-border); overflow-wrap: anywhere; }
 .task-run-list p { margin: 8px 0 0; }
-@media (max-width: 1199px) {
-  .task-row { grid-template-columns: minmax(160px, 1.5fr) minmax(120px, 1fr) minmax(100px, 1fr) 48px; }
-  .task-actions { grid-column: 1 / -1; justify-self: end; }
-  .task-row-heading > :last-child { display: none; }
+@media (max-width: 1024px) {
+  .tasks-main-layout {
+    grid-template-columns: 1fr;
+  }
 }
+
 @media (max-width: 767px) {
   .tasks-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
   .tasks-summary strong { font-size: 18px; }
-  .task-row { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding-block: 20px; }
-  .task-row-heading { display: none; }
-  .task-name-cell, .task-next-cell { grid-column: 1 / -1; }
-  .task-mobile-label { display: inline; margin-right: 8px; color: var(--ab-text-2); }
-  .task-actions { justify-self: start; }
-  .task-actions .ant-btn { width: 44px; height: 44px; }
+  .tasks-grid-list {
+    grid-template-columns: 1fr;
+  }
+  .task-card-footer .task-actions {
+    justify-content: flex-start;
+  }
+  .task-card-footer .task-actions .ant-btn {
+    flex: 1;
+    min-width: 0;
+    padding-inline: 8px;
+  }
   .task-editor .ant-input, .task-editor .ant-select, .task-editor .ant-input-number { font-size: 16px; }
   .task-schedule-fields .ant-checkbox-wrapper { min-height: 44px; align-items: center; }
-  .tasks-toolbar .ant-input-search { width: 100%; }
+  .tasks-toolbar-v2 .ant-input-search { width: 100%; max-width: 100% !important; }
 }
+

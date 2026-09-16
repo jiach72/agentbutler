@@ -11,6 +11,7 @@ import {
   PlusOutlined,
   ReloadOutlined,
   ThunderboltOutlined,
+  WarningOutlined,
 } from "@ant-design/icons";
 import type { ScheduledTaskDraft, ScheduledTaskSummary, ScheduledTaskStatus, ScheduledTaskIncidents } from "@butler/contract";
 import { PageHeader } from "../../components/PageHeader.js";
@@ -236,95 +237,129 @@ export function TasksPage() {
           {!data && !failed ? <Skeleton active paragraph={{ rows: 6 }} />
             : reachable && visible.length === 0 ? <Empty description={filter || statusTab !== "all" ? "没有匹配的任务" : "尚无定时任务"} />
             : reachable && <div className="tasks-grid-list">
-              {visible.map((task) => <article className="task-row task-rich-card" key={task.id} data-status={task.enabled ? "active" : "paused"}>
-                <div className="task-card-header">
-                  <div className="task-card-title-group">
-                    <div className="task-card-title-row">
-                      <h2>{task.name}</h2>
-                      <Tag color={task.scheduleLabel.toLowerCase().includes("cron") ? "geekblue" : "purple"}>
-                        {task.scheduleLabel.toLowerCase().includes("cron") ? "Cron 表达式" : "排程计划"}
-                      </Tag>
-                      {task.deliveryEnabled ? (
-                        <Tag color="cyan">已配通知</Tag>
-                      ) : (
-                        <Tag color="default">免打扰</Tag>
+              {visible.map((task, idx) => {
+                const cardStatus = !task.enabled
+                  ? "paused"
+                  : task.lastStatus === "failed"
+                  ? "failed"
+                  : task.lastStatus === "delivery_failed"
+                  ? "delivery_failed"
+                  : "active";
+                return (
+                  <article
+                    className="task-row task-rich-card ab-card-hover ab-stagger"
+                    key={task.id}
+                    data-status={cardStatus}
+                    style={{ "--ab-stagger-i": Math.min(idx, 12) } as React.CSSProperties}
+                  >
+                    <div className="task-card-header">
+                      <div className="task-card-title-col">
+                        <h2 className="task-card-name" title={task.name}>{task.name}</h2>
+                        <div className="task-card-badges">
+                          <Tag color={task.scheduleLabel.toLowerCase().includes("cron") ? "geekblue" : "purple"}>
+                            {task.scheduleLabel.toLowerCase().includes("cron") ? "Cron 表达式" : "排程计划"}
+                          </Tag>
+                          {task.deliveryEnabled ? (
+                            <Tag color="cyan">已配通知</Tag>
+                          ) : (
+                            <Tag color="default">免打扰</Tag>
+                          )}
+                        </div>
+                      </div>
+                      <div className="task-switch-container">
+                        <span className="switch-label">{task.enabled ? "运行中" : "已暂停"}</span>
+                        <Switch
+                          aria-label={`${task.name}启用`}
+                          checked={task.enabled}
+                          disabled={!writable || busy !== null}
+                          loading={busy === `${task.id}:pause` || busy === `${task.id}:resume`}
+                          onChange={(enabled) => toggle(task, enabled)}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="task-schedule-panel">
+                      <div className="task-schedule-expr">
+                        <ClockCircleOutlined className="task-schedule-icon" />
+                        <span className="task-schedule-label" title={task.scheduleLabel}>
+                          {task.scheduleLabel}
+                        </span>
+                      </div>
+                      <div className="task-next-run-box">
+                        <span className="task-next-label">下次执行</span>
+                        {task.enabled ? (
+                          <div className="task-next-time-row">
+                            <span className="task-next-time">{taskTime(task.nextRunAt, timezone)}</span>
+                            <span className="task-countdown-pill">{formatRelativeNext(task.nextRunAt)}</span>
+                          </div>
+                        ) : (
+                          <span className="task-paused-text">已暂停调度</span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="task-status-row">
+                      <div className="task-result-status">
+                        <Tag color={task.lastStatus === "failed" ? "error" : task.lastStatus === "delivery_failed" ? "warning" : task.lastStatus === "success" ? "success" : "default"}>
+                          {taskStatusLabel(task.lastStatus)}
+                        </Tag>
+                        <span className="last-run-time">
+                          {task.lastRunAt ? `最近: ${taskTime(task.lastRunAt, timezone)}` : "尚未触发执行"}
+                        </span>
+                      </div>
+                      {failureFor(task) && (
+                        <div className="task-failure-banner" role="alert">
+                          <WarningOutlined />
+                          <span title={failureFor(task)!}>{failureFor(task)}</span>
+                        </div>
                       )}
                     </div>
-                    <div className="task-schedule-line">
-                      <span className="task-schedule-badge">🕒 {task.scheduleLabel}</span>
-                      <span className="task-next-run-badge">
-                        {task.enabled ? (
-                          <>下次: {taskTime(task.nextRunAt, timezone)} ({formatRelativeNext(task.nextRunAt)})</>
-                        ) : (
-                          <span style={{ color: "var(--ab-text-2)" }}>已暂停</span>
-                        )}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="task-switch-container">
-                    <span className="switch-label">{task.enabled ? "运行中" : "已暂停"}</span>
-                    <Switch
-                      aria-label={`${task.name}启用`}
-                      checked={task.enabled}
-                      disabled={!writable || busy !== null}
-                      loading={busy === `${task.id}:pause` || busy === `${task.id}:resume`}
-                      onChange={(enabled) => toggle(task, enabled)}
-                    />
-                  </div>
-                </div>
 
-                <div className="task-card-footer">
-                  <div className="task-result-status">
-                    <Tag color={task.lastStatus === "failed" ? "error" : task.lastStatus === "delivery_failed" ? "warning" : task.lastStatus === "success" ? "success" : "default"}>
-                      {taskStatusLabel(task.lastStatus)}
-                    </Tag>
-                    <span className="last-run-time">
-                      {task.lastRunAt ? `最近执行: ${taskTime(task.lastRunAt, timezone)}` : "尚未触发执行"}
-                    </span>
-                    {failureFor(task) && <span className="task-failure">⚠️ {failureFor(task)}</span>}
-                  </div>
-                  <Space size={6} wrap className="task-actions">
-                    <Tooltip title="查看历史记录与日志">
-                      <Button
-                        aria-label={`查看${task.name}执行历史`}
-                        icon={<HistoryOutlined />}
-                        onClick={() => setHistory(task)}
-                      >
-                        历史
-                      </Button>
-                    </Tooltip>
-                    <Tooltip title={task.editable === false ? "此类任务请在 Hermes 编辑" : "修改任务配置"}>
-                      <Button
-                        aria-label={`编辑${task.name}`}
-                        icon={<EditOutlined />}
-                        disabled={!writable || task.editable === false || busy !== null}
-                        onClick={() => void edit(task)}
-                      >
-                        编辑
-                      </Button>
-                    </Tooltip>
-                    <Tooltip title={status?.runSupported ? "立即手动单次测试运行" : "当前 Hermes 状态暂不支持测试运行"}>
-                      <Button
-                        aria-label={`测试运行${task.name}`}
-                        icon={<PlayCircleOutlined />}
-                        disabled={!writable || !status?.runSupported || busy !== null}
-                        onClick={() => setTestRunningTask(task)}
-                      >
-                        测试运行
-                      </Button>
-                    </Tooltip>
-                    <Tooltip title="删除任务">
-                      <Button
-                        danger
-                        aria-label={`删除${task.name}`}
-                        icon={<DeleteOutlined />}
-                        disabled={!writable || busy !== null}
-                        onClick={() => { setDeleting(task); setConfirmName(""); }}
-                      />
-                    </Tooltip>
-                  </Space>
-                </div>
-              </article>)}
+                    <div className="task-card-footer">
+                      <Space size={6} wrap className="task-actions">
+                        <Tooltip title="查看历史记录与日志">
+                          <Button
+                            aria-label={`查看${task.name}执行历史`}
+                            icon={<HistoryOutlined />}
+                            onClick={() => setHistory(task)}
+                          >
+                            历史
+                          </Button>
+                        </Tooltip>
+                        <Tooltip title={task.editable === false ? "此类任务请在 Hermes 编辑" : "修改任务配置"}>
+                          <Button
+                            aria-label={`编辑${task.name}`}
+                            icon={<EditOutlined />}
+                            disabled={!writable || task.editable === false || busy !== null}
+                            onClick={() => void edit(task)}
+                          >
+                            编辑
+                          </Button>
+                        </Tooltip>
+                        <Tooltip title={status?.runSupported ? "立即手动单次测试运行" : "当前 Hermes 状态暂不支持测试运行"}>
+                          <Button
+                            aria-label={`测试运行${task.name}`}
+                            icon={<PlayCircleOutlined />}
+                            disabled={!writable || !status?.runSupported || busy !== null}
+                            onClick={() => setTestRunningTask(task)}
+                          >
+                            测试运行
+                          </Button>
+                        </Tooltip>
+                        <Tooltip title="删除任务">
+                          <Button
+                            danger
+                            aria-label={`删除${task.name}`}
+                            icon={<DeleteOutlined />}
+                            disabled={!writable || busy !== null}
+                            onClick={() => { setDeleting(task); setConfirmName(""); }}
+                          />
+                        </Tooltip>
+                      </Space>
+                    </div>
+                  </article>
+                );
+              })}
             </div>}
         </div>
 
