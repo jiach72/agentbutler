@@ -1,18 +1,27 @@
-/** Wall health shares the homepage snapshot; only host and message trends are extra reads. */
-import { useCallback, useEffect, useState } from "react";
+/**
+ * 大屏（/wall）数据获取：全部走既有 /api 端点，分层轮询（15s 快照 /
+ * 30s 状态 / 60s 聚合），复用 lib/api 的 fetchJson（失败吞并为 null，
+ * 页面按「无数据」降级，绝不伪造数值）。
+ *
+ * Token 用量三件套（K7/堆叠面积/环形占比）依赖 Watch llm-probe 的
+ * model/prompt_tokens/completion_tokens 采集，尚未落地：接口层预留
+ * fetchLlmUsage，404/不可达时页面渲染「待接入」灰态。
+ */
+import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchJson } from "../../lib/api.js";
 import { usePolling } from "../../hooks/usePolling.js";
 import { isActionableAlert } from "@butler/contract";
-import { useUserHealthData } from "../dashboard/useUserHealthData.js";
-import { deriveHealthView, type HealthSources } from "../dashboard/userHealth.js";
-import type { DashboardPayload } from "../dashboard/types.js";
+import type { AlertsPayload, DashboardPayload, MessageStatusPayload } from "../dashboard/types.js";
+import { deriveHealthView as deriveHealth, type HealthSources } from "../dashboard/userHealth.js";
+import {
+  deriveTaskPreview,
+  toPreviewTaskList,
+  toPreviewTaskStatus,
+  type PreviewTaskList,
+  type PreviewTaskStatus,
+} from "../dashboard/taskPreview.js";
 
 /* ────────────────────────────── 类型（字段对齐服务端） ───────────────────────────── */
-
-export interface WallInstance {
-  instanceId: string;
-  state: string;
-}
 
 export interface WallConnection {
   instanceId: string;
@@ -54,27 +63,12 @@ export interface WallMessageMetrics {
   retries: number;
 }
 
-export interface WallMessageStatus {
-  reachable: boolean;
-  status?: {
-    bridge: { connected: boolean; running: boolean; attached: boolean; outboxWritable: boolean };
-    counts?: Record<string, number>;
-    relay?: { enabled: boolean; pending: boolean; updatedAt: string | null };
-  } | null;
-}
+export type WallMessageStatus = MessageStatusPayload;
 
-export interface WallDashboard {
-  instances?: Array<WallInstance>;
-  fingerprints?: Array<Record<string, unknown>>;
-  latestInspections?: DashboardPayload["latestInspections"];
-  inspectStatus?: DashboardPayload["inspectStatus"];
-}
+/** 字段与服务端 /api/dashboard 同构，便于与首页共用同一套健康推导。 */
+export type WallDashboard = DashboardPayload;
 
-export interface WallAlerts {
-  reachable: boolean;
-  counts?: Record<string, number>;
-  items?: Array<{ severity?: string; status?: string; title?: string }>;
-}
+export type WallAlerts = AlertsPayload;
 
 export interface WallHostSample {
   capturedAt: string;
@@ -142,34 +136,11 @@ export interface WallBudget {
   threshold: "ok" | "80%" | "100%" | "over";
 }
 
-/** 版本载荷（/api/versions，只取大屏要用的快照与最近升级任务）。 */
-export interface WallVersions {
-  upgradeJob?: {
-    jobId: string;
-    targetVersion: string;
-    status: string;
-    rolledBack?: boolean;
-    startedAt: string;
-    finishedAt?: string;
-  } | null;
-  snapshots?: Array<{ id: number; instance: string; label: string | null; createdAt: string; status: string }>;
-  watchReachable?: boolean;
-}
-
-/** 备份载荷（/api/backups，字段对齐 settings/helpers.ts）。 */
-export interface WallBackupItem {
-  id: number;
-  kind: "full" | "memory" | "event";
-  label: string | null;
-  sizeBytes: number;
-  status: string;
-  createdAt: string;
-}
-
-export interface WallBackups {
-  watchReachable: boolean;
-  items: Array<WallBackupItem>;
-  status: null | { enabled: boolean; lastFullAt: string | null };
+/** 待审批载荷（/api/approvals），只取首页同名待办所需的字段。 */
+export interface WallApprovals {
+  reachable?: boolean;
+  summary?: { pending: number };
+  items?: Array<{ status: string }>;
 }
 
 /* ────────────────────────────── 待处理态判定 ───────────────────────────── */
@@ -192,11 +163,12 @@ export interface WallData {
   llmUsage: WallLlmUsage | null | "unavailable";
   costSummary: WallCostSummary | null;
   budget: WallBudget | null;
-  versions: WallVersions | null;
-  backups: WallBackups | null;
+  approvals: WallApprovals | null;
+  taskStatus: PreviewTaskStatus | null;
+  taskList: PreviewTaskList | null;
+  /** 最后一次快照读取的时刻；健康推导用它作为观测时间，不读系统时钟。 */
+  observedAt: string;
   lastRefreshAt: Date | null;
-  approvals?: HealthSources["approvals"];
-  userHealth?: ReturnType<typeof deriveHealthView>;
 }
 
 function sameJson(a: unknown, b: unknown): boolean {
@@ -206,38 +178,106 @@ function sameJson(a: unknown, b: unknown): boolean {
 function usePolledState<T>(): [T | null, (next: T | null) => void] {
   const [value, setValue] = useState<T | null>(null);
   const update = useCallback((next: T | null) => {
+    if (next === null) return;
     setValue((current) => (sameJson(current, next) ? current : next));
   }, []);
   return [value, update];
 }
 
-export function useWallData() {
-  const shared = useUserHealthData();
+export function useWallData(): WallData & { refreshAll: () => void } {
+  const [dashboard, setDashboard] = usePolledState<WallDashboard>();
+  const [messageStatus, setMessageStatus] = usePolledState<WallMessageStatus>();
+  const [alerts, setAlerts] = usePolledState<WallAlerts>();
   const [hostMetrics, setHostMetrics] = usePolledState<WallHostMetrics>();
+  const [connections, setConnections] = usePolledState<Array<WallConnection>>();
+  const [health, setHealth] = usePolledState<WallHealth>();
   const [metrics, setMetrics] = usePolledState<WallMessageMetrics>();
-  const refreshMetrics = useCallback(() => {
+  const [skillUsage, setSkillUsage] = usePolledState<WallSkillUsage>();
+  const [proposals, setProposals] = usePolledState<WallProposals>();
+  const [costSummary, setCostSummary] = usePolledState<WallCostSummary>();
+  const [budget, setBudget] = usePolledState<WallBudget>();
+  const [approvals, setApprovals] = usePolledState<WallApprovals>();
+  const [taskStatus, setTaskStatus] = usePolledState<PreviewTaskStatus>();
+  const [taskList, setTaskList] = usePolledState<PreviewTaskList>();
+  const [llmUsage, setLlmUsage] = useState<WallLlmUsage | null | "unavailable">(null);
+  const [lastRefreshAt, setLastRefreshAt] = useState<Date | null>(null);
+  const [observedAt, setObservedAt] = useState("");
+  const llmUnavailableRef = useRef(false);
+
+  const refreshFast = useCallback(() => {
+    void Promise.all([
+      fetchJson<WallDashboard>("/api/dashboard", 8_000).then(setDashboard),
+      fetchJson<WallMessageStatus>("/api/messages/status", 8_000).then(setMessageStatus),
+      fetchJson<WallAlerts>("/api/alerts", 8_000).then(setAlerts),
+      fetchJson<WallHostMetrics>("/api/host/metrics", 8_000).then(setHostMetrics),
+      // 定时任务：与首页共用同一份契约解析；未知时保持待接入，不伪造空列表。
+      fetchJson<unknown>("/api/scheduled-tasks/status", 8_000).then((payload) => setTaskStatus(toPreviewTaskStatus(payload))),
+      fetchJson<unknown>("/api/scheduled-tasks", 8_000).then((payload) => setTaskList(toPreviewTaskList(payload))),
+    ]).then(() => {
+      setObservedAt(new Date().toISOString());
+      setLastRefreshAt(new Date());
+    });
+  }, [setAlerts, setDashboard, setHostMetrics, setMessageStatus, setTaskList, setTaskStatus]);
+
+  const refreshMedium = useCallback(() => {
+    void Promise.all([
+      fetchJson<{ reachable: boolean; connections?: Array<WallConnection> }>("/api/connections", 12_000)
+        .then((payload) => setConnections(payload?.connections ?? null)),
+      fetchJson<WallHealth>("/api/health", 8_000).then(setHealth),
+      fetchJson<WallApprovals>("/api/approvals?status=pending&limit=200", 8_000).then(setApprovals),
+    ]);
+  }, [setApprovals, setConnections, setHealth]);
+
+  const refreshSlow = useCallback(() => {
     void Promise.all([
       fetchJson<WallMessageMetrics>("/api/messages/metrics?days=7", 12_000).then(setMetrics),
-      fetchJson<WallHostMetrics>("/api/host/metrics", 8_000).then(setHostMetrics),
+      fetchJson<WallSkillUsage>("/api/skills/usage?range=30&granularity=day", 12_000).then(setSkillUsage),
+      fetchJson<WallProposals>("/api/evolution/proposals", 12_000).then(setProposals),
+      fetchJson<WallCostSummary>("/api/llm/cost/summary?days=30", 12_000).then(setCostSummary),
+      fetchJson<WallBudget>("/api/budget", 12_000).then(setBudget),
     ]);
-  }, [setMetrics, setHostMetrics]);
-  useEffect(refreshMetrics, [refreshMetrics]);
-  usePolling(refreshMetrics, 30_000);
-  const data: WallData = {
-    dashboard: shared.sources.dashboard as WallDashboard | null,
-    connections: shared.sources.connections?.reachable
-      ? shared.sources.connections.connections as WallConnection[] ?? [] : null,
-    messageStatus: shared.sources.messageStatus,
-    alerts: shared.sources.alerts,
-    approvals: shared.sources.approvals,
-    hostMetrics, metrics, userHealth: shared,
-    lastRefreshAt: shared.sources.observedAt ? new Date(shared.sources.observedAt) : null,
-    health: null, skillUsage: null, proposals: null, llmUsage: null,
-    costSummary: null, budget: null, versions: null, backups: null,
-  };
+    // Token 用量：llm-probe 未落地前端点不存在，确认 404 后不再反复请求。
+    if (!llmUnavailableRef.current) {
+      void fetchJson<WallLlmUsage>("/api/llm/usage?days=7", 8_000).then((result) => {
+        if (result === null) {
+          llmUnavailableRef.current = true;
+          setLlmUsage("unavailable");
+        } else {
+          setLlmUsage(result);
+        }
+      });
+    }
+  }, [setBudget, setCostSummary, setMetrics, setProposals, setSkillUsage]);
+
+  useEffect(() => {
+    refreshFast();
+    refreshMedium();
+    refreshSlow();
+  }, [refreshFast, refreshMedium, refreshSlow]);
+
+  usePolling(refreshFast, 15_000);
+  usePolling(refreshMedium, 30_000);
+  usePolling(refreshSlow, 60_000);
+
   return {
-    ...data, shared,
-    refreshAll: () => { void shared.refresh(); refreshMetrics(); },
+    dashboard,
+    connections,
+    metrics,
+    messageStatus,
+    alerts,
+    hostMetrics,
+    health,
+    skillUsage,
+    proposals,
+    llmUsage,
+    costSummary,
+    budget,
+    approvals,
+    taskStatus,
+    taskList,
+    observedAt,
+    lastRefreshAt,
+    refreshAll: refreshFast,
   };
 }
 
@@ -245,13 +285,23 @@ export function useWallData() {
 export function deriveWallView(data: WallData) {
   const { dashboard, metrics, messageStatus, alerts, hostMetrics, skillUsage } = data;
 
-  const userHealth = data.userHealth ?? deriveHealthView({
-    dashboard: dashboard as DashboardPayload | null,
+  // 相对时间与「今天/明天」以最近一次快照读取时刻为锚点，不用渲染期系统时钟。
+  const observedMs = Date.parse(data.observedAt);
+  const nowMs = Number.isFinite(observedMs) ? observedMs : Date.now();
+  // 健康结论、在线数与待办与首页共用同一套推导，保证两块屏对同一事实给出一致答案。
+  const healthSources: HealthSources = {
+    dashboard,
     connections: data.connections === null ? null : { reachable: true, connections: data.connections },
-    messageStatus, alerts, approvals: data.approvals ?? null,
-    observedAt: data.lastRefreshAt?.toISOString() ?? "",
-  });
-  const onlineInstances = userHealth.onlineInstances;
+    messageStatus,
+    alerts,
+    approvals: data.approvals,
+    observedAt: data.observedAt,
+  };
+  const health = deriveHealth(healthSources);
+  const onlineInstances = health.onlineInstances;
+  const totalInstances = health.totalInstances;
+  // 下一批定时任务：状态未知时 preview.known=false，页面保持待接入而不估算时间。
+  const tasks = deriveTaskPreview(data.taskStatus, data.taskList, nowMs);
 
   const channelAgg = (metrics?.channels ?? []).reduce(
     (acc, item) => {
@@ -348,19 +398,14 @@ export function deriveWallView(data: WallData) {
     : null;
   const bridge = data.messageStatus?.status?.bridge ?? null;
   const relayPending = data.messageStatus?.status?.relay?.pending ?? null;
-  const recentBackups = [...(data.backups?.items ?? [])]
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    .slice(0, 5);
-  const recentSnapshots = [...(data.versions?.snapshots ?? [])]
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    .slice(0, 3);
-  const upgradeJob = data.versions?.upgradeJob ?? null;
 
   return {
-    healthSummary: userHealth.health,
-    healthInput: userHealth.input,
     onlineInstances,
-    totalInstances: userHealth.totalInstances,
+    totalInstances,
+    healthSummary: health.health,
+    attention: health.health.attention,
+    tasks,
+    observedAtMs: nowMs,
     successRate,
     p95Ms: metrics?.latency.p95Ms ?? null,
     pendingMessages,
@@ -389,8 +434,5 @@ export function deriveWallView(data: WallData) {
     budgetRatioPct,
     bridge,
     relayPending,
-    recentBackups,
-    recentSnapshots,
-    upgradeJob,
   };
 }

@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchJson } from "../../lib/api.js";
 import { usePolling } from "../../hooks/usePolling.js";
-import { parseScheduledTaskResponse } from "@butler/contract";
 import { deriveHealthView, type HealthSources } from "./userHealth.js";
-import { deriveTaskPreview, type PreviewTaskList, type PreviewTaskStatus } from "./taskPreview.js";
+import {
+  deriveTaskPreview, toPreviewTaskList, toPreviewTaskStatus,
+  type PreviewTaskList, type PreviewTaskStatus,
+} from "./taskPreview.js";
 
 const emptySources: HealthSources = {
   dashboard: null, connections: null, messageStatus: null, alerts: null, approvals: null, observedAt: "",
@@ -34,10 +36,8 @@ export function useUserHealthData() {
       if (!mounted.current) return;
       // Replace failed reads with unknown, not an indefinitely green cached result.
       setSources({ dashboard, connections, messageStatus, alerts, approvals, observedAt: new Date().toISOString() });
-      const parsedStatus = parseScheduledTaskResponse("status", status);
-      const parsedList = parseScheduledTaskResponse("list", list);
-      setTaskStatus(parsedStatus && "schedulerRunning" in parsedStatus ? parsedStatus : null);
-      setTaskList(parsedList && "items" in parsedList ? parsedList as PreviewTaskList : null);
+      setTaskStatus(toPreviewTaskStatus(status));
+      setTaskList(toPreviewTaskList(list));
     } finally {
       active.current = false;
       if (mounted.current) { setLoading(false); setRefreshing(false); }

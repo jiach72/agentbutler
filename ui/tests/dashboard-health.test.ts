@@ -43,8 +43,9 @@ describe("dashboard and wall share factual health", () => {
     const wall = deriveWallView({
       dashboard: sources.dashboard, connections: sources.connections!.connections,
       alerts: sources.alerts, messageStatus: sources.messageStatus, approvals: sources.approvals,
-      lastRefreshAt: new Date(sources.observedAt), metrics: null, hostMetrics: null, health: null,
-      skillUsage: null, proposals: null, llmUsage: null, costSummary: null, budget: null, versions: null, backups: null,
+      observedAt: sources.observedAt, lastRefreshAt: null, metrics: null, hostMetrics: null, health: null,
+      skillUsage: null, proposals: null, llmUsage: null, costSummary: null, budget: null,
+      taskStatus: null, taskList: null,
     } as WallData);
     expect(wall.healthSummary).toEqual(dashboard.health);
     expect(wall.onlineInstances).toBe(dashboard.onlineInstances);

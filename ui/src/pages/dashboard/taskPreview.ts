@@ -1,4 +1,16 @@
+import { parseScheduledTaskResponse } from "@butler/contract";
 import type { ScheduledTaskList, ScheduledTaskStatus, ScheduledTaskSummary } from "@butler/contract";
+
+/** Parse→preview narrowing shared by the homepage and the wall, so both accept exactly the same payloads. */
+export function toPreviewTaskStatus(value: unknown): PreviewTaskStatus | null {
+  const parsed = parseScheduledTaskResponse("status", value);
+  return parsed !== null && "schedulerRunning" in parsed ? parsed : null;
+}
+
+export function toPreviewTaskList(value: unknown): PreviewTaskList | null {
+  const parsed = parseScheduledTaskResponse("list", value);
+  return parsed !== null && "items" in parsed ? parsed as PreviewTaskList : null;
+}
 
 /** Read-only projections of the shared contract; Hermes owns scheduling timestamps. */
 export type PreviewTask = Pick<ScheduledTaskSummary, "id" | "name" | "enabled" | "nextRunAt" | "lastStatus">;
