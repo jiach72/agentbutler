@@ -19,7 +19,7 @@
     "@butler/contract": "workspace:*",
     "@butler/core": "workspace:*",
     "fastify": "^5.12.1",
-    "nodemailer": "^9.0.5"
+    "nodemailer": "^9.1.1"
   },
   "devDependencies": {
     "@types/nodemailer": "^8.0.1"

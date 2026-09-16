@@ -234,10 +234,10 @@ export class MessagePolicyStore {
   constructor(dbFile: string) {
     this.dbFile = dbFile;
     fs.mkdirSync(path.dirname(dbFile), { recursive: true });
-    this.db = new DatabaseSync(dbFile);
+    this.db = new DatabaseSync(dbFile, { timeout: 5000 });
+    this.db.exec("PRAGMA busy_timeout=5000;");
     this.db.exec("PRAGMA journal_mode=WAL;");
     this.db.exec("PRAGMA foreign_keys=ON;");
-    this.db.exec("PRAGMA busy_timeout=5000;");
     this.db.exec(DDL);
     this.migrateOutcomeHistoryChannel();
     this.migrateInboundReceivedAt();

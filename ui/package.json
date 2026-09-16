@@ -11,7 +11,7 @@
     "@butler/contract": "workspace:*",
     "@fontsource/inter": "^5.3.0",
     "antd": "^6.6.1",
-    "echarts": "5.5.1",
+    "echarts": "^6.1.0",
     "qrcode.react": "^4.2.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

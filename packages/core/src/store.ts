@@ -1089,10 +1089,10 @@ export class SqliteStore {
   constructor(dbFile: string) {
     this.dbFile = dbFile;
     fs.mkdirSync(path.dirname(dbFile), { recursive: true });
-    this.db = new DatabaseSync(dbFile);
-    this.db.exec("PRAGMA journal_mode=WAL;");
+    this.db = new DatabaseSync(dbFile, { timeout: 5000 });
     // 跨进程/跨容器共享同一 db 文件（web 直读、watch 写），并发写锁冲突时等待而非立即抛 SQLITE_BUSY。
     this.db.exec("PRAGMA busy_timeout=5000;");
+    this.db.exec("PRAGMA journal_mode=WAL;");
     this.db.exec(DDL);
     // 老库兼容：fingerprints.instance 列（错误指纹归属实例/影响组件）。
     const fpColumns = this.prepare("PRAGMA table_info(fingerprints)").all() as Array<{

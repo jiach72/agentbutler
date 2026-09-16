@@ -55,7 +55,8 @@ describe("POST /api/agent-message", () => {
   });
 
   function buildApp() {
-    return createGatewayServer({ startLoop: false });
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "butler-gw-test-"));
+    return createGatewayServer({ home, startLoop: false });
   }
 
   it("把求助提示词转发给 api_server 并返回回复；key 不出现在响应里", async () => {
