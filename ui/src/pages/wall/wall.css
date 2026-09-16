@@ -1,7 +1,6 @@
 /* 运维总览大屏（/wall）：双主题样式。暗色为主、浅色可切；
    画布 3840×2160（4K 基准，2026-09-12 由 1080p 升级）由 WallPage 内联等比缩放，
    这里只管视觉。所有尺寸按 4K 基准书写：2K/1080p 窗口经 transform 等比缩小。 */
-/* 窄屏（<1024px）由文件末尾的媒体查询接管：同源内容、原生字号、纵向滚动。 */
 
 .wall-root {
   position: fixed;
@@ -171,8 +170,8 @@
 button.wall-theme-toggle { cursor: pointer; font-weight: 600; color: var(--text-2); }
 button.wall-theme-toggle:hover { border-color: var(--accent); color: var(--text); }
 
-/* ── B KPI 行（7 卡：运行 / 投递 / 待办 / 调度 / 资源；成本与 Token 交给图表区） ── */
-.wall-kpirow { height: 264px; flex: none; display: grid; grid-template-columns: repeat(7, 1fr); gap: 24px; }
+/* ── B KPI 行（9 卡：原有 7 + 30日成本 + 预算执行） ── */
+.wall-kpirow { height: 264px; flex: none; display: grid; grid-template-columns: repeat(9, 1fr); gap: 24px; }
 .wall-kpi {
   background: var(--card-grad);
   border: 1px solid var(--bd);
@@ -218,8 +217,6 @@ button.wall-theme-toggle:hover { border-color: var(--accent); color: var(--text)
 }
 .wall-kpi-value small { font-size: 28px; color: var(--text-3); font-weight: 500; margin-left: 4px; }
 .wall-kpi-foot { font-size: 24px; color: var(--text-3); display: flex; justify-content: space-between; align-items: flex-end; white-space: nowrap; }
-/* 角标文案可能比卡片宽（如「明天 · 每日项目进展与待处理事项汇总」），截断而不撑破栅格。 */
-.wall-kpi-foot > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .wall-spark { width: 164px; height: 56px; }
 
 .wall-badge { font-size: 24px; font-weight: 600; border-radius: 12px; padding: 4px 16px; white-space: nowrap; }
@@ -361,8 +358,8 @@ button.wall-theme-toggle:hover { border-color: var(--accent); color: var(--text)
 .wall-pending-title { font-size: 28px; font-weight: 600; color: var(--text-2); }
 .wall-pending-sub { font-size: 24px; color: var(--text-3); margin-top: 6px; max-width: 840px; }
 
-/* ── 底部作战行：行动队列 / 通道投递汇总 / 未来 24 小时任务 / 消息网关链路 ── */
-.wall-bottom { height: 400px; flex: none; display: grid; grid-template-columns: 3.4fr 3.6fr 3.2fr 2.9fr; gap: 26px; min-height: 0; }
+/* ── 底部记录行：通道投递汇总 / 消息网关链路 / 升级与备份 ── */
+.wall-bottom { height: 400px; flex: none; display: grid; grid-template-columns: 4.4fr 2.8fr 3.4fr; gap: 26px; min-height: 0; }
 
 /* 模型成本分解表（第 4 列） */
 .wall-costtable { width: 100%; border-collapse: collapse; font-size: 25px; margin-top: 12px; font-variant-numeric: tabular-nums; }
@@ -399,50 +396,25 @@ button.wall-theme-toggle:hover { border-color: var(--accent); color: var(--text)
 .wall-link-row .v { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
 .wall-link-foot { margin-top: auto; font-size: 23px; color: var(--text-3); border-top: 1px dashed var(--bd); padding-top: 12px; line-height: 1.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.wall-upfoot { margin-top: auto; font-size: 23px; color: var(--text-3); border-top: 1px dashed var(--bd); padding-top: 14px; line-height: 1.55; }
-
-/* 行动队列（底行左）：每条都能一键跳到对应处理页。 */
-.wall-actions { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; flex: 1; min-height: 0; overflow: hidden; }
-.wall-action {
+/* 升级与备份（底行右） */
+.wall-upgrid { flex: 1; display: grid; grid-template-columns: 1.25fr 1fr; gap: 24px; margin-top: 14px; min-height: 0; }
+.wall-upcol { display: flex; flex-direction: column; min-height: 0; }
+.wall-uphead { font-size: 23px; color: var(--text-3); font-weight: 600; padding: 6px 4px; border-bottom: 1px solid var(--bd); display: flex; gap: 14px; }
+.wall-uprow {
   display: flex;
+  gap: 14px;
   align-items: center;
-  gap: 18px;
-  width: 100%;
-  text-align: left;
-  font: inherit;
-  cursor: pointer;
-  background: var(--accent-soft);
-  border: 1px solid var(--bd);
-  border-radius: 16px;
-  padding: 12px 22px;
-}
-.wall-action:hover { border-color: var(--accent); }
-.wall-action[data-severity="blocking"] { border-color: var(--error); background: var(--error-soft); }
-.wall-action[data-severity="action"] { border-color: var(--warn); background: var(--warn-soft); }
-.wall-action[data-severity="blocking"] .wall-dot { background: var(--error); }
-.wall-action[data-severity="action"] .wall-dot { background: var(--warn); }
-.wall-action[data-severity="watch"] .wall-dot { background: var(--accent); }
-.wall-action .wall-dot { margin-top: 0; }
-.wall-action-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.wall-action-title { font-size: 25px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wall-action-impact { font-size: 22px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wall-action-go { flex: none; font-size: 23px; color: var(--accent); font-weight: 600; white-space: nowrap; }
-
-/* 未来 24 小时任务（底行右二）。 */
-.wall-tasks { display: flex; flex-direction: column; margin-top: 12px; flex: 1; min-height: 0; overflow: hidden; }
-.wall-task {
-  display: flex;
-  align-items: baseline;
-  gap: 20px;
-  padding: 13px 0;
+  font-size: 24px;
+  color: var(--text-2);
+  padding: 12px 4px;
   border-bottom: 1px dashed var(--bd);
+  font-variant-numeric: tabular-nums;
+  min-height: 0;
 }
-.wall-task:last-child { border-bottom: none; }
-.wall-task-name { flex: 1; min-width: 0; font-size: 25px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wall-task-meta { flex: none; font-size: 23px; color: var(--text-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
-
-/* 通道投递汇总（底行左二）：窄屏时表格横向滚动，不撑破页面。 */
-.wall-tablewrap { flex: 1; min-height: 0; }
+.wall-uprow:last-child { border-bottom: none; }
+.wall-uprow .t { font-family: "Cascadia Mono", Consolas, monospace; font-size: 22px; color: var(--text-3); white-space: nowrap; }
+.wall-uprow .m { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.wall-upfoot { margin-top: auto; font-size: 23px; color: var(--text-3); border-top: 1px dashed var(--bd); padding-top: 14px; line-height: 1.55; }
 
 /* 表格（底行左：通道投递汇总） */
 .wall-table { width: 100%; border-collapse: collapse; font-size: 26px; margin-top: 16px; }
@@ -459,103 +431,3 @@ button.wall-theme-toggle:hover { border-color: var(--accent); color: var(--text)
 .wall-table tbody tr:hover td { background: var(--accent-soft); }
 .wall-table tr:last-child td { border-bottom: none; }
 .wall-num-error { color: var(--error); font-weight: 600; }
-
-/* ── 窄屏（<1024px）：不再把 3840×2160 画布压成读不清的缩略图，
-      改为同一套作战室内容的纵向可读布局（图表全保留，字号回到原生像素）。 ── */
-@media (max-width: 1023px) {
-  .wall-root { position: static; overflow: visible; }
-  .wall-root::before { display: none; }
-  .wall-corner { display: none; }
-  .wall-stage {
-    position: static;
-    width: auto;
-    height: auto;
-    transform: none !important;
-    padding: 14px 12px 24px;
-    gap: 12px;
-  }
-
-  .wall-header { height: auto; flex-wrap: wrap; padding: 14px 16px; gap: 10px; border-radius: 18px; }
-  .wall-logo { height: 40px; }
-  .wall-logo-dark { gap: 12px; }
-  .wall-logo-dark img { height: 38px; }
-  .wall-logo-text { font-size: 22px; }
-  .wall-hdiv, .wall-hspacer { display: none; }
-  .wall-title { font-size: 24px; letter-spacing: 2px; }
-  .wall-subtitle { font-size: 12px; letter-spacing: 0; margin-top: 2px; }
-  .wall-chip { font-size: 13px; padding: 6px 12px; border-radius: 10px; }
-  .wall-mono { font-size: 13px; }
-  .wall-pulse { width: 9px; height: 9px; margin-right: 8px; }
-
-  .wall-kpirow { height: auto; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
-  .wall-kpi { padding: 14px 16px 12px; border-radius: 16px; gap: 4px; }
-  .wall-kpi-label { font-size: 14px; gap: 8px; white-space: normal; }
-  .wall-kpi-value { font-size: 32px; }
-  .wall-kpi-value small { font-size: 14px; }
-  .wall-kpi-foot { font-size: 13px; }
-  .wall-spark { width: 84px; height: 30px; }
-  .wall-badge { font-size: 13px; padding: 2px 8px; border-radius: 8px; }
-
-  .wall-main { grid-template-columns: minmax(0, 1fr); gap: 12px; }
-  .wall-col { gap: 12px; }
-  /* 内联 flex 权重只在 4K 画布上有意义，窄屏改用自然高度。 */
-  .wall-panel { flex: none !important; min-height: 280px; padding: 14px 16px; border-radius: 18px; }
-  .wall-panel::before, .wall-panel::after { width: 16px; height: 16px; border-width: 3px; }
-  .wall-panel-title { font-size: 17px; gap: 10px; }
-  .wall-panel-title::before { width: 4px; height: 18px; border-radius: 2px; }
-  .wall-psrc { font-size: 12px; }
-  .wall-chart { min-height: 200px; }
-  .wall-empty { font-size: 14px; }
-  .wall-todo { font-size: 12px; padding: 1px 8px; }
-
-  .wall-inst { padding: 12px 0; gap: 12px; }
-  .wall-inst-name { font-size: 16px; }
-  .wall-inst-meta { font-size: 12px; }
-  .wall-inst-summary { font-size: 13px; gap: 6px 18px; padding-top: 12px; }
-  .wall-gauges { gap: 4px; }
-  .wall-gauge-chart { width: 100px; height: 100px; }
-  .wall-gauge-label { font-size: 13px; }
-  .wall-agents { font-size: 13px; padding-top: 10px; }
-  .wall-lane { font-size: 14px; gap: 10px; }
-  .wall-lane-name { width: 88px; }
-  .wall-evt { font-size: 14px; gap: 12px; padding: 10px 0; }
-  .wall-evt-time { font-size: 13px; }
-
-  .wall-skillwrap { flex-direction: column; gap: 12px; }
-  .wall-skgrid { width: auto; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: none; gap: 10px; }
-  .wall-gcell { padding: 10px 12px; }
-  .wall-gv2 { font-size: 26px; }
-  .wall-gv2.sm { font-size: 22px; }
-  .wall-gl { font-size: 13px; }
-
-  .wall-costtable { font-size: 13px; margin-top: 8px; }
-  .wall-costtable th { font-size: 12px; padding: 6px 8px; }
-  .wall-costtable td { padding: 6px 8px; }
-  .wall-cost-model { max-width: 120px; }
-  .wall-cost-rank { width: 18px; font-size: 12px; }
-  .wall-cost-bar { min-width: 60px; height: 10px; }
-
-  .wall-bottom { height: auto; grid-template-columns: minmax(0, 1fr); gap: 12px; }
-  .wall-tablewrap { overflow-x: auto; }
-  .wall-table { font-size: 14px; margin-top: 8px; }
-  .wall-table th { font-size: 12px; padding: 6px 10px; }
-  .wall-table td { padding: 6px 10px; }
-  .wall-link { gap: 8px; }
-  .wall-link-row { font-size: 14px; gap: 10px; padding: 8px 12px; }
-  .wall-link-row .k { min-width: 96px; }
-  .wall-link-foot { font-size: 12px; white-space: normal; }
-  .wall-upfoot { font-size: 12px; }
-
-  .wall-actions { gap: 8px; margin-top: 10px; }
-  .wall-action { padding: 10px 12px; gap: 10px; }
-  .wall-action-title { font-size: 15px; }
-  .wall-action-impact { font-size: 12px; }
-  .wall-action-go { font-size: 13px; }
-  .wall-task { padding: 10px 0; gap: 10px; }
-  .wall-task-name { font-size: 15px; }
-  .wall-task-meta { font-size: 12px; }
-
-  .wall-pending-mark { font-size: 32px; }
-  .wall-pending-title { font-size: 15px; }
-  .wall-pending-sub { font-size: 12px; max-width: none; }
-}

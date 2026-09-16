@@ -1,10 +1,9 @@
 /**
- * 运维作战室大屏（/wall）：3840×2160 基准画布等比缩放，暗色为主、浅色可切，
- * 横向铺满一屏不滚动。保留原有图表矩阵（投递趋势 / Token 趋势 / 模型占比 /
- * 技能排行 / 成本趋势 / 资源仪表），只收敛重复的顶部 KPI，并把底部记录区
- * 换成作战室真正要盯的三件事：行动队列、未来 24 小时任务、消息网关链路。
+ * 运维总览大屏（/wall）：挂墙用只读结论层，3840×2160 基准画布等比缩放（4K 版，
+ * 2026-09-12 由 1080p 升级：图表字号/栅格同步放大，新增成本用量列与底部记录行），
+ * 暗色为主、浅色可切（解除品牌约束的主流水大屏风格，见 docs/dashboard-design-2026-09-11.md）。
  * 全部数值来自既有 /api 端点轮询；金额统一经 money() 折算 ¥；
- * 数据不可用时显示「待接入」灰态，不伪造数据；视口 <1024px 时改为可读的纵向布局。
+ * 数据不可用时显示「待接入」灰态，不伪造数据。
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -24,13 +23,12 @@ import {
   wallSequence,
 } from "./wallTheme.js";
 import { deriveWallView, useWallData, type WallLlmUsage } from "./useWallData.js";
-import { formatTime, money, USD_TO_CNY } from "../../lib/format.js";
+import { formatBytes, formatTime, money, USD_TO_CNY } from "../../lib/format.js";
 import "./wall.css";
 
 const THEME_STORAGE_KEY = "butler.wallTheme";
 const STAGE_WIDTH = 3840;
 const STAGE_HEIGHT = 2160;
-const MOBILE_BREAKPOINT = 1024;
 
 export function readInitialTheme(): WallThemeMode {
   try {
@@ -85,52 +83,6 @@ function relativeTime(iso: string | null): string {
   if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)} 小时前`;
   return `${Math.floor(delta / 86_400_000)} 天前`;
 }
-
-/**
- * P95 结论：只有真的配置了阈值才能声称「阈值内/超阈值」。
- * 当前上游没有延迟阈值配置，所以默认只给数值，不生成正常/异常判断。
- */
-export function latencyConclusion(p95Ms: number | null, thresholdMs: number | null = null): string {
-  if (p95Ms === null || !Number.isFinite(p95Ms)) return "暂无延迟样本";
-  const value = p95Ms >= 1000 ? `${(p95Ms / 1000).toFixed(1)} 秒` : `${Math.round(p95Ms)} 毫秒`;
-  if (thresholdMs === null || !Number.isFinite(thresholdMs) || thresholdMs <= 0) return `P95 ${value}，未设阈值`;
-  return `P95 ${value}，${p95Ms > thresholdMs ? "超过阈值" : "阈值内"}`;
-}
-
-/** 任务时刻：HH:MM，供大屏大字显示。 */
-function taskClockText(iso: string | null): string {
-  const time = iso === null ? Number.NaN : Date.parse(iso);
-  if (!Number.isFinite(time)) return "—";
-  const pad = (n: number) => n.toString().padStart(2, "0");
-  const date = new Date(time);
-  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-/** 任务日别：今天 / 明天 / 后天 / M月D日，避免只看 HH:MM 误读成今天。 */
-function taskDayText(iso: string | null, now: number): string {
-  const time = iso === null ? Number.NaN : Date.parse(iso);
-  if (!Number.isFinite(time)) return "时间待确认";
-  const startOfDay = (value: number) => {
-    const date = new Date(value);
-    date.setHours(0, 0, 0, 0);
-    return date.getTime();
-  };
-  const days = Math.round((startOfDay(time) - startOfDay(now)) / 86_400_000);
-  if (days === 0) return "今天";
-  if (days === 1) return "明天";
-  if (days === 2) return "后天";
-  const date = new Date(time);
-  return `${date.getMonth() + 1} 月 ${date.getDate()} 日`;
-}
-
-const TASK_STATUS_LABEL: Record<string, string> = {
-  success: "上次成功",
-  failed: "上次失败",
-  delivery_failed: "通知未送达",
-  running: "执行中",
-  never: "尚未执行",
-  unknown: "状态未知",
-};
 
 /** 独立时钟组件：每秒自转，不触发整屏重渲染。 */
 function Clock() {
@@ -189,6 +141,7 @@ function PendingPanel({ title, source, hint }: { title: string; source: string; 
   );
 }
 
+const BACKUP_KIND_LABEL: Record<string, string> = { full: "全量备份", memory: "记忆备份", event: "事件备份" };
 
 export function WallPage() {
   const navigate = useNavigate();
@@ -210,20 +163,13 @@ export function WallPage() {
   // scale 存入 state 驱动 WallChart 以「系统 dpr × scale」重建位图，
   // 否则 transform 放大后 canvas 文字/线条会像素化（审计 P0-2）。
   const stageRef = useRef<HTMLDivElement | null>(null);
-  // 宽屏（≥1024px）：等比缩放到铺满 16:9，无滚动条；
-  // 窄屏：不再把 3840×2160 压成读不清的缩略图，改用原生像素的纵向布局（CSS 接管）。
   const [stageScale, setStageScale] = useState(() =>
-    window.innerWidth < MOBILE_BREAKPOINT
-      ? 1
-      : Math.min(window.innerWidth / STAGE_WIDTH, window.innerHeight / STAGE_HEIGHT));
+    Math.min(window.innerWidth / STAGE_WIDTH, window.innerHeight / STAGE_HEIGHT));
   useEffect(() => {
     const fit = () => {
-      const scaled = window.innerWidth >= MOBILE_BREAKPOINT;
-      const scale = scaled
-        ? Math.min(window.innerWidth / STAGE_WIDTH, window.innerHeight / STAGE_HEIGHT)
-        : 1;
+      const scale = Math.min(window.innerWidth / STAGE_WIDTH, window.innerHeight / STAGE_HEIGHT);
       if (stageRef.current !== null) {
-        stageRef.current.style.transform = scaled ? `translate(-50%,-50%) scale(${scale})` : "";
+        stageRef.current.style.transform = `translate(-50%,-50%) scale(${scale})`;
       }
       setStageScale(scale);
     };
@@ -260,6 +206,11 @@ export function WallPage() {
   const llmPending = data.llmUsage === "unavailable" || data.llmUsage === null;
   const llm: WallLlmUsage | null = llmPending || data.llmUsage === "unavailable" ? null : data.llmUsage;
 
+  // 24h / 7 日 token 汇总（万）：注意 (a ?? 0) 必须带括号，?? 优先级低于 /（审计 P0-1 教训）。
+  const latestTokensWan = llm === null ? null : Math.round((llm.days.at(-1)?.tokens ?? 0) / 10_000);
+  const sevenDayTokensWan = llm === null
+    ? null
+    : Math.round(llm.days.reduce((sum, d) => sum + d.tokens, 0) / 10_000);
 
   // Token 按模型堆叠序列：Top7 模型各一条 + 其余合并「其他」，单位万 token。
   const tokenSeries: Array<TokenModelSeries> = useMemo(() => {
@@ -306,6 +257,9 @@ export function WallPage() {
       return { model: m.model, tokensWan: Math.round(m.tokens / 10_000), usd, share };
     });
   }, [view.costModels]);
+  const budgetTone = view.budgetEnabled && data.budget !== null && (data.budget.threshold === "100%" || data.budget.threshold === "over")
+    ? "error"
+    : view.budgetEnabled && data.budget?.threshold === "80%" ? "warn" : undefined;
 
   // ── 4K 新增：消息网关链路（/api/messages/status）──
   const bridge = view.bridge;
@@ -317,18 +271,10 @@ export function WallPage() {
     { k: "Outbox 积压", v: `${view.pendingMessages} 条`, ok: view.pendingMessages === 0 },
   ];
 
-  // ── 作战室专用：行动队列（与首页同一结论）与未来 24 小时任务 ──
-  const attention = view.attention;
-  const tasks = view.tasks;
-  const nextRunAt = tasks.next?.nextRunAt ?? null;
-  const nextTaskFoot = tasks.next === null
-    ? tasks.label
-    : `${taskDayText(nextRunAt, view.observedAtMs)} · ${tasks.next.name}`;
-  const taskBadge = tasks.known
-    ? tasks.failedTaskCount > 0
-      ? { text: `失败任务 ${tasks.failedTaskCount}`, kind: "warn" as const }
-      : { text: tasks.running ? `今日执行 ${tasks.todayRunCount} 次` : "调度未运行", kind: (tasks.running ? "ok" : "warn") as "ok" | "warn" }
-    : { text: "待接入", kind: "brass" as const };
+  // ── 4K 新增：升级与备份记录（/api/versions · /api/backups）──
+  const backupRows = view.recentBackups;
+  const snapshotRows = view.recentSnapshots;
+  const job = view.upgradeJob;
 
   return (
     <div className="wall-root" data-wall-theme={theme}>
@@ -382,50 +328,64 @@ export function WallPage() {
           </button>
         </header>
 
-        {/* B KPI 行：7 卡（运行 / 投递 / 待办 / 调度 / 资源）；Token 与成本交给下方图表，不重复占位 */}
+        {/* B KPI 行：9 卡（原有 7 + 30日成本 + 预算执行） */}
         <div className="wall-kpirow">
           <KpiCard
             label="实例在线"
-            value={view.onlineInstances === null ? "—" : `${view.onlineInstances}`}
-            unit={view.totalInstances === null ? undefined : `/${view.totalInstances}`}
+            value={`${view.onlineInstances}`}
+            unit={`/${view.totalInstances}`}
             foot="Hermes · OpenClaw"
             footExtra="↑ 15s"
-            badge={view.onlineInstances === null || view.totalInstances === null
-              ? { text: "状态待确认", kind: "off" }
-              : view.totalInstances === 0
-                ? { text: "尚未连接智能体", kind: "warn" }
-                : view.onlineInstances === view.totalInstances
-                  ? { text: "全部正常", kind: "ok" }
-                  : { text: "部分离线", kind: "warn" }}
+            badge={{ text: view.totalInstances > 0 && view.onlineInstances === view.totalInstances ? "全部正常" : "部分离线", kind: view.onlineInstances === view.totalInstances ? "ok" : "warn" }}
           />
           <KpiCard
             label="7日 送达成功率"
             value={successRateText}
             unit="%"
-            foot="近 7 日投递记录"
+            foot="messages/metrics"
             footExtra="↑ 60s"
           />
           <KpiCard
             label="P95 送达延迟"
             value={p95Text}
-            foot={latencyConclusion(view.p95Ms)}
+            foot={view.p95Ms === null ? "无样本" : "阈值内"}
             footExtra="↑ 60s"
           />
           <KpiCard label="待处理消息" value={`${view.pendingMessages}`} foot="Outbox 队列" footExtra="↑ 15s" />
           <KpiCard
             label="未处理告警"
             value={`${view.openAlerts}`}
-            foot={view.openAlerts === 0 ? "当前无需处理" : "仍需你处理"}
+            foot="含未解决项"
             footExtra="↑ 15s"
             tone={alertTone}
           />
           <KpiCard
-            label="下一条定时任务"
-            value={taskClockText(nextRunAt)}
-            foot={nextTaskFoot}
-            footExtra="↑ 15s"
-            tone={tasks.known && tasks.failedTaskCount > 0 ? "warn" : "brand"}
-            badge={taskBadge}
+            label="24h Token 消耗"
+            value={latestTokensWan === null ? "—" : latestTokensWan.toLocaleString()}
+            unit={latestTokensWan === null ? undefined : "万"}
+            foot={sevenDayTokensWan === null ? "7 日待接入" : `7 日累计 ${sevenDayTokensWan.toLocaleString()} 万`}
+            footExtra="↑ 60s"
+            tone="brand"
+            badge={latestTokensWan === null ? { text: "待接入", kind: "brass" } : { text: "已接入", kind: "ok" }}
+          />
+          <KpiCard
+            label="30日 模型成本"
+            value={costReady && view.costTotalUsd !== null ? (view.costTotalUsd * USD_TO_CNY).toFixed(2) : "—"}
+            unit={costReady && view.costTotalUsd !== null ? "元" : undefined}
+            foot={data.costSummary === null ? "cost/summary 读取中" : costReady ? "实际账单优先" : "金额字段未接入"}
+            footExtra="↑ 60s"
+            tone="brass"
+            badge={data.costSummary === null
+              ? { text: "读取中", kind: "off" }
+              : costReady ? { text: "已接入", kind: "ok" } : { text: "待接入", kind: "brass" }}
+          />
+          <KpiCard
+            label="月度预算执行"
+            value={view.budgetEnabled && view.budgetRatioPct !== null ? `${view.budgetRatioPct}` : "—"}
+            unit={view.budgetEnabled && view.budgetRatioPct !== null ? "%" : undefined}
+            foot={data.budget === null ? "budget 读取中" : view.budgetEnabled ? `月度上限 ¥${((data.budget.budgetUsd) * USD_TO_CNY).toFixed(0)}` : "未设置预算"}
+            footExtra="↑ 60s"
+            tone={budgetTone}
           />
           <KpiCard
             label="主机 CPU"
@@ -465,7 +425,7 @@ export function WallPage() {
               {conns.length === 0 && <div className="wall-empty">实例状态读取中，若持续为空请检查管家服务。</div>}
               {conns.length > 0 && (
                 <div className="wall-inst-summary">
-                  <span>在线 <b>{view.onlineInstances ?? "—"}/{view.totalInstances ?? "—"}</b></span>
+                  <span>在线 <b>{view.onlineInstances}/{view.totalInstances}</b></span>
                   <span>最近检查 <b>{relativeTime(lastCheckedIso)}</b></span>
                   {runtimeSet.length > 0 && <span>运行时 <b>{runtimeSet.join(" / ")}</b></span>}
                 </div>
@@ -694,91 +654,32 @@ export function WallPage() {
           </div>
         </div>
 
-        {/* T 底部作战行：行动队列 / 通道投递汇总 / 未来 24 小时任务 / 消息网关链路 */}
+        {/* T 底部记录行（4K 新增）：通道投递汇总 / 消息网关链路 / 升级与备份 */}
         <div className="wall-bottom">
           <div className="wall-panel">
-            <div className="wall-panel-title">行动队列<span className="wall-psrc">dashboard · alerts · approvals · 15-30s</span></div>
-            {attention.length === 0
-              ? <div className="wall-empty">当前没有需要处理的事项。</div>
-              : (
-                <div className="wall-actions">
-                  {attention.slice(0, 4).map((item) => (
-                    <button
-                      type="button"
-                      className="wall-action"
-                      key={item.id}
-                      data-severity={item.severity}
-                      onClick={() => void navigate(item.actionHref)}
-                    >
-                      <span className="wall-dot" />
-                      <span className="wall-action-main">
-                        <span className="wall-action-title">{item.title}</span>
-                        <span className="wall-action-impact">{item.impact}</span>
-                      </span>
-                      <span className="wall-action-go">{item.actionLabel}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            <div className="wall-upfoot">
-              {attention.length > 4 ? `另有 ${attention.length - 4} 项待处理，可在首页继续处理。` : "只列仍需你处理的阻断、行动与待确认项，与首页同一口径。"}
-            </div>
-          </div>
-
-          <div className="wall-panel">
             <div className="wall-panel-title">通道投递汇总<span className="wall-psrc">messages/metrics?days=7 · 60s</span></div>
-            <div className="wall-tablewrap">
-              <table className="wall-table">
-                <thead>
-                  <tr><th>通道</th><th>送达</th><th>失败</th><th>不确定</th><th>成功率</th><th>P50</th><th>P95</th><th>重试</th></tr>
-                </thead>
-                <tbody>
-                  {(data.metrics?.channels ?? []).filter((ch) => ch.total > 0).slice(0, 4).map((ch) => (
-                    <tr key={ch.channel}>
-                      <td>{ch.channel}</td>
-                      <td>{ch.delivered}</td>
-                      <td className={ch.failed > 0 ? "wall-num-error" : ""}>{ch.failed}</td>
-                      <td>{ch.uncertain}</td>
-                      <td>{(ch.successRate * 100).toFixed(1)}%</td>
-                      <td className="wall-mono">{ch.p50LatencyMs === null ? "—" : `${ch.p50LatencyMs}ms`}</td>
-                      <td className="wall-mono">{ch.p95LatencyMs === null ? "—" : `${ch.p95LatencyMs}ms`}</td>
-                      <td>{ch.retries}</td>
-                    </tr>
-                  ))}
-                  {(data.metrics?.channels ?? []).every((ch) => ch.total === 0) && (
-                    <tr><td colSpan={8} className="wall-empty">近 7 天暂无投递记录。</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div className="wall-panel">
-            <div className="wall-panel-title">未来 24 小时任务<span className="wall-psrc">scheduled-tasks · 15s</span></div>
-            {!tasks.known
-              ? <div className="wall-empty">{tasks.label}：尚未获得任务列表，就不做时间推测。</div>
-              : !tasks.running
-                ? <div className="wall-empty">{tasks.label}。请先确认 Hermes 调度器状态，再核对执行时间。</div>
-                : tasks.upcoming.length === 0
-                  ? <div className="wall-empty">未来 24 小时暂无已确认的任务安排。</div>
-                  : (
-                    <div className="wall-tasks">
-                      {tasks.upcoming.slice(0, 4).map((task) => (
-                        <div className="wall-task" key={task.id}>
-                          <span className="wall-task-name">{task.name}</span>
-                          <span className="wall-task-meta">
-                            <time dateTime={task.nextRunAt ?? undefined}>{formatTime(task.nextRunAt)}</time>
-                            <span>· {TASK_STATUS_LABEL[task.lastStatus] ?? task.lastStatus}</span>
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-            <div className="wall-upfoot">
-              {tasks.known
-                ? `今日执行 ${tasks.todayRunCount} 次 · 失败任务 ${tasks.failedTaskCount} 个`
-                : "任务读数来自 Hermes 调度器；读不到时保持待接入，不用估算值顶替。"}
-            </div>
+            <table className="wall-table">
+              <thead>
+                <tr><th>通道</th><th>送达</th><th>失败</th><th>不确定</th><th>成功率</th><th>P50</th><th>P95</th><th>重试</th></tr>
+              </thead>
+              <tbody>
+                {(data.metrics?.channels ?? []).filter((ch) => ch.total > 0).slice(0, 4).map((ch) => (
+                  <tr key={ch.channel}>
+                    <td>{ch.channel}</td>
+                    <td>{ch.delivered}</td>
+                    <td className={ch.failed > 0 ? "wall-num-error" : ""}>{ch.failed}</td>
+                    <td>{ch.uncertain}</td>
+                    <td>{(ch.successRate * 100).toFixed(1)}%</td>
+                    <td className="wall-mono">{ch.p50LatencyMs === null ? "—" : `${ch.p50LatencyMs}ms`}</td>
+                    <td className="wall-mono">{ch.p95LatencyMs === null ? "—" : `${ch.p95LatencyMs}ms`}</td>
+                    <td>{ch.retries}</td>
+                  </tr>
+                ))}
+                {(data.metrics?.channels ?? []).every((ch) => ch.total === 0) && (
+                  <tr><td colSpan={8} className="wall-empty">近 7 天暂无投递记录。</td></tr>
+                )}
+              </tbody>
+            </table>
           </div>
 
           <div className="wall-panel">
@@ -800,6 +701,48 @@ export function WallPage() {
               <div className="wall-link-foot">
                 断线自愈：Bridge 离线只标记不退出，每秒重试；恢复后续传 Outbox，无需人工干预。
               </div>
+            </div>
+          </div>
+
+          <div className="wall-panel">
+            <div className="wall-panel-title">升级与备份记录<span className="wall-psrc">versions · backups · 60s</span></div>
+            <div className="wall-upgrid">
+              <div className="wall-upcol">
+                <div className="wall-uphead"><span style={{ width: 130 }}>最近备份</span></div>
+                {backupRows.map((item) => (
+                  <div className="wall-uprow" key={item.id}>
+                    <span className="t">{formatTime(item.createdAt)}</span>
+                    <span className="m">{item.label ?? BACKUP_KIND_LABEL[item.kind] ?? item.kind}</span>
+                    <span className="wall-mono" style={{ fontSize: 22 }}>{formatBytes(item.sizeBytes)}</span>
+                    <span className={`wall-badge ${item.status === "ok" || item.status === "completed" ? "b-ok" : "b-off"}`}>{item.status}</span>
+                  </div>
+                ))}
+                {backupRows.length === 0 && <div className="wall-empty" style={{ fontSize: 24 }}>备份记录读取中或暂无备份。</div>}
+              </div>
+              <div className="wall-upcol">
+                <div className="wall-uphead"><span>版本快照 / 升级</span></div>
+                {job !== null && (
+                  <div className="wall-uprow">
+                    <span className="t">{formatTime(job.startedAt)}</span>
+                    <span className="m">升级 → {job.targetVersion}{job.rolledBack ? "（已回滚）" : ""}</span>
+                    <span className={`wall-badge ${job.status === "done" ? "b-ok" : job.status === "running" ? "b-info" : "b-err"}`}>{job.status}</span>
+                  </div>
+                )}
+                {snapshotRows.map((snap) => (
+                  <div className="wall-uprow" key={snap.id}>
+                    <span className="t">{formatTime(snap.createdAt)}</span>
+                    <span className="m">快照 {snap.label ?? `#${snap.id}`} · {snap.instance}</span>
+                    <span className={`wall-badge ${snap.status === "ok" ? "b-ok" : "b-off"}`}>{snap.status}</span>
+                  </div>
+                ))}
+                {job === null && snapshotRows.length === 0 && (
+                  <div className="wall-empty" style={{ fontSize: 24 }}>暂无升级与快照记录。</div>
+                )}
+              </div>
+            </div>
+            <div className="wall-upfoot">
+              当前版本 <b className="wall-mono">{versionText}</b>
+              {data.versions?.watchReachable === false ? " · Watch 通道离线，记录可能滞后" : " · 升级/回滚前自动做数据卷备份"}
             </div>
           </div>
         </div>

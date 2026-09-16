@@ -66,6 +66,8 @@ const payloads = {
       deliveryEnabled: true, editable: false,
     }],
   },
+  "/api/versions": { watchReachable: true, snapshots: [{ id: "s1", createdAt: now, instance: "hermes-main", label: "pre-upgrade", status: "ok" }] },
+  "/api/backups": { reachable: true, items: [{ id: "b1", createdAt: now, kind: "full", label: "每日全量", sizeBytes: 52428800, status: "ok" }] },
   "/api/messages/metrics": {
     days: 7, retries: 2,
     channels: [{ channel: "wecom", delivered: 28, failed: 2, uncertain: 0, total: 30, successRate: 28 / 30, p50LatencyMs: 420, p95LatencyMs: 1250, latencySamples: 30, retries: 2 }],
@@ -189,10 +191,9 @@ try {
         inkedCharts: canvasInk.filter((ink) => ink > 100).length,
         kpiFontSize: kpiValue === null ? null : getComputedStyle(kpiValue).fontSize,
         panels: {
-          actions: document.querySelector(".wall-actions, .wall-bottom .wall-empty") !== null,
           channels: document.querySelector(".wall-table") !== null,
-          tasks: document.querySelector(".wall-tasks, .wall-bottom .wall-empty") !== null,
           gateway: document.querySelector(".wall-link") !== null,
+          upgrade: document.querySelector(".wall-upgrid") !== null,
         },
       };
     });
@@ -200,10 +201,11 @@ try {
     assert.ok(layout.attentionRows <= 5);
     if (layout.textSize !== null) assert.ok(Number.parseInt(layout.textSize) >= 14);
     if (route === "/wall") {
-      assert.equal(layout.kpis, 7, "wall keeps 7 consolidated KPIs");
-      assert.ok(layout.chartCount >= 6, `wall must keep the chart matrix (got ${layout.chartCount})`);
-      assert.ok(layout.inkedCharts >= 4, `wall charts must render real pixels (got ${layout.inkedCharts})`);
-      assert.deepEqual(layout.panels, { actions: true, channels: true, tasks: true, gateway: true });
+      // 原始大屏：9 卡 KPI + 完整图表矩阵 + 底部记录行（含升级与备份）。
+      assert.equal(layout.kpis, 9, "wall keeps the original 9 KPIs");
+      assert.ok(layout.chartCount >= 8, `wall must keep the chart matrix (got ${layout.chartCount})`);
+      assert.ok(layout.inkedCharts >= 6, `wall charts must render real pixels (got ${layout.inkedCharts})`);
+      assert.deepEqual(layout.panels, { channels: true, gateway: true, upgrade: true });
     }
     if (route === "/wall" && width >= 1024) {
       // getComputedStyle 返回 matrix(a, b, c, d, e, f)：等比缩放下 a === d 且 0 < a <= 1。
@@ -216,9 +218,11 @@ try {
       assert.equal(layout.wallScroll, 0, "desktop wall must fit one screen without scrolling");
     }
     if (route === "/wall" && width < 1024) {
-      assert.ok(layout.stageTransform === "none" || layout.stageTransform === "", "mobile wall must not be scaled down");
-      assert.ok(layout.bodyScrollHeight > height, "mobile wall must scroll vertically");
-      assert.ok(Number.parseInt(layout.kpiFontSize) >= 24, "mobile KPI must stay readable");
+      // 原始大屏在窄屏同样等比缩放整个画布（用户要求保留原样，不做移动端纵向重排）。
+      const mobileMatrix = /^matrix\(([-\d.]+),\s*[-\d.]+,\s*[-\d.]+,\s*([-\d.]+),/.exec(layout.stageTransform ?? "");
+      assert.ok(mobileMatrix !== null, `mobile wall must still be scaled (got ${layout.stageTransform})`);
+      assert.equal(Number(mobileMatrix[1]), Number(mobileMatrix[2]), "mobile wall scale must be uniform");
+      assert.ok(Number.parseInt(layout.kpiFontSize) >= 6, "mobile KPI must remain legible");
     }
     if (route === "/dashboard" && width >= 1024) assert.ok(layout.tasksTop < height, "next task must be in first viewport");
     if (route === "/dashboard") assert.equal(layout.taskStats, "今日执行 12 次 · 失败任务 1 个");

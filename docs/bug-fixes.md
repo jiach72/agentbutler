@@ -714,10 +714,10 @@
 - **口径/限制：** “失败任务”只含运行失败，不含通知送达失败；`todayRunCount` 依赖 Hermes durable `executions`（Hermes 自身只保留最近 1000 条终态记录），日均执行量接近该上限时会低估当日执行数。
 
 ## 2026-09-16 - 大屏被误精简为 KPI 面板，图表矩阵丢失
-- **问题：** 上一轮产品减法把 `/wall` 从 4K 图表矩阵改成 6 项 KPI 加少量面板，删掉了 Token 趋势、模型占比、技能排行、成本趋势与资源仪表等原有图表，首页健康结论也和大屏各算各的；同时窄屏把 3840×2160 画布整体压缩成缩略图，文字不可读。
-- **风险/影响：** 大屏失去“统筹作战室”的横向对比与趋势判断能力，用户无法在同一屏看到投递、模型用量、成本与资源的关系；窄屏下整屏不可读，等于不可用。
-- **修复范围：** 恢复全部原有图表（投递趋势、Token 堆叠趋势、模型占比环形图、技能排行、30 日成本与用量、CPU/内存/磁盘仪表、CPU 迷你趋势），顶部 KPI 只收敛重复项至 7 项；主体保持四列图表矩阵，底部把升级/备份记录换成与作战室直接相关的行动队列、通道投递汇总、未来 24 小时任务、消息网关链路。大屏健康、待办与任务推导改为复用首页的 `buildUserHealthInput` / `deriveHealthView` / `deriveTaskPreview`，并新增 `/api/scheduled-tasks`、`/api/approvals` 快照，不再单独请求 `/api/versions`、`/api/backups`。窄屏（<1024px）改为同源纵向布局，图表全保留，字号回到原生尺寸。
-- **回归测试：** `ui/tests/wall-layout.test.ts` 断言 7 个 KPI、四列图表矩阵与底部四块作战信息；`ui/tests/dashboard-health.test.ts` 断言首页与大屏给出同一健康结论；`ui/tests/dashboard-wall.browser.mjs` 在 1920×1080、1365×768、390×844 三个视口验证桌面等比缩放且一屏无滚动、9 张图表均有真实像素、移动端不缩放且可纵向滚动，并保留首页 ≤5 条待办与任务统计断言。
-- **验证命令：** `corepack pnpm exec tsc -b ui/tsconfig.json --pretty false`；`corepack pnpm exec vitest run ui/tests/wall-layout.test.ts ui/tests/dashboard-health.test.ts --reporter=dot`（14 项通过）；`corepack pnpm --filter @butler/ui exec vite build`；`BUTLER_PLAYWRIGHT_PATH=... node ui/tests/dashboard-wall.browser.mjs`（5 个视口通过）；`git diff --check`。
-- **部署/runtime：** 从 WSL ext4 `/home/jiach/agentbutler` 的 `codex/product-simplification-scheduled-tasks` 分支重建 Compose，并在真实 `http://127.0.0.1:7531/wall` 复核 4K 画布、图表矩阵与移动端布局。
-- **口径/限制：** 成本金额按 `USD_TO_CNY` 折算展示；Token 与成本图表在 Watch 未提供 `llm-probe` 数据时保持“待接入”灰态，不用估算值顶替。
+- **问题：** 产品减法阶段把 `/wall` 从原始 4K 图表矩阵压成 6 项 KPI 与少量面板，删掉了模型占比、技能排行、成本趋势与资源仪表等原有图表，底部“升级与备份记录”等原始面板也一并消失，大屏失去“统筹作战室”的信息密度。
+- **风险/影响：** 用户在同一屏看不到投递、模型用量、成本与资源的横向对比，原本为挂墙设计的 4K 画面变成稀疏的 KPI 看板，运营判断依据变少。
+- **修复范围：** 首次修复把 KPI 收敛到 7 项并重排底部面板后，用户明确要求保留原始丰富图表布局，因此最终将 `WallPage.tsx`、`useWallData.ts`、`wall.css` 恢复到 4K 原始形态：9 卡 KPI（含 24h Token 消耗、30 日模型成本、月度预算执行）、四列各三块面板（实例健康 / 主机资源 / 通道质量、投递趋势 / Token 堆叠趋势 / 技能调用、模型占比 / 告警与事件 / 进化守门、成本与用量趋势 / 模型成本分解 / 预算执行）以及底部通道投递汇总 / 消息网关链路 / 升级与备份记录。窄屏同样保持原样等比缩放整个 3840×2160 画布。
+- **回归测试：** `ui/tests/wall-layout.test.ts` 断言 9 个 KPI、9 类图表构建器与全部 15 个原始面板标题；`ui/tests/dashboard-health.test.ts` 保留首页健康推导断言并单列大屏原始 KPI 口径（未解决告警、待投递 Outbox、running/healthy 实例统计）；`ui/tests/dashboard-wall.browser.mjs` 在 1920×1080、1365×768、390×844 三个视口验证 9 KPI、9 张图表均有真实像素、底部三块记录面板齐全、无横向溢出，并保留首页 ≤5 条待办与任务统计断言。
+- **验证命令：** `corepack pnpm exec tsc -b ui/tsconfig.json --pretty false`；`corepack pnpm exec vitest run ui/tests/wall-layout.test.ts ui/tests/dashboard-health.test.ts ui/tests/page-template-coverage.test.ts --reporter=dot`（16 项通过）；`corepack pnpm exec eslint .`；`corepack pnpm --filter @butler/ui exec vite build`；`BUTLER_PLAYWRIGHT_PATH=... node ui/tests/dashboard-wall.browser.mjs`（5 个视口通过）；`git diff --check`。
+- **部署/runtime：** 从 WSL ext4 `/home/jiach/agentbutler` 的 `codex/product-simplification-scheduled-tasks` 分支重建 Compose，并在真实 `http://127.0.0.1:7531/wall` 复核 9 卡 KPI、9 张图表与底部记录行。
+- **口径/限制：** 成本金额按 `USD_TO_CNY` 折算展示；Token 与成本图表在 Watch 未提供 `llm-probe` 数据时保持“待接入”灰态，不用估算值顶替；大屏实例在线口径仍按原始小写 `running`/`healthy` 状态统计，与首页健康结论使用的 `Serving` 语义不同，属原始行为。

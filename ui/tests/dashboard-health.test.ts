@@ -38,18 +38,32 @@ describe("dashboard and wall share factual health", () => {
     expect(deriveHealthView(failing).health).toMatchObject({ status: "action_required" });
     expect(deriveHealthView(failing).health.attention.map((item) => item.id)).toEqual(["memory", "messages-unknown"]);
   });
-  it("dashboard and wall produce exactly the same health, online count and attention", () => {
-    const dashboard = deriveHealthView(sources);
-    const wall = deriveWallView({
-      dashboard: sources.dashboard, connections: sources.connections!.connections,
-      alerts: sources.alerts, messageStatus: sources.messageStatus, approvals: sources.approvals,
-      observedAt: sources.observedAt, lastRefreshAt: null, metrics: null, hostMetrics: null, health: null,
-      skillUsage: null, proposals: null, llmUsage: null, costSummary: null, budget: null,
-      taskStatus: null, taskList: null,
+  it("keeps the original wall KPI readout: non-resolved alerts and pending outbox states", () => {
+    const view = deriveWallView({
+      dashboard: {
+        instances: [
+          { instanceId: "running", state: "running", frameworkId: "hermes", runtime: "process", confidence: 1, version: null },
+          { instanceId: "serving", state: "Serving", frameworkId: "hermes", runtime: "process", confidence: 1, version: null },
+        ],
+      },
+      connections: null,
+      metrics: {
+        days: 7,
+        channels: [{ channel: "wecom", delivered: 9, failed: 1, uncertain: 0, total: 10, successRate: 0.9, p50LatencyMs: null, p95LatencyMs: null, latencySamples: 0, retries: 0 }],
+        daily: [],
+        latency: { p50Ms: null, p95Ms: 900, samples: 0, unknown: 0 },
+        retries: 0,
+      },
+      messageStatus: { reachable: true, status: { bridge: { connected: true, running: true, attached: true, outboxWritable: true }, counts: { ready: 3, failed: 4 } } },
+      alerts: { reachable: true, items: [{ status: "delivered" }, { status: "resolved" }] },
+      hostMetrics: null, health: null, skillUsage: null, proposals: null, llmUsage: null,
+      costSummary: null, budget: null, lastRefreshAt: null,
     } as WallData);
-    expect(wall.healthSummary).toEqual(dashboard.health);
-    expect(wall.onlineInstances).toBe(dashboard.onlineInstances);
-    expect(wall.openAlerts).toBe(0);
+    // 大屏保留原始口径：只统计小写 running/healthy，投递失败不计入未处理告警。
+    expect(view.onlineInstances).toBe(1);
+    expect(view.totalInstances).toBe(2);
+    expect(view.openAlerts).toBe(1);
+    expect(view.pendingMessages).toBe(3);
   });
 });
 
