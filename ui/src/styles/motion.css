@@ -99,6 +99,75 @@
     transform var(--ab-dur-fast) var(--ab-ease-out-expo);
 }
 
+/* ---------- 微交互：卡片悬停轻度上浮与发光 ---------- */
+
+.ab-card-hover {
+  transition:
+    transform var(--ab-dur-fast) var(--ab-ease-out-expo),
+    box-shadow var(--ab-dur-fast) var(--ab-ease),
+    border-color var(--ab-dur-fast) var(--ab-ease);
+}
+
+.ab-card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--ab-shadow-2);
+  border-color: color-mix(in srgb, var(--ab-primary) 28%, var(--ab-border));
+}
+
+/* ---------- 骨架屏高级微流光（Shimmer） ---------- */
+
+@keyframes ab-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.ab-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--ab-surface-2) 0%,
+    color-mix(in srgb, var(--ab-primary-soft) 45%, var(--ab-surface-2)) 50%,
+    var(--ab-surface-2) 100%
+  );
+  background-size: 200% 100%;
+  animation: ab-shimmer 1.8s var(--ab-ease) infinite;
+}
+
+/* ---------- 状态指示与生命体征脉冲 ---------- */
+
+@keyframes ab-pulse-glow {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.65;
+    transform: scale(0.96);
+  }
+}
+
+@keyframes ab-ping-ring {
+  0% {
+    transform: scale(0.95);
+    opacity: 0.8;
+  }
+  65% {
+    transform: scale(2.3);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(2.3);
+    opacity: 0;
+  }
+}
+
+.ab-pulse-live {
+  animation: ab-pulse-glow 2.4s var(--ab-ease) infinite;
+}
+
 /* ---------- 主题切换（View Transitions） ---------- */
 
 /* ThemeProvider 里用 document.startViewTransition 包住 setMode；
@@ -116,14 +185,22 @@
 @media (prefers-reduced-motion: reduce) {
   .content > section,
   .ab-stagger > *,
-  .ab-rise {
-    animation: none;
+  .ab-rise,
+  .ab-shimmer,
+  .ab-pulse-live {
+    animation: none !important;
+  }
+  .ab-card-hover {
+    transition: none !important;
+  }
+  .ab-card-hover:hover {
+    transform: none !important;
   }
   .ant-btn:active {
-    transform: none;
+    transform: none !important;
   }
   ::view-transition-old(root),
   ::view-transition-new(root) {
-    animation: none;
+    animation: none !important;
   }
 }

@@ -3,11 +3,19 @@ import type { AttentionItem } from "@butler/contract";
 import type { deriveTaskPreview } from "./taskPreview.js";
 
 export function AttentionList({ attention }: { attention: AttentionItem[] }) {
-  return attention.length === 0 ? <p className="health-empty">当前没有需要处理的事项。</p> : (
+  return attention.length === 0 ? (
+    <div className="health-empty-card ab-rise">
+      <span className="health-empty-icon" aria-hidden="true">✓</span>
+      <div>
+        <strong>系统运行良好</strong>
+        <p className="health-empty-desc">当前所有关键服务与链路均无待确认告警或阻塞项。</p>
+      </div>
+    </div>
+  ) : (
     <>
-      <ul className="health-attention">
-        {attention.slice(0, 5).map((item) => (
-          <li key={item.id} data-severity={item.severity}>
+      <ul className="health-attention ab-stagger">
+        {attention.slice(0, 5).map((item, idx) => (
+          <li key={item.id} data-severity={item.severity} style={{ ["--ab-stagger-i" as string]: idx }}>
             <div><strong>{item.title}</strong><p>{item.impact}</p></div>
             <Link to={item.actionHref}>{item.actionLabel}</Link>
           </li>

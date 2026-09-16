@@ -63,19 +63,19 @@ export function DashboardPage() {
           <Button icon={<SafetyCertificateOutlined />} loading={inspecting} onClick={() => { void inspect(); }}>立即检查</Button>
         </section>
         <div className="health-main">
-          <section className="health-issues" aria-labelledby="health-attention-title">
+          <section className="health-issues ab-card-hover ab-rise" aria-labelledby="health-attention-title">
             <div className="health-section-heading"><h2 id="health-attention-title">需要处理 <span>{health.attention.length}</span></h2><Button icon={<ReloadOutlined />} loading={data.refreshing} onClick={() => { void data.refresh(); }}>刷新</Button></div>
             <AttentionList attention={health.attention} />
           </section>
           <TaskPreview tasks={data.tasks} />
         </div>
-        <section aria-labelledby="health-capabilities-title" className="health-capabilities">
+        <section aria-labelledby="health-capabilities-title" className="health-capabilities ab-card-hover ab-rise">
           <h2 id="health-capabilities-title">核心能力</h2>
-          <dl className="health-capability-list">
-            <div><dt><Link to="/setup">智能体</Link></dt><dd>{totalInstances === null ? "待确认" : `${onlineInstances}/${totalInstances} 在线`}</dd></div>
-            <div><dt><Link to="/gateway">消息</Link></dt><dd>{messageState}</dd></div>
-            <div><dt><Link to="/setup">模型</Link></dt><dd>{capabilityLabel(input.model)}</dd></div>
-            <div><dt><Link to="/skills?tab=memory">记忆</Link></dt><dd>{capabilityLabel(input.memory)}</dd></div>
+          <dl className="health-capability-list ab-stagger">
+            <div style={{ ["--ab-stagger-i" as string]: 0 }}><dt><Link to="/setup">智能体</Link></dt><dd>{totalInstances === null ? "待确认" : `${onlineInstances}/${totalInstances} 在线`}</dd></div>
+            <div style={{ ["--ab-stagger-i" as string]: 1 }}><dt><Link to="/gateway">消息</Link></dt><dd>{messageState}</dd></div>
+            <div style={{ ["--ab-stagger-i" as string]: 2 }}><dt><Link to="/setup">模型</Link></dt><dd>{capabilityLabel(input.model)}</dd></div>
+            <div style={{ ["--ab-stagger-i" as string]: 3 }}><dt><Link to="/skills?tab=memory">记忆</Link></dt><dd>{capabilityLabel(input.memory)}</dd></div>
           </dl>
         </section>
       </>}

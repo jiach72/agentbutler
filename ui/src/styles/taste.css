@@ -31,11 +31,15 @@
   min-height: 14px;
   border-radius: 6px 6px 0 0; /* 规范仅 14/8/6 三档。 */
   background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--ab-primary-soft) 78%, var(--ab-surface)),
-    color-mix(in srgb, var(--ab-primary) 26%, var(--ab-surface))
+    90deg,
+    color-mix(in srgb, var(--ab-primary-soft) 60%, var(--ab-surface)) 0%,
+    color-mix(in srgb, var(--ab-primary) 32%, var(--ab-surface)) 50%,
+    color-mix(in srgb, var(--ab-primary-soft) 60%, var(--ab-surface)) 100%
   );
-  animation: chart-skeleton-pulse 1.2s var(--ab-ease) infinite alternate;
+  background-size: 200% 100%;
+  animation:
+    chart-skeleton-pulse 1.2s var(--ab-ease) infinite alternate,
+    ab-shimmer 2.2s var(--ab-ease) infinite;
 }
 
 .chart-skeleton span:nth-child(1) {
@@ -56,7 +60,7 @@
 
 @keyframes chart-skeleton-pulse {
   from {
-    opacity: 0.45;
+    opacity: 0.55;
     transform: scaleY(0.88);
     transform-origin: bottom;
   }
@@ -65,6 +69,20 @@
     transform: scaleY(1);
     transform-origin: bottom;
   }
+}
+
+/* antd 骨架屏流光接管：替换原生突兀的单灰度闪烁，融入品牌浅色与流光 */
+.ant-skeleton.ant-skeleton-active .ant-skeleton-paragraph > li,
+.ant-skeleton.ant-skeleton-active .ant-skeleton-title,
+.ant-skeleton.ant-skeleton-active .ant-skeleton-avatar {
+  background: linear-gradient(
+    90deg,
+    var(--ab-surface-2) 25%,
+    color-mix(in srgb, var(--ab-primary-soft) 55%, var(--ab-surface-2)) 50%,
+    var(--ab-surface-2) 75%
+  ) !important;
+  background-size: 200% 100% !important;
+  animation: ab-shimmer 1.8s var(--ab-ease) infinite !important;
 }
 
 .chart-state {

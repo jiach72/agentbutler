@@ -2,6 +2,17 @@
    画布 3840×2160（4K 基准，2026-09-12 由 1080p 升级）由 WallPage 内联等比缩放，
    这里只管视觉。所有尺寸按 4K 基准书写：2K/1080p 窗口经 transform 等比缩小。 */
 
+@keyframes wall-glow-pulse {
+  0%, 100% {
+    opacity: 0.85;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.03);
+  }
+}
+
 .wall-root {
   position: fixed;
   inset: 0;
@@ -15,6 +26,8 @@
   inset: 0;
   pointer-events: none;
   background: radial-gradient(2200px 1200px at 50% -8%, var(--glow), transparent 60%);
+  animation: wall-glow-pulse 10s ease-in-out infinite;
+  transform-origin: 50% 0;
 }
 
 .wall-root[data-wall-theme="dark"] {
@@ -77,6 +90,9 @@
 .wall-root * {
   box-sizing: border-box;
   font-family: "Inter", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 .wall-corner { position: absolute; width: 280px; height: 280px; pointer-events: none; z-index: 21; color: var(--corner); }
@@ -87,16 +103,18 @@
 
 .wall-stage {
   position: absolute;
-  left: 50%;
-  top: 50%;
+  left: 0;
+  top: 0;
   width: 3840px;
   height: 2160px;
-  transform: translate(-50%, -50%);
-  transform-origin: center center;
+  transform-origin: 0 0;
   padding: 36px 44px 32px;
   display: flex;
   flex-direction: column;
   gap: 26px;
+  will-change: transform;
+  backface-visibility: hidden;
+  transform-style: flat;
 }
 
 /* ── A 标题区 ── */
@@ -195,7 +213,21 @@ button.wall-theme-toggle:hover { border-color: var(--accent); color: var(--text)
   background: linear-gradient(90deg, var(--accent), transparent 70%);
   opacity: 0.55;
 }
-.wall-kpi.tone-warn { border-color: var(--warn); }
+@keyframes wall-alert-pulse {
+  0%, 100% {
+    box-shadow: var(--panel-shadow);
+    border-color: var(--warn);
+  }
+  50% {
+    box-shadow: 0 0 32px rgba(255, 197, 61, 0.4);
+    border-color: color-mix(in srgb, var(--warn) 75%, #fff);
+  }
+}
+
+.wall-kpi.tone-warn {
+  border-color: var(--warn);
+  animation: wall-alert-pulse 2.4s ease-in-out infinite;
+}
 .wall-kpi.tone-warn::before { background: var(--warn); }
 .wall-kpi.tone-warn .wall-kpi-value { color: var(--warn); text-shadow: 0 0 32px rgba(255, 197, 61, 0.3); }
 .wall-kpi.tone-error { border-color: var(--error); }
@@ -431,3 +463,12 @@ button.wall-theme-toggle:hover { border-color: var(--accent); color: var(--text)
 .wall-table tbody tr:hover td { background: var(--accent-soft); }
 .wall-table tr:last-child td { border-bottom: none; }
 .wall-num-error { color: var(--error); font-weight: 600; }
+
+/* ── 无障碍：减弱动效硬降级 ── */
+@media (prefers-reduced-motion: reduce) {
+  .wall-root::before,
+  .wall-kpi.tone-warn,
+  .wall-pulse {
+    animation: none !important;
+  }
+}

@@ -40,17 +40,30 @@ export function readInitialTheme(): WallThemeMode {
 
 /**
  * ECharts 挂载组件：option 变化即 setOption，容器尺寸变化自动 resize。
- * dpr 必须传入「系统 dpr × stage 缩放比」：stage 被 transform scale 放大时，
- * canvas 位图若仍按基准渲染会被拉伸发虚（审计 P0-2），因此 scale
- * 变化时以新 dpr 重建图表实例，保证 2K/4K 下像素级清晰。
+ * 默认使用 SVG 矢量渲染器（renderer: "svg"），彻底解决 CSS transform 缩放下的位图模糊；
+ * Sparkline 或 Canvas 渲染下锁定至少 2x 超采样抗锯齿，绝不乘以 stageScale 造成像素腰斩。
  */
-function WallChart({ option, className, dpr }: { option: EChartsOption | null; className?: string; dpr: number }) {
+function WallChart({
+  option,
+  className,
+  dpr,
+  renderer = "svg",
+}: {
+  option: EChartsOption | null;
+  className?: string;
+  dpr?: number;
+  renderer?: "svg" | "canvas";
+}) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<ReturnType<typeof echarts.init> | null>(null);
 
   useEffect(() => {
     if (hostRef.current === null) return;
-    chartRef.current = echarts.init(hostRef.current, undefined, { devicePixelRatio: dpr });
+    const safeDpr = dpr ?? Math.min(Math.max(window.devicePixelRatio ?? 1, 2), 3);
+    chartRef.current = echarts.init(hostRef.current, undefined, {
+      renderer,
+      devicePixelRatio: safeDpr,
+    });
     const observer = new ResizeObserver(() => chartRef.current?.resize());
     observer.observe(hostRef.current);
     return () => {
@@ -58,13 +71,13 @@ function WallChart({ option, className, dpr }: { option: EChartsOption | null; c
       chartRef.current?.dispose();
       chartRef.current = null;
     };
-  }, [dpr]);
+  }, [dpr, renderer]);
 
   useEffect(() => {
     if (chartRef.current !== null && option !== null) {
       chartRef.current.setOption(option, true);
     }
-  }, [option, dpr]);
+  }, [option]);
 
   return <div ref={hostRef} className={className ?? "wall-chart"} />;
 }
@@ -160,16 +173,21 @@ export function WallPage() {
   }, [theme]);
 
   // 画布等比缩放：以 3840×2160 为基准，居中适配任意窗口（无滚动条）。
-  // scale 存入 state 驱动 WallChart 以「系统 dpr × scale」重建位图，
-  // 否则 transform 放大后 canvas 文字/线条会像素化（审计 P0-2）。
+  // 关键修复：消除 translate(-50%, -50%) 产生的亚像素浮点坐标（导致 Windows DirectWrite 关闭 ClearType 抗锯齿造成全屏毛玻璃发虚）。
+  // 使用精确四舍五入的整数像素定位 + transform-origin: 0 0。
   const stageRef = useRef<HTMLDivElement | null>(null);
-  const [stageScale, setStageScale] = useState(() =>
+  const [, setStageScale] = useState(() =>
     Math.min(window.innerWidth / STAGE_WIDTH, window.innerHeight / STAGE_HEIGHT));
   useEffect(() => {
     const fit = () => {
       const scale = Math.min(window.innerWidth / STAGE_WIDTH, window.innerHeight / STAGE_HEIGHT);
       if (stageRef.current !== null) {
-        stageRef.current.style.transform = `translate(-50%,-50%) scale(${scale})`;
+        const left = Math.round((window.innerWidth - STAGE_WIDTH * scale) / 2);
+        const top = Math.round((window.innerHeight - STAGE_HEIGHT * scale) / 2);
+        stageRef.current.style.left = `${left}px`;
+        stageRef.current.style.top = `${top}px`;
+        stageRef.current.style.transform = `scale(${scale})`;
+        stageRef.current.style.transformOrigin = "0 0";
       }
       setStageScale(scale);
     };
@@ -177,8 +195,8 @@ export function WallPage() {
     window.addEventListener("resize", fit);
     return () => window.removeEventListener("resize", fit);
   }, []);
-  // 位图分辨率上限 3：超过后收益趋零且显存占用陡增。
-  const chartDpr = Math.min(window.devicePixelRatio * stageScale, 3);
+  // 超采样 DPR：保底锁定至少 2x，杜绝位图模糊
+  const chartDpr = Math.min(Math.max(window.devicePixelRatio, 2), 3);
 
   const successRateText = view.successRate === null ? "—" : view.successRate.toFixed(1);
   const p95Text = view.p95Ms === null ? "—" : view.p95Ms >= 1000 ? `${(view.p95Ms / 1000).toFixed(1)}s` : `${view.p95Ms}ms`;
