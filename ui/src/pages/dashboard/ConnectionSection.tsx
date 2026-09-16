@@ -1,8 +1,6 @@
 /**
  * 服务连接区：Hermes / OpenClaw 连接卡片与 OpenClaw 手动安装指引。
  */
-import { App } from "antd";
-import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Alert,
@@ -18,8 +16,9 @@ import {
   Tooltip,
   Typography,
 } from "antd";
-import { CopyOutlined, DisconnectOutlined, LinkOutlined, ReloadOutlined } from "@ant-design/icons";
+import { DisconnectOutlined, LinkOutlined, ReloadOutlined } from "@ant-design/icons";
 import { AdvancedDetails } from "../../components/AdvancedDetails.js";
+import { CopySnippetButton } from "../../components/CopySnippetButton.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { formatRelative } from "../../lib/format.js";
 import {
@@ -57,20 +56,7 @@ export function ConnectionSection({
   onCheckOne,
   onToggleConnection,
 }: ConnectionSectionProps) {
-  const { message } = App.useApp();
-  const [copied, setCopied] = useState(false);
   const connectionItems = connections?.connections ?? [];
-
-  const copyInstallCommand = async () => {
-    try {
-      await navigator.clipboard.writeText(OPENCLAW_INSTALL_COMMAND);
-      setCopied(true);
-      message.success("安装命令已复制，请在宿主终端执行");
-      setTimeout(() => setCopied(false), 2_000);
-    } catch {
-      message.error("复制失败，请手动选择命令文本复制");
-    }
-  };
 
   return (
     <section aria-labelledby="connection-section-title">
@@ -181,18 +167,14 @@ export function ConnectionSection({
                         <Text type="secondary">
                           在宿主终端执行以下命令完成安装（需要 Node.js 24.15+），完成后回到这里重新检查连接：
                         </Text>
-                        <Flex gap={8} align="center">
-                          <Text code copyable={false} style={{ flex: 1, padding: "4px 8px" }}>
-                            {OPENCLAW_INSTALL_COMMAND}
-                          </Text>
-                          <Button
-                            size="small"
-                            icon={<CopyOutlined />}
-                            onClick={() => void copyInstallCommand()}
-                          >
-                            {copied ? "已复制" : "复制"}
-                          </Button>
-                        </Flex>
+                        <div className="ab-snippet-card" style={{ marginTop: 4 }}>
+                          <code style={{ overflowWrap: "anywhere" }}>{OPENCLAW_INSTALL_COMMAND}</code>
+                          <CopySnippetButton
+                            text={OPENCLAW_INSTALL_COMMAND}
+                            label="复制"
+                            copiedLabel="已复制"
+                          />
+                        </div>
                       </Flex>
                     )}
                   </Flex>

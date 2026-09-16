@@ -182,6 +182,7 @@ export function KillSwitchButton({ variant = "default" }: KillSwitchButtonProps 
           type="primary"
           danger
           size="small"
+          className="ab-killswitch-engaged"
           icon={<PlayCircleOutlined />}
           onClick={release}
           loading={busy}

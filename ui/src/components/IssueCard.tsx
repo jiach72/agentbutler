@@ -10,6 +10,8 @@ interface IssueCardProps {
   verification: ReactNode;
   action?: ReactNode;
   evidence?: ReactNode;
+  tone?: "warn" | "error" | "info";
+  className?: string;
 }
 
 export function IssueCard({
@@ -20,9 +22,15 @@ export function IssueCard({
   verification,
   action,
   evidence,
+  tone = "warn",
+  className,
 }: IssueCardProps) {
   return (
-    <Card size="small" style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+    <Card
+      size="small"
+      className={`ab-guard-card is-${tone}${className ? ` ${className}` : ""}`}
+      style={{ minWidth: 0, overflowWrap: "anywhere" }}
+    >
       <Flex vertical gap={12}>
         <Typography.Title level={4} style={{ margin: 0 }}>
           {title}

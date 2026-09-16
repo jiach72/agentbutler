@@ -66,7 +66,7 @@ export function InstanceHealthCard({ instances, inspections }: InstanceHealthCar
         const confidence = inspection?.confidence ?? instance.confidence;
         return (
           <Col xs={24} lg={lgSpan} xl={xlSpan} key={instance.instanceId}>
-            <Card size="small" style={{ height: "100%" }}>
+            <Card size="small" className="ab-telemetry-card" style={{ height: "100%" }}>
               <Flex vertical gap={8}>
                 <Flex wrap="wrap" align="center" gap={8}>
                   <StatusBadge

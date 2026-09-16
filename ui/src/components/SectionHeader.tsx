@@ -11,7 +11,7 @@ interface SectionHeaderProps {
   /** 区块所属分组的小标签，如「本机安全」「迁移助手」。 */
   kicker: string;
   /** 区块标题。 */
-  title: string;
+  title: React.ReactNode;
   /** 紧凑模式（子区块）：标题降为 h3，与顶层 h2 区分层级。 */
   compact?: boolean;
   /** 标题右侧附加内容（状态徽标、操作按钮等）。 */

@@ -168,6 +168,48 @@
   animation: ab-pulse-glow 2.4s var(--ab-ease) infinite;
 }
 
+/* 握手旋转微环 */
+@keyframes ab-beacon-orbit {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 急停处于阻断态时的防波堤警戒光晕 */
+@keyframes ab-guarded-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ab-error) 45%, transparent),
+                0 0 10px 0 color-mix(in srgb, var(--ab-error) 25%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--ab-error) 0%, transparent),
+                0 0 16px 2px color-mix(in srgb, var(--ab-error) 38%, transparent);
+  }
+}
+
+/* 关键卡片边界微流光 */
+@keyframes ab-beam-spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* 事件活动微波形 */
+@keyframes ab-wave-pulse {
+  0%, 100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
 /* ---------- 主题切换（View Transitions） ---------- */
 
 /* ThemeProvider 里用 document.startViewTransition 包住 setMode；
@@ -187,7 +229,12 @@
   .ab-stagger > *,
   .ab-rise,
   .ab-shimmer,
-  .ab-pulse-live {
+  .ab-pulse-live,
+  .ab-beacon-dot::after,
+  .ab-beacon-orbit,
+  .ab-guarded-glow,
+  .ab-border-beam::before,
+  .ab-wave-bar {
     animation: none !important;
   }
   .ab-card-hover {
@@ -204,3 +251,4 @@
     animation: none !important;
   }
 }
+

@@ -70,7 +70,7 @@ export function PendingApprovalsCard() {
   if (pending === null || pending <= 0) return null;
 
   return (
-    <div className="sidebar-approval-mode">
+    <div className="sidebar-approval-mode ab-border-beam" style={{ padding: "8px 10px", margin: "4px 6px" }}>
       <div className="sidebar-approval-mode-pending">
         <span>{pending} 条{hasGate ? "待放行" : "待核验"}</span>
         <Popconfirm

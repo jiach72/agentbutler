@@ -4,12 +4,13 @@
  */
 import { useState } from "react";
 import { App } from "antd";
-import { ArrowRightOutlined, CopyOutlined, RobotOutlined } from "@ant-design/icons";
+import { ArrowRightOutlined, RobotOutlined } from "@ant-design/icons";
 import { Button, Card, Flex, Typography } from "antd";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import type { SemanticTone } from "../../components/StatusBadge.js";
 import { useNavigate } from "react-router-dom";
 import { SectionHeader } from "../../components/SectionHeader.js";
+import { CopySnippetButton } from "../../components/CopySnippetButton.js";
 import { postJson } from "../../lib/api.js";
 import { buildAgentHelpPrompt } from "./helpers.js";
 import type { IssueView } from "./types.js";
@@ -47,16 +48,6 @@ export function IssuesSection({ issues, attentionCount, onInspect }: IssuesSecti
   const { message, modal } = App.useApp();
   const visibleIssues = expanded ? issues : issues.slice(0, 5);
 
-  const copyHelpPrompt = async (issue: IssueView): Promise<void> => {
-    if (issue.fingerprint === undefined) return;
-    const prompt = buildAgentHelpPrompt(issue.fingerprint);
-    try {
-      await navigator.clipboard.writeText(prompt);
-      message.success("求助提示词已复制，粘贴给智能体即可");
-    } catch {
-      modal.info({ title: "求助提示词（复制失败，请手动选择）", content: <pre style={{ whiteSpace: "pre-wrap" }}>{prompt}</pre> });
-    }
-  };
 
   const forwardToAgent = async (issue: IssueView): Promise<void> => {
     if (issue.fingerprint === undefined) return;
@@ -98,7 +89,11 @@ export function IssuesSection({ issues, attentionCount, onInspect }: IssuesSecti
           {visibleIssues.map((issue) => {
             const action = issue.action;
             return (
-              <Card size="small" key={issue.id}>
+              <Card
+                size="small"
+                key={issue.id}
+                className={`ab-guard-card is-${issue.tone === "error" ? "error" : "warn"}`}
+              >
                 <Flex align="flex-start" gap={12}>
                   <StatusBadge
                     tone={ISSUE_TONE[issue.tone]}
@@ -119,13 +114,11 @@ export function IssuesSection({ issues, attentionCount, onInspect }: IssuesSecti
                     )}
                     {issue.fingerprint !== undefined && (
                       <Flex wrap gap={8}>
-                        <Button
-                          size="small"
-                          icon={<CopyOutlined />}
-                          onClick={() => void copyHelpPrompt(issue)}
-                        >
-                          复制求助提示词
-                        </Button>
+                        <CopySnippetButton
+                          text={buildAgentHelpPrompt(issue.fingerprint)}
+                          label="复制求助提示词"
+                          copiedLabel="提示词已复制"
+                        />
                         {(issue.fingerprint.instance ?? "").startsWith("hermes") && (
                           <Button
                             size="small"

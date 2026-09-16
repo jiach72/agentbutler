@@ -36,6 +36,7 @@ import {
   SearchOutlined,
 } from "@ant-design/icons";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
+import { ActivityWave } from "../../components/ActivityWave.js";
 import { SectionHeader } from "../../components/SectionHeader.js";
 import { StatStrip } from "../../components/StatStrip.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
@@ -412,7 +413,18 @@ export function LogPanel({ open = true, onClose = () => undefined, embedded = fa
           <Flex vertical gap={16}>
             <Card size="small">
               <Flex vertical gap={12}>
-                <SectionHeader kicker="日志流" title={activeLog === null ? "原始日志" : sourceLabel(activeLog.sourceId)} extra={streamExtra} />
+                <SectionHeader
+                  kicker="日志流"
+                  title={
+                    <Flex align="center" gap={8}>
+                      <span>{activeLog === null ? "原始日志" : sourceLabel(activeLog.sourceId)}</span>
+                      {activeLog !== null && (
+                        <ActivityWave active={!loading} label="日志流监听中" />
+                      )}
+                    </Flex>
+                  }
+                  extra={streamExtra}
+                />
                 {error !== null && <Alert type="error" showIcon title={error} />}
                 {loading && (
                   <Flex align="center" gap={8}>
