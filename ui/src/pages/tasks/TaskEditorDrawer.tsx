@@ -9,7 +9,7 @@ import { readScheduledTaskDefaults } from "../settings/taskDefaults.js";
 
 export interface TaskPreview { scheduleLabel: string; nextRunAt: string | null; timezone: string }
 
-interface TaskTemplate {
+export interface TaskTemplate {
   key: string;
   title: string;
   name: string;
@@ -17,7 +17,7 @@ interface TaskTemplate {
   schedule: (tz: string) => ScheduledTaskDraft["schedule"];
 }
 
-const TASK_TEMPLATES: TaskTemplate[] = [
+export const TASK_TEMPLATES: TaskTemplate[] = [
   {
     key: "morning-report",
     title: "📋 每日早报",
