@@ -5,7 +5,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { Alert, App, Flex, Tabs } from "antd";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { ConnectionChip } from "../../components/ConnectionChip.js";
 import { ConclusionBar } from "../../components/ConclusionBar.js";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
@@ -32,14 +32,12 @@ import {
   SOURCE_KEYS,
   type SourcesState,
 } from "./helpers.js";
-import { DiagnosticsCenter } from "./DiagnosticsCenter.js";
 import { GithubTokenCard } from "./GithubTokenCard.js";
 import { SecurityBaseline } from "./SecurityBaseline.js";
 import { SettingsCategoryNav, resolveCategoryKey } from "./SettingsCategoryNav.js";
 import { SourceStatusBar } from "./SourceStatusBar.js";
 import { PreferencesPanel } from "../preferences/PreferencesPage.js";
 import { LlmProfileManager } from "./LlmProfileManager.js";
-import { ExpertTools } from "./ExpertTools.js";
 import { TaskDefaultsPanel } from "./TaskDefaultsPanel.js";
 import { VersionsPanel } from "../versions/VersionsPage.js";
 import "./settings.css";
@@ -296,12 +294,7 @@ export function SettingsPage() {
           />
         );
       case "advanced":
-        return (
-          <ExpertTools>
-            <DiagnosticsCenter actionBusy={busy !== null} />
-            <AuditLog audit={sources.audit} onRetry={() => retrySource("audit")} />
-          </ExpertTools>
-        );
+        return <Navigate to="/tools" replace />;
       case "security":
       default:
         return (

@@ -46,6 +46,7 @@ const ROUTE_PAGES: Array<{ route: string; files: string[] }> = [
   { route: "/core-files", files: ["pages/CoreFilesPage.tsx"] },
   { route: "/evolution", files: ["pages/evolution/EvolutionPage.tsx"] },
   { route: "/logs", files: ["pages/Logs.tsx"] },
+  { route: "/tools", files: ["pages/tools/ToolsPage.tsx"] },
   { route: "/settings", files: ["pages/settings/SettingsPage.tsx"] },
 ];
 

@@ -238,13 +238,12 @@ describe("progressive message detail and evidence", () => {
 });
 
 describe("settings migration and task defaults", () => {
-  it("has five groups and preserves historical settings query aliases", () => {
+  it("has four settings groups and preserves historical settings query aliases", () => {
     expect(SETTINGS_CATEGORIES.map((category) => category.key)).toEqual([
       "security",
       "tasks",
       "backups",
       "llm",
-      "advanced",
     ]);
     expect(resolveCategoryKey("about")).toBe("backups");
     expect(resolveCategoryKey("preferences")).toBe("llm");

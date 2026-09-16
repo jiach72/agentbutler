@@ -1,5 +1,4 @@
 import {
-  AppstoreOutlined,
   CalendarOutlined,
   HistoryOutlined,
   KeyOutlined,
@@ -11,13 +10,13 @@ export const SETTINGS_CATEGORIES = [
   { key: "tasks", label: "定时任务默认值", icon: CalendarOutlined },
   { key: "backups", label: "备份与升级", icon: HistoryOutlined },
   { key: "llm", label: "模型与通知", icon: KeyOutlined },
-  { key: "advanced", label: "专家工具", icon: AppstoreOutlined },
 ];
 
 const LEGACY_CATEGORIES: Record<string, string> = {
   about: "backups",
   preferences: "llm",
   diagnostics: "advanced",
+  advanced: "advanced",
 };
 
 export function resolveCategoryKey(raw: string | null): string {

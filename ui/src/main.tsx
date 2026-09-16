@@ -28,6 +28,7 @@ const TasksPage = lazy(() => import("./pages/tasks/TasksPage.js").then(({ TasksP
 const EvolutionPage = lazy(() => import("./pages/evolution/EvolutionPage.js").then(({ EvolutionPage: Page }) => ({ default: Page })));
 const GatewayPage = lazy(() => import("./pages/gateway/GatewayPage.js").then(({ GatewayPage: Page }) => ({ default: Page })));
 const SettingsPage = lazy(() => import("./pages/settings/SettingsPage.js").then(({ SettingsPage: Page }) => ({ default: Page })));
+const ToolsPage = lazy(() => import("./pages/tools/ToolsPage.js").then(({ ToolsPage: Page }) => ({ default: Page })));
 const SkillsPage = lazy(() => import("./pages/skills/SkillsPage.js").then(({ SkillsPage: Page }) => ({ default: Page })));
 const LogsPage = lazy(() => import("./pages/Logs.js").then(({ LogsPage: Page }) => ({ default: Page })));
 const TroubleshootPage = lazy(() => import("./pages/troubleshoot/TroubleshootPage.js").then(({ TroubleshootPage: Page }) => ({ default: Page })));
@@ -124,6 +125,8 @@ function ThemedApp({ locale }: { locale: React.ComponentProps<typeof ConfigProvi
               <Route path="/logs" element={<LogsPage />} />
               <Route path="/prompt" element={<Navigate to="/gateway" replace />} />
               <Route path="/skills" element={<SkillsPage />} />
+              <Route path="/tools" element={<ToolsPage />} />
+              <Route path="/advanced" element={<Navigate to="/tools" replace />} />
               <Route path="/core-files" element={<CoreFilesPage />} />
               {/* 信任层（Trust Layer）：成本 / 行为审计 / 事件中心 / Agent 周报 */}
               <Route path="/cost" element={<CostPage />} />

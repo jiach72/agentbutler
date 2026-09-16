@@ -86,9 +86,9 @@ describe("路由元信息单一事实源", () => {
     expect(collapsibleGroupKeys()).toEqual(["trust", "maintain"]);
   });
 
-  it("默认只有五个主入口，旧路由仍可解析", () => {
+  it("主导航包含专家工具与设置，旧路由仍可解析", () => {
     expect(ROUTES.filter((route) => route.nav).map((route) => route.path)).toEqual([
-      "/dashboard", "/tasks", "/gateway", "/skills", "/settings",
+      "/dashboard", "/tasks", "/gateway", "/skills", "/tools", "/settings",
     ]);
     expect(navRoutesFor("trust")).toEqual([]);
     expect(navRoutesFor("maintain")).toEqual([]);

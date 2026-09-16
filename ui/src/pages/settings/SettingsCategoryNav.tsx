@@ -3,6 +3,7 @@
  * 选中态蓝底 + 左蓝条；窄屏（<900px）由 settings.css 收为顶部横向 chips。
  * 参照技能页 CategoryRail 的模式独立实现，不与其共享代码。
  */
+import { AppstoreOutlined } from "@ant-design/icons";
 import { SETTINGS_CATEGORIES } from "./categories.js";
 export { SETTINGS_CATEGORIES, resolveCategoryKey } from "./categories.js";
 import "./settings.css";
@@ -36,6 +37,15 @@ export function SettingsCategoryNav({ active, onSelect }: SettingsCategoryNavPro
             );
           })}
         </nav>
+        <div style={{ marginTop: 12, padding: "10px 12px", borderTop: "1px solid var(--ant-color-border-secondary)", display: "flex", flexDirection: "column", gap: 4 }}>
+          <span style={{ fontSize: 12, color: "var(--ant-color-text-tertiary)" }}>
+            排障与体检请前往
+          </span>
+          <a href="/tools" style={{ fontSize: 13, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6, color: "var(--ant-color-primary)" }}>
+            <AppstoreOutlined />
+            <span>专家工具箱 →</span>
+          </a>
+        </div>
       </div>
     </aside>
   );

@@ -16,6 +16,7 @@
 import {
   AlertOutlined,
   ApiOutlined,
+  AppstoreOutlined,
   AuditOutlined,
   CalendarOutlined,
   ClusterOutlined,
@@ -94,6 +95,7 @@ export const ROUTES: RouteMeta[] = [
   { path: "/tasks", group: "console", title: "定时任务", note: "执行时间与最近结果", icon: CalendarOutlined, nav: true, short: "任务" },
   { path: "/gateway", group: "console", title: "消息通知", note: "待处理消息与通道", icon: NotificationOutlined, nav: true, short: "消息" },
   { path: "/skills", group: "console", title: "智能体与记忆", note: "技能、插件与记忆", icon: ApiOutlined, nav: true },
+  { path: "/tools", group: "console", title: "专家工具", note: "体检、排障、日志与维护", icon: AppstoreOutlined, nav: true, short: "工具" },
 
   /* ---- 信任层 · 费用与记录 ---- */
   { path: "/cost", group: "trust", cluster: "费用与记录", title: "成本", note: "模型成本与预算", icon: DollarOutlined, nav: false, short: "成本" },
