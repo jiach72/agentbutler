@@ -8,6 +8,82 @@ const DAYS = [
   { label: "周日", value: 0 },
 ];
 
+function describeSchedule(schedule: Schedule, timezone: string): string {
+  const tz = timezone || "系统时区";
+  if (schedule.kind === "daily") {
+    return `每天 ${schedule.time || "09:00"} 执行 (${tz})`;
+  }
+  if (schedule.kind === "weekdays") {
+    return `工作日 (周一至周五) 每天 ${schedule.time || "09:00"} 执行 (${tz})`;
+  }
+  if (schedule.kind === "weekly") {
+    const dayNames = (schedule.weekdays || [])
+      .map((d) => DAYS.find((x) => x.value === d)?.label)
+      .filter(Boolean)
+      .join("、");
+    return `每周 ${dayNames || "未指定"} ${schedule.time || "09:00"} 执行 (${tz})`;
+  }
+  if (schedule.kind === "interval") {
+    return `每隔 ${schedule.everyMinutes || 60} 分钟执行一次`;
+  }
+  if (schedule.kind === "advanced") {
+    return `按 Cron 表达式 “${schedule.expression || "* * * * *"}” 执行 (${tz})`;
+  }
+  return "自定义安排";
+}
+
+function computeUpcomingTimes(schedule: Schedule, count = 3): string[] {
+  const now = new Date();
+  const results: string[] = [];
+
+  const formatShort = (d: Date) => {
+    const m = d.getMonth() + 1;
+    const date = d.getDate();
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    return `${m}月${date}日 ${hh}:${mm}`;
+  };
+
+  if (schedule.kind === "interval") {
+    const mins = Math.max(1, schedule.everyMinutes || 60);
+    for (let i = 1; i <= count; i++) {
+      results.push(formatShort(new Date(now.getTime() + i * mins * 60_000)));
+    }
+    return results;
+  }
+
+  if (schedule.kind === "daily" || schedule.kind === "weekdays" || schedule.kind === "weekly") {
+    const [hStr, mStr] = (schedule.time || "09:00").split(":");
+    const hours = parseInt(hStr, 10) || 0;
+    const minutes = parseInt(mStr, 10) || 0;
+
+    const targetDays =
+      schedule.kind === "daily"
+        ? [0, 1, 2, 3, 4, 5, 6]
+        : schedule.kind === "weekdays"
+          ? [1, 2, 3, 4, 5]
+          : schedule.weekdays || [];
+
+    if (!targetDays || targetDays.length === 0) return [];
+
+    const cursor = new Date(now);
+    cursor.setHours(hours, minutes, 0, 0);
+    if (cursor.getTime() <= now.getTime()) {
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    while (results.length < count && results.length < 30) {
+      if (targetDays.includes(cursor.getDay())) {
+        results.push(formatShort(new Date(cursor)));
+      }
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return results;
+  }
+
+  return [];
+}
+
 export function SchedulePicker({ value, timezone, onChange, disabled = false }: {
   value: Schedule; timezone: string; onChange: (schedule: Schedule) => void; disabled?: boolean;
 }) {
@@ -18,6 +94,10 @@ export function SchedulePicker({ value, timezone, onChange, disabled = false }: 
     else if (kind === "weekly") onChange({ kind, weekdays: [1], time, timezone });
     else onChange({ kind, time, timezone });
   };
+
+  const naturalText = describeSchedule(value, timezone);
+  const upcomingTimes = computeUpcomingTimes(value, 3);
+
   return (
     <div className="task-schedule-fields">
       <label htmlFor="task-frequency">执行频率</label>
@@ -45,6 +125,26 @@ export function SchedulePicker({ value, timezone, onChange, disabled = false }: 
           onChange={(event) => onChange({ ...value, expression: event.target.value })} />
       </>}
       <Typography.Text type="secondary">执行时区：{timezone || "尚未确认"}</Typography.Text>
+      <div
+        className="schedule-natural-preview"
+        style={{
+          marginTop: 6,
+          padding: "10px 14px",
+          background: "var(--ab-surface-2)",
+          border: "1px solid var(--ab-border)",
+          borderRadius: 8,
+          fontSize: 13,
+        }}
+      >
+        <div style={{ fontWeight: 600, color: "var(--ab-primary)", marginBottom: 4 }}>
+          🕒 已设定：{naturalText}
+        </div>
+        {upcomingTimes.length > 0 && (
+          <div style={{ color: "var(--ab-text-2)", fontSize: 12 }}>
+            未来 3 次预计运行：{upcomingTimes.join("  →  ")}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

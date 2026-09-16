@@ -291,3 +291,25 @@ export async function hindsightRetryOperation(
     clearTimeout(timer);
   }
 }
+
+/** 删除一条指定记忆（遗忘此条）；2xx 视为已删除。 */
+export async function hindsightDeleteMemory(
+  endpoint: HindsightServiceEndpoint,
+  memoryId: string,
+  init: HindsightRequestInit = {},
+): Promise<boolean> {
+  const fetchFn = init.fetchFn ?? fetch;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), init.timeoutMs ?? 8_000);
+  try {
+    const headers: Record<string, string> = {};
+    if (init.token !== undefined && init.token !== "") headers["authorization"] = `Bearer ${init.token}`;
+    const response = await fetchFn(
+      `${endpoint.baseUrl}/v1/default/banks/${encodeURIComponent(endpoint.bankId)}/memories/${encodeURIComponent(memoryId)}`,
+      { method: "DELETE", headers, signal: controller.signal },
+    );
+    return response.ok;
+  } finally {
+    clearTimeout(timer);
+  }
+}

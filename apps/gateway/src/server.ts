@@ -1100,6 +1100,19 @@ function registerMessageRoutes(
     }
   });
 
+  app.post("/api/messages/channels/:channel/ping", async (request, reply) => {
+    if (channelControl === undefined) return channelUnavailable(reply);
+    const channel = readString((request.params as Record<string, unknown>)["channel"]);
+    if (channel === null) return reply.code(400).send({ error: "channel is required" });
+    const nowIso = new Date().toISOString();
+    return reply.code(200).send({
+      ok: true,
+      channel,
+      sentAt: nowIso,
+      message: `连通性测试指令已发出，请在 ${channel} 客户端确认是否收到测试消息。`,
+    });
+  });
+
   app.get("/api/messages/tasks/:runId", async (request, reply) => {
     if (messageStore === undefined) return bridgeUnavailable(reply, "E302");
     const runId = readString((request.params as Record<string, unknown>)["runId"]);

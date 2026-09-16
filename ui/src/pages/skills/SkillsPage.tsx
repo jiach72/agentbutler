@@ -124,6 +124,18 @@ export function SkillsPage() {
     }
   };
 
+  const runForgetMemory = async (entryId: string) => {
+    const result = await postJson("/api/memory/purge", { confirmed: true, entryIds: [entryId] }, 15_000);
+    if (result.ok) {
+      message.success("已成功让智能体遗忘该条记忆。");
+      refreshMemoryView();
+      return true;
+    }
+    const data = result.data as { error?: string; userHint?: string } | null;
+    message.error(data?.userHint || data?.error || "遗忘失败；请稍后重试或查看管家日志。");
+    return false;
+  };
+
   // 一键修复：重试外部记忆后端（如 hindsight）失败的后台操作（限额批次）。
   const [rebuildBusy, setRebuildBusy] = useState(false);
   const runRebuildIndex = async () => {
@@ -279,6 +291,7 @@ export function SkillsPage() {
                   onRebuildIndex={() => void runRebuildIndex()}
                   rebuildBusy={rebuildBusy}
                   memoryWritesEnabled={memoryWritesEnabled}
+                  onForget={runForgetMemory}
                 />
               </div>
             ),

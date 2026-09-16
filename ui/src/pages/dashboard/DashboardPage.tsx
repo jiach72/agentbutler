@@ -48,7 +48,18 @@ export function DashboardPage() {
       <PageHeader title="首页" extra={<Link className="health-wall-link" to="/wall"><DashboardOutlined />大屏模式</Link>} />
       {data.loading ? <Skeleton active paragraph={{ rows: 4 }} /> : <>
         <section className="health-conclusion" data-status={health.status} aria-labelledby="health-headline">
-          <div><h2 id="health-headline">{health.headline}</h2><p>{health.explanation}</p></div>
+          <div className="health-conclusion-header">
+            <div className="agent-pulse-badge" data-pulse={onlineInstances && onlineInstances > 0 ? "online" : "offline"}>
+              <span className="pulse-dot" aria-hidden="true" />
+              <span className="pulse-text">
+                {onlineInstances && onlineInstances > 0
+                  ? `Hermes Agent 就绪待命 (${onlineInstances}/${totalInstances ?? 1} 在线)`
+                  : "Hermes Agent 待命 / 离线"}
+              </span>
+            </div>
+            <h2 id="health-headline">{health.headline}</h2>
+            <p>{health.explanation}</p>
+          </div>
           <Button icon={<SafetyCertificateOutlined />} loading={inspecting} onClick={() => { void inspect(); }}>立即检查</Button>
         </section>
         <div className="health-main">

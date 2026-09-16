@@ -25,7 +25,7 @@ export class HermesCronClient {
           method: "POST", redirect: "error",
           headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
           body: JSON.stringify(request),
-          signal: AbortSignal.timeout(this.options.timeoutMs ?? 45_000),
+          signal: AbortSignal.timeout(request.action === "run" ? Math.max(65_000, this.options.timeoutMs ?? 65_000) : (this.options.timeoutMs ?? 45_000)),
         },
       );
       const body = await readScheduledTaskJson(response);

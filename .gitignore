@@ -65,3 +65,7 @@ venv/
 .zcode/
 spark-output/
 .playwright-mcp/
+.playwright-cli/
+.codegraph/
+.logs/
+output/

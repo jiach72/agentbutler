@@ -11,12 +11,13 @@ import {
   Flex,
   Input,
   List,
+  Popconfirm,
   Row,
   Statistic,
   Tag,
   Typography,
 } from "antd";
-import { DatabaseOutlined, LineChartOutlined, SearchOutlined } from "@ant-design/icons";
+import { DatabaseOutlined, DeleteOutlined, LineChartOutlined, SearchOutlined } from "@ant-design/icons";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { ChartEmpty, TrendColumn } from "../../components/charts/index.js";
 import { chartThemeFor, primaryFill, quietAxes } from "../../components/charts/chartTheme.js";
@@ -60,6 +61,8 @@ interface MemoryPanelProps {
   onRebuildIndex?: () => void;
   rebuildBusy?: boolean;
   memoryWritesEnabled?: boolean | null;
+  /** 一键遗忘特定记忆 */
+  onForget?: (entryId: string) => Promise<boolean>;
 }
 
 export function MemoryPanel({
@@ -77,8 +80,10 @@ export function MemoryPanel({
   onRebuildIndex,
   rebuildBusy,
   memoryWritesEnabled,
+  onForget,
 }: MemoryPanelProps) {
   const [memoryInput, setMemoryInput] = useState("");
+  const [forgettingId, setForgettingId] = useState<string | null>(null);
 
   const months = useMemo(() => {
     const source = data?.memory.stats?.byMonth ?? [];
@@ -276,14 +281,49 @@ export function MemoryPanel({
           <List
             dataSource={previewEntries}
             renderItem={(entry) => (
-              <List.Item>
+              <List.Item
+                actions={
+                  onForget
+                    ? [
+                        <Popconfirm
+                          key="forget"
+                          title="遗忘此条记忆？"
+                          description="遗忘后此条记忆将被永久删除且无法召回。"
+                          okText="确认遗忘"
+                          cancelText="取消"
+                          okButtonProps={{ danger: true }}
+                          disabled={forgettingId === entry.entryId || data?.memory.mode !== "driver"}
+                          onConfirm={async () => {
+                            setForgettingId(entry.entryId);
+                            try {
+                              await onForget(entry.entryId);
+                            } finally {
+                              setForgettingId(null);
+                            }
+                          }}
+                        >
+                          <Button
+                            type="link"
+                            size="small"
+                            danger
+                            icon={<DeleteOutlined />}
+                            loading={forgettingId === entry.entryId}
+                            disabled={data?.memory.mode !== "driver"}
+                          >
+                            遗忘
+                          </Button>
+                        </Popconfirm>,
+                      ]
+                    : undefined
+                }
+              >
                 <Flex vertical gap={4} style={{ width: "100%" }}>
                   <Flex gap={8} align="center" wrap="wrap">
                     <Text type="secondary">{formatTime(entry.writtenAt)}</Text>
                     {entry.channel !== undefined && <Tag>{channelLabel(entry.channel)}</Tag>}
                     {entry.cold === true && <Tag color="warning">较久未用</Tag>}
                   </Flex>
-                  <div>{entry.content}</div>
+                  <div style={{ wordBreak: "break-word", whiteSpace: "pre-wrap" }}>{entry.content}</div>
                 </Flex>
               </List.Item>
             )}
@@ -295,7 +335,7 @@ export function MemoryPanel({
         type="info"
         showIcon={false}
         message="记忆页边界"
-        description="这里可以查看技能、插件、记忆与健康状态，也可以运行临时自检和创建本地备份；不会直接编辑或清空记忆。"
+        description="这里可以查看技能、插件、记忆与健康状态，也可以运行临时自检、一键遗忘特定记忆和创建本地备份；不会批量清空未确认的全部记忆。"
       />
     </Flex>
   );

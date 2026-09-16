@@ -7,6 +7,7 @@ import { loadJson, mutateJson } from "../../lib/api.js";
 import { usePolling } from "../../hooks/usePolling.js";
 import { TaskEditorDrawer } from "./TaskEditorDrawer.js";
 import { TaskRunHistory } from "./TaskRunHistory.js";
+import { TaskTestRunModal } from "./TaskTestRunModal.js";
 import { compareTasks, taskFailureLabel, taskMutationError, taskStatusLabel, taskTime } from "./taskCopy.js";
 import "./tasks.css";
 
@@ -27,6 +28,7 @@ export function TasksPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [history, setHistory] = useState<TaskView | null>(null);
+  const [testRunningTask, setTestRunningTask] = useState<TaskView | null>(null);
   const [deleting, setDeleting] = useState<TaskView | null>(null);
   const [confirmName, setConfirmName] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
@@ -163,9 +165,9 @@ export function TasksPage() {
               <Tooltip title={task.editable === false ? "此类任务请在 Hermes 编辑" : "编辑"}>
                 <Button aria-label={`编辑${task.name}`} icon={<EditOutlined />}
                   disabled={!writable || task.editable === false || busy !== null} onClick={() => void edit(task)} /></Tooltip>
-              <Tooltip title={status?.runSupported ? "立即运行" : "当前 Hermes 版本暂不支持安全的立即运行"}>
-                <Button aria-label={`立即运行${task.name}`} icon={<PlayCircleOutlined />}
-                  disabled={!writable || !status?.runSupported || busy !== null} onClick={() => run(task)} /></Tooltip>
+              <Tooltip title={status?.runSupported ? "单次测试运行" : "当前 Hermes 状态暂不支持测试运行"}>
+                <Button aria-label={`测试运行${task.name}`} icon={<PlayCircleOutlined />}
+                  disabled={!writable || !status?.runSupported || busy !== null} onClick={() => setTestRunningTask(task)} /></Tooltip>
               <Tooltip title="删除"><Button danger aria-label={`删除${task.name}`} icon={<DeleteOutlined />}
                 disabled={!writable || busy !== null} onClick={() => { setDeleting(task); setConfirmName(""); }} /></Tooltip>
             </Space>
@@ -176,6 +178,7 @@ export function TasksPage() {
       timezone={timezone} onClose={() => setEditor(null)}
       onSaved={() => { setEditor(null); void refresh(); }} />}
     <TaskRunHistory task={history} onClose={() => setHistory(null)} timezone={timezone} />
+    <TaskTestRunModal open={testRunningTask !== null} task={testRunningTask} onClose={() => { setTestRunningTask(null); void refresh(); }} />
     <Modal open={deleting !== null} title="删除定时任务" okText="删除任务" cancelText="取消"
       okButtonProps={{ danger: true, disabled: confirmName !== deleting?.name }}
       confirmLoading={busy === `${deleting?.id}:delete`}

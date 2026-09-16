@@ -62,6 +62,21 @@ export function ChannelGrid({ onReconnect, channels: injected }: ChannelGridProp
   const [loginOpen, setLoginOpen] = useState(false);
   const [configChannel, setConfigChannel] = useState<ChannelDirectoryEntryView | null>(null);
   const [applyingIds, setApplyingIds] = useState<ReadonlySet<string>>(new Set());
+  const [pingingId, setPingingId] = useState<string | null>(null);
+
+  const pingChannel = async (channelId: string, channelLabel: string) => {
+    setPingingId(channelId);
+    try {
+      const result = await postJson(`/api/messages/channels/${encodeURIComponent(channelId)}/ping`, {});
+      if (result.ok) {
+        message.success(`测试消息已向 ${channelLabel} 发送，请查看对应客户端。`);
+      } else {
+        message.error(`测试消息发送失败：请确认通道配置或管家连接状态。`);
+      }
+    } finally {
+      setPingingId(null);
+    }
+  };
 
   const acquireApplying = useCallback((id: string) => {
     setApplyingIds((prev) => new Set(prev).add(id));
@@ -206,9 +221,20 @@ export function ChannelGrid({ onReconnect, channels: injected }: ChannelGridProp
                     </Flex>
                     {channel.kind === "qr-login" ? (
                       // §3.1 行内操作不占 primary 名额，页面主 primary 在页头。
-                      <Button size="small" onClick={() => setLoginOpen(true)}>
-                        扫码登录
-                      </Button>
+                      <Flex gap={8} wrap="wrap">
+                        <Button size="small" onClick={() => setLoginOpen(true)}>
+                          扫码登录
+                        </Button>
+                        {channel.enabled && (
+                          <Button
+                            size="small"
+                            loading={pingingId === channel.id}
+                            onClick={() => void pingChannel(channel.id, channel.label)}
+                          >
+                            发送测试消息
+                          </Button>
+                        )}
+                      </Flex>
                     ) : channel.kind === "credential" ? (
                       <Flex gap={8} wrap="wrap">
                         <Button size="small" onClick={() => setConfigChannel(channel)}>
@@ -220,9 +246,18 @@ export function ChannelGrid({ onReconnect, channels: injected }: ChannelGridProp
                               应用中
                             </Button>
                           ) : channel.enabled ? (
-                            <Button size="small" onClick={() => void toggleChannel(channel.id, false)}>
-                              停用
-                            </Button>
+                            <>
+                              <Button size="small" onClick={() => void toggleChannel(channel.id, false)}>
+                                停用
+                              </Button>
+                              <Button
+                                size="small"
+                                loading={pingingId === channel.id}
+                                onClick={() => void pingChannel(channel.id, channel.label)}
+                              >
+                                发送测试消息
+                              </Button>
+                            </>
                           ) : (
                             <Button size="small" onClick={() => void toggleChannel(channel.id, true)}>
                               启用

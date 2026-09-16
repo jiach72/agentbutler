@@ -136,6 +136,7 @@ export {
 } from "./drivers/index.js";
 export {
   hindsightBankStats,
+  hindsightDeleteMemory,
   hindsightListMemories,
   hindsightMemoriesTimeseries,
   resolveHindsightService,

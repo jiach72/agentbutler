@@ -2301,6 +2301,17 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
       reply,
     );
   });
+  app.post("/api/messages/channels/:channel/ping", async (request, reply) => {
+    const channel = (request.params as Record<string, unknown>)["channel"];
+    if (typeof channel !== "string" || channel.trim() === "") {
+      return reply.status(400).send({ error: "channel is required" });
+    }
+    return proxyGatewayPost(
+      `/api/messages/channels/${encodeURIComponent(channel)}/ping`,
+      request.body,
+      reply,
+    );
+  });
 
   /* ---------------------- watch 控制通道代理（Task 10） ---------------------- */
 

@@ -2,9 +2,13 @@
 .tasks-summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 24px;
-  padding: 20px 0;
-  border-block: 1px solid var(--ab-border);
+  gap: 20px;
+  padding: 20px 24px;
+  background: var(--ab-surface);
+  border: 1px solid var(--ab-border);
+  border-radius: var(--ab-r-card, 16px);
+  box-shadow: var(--ab-shadow-1);
+  margin-bottom: 24px;
 }
 .tasks-summary > div { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .tasks-summary span, .task-muted, .task-timezone { color: var(--ab-text-2); }
@@ -17,11 +21,22 @@
   grid-template-columns: minmax(180px, 1.6fr) minmax(130px, 1fr) minmax(140px, 1fr) 56px 156px;
   align-items: center;
   gap: 16px;
-  padding: 18px 0;
-  border-bottom: 1px solid var(--ab-border);
+  padding: 16px 20px;
+}
+.task-row:not(.task-row-heading) {
+  background: var(--ab-surface);
+  border: 1px solid var(--ab-border);
+  border-radius: var(--ab-r-card, 12px);
+  box-shadow: var(--ab-shadow-1);
+  margin-bottom: 12px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.task-row:not(.task-row-heading):hover {
+  border-color: var(--ab-primary-soft-border);
+  box-shadow: var(--ab-shadow-2);
 }
 .task-row > * { min-width: 0; overflow-wrap: anywhere; }
-.task-row-heading { color: var(--ab-text-2); padding-block: 10px; font-weight: 600; }
+.task-row-heading { color: var(--ab-text-2); padding: 10px 20px; font-weight: 600; }
 .task-name-cell h2 { font-size: 16px; line-height: 1.5; margin: 0 0 4px; }
 .task-row p { margin: 4px 0; line-height: 1.5; }
 .task-name-cell p { color: var(--ab-text-2); }

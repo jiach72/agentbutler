@@ -79,7 +79,7 @@ const statusSchema = z.object({
   ...base, schedulerRunning: z.boolean().nullable(), activeCount: z.number().int().nonnegative(),
   todayRunCount: z.number().int().nonnegative(), failedTaskCount: z.number().int().nonnegative(),
   nextRunAt: timestamp, heartbeatAgeSeconds: z.number().finite().nonnegative().nullable(),
-  timezone: timezone.nullable(), writesSupported: z.boolean(), runSupported: z.literal(false),
+  timezone: timezone.nullable(), writesSupported: z.boolean(), runSupported: z.boolean(),
 });
 export type ScheduledTaskStatus = z.infer<typeof statusSchema>;
 const listSchema = z.object({ ...base, items: z.array(scheduledTaskSummarySchema).max(1000) });
@@ -107,6 +107,10 @@ const previewSchema = z.object({
 const mutationSchema = z.object({
   ...base, requestId, taskId: scheduledTaskIdSchema.nullable(),
   outcome: z.enum(["succeeded", "failed", "unknown"]),
+  outputSnippet: z.string().max(4000).optional(),
+  errorSnippet: z.string().max(4000).optional(),
+  durationMs: z.number().nonnegative().optional(),
+  exitCode: z.number().int().optional(),
 });
 export type ScheduledTaskList = z.infer<typeof listSchema>;
 export type ScheduledTaskDetail = z.infer<typeof detailSchema>;

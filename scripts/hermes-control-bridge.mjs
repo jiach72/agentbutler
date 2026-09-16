@@ -338,7 +338,7 @@ def read_action(q):
  times=[iso(j["next_run_at"]) for j in active if j.get("next_run_at")]
  return envelope(schedulerRunning=running,activeCount=len(active),todayRunCount=today_runs,failedTaskCount=failed_tasks,
    nextRunAt=min(times,key=lambda v:datetime.fromisoformat(v).timestamp()) if times else None,
-   heartbeatAgeSeconds=hb,timezone=tz_name(),writesSupported=builtin,runSupported=False,
+   heartbeatAgeSeconds=hb,timezone=tz_name(),writesSupported=builtin,runSupported=builtin,
    **({} if builtin else {"reason":"unsupported_scheduler"}))
 
 def durable(path, value, exclusive=False):
@@ -370,8 +370,34 @@ def command(q):
  if a=="edit": args += ["--schedule="+p["scheduleLabel"],"--prompt="+d["prompt"],"--",q["id"]]
  else: args += ["--",p["scheduleLabel"],d["prompt"]]
  return args
+def run_action(q):
+ if not builtin_provider(): reject("unsupported_scheduler")
+ jobs=read_jobs()
+ target=find_job(q,jobs)
+ args=[str(executable),"cron","run","--",q["id"]]
+ env=dict(os.environ,HERMES_HOME=str(home))
+ env.pop("HERMES_SESSION_KEY",None); env.pop("HERMES_ACCEPT_HOOKS",None)
+ started_t=time.time()
+ try:
+  completed=subprocess.run(args,cwd=repo,env=env,stdin=subprocess.DEVNULL,
+    stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=60,check=False,shell=False,text=True)
+  duration_ms=int((time.time()-started_t)*1000)
+  out_txt=(completed.stdout or "").strip()
+  err_txt=(completed.stderr or "").strip()
+  out_txt=re.sub(r'sk-[A-Za-z0-9_-]{20,}', '[REDACTED_KEY]', out_txt)[:4000]
+  err_txt=re.sub(r'sk-[A-Za-z0-9_-]{20,}', '[REDACTED_KEY]', err_txt)[:4000]
+  if completed.returncode==0:
+   return envelope(requestId=q["requestId"],taskId=q["id"],outcome="succeeded",
+     durationMs=duration_ms,exitCode=0,outputSnippet=out_txt,errorSnippet=err_txt if err_txt else None)
+  else:
+   return envelope(requestId=q["requestId"],taskId=q["id"],outcome="failed",
+     durationMs=duration_ms,exitCode=completed.returncode,outputSnippet=out_txt,errorSnippet=err_txt)
+ except subprocess.TimeoutExpired:
+  return failure(q,"timeout")
+ except Exception:
+  return failure(q,"outcome_unknown")
 def write_action(q):
- if q["action"]=="run": reject("manual_run_not_supported")
+ if q["action"]=="run": return run_action(q)
  state=home/"agent-butler/cron-control-v1"
  state.mkdir(parents=True,exist_ok=True,mode=0o700)
  os.chmod(state,0o700)
@@ -540,7 +566,7 @@ function cronResponse(q, raw) {
     todayRunCount: cronCount, failedTaskCount: cronCount, nextRunAt: cronTime,
     heartbeatAgeSeconds: (v) => v === null || (typeof v === "number" && Number.isFinite(v) && v >= 0),
     timezone: (v) => v === null || (typeof v === "string" && /^[A-Za-z0-9_+/-]{1,80}$/.test(v)),
-    writesSupported: cronBool, runSupported: (v) => v === false,
+    writesSupported: cronBool, runSupported: cronBool,
   }) };
   if (q.action === "preview") return { ...base, ...pickCron(raw, {
     scheduleLabel: (v) => v === null || cronText(v, 160), nextRunAt: cronTime,
@@ -554,7 +580,12 @@ function cronResponse(q, raw) {
   if ("requestId" in q) {
     const result = pickCron(raw, { requestId: (v) => v === q.requestId,
       taskId: (v) => v === null || (cronId(v) && (!q.id || v === q.id)),
-      outcome: (v) => ["succeeded", "failed", "unknown"].includes(v) });
+      outcome: (v) => ["succeeded", "failed", "unknown"].includes(v),
+      outputSnippet: (v) => v === undefined || (typeof v === "string" && v.length <= 4000),
+      errorSnippet: (v) => v === undefined || (typeof v === "string" && v.length <= 4000),
+      durationMs: (v) => v === undefined || (typeof v === "number" && Number.isFinite(v) && v >= 0),
+      exitCode: (v) => v === undefined || (typeof v === "number" && Number.isInteger(v)),
+    });
     if (result.outcome === "succeeded" && (!base.reachable || !base.supported || base.reason || !result.taskId)) throw new Error("invalid_response");
     return { ...base, ...result };
   }

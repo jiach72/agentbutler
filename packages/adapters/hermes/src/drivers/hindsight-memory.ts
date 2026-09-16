@@ -20,6 +20,7 @@ import {
   type MemoryHealth,
   type MemoryQuery,
   type MemoryStats,
+  type PurgePolicy,
   type PurgeReport,
   type RebuildIndexReport,
   type RestoreReport,
@@ -28,6 +29,7 @@ import {
 } from "@butler/contract";
 import {
   hindsightBankStats,
+  hindsightDeleteMemory,
   hindsightListFailedOperations,
   hindsightListMemories,
   hindsightMemoriesTimeseries,
@@ -225,8 +227,32 @@ export function createHindsightMemoryDriver(options: HindsightMemoryDriverOption
     async restoreCold(): Promise<Result<RestoreReport>> {
       return readonlyWrite();
     },
-    async purge(): Promise<Result<PurgeReport>> {
-      return readonlyWrite();
+    async purge(scope: DriverScope, policy: PurgePolicy): Promise<Result<PurgeReport>> {
+      if (!policy.entryIds || policy.entryIds.length === 0) {
+        return readonlyWrite();
+      }
+      const startedAt = Date.now();
+      if (policy.confirmed !== true) {
+        return fail("E002", "purge requires confirmed: true", {
+          startedAt,
+          userHint: "物理删除记忆不可撤销，需要先确认影响范围",
+        });
+      }
+      const endpoint = resolve(scope);
+      if ("error" in endpoint) return fail("E402", endpoint.error, { userHint: "未配置 hindsight 服务地址" });
+      const entryIds = policy.entryIds;
+      let purged = 0;
+      const errors: string[] = [];
+      for (const id of entryIds) {
+        try {
+          const success = await hindsightDeleteMemory(endpoint, id, requestInit);
+          if (success) purged += 1;
+          else errors.push(`删除未成功：${id}`);
+        } catch (error) {
+          errors.push(`删除失败：${id} — ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+      return ok({ purged, freedBytes: 0, errors }, startedAt);
     },
     /**
      * 修复动作（契约的 rebuildIndex 槽位）：把 hindsight 失败的后台操作

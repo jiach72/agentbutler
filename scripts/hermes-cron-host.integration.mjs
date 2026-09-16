@@ -100,7 +100,7 @@ test("preview uses Hermes parser and rejects unsupported timezone and unsafe run
   assert.equal(result.timezone, "Asia/Shanghai");
   assert.ok(result.nextRunAt);
   assert.equal(call(root, { action: "preview", schedule: { ...schedule, timezone: "UTC" } }).reason, "timezone_mismatch");
-  assert.equal(call(root, { action: "run", id: "abc123", requestId: "run-isolated-0001" }).reason, "manual_run_not_supported");
+  assert.equal(call(root, { action: "run", id: "abc123", requestId: "run-isolated-0001" }).reason, "not_found");
   assert.equal(existsSync(join(root, "cron")), false);
 });
 
@@ -223,7 +223,7 @@ test("live read-only bridge matches installed Hermes jobs and never exposes task
     const status = await request({ action: "status" });
     assert.equal(list.items.length, records.length);
     assert.equal(status.activeCount, records.filter((j) => j.enabled !== false).length);
-    assert.equal(status.runSupported, false);
+    assert.equal(status.runSupported, status.writesSupported);
     assert.equal(status.failedTaskCount, list.items.filter((item) => item.lastStatus === "failed").length);
     assert.ok(Number.isInteger(status.todayRunCount) && status.todayRunCount >= 0);
     if (records.length) await request({ action: "runs", id: records[0].id, limit: 20 });
