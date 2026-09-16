@@ -446,6 +446,8 @@ describe("审批服务：来源分流文案（gate 事前放行 / audit 事后�
     expect(isAuditApproval(item)).toBe(true);
     expect(posts.length).toBe(1);
     const card = posts[0]!;
+    // 严重度降级为 warn（提醒），不与 critical（紧急）混淆，不被「仅显示紧急」漏过
+    expect(card.severity).toBe("warn");
     // 正文：已执行 + 事后确认 + 自动关闭，绝不说「批准后才会执行」。
     expect(card.body).toContain("已由 Hermes 执行完毕");
     expect(card.body).toContain("事后确认");
@@ -516,6 +518,7 @@ describe("审批服务：来源分流文案（gate 事前放行 / audit 事后�
     expect(isAuditApproval(item)).toBe(false);
     // 卡片：gate 三按钮 + 「批准后才会执行」正文（分钟数随 TTL=60s 为「1 分钟」）。
     const card = posts[0]!;
+    expect(card.severity).toBe("critical");
     expect(card.actions?.map((action) => action.label)).toEqual(["批准一次", "拒绝", "查看详情"]);
     expect(card.body).toContain("批准后该动作才会执行；1 分钟内未应答将按「拒绝」拦截。");
     // 请求事件：gate 标题原样。

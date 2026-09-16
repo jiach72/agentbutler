@@ -434,7 +434,7 @@ export function createApprovalService(options: ApprovalServiceOptions): Approval
     const link = `${item.confirmUrl}`;
     return {
       kind: "action-approval",
-      severity: "critical",
+      severity: audit ? "warn" : "critical",
       title: item.title,
       body: `${escalateNote}\n动作类型：${item.kind}\n目标：${describeTarget(item)}\n处理入口：${link}`,
       source: "butler-watch",

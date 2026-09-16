@@ -182,4 +182,46 @@ describe("通知中心：行内审批决策的反馈与刷新", () => {
     expect(offline.toasts).toHaveLength(1);
     expect(offline.settled).toEqual(["approve"]);
   });
+
+  it("audit 事后确认审批卡片：渲染「追认」与「存疑」按钮，而非「批准」与「拒绝」", () => {
+    const auditItem = item({
+      kind: "action-approval",
+      title: "智能体请求执行命令：echo test",
+      body: "该动作已由 Hermes 执行完毕，本条为事后确认（不阻塞执行）；点「追认」表示已知悉，点「存疑」标记待核查。\n处理入口：/approvals/ap-audit-1",
+    });
+    const html = renderToStaticMarkup(
+      React.createElement(NotificationPreviewList, { items: [auditItem], onRead: () => undefined }),
+    );
+    expect(html).toContain("追认");
+    expect(html).toContain("存疑");
+    expect(html).not.toContain("批准");
+    expect(html).not.toContain("拒绝后动作不会执行");
+  });
+
+  it("gate 事前审批卡片：维持「批准」与「拒绝」按钮", () => {
+    const gateItem = item({
+      kind: "action-approval",
+      title: "智能体请求删除文件：/tmp/a",
+      body: "批准后该动作才会执行；15 分钟内未应答将按「拒绝」拦截。\n处理入口：/approvals/ap-gate-1",
+    });
+    const html = renderToStaticMarkup(
+      React.createElement(NotificationPreviewList, { items: [gateItem], onRead: () => undefined }),
+    );
+    expect(html).toContain("批准");
+    expect(html).toContain("拒绝");
+    expect(html).not.toContain("追认");
+    expect(html).not.toContain("存疑");
+  });
+
+  it("audit 决策成功提示：approve 提示「已确认已知该异动」，deny 提示「已将该异动标记存疑」", () => {
+    expect(decisionFeedback("approve", { ok: true, status: 200 }, { isAudit: true })).toEqual({
+      level: "success",
+      text: "已确认已知该异动",
+    });
+    expect(decisionFeedback("deny", { ok: true, status: 200 }, { isAudit: true })).toEqual({
+      level: "success",
+      text: "已将该异动标记存疑",
+    });
+  });
 });
+

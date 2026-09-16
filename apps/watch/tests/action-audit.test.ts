@@ -91,6 +91,28 @@ describe("行为审计：其他规则不受影响", () => {
     expect(parsed?.severity).toBe("high");
   });
 
+  it("独立关机与重启命令判为高危", () => {
+    const s1 = parseActionLine("执行命令: shutdown -h now");
+    expect(s1?.kind).toBe("shell-exec");
+    expect(s1?.severity).toBe("high");
+
+    const s2 = parseActionLine("执行命令: sudo reboot");
+    expect(s2?.kind).toBe("shell-exec");
+    expect(s2?.severity).toBe("high");
+  });
+
+  it("打印/回显中的 shutdown/reboot 文本不判高危（防误报 81 次）", () => {
+    const p1 = parseActionLine("执行命令: echo '=== shutdown diagnostic @ SIGTERM ==='");
+    expect(p1).not.toBeNull();
+    expect(p1?.kind).toBe("shell-exec");
+    expect(p1?.severity).toBe("info");
+
+    const p2 = parseActionLine("bash: -c echo '=== shutdown diagnostic @ SIGTERM ==='; echo '--- date ---'");
+    expect(p2).not.toBeNull();
+    expect(p2?.kind).toBe("shell-exec");
+    expect(p2?.severity).toBe("info");
+  });
+
   it("外发消息仍判高危", () => {
     const parsed = parseActionLine("发送消息到 ops-channel");
     expect(parsed).not.toBeNull();
@@ -98,3 +120,4 @@ describe("行为审计：其他规则不受影响", () => {
     expect(parsed?.severity).toBe("high");
   });
 });
+

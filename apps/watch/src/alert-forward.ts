@@ -78,16 +78,19 @@ const BILLING_FAILURE_PATTERN = /\b402\b|insufficient[_\s]*balance|payment\s+req
 const CREDENTIAL_FAILURE_PATTERN = /\b401\b|\b403\b|unauthori[sz]ed|forbidden|invalid\s+(?:api[ _-]?)?key/i;
 /** 配额/信用类故障特征（厂商文案变体）。 */
 const QUOTA_FAILURE_PATTERN = /quota\s*(?:exceeded|exhausted)|exceeded\s+(?:your\s+)?(?:current\s+)?(?:quota|rate)|credit\s+balance/i;
+/** 外部记忆后端/独立服务故障特征（hindsight / mem0 5xx 服务端错误，重启实例修不了）。 */
+const EXTERNAL_BACKEND_FAILURE_PATTERN = /(?:hindsight|mem0).*(?:HTTP\s*5\d\d|\b50[0234]\b|Internal\s+Server\s+Error|Bad\s+Gateway|Service\s+Unavailable)/i;
 
 /**
- * 外部依赖故障（账户/凭据/配额类）：故障在服务提供方侧，重启实例修不了。
+ * 外部依赖故障（账户/凭据/配额/独立后端类）：故障在服务提供方侧，重启实例修不了。
  * 命中时自动修复（rb-restart）必须让路，改发 external-dependency 告警。
  */
 export function isExternalDependencyFailure(detail: string): boolean {
   return (
     BILLING_FAILURE_PATTERN.test(detail) ||
     CREDENTIAL_FAILURE_PATTERN.test(detail) ||
-    QUOTA_FAILURE_PATTERN.test(detail)
+    QUOTA_FAILURE_PATTERN.test(detail) ||
+    EXTERNAL_BACKEND_FAILURE_PATTERN.test(detail)
   );
 }
 

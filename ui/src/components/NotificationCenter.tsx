@@ -117,7 +117,7 @@ export function NotificationPreviewList({
   const [decidingId, setDecidingId] = useState<string | null>(null);
 
   const decide = useCallback(
-    async (item: NotificationItem, approvalId: string, decision: ApprovalDecision) => {
+    async (item: NotificationItem, approvalId: string, decision: ApprovalDecision, isAudit?: boolean) => {
       setDecidingId(approvalId);
       await runApprovalDecision(
         {
@@ -128,6 +128,7 @@ export function NotificationPreviewList({
         },
         approvalId,
         decision,
+        { isAudit },
       );
       setDecidingId(null);
     },
@@ -141,6 +142,7 @@ export function NotificationPreviewList({
         const merged = item.mergedCount ?? 0;
         const failed = item.status === "failed";
         const approvalId = approvalIdOf(item);
+        const isAudit = item.body.includes("事后确认") || item.body.includes("追认");
         return (
           <li key={item.id} className={`notification-item${item.readAt === null ? " is-unread" : ""}`}>
             <button type="button" className="notification-item-main" onClick={() => onRead(item)}>
@@ -164,13 +166,36 @@ export function NotificationPreviewList({
                   <Link to={`/approvals/${encodeURIComponent(approvalId)}`} onClick={() => onRead(item)}>
                     <Button size="small" type="primary">去面板确认</Button>
                   </Link>
+                ) : isAudit ? (
+                  <>
+                    <Button
+                      size="small"
+                      type="primary"
+                      loading={decidingId === approvalId}
+                      onClick={() => void decide(item, approvalId, "approve", true)}
+                    >
+                      追认
+                    </Button>
+                    <Popconfirm
+                      title="标记为存疑？"
+                      description="该动作已由智能体执行完毕。标记存疑后将记录待核查并计入审计流。"
+                      okText="标记存疑"
+                      cancelText="取消"
+                      okButtonProps={{ danger: true }}
+                      onConfirm={() => void decide(item, approvalId, "deny", true)}
+                    >
+                      <Button size="small" danger icon={<CloseOutlined />} disabled={decidingId === approvalId}>
+                        存疑
+                      </Button>
+                    </Popconfirm>
+                  </>
                 ) : (
                   <>
                     <Button
                       size="small"
                       type="primary"
                       loading={decidingId === approvalId}
-                      onClick={() => void decide(item, approvalId, "approve")}
+                      onClick={() => void decide(item, approvalId, "approve", false)}
                     >
                       批准
                     </Button>
@@ -180,7 +205,7 @@ export function NotificationPreviewList({
                       okText="拒绝"
                       cancelText="取消"
                       okButtonProps={{ danger: true }}
-                      onConfirm={() => void decide(item, approvalId, "deny")}
+                      onConfirm={() => void decide(item, approvalId, "deny", false)}
                     >
                       <Button size="small" danger icon={<CloseOutlined />} disabled={decidingId === approvalId}>
                         拒绝
@@ -200,6 +225,8 @@ export function NotificationPreviewList({
 
 function NotificationContent({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate();
+  const { message } = App.useApp();
+  const [bulkApproving, setBulkApproving] = useState(false);
   const {
     items,
     visibleItems,
@@ -213,6 +240,28 @@ function NotificationContent({ onClose }: { onClose: () => void }) {
     narrowed,
   } = useVisibleNotifications();
   const shown = visibleItems.slice(0, MAX_ITEMS);
+
+  const hasAuditApprovals = shown.some(
+    (item) => approvalIdOf(item) !== null && (item.body.includes("事后确认") || item.body.includes("追认")),
+  );
+
+  const handleBulkApprove = async () => {
+    setBulkApproving(true);
+    try {
+      const res = await postJson("/api/approvals/bulk-decide", { all: true, decision: "approve" }, 30_000);
+      if (res.ok) {
+        message.success("已全部追认通过");
+        await markAllRead();
+        await refresh();
+      } else {
+        message.error("批量追认失败，请稍后重试");
+      }
+    } catch {
+      message.error("网络异常，批量追认失败");
+    } finally {
+      setBulkApproving(false);
+    }
+  };
 
   /** 点击即处置：先标记已读（不 await——一次写入失败不该把导航卡住），再进目标页面。 */
   const openItem = (item: NotificationItem) => {
@@ -236,6 +285,17 @@ function NotificationContent({ onClose }: { onClose: () => void }) {
           </span>
         </div>
         <div className="notification-panel-actions">
+          {hasAuditApprovals && (
+            <Button
+              size="small"
+              type="link"
+              loading={bulkApproving}
+              onClick={() => void handleBulkApprove()}
+              style={{ padding: "0 4px", fontSize: 12 }}
+            >
+              全部追认
+            </Button>
+          )}
           <Button
             type="text"
             icon={<ReloadOutlined />}

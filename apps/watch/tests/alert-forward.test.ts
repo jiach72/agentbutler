@@ -210,6 +210,11 @@ describe("isExternalDependencyFailure（智能降级①）", () => {
     expect(isExternalDependencyFailure("credit balance is too low")).toBe(true);
   });
 
+  it("外部记忆后端服务故障（5xx）：不判为实例自身故障，不触发自动重启", () => {
+    expect(isExternalDependencyFailure("hindsight 测试记忆写入失败：HTTP 500")).toBe(true);
+    expect(isExternalDependencyFailure("mem0 记忆服务异常：HTTP 502 Bad Gateway")).toBe(true);
+  });
+
   it("实例自身故障不误判：连接拒绝、超时、普通断言", () => {
     expect(isExternalDependencyFailure("hindsight 服务不可达（http://127.0.0.1:9177）：ECONNREFUSED")).toBe(false);
     expect(isExternalDependencyFailure("请求超时 timeout after 60s")).toBe(false);

@@ -317,6 +317,11 @@ html body .dense-descriptions .ant-descriptions-item-content {
   display: flex;
   flex-direction: column;
 }
+.notification-panel-head .notification-panel-actions {
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+}
 .notification-panel-head strong {
   font-size: var(--ab-text-size-sm);
 }

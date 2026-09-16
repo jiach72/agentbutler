@@ -100,8 +100,40 @@ function truncate(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max)}…`;
 }
 
-/** 危险 shell 命令特征（高危信号边）。 */
-const DANGEROUS_SHELL = /\brm\s+(-[a-z]*r[a-z]*f|-[a-z]*f[a-z]*r)\b|\bsudo\b|\bmkfs\b|\bdd\s+if=|\bdel\s+\/[sq]\b|\bformat\b\s+[a-z]:|\bshutdown\b|\breboot\b/i;
+/**
+ * 危险 shell 命令特征判定（高危信号边）。
+ *
+ * 误报防线：
+ * 1. 放行安全打印：若命令分段（按 ;/&&/||/| 切分）仅为普通 echo / printf 且不含 $(...) 或 `...` 命令替换，直接放行；
+ * 2. 收紧关机/重启：shutdown / reboot 必须作为独立命令（或由 sudo 引导）执行，避免把引号/参数内的文本当成关机指令。
+ */
+export function isDangerousShell(command: string): boolean {
+  const trimmed = command.replace(/^(?:命令|command)[:：]?\s*/i, "").trim();
+  if (trimmed === "") return false;
+
+  // 1. 如果整体或各分段只是普通的 echo / printf 且不含命令替换 $(...) 或 `...`，直接判为安全
+  const statements = trimmed.split(/[;&|]+/);
+  const allBenignPrint =
+    statements.length > 0 &&
+    statements.every((stmt) => {
+      const s = stmt.trim();
+      if (s === "") return true;
+      return /^(?:-c\s+)?(?:echo|printf)\s+/i.test(s) && !/\$\(|`/.test(s);
+    });
+  if (allBenignPrint) return false;
+
+  // 2. 危险特征匹配
+  // - 递归强制删除（rm -rf / rm -fr）
+  if (/\brm\s+(-[a-z]*r[a-z]*f|-[a-z]*f[a-z]*r)\b/i.test(trimmed)) return true;
+  // - sudo 提权
+  if (/(?:^|[;&|]\s*)\bsudo\b/i.test(trimmed)) return true;
+  // - 裸写磁盘 / 格式化 / 破坏性工具
+  if (/\bmkfs\b|\bdd\s+if=|\bdel\s+\/[sq]\b|\bformat\b\s+[a-z]:/i.test(trimmed)) return true;
+  // - 关机与重启：必须作为独立命令（或由 sudo 引导）执行，避免误杀参数或字符串中的 shutdown/reboot
+  if (/(?:^|[;&|]\s*)(?:sudo\s+)?(?:(?:\/usr)?\/s?bin\/)?(?:shutdown|reboot)\b/i.test(trimmed)) return true;
+
+  return false;
+}
 
 /**
  * 目标必须本身像路径：绝对路径、~ 展开、盘符、内含分隔符，或带扩展名的裸文件名。
@@ -154,12 +186,12 @@ export function parseActionLine(line: string): ParsedAction | null {
     };
   }
   // 4) shell 执行
-  match = /(?:shell|exec|bash|cmd|command|命令|执行了?)\s*[:：]?\s*(.{1,140})/i.exec(scrubbed);
+  match = /(?:执行(?:了|的)?(?:命令)?|shell|exec|bash|cmd|command|命令)\s*[:：]?\s*(.{1,140})/i.exec(scrubbed);
   if (match !== null) {
-    const command = (match[1] ?? "").trim();
+    const command = (match[1] ?? "").replace(/^(?:命令|command)[:：]?\s*/i, "").trim();
     return {
       kind: "shell-exec",
-      severity: DANGEROUS_SHELL.test(command) ? "high" : "info",
+      severity: isDangerousShell(command) ? "high" : "info",
       target: truncate(command, 200),
       detail: { snippet: truncate(scrubbed, 160) },
     };
