@@ -83,7 +83,7 @@
   padding: 18px 20px;
   background: var(--ab-surface);
   border: 1px solid var(--ab-border);
-  border-left: 4px solid var(--card-status-color);
+  border-left: 3.5px solid var(--card-status-color);
   border-radius: var(--ab-r-card, 14px);
   box-shadow: var(--ab-shadow-1);
   transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
@@ -94,13 +94,14 @@
 
 .task-rich-card:hover {
   border-color: var(--ab-primary-soft-border);
+  border-left-color: var(--card-status-color);
   box-shadow: var(--ab-shadow-2);
   transform: translateY(-2px);
 }
 
 .task-rich-card[data-status="paused"] {
   --card-status-color: var(--ab-border);
-  opacity: 0.86;
+  opacity: 0.88;
   background: var(--ab-surface-2);
 }
 
@@ -128,6 +129,14 @@
   flex: 1;
 }
 
+.task-card-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
 .task-card-name {
   margin: 0;
   font-size: 16px;
@@ -139,16 +148,28 @@
   white-space: nowrap;
 }
 
-.task-card-badges {
-  display: flex;
+.task-meta-chip {
+  display: inline-flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 7px;
+  border-radius: 4px;
+  line-height: 1.5;
+  flex-shrink: 0;
 }
 
-.task-card-badges .ant-tag {
-  margin-inline-end: 0;
-  font-size: 11px;
+.task-meta-delivery {
+  background: var(--ab-surface-2);
+  color: var(--ab-text-2);
+  border: 1px solid var(--ab-border);
+}
+
+.task-meta-muted {
+  background: transparent;
+  color: var(--ab-text-3);
+  border: 1px dashed var(--ab-border);
 }
 
 .task-switch-container {
@@ -168,20 +189,18 @@
 .task-schedule-panel {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   background: var(--ab-surface-2);
   border: 1px solid var(--ab-border);
-  border-radius: 8px;
-  padding: 10px 12px;
+  border-radius: 10px;
+  padding: 12px 14px;
 }
 
-.task-schedule-expr {
+.task-schedule-header {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ab-text);
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .task-schedule-icon {
@@ -190,10 +209,23 @@
   flex-shrink: 0;
 }
 
-.task-schedule-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.task-schedule-human {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ab-text);
+  letter-spacing: -0.01em;
+}
+
+.task-cron-tag {
+  font-family: var(--ab-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ab-text-3);
+  background: var(--ab-surface);
+  border: 1px solid var(--ab-border);
+  padding: 1px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.02em;
 }
 
 .task-next-run-box {
@@ -206,32 +238,36 @@
 }
 
 .task-next-label {
-  color: var(--ab-text-2);
+  color: var(--ab-text-3);
+  font-size: 12px;
 }
 
 .task-next-time-row {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
 .task-next-time {
   font-weight: 500;
   color: var(--ab-text);
+  font-size: 13px;
 }
 
 .task-countdown-pill {
-  background: var(--ab-primary-soft, rgba(59, 130, 246, 0.12));
-  color: var(--ab-primary);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ab-text-2);
+  background: var(--ab-surface);
+  border: 1px solid var(--ab-border);
   border-radius: 4px;
   padding: 1px 6px;
-  font-size: 11px;
-  font-weight: 600;
 }
 
 .task-paused-text {
-  color: var(--ab-text-2);
+  color: var(--ab-text-3);
+  font-size: 12px;
 }
 
 /* 状态与告警栏 */
@@ -249,12 +285,84 @@
   font-size: 12px;
 }
 
-.task-result-status .ant-tag {
-  margin-inline-end: 0;
+.task-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.task-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* 成功态：松柏绿，与背景对比鲜明且高级，彻底告别土味 antd 浅草绿 */
+.task-status-pill[data-status="success"],
+.task-status-pill[data-status="completed"] {
+  background: var(--ab-ok-soft, #eaf6f3);
+  color: var(--ab-ok, #0a7667);
+  border: 1px solid rgba(10, 118, 103, 0.18);
+}
+.task-status-pill[data-status="success"] .task-status-dot,
+.task-status-pill[data-status="completed"] .task-status-dot {
+  background: var(--ab-ok, #0a7667);
+}
+
+/* 失败态：克制端庄的朱红 */
+.task-status-pill[data-status="failed"] {
+  background: var(--ab-error-soft, #fdf0ee);
+  color: var(--ab-error, #b4342a);
+  border: 1px solid rgba(180, 52, 42, 0.18);
+}
+.task-status-pill[data-status="failed"] .task-status-dot {
+  background: var(--ab-error, #b4342a);
+}
+
+/* 异常/未送达：暖琥珀 */
+.task-status-pill[data-status="delivery_failed"] {
+  background: var(--ab-warn-soft, #fdf6e4);
+  color: var(--ab-warn, #8f630a);
+  border: 1px solid rgba(143, 99, 10, 0.18);
+}
+.task-status-pill[data-status="delivery_failed"] .task-status-dot {
+  background: var(--ab-warn, #8f630a);
+}
+
+/* 运行中：管家蓝呼吸微点 */
+.task-status-pill[data-status="running"] {
+  background: var(--ab-primary-soft, #eef4fa);
+  color: var(--ab-primary, #1b4f7a);
+  border: 1px solid var(--ab-primary-soft-border, #dce8f4);
+}
+.task-status-pill[data-status="running"] .task-status-dot {
+  background: var(--ab-primary, #1b4f7a);
+  animation: ab-ping-ring 2s infinite;
+}
+
+/* 待执行/未知：宁静中性墨阶 */
+.task-status-pill[data-status="never"],
+.task-status-pill[data-status="unknown"],
+.task-status-pill[data-status="claimed"] {
+  background: var(--ab-surface-2);
+  color: var(--ab-text-2);
+  border: 1px solid var(--ab-border);
+}
+.task-status-pill[data-status="never"] .task-status-dot,
+.task-status-pill[data-status="unknown"] .task-status-dot,
+.task-status-pill[data-status="claimed"] .task-status-dot {
+  background: var(--ab-text-3);
 }
 
 .last-run-time {
-  color: var(--ab-text-2);
+  color: var(--ab-text-3);
+  font-size: 12px;
 }
 
 .task-failure {
@@ -265,9 +373,9 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  background: rgba(239, 68, 68, 0.08);
-  color: var(--ab-error);
-  border: 1px solid rgba(239, 68, 68, 0.22);
+  background: var(--ab-error-soft, #fdf0ee);
+  color: var(--ab-error, #b4342a);
+  border: 1px solid rgba(180, 52, 42, 0.22);
   border-radius: 6px;
   padding: 6px 10px;
   font-size: 12px;
@@ -290,6 +398,17 @@
   display: flex;
   justify-content: flex-end;
   width: 100%;
+}
+
+.task-btn-delete {
+  color: var(--ab-text-3);
+  opacity: 0.7;
+  transition: all 0.15s ease;
+}
+.task-btn-delete:hover:not(:disabled) {
+  opacity: 1;
+  color: var(--ab-error) !important;
+  background: var(--ab-error-soft) !important;
 }
 
 /* 4. 侧边栏辅助卡片 */

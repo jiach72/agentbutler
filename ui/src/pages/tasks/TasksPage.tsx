@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, App, Button, Empty, Input, Modal, Segmented, Skeleton, Space, Switch, Tag, Tooltip } from "antd";
 import {
+  BellOutlined,
   CheckCircleOutlined,
   ClockCircleOutlined,
   DashboardOutlined,
@@ -20,7 +21,7 @@ import { usePolling } from "../../hooks/usePolling.js";
 import { TaskEditorDrawer, TASK_TEMPLATES } from "./TaskEditorDrawer.js";
 import { TaskRunHistory } from "./TaskRunHistory.js";
 import { TaskTestRunModal } from "./TaskTestRunModal.js";
-import { compareTasks, taskFailureLabel, taskMutationError, taskStatusLabel, taskTime } from "./taskCopy.js";
+import { compareTasks, humanizeSchedule, taskFailureLabel, taskMutationError, taskStatusLabel, taskTime } from "./taskCopy.js";
 import "./tasks.css";
 
 interface TasksPayload { supported: boolean; reachable: boolean; reason?: string; items: ScheduledTaskSummary[] }
@@ -245,6 +246,7 @@ export function TasksPage() {
                   : task.lastStatus === "delivery_failed"
                   ? "delivery_failed"
                   : "active";
+                const schedule = humanizeSchedule(task.scheduleLabel);
                 return (
                   <article
                     className="task-row task-rich-card ab-card-hover ab-stagger"
@@ -254,15 +256,16 @@ export function TasksPage() {
                   >
                     <div className="task-card-header">
                       <div className="task-card-title-col">
-                        <h2 className="task-card-name" title={task.name}>{task.name}</h2>
-                        <div className="task-card-badges">
-                          <Tag color={task.scheduleLabel.toLowerCase().includes("cron") ? "geekblue" : "purple"}>
-                            {task.scheduleLabel.toLowerCase().includes("cron") ? "Cron 表达式" : "排程计划"}
-                          </Tag>
+                        <div className="task-card-title-row">
+                          <h2 className="task-card-name" title={task.name}>{task.name}</h2>
                           {task.deliveryEnabled ? (
-                            <Tag color="cyan">已配通知</Tag>
+                            <span className="task-meta-chip task-meta-delivery" title="已开启执行结果通知">
+                              <BellOutlined /> 自动通知
+                            </span>
                           ) : (
-                            <Tag color="default">免打扰</Tag>
+                            <span className="task-meta-chip task-meta-muted" title="未配置通知">
+                              免打扰
+                            </span>
                           )}
                         </div>
                       </div>
@@ -279,11 +282,14 @@ export function TasksPage() {
                     </div>
 
                     <div className="task-schedule-panel">
-                      <div className="task-schedule-expr">
+                      <div className="task-schedule-header">
                         <ClockCircleOutlined className="task-schedule-icon" />
-                        <span className="task-schedule-label" title={task.scheduleLabel}>
-                          {task.scheduleLabel}
-                        </span>
+                        <span className="task-schedule-human">{schedule.text}</span>
+                        {schedule.rawCron && (
+                          <span className="task-cron-tag" title={`Cron 表达式: ${schedule.rawCron}`}>
+                            {schedule.rawCron}
+                          </span>
+                        )}
                       </div>
                       <div className="task-next-run-box">
                         <span className="task-next-label">下次执行</span>
@@ -300,9 +306,10 @@ export function TasksPage() {
 
                     <div className="task-status-row">
                       <div className="task-result-status">
-                        <Tag color={task.lastStatus === "failed" ? "error" : task.lastStatus === "delivery_failed" ? "warning" : task.lastStatus === "success" ? "success" : "default"}>
-                          {taskStatusLabel(task.lastStatus)}
-                        </Tag>
+                        <span className="task-status-pill" data-status={task.lastStatus}>
+                          <span className="task-status-dot" />
+                          <span>{taskStatusLabel(task.lastStatus)}</span>
+                        </span>
                         <span className="last-run-time">
                           {task.lastRunAt ? `最近: ${taskTime(task.lastRunAt, timezone)}` : "尚未触发执行"}
                         </span>
@@ -349,6 +356,8 @@ export function TasksPage() {
                         <Tooltip title="删除任务">
                           <Button
                             danger
+                            type="text"
+                            className="task-btn-delete"
                             aria-label={`删除${task.name}`}
                             icon={<DeleteOutlined />}
                             disabled={!writable || busy !== null}
@@ -385,7 +394,7 @@ export function TasksPage() {
                       </div>
                       <div className="timeline-info-col">
                         <span className="timeline-task-name" title={item.name}>{item.name}</span>
-                        <span className="timeline-countdown">{formatRelativeNext(item.nextRunAt)} · {item.scheduleLabel}</span>
+                        <span className="timeline-countdown">{formatRelativeNext(item.nextRunAt)} · {humanizeSchedule(item.scheduleLabel).text}</span>
                       </div>
                     </div>
                   );

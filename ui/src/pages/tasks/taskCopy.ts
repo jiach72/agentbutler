@@ -64,3 +64,131 @@ export function scheduleConfirmation(label: string, nextRunAt: string | null, ti
     ? `${label}；下一次 ${taskTime(nextRunAt, timezone)}（${timezone}）`
     : `${label}；下一次执行时间尚未得到 Hermes 确认`;
 }
+
+export interface HumanizedSchedule {
+  /** 面向用户的自然语言描述，如 "每 4 小时整点"、"每天 09:00" */
+  text: string;
+  /** 若原输入为 Cron 表达式，保留原始代码供辅助微标签展示 */
+  rawCron?: string;
+}
+
+const WEEKDAY_NAMES: Record<string, string> = {
+  "0": "周日",
+  "1": "周一",
+  "2": "周二",
+  "3": "周三",
+  "4": "周四",
+  "5": "周五",
+  "6": "周六",
+  "7": "周日",
+  "SUN": "周日",
+  "MON": "周一",
+  "TUE": "周二",
+  "WED": "周三",
+  "THU": "周四",
+  "FRI": "周五",
+  "SAT": "周六",
+};
+
+/**
+ * 将技术向的 Cron 表达式或排程文本转化为中文自然语言描述
+ */
+export function humanizeSchedule(raw: string | null | undefined): HumanizedSchedule {
+  if (!raw || !raw.trim()) {
+    return { text: "未指定排程" };
+  }
+  const str = raw.trim();
+
+  // 1. 如果已包含中文字符，直接按既有描述输出
+  if (/[\u4e00-\u9fa5]/.test(str)) {
+    return { text: str };
+  }
+
+  // 2. 常见微格式处理：every 30m / every 2h
+  const everyMatch = str.match(/^every\s+(\d+)\s*([mhdw])$/i);
+  if (everyMatch) {
+    const num = everyMatch[1];
+    const unit = everyMatch[2].toLowerCase();
+    const unitMap: Record<string, string> = { m: "分钟", h: "小时", d: "天", w: "周" };
+    return { text: `每 ${num} ${unitMap[unit] || "分钟"}` };
+  }
+
+  // 3. 常见 Cron 宏处理
+  if (str === "@hourly") return { text: "每小时整点", rawCron: str };
+  if (str === "@daily" || str === "@midnight") return { text: "每天 00:00 (午夜)", rawCron: str };
+  if (str === "@weekly") return { text: "每周日 00:00", rawCron: str };
+  if (str === "@monthly") return { text: "每月 1 日 00:00", rawCron: str };
+
+  // 4. 标准 5 段 Cron 表达式: minute hour dom month dow
+  const parts = str.split(/\s+/);
+  if (parts.length === 5) {
+    const [min, hour, dom, mon, dow] = parts;
+    const isCron = parts.every((p) => /^[0-9*,\-/A-Za-z]+$/.test(p));
+    if (isCron) {
+      const pad = (n: string | number) => String(n).padStart(2, "0");
+
+      // 4.1 每隔 N 分钟：*/N * * * *
+      if (/^\*\/\d+$/.test(min) && hour === "*" && dom === "*" && mon === "*" && dow === "*") {
+        const interval = min.replace("*/", "");
+        return { text: `每隔 ${interval} 分钟`, rawCron: str };
+      }
+
+      // 4.2 每分钟：* * * * *
+      if (min === "*" && hour === "*" && dom === "*" && mon === "*" && dow === "*") {
+        return { text: "每分钟执行一次", rawCron: str };
+      }
+
+      // 4.3 每隔 N 小时整点：0 */N * * * 或 M */N * * *
+      if (/^\*\/\d+$/.test(hour) && dom === "*" && mon === "*" && dow === "*") {
+        const interval = hour.replace("*/", "");
+        if (min === "0") {
+          return { text: `每 ${interval} 小时整点`, rawCron: str };
+        }
+        return { text: `每 ${interval} 小时 (第 ${min} 分)`, rawCron: str };
+      }
+
+      // 4.4 每小时整点：0 * * * *
+      if (min === "0" && hour === "*" && dom === "*" && mon === "*" && dow === "*") {
+        return { text: "每小时整点", rawCron: str };
+      }
+
+      // 4.5 每天固定时间点：M H * * *
+      if (/^\d+$/.test(min) && /^\d+$/.test(hour) && dom === "*" && mon === "*") {
+        const timeStr = `${pad(hour)}:${pad(min)}`;
+        if (dow === "*") {
+          return { text: `每天 ${timeStr}`, rawCron: str };
+        }
+        if (dow === "1-5" || dow.toUpperCase() === "MON-FRI") {
+          return { text: `工作日 (周一至周五) ${timeStr}`, rawCron: str };
+        }
+        if (dow === "0,6" || dow === "6,0" || dow.toUpperCase() === "SAT,SUN" || dow.toUpperCase() === "SUN,SAT") {
+          return { text: `周末 ${timeStr}`, rawCron: str };
+        }
+        if (/^\d$/.test(dow) && WEEKDAY_NAMES[dow]) {
+          return { text: `每${WEEKDAY_NAMES[dow]} ${timeStr}`, rawCron: str };
+        }
+        if (/^[\d,]+$/.test(dow)) {
+          const days = dow.split(",").map((d) => WEEKDAY_NAMES[d] || d).join("、");
+          return { text: `每${days} ${timeStr}`, rawCron: str };
+        }
+      }
+
+      // 4.6 每天多时间点：0 H1,H2,H3 * * *
+      if (/^\d+$/.test(min) && /^[\d,]+$/.test(hour) && dom === "*" && mon === "*") {
+        const times = hour.split(",").map((h) => `${pad(h)}:${pad(min)}`).join("、");
+        return { text: `每天 ${times}`, rawCron: str };
+      }
+
+      // 4.7 每月固定日：M H D * *
+      if (/^\d+$/.test(min) && /^\d+$/.test(hour) && /^\d+$/.test(dom) && mon === "*" && dow === "*") {
+        return { text: `每月 ${dom} 日 ${pad(hour)}:${pad(min)}`, rawCron: str };
+      }
+
+      // 4.8 兜底 Cron
+      return { text: `按计划执行`, rawCron: str };
+    }
+  }
+
+  return { text: str };
+}
+
