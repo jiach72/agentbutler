@@ -215,7 +215,7 @@ export function createProcessAliveStage(deps: StageDeps = {}): InspectionStage {
   };
 }
 
-/** api-connectivity：复用 hermes readHermesConfig + resolveApiEndpoint + defaultProber 端口探活。 */
+/** api-connectivity：复用 hermes readHermesConfig + resolveApiEndpoint + defaultProber 端口探活；未启用 api_server 时 skipped。 */
 export function createApiConnectivityStage(deps: StageDeps = {}): InspectionStage {
   const prober = deps.prober ?? defaultProber;
   const timeoutMs = deps.probeTimeoutMs ?? PROBE_TIMEOUT_MS;
@@ -226,6 +226,17 @@ export function createApiConnectivityStage(deps: StageDeps = {}): InspectionStag
       const config = await readHermesConfig(ctx.rootPath);
       const endpoint = apiEndpointOf(config);
       ctx.shared["apiEndpoint"] = endpoint;
+      const envPortStr = process.env["BUTLER_HERMES_API_PORT"]?.trim();
+      const hasExplicitEnvPort = Boolean(envPortStr && Number(envPortStr) > 0);
+      const notConfigured = Boolean(config && config.apiServer.port === null && !hasExplicitEnvPort);
+      if (notConfigured) {
+        ctx.shared["apiAlive"] = null;
+        return {
+          id: "api-connectivity",
+          status: "skipped",
+          detail: "未启用 api_server 平台（可选 HTTP 探针已跳过）",
+        };
+      }
       const alive = await prober(endpoint.host, endpoint.port, timeoutMs);
       ctx.shared["apiAlive"] = alive;
       return alive

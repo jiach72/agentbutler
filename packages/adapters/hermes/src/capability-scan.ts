@@ -11,6 +11,7 @@ import { readHermesConfig } from "./config.js";
 import {
   defaultProber,
   findVenvPython,
+  isApiServerConfigured,
   PROBE_TIMEOUT_MS,
   resolveApiEndpoint,
   type PortProber,
@@ -48,11 +49,14 @@ export async function capabilityScan(
   const anomalies: string[] = [];
   const config = await readHermesConfig(rootPath);
 
+  const notConfigured = Boolean(config && !isApiServerConfigured(config));
   const endpoint = resolveApiEndpoint(config);
-  const apiAlive = await prober(endpoint.host, endpoint.port, PROBE_TIMEOUT_MS);
+  const apiAlive = notConfigured
+    ? false
+    : await prober(endpoint.host, endpoint.port, PROBE_TIMEOUT_MS);
 
   const capabilities: Record<Capability, CapabilityStatus> = {
-    probe: apiAlive ? "ok" : "unavailable",
+    probe: notConfigured ? "not-implemented" : apiAlive ? "ok" : "unavailable",
     control: "degraded",
     messaging: "not-implemented",
     "skill-driver": "unavailable",

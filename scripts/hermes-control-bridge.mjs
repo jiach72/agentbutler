@@ -840,7 +840,25 @@ function startFromEnvironment() {
   const rootPath = process.env.BUTLER_HERMES_CONTROL_ROOT || `${process.env.HOME}/.hermes`;
   const timeoutMs = Math.max(1000, Number(process.env.BUTLER_HERMES_CONTROL_TIMEOUT_MS || "30000"));
   const server = createHermesControlBridgeServer({ tokenFile, unit, rootPath, timeoutMs });
-  server.listen(port, host, () => console.log(`Hermes control bridge listening on ${host}:${port}`));
+
+  let attempts = 0;
+  const maxAttempts = 5;
+  function tryListen() {
+    attempts += 1;
+    server.listen(port, host, () => console.log(`Hermes control bridge listening on ${host}:${port}`));
+  }
+
+  server.on("error", (err) => {
+    if (err && err.code === "EADDRINUSE" && attempts < maxAttempts) {
+      console.warn(`[hermes-control-bridge] Port ${host}:${port} in use, retrying in 500ms (${attempts}/${maxAttempts})...`);
+      setTimeout(tryListen, 500);
+      return;
+    }
+    console.error(`[hermes-control-bridge] Server listen error:`, err);
+    process.exit(1);
+  });
+
+  tryListen();
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) startFromEnvironment();

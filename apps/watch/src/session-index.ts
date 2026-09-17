@@ -24,6 +24,7 @@ import { existsSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import type { Core, SessionIndexRow, SqliteStore } from "@butler/core";
 import { defaultTimerDriver, type TimerDriver } from "./scheduler.js";
+import { withSafeDbSnapshot } from "./state-db-snapshot.js";
 
 /** 单次采集回看窗口上限（天）：与保留期取小值，避免全量重扫。 */
 export const SESSION_SCAN_MAX_DAYS = 90;
@@ -304,87 +305,77 @@ export function createSessionIndexService(options: SessionIndexServiceOptions): 
       sessions: new Map<string, { startedAt: string | null; endedAt: string | null; outcome: string; taskType: string | null; model: string | null }>(),
     };
     if (!existsSync(options.dbPath)) return { ...empty, reason: "state.db 不可读（文件不存在）" };
-    let db: InstanceType<typeof DatabaseSync>;
     try {
-      db = new DatabaseSync(options.dbPath, { readOnly: true });
-    } catch {
-      return { ...empty, reason: "state.db 不可读（打开失败）" };
-    }
-    try {
-      // 1) session_model_usage：索引骨架（表缺失 → 无骨架）。
-      const usageColumns = columnsOf(db, "session_model_usage");
-      const sessionIdColumn = ["session_id", "sessionId", "session"].find((name) => usageColumns.has(name)) ?? null;
-      const costColumnCandidates = ["actual_cost_usd", "estimated_cost_usd", "actual_cost", "estimated_cost"];
-      const costColumn = costColumnCandidates.find((name) => usageColumns.has(name)) ?? null;
-      if (sessionIdColumn === null) {
-        return { ...empty, available: true, reason: "session_model_usage 无会话列（旧版 schema）" };
-      }
-      const select = [
-        "SELECT",
-        `"${sessionIdColumn}" AS session_id,`,
-        "model,",
-        "last_seen,",
-        "input_tokens,",
-        "output_tokens,",
-        costColumn === null ? "NULL AS cost_usd" : `"${costColumn}" AS cost_usd`,
-        "FROM session_model_usage WHERE 1 = 1",
-      ].join(" ");
-      const usageRows = db.prepare(select).all() as Array<Record<string, unknown>>;
-      for (const row of usageRows) {
-        const sessionId = row["session_id"] === null || row["session_id"] === undefined ? null : String(row["session_id"]);
-        if (sessionId === null || sessionId === "") continue;
-        const existing = empty.usage.get(sessionId) ?? { model: null, tokenIn: null, tokenOut: null, costUsd: null, lastSeen: null };
-        const tokenIn = numericOrNull(row["input_tokens"]);
-        const tokenOut = numericOrNull(row["output_tokens"]);
-        const cost = numericOrNull(row["cost_usd"]);
-        const lastSeen = toIso(row["last_seen"]);
-        empty.usage.set(sessionId, {
-          model: existing.model ?? (row["model"] === null || row["model"] === undefined ? null : String(row["model"])),
-          tokenIn: tokenIn === null ? existing.tokenIn : (existing.tokenIn ?? 0) + tokenIn,
-          tokenOut: tokenOut === null ? existing.tokenOut : (existing.tokenOut ?? 0) + tokenOut,
-          costUsd: cost === null ? existing.costUsd : (existing.costUsd ?? 0) + cost,
-          lastSeen: lastSeen !== null && (existing.lastSeen === null || lastSeen > existing.lastSeen) ? lastSeen : existing.lastSeen,
-        });
-      }
-
-      // 2) 候选会话表：起止/终态/任务类型（探测命中才读）。
-      const source = probeSessionSource(db);
-      if (source !== null) {
-        const { table, columns } = source;
-        const quoted = (name: string | null): string => (name === null ? "NULL" : `"${name}"`);
-        const sql = [
-          `SELECT ${quoted(columns.sessionId)} AS session_id,`,
-          `${quoted(columns.startedAt)} AS started_at,`,
-          `${quoted(columns.endedAt)} AS ended_at,`,
-          `${quoted(columns.status)} AS status,`,
-          `${quoted(columns.endReason)} AS end_reason,`,
-          `${quoted(columns.taskType)} AS task_type,`,
-          `${quoted(columns.model)} AS model`,
-          `FROM "${table}"`,
+      return withSafeDbSnapshot(options.dbPath, (db) => {
+        // 1) session_model_usage：索引骨架（表缺失 → 无骨架）。
+        const usageColumns = columnsOf(db, "session_model_usage");
+        const sessionIdColumn = ["session_id", "sessionId", "session"].find((name) => usageColumns.has(name)) ?? null;
+        const costColumnCandidates = ["actual_cost_usd", "estimated_cost_usd", "actual_cost", "estimated_cost"];
+        const costColumn = costColumnCandidates.find((name) => usageColumns.has(name)) ?? null;
+        if (sessionIdColumn === null) {
+          return { ...empty, available: true, reason: "session_model_usage 无会话列（旧版 schema）" };
+        }
+        const select = [
+          "SELECT",
+          `"${sessionIdColumn}" AS session_id,`,
+          "model,",
+          "last_seen,",
+          "input_tokens,",
+          "output_tokens,",
+          costColumn === null ? "NULL AS cost_usd" : `"${costColumn}" AS cost_usd`,
+          "FROM session_model_usage WHERE 1 = 1",
         ].join(" ");
-        const rows = db.prepare(sql).all() as Array<Record<string, unknown>>;
-        for (const row of rows) {
+        const usageRows = db.prepare(select).all() as Array<Record<string, unknown>>;
+        for (const row of usageRows) {
           const sessionId = row["session_id"] === null || row["session_id"] === undefined ? null : String(row["session_id"]);
           if (sessionId === null || sessionId === "") continue;
-          empty.sessions.set(sessionId, {
-            startedAt: toIso(row["started_at"]),
-            endedAt: toIso(row["ended_at"]),
-            outcome: outcomeFromRow(row["status"], row["ended_at"], row["end_reason"]),
-            taskType: row["task_type"] === null || row["task_type"] === undefined ? null : String(row["task_type"]),
-            model: row["model"] === null || row["model"] === undefined ? null : String(row["model"]),
+          const existing = empty.usage.get(sessionId) ?? { model: null, tokenIn: null, tokenOut: null, costUsd: null, lastSeen: null };
+          const tokenIn = numericOrNull(row["input_tokens"]);
+          const tokenOut = numericOrNull(row["output_tokens"]);
+          const cost = numericOrNull(row["cost_usd"]);
+          const lastSeen = toIso(row["last_seen"]);
+          empty.usage.set(sessionId, {
+            model: existing.model ?? (row["model"] === null || row["model"] === undefined ? null : String(row["model"])),
+            tokenIn: tokenIn === null ? existing.tokenIn : (existing.tokenIn ?? 0) + tokenIn,
+            tokenOut: tokenOut === null ? existing.tokenOut : (existing.tokenOut ?? 0) + tokenOut,
+            costUsd: cost === null ? existing.costUsd : (existing.costUsd ?? 0) + cost,
+            lastSeen: lastSeen !== null && (existing.lastSeen === null || lastSeen > existing.lastSeen) ? lastSeen : existing.lastSeen,
           });
         }
-        empty.sessionTable = table;
-      }
-      return { ...empty, available: true, reason: source === null ? "state.db 无会话表（仅元数据维度可用）" : "" };
+
+        // 2) 候选会话表：起止/终态/任务类型（探测命中才读）。
+        const source = probeSessionSource(db);
+        if (source !== null) {
+          const { table, columns } = source;
+          const quoted = (name: string | null): string => (name === null ? "NULL" : `"${name}"`);
+          const sql = [
+            `SELECT ${quoted(columns.sessionId)} AS session_id,`,
+            `${quoted(columns.startedAt)} AS started_at,`,
+            `${quoted(columns.endedAt)} AS ended_at,`,
+            `${quoted(columns.status)} AS status,`,
+            `${quoted(columns.endReason)} AS end_reason,`,
+            `${quoted(columns.taskType)} AS task_type,`,
+            `${quoted(columns.model)} AS model`,
+            `FROM "${table}"`,
+          ].join(" ");
+          const rows = db.prepare(sql).all() as Array<Record<string, unknown>>;
+          for (const row of rows) {
+            const sessionId = row["session_id"] === null || row["session_id"] === undefined ? null : String(row["session_id"]);
+            if (sessionId === null || sessionId === "") continue;
+            empty.sessions.set(sessionId, {
+              startedAt: toIso(row["started_at"]),
+              endedAt: toIso(row["ended_at"]),
+              outcome: outcomeFromRow(row["status"], row["ended_at"], row["end_reason"]),
+              taskType: row["task_type"] === null || row["task_type"] === undefined ? null : String(row["task_type"]),
+              model: row["model"] === null || row["model"] === undefined ? null : String(row["model"]),
+            });
+          }
+          empty.sessionTable = table;
+        }
+        return { ...empty, available: true, reason: source === null ? "state.db 无会话表（仅元数据维度可用）" : "" };
+      });
     } catch (error) {
       return { ...empty, reason: `state.db 读取失败：${error instanceof Error ? error.message : String(error)}` };
-    } finally {
-      try {
-        db.close();
-      } catch {
-        // 只读句柄关闭失败无副作用
-      }
     }
   }
 

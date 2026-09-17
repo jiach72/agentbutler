@@ -118,7 +118,8 @@ export class ProcessExecutor {
   async isAlive(rootPath: string): Promise<boolean> {
     if (this.controlBridge) {
       try {
-        return (await this.controlBridge.status()).active;
+        const st = await this.controlBridge.status();
+        if (st.active !== null) return st.active;
       } catch {
         return false;
       }

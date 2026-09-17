@@ -20,12 +20,12 @@
  *   等价冒烟任务而非原任务；这一点写进 metrics.source，UI 可见；
  * - 全程只读 Hermes state.db（readOnly），影子产物全部落在隔离目录，跑完可整目录删除。
  */
-import { chmodSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
-import { DatabaseSync } from "node:sqlite";
+import { chmodSync, existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { CanaryMetrics } from "@butler/core";
 import type { CommandExecutor } from "@butler/adapter-hermes";
 import type { CanaryShadowRunner, CanaryTaskRef } from "./canary.js";
+import { withSafeDbSnapshot } from "./state-db-snapshot.js";
 
 /** 单任务回放超时：覆盖冷启动 + 一次 LLM 往返。 */
 export const SHADOW_TASK_TIMEOUT_MS = 120_000;
@@ -111,17 +111,15 @@ export function createShadowRunner(deps: ShadowRunnerDeps): CanaryShadowRunner {
     // 直接复用 canary 基线的口径（fingerprints 表），避免两套定义。
     // 影子跑动期间新出现的错误正是要拦的东西。
     try {
-      const db = new DatabaseSync(deps.stateDbPath, { readOnly: true });
-      try {
+      if (!existsSync(deps.stateDbPath)) return [];
+      return withSafeDbSnapshot(deps.stateDbPath, (db) => {
         const rows = db
           .prepare(
             "SELECT signature FROM fingerprints WHERE last_seen >= ? ORDER BY last_seen DESC LIMIT 500",
           )
           .all(sinceIso) as Array<{ signature: string }>;
         return rows.map((row) => String(row.signature));
-      } finally {
-        db.close();
-      }
+      });
     } catch {
       return [];
     }

@@ -46,25 +46,56 @@ export interface BackupFileOps {
 const BACKUP_WORKER_SOURCE = `
 const { parentPort } = require("node:worker_threads");
 const fs = require("node:fs");
+const os = require("node:os");
 const { DatabaseSync } = require("node:sqlite");
-const { basename, dirname } = require("node:path");
+const { basename, dirname, join } = require("node:path");
 
 function backupFile(from, to) {
   fs.mkdirSync(dirname(to), { recursive: true });
   const base = basename(from);
   if (base.endsWith(".db")) {
-    try {
-      const q = String.fromCharCode(39);
-      if (fs.existsSync(to)) fs.rmSync(to, { force: true });
-      const db = new DatabaseSync(from, { readOnly: true });
+    // 跨挂载（如 virtiofs）直接对宿主 live state.db 打开 SQLite 句柄会建立锁与 mmap，
+    // 引发宿主 Python 遭遇致命 SIGBUS (138)。
+    // 先通过纯系统文件流（copyFileSync）拷贝至私有 /tmp 快照，再对快照执行 VACUUM INTO。
+    if (base === "state.db" || fs.existsSync(from + "-wal")) {
+      const snapDir = fs.mkdtempSync(join(os.tmpdir(), "butler-snap-"));
+      const snapDb = join(snapDir, base);
       try {
-        db.exec("VACUUM INTO " + q + to + q);
+        fs.copyFileSync(from, snapDb);
+        if (fs.existsSync(from + "-wal")) {
+          try { fs.copyFileSync(from + "-wal", snapDb + "-wal"); } catch {}
+        }
+        if (fs.existsSync(from + "-shm")) {
+          try { fs.copyFileSync(from + "-shm", snapDb + "-shm"); } catch {}
+        }
+        const q = String.fromCharCode(39);
+        if (fs.existsSync(to)) fs.rmSync(to, { force: true });
+        const db = new DatabaseSync(snapDb, { readOnly: true });
+        try {
+          db.exec("VACUUM INTO " + q + to + q);
+        } finally {
+          db.close();
+        }
+        return fs.statSync(to).size;
+      } catch {
+        // VACUUM 失败（加密库/权限等）→ 回退普通复制，尽力而为
       } finally {
-        db.close();
+        try { fs.rmSync(snapDir, { recursive: true, force: true }); } catch {}
       }
-      return fs.statSync(to).size;
-    } catch {
-      // VACUUM 失败（加密库/权限等）→ 回退普通复制，尽力而为
+    } else {
+      try {
+        const q = String.fromCharCode(39);
+        if (fs.existsSync(to)) fs.rmSync(to, { force: true });
+        const db = new DatabaseSync(from, { readOnly: true });
+        try {
+          db.exec("VACUUM INTO " + q + to + q);
+        } finally {
+          db.close();
+        }
+        return fs.statSync(to).size;
+      } catch {
+        // VACUUM 失败（加密库/权限等）→ 回退普通复制，尽力而为
+      }
     }
   }
   fs.cpSync(from, to, { force: true, errorOnExist: false });
@@ -184,6 +215,37 @@ export interface BackupServiceOptions {
   backupsDir?: string;
   /** 文件级操作实现（缺省常驻 worker；测试可注入同步替身）。 */
   fileOps?: BackupFileOps;
+  /** 检查 Hermes 网关是否存活（用于 restore 门禁；缺省通过 gateway.pid 探测）。 */
+  isHermesRunning?: () => Promise<boolean> | boolean;
+}
+
+/**
+ * 探测 Hermes 进程是否存活（用于 restore 门禁，避免在网关运行中覆盖 live 库引发 SIGBUS 或损坏）。
+ */
+export function isHermesProcessRunning(hermesRoot: string): boolean {
+  try {
+    const pidFile = join(hermesRoot, "gateway.pid");
+    if (!existsSync(pidFile)) return false;
+    const raw = JSON.parse(readFileSync(pidFile, "utf8")) as { pid?: unknown };
+    const pid = Number(raw.pid);
+    if (!Number.isInteger(pid) || pid <= 0) return false;
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (err: unknown) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "EPERM") return true;
+      if (code === "ESRCH") {
+        if (existsSync("/.dockerenv") || process.platform === "linux") {
+          return true;
+        }
+        return false;
+      }
+      return false;
+    }
+  } catch {
+    return false;
+  }
 }
 
 export interface BackupService {
@@ -434,6 +496,13 @@ export function createBackupService(options: BackupServiceOptions): BackupServic
     const row = core.store.getBackup(id);
     if (row === undefined || !existsSync(row.path)) {
       return { ok: false, error: "backup-not-found" };
+    }
+    // 还原门禁：若目标路径有运行中的 Hermes 进程，拒绝无保护地覆盖 live 库，避免引发换代崩溃与数据损坏。
+    const isRunning = options.isHermesRunning
+      ? await options.isHermesRunning()
+      : isHermesProcessRunning(hermesRoot);
+    if (isRunning) {
+      return { ok: false, error: "hermes-running" };
     }
     let manifest: { files: Array<{ from: string; rel: string; size: number }> };
     try {

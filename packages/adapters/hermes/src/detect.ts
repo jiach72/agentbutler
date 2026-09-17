@@ -177,13 +177,21 @@ export function findVenvLayoutPath(rootPath: string): string | null {
   }) ?? null;
 }
 
+/** 判断 Hermes 实例是否显式启用了 api_server 平台配置或环境变量覆盖。 */
+export function isApiServerConfigured(config: HermesConfig | null): boolean {
+  const envPortStr = process.env["BUTLER_HERMES_API_PORT"]?.trim();
+  const configuredPort = Number(envPortStr ?? "");
+  const hasExplicitEnvPort = Boolean(envPortStr && Number.isInteger(configuredPort) && configuredPort > 0);
+  return Boolean(hasExplicitEnvPort || (config && config.apiServer.port !== null));
+}
+
 /** 解析 API 探活端点：port 取 config 声明（缺省 8642）；通配地址归一为 127.0.0.1。 */
 export function resolveApiEndpoint(config: HermesConfig | null): { host: string; port: number } {
-  const configuredPort = Number(process.env["BUTLER_HERMES_API_PORT"] ?? "");
-  const port =
-    Number.isInteger(configuredPort) && configuredPort > 0
-      ? configuredPort
-      : (config?.apiServer.port ?? DEFAULT_API_PORT);
+  const envPortStr = process.env["BUTLER_HERMES_API_PORT"]?.trim();
+  const configuredPort = Number(envPortStr ?? "");
+  const hasExplicitEnvPort = Boolean(envPortStr && Number.isInteger(configuredPort) && configuredPort > 0);
+  const configPort = config?.apiServer.port;
+  const port = hasExplicitEnvPort ? configuredPort : (configPort ?? DEFAULT_API_PORT);
   const rawHost = process.env["BUTLER_HERMES_API_HOST"]?.trim() || config?.apiServer.host;
   const host = !rawHost || rawHost === "0.0.0.0" || rawHost === "::" ? "127.0.0.1" : rawHost;
   return { host, port };

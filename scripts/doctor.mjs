@@ -194,6 +194,23 @@ if (controlDirect || controlForward) {
   );
 }
 
+/* ------------------ 4c. Hermes API Server (Optional) ------------------ */
+
+const envApiPortStr = process.env.BUTLER_HERMES_API_PORT?.trim();
+const parsedApiPort = Number(envApiPortStr);
+if (envApiPortStr && Number.isInteger(parsedApiPort) && parsedApiPort > 0) {
+  const apiUp = await probeTcp("127.0.0.1", parsedApiPort);
+  if (apiUp) {
+    pass(`Hermes API Server 可选探针 (${parsedApiPort})`, "端口可达");
+  } else {
+    warn(
+      `Hermes API Server 可选探针 (${parsedApiPort})`,
+      `端口 ${parsedApiPort} 不可达；若未在 ~/.hermes/config.yaml 启用 api_server 平台可忽略本项，不影响消息与控制通道`,
+      `如需启用该探针，请在 ~/.hermes/config.yaml 增加 gateway.platforms.api_server.extra 配置`,
+    );
+  }
+}
+
 /* ------------------------------ 5. 配置自检 ------------------------------ */
 
 const envPath = join(process.cwd(), ".env");

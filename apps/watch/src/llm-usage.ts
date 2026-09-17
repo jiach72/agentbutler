@@ -19,6 +19,7 @@
  */
 import { existsSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
+import { withSafeDbSnapshot } from "./state-db-snapshot.js";
 
 export interface LlmUsageDay {
   date: string;
@@ -171,56 +172,50 @@ export function createLlmUsageService(options: LlmUsageOptions): LlmUsageService
   } | null> {
     const rangeDays = Number.isInteger(days) && days >= 1 && days <= 180 ? days : 7;
     if (!existsSync(options.dbPath)) return null;
-    let db: InstanceType<typeof DatabaseSync>;
     try {
-      db = new DatabaseSync(options.dbPath, { readOnly: true });
+      return withSafeDbSnapshot(options.dbPath, (db) => {
+        const costColumns = probeCostColumns(db);
+        const rows = db
+          .prepare(buildSelect(costColumns))
+          .all() as Array<Record<string, unknown>>;
+        // 时间桶：今日为最后一格，往前推 rangeDays 个自然日。
+        const today = now();
+        const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+        const buckets: Array<{ date: string; startMs: number }> = [];
+        for (let i = rangeDays - 1; i >= 0; i -= 1) {
+          const startMs = startOfToday - i * 86_400_000;
+          buckets.push({ date: localDateKey(startMs), startMs });
+        }
+        const windowEndMs = startOfToday + 86_400_000;
+        const dayDates = buckets.map((b) => b.date);
+        const mapped: Array<UsageRow> = [];
+        for (const row of rows) {
+          if (typeof row["last_seen"] !== "number" || !(row["last_seen"] > 0)) continue;
+          const seenMs = row["last_seen"] * 1000;
+          if (seenMs < buckets[0]!.startMs || seenMs >= windowEndMs) continue;
+          mapped.push({
+            model: String(row["model"] ?? "unknown"),
+            last_seen: row["last_seen"],
+            input_tokens: numericOrNull(row["input_tokens"]),
+            output_tokens: numericOrNull(row["output_tokens"]),
+            sessionId: row["session_id"] === null || row["session_id"] === undefined ? null : String(row["session_id"]),
+            estimatedCost: numericOrNull(row["estimated_cost"]),
+            actualCost: numericOrNull(row["actual_cost"]),
+            costStatus: row["cost_status"] === null || row["cost_status"] === undefined ? null : String(row["cost_status"]),
+          });
+        }
+        return {
+          rangeDays,
+          rows: mapped,
+          dayDates,
+          bucketStartMs: buckets[0]!.startMs,
+          windowEndMs,
+          costColumns,
+        };
+      });
     } catch {
+      // 表不存在或结构不符（旧版 Hermes）或数据库读取异常 → 视为不可用，前端保持「待接入」灰态。
       return null;
-    }
-    try {
-      const costColumns = probeCostColumns(db);
-      const rows = db
-        .prepare(buildSelect(costColumns))
-        .all() as Array<Record<string, unknown>>;
-      // 时间桶：今日为最后一格，往前推 rangeDays 个自然日。
-      const today = now();
-      const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
-      const buckets: Array<{ date: string; startMs: number }> = [];
-      for (let i = rangeDays - 1; i >= 0; i -= 1) {
-        const startMs = startOfToday - i * 86_400_000;
-        buckets.push({ date: localDateKey(startMs), startMs });
-      }
-      const windowEndMs = startOfToday + 86_400_000;
-      const dayDates = buckets.map((b) => b.date);
-      const mapped: Array<UsageRow> = [];
-      for (const row of rows) {
-        if (typeof row["last_seen"] !== "number" || !(row["last_seen"] > 0)) continue;
-        const seenMs = row["last_seen"] * 1000;
-        if (seenMs < buckets[0]!.startMs || seenMs >= windowEndMs) continue;
-        mapped.push({
-          model: String(row["model"] ?? "unknown"),
-          last_seen: row["last_seen"],
-          input_tokens: numericOrNull(row["input_tokens"]),
-          output_tokens: numericOrNull(row["output_tokens"]),
-          sessionId: row["session_id"] === null || row["session_id"] === undefined ? null : String(row["session_id"]),
-          estimatedCost: numericOrNull(row["estimated_cost"]),
-          actualCost: numericOrNull(row["actual_cost"]),
-          costStatus: row["cost_status"] === null || row["cost_status"] === undefined ? null : String(row["cost_status"]),
-        });
-      }
-      return {
-        rangeDays,
-        rows: mapped,
-        dayDates,
-        bucketStartMs: buckets[0]!.startMs,
-        windowEndMs,
-        costColumns,
-      };
-    } catch {
-      // 表不存在或结构不符（旧版 Hermes）→ 视为不可用，前端保持「待接入」灰态。
-      return null;
-    } finally {
-      db.close();
     }
   }
 

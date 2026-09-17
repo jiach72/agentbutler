@@ -15,8 +15,10 @@ export interface HermesControlBridgeOptions {
 }
 
 export interface HermesControlBridgeStatus {
-  active: boolean;
+  active: boolean | null;
   unit: string;
+  supervisor?: string;
+  supervisorReason?: string;
 }
 
 export interface HermesControlBridgeCleanupResult extends HermesControlBridgeStatus {
@@ -99,7 +101,10 @@ export class HermesControlBridgeClient {
 function isStatus(value: unknown): value is HermesControlBridgeStatus {
   if (typeof value !== "object" || value === null) return false;
   const record = value as Record<string, unknown>;
-  return typeof record.active === "boolean" && typeof record.unit === "string";
+  const activeOk =
+    typeof record.active === "boolean" ||
+    (record.active === null && (record.supervisor === "unavailable" || typeof record.supervisor === "string"));
+  return activeOk && typeof record.unit === "string";
 }
 
 function isCleanupResult(value: unknown): value is HermesControlBridgeCleanupResult {

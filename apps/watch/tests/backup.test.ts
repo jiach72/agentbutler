@@ -82,6 +82,30 @@ describe("M7 备份服务", () => {
     expect(events.some((b) => b.label?.includes("还原前自动备份"))).toBe(true);
   });
 
+  it("还原时若 Hermes 运行中则拒绝覆盖 live 库，返回 hermes-running", async () => {
+    const row = await service.run("memory", "待还原备份");
+    writeFileSync(join(hermesRoot, "gateway.pid"), JSON.stringify({ pid: process.pid }), "utf8");
+
+    const res = await service.restore(row.id, true);
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error).toBe("hermes-running");
+    }
+  });
+
+  it("state.db 存在 WAL 时使用安全临时快照完成一致性备份", async () => {
+    const stateDbPath = join(hermesRoot, "state.db");
+    const db = new DatabaseSync(stateDbPath);
+    db.exec("PRAGMA journal_mode = WAL;");
+    db.exec("CREATE TABLE test_state (k TEXT, v TEXT);");
+    db.exec("INSERT INTO test_state VALUES ('foo', 'bar');");
+    db.close();
+
+    const row = await service.run("full", "测试 state.db 快照备份");
+    expect(row.status).toBe("ok");
+    expect(existsSync(join(row.path, "hermes", "state.db"))).toBe(true);
+  });
+
   it("自动调度：注册 1 小时周期；stop 后不再触发", () => {
     service.start();
     expect(intervals.map((item) => item.ms)).toEqual([60 * 60 * 1000]);

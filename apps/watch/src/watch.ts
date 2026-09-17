@@ -125,7 +125,7 @@ import {
   createButlerSelfUpgradeService,
   type ButlerSelfService,
 } from "./self-upgrade.js";
-import { createBackupService, type BackupService } from "./backup.js";
+import { createBackupService, isHermesProcessRunning, type BackupService } from "./backup.js";
 import { createBackupGate, type BackupGate } from "./backup-gate.js";
 import { createSecurityService, type SecurityService } from "./invariants.js";
 import { createRuntimeCommandExecutor, detectButlerRuntime, type ButlerRuntimeInfo } from "./runtime.js";
@@ -978,6 +978,16 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     memoryBackend: config.memoryBackend,
     now: options.now,
     driver,
+    isHermesRunning: async () => {
+      if (isHermesProcessRunning(managedRoot)) return true;
+      try {
+        const status = await hermesControlBridge?.status();
+        if (status?.active === true) return true;
+      } catch {
+        // bridge 状态探测异常忽略
+      }
+      return false;
+    },
   });
   const backupGate = createBackupGate({ core, backup });
   const markdownFiles: MarkdownFileService = createMarkdownFileService({ core, backupGate });

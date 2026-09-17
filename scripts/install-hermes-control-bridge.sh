@@ -67,18 +67,56 @@ EOF
   if command -v plutil >/dev/null 2>&1; then
     plutil -lint "$PLIST_FILE" >/dev/null
   fi
-  # bootout 后 launchd 异步释放端点，需缓冲避免立即 bootstrap 出现 EIO (5) 瞬态竞态。
+  # bootout 后 launchd 异步注销服务；需有界等待旧进程退出与 8756 端口释放，避免 EIO 与 EADDRINUSE
   launchctl bootout "gui/$UID_NUM/$LABEL" 2>/dev/null || true
-  sleep 1
+  for _ in $(seq 1 20); do
+    if ! lsof -nP -iTCP:8756 -sTCP:LISTEN >/dev/null 2>&1; then
+      break
+    fi
+    sleep 0.5
+  done
+  # 若超时仍有残留进程占用 8756，执行 TERM 兜底 KILL
+  if lsof -nP -iTCP:8756 -sTCP:LISTEN >/dev/null 2>&1; then
+    old_pids="$(lsof -nP -iTCP:8756 -sTCP:LISTEN -t 2>/dev/null || true)"
+    for op in $old_pids; do
+      kill -TERM "$op" 2>/dev/null || true
+    done
+    sleep 1
+    if lsof -nP -iTCP:8756 -sTCP:LISTEN >/dev/null 2>&1; then
+      old_pids="$(lsof -nP -iTCP:8756 -sTCP:LISTEN -t 2>/dev/null || true)"
+      for op in $old_pids; do
+        kill -KILL "$op" 2>/dev/null || true
+      done
+      sleep 0.5
+    fi
+  fi
+
   if ! launchctl bootstrap "gui/$UID_NUM" "$PLIST_FILE" 2>/dev/null; then
     sleep 1
     launchctl bootstrap "gui/$UID_NUM" "$PLIST_FILE"
   fi
   launchctl kickstart -k "gui/$UID_NUM/$LABEL" 2>/dev/null || true
+
   if ! launchctl print "gui/$UID_NUM/$LABEL" >/dev/null 2>&1; then
     echo "ERROR: failed to verify LaunchAgent status for $LABEL via launchctl print." >&2
     exit 1
   fi
+
+  # 可证伪的运行判定：等待 8756 端口被新实例监听（最多 10 秒）
+  listening=false
+  for _ in $(seq 1 20); do
+    if lsof -nP -iTCP:8756 -sTCP:LISTEN >/dev/null 2>&1; then
+      listening=true
+      break
+    fi
+    sleep 0.5
+  done
+  if [[ "$listening" != "true" ]]; then
+    echo "ERROR: Hermes host control bridge failed to listen on port 8756 within 10s." >&2
+    launchctl print "gui/$UID_NUM/$LABEL" >&2 || true
+    exit 1
+  fi
+
   echo "Hermes host control bridge installed and active (macOS LaunchAgent: $LABEL)."
   exit 0
 fi

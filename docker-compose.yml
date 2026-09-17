@@ -92,7 +92,7 @@ services:
       OPENCLAW_GATEWAY_HOST: ${OPENCLAW_GATEWAY_HOST:-host.docker.internal}
       OPENCLAW_GATEWAY_PORT: ${OPENCLAW_GATEWAY_PORT:-18789}
       BUTLER_HERMES_API_HOST: ${BUTLER_HERMES_API_HOST:-host.docker.internal}
-      BUTLER_HERMES_API_PORT: ${BUTLER_HERMES_API_PORT:-8642}
+      BUTLER_HERMES_API_PORT: ${BUTLER_HERMES_API_PORT:-}
       # WSL 容器通过受限宿主控制桥执行 Hermes start/stop/restart；不暴露任意终端。
       BUTLER_HERMES_CONTROL_URL: ${BUTLER_HERMES_CONTROL_URL:-}
       BUTLER_HERMES_CONTROL_TOKEN_FILE: ${BUTLER_HERMES_CONTROL_TOKEN_FILE:-/home/butler/hermes/agent-butler/control.token}

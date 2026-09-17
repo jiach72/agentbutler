@@ -231,6 +231,15 @@ describe("api-connectivity 阶段", () => {
     }).run(makeCtx());
     expect(probeCalls).toEqual([{ port: 8642 }]);
   });
+
+  it("config.yaml 存在但未启用 api_server 平台 → skipped", async () => {
+    writeFileSync(join(tmp, "config.yaml"), "gateway:\n  platforms:\n    a2a:\n      port: 9900\n", "utf8");
+    const outcome = await createApiConnectivityStage({
+      prober: async () => false,
+    }).run(makeCtx());
+    expect(outcome.status).toBe("skipped");
+    expect(outcome.detail).toContain("未启用 api_server 平台");
+  });
 });
 
 describe("resource-watermark 阶段", () => {

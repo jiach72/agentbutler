@@ -228,11 +228,14 @@ describe("Hermes control bridge", () => {
     expect(scriptContent).toContain("<key>PATH</key><string>/usr/bin:/bin:/usr/sbin:/sbin:${HOME}/.hermes/node/bin</string>");
     expect(scriptContent).not.toContain("<key>PATH</key><string>/usr/bin:/bin:/usr/sbin:/sbin:${HOME}/.hermes/node/bin:${PATH:-}</string>");
 
-    // LaunchAgent bootstrap race condition handling
+    // LaunchAgent bootstrap race condition handling & port release polling
     expect(scriptContent).toContain('launchctl bootout "gui/$UID_NUM/$LABEL" 2>/dev/null || true');
+    expect(scriptContent).toContain('lsof -nP -iTCP:8756 -sTCP:LISTEN');
+    expect(scriptContent).toContain('kill -TERM "$op"');
     expect(scriptContent).toContain('if ! launchctl bootstrap "gui/$UID_NUM" "$PLIST_FILE" 2>/dev/null; then');
     expect(scriptContent).toContain('launchctl kickstart -k "gui/$UID_NUM/$LABEL" 2>/dev/null || true');
     expect(scriptContent).toContain('launchctl print "gui/$UID_NUM/$LABEL" >/dev/null 2>&1');
+    expect(scriptContent).toContain('Hermes host control bridge failed to listen on port 8756');
   });
 
   it("ensures deploy.sh persists BUTLER_GIT_COMMIT to .env", () => {
