@@ -8,6 +8,21 @@
  */
 import { execSync } from "node:child_process";
 import os from "node:os";
+import type { OllamaUsageStore } from "./ollama-usage-store.js";
+
+export interface OllamaChatTestResult {
+  ok: boolean;
+  model: string;
+  reply?: string;
+  error?: string;
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    durationMs: number;
+    tokensPerSecond: number;
+  };
+}
 
 export interface HardwareProfile {
   cpu: {
@@ -519,6 +534,135 @@ export class OllamaService {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { ok: false, message: `删除错误: ${msg}` };
+    }
+  }
+
+  /**
+   * 发起一次模型测试对话并精确统计 Token 与吞吐。
+   * 支持通过 usageStore 自动持久化入库。
+   */
+  async testChat(
+    endpoint: string,
+    modelName: string,
+    prompt: string,
+    options?: {
+      system?: string;
+      usageStore?: OllamaUsageStore | null;
+      timeoutMs?: number;
+    },
+  ): Promise<OllamaChatTestResult> {
+    const cleanUrl = endpoint.replace(/\/+$/, "");
+    const cleanModel = modelName.trim();
+    const cleanPrompt = prompt.trim();
+    if (!cleanModel) {
+      return { ok: false, model: cleanModel, error: "模型名称不能为空" };
+    }
+    if (!cleanPrompt) {
+      return { ok: false, model: cleanModel, error: "测试提示词不能为空" };
+    }
+
+    const startTime = Date.now();
+    try {
+      const messages: Array<{ role: string; content: string }> = [];
+      if (options?.system) {
+        messages.push({ role: "system", content: options.system });
+      }
+      messages.push({ role: "user", content: cleanPrompt });
+
+      const res = await fetch(`${cleanUrl}/api/chat`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: cleanModel,
+          messages,
+          stream: false,
+        }),
+        signal: AbortSignal.timeout(options?.timeoutMs ?? 60_000),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        const durationMs = Date.now() - startTime;
+        options?.usageStore?.recordUsage({
+          model: cleanModel,
+          promptTokens: 0,
+          completionTokens: 0,
+          durationMs,
+          status: "error",
+          errorMessage: `HTTP ${res.status}: ${errText.slice(0, 100)}`,
+        });
+        return {
+          ok: false,
+          model: cleanModel,
+          error: `Ollama 返回异常 (HTTP ${res.status}): ${errText || "未知错误"}`,
+        };
+      }
+
+      const data = (await res.json()) as {
+        message?: { content?: string };
+        prompt_eval_count?: number;
+        eval_count?: number;
+        prompt_eval_duration?: number;
+        eval_duration?: number;
+        total_duration?: number;
+      };
+
+      const reply = data.message?.content ?? "";
+      const promptTokens = typeof data.prompt_eval_count === "number" ? data.prompt_eval_count : 0;
+      const completionTokens = typeof data.eval_count === "number" ? data.eval_count : 0;
+      const totalTokens = promptTokens + completionTokens;
+
+      const durationMs =
+        typeof data.total_duration === "number" && data.total_duration > 0
+          ? Math.round(data.total_duration / 1_000_000)
+          : Date.now() - startTime;
+
+      let tokensPerSecond = 0;
+      if (typeof data.eval_count === "number" && typeof data.eval_duration === "number" && data.eval_duration > 0) {
+        tokensPerSecond = Number((data.eval_count / (data.eval_duration / 1_000_000_000)).toFixed(1));
+      } else if (completionTokens > 0 && durationMs > 0) {
+        tokensPerSecond = Number((completionTokens / (durationMs / 1000)).toFixed(1));
+      }
+
+      const usage = {
+        promptTokens,
+        completionTokens,
+        totalTokens,
+        durationMs,
+        tokensPerSecond,
+      };
+
+      options?.usageStore?.recordUsage({
+        model: cleanModel,
+        promptTokens,
+        completionTokens,
+        durationMs,
+        tokensPerSecond,
+        status: "success",
+      });
+
+      return {
+        ok: true,
+        model: cleanModel,
+        reply,
+        usage,
+      };
+    } catch (err) {
+      const durationMs = Date.now() - startTime;
+      const msg = err instanceof Error ? err.message : String(err);
+      options?.usageStore?.recordUsage({
+        model: cleanModel,
+        promptTokens: 0,
+        completionTokens: 0,
+        durationMs,
+        status: "error",
+        errorMessage: msg,
+      });
+      return {
+        ok: false,
+        model: cleanModel,
+        error: `调用 Ollama 失败: ${msg}`,
+      };
     }
   }
 }

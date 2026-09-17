@@ -53,6 +53,7 @@ import {
   detectHardwareProfile,
   evaluateHardwareTier,
 } from "./ollama-service.js";
+import { OllamaUsageStore } from "./ollama-usage-store.js";
 
 export const WEB_VERSION = `web@0.1.0-beta.260911.13+${CONTRACT_VERSION}`;
 
@@ -155,6 +156,8 @@ export interface WebServerOptions {
   publishHost?: string;
   /** 本地 Ollama 引擎基址；缺省 env BUTLER_OLLAMA_URL 或 http://127.0.0.1:11434。 */
   ollamaUrl?: string;
+  /** Ollama 用量存储（测试显式注入用；生产缺省读 home/data/ollama_usage.db）。 */
+  ollamaUsageStore?: OllamaUsageStore | null;
 }
 
 /** 受保护前缀：口令校验覆盖所有数据面接口与事件流，健康检查与静态外壳放行。 */
@@ -1846,6 +1849,10 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
 
   const app = Fastify({ logger: false });
   let store = openStore(home);
+  const ollamaUsageStore =
+    options.ollamaUsageStore !== undefined
+      ? options.ollamaUsageStore
+      : new OllamaUsageStore(path.join(home, "data", "ollama_usage.db"));
 
   // /ws 轮询定时器登记：连接断开或服务关闭时统一清理。
   const wsTimers = new Set<ReturnType<typeof setInterval>>();
@@ -4097,6 +4104,53 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
       return reply.status(400).send({ ok: false, message: "模型名称不能为空" });
     }
     return defaultOllamaService.deleteModel(ollamaUrl, name);
+  });
+
+  /** 发起在线模型对话测试并记录 Token 与吞吐 */
+  app.post("/api/ollama/test-chat", async (request, reply) => {
+    const body = request.body as Record<string, unknown> | null;
+    const model = typeof body?.["model"] === "string" ? body["model"].trim() : "";
+    const prompt = typeof body?.["prompt"] === "string" ? body["prompt"].trim() : "";
+    const system = typeof body?.["system"] === "string" ? body["system"].trim() : undefined;
+    if (!model) {
+      return reply.status(400).send({ ok: false, message: "模型名称不能为空" });
+    }
+    if (!prompt) {
+      return reply.status(400).send({ ok: false, message: "测试提示词不能为空" });
+    }
+    return defaultOllamaService.testChat(ollamaUrl, model, prompt, {
+      system,
+      usageStore: ollamaUsageStore,
+    });
+  });
+
+  /** 获取最近每日 Token 调用量与汇总指标 */
+  app.get("/api/ollama/usage/summary", async (request) => {
+    const query = request.query as Record<string, string | undefined>;
+    const days = query["days"] ? Number(query["days"]) : 14;
+    const summary = ollamaUsageStore
+      ? ollamaUsageStore.getDailySummary(days)
+      : {
+          todayCalls: 0,
+          todayPromptTokens: 0,
+          todayCompletionTokens: 0,
+          todayTokens: 0,
+          totalCalls: 0,
+          totalPromptTokens: 0,
+          totalCompletionTokens: 0,
+          totalTokens: 0,
+          avgTokensPerSecond: 0,
+          dailyHistory: [],
+        };
+    return { ok: true, summary };
+  });
+
+  /** 获取最近调用明细记录 */
+  app.get("/api/ollama/usage/records", async (request) => {
+    const query = request.query as Record<string, string | undefined>;
+    const limit = query["limit"] ? Number(query["limit"]) : 20;
+    const records = ollamaUsageStore ? ollamaUsageStore.getRecentRecords(limit) : [];
+    return { ok: true, records };
   });
 
   /* ------------------------------ WebSocket /ws ------------------------------ */

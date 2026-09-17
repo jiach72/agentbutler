@@ -14,17 +14,21 @@ import {
   App,
   Button,
   Card,
+  Divider,
   Empty,
   Flex,
   Input,
   Popconfirm,
   Progress,
+  Select,
   Space,
+  Table,
   Tag,
   Tooltip,
   Typography,
 } from "antd";
 import {
+  BarChartOutlined,
   CheckCircleFilled,
   CloseCircleFilled,
   CloudDownloadOutlined,
@@ -33,6 +37,7 @@ import {
   LinkOutlined,
   LoadingOutlined,
   ReloadOutlined,
+  SendOutlined,
   ThunderboltOutlined,
 } from "@ant-design/icons";
 import { deleteJson, loadJson, postJson } from "../../lib/api.js";
@@ -95,6 +100,42 @@ interface PullStatusPayload {
   } | null;
 }
 
+interface DailyUsageMetric {
+  date: string;
+  callCount: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  avgTokensPerSecond: number;
+}
+
+interface OllamaUsageSummary {
+  todayCalls: number;
+  todayPromptTokens: number;
+  todayCompletionTokens: number;
+  todayTokens: number;
+  totalCalls: number;
+  totalPromptTokens: number;
+  totalCompletionTokens: number;
+  totalTokens: number;
+  avgTokensPerSecond: number;
+  dailyHistory: DailyUsageMetric[];
+}
+
+interface ChatTestResult {
+  ok: boolean;
+  model: string;
+  reply?: string;
+  error?: string;
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    durationMs: number;
+    tokensPerSecond: number;
+  };
+}
+
 export function OllamaConfigCard() {
   const { message } = App.useApp();
 
@@ -109,6 +150,14 @@ export function OllamaConfigCard() {
   const [downloadInput, setDownloadInput] = useState("");
   const [pulling, setPulling] = useState(false);
   const [pullProgress, setPullProgress] = useState<PullStatusPayload["pull"]>(null);
+
+  const [usageSummary, setUsageSummary] = useState<OllamaUsageSummary | null>(null);
+  const [loadingUsage, setLoadingUsage] = useState(false);
+
+  const [testModel, setTestModel] = useState<string>("");
+  const [testPrompt, setTestPrompt] = useState<string>("你好，请做个简短的自我介绍。");
+  const [testingChat, setTestingChat] = useState(false);
+  const [chatResult, setChatResult] = useState<ChatTestResult | null>(null);
 
   // 1. 检查服务健康状态
   const checkStatus = useCallback(async () => {
@@ -172,12 +221,65 @@ export function OllamaConfigCard() {
     };
   }, [pulling, loadModels, message]);
 
+  // 5. 加载每日调用量与 Token 汇总统计
+  const loadUsageSummary = useCallback(async () => {
+    setLoadingUsage(true);
+    const res = await loadJson<{ ok: boolean; summary: OllamaUsageSummary }>(
+      "/api/ollama/usage/summary?days=14",
+      5000,
+    );
+    setLoadingUsage(false);
+    if (res.ok && res.data.ok) {
+      setUsageSummary(res.data.summary);
+    }
+  }, []);
+
+  // 6. 发起测试对话
+  const handleTestChat = async () => {
+    const targetModel = testModel || models[0]?.name;
+    if (!targetModel) {
+      message.warning("请先选择或下载要测试的模型");
+      return;
+    }
+    if (!testPrompt.trim()) {
+      message.warning("请输入测试提示词");
+      return;
+    }
+    setTestingChat(true);
+    setChatResult(null);
+    const res = await postJson(
+      "/api/ollama/test-chat",
+      { model: targetModel, prompt: testPrompt },
+      60_000,
+    );
+    setTestingChat(false);
+    if (res.ok && res.data) {
+      const resultData = res.data as ChatTestResult;
+      setChatResult(resultData);
+      if (resultData.ok) {
+        message.success("模型响应成功，Token 统计已实时更新！");
+        void loadUsageSummary();
+      } else {
+        message.error(`模型响应失败: ${resultData.error || "未知错误"}`);
+      }
+    } else {
+      message.error(`调用接口失败 (HTTP ${res.status})`);
+    }
+  };
+
+  useEffect(() => {
+    if (models.length > 0 && !testModel) {
+      setTestModel(models[0]?.name || "");
+    }
+  }, [models, testModel]);
+
   // 初始化加载
   useEffect(() => {
     void checkStatus();
     void loadHardwareProfile();
     void loadModels();
-  }, [checkStatus, loadHardwareProfile, loadModels]);
+    void loadUsageSummary();
+  }, [checkStatus, loadHardwareProfile, loadModels, loadUsageSummary]);
 
   // 发起下载模型
   const handleStartPull = async (modelToPull?: string) => {
@@ -547,19 +649,348 @@ export function OllamaConfigCard() {
                       {item.modifiedAt}
                     </Text>
                   </Flex>
-                  <Button
-                    size="small"
-                    style={{ marginTop: 2 }}
-                    icon={<CloudDownloadOutlined />}
-                    onClick={() => handleQuickBind(item.name)}
-                  >
-                    设为 Butler 模型
-                  </Button>
-                </div>
-              ))}
+                    <Button
+                      size="small"
+                      style={{ marginTop: 2 }}
+                      icon={<CloudDownloadOutlined />}
+                      onClick={() => handleQuickBind(item.name)}
+                    >
+                      设为 Butler 模型
+                    </Button>
+                  </div>
+                ))}
+              </Flex>
+            )}
+          </div>
+
+          <Divider style={{ margin: "18px 0" }} />
+
+          {/* 6. 每日调用量与 Token 消耗大盘 */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <Flex justify="space-between" align="center" wrap="wrap" gap={8}>
+              <Flex align="center" gap={8}>
+                <BarChartOutlined style={{ fontSize: 16, color: "#1677ff" }} />
+                <Text strong style={{ fontSize: 15 }}>
+                  调用量与 Token 消耗监控
+                </Text>
+                <Tag color="blue">每日统计</Tag>
+              </Flex>
+              <Button
+                size="small"
+                icon={<ReloadOutlined spin={loadingUsage} />}
+                onClick={() => void loadUsageSummary()}
+              >
+                刷新统计
+              </Button>
             </Flex>
-          )}
-        </div>
+
+            {/* 汇总统计指标卡片 */}
+            <Flex wrap="wrap" gap={12}>
+              <div
+                style={{
+                  flex: "1 1 180px",
+                  minWidth: 160,
+                  padding: "12px 14px",
+                  background: "#fafafa",
+                  borderRadius: 8,
+                  border: "1px solid #f0f0f0",
+                }}
+              >
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  今日调用量
+                </Text>
+                <div style={{ fontSize: 22, fontWeight: 700, color: "#1677ff", marginTop: 4 }}>
+                  {usageSummary?.todayCalls ?? 0}{" "}
+                  <span style={{ fontSize: 13, fontWeight: "normal", color: "#8c8c8c" }}>次</span>
+                </div>
+                <Text type="secondary" style={{ fontSize: 11 }}>
+                  今日发起的本地推理请求
+                </Text>
+              </div>
+
+              <div
+                style={{
+                  flex: "1 1 180px",
+                  minWidth: 160,
+                  padding: "12px 14px",
+                  background: "#fafafa",
+                  borderRadius: 8,
+                  border: "1px solid #f0f0f0",
+                }}
+              >
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  今日 Token 消耗
+                </Text>
+                <div style={{ fontSize: 22, fontWeight: 700, color: "#52c41a", marginTop: 4 }}>
+                  {(usageSummary?.todayTokens ?? 0).toLocaleString()}{" "}
+                  <span style={{ fontSize: 13, fontWeight: "normal", color: "#8c8c8c" }}>Tokens</span>
+                </div>
+                <Text type="secondary" style={{ fontSize: 11 }}>
+                  输入 {(usageSummary?.todayPromptTokens ?? 0).toLocaleString()} · 输出{" "}
+                  {(usageSummary?.todayCompletionTokens ?? 0).toLocaleString()}
+                </Text>
+              </div>
+
+              <div
+                style={{
+                  flex: "1 1 180px",
+                  minWidth: 160,
+                  padding: "12px 14px",
+                  background: "#fafafa",
+                  borderRadius: 8,
+                  border: "1px solid #f0f0f0",
+                }}
+              >
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  累计调用总数
+                </Text>
+                <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>
+                  {usageSummary?.totalCalls ?? 0}{" "}
+                  <span style={{ fontSize: 13, fontWeight: "normal", color: "#8c8c8c" }}>次</span>
+                </div>
+                <Text type="secondary" style={{ fontSize: 11 }}>
+                  历史调用次数总计
+                </Text>
+              </div>
+
+              <div
+                style={{
+                  flex: "1 1 180px",
+                  minWidth: 160,
+                  padding: "12px 14px",
+                  background: "#fafafa",
+                  borderRadius: 8,
+                  border: "1px solid #f0f0f0",
+                }}
+              >
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  累计总 Token 消耗
+                </Text>
+                <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>
+                  {(usageSummary?.totalTokens ?? 0).toLocaleString()}{" "}
+                  <span style={{ fontSize: 13, fontWeight: "normal", color: "#8c8c8c" }}>Tokens</span>
+                </div>
+                <Text type="secondary" style={{ fontSize: 11 }}>
+                  输入 {(usageSummary?.totalPromptTokens ?? 0).toLocaleString()} · 输出{" "}
+                  {(usageSummary?.totalCompletionTokens ?? 0).toLocaleString()}
+                </Text>
+              </div>
+
+              <div
+                style={{
+                  flex: "1 1 180px",
+                  minWidth: 160,
+                  padding: "12px 14px",
+                  background: "#fafafa",
+                  borderRadius: 8,
+                  border: "1px solid #f0f0f0",
+                }}
+              >
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  平均生成速率
+                </Text>
+                <div style={{ fontSize: 22, fontWeight: 700, color: "#fa8c16", marginTop: 4 }}>
+                  {usageSummary?.avgTokensPerSecond ?? 0}{" "}
+                  <span style={{ fontSize: 13, fontWeight: "normal", color: "#8c8c8c" }}>tokens/s</span>
+                </div>
+                <Text type="secondary" style={{ fontSize: 11 }}>
+                  本地模型生成吞吐
+                </Text>
+              </div>
+            </Flex>
+
+            {/* 每日明细表格 */}
+            <div style={{ marginTop: 4 }}>
+              <Text strong style={{ fontSize: 13, marginBottom: 8, display: "block" }}>
+                📅 最近 14 天每日调用明细
+              </Text>
+              <Table
+                size="small"
+                dataSource={usageSummary?.dailyHistory || []}
+                rowKey="date"
+                pagination={{ pageSize: 7, size: "small" }}
+                columns={[
+                  { title: "日期", dataIndex: "date", key: "date", width: 120 },
+                  {
+                    title: "调用次数",
+                    dataIndex: "callCount",
+                    key: "callCount",
+                    width: 100,
+                    render: (val: number) => (
+                      <Tag color={val > 0 ? "blue" : "default"}>{val} 次</Tag>
+                    ),
+                  },
+                  {
+                    title: "输入 (Prompt)",
+                    dataIndex: "promptTokens",
+                    key: "promptTokens",
+                    render: (val: number) => val.toLocaleString(),
+                  },
+                  {
+                    title: "输出 (Completion)",
+                    dataIndex: "completionTokens",
+                    key: "completionTokens",
+                    render: (val: number) => val.toLocaleString(),
+                  },
+                  {
+                    title: "总消耗 Token",
+                    dataIndex: "totalTokens",
+                    key: "totalTokens",
+                    render: (val: number) => <Text strong>{val.toLocaleString()}</Text>,
+                  },
+                  {
+                    title: "平均速率",
+                    dataIndex: "avgTokensPerSecond",
+                    key: "avgTokensPerSecond",
+                    render: (val: number) => (val > 0 ? `${val} tokens/s` : "-"),
+                  },
+                ]}
+              />
+            </div>
+          </div>
+
+          <Divider style={{ margin: "18px 0" }} />
+
+          {/* 7. 本地模型在线测试与 Token 探测 */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <Flex justify="space-between" align="center" wrap="wrap" gap={8}>
+              <Flex align="center" gap={8}>
+                <ThunderboltOutlined style={{ fontSize: 16, color: "#fa8c16" }} />
+                <Text strong style={{ fontSize: 15 }}>
+                  本地模型在线测试与 Token 探测
+                </Text>
+                <Tag color="orange">冒烟测试</Tag>
+              </Flex>
+            </Flex>
+
+            <Text type="secondary" style={{ fontSize: 13 }}>
+              向本地模型发起对话测试，实时探测返回的 Token 数量、推理耗时与生成吞吐速度（调用记录将自动计入上方每日统计大盘）。
+            </Text>
+
+            {models.length === 0 ? (
+              <Alert
+                type="info"
+                showIcon
+                message="暂无可用模型"
+                description="请先在上方模型推荐列表中下载任意模型（例如 qwen2.5:0.5b），下载完成后即可在此处发起对话测试与 Token 探测。"
+              />
+            ) : (
+              <div
+                style={{
+                  padding: "16px",
+                  background: "#fafafa",
+                  border: "1px solid #f0f0f0",
+                  borderRadius: 8,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 12,
+                }}
+              >
+                <Flex gap={12} align="center" wrap="wrap">
+                  <Text style={{ minWidth: 64 }}>选择模型:</Text>
+                  <Select
+                    style={{ minWidth: 200 }}
+                    value={testModel || models[0]?.name}
+                    onChange={(val) => setTestModel(val)}
+                    options={models.map((m) => ({
+                      label: `${m.name} (${m.sizeFormatted})`,
+                      value: m.name,
+                    }))}
+                  />
+                  <Space wrap>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      快捷提示词:
+                    </Text>
+                    <Tag
+                      style={{ cursor: "pointer" }}
+                      onClick={() => setTestPrompt("你好，请做个简短的自我介绍。")}
+                    >
+                      自我介绍
+                    </Tag>
+                    <Tag
+                      style={{ cursor: "pointer" }}
+                      onClick={() => setTestPrompt("请用一句话总结什么是 Agent Butler。")}
+                    >
+                      一句话总结
+                    </Tag>
+                    <Tag
+                      style={{ cursor: "pointer" }}
+                      onClick={() =>
+                        setTestPrompt(
+                          "提取以下文本的 3 个关键词：本地轻量模型提供全天候记忆管理与状态探针服务。",
+                        )
+                      }
+                    >
+                      实体抽取
+                    </Tag>
+                  </Space>
+                </Flex>
+
+                <Input.TextArea
+                  rows={3}
+                  value={testPrompt}
+                  onChange={(e) => setTestPrompt(e.target.value)}
+                  placeholder="输入测试提示词..."
+                />
+
+                <Flex justify="flex-end">
+                  <Button
+                    type="primary"
+                    icon={<SendOutlined />}
+                    loading={testingChat}
+                    onClick={handleTestChat}
+                  >
+                    发送测试并探测 Token
+                  </Button>
+                </Flex>
+
+                {/* 测试结果展示区 */}
+                {chatResult && (
+                  <div
+                    style={{
+                      marginTop: 8,
+                      padding: "14px 16px",
+                      background: "#fff",
+                      border: "1px solid #d9d9d9",
+                      borderRadius: 6,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 10,
+                    }}
+                  >
+                    <Flex justify="space-between" align="center" wrap="wrap" gap={8}>
+                      <Text strong style={{ color: chatResult.ok ? "#52c41a" : "#f5222d" }}>
+                        {chatResult.ok ? "✓ 模型回复成功" : "✕ 调用出错"}
+                      </Text>
+                      {chatResult.usage && (
+                        <Flex gap={8} wrap="wrap">
+                          <Tag color="blue">⚡ 输入: {chatResult.usage.promptTokens} tokens</Tag>
+                          <Tag color="green">💬 输出: {chatResult.usage.completionTokens} tokens</Tag>
+                          <Tag color="purple">📊 总计: {chatResult.usage.totalTokens} tokens</Tag>
+                          <Tag color="cyan">⏱️ 耗时: {chatResult.usage.durationMs} ms</Tag>
+                          <Tag color="orange">🚀 吞吐: {chatResult.usage.tokensPerSecond} tokens/s</Tag>
+                        </Flex>
+                      )}
+                    </Flex>
+
+                    <div
+                      style={{
+                        padding: "10px 12px",
+                        background: "#f9f9f9",
+                        borderRadius: 4,
+                        fontSize: 13,
+                        lineHeight: 1.6,
+                        whiteSpace: "pre-wrap",
+                        wordBreak: "break-word",
+                      }}
+                    >
+                      {chatResult.reply || chatResult.error}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
       </Flex>
     </Card>
   );
