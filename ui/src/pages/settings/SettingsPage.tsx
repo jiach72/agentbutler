@@ -4,7 +4,7 @@
  * 展示层为「市场风」：PageHeader + 数据源状态概览条 + 左侧分类导航 + 右侧内容区。
  */
 import { useCallback, useEffect, useState } from "react";
-import { Alert, App, Flex, Tabs } from "antd";
+import { App, Flex, Tabs } from "antd";
 import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { ConnectionChip } from "../../components/ConnectionChip.js";
 import { ConclusionBar } from "../../components/ConclusionBar.js";

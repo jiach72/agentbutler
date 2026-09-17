@@ -120,4 +120,54 @@ describe("POST /api/agent-message", () => {
       await app.close();
     }
   });
+
+  it("支持携带 sessionId 与 messages 数组透传给 api_server", async () => {
+    const app = buildApp();
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/agent-message",
+        payload: {
+          sessionId: "my-direct-session-1",
+          messages: [
+            { role: "user", content: "第一轮" },
+            { role: "assistant", content: "第一轮回显" },
+            { role: "user", content: "第二轮追问" },
+          ],
+        },
+      });
+      expect(res.statusCode).toBe(200);
+      const body = capturedBody as { messages: Array<{ role: string; content: string }> };
+      expect(body.messages).toHaveLength(3);
+      expect(body.messages[2]?.content).toBe("第二轮追问");
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("GET /api/agent-message/status 返回 api_server 配置就绪态", async () => {
+    const app = buildApp();
+    try {
+      const res = await app.inject({ method: "GET", url: "/api/agent-message/status" });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({ ready: true, port: 18642, host: "127.0.0.1" });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("POST /api/messages/prompt-enhance 执行提示词增强重构", async () => {
+    const app = buildApp();
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/messages/prompt-enhance",
+        payload: { prompt: "肥嘟嘟" },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({ ok: true, original: "肥嘟嘟" });
+    } finally {
+      await app.close();
+    }
+  });
 });

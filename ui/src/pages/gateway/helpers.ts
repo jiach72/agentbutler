@@ -711,12 +711,12 @@ export function historySummaryLine(content: string, max = 64): string {
 /* ---- 网关页标签导航与深链兼容 ---- */
 
 /** 顶级并列标签的合法取值（4 个核心维度）。 */
-export type GatewayTab = "history" | "optimization" | "messages" | "settings";
+export type GatewayTab = "history" | "prompts" | "messages" | "settings";
 
 /** 标签的展示名（与页面 Tabs 文案保持一致，便于测试断言）。 */
 export const GATEWAY_TAB_LABELS: Record<GatewayTab, string> = {
   history: "即时通讯工作台",
-  optimization: "消息整理与对照",
+  prompts: "提示词优化",
   messages: "待处理与监控",
   settings: "通道与规则设置",
 };
@@ -724,14 +724,14 @@ export const GATEWAY_TAB_LABELS: Record<GatewayTab, string> = {
 /** 旧「提示词优化」深链的锚点 id：保留兼容，旧 hash 仍能直接跳转到对照与优化。 */
 export const PROMPT_OPTIMIZATION_ANCHOR = "prompt-optimization-panel";
 
-/** 旧深链中代表「提示词优化」的 tab 取值，统一映射到新的 optimization 顶级标签。 */
+/** 旧深链中代表「提示词优化」的 tab 取值，统一映射到新的 prompts 顶级标签。 */
 const LEGACY_PROMPT_TAB = "prompt-optimization";
 
 /**
  * 把 URL 查询（或字符串）解析为当前标签。
- * 约定：history / optimization / messages / settings 直用；
+ * 约定：history / prompts / messages / settings 直用；
  * channels / rules 兼容映射到 settings；
- * prompt-optimization（旧深链）或 #prompt-optimization-panel 直接映射为 optimization；
+ * optimization / prompt-optimization（旧深链）或 #prompt-optimization-panel 直接映射为 prompts；
  * 缺省、非法或空值一律回落主工作台即时通讯（history）。
  */
 export function resolveGatewayTab(
@@ -742,7 +742,7 @@ export function resolveGatewayTab(
   const tab = params.get("tab");
   if (
     tab === "history" ||
-    tab === "optimization" ||
+    tab === "prompts" ||
     tab === "messages" ||
     tab === "settings"
   ) {
@@ -751,8 +751,12 @@ export function resolveGatewayTab(
   if (tab === "channels" || tab === "rules") {
     return "settings";
   }
-  if (tab === LEGACY_PROMPT_TAB || hash === `#${PROMPT_OPTIMIZATION_ANCHOR}`) {
-    return "optimization";
+  if (
+    tab === "optimization" ||
+    tab === LEGACY_PROMPT_TAB ||
+    hash === `#${PROMPT_OPTIMIZATION_ANCHOR}`
+  ) {
+    return "prompts";
   }
   return "history";
 }

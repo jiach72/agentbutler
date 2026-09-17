@@ -725,15 +725,32 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
     };
   });
 
+  // 检查本机 Hermes 智能体 api_server 状态
+  app.get("/api/agent-message/status", async (_request, reply) => {
+    const hermesRoot =
+      process.env["BUTLER_HERMES_ROOT"]?.trim() || path.join(os.homedir(), ".hermes");
+    const config = await readHermesConfig(hermesRoot);
+    const api = config?.apiServer;
+    const ready = api !== undefined && api.port !== null && api.key !== null;
+    return reply.code(200).send({
+      ready,
+      port: api?.port ?? null,
+      host: api?.host ?? null,
+      reason: ready ? "ok" : "未检测到 api_server 配置或 key",
+    });
+  });
+
   // 把求助提示词转发给本机 Hermes 智能体（走其 api_server 的 OpenAI 兼容聊天接口）。
   // 面板→web→gateway→host:port；key 只在本链路内部使用，绝不回显。
   app.post("/api/agent-message", async (request, reply) => {
     const body = asRecord(request.body);
     const text = body === null ? null : readString(body["text"]);
-    if (text === null) {
-      return reply.code(400).send({ error: "text must be a non-empty string" });
+    const sessionId = body === null ? null : readString(body["sessionId"]);
+    const incomingMessages = body !== null && Array.isArray(body["messages"]) ? body["messages"] : null;
+    if (text === null && incomingMessages === null) {
+      return reply.code(400).send({ error: "text must be a non-empty string or messages array provided" });
     }
-    if (text.length > 8_000) {
+    if (text !== null && text.length > 8_000) {
       return reply.code(400).send({ error: "text is too long (max 8000 chars)" });
     }
     const hermesRoot =
@@ -765,6 +782,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
         detail: `api_server.host 指向不允许的目标（仅限本机/容器网/内网地址），已拒绝转发`,
       });
     }
+    const outboundMessages = incomingMessages ?? [{ role: "user", content: text }];
     let lastError = "unknown";
     for (const host of hosts) {
       let response: Response;
@@ -774,10 +792,10 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
           headers: {
             authorization: `Bearer ${api.key}`,
             "content-type": "application/json",
-            "x-hermes-session-id": "butler-troubleshoot",
+            "x-hermes-session-id": sessionId || "butler-troubleshoot",
           },
           body: JSON.stringify({
-            messages: [{ role: "user", content: text }],
+            messages: outboundMessages,
             stream: false,
           }),
           signal: AbortSignal.timeout(170_000),
@@ -809,6 +827,85 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
       error: "agent-unreachable",
       detail: `无法连接智能体接口：${lastError}`,
     });
+  });
+
+  // 提示词增强专用接口：接收原始输入，返回结构化、规范化的增强 Prompt
+  app.post("/api/messages/prompt-enhance", async (request, reply) => {
+    const body = asRecord(request.body);
+    const rawPrompt = body === null ? null : readString(body["prompt"]);
+    if (rawPrompt === null) {
+      return reply.code(400).send({ error: "prompt must be a non-empty string" });
+    }
+    const prompt = rawPrompt.trim();
+    if (prompt.length > 4_000) {
+      return reply.code(400).send({ error: "prompt is too long" });
+    }
+
+    const hermesRoot =
+      process.env["BUTLER_HERMES_ROOT"]?.trim() || path.join(os.homedir(), ".hermes");
+    const config = await readHermesConfig(hermesRoot);
+    const api = config?.apiServer;
+
+    // 如果未配置 api_server，直接由前端规则兜底
+    if (api === undefined || api.port === null || api.key === null) {
+      return reply.code(200).send({ ok: true, enhanced: prompt, mode: "rule", changes: ["规则快速处理"] });
+    }
+
+    // 组装优化 System Prompt
+    const systemPrompt =
+      "你是本地 AI 智能体的 Prompt 结构化优化助手。用户指令可能较为简短、口语化或意图模糊。" +
+      "请将该输入重构为专业、清晰、目标明确、可直接执行并可验收的高质量指令。" +
+      "要求：\n" +
+      "1. 补充必要的上下文范围与期望产出格式；\n" +
+      "2. 保持中文表述自然顺畅，不要添加多余客套话；\n" +
+      "3. 绝对不要输出任何前言、解释、引号或元说明，只直接输出重构后的最终提示词正文。";
+
+    const hosts = [...new Set([api.host, "127.0.0.1", "host.docker.internal"])].filter(
+      (host) => host !== null && host !== "" && host !== "0.0.0.0"
+    );
+
+    for (const host of hosts) {
+      try {
+        const response = await fetch(`http://${host}:${api.port}/v1/chat/completions`, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${api.key}`,
+            "content-type": "application/json",
+            "x-hermes-session-id": "butler-prompt-optimizer",
+          },
+          body: JSON.stringify({
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: prompt },
+            ],
+            stream: false,
+          }),
+          signal: AbortSignal.timeout(15_000),
+        });
+        if (response.ok) {
+          const payload = (await response.json().catch(() => null)) as {
+            choices?: Array<{ message?: { content?: unknown } }>;
+          } | null;
+          const replyText =
+            typeof payload?.choices?.[0]?.message?.content === "string"
+              ? payload.choices[0].message.content.trim()
+              : "";
+          if (replyText !== "") {
+            return reply.code(200).send({
+              ok: true,
+              original: prompt,
+              enhanced: replyText,
+              mode: "llm",
+              changes: ["AI 深度结构化增强"],
+            });
+          }
+        }
+      } catch {
+        // 尝试下一个 host
+      }
+    }
+
+    return reply.code(200).send({ ok: true, enhanced: prompt, mode: "rule", changes: ["规则保底处理"] });
   });
 
   registerMessageRoutes(

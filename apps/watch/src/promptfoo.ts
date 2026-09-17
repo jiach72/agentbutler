@@ -5,7 +5,6 @@
  * 3. 并发执行基线 (Baseline) 与候选 (Candidate) 的成对矩阵评测；
  * 4. 提供基于 Promptfoo Meta-Prompt 优化策略的提示词生成器，严格复验与保障安全段静态门禁。
  */
-import { createHash } from "node:crypto";
 import type { PromptProtectedClause } from "@butler/core";
 import type { PromptPairCase } from "./prompt-optimization.js";
 
@@ -91,10 +90,6 @@ export interface ModelExecutionResult {
 }
 
 export type ModelExecutor = (options: ModelExecutorOptions) => Promise<ModelExecutionResult>;
-
-function sha256(value: string): string {
-  return createHash("sha256").update(value, "utf8").digest("hex");
-}
 
 function normalize(text: string): string {
   return text.replace(/\r\n/g, "\n").replace(/\s+/g, " ").trim();

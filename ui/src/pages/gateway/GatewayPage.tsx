@@ -642,8 +642,8 @@ export function GatewayPage() {
               ),
             },
             {
-              key: "optimization",
-              label: GATEWAY_TAB_LABELS.optimization,
+              key: "prompts",
+              label: GATEWAY_TAB_LABELS.prompts,
               children: (
                 <div id={PROMPT_OPTIMIZATION_ANCHOR}>
                   <PromptOptimizationPanel />

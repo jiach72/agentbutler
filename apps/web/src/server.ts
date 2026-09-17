@@ -2269,7 +2269,51 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     }
     return reply.status(res.status).send(parsed);
   });
-  // 微信扫码登录代理：POST 动作原样透传 gateway；GET status 携带 sessionId 查询透传
+  app.get("/api/agent-message/status", async (_request, reply) => {
+    let res: Response;
+    try {
+      res = await doFetch(`${gatewayUrl}/api/agent-message/status`, {
+        headers: gatewayAuthHeaders(),
+        signal: AbortSignal.timeout(5_000),
+      });
+    } catch {
+      return reply.status(502).send({ ready: false, error: "gateway-unreachable" });
+    }
+    const raw = await res.text();
+    let parsed: unknown = { ready: false };
+    if (raw !== "") {
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        parsed = { ready: false, raw };
+      }
+    }
+    return reply.status(res.status).send(parsed);
+  });
+  // 提示词增强接口代理透传
+  app.post("/api/messages/prompt-enhance", async (request, reply) => {
+    let res: Response;
+    try {
+      res = await doFetch(`${gatewayUrl}/api/messages/prompt-enhance`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...gatewayAuthHeaders() },
+        body: JSON.stringify(request.body ?? {}),
+        signal: AbortSignal.timeout(20_000),
+      });
+    } catch {
+      return reply.status(502).send({ error: "gateway-unreachable" });
+    }
+    const raw = await res.text();
+    let parsed: unknown = {};
+    if (raw !== "") {
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        parsed = { raw };
+      }
+    }
+    return reply.status(res.status).send(parsed);
+  });
   // （不可达/非 2xx 一律 502 降级，模式同 GET /api/messages/channels）。
   app.post("/api/messages/channels/weixin/login/start", async (request, reply) =>
     proxyGatewayPost("/api/messages/channels/weixin/login/start", request.body, reply),

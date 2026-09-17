@@ -196,7 +196,7 @@ describe("对照历史日期分组与摘要", () => {
 describe("resolveGatewayTab 标签解析与深链映射", () => {
   it("标准标签原样解析", () => {
     expect(resolveGatewayTab("?tab=history")).toBe("history");
-    expect(resolveGatewayTab("?tab=optimization")).toBe("optimization");
+    expect(resolveGatewayTab("?tab=prompts")).toBe("prompts");
     expect(resolveGatewayTab("?tab=messages")).toBe("messages");
     expect(resolveGatewayTab("?tab=settings")).toBe("settings");
   });
@@ -206,9 +206,10 @@ describe("resolveGatewayTab 标签解析与深链映射", () => {
     expect(resolveGatewayTab("?tab=rules")).toBe("settings");
   });
 
-  it("旧深链 prompt-optimization 映射到 optimization 顶级标签", () => {
-    expect(resolveGatewayTab("?tab=prompt-optimization")).toBe("optimization");
-    expect(resolveGatewayTab("", "#prompt-optimization-panel")).toBe("optimization");
+  it("旧深链 optimization 与 prompt-optimization 映射到 prompts 顶级标签", () => {
+    expect(resolveGatewayTab("?tab=optimization")).toBe("prompts");
+    expect(resolveGatewayTab("?tab=prompt-optimization")).toBe("prompts");
+    expect(resolveGatewayTab("", "#prompt-optimization-panel")).toBe("prompts");
   });
 
   it("缺省或未知 tab 回退到 history（即时通讯工作台）", () => {

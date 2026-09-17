@@ -3359,11 +3359,54 @@ async function handle(
           return sendJson(res, 400, outcome);
         }
 
+        const autoEvaluate = body["autoEvaluate"] !== false;
+        let evalReport: unknown = null;
+        let evalDetails: unknown = null;
+        if (autoEvaluate) {
+          const suite = BUILTIN_PROMPTFOO_SUITES[0]!;
+          try {
+            const { pairs, details } = await runPromptfooEvaluation({
+              suite,
+              baselinePrompt: baselineContent,
+              candidatePrompt: optimizedPrompt,
+              modelExecutor: executor,
+            });
+            const evalOutcome = await deps.promptOptimization.evaluateCandidate({
+              candidateId: outcome.candidate.candidateId,
+              cases: pairs,
+              datasetHash: createHash("sha256").update(JSON.stringify(suite), "utf8").digest("hex"),
+              datasetSchemaVersion: "promptfoo-v1",
+              modelParams: { model: modelName || "default", suiteId: suite.suiteId },
+            });
+            if (evalOutcome.status !== "error") {
+              evalReport = evalOutcome.report;
+              evalDetails = details;
+            }
+          } catch {
+            // non-fatal for candidate creation
+          }
+        }
+
+        const refreshedCandidate = deps.promptOptimization.getCandidate(outcome.candidate.candidateId);
+
         return sendJson(res, 201, {
           ok: true,
-          candidate: outcome.candidate,
+          candidate: refreshedCandidate ?? outcome.candidate,
           changes,
           preservedClauses,
+          evalResult: evalReport
+            ? {
+                ok: true,
+                report: evalReport,
+                details: evalDetails,
+                suite: {
+                  suiteId: BUILTIN_PROMPTFOO_SUITES[0]!.suiteId,
+                  name: BUILTIN_PROMPTFOO_SUITES[0]!.name,
+                  tier: BUILTIN_PROMPTFOO_SUITES[0]!.tier,
+                  totalTests: BUILTIN_PROMPTFOO_SUITES[0]!.tests.length,
+                },
+              }
+            : undefined,
         });
       } catch (err) {
         return sendJson(res, 500, {

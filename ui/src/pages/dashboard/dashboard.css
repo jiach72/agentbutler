@@ -73,6 +73,96 @@
 .health-conclusion[data-status="action_required"] h2,
 .health-conclusion[data-status="degraded"] h2 { color: color-mix(in srgb, var(--ab-warn) 65%, var(--ab-text)); }
 .health-conclusion p { max-width: 70ch; }
+.health-conclusion-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--ab-text-2);
+}
+.health-conclusion-meta .meta-sep { opacity: 0.5; }
+.health-conclusion-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* 管家常用操作快捷入口 */
+.butler-quick-actions { margin-bottom: 4px; }
+.butler-quick-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+.butler-quick-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 20px;
+  background: var(--ab-surface);
+  border: 1px solid var(--ab-border);
+  border-radius: var(--ab-r-card, 16px);
+  box-shadow: var(--ab-shadow-1);
+  text-decoration: none;
+  color: var(--ab-text);
+  transition: transform var(--ab-dur-fast) var(--ab-ease-out-expo), box-shadow var(--ab-dur-fast) var(--ab-ease), border-color var(--ab-dur-fast) var(--ab-ease);
+}
+.butler-quick-card:hover {
+  box-shadow: var(--ab-shadow-2);
+  border-color: var(--ab-primary);
+  transform: translateY(-2px);
+  color: var(--ab-text);
+}
+.butler-quick-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+  color: #fff;
+}
+.butler-quick-icon.action-task { background: linear-gradient(135deg, #1677ff, #0958d9); }
+.butler-quick-icon.action-chat { background: linear-gradient(135deg, #52c41a, #389e0d); }
+.butler-quick-icon.action-skill { background: linear-gradient(135deg, #722ed1, #531dab); }
+.butler-quick-icon.action-tool { background: linear-gradient(135deg, #fa8c16, #d46b08); }
+.butler-quick-content {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+.butler-quick-content strong {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ab-text);
+}
+.butler-quick-content span {
+  font-size: 12px;
+  color: var(--ab-text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.butler-quick-arrow {
+  font-size: 13px;
+  color: var(--ab-text-2);
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: all 0.2s ease;
+}
+.butler-quick-card:hover .butler-quick-arrow {
+  opacity: 1;
+  transform: translateX(0);
+  color: var(--ab-primary);
+}
+
 .health-main { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(260px, 1fr); gap: 24px; }
 .health-main > section { min-width: 0; }
 .health-issues, .health-tasks {
@@ -129,6 +219,42 @@
   font-size: 13px;
   color: var(--ab-text-2);
 }
+.health-empty-actions {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.health-empty-link {
+  color: var(--ab-primary);
+  font-weight: 500;
+}
+.health-empty-sep {
+  color: var(--ab-text-2);
+  opacity: 0.6;
+}
+
+.health-task-empty-action { margin-top: 14px; }
+.health-task-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: var(--ab-r-ctl, 8px);
+  background: color-mix(in srgb, var(--ab-primary) 10%, transparent);
+  border: 1px dashed var(--ab-primary);
+  color: var(--ab-primary);
+  font-weight: 500;
+  font-size: 13px;
+  transition: all 0.2s ease;
+  min-height: 38px;
+}
+.health-task-add-btn:hover {
+  background: var(--ab-primary);
+  color: #fff;
+}
+
 .health-more { margin-top: 12px; }
 .health-more summary { cursor: pointer; min-height: 44px; display: list-item; align-content: center; }
 .health-task-title { font-size: 18px; font-weight: 600; overflow-wrap: anywhere; }
@@ -136,6 +262,7 @@
 .health-task-list li { display: flex; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--ab-border); }
 .health-task-list li span { overflow-wrap: anywhere; min-width: 0; }
 .health-task-list time { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+
 .health-capabilities {
   background: var(--ab-surface);
   border: 1px solid var(--ab-border);
@@ -149,19 +276,109 @@
   border: 1px solid var(--ab-border);
   border-radius: var(--ab-r-ctl, 8px);
   padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
   transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
 }
 .health-capability-list > div:hover {
   box-shadow: var(--ab-shadow-1);
-  border-color: var(--ab-primary-soft-border);
+  border-color: var(--ab-primary);
+  transform: translateY(-2px);
 }
-.health-capability-list dt { min-height: 32px; }
-.health-capability-list dd { font-size: 18px; margin: 4px 0 0; font-weight: 600; }
+.health-capability-list dt {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.capability-title-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--ab-text);
+  font-size: 14px;
+}
+.capability-title-link:hover { color: var(--ab-primary); }
+.health-capability-list dd { font-size: 18px; margin: 8px 0 2px; font-weight: 600; }
+.health-cap-desc {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--ab-text-2);
+  line-height: 1.4;
+}
+
+/* 高级巡检折叠面板 */
+.health-telemetry-section { margin-top: 4px; }
+.health-telemetry-content {
+  padding: 12px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.telemetry-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.telemetry-card {
+  background: var(--ab-surface-2);
+  border: 1px solid var(--ab-border);
+  border-radius: var(--ab-r-ctl, 8px);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.telemetry-label {
+  font-size: 12px;
+  color: var(--ab-text-2);
+}
+.telemetry-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ab-text);
+}
+.telemetry-checks-list {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.telemetry-checks-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ab-text);
+}
+.telemetry-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.telemetry-footer-links {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.telemetry-footer-links a { color: var(--ab-primary); }
+
 .dashboard-simple a:focus-visible, .health-more summary:focus-visible { outline: 2px solid var(--ab-brand); outline-offset: 4px; }
 .dashboard-simple *, .health-attention * { overflow-wrap: anywhere; }
+
+@media (max-width: 1024px) {
+  .butler-quick-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .telemetry-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 @media (max-width: 767px) {
   .health-main { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .butler-quick-grid { grid-template-columns: minmax(0, 1fr); }
   .health-capability-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .telemetry-grid { grid-template-columns: minmax(0, 1fr); }
   .health-attention li { align-items: flex-start; flex-direction: column; gap: 4px; }
   .health-conclusion h2 { font-size: 22px; }
+  .health-conclusion-actions { width: 100%; justify-content: flex-start; }
 }

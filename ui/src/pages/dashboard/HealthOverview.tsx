@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { PlusOutlined } from "@ant-design/icons";
 import type { AttentionItem } from "@butler/contract";
 import type { deriveTaskPreview } from "./taskPreview.js";
 
@@ -8,7 +9,12 @@ export function AttentionList({ attention }: { attention: AttentionItem[] }) {
       <span className="health-empty-icon" aria-hidden="true">✓</span>
       <div>
         <strong>系统运行良好</strong>
-        <p className="health-empty-desc">当前所有关键服务与链路均无待确认告警或阻塞项。</p>
+        <p className="health-empty-desc">当前所有关键服务与链路均无待确认告警或阻塞项，智能体在后台静默守护。</p>
+        <div className="health-empty-actions">
+          <Link to="/gateway" className="health-empty-link">前往消息工作台</Link>
+          <span className="health-empty-sep">·</span>
+          <Link to="/tasks" className="health-empty-link">查看定时调度</Link>
+        </div>
       </div>
     </div>
   ) : (
@@ -43,6 +49,13 @@ export function TaskPreview({ tasks, wall = false }: { tasks: ReturnType<typeof 
       {!wall && tasks.known && <p className="health-task-stats">今日执行 {tasks.todayRunCount} 次 · 失败任务 {tasks.failedTaskCount} 个</p>}
       {!tasks.known && <p className="health-muted">尚未获得任务列表，无法确认下次执行时间。</p>}
       {tasks.known && !tasks.running && <p className="health-muted">请检查任务调度状态，再核对执行时间。</p>}
+      {!wall && tasks.known && (!tasks.next || !tasks.running) && tasks.upcoming.length === 0 && (
+        <div className="health-task-empty-action ab-rise">
+          <Link to="/tasks" className="health-task-add-btn">
+            <PlusOutlined /> 创建第一个定时任务
+          </Link>
+        </div>
+      )}
       {wall && tasks.running && <ul className="health-task-list">
         {tasks.upcoming.slice(0, 5).map((task) => <li key={task.id}><span>{task.name}</span><time dateTime={task.nextRunAt!}>{taskTime(task.nextRunAt)}</time></li>)}
       </ul>}

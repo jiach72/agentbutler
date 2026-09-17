@@ -12,7 +12,6 @@ import { Link } from "react-router-dom";
 import {
   App,
   Button,
-  Card,
   Flex,
   Switch,
   Tag,
@@ -282,9 +281,7 @@ export function ToolsPage() {
         </div>
 
         {/* 内置实时诊断报告打包生成器 */}
-        <Card size="small" title="脱敏诊断报告与打包导出" style={{ borderRadius: 12 }}>
-          <DiagnosticsCenter actionBusy={false} />
-        </Card>
+        <DiagnosticsCenter actionBusy={false} />
 
         {/* 专区 2：核心配置与资产维护 */}
         <div className="tools-section">
