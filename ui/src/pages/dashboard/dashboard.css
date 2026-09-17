@@ -29,8 +29,9 @@
   border-radius: 999px;
   font-size: 13px;
   font-weight: 500;
-  background: var(--ab-surface-2);
+  background: var(--ab-surface);
   border: 1px solid var(--ab-border);
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.03);
   margin-bottom: 2px;
 }
 .agent-pulse-badge[data-pulse="online"] {
@@ -272,18 +273,19 @@
 }
 .health-capability-list { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 16px 0 0; gap: 16px; }
 .health-capability-list > div {
-  background: var(--ab-surface-2);
+  background: linear-gradient(180deg, var(--ab-surface) 0%, color-mix(in srgb, var(--ab-canvas) 40%, var(--ab-surface)) 100%);
   border: 1px solid var(--ab-border);
-  border-radius: var(--ab-r-ctl, 8px);
+  border-radius: 12px;
   padding: 16px 18px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.03);
   transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
 }
 .health-capability-list > div:hover {
-  box-shadow: var(--ab-shadow-1);
-  border-color: var(--ab-primary);
+  box-shadow: 0 8px 24px -4px rgb(0 0 0 / 0.08);
+  border-color: var(--ab-primary-soft-border);
   transform: translateY(-2px);
 }
 .health-capability-list dt {
@@ -324,13 +326,14 @@
   gap: 12px;
 }
 .telemetry-card {
-  background: var(--ab-surface-2);
+  background: linear-gradient(180deg, var(--ab-surface) 0%, color-mix(in srgb, var(--ab-canvas) 30%, var(--ab-surface)) 100%);
   border: 1px solid var(--ab-border);
-  border-radius: var(--ab-r-ctl, 8px);
+  border-radius: 10px;
   padding: 12px 14px;
   display: flex;
   flex-direction: column;
   gap: 4px;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.02);
 }
 .telemetry-label {
   font-size: 12px;

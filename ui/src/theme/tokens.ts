@@ -132,26 +132,26 @@ export const ink = {
  * 12px/500 的徽标文字不属于 WCAG 的「大字」，必须按 4.5:1 判，不能按 3:1。
  */
 export const signal = {
-  ok: "#0A7667",
-  okSoft: "#EAF6F3",
-  warn: "#8F630A",
-  warnSoft: "#FDF6E4",
-  error: "#B4342A",
-  errorSoft: "#FDF0EE",
+  ok: "#047857",
+  okSoft: "#ECFDF5",
+  warn: "#B45309",
+  warnSoft: "#FFFBEB",
+  error: "#BE123C",
+  errorSoft: "#FFF1F2",
   offline: ink[400],
-  offlineSoft: "#F4F7FA",
+  offlineSoft: "#F1F5F9",
 } as const;
 
 /** 信号色（暗色主题）：青/琥珀/朱红提亮，黄铜保持 #C8A15A。 */
 export const signalDark = {
-  ok: "#35D0BA",
-  okSoft: "#123430",
-  warn: "#FFC53D",
-  warnSoft: "#3A3014",
-  error: "#FF7875",
-  errorSoft: "#3C2426",
-  offline: "#7E93A8",
-  offlineSoft: "#16283C",
+  ok: "#34D399",
+  okSoft: "#0F2E24",
+  warn: "#FBBF24",
+  warnSoft: "#2E240F",
+  error: "#F87171",
+  errorSoft: "#33161A",
+  offline: "#94A3B8",
+  offlineSoft: "#1E293B",
 } as const;
 
 /* ─────────────────────────  2. 语义色板（规范 02 §1）  ───────────────────────── */
@@ -206,16 +206,15 @@ export interface SemanticPalette {
   focusRing: string;
 }
 
-/** 亮色：雪白卡片 + 管家蓝交互 + 黄铜记忆点 + 信号色状态；发丝线优先于投影。
- *  表面系统已中性化（macOS 灰，去蓝调）：不再引用 ink 阶；文字四档仍取自 ink。 */
+/** 亮色：纯白卡片 + 管家蓝交互 + 黄铜记忆点 + 现代信号色；清爽 Slate 底色告别陈旧水泥灰。 */
 export const lightPalette: SemanticPalette = {
-  canvas: "#F5F5F7",
+  canvas: "#F8FAFC",
   surface: "#FFFFFF",
-  surface2: "#EEEFF2",
-  sunken: "#EEEFF2",
-  sider: "#F5F5F7",
-  border: "#E4E4E9",
-  borderStrong: "#D2D2D7",
+  surface2: "#F1F5F9",
+  sunken: "#F1F5F9",
+  sider: "#F8FAFC",
+  border: "#E2E8F0",
+  borderStrong: "#CBD5E1",
   borderControl: ink[300],
   text: ink[900],
   text2: ink[600],
@@ -239,35 +238,30 @@ export const lightPalette: SemanticPalette = {
   errorSoft: signal.errorSoft,
   offline: signal.offline,
   offlineSoft: signal.offlineSoft,
-  // 亮色阴影：发丝线 + 双层极淡（macOS「纸片浮在玻璃上」）；发丝线在亮色下承担卡片边界（P0-7）。
-  shadow1: "0 0 0 0.5px rgb(0 0 0 / 4%), 0 1px 2px rgb(0 0 0 / 5%), 0 4px 12px rgb(0 0 0 / 4%)",
-  shadow2: "0 0 0 0.5px rgb(0 0 0 / 8%), 0 2px 8px rgb(0 0 0 / 6%), 0 16px 48px rgb(0 0 0 / 12%)",
-  focusRing: "0 0 0 3px rgb(27 79 122 / 30%)",
+  // 亮色阴影：层级轻盈微阴影，兼具深度与锐度
+  shadow1: "0 1px 3px 0 rgb(0 0 0 / 0.04), 0 1px 2px -1px rgb(0 0 0 / 0.02), 0 0 0 1px rgb(0 0 0 / 0.03)",
+  shadow2: "0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.04), 0 12px 24px -4px rgb(0 0 0 / 0.06)",
+  focusRing: "0 0 0 3px rgb(27 79 122 / 20%)",
 };
 
-/** 暗色：中性深灰面板（macOS 暗色，去深海军蓝）+ 管家蓝交互（提亮版）+ 黄铜记忆点 + 信号色状态。 */
+/** 暗色：深邃 Slate 表面 + 管家蓝交互（提亮版）+ 黄铜记忆点 + 信号色状态。 */
 export const darkPalette: SemanticPalette = {
-  canvas: "#141519",
-  surface: "#1D1F24",
-  surface2: "#25272D",
-  sunken: "#101114",
-  sider: "#191B20",
-  border: "#31333A",
-  borderStrong: "#3E4148",
-  borderControl: "#547699",
-  text: "#ECECEE",
-  text2: "#AFC0D1",
-  /**
-   * 三级文字（暗）：必须对 surface(#132538) **和** elevated(#1A2E44) 都 ≥4.5:1——
-   * elevated 更亮、更苛刻。#7E93A8 对 elevated 只有 4.36:1（实测）→ 改为 #8FA5BA（5.44:1）。
-   */
+  canvas: "#0B0F17",
+  surface: "#121824",
+  surface2: "#1A2234",
+  sunken: "#080C14",
+  sider: "#0B0F17",
+  border: "#232F42",
+  borderStrong: "#2E3D56",
+  borderControl: "#475569",
+  text: "#F1F5F9",
+  text2: "#94A3B8",
   text3: "#8FA5BA",
-  /** 四级文字（暗）：ink-400 加深后会掉到 3:1 以下，所以暗色单独用更亮的值，实测 vs surface 4.01:1。 */
   text4: "#6F8496",
   primary: butlerBlue[300],
   primaryHover: "#7BB0DC",
   primaryPress: "#4A87BC",
-  primarySoft: "#14293D",
+  primarySoft: "#132337",
   primarySoftBorder: "#1B3A55",
   onPrimary: ink[900],
   onError: "#FFFFFF",
@@ -282,9 +276,8 @@ export const darkPalette: SemanticPalette = {
   errorSoft: signalDark.errorSoft,
   offline: signalDark.offline,
   offlineSoft: signalDark.offlineSoft,
-  // 暗色阴影：发丝高光 + 深投影（暗色阴影要更深才能分离面板）。
-  shadow1: "0 0 0 0.5px rgb(255 255 255 / 5%), 0 2px 8px rgb(0 0 0 / 35%)",
-  shadow2: "0 0 0 0.5px rgb(255 255 255 / 7%), 0 8px 24px rgb(0 0 0 / 45%), 0 24px 64px rgb(0 0 0 / 40%)",
+  shadow1: "0 1px 3px 0 rgb(0 0 0 / 0.4), 0 0 0 1px rgb(255 255 255 / 0.05)",
+  shadow2: "0 8px 24px -4px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(255 255 255 / 0.07)",
   focusRing: "0 0 0 3px rgb(91 155 209 / 35%)",
 };
 
@@ -437,7 +430,7 @@ export function themeConfigFor(mode: ThemeMode): ThemeConfig {
       // 卡片边界体系（P0-7）：亮色卡片 1px 边交还给 shadow1 的发丝线；
       // 暗色发丝线是高光色，承担不了分隔，保留实体边。
       Card: {
-        colorBorderSecondary: mode === "light" ? "transparent" : p.border,
+        colorBorderSecondary: p.border,
       },
       // 显式钉住：Card 的 transparent 档不得波及表格线（表格线是结构边界）。
       Table: {

@@ -130,8 +130,8 @@ export function SchedulePicker({ value, timezone, onChange, disabled = false }: 
         style={{
           marginTop: 6,
           padding: "10px 14px",
-          background: "var(--ab-surface-2)",
-          border: "1px solid var(--ab-border)",
+          background: "var(--ab-primary-soft)",
+          border: "1px solid var(--ab-primary-soft-border)",
           borderRadius: 8,
           fontSize: 13,
         }}

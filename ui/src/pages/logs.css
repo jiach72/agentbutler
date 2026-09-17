@@ -27,7 +27,8 @@
   padding: 12px;
   border: 1px solid var(--ab-border);
   border-radius: var(--ab-r-ctl);
-  background: var(--ab-surface-2);
+  background: var(--ab-surface);
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.02);
 }
 
 .logs-issue-action {

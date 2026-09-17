@@ -290,6 +290,50 @@ html body .dense-descriptions .ant-descriptions-item-content {
   color: var(--ab-brand);
 }
 
+/* ---- Ant Design 标签美化与轻透质感（统一收敛，告别灰浊生硬） ---- */
+.ant-tag {
+  border-radius: var(--ab-r-tag, 6px);
+  font-size: var(--ab-text-size-xs, 12px);
+  font-weight: 500;
+  line-height: 20px;
+  padding: 1px 8px;
+  border-width: 1px;
+  border-style: solid;
+  letter-spacing: 0.01em;
+  transition: all 0.15s ease;
+}
+
+.ant-tag-success {
+  background: var(--ab-ok-soft) !important;
+  color: var(--ab-ok) !important;
+  border-color: color-mix(in srgb, var(--ab-ok) 25%, transparent) !important;
+}
+
+.ant-tag-warning {
+  background: var(--ab-warn-soft) !important;
+  color: var(--ab-warn) !important;
+  border-color: color-mix(in srgb, var(--ab-warn) 25%, transparent) !important;
+}
+
+.ant-tag-error {
+  background: var(--ab-error-soft) !important;
+  color: var(--ab-error) !important;
+  border-color: color-mix(in srgb, var(--ab-error) 25%, transparent) !important;
+}
+
+.ant-tag-processing {
+  background: var(--ab-primary-soft) !important;
+  color: var(--ab-primary) !important;
+  border-color: var(--ab-primary-soft-border) !important;
+}
+
+.ant-tag-default,
+.ant-tag:not([class*="ant-tag-"]) {
+  background: var(--ab-surface) !important;
+  color: var(--ab-text-2) !important;
+  border-color: var(--ab-border) !important;
+}
+
 /* ---- 通知中心 ---- */
 
 .notification-badge .ant-badge-count {

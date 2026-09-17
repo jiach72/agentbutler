@@ -100,9 +100,9 @@
 }
 
 .task-rich-card[data-status="paused"] {
-  --card-status-color: var(--ab-border);
-  opacity: 0.88;
-  background: var(--ab-surface-2);
+  --card-status-color: var(--ab-border-strong);
+  opacity: 0.92;
+  background: var(--ab-surface);
 }
 
 .task-rich-card[data-status="failed"] {
@@ -303,46 +303,46 @@
   flex-shrink: 0;
 }
 
-/* 成功态：松柏绿，与背景对比鲜明且高级，彻底告别土味 antd 浅草绿 */
+/* 成功态：翠绿，对比鲜明高级 */
 .task-status-pill[data-status="success"],
 .task-status-pill[data-status="completed"] {
-  background: var(--ab-ok-soft, #eaf6f3);
-  color: var(--ab-ok, #0a7667);
-  border: 1px solid rgba(10, 118, 103, 0.18);
+  background: var(--ab-ok-soft);
+  color: var(--ab-ok);
+  border: 1px solid color-mix(in srgb, var(--ab-ok) 25%, transparent);
 }
 .task-status-pill[data-status="success"] .task-status-dot,
 .task-status-pill[data-status="completed"] .task-status-dot {
-  background: var(--ab-ok, #0a7667);
+  background: var(--ab-ok);
 }
 
-/* 失败态：克制端庄的朱红 */
+/* 失败态：克制端庄的玫瑰红 */
 .task-status-pill[data-status="failed"] {
-  background: var(--ab-error-soft, #fdf0ee);
-  color: var(--ab-error, #b4342a);
-  border: 1px solid rgba(180, 52, 42, 0.18);
+  background: var(--ab-error-soft);
+  color: var(--ab-error);
+  border: 1px solid color-mix(in srgb, var(--ab-error) 25%, transparent);
 }
 .task-status-pill[data-status="failed"] .task-status-dot {
-  background: var(--ab-error, #b4342a);
+  background: var(--ab-error);
 }
 
 /* 异常/未送达：暖琥珀 */
 .task-status-pill[data-status="delivery_failed"] {
-  background: var(--ab-warn-soft, #fdf6e4);
-  color: var(--ab-warn, #8f630a);
-  border: 1px solid rgba(143, 99, 10, 0.18);
+  background: var(--ab-warn-soft);
+  color: var(--ab-warn);
+  border: 1px solid color-mix(in srgb, var(--ab-warn) 25%, transparent);
 }
 .task-status-pill[data-status="delivery_failed"] .task-status-dot {
-  background: var(--ab-warn, #8f630a);
+  background: var(--ab-warn);
 }
 
 /* 运行中：管家蓝呼吸微点 */
 .task-status-pill[data-status="running"] {
-  background: var(--ab-primary-soft, #eef4fa);
-  color: var(--ab-primary, #1b4f7a);
-  border: 1px solid var(--ab-primary-soft-border, #dce8f4);
+  background: var(--ab-primary-soft);
+  color: var(--ab-primary);
+  border: 1px solid var(--ab-primary-soft-border);
 }
 .task-status-pill[data-status="running"] .task-status-dot {
-  background: var(--ab-primary, #1b4f7a);
+  background: var(--ab-primary);
   animation: ab-ping-ring 2s infinite;
 }
 
@@ -444,29 +444,40 @@
 }
 .timeline-item {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 10px 12px;
-  background: var(--ab-surface-2);
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--ab-surface);
   border: 1px solid var(--ab-border);
-  border-radius: 8px;
+  border-radius: 10px;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.02);
   transition: all 0.15s ease;
 }
 .timeline-item:hover {
   border-color: var(--ab-primary-soft-border);
+  box-shadow: 0 4px 12px -2px rgb(0 0 0 / 0.06);
+  transform: translateX(2px);
 }
 .timeline-time-col {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   flex-shrink: 0;
-  width: 58px;
+  width: auto;
 }
 .timeline-time-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--ab-primary-soft);
+  color: var(--ab-primary);
+  border: 1px solid var(--ab-primary-soft-border);
   font-size: 13px;
   font-weight: 600;
   font-family: var(--ab-mono, monospace);
-  color: var(--ab-primary);
+  line-height: 1.2;
 }
 .timeline-info-col {
   display: flex;
@@ -499,14 +510,16 @@
   align-items: center;
   gap: 12px;
   padding: 12px 14px;
-  background: var(--ab-surface-2);
+  background: var(--ab-surface);
   border: 1px solid var(--ab-border);
   border-radius: 10px;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.02);
   transition: all 0.15s ease;
 }
 .quick-scenario-item:hover {
   border-color: var(--ab-primary-soft-border);
-  box-shadow: var(--ab-shadow-1);
+  box-shadow: 0 4px 12px -2px rgb(0 0 0 / 0.06);
+  transform: translateY(-1px);
 }
 .scenario-meta {
   display: flex;
