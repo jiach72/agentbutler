@@ -345,6 +345,21 @@ function releaseLock(): void {
   }
 }
 
+function syncGitCommitEnv(commitSha: string): void {
+  try {
+    const envPath = join(composeProjectDir, ".env");
+    if (!existsSync(envPath) || !commitSha.trim()) return;
+    const content = readFileSync(envPath, "utf8");
+    const commitVal = commitSha.trim();
+    const next = /(^|\r?\n)BUTLER_GIT_COMMIT=.*(?=\r?\n|$)/.test(content)
+      ? content.replace(/(^|\r?\n)BUTLER_GIT_COMMIT=.*(?=\r?\n|$)/, `$1BUTLER_GIT_COMMIT=${commitVal}`)
+      : content.trimEnd() + `\nBUTLER_GIT_COMMIT=${commitVal}\n`;
+    writeFileSync(envPath, next, "utf8");
+  } catch {
+    // non-fatal
+  }
+}
+
 async function runJob(job: Job): Promise<void> {
   const oldCommit = job.from;
   const update = async (patch: Partial<Job>): Promise<void> => {
@@ -358,6 +373,8 @@ async function runJob(job: Job): Promise<void> {
     if (remote.ok) await git(["fetch", "--tags", "origin"], 90_000);
     const checkout = await git(["checkout", job.target], 120_000);
     if (!checkout.ok) throw new Error("切到目标版本失败：" + checkout.error);
+    const newCommit = await git(["rev-parse", "HEAD"], 10_000);
+    if (newCommit.ok) syncGitCommitEnv(newCommit.stdout);
     await update({ phase: "install-build" });
     const built = await build();
     if (!built.ok) throw new Error("构建失败：" + built.error);
@@ -371,6 +388,7 @@ async function runJob(job: Job): Promise<void> {
     const message = error instanceof Error ? error.message : String(error);
     await update({ status: "running", phase: "rollback", error: message });
     const rollback = await git(["checkout", oldCommit], 120_000);
+    if (rollback.ok) syncGitCommitEnv(oldCommit);
     const rebuilt = rollback.ok ? await build() : rollback;
     const restarted = rebuilt.ok ? await composeUp() : rebuilt;
     const healthy = restarted.ok && (await waitHealthy());

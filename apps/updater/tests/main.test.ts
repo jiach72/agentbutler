@@ -39,6 +39,7 @@ function makeRepository(): { from: string; target: string } {
   mkdirSync(sourceDir, { recursive: true });
   writeFileSync(join(sourceDir, "package.json"), JSON.stringify({ version: "0.1.0" }), "utf8");
   writeFileSync(join(sourceDir, "docker-compose.yml"), "services: {}\n", "utf8");
+  writeFileSync(join(sourceDir, ".gitignore"), ".env\n", "utf8");
   runGit(["init"]);
   runGit(["config", "user.email", "updater-test@example.invalid"]);
   runGit(["config", "user.name", "Updater Test"]);
@@ -223,6 +224,7 @@ describe("butler-updater security and rollback", () => {
   });
 
   it("checks out the requested version, rebuilds, restarts, and verifies health", async () => {
+    writeFileSync(join(sourceDir, ".env"), "BUTLER_GIT_COMMIT=initial-sha\n", "utf8");
     updater = await startUpdater();
     const response = await request("/api/upgrade", {
       method: "POST",
@@ -234,6 +236,7 @@ describe("butler-updater security and rollback", () => {
     const status = await terminalStatus();
     expect(status["lastJob"]).toMatchObject({ status: "done", phase: "done", target: "v0.2.0" });
     expect(runGit(["rev-parse", "--short", "HEAD"])).toBe(revisions.target);
+    expect(readFileSync(join(sourceDir, ".env"), "utf8")).toContain("BUTLER_GIT_COMMIT=" + runGit(["rev-parse", "HEAD"]));
   }, 15_000);
 
   it("uses the Docker Compose v2 subcommand when configured with docker", async () => {

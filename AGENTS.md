@@ -149,3 +149,5 @@ curl -s http://127.0.0.1:7531/api/health | grep -o '"connected":[a-z]*'  # 消�
 | 4 | Bridge 注入后需外部重启网关才激活 | 部署中向 Hermes 注入 Bridge 配置后，Gateway 侧连接一直 `connected:false`（注入不触发运行中的 Hermes 重载） | 注入完成后在宿主执行 `systemctl --user restart hermes-gateway`（或等价方式重启网关进程），再跑 `bash scripts/bridge-healthcheck.sh` 验证 |
 | 5 | 数据库锁定瞬态自愈 | 日志偶见 `SQLITE_BUSY` / `database is locked` | 瞬态：写路径带重试，通常自愈。仅在错误**持续**出现且面板数据停更时，`docker compose restart butler-watch`，并检查是否存在跨容器共享同一 SQLite 文件的非常规挂载 |
 | 6 | LLM 端点 401 预检建议 | 首次部署后探针/记忆写入整片失败，日志大量 401（`.env` 里模型 API Key 抄错或端点不通，部署时无校验） | 部署前用一条最小 `curl`（或等价请求）带 `.env` 中的 Key 打一次目标端点 `/models`（或最便宜端点）预检 200 再继续；避免带着坏 Key 走完全程再返工 |
+| 7 | macOS 控制桥 launchctl bootstrap 瞬态 EIO | macOS 下 `install-hermes-control-bridge.sh` 报 `Bootstrap failed: 5: Input/output error`，导致控制桥停留在卸载态 | 已修复（加入 1s 缓冲、bootstrap 重试、kickstart 唤醒与 launchctl print 回读断言；且优先锁定 Hermes 自带 node 运行时并收敛 plist PATH） |
+| 8 | UI / 容器查看 `/api/health` 时 `gitCommit` 为 null | 过去只在当前 shell export `BUTLER_GIT_COMMIT`，未落盘到 `.env`，导致 compose 启动容器无法注入 commit SHA | 已修复（`deploy.sh`、`deploy.ps1` 及 `apps/updater` 升级时均自动持久化 `BUTLER_GIT_COMMIT` 到 `.env`） |

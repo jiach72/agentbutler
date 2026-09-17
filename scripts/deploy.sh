@@ -114,7 +114,11 @@ fi
 if ! git diff --quiet || [[ -n "$(git ls-files --others --exclude-standard)" ]]; then
   echo "WARNING: deploying from a dirty worktree; record the commit and local diff before release." >&2
 fi
-export BUTLER_GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)"
+deploy_sha="$(git rev-parse HEAD 2>/dev/null || true)"
+export BUTLER_GIT_COMMIT="$deploy_sha"
+if [[ -n "$deploy_sha" ]]; then
+  env_set BUTLER_GIT_COMMIT "$deploy_sha"
+fi
 
 # ---- 预检：提前暴露两类已知事故（见 docs/deployment-20260825.md 踩坑记录）----
 

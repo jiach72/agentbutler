@@ -1,4 +1,4 @@
-﻿$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Stop"
 Set-Location (Join-Path $PSScriptRoot "..")
 
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
@@ -39,6 +39,20 @@ if ([string]::IsNullOrWhiteSpace($masterKey)) {
   Write-Host "Generated and stored the Butler credential vault key in .env."
 }
 $env:BUTLER_SECRET_MASTER_KEY = $masterKey
+
+$deploySha = ""
+try {
+  $deploySha = (git rev-parse HEAD 2>$null).Trim()
+} catch {}
+if ($deploySha) {
+  $env:BUTLER_GIT_COMMIT = $deploySha
+  if ([regex]::IsMatch($envContent, '(?m)^BUTLER_GIT_COMMIT=')) {
+    $envContent = [regex]::Replace($envContent, '(?m)^BUTLER_GIT_COMMIT=.*$', "BUTLER_GIT_COMMIT=$deploySha")
+  } else {
+    $envContent = $envContent.TrimEnd("`r", "`n") + "`r`nBUTLER_GIT_COMMIT=$deploySha`r`n"
+  }
+  [System.IO.File]::WriteAllText((Join-Path (Get-Location) ".env"), $envContent)
+}
 
 # ---- 升级前备份数据卷（失败默认阻断部署；与 deploy.sh 同一口径）----
 function Read-EnvValue([string]$Key) {

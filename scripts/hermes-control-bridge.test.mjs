@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -213,5 +213,31 @@ describe("Hermes control bridge", () => {
     } finally {
       server.close();
     }
+  });
+
+  it("ensures install-hermes-control-bridge.sh locks Hermes node first, restricts PATH, and guards bootstrap race", () => {
+    const scriptContent = readFileSync(join(import.meta.dirname, "install-hermes-control-bridge.sh"), "utf8");
+    // Node detection priority: .hermes/node/bin/node MUST be checked before command -v node
+    const hermesNodeIndex = scriptContent.indexOf('[[ -x "$HOME/.hermes/node/bin/node" ]]');
+    const commandVNodeIndex = scriptContent.indexOf('command -v node');
+    expect(hermesNodeIndex).toBeGreaterThan(-1);
+    expect(commandVNodeIndex).toBeGreaterThan(-1);
+    expect(hermesNodeIndex).toBeLessThan(commandVNodeIndex);
+
+    // LaunchAgent PATH must NOT leak host ${PATH:-}
+    expect(scriptContent).toContain("<key>PATH</key><string>/usr/bin:/bin:/usr/sbin:/sbin:${HOME}/.hermes/node/bin</string>");
+    expect(scriptContent).not.toContain("<key>PATH</key><string>/usr/bin:/bin:/usr/sbin:/sbin:${HOME}/.hermes/node/bin:${PATH:-}</string>");
+
+    // LaunchAgent bootstrap race condition handling
+    expect(scriptContent).toContain('launchctl bootout "gui/$UID_NUM/$LABEL" 2>/dev/null || true');
+    expect(scriptContent).toContain('if ! launchctl bootstrap "gui/$UID_NUM" "$PLIST_FILE" 2>/dev/null; then');
+    expect(scriptContent).toContain('launchctl kickstart -k "gui/$UID_NUM/$LABEL" 2>/dev/null || true');
+    expect(scriptContent).toContain('launchctl print "gui/$UID_NUM/$LABEL" >/dev/null 2>&1');
+  });
+
+  it("ensures deploy.sh persists BUTLER_GIT_COMMIT to .env", () => {
+    const deployContent = readFileSync(join(import.meta.dirname, "deploy.sh"), "utf8");
+    expect(deployContent).toContain('deploy_sha="$(git rev-parse HEAD 2>/dev/null || true)"');
+    expect(deployContent).toContain('env_set BUTLER_GIT_COMMIT "$deploy_sha"');
   });
 });

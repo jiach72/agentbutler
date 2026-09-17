@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-node_bin="$(command -v node || true)"
-if [[ -z "$node_bin" && -x "$HOME/.hermes/node/bin/node" ]]; then
+# 优先采纳 Hermes 钉死的 Node 运行时（$HOME/.hermes/node/bin/node），
+# 避免宿主 PATH 中非预期的 Node 版本污染；不存在时才 fallback 到宿主 node。
+node_bin=""
+if [[ -x "$HOME/.hermes/node/bin/node" ]]; then
   node_bin="$HOME/.hermes/node/bin/node"
+elif command -v node >/dev/null 2>&1; then
+  node_bin="$(command -v node)"
 fi
 if [[ -z "$node_bin" ]]; then
   echo "ERROR: node is required to run the Hermes control bridge." >&2
@@ -51,7 +55,7 @@ if [[ "$os_type" == "Darwin" ]]; then
     <key>BUTLER_HERMES_CONTROL_ROOT</key><string>${HOME}/.hermes</string>
     <key>BUTLER_HERMES_CONTROL_TIMEOUT_MS</key><string>30000</string>
     <key>HOME</key><string>${HOME}</string>
-    <key>PATH</key><string>/usr/bin:/bin:/usr/sbin:/sbin:${HOME}/.hermes/node/bin:${PATH:-}</string>
+    <key>PATH</key><string>/usr/bin:/bin:/usr/sbin:/sbin:${HOME}/.hermes/node/bin</string>
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -63,8 +67,18 @@ EOF
   if command -v plutil >/dev/null 2>&1; then
     plutil -lint "$PLIST_FILE" >/dev/null
   fi
+  # bootout 后 launchd 异步释放端点，需缓冲避免立即 bootstrap 出现 EIO (5) 瞬态竞态。
   launchctl bootout "gui/$UID_NUM/$LABEL" 2>/dev/null || true
-  launchctl bootstrap "gui/$UID_NUM" "$PLIST_FILE"
+  sleep 1
+  if ! launchctl bootstrap "gui/$UID_NUM" "$PLIST_FILE" 2>/dev/null; then
+    sleep 1
+    launchctl bootstrap "gui/$UID_NUM" "$PLIST_FILE"
+  fi
+  launchctl kickstart -k "gui/$UID_NUM/$LABEL" 2>/dev/null || true
+  if ! launchctl print "gui/$UID_NUM/$LABEL" >/dev/null 2>&1; then
+    echo "ERROR: failed to verify LaunchAgent status for $LABEL via launchctl print." >&2
+    exit 1
+  fi
   echo "Hermes host control bridge installed and active (macOS LaunchAgent: $LABEL)."
   exit 0
 fi
