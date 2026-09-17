@@ -6,8 +6,9 @@
  * 显式覆盖项（BUTLER_HINDSIGHT_BASE_URL / BUTLER_HINDSIGHT_TOKEN）优先于标记文件。
  * 全部请求带超时，非 2xx 与连接失败统一转为 throws，由调用方决定降级语义。
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { parse as parseYaml } from "yaml";
 
 export interface HindsightServiceEndpoint {
   baseUrl: string;
@@ -39,14 +40,14 @@ function defaultReadTextFile(path: string): string | null {
   }
 }
 
-/** 解析 hindsight 服务端点：显式覆盖 > <root>/hindsight/config.json > 缺省值。 */
+/** 解析 hindsight 服务端点：显式覆盖 > <root>/hindsight/config.json > config.yaml MCP > 缺省值。 */
 export function resolveHindsightService(
   rootPath: string,
   options: ResolveHindsightServiceOptions = {},
   readTextFile: HindsightReadTextFile = defaultReadTextFile,
 ): HindsightServiceEndpoint | { error: string } {
-  let baseUrl = options.baseUrl?.trim() ?? "";
-  let bankId = options.bankId?.trim() ?? "";
+  let baseUrl = options.baseUrl?.trim() ?? process.env["BUTLER_HINDSIGHT_BASE_URL"]?.trim() ?? "";
+  let bankId = options.bankId?.trim() ?? process.env["BUTLER_HINDSIGHT_BANK"]?.trim() ?? "";
   if (baseUrl === "" || bankId === "") {
     const raw = readTextFile(join(rootPath, "hindsight", "config.json"));
     if (raw !== null) {
@@ -62,10 +63,45 @@ export function resolveHindsightService(
       }
     }
   }
+  if (baseUrl === "" || bankId === "") {
+    for (const configFile of ["config.yaml", "config.yml"]) {
+      const raw = readTextFile(join(rootPath, configFile));
+      if (raw !== null && raw.trim() !== "") {
+        try {
+          const parsed = parseYaml(raw);
+          if (parsed !== null && typeof parsed === "object") {
+            const record = parsed as Record<string, unknown>;
+            const mcp = record["mcp_servers"] ?? record["mcpServers"];
+            if (mcp !== null && typeof mcp === "object") {
+              const hs = (mcp as Record<string, unknown>)["hindsight"];
+              if (hs !== null && typeof hs === "object") {
+                const hsRec = hs as Record<string, unknown>;
+                if (baseUrl === "" && typeof hsRec["url"] === "string") {
+                  let parsedUrl = hsRec["url"].trim().replace(/\/mcp\/?$/i, "");
+                  const isContainer = existsSync("/.dockerenv")
+                    || Boolean(process.env["DOCKER_CONTAINER"])
+                    || (process.env["BUTLER_HERMES_API_HOST"] ?? "").trim() === "host.docker.internal";
+                  if (isContainer) {
+                    parsedUrl = parsedUrl.replace(/^http:\/\/127\.0\.0\.1(:[0-9]+)/i, "http://host.docker.internal$1")
+                      .replace(/^http:\/\/localhost(:[0-9]+)/i, "http://host.docker.internal$1");
+                  }
+                  baseUrl = parsedUrl;
+                }
+                if (bankId === "" && typeof hsRec["bank_id"] === "string") bankId = hsRec["bank_id"];
+                if (bankId === "" && typeof hsRec["bankId"] === "string") bankId = hsRec["bankId"];
+              }
+            }
+          }
+        } catch {
+          // YAML 解析异常继续
+        }
+      }
+    }
+  }
   if (baseUrl === "" || !/^https?:\/\//.test(baseUrl)) {
     return {
       error:
-        "无法确定 hindsight 服务地址（<root>/hindsight/config.json 缺少 api_url，或未设置 BUTLER_HINDSIGHT_BASE_URL）",
+        "无法确定 hindsight 服务地址（<root>/hindsight/config.json 缺少 api_url、config.yaml 缺少 hindsight MCP url，或未设置 BUTLER_HINDSIGHT_BASE_URL）",
     };
   }
   return { baseUrl: baseUrl.replace(/\/+$/, ""), bankId: bankId === "" ? "default" : bankId };

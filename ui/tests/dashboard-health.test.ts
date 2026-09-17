@@ -20,6 +20,27 @@ describe("dashboard and wall share factual health", () => {
   it("Serving and connected is 1/1 online; delivered and expired do not poison health", () => {
     expect(deriveHealthView(sources)).toMatchObject({ onlineInstances: 1, totalInstances: 1, health: { status: "healthy", attention: [] } });
   });
+  it("skipped memory and model probes evaluate to not-applicable and do not degrade health", () => {
+    const skippedSources = structuredClone(sources);
+    skippedSources.dashboard!.latestInspections![0].checks = [
+      { id: "memory", status: "skipped", durationMs: 0, detail: "external backend" },
+      { id: "model", status: "skipped", durationMs: 0, detail: "no endpoint configured" },
+    ];
+    skippedSources.dashboard!.inspectStatus = {
+      criticalProbe: {
+        lastStatus: "skipped",
+        overdue: false,
+        intervalMin: 10,
+        slaMin: 20,
+        lastRunAt: null,
+        lastDurationMs: null,
+      },
+    };
+    const view = deriveHealthView(skippedSources);
+    expect(view.input.memory).toBe("not-applicable");
+    expect(view.input.model).toBe("not-applicable");
+    expect(view.health).toMatchObject({ status: "healthy", attention: [] });
+  });
   it("unreadable connections and missing model probes are unknown", () => {
     expect(buildUserHealthInput({ ...sources, connections: null }).instances).toBeNull();
     expect(buildUserHealthInput({ ...sources, dashboard: { instances: sources.dashboard!.instances } }).model).toBe("unknown");

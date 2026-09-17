@@ -182,6 +182,25 @@ describe("hindsight 记忆探针", () => {
     expect(result.status).toBe("skipped");
     expect(result.detail).toContain("无法确定 hindsight 服务地址");
   });
+
+  it("写入或召回超时 → warn 而非 fail；探针 bank 仍被清理", async () => {
+    writeHindsightConfig({ api_url: "http://127.0.0.1:9177" });
+    const { fetchFn, calls } = fetchMock((call) => {
+      if (call.url.endsWith("/health")) return { data: {} };
+      if (call.method === "PUT") return { data: {} };
+      if (call.method === "POST" && call.url.endsWith("/memories")) {
+        const error = new Error("The operation was aborted");
+        error.name = "AbortError";
+        throw error;
+      }
+      return undefined;
+    });
+    const probe = createHindsightMemoryProbe({ fetchFn });
+    const result = await probe(ctxOf(), providerOptions);
+    expect(result.status).toBe("warn");
+    expect(result.detail).toContain("hindsight 测试记忆写入超时");
+    expect(calls[calls.length - 1].method).toBe("DELETE");
+  });
 });
 
 describe("mem0 记忆探针", () => {

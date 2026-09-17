@@ -728,6 +728,8 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       hindsight: {
         baseUrl: config.memoryProbe.hindsightBaseUrl,
         token: config.memoryProbe.hindsightToken,
+        timeoutMs: config.memoryProbe.hindsightTimeoutMs,
+        bankId: config.memoryProbe.hindsightBank,
       },
       mem0: {
         baseUrl: config.memoryProbe.mem0BaseUrl,
@@ -1279,9 +1281,12 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
         void alertPoster.resolve(`critical-memory-probe:${record.instanceId}`);
         void alertPoster.resolve(`external-dependency:memory:${record.instanceId}`);
       }
+      const isExternalBackend =
+        detectMemoryBackend(record.rootPath, { configured: config.memoryBackend }).backend !== "hermes";
       if (
         result.status === "fail" &&
         !externalDependency &&
+        !isExternalBackend &&
         config.runbookAuto &&
         record.rootPath !== ""
       ) {
@@ -1374,11 +1379,13 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     };
     const failed = (checkId: string): boolean =>
       payload.checks.some((c) => c.id === checkId && c.status === "fail");
-    // 外部依赖类（账户/凭据/配额）的 memory-probe 失败重启修不了：不触发 rb-restart
+    // 外部依赖类（账户/凭据/配额）或外部记忆后端（hindsight/mem0）的 memory-probe 失败重启修不了：不触发 rb-restart
     // （process-alive 仍照常触发——实例自身死亡与外部依赖故障可并存）。
     const memoryCheck = payload.checks.find((c) => c.id === "memory-probe" && c.status === "fail");
+    const isExternalMemoryBackend =
+      detectMemoryBackend(record.rootPath, { configured: config.memoryBackend }).backend !== "hermes";
     const memoryExternalDependency =
-      memoryCheck !== undefined && isExternalDependencyFailure(memoryCheck.detail ?? "");
+      memoryCheck !== undefined && (isExternalDependencyFailure(memoryCheck.detail ?? "") || isExternalMemoryBackend);
     const targets = new Set<string>();
     if (failed("process-alive") || (failed("memory-probe") && !memoryExternalDependency)) {
       targets.add(RB_RESTART);

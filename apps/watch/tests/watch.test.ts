@@ -429,6 +429,34 @@ describe("Task 7 自动 runbook 触发", () => {
     expect(app.core.store.listEvents({ type: "inspection-completed" })).toHaveLength(2);
   }, 15_000);
 
+  it("外部记忆后端（hindsight）即便探针 fail 也禁止触发 rb-restart，防止误杀宿主 Hermes", async () => {
+    mkdirSync(join(hermesRoot, "hindsight"), { recursive: true });
+    writeFileSync(join(hermesRoot, "hindsight", "config.json"), JSON.stringify({ api_url: "http://127.0.0.1:9999" }));
+    const hermesOnlyExec: CommandExecutor = {
+      exec: async (cmd, args) => {
+        if (cmd === "pgrep" && args[1]?.endsWith("hermes-agent"))
+          return { code: 0, stdout: "4242\n", stderr: "" };
+        if (cmd === "ps") return { code: 0, stdout: "40960 1.5\n", stderr: "" };
+        return { code: 1, stdout: "", stderr: "" };
+      },
+      spawnDetached: () => {},
+    };
+    app = await createWatchApp({
+      home,
+      config: { hermesRoot, watchHttpPort: 0 },
+      exec: hermesOnlyExec,
+      prober: fakeProber,
+      fetchFn: async (url) => {
+        if (String(url).includes("/api/alerts")) return { ok: true, status: 200, json: async () => ({}) };
+        return { ok: false, status: 500, json: async () => ({}) };
+      },
+    });
+
+    const started = app.core.store.listEvents({ type: "runbook-started" });
+    expect(started.filter((e) => (e.payload as Record<string, unknown> | null)?.["runbookId"] === "rb-restart")).toHaveLength(0);
+    await app.alertPoster.flush();
+  }, 15_000);
+
   it("runbookAuto=false 时关键探针失败仍立即进入告警队列", async () => {
     writeFileSync(join(hermesRoot, "memory_store.db"), "not-a-sqlite-database");
     const hermesOnlyExec: CommandExecutor = {

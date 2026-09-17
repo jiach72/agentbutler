@@ -53,8 +53,8 @@ export function buildSkillsOverview(
       icon: DatabaseOutlined,
       label: "记忆条目",
       value: memoryStats === null ? "…" : formatNumber(memoryStats.totalEntries),
-      tone: memoryWritesOff ? "warn" : undefined,
-      sub: memoryWritesOff ? "写入已关闭" : "累计入库",
+      tone: memoryWritesOff && (!libraryData?.memory.backend || libraryData.memory.backend.id === "hermes") ? "warn" : undefined,
+      sub: memoryWritesOff && (!libraryData?.memory.backend || libraryData.memory.backend.id === "hermes") ? "写入已关闭" : "累计入库",
     },
   ];
 }
@@ -86,11 +86,12 @@ export function buildSkillsConclusion(
       copy: "技能安装与记忆维护需要管家在线；恢复后页面会自动更新。",
     };
   }
-  if (memoryWritesOff) {
+  const isLocalSqlite = !libraryData?.memory.backend || libraryData.memory.backend.id === "hermes";
+  if (memoryWritesOff && isLocalSqlite) {
     return {
       tone: "warn",
       title: "记忆写入当前是关闭的",
-      copy: "技能与插件可以正常加载，但新的记忆不会被写回本机。",
+      copy: "技能与插件可以正常加载，但新的记忆不会被写回本机 SQLite 库。",
     };
   }
   return {

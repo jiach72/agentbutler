@@ -18,7 +18,7 @@ export interface UserHealthSummary {
   attention: AttentionItem[];
 }
 
-export type CapabilityHealth = "available" | "degraded" | "unavailable" | "unknown";
+export type CapabilityHealth = "available" | "degraded" | "unavailable" | "unknown" | "not-applicable";
 
 export interface HealthInstanceInput {
   instanceId: string;
@@ -109,7 +109,7 @@ export function deriveUserHealthSummary(input: UserHealthInput): UserHealthSumma
     ["model", "模型", "对话和任务生成可能受影响。", "/setup"],
   ] as const) {
     const state = input[key];
-    if (state !== "available") add(
+    if (state !== "available" && state !== "not-applicable") add(
       key, state === "unavailable" ? "action" : "watch",
       `${label}${state === "unknown" ? "状态待确认" : state === "unavailable" ? "不可用" : "需要留意"}`,
       state === "unknown" ? `尚无足够证据确认${label}可用。` : impact,

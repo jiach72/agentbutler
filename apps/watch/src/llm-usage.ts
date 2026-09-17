@@ -393,42 +393,36 @@ export function createLlmUsageService(options: LlmUsageOptions): LlmUsageService
 
     async monthToDateCost() {
       if (!existsSync(options.dbPath)) return null;
-      let db: InstanceType<typeof DatabaseSync>;
       try {
-        db = new DatabaseSync(options.dbPath, { readOnly: true });
+        return withSafeDbSnapshot(options.dbPath, (db) => {
+          const costColumns = probeCostColumns(db);
+          const estimatedCol = costColumns.estimatedCost;
+          const actualCol = costColumns.actualCost;
+          if (estimatedCol === null && actualCol === null) return null;
+          const today = now();
+          const month = `${today.getFullYear()}-${`${today.getMonth() + 1}`.padStart(2, "0")}`;
+          // 本地时区当月 1 号 0 点的 Unix 秒（last_seen 列的口径一致）。
+          const monthStartSec = Math.floor(new Date(today.getFullYear(), today.getMonth(), 1).getTime() / 1000);
+          const moneyExpr = (column: string): string =>
+            `COALESCE(SUM(CASE WHEN typeof("${column}") IN ('integer','real') AND "${column}" >= 0 THEN "${column}" ELSE 0 END), 0)`;
+          const row = db
+            .prepare(
+              `SELECT ${estimatedCol === null ? "0" : moneyExpr(estimatedCol)} AS estimated_usd,
+                      ${actualCol === null ? "0" : moneyExpr(actualCol)} AS actual_usd
+               FROM session_model_usage WHERE last_seen >= ?`,
+            )
+            .get(monthStartSec) as { estimated_usd: number | bigint; actual_usd: number | bigint };
+          const estimated = Number(row.estimated_usd);
+          const actual = Number(row.actual_usd);
+          return {
+            month,
+            estimatedUsd: estimated > 0 ? estimated : null,
+            actualUsd: actual > 0 ? actual : null,
+            verifiedUsd: null,
+          };
+        });
       } catch {
         return null;
-      }
-      try {
-        const costColumns = probeCostColumns(db);
-        const estimatedCol = costColumns.estimatedCost;
-        const actualCol = costColumns.actualCost;
-        if (estimatedCol === null && actualCol === null) return null;
-        const today = now();
-        const month = `${today.getFullYear()}-${`${today.getMonth() + 1}`.padStart(2, "0")}`;
-        // 本地时区当月 1 号 0 点的 Unix 秒（last_seen 列的口径一致）。
-        const monthStartSec = Math.floor(new Date(today.getFullYear(), today.getMonth(), 1).getTime() / 1000);
-        const moneyExpr = (column: string): string =>
-          `COALESCE(SUM(CASE WHEN typeof("${column}") IN ('integer','real') AND "${column}" >= 0 THEN "${column}" ELSE 0 END), 0)`;
-        const row = db
-          .prepare(
-            `SELECT ${estimatedCol === null ? "0" : moneyExpr(estimatedCol)} AS estimated_usd,
-                    ${actualCol === null ? "0" : moneyExpr(actualCol)} AS actual_usd
-             FROM session_model_usage WHERE last_seen >= ?`,
-          )
-          .get(monthStartSec) as { estimated_usd: number | bigint; actual_usd: number | bigint };
-        const estimated = Number(row.estimated_usd);
-        const actual = Number(row.actual_usd);
-        return {
-          month,
-          estimatedUsd: estimated > 0 ? estimated : null,
-          actualUsd: actual > 0 ? actual : null,
-          verifiedUsd: null,
-        };
-      } catch {
-        return null;
-      } finally {
-        db.close();
       }
     },
   };

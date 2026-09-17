@@ -18,7 +18,9 @@ export interface HealthSources {
 function checkHealth(statuses: Array<string | null>): CapabilityHealth {
   if (statuses.some((status) => status === "fail")) return "unavailable";
   if (statuses.some((status) => status === "warn")) return "degraded";
-  if (statuses.length > 0 && statuses.every((status) => status === "pass")) return "available";
+  if (statuses.length === 0 || statuses.some((status) => status === null)) return "unknown";
+  if (statuses.every((status) => status === "skipped")) return "not-applicable";
+  if (statuses.every((status) => status === "pass" || status === "skipped")) return "available";
   return "unknown";
 }
 
@@ -46,14 +48,15 @@ export function buildUserHealthInput(sources: HealthSources): UserHealthInput {
   const modelChecks: Array<string | null> = inspections.flatMap((inspection) => inspection.checks.filter((check) =>
     ["model", "llm-probe", "model-probe"].includes(check.id)).map((check) => check.status));
   const probe = dashboard?.inspectStatus?.criticalProbe;
-  if (probe !== undefined && probe.lastStatus !== "skipped") memoryChecks.push(probe.lastStatus);
+  if (probe !== undefined && probe.lastStatus !== null) memoryChecks.push(probe.lastStatus);
   for (const instance of instances ?? []) {
     const inspection = inspections.find((item) => item.instanceId === instance.instanceId);
     if (!inspection?.checks.some((check) => ["model", "llm-probe", "model-probe"].includes(check.id))) modelChecks.push(null);
     if (!inspection?.checks.some((check) => ["memory", "memory-probe", "critical-memory-probe"].includes(check.id))
       && (instances!.length !== 1 || probe === undefined)) memoryChecks.push(null);
   }
-  const memory = probe?.overdue && checkHealth(memoryChecks) !== "unavailable" ? "degraded" : checkHealth(memoryChecks);
+  const baseMemory = checkHealth(memoryChecks);
+  const memory = baseMemory !== "not-applicable" && baseMemory !== "unavailable" && probe?.overdue ? "degraded" : baseMemory;
   const bridge = messageStatus?.reachable ? messageStatus.status?.bridge : null;
   const counts = messageStatus?.reachable ? messageStatus.status?.counts : null;
   const pending = approvals?.reachable === false || approvals === null ? null
@@ -84,5 +87,5 @@ export function deriveHealthView(sources: HealthSources) {
 }
 
 export function capabilityLabel(state: CapabilityHealth): string {
-  return { available: "可用", degraded: "需要留意", unavailable: "不可用", unknown: "待确认" }[state];
+  return { available: "可用", degraded: "需要留意", unavailable: "不可用", unknown: "待确认", "not-applicable": "不适用" }[state];
 }

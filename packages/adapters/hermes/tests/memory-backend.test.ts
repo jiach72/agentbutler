@@ -65,6 +65,36 @@ describe("detectMemoryBackend", () => {
     writeFileSync(join(root, "mem0", "config.json"), "{}");
     expect(detectMemoryBackend(root).backend).toBe("hindsight");
   });
+
+  it("config.yaml 中配置了 mcp_servers.hindsight → hindsight（source=config）", () => {
+    writeFileSync(
+      join(root, "config.yaml"),
+      "mcp_servers:\n  hindsight:\n    url: http://127.0.0.1:9177/mcp/\n",
+    );
+    const detection = detectMemoryBackend(root);
+    expect(detection.backend).toBe("hindsight");
+    expect(detection.source).toBe("config");
+    expect(detection.detail).toContain("hindsight MCP 记忆服务");
+  });
+
+  it("config.yaml 中配置了 mcp_servers.mem0 → mem0（source=config）", () => {
+    writeFileSync(
+      join(root, "config.yaml"),
+      "mcp_servers:\n  mem0:\n    url: http://127.0.0.1:8888\n",
+    );
+    const detection = detectMemoryBackend(root);
+    expect(detection.backend).toBe("mem0");
+    expect(detection.source).toBe("config");
+    expect(detection.detail).toContain("mem0 MCP 记忆服务");
+  });
+
+  it("支持本地 markers 如 hindsight-local.env / hindsight-venv / hindsight-local.pid", () => {
+    writeFileSync(join(root, "hindsight-local.env"), "PORT=9177\n");
+    expect(detectMemoryBackend(root)).toMatchObject({
+      backend: "hindsight",
+      source: "marker",
+    });
+  });
 });
 
 describe("normalizeMemoryBackendConfig", () => {

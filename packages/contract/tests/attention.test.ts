@@ -21,6 +21,12 @@ describe("shared user health", () => {
   it("is healthy only when all user capabilities are verified", () => {
     expect(deriveUserHealthSummary(healthy)).toMatchObject({ status: "healthy", attention: [] });
   });
+  it("not-applicable capability state is skipped and does not generate attention items", () => {
+    expect(deriveUserHealthSummary({ ...healthy, memory: "not-applicable", model: "not-applicable" })).toMatchObject({
+      status: "healthy",
+      attention: [],
+    });
+  });
   it("online service plus memory failure requires action", () => {
     expect(deriveUserHealthSummary({ ...healthy, memory: "unavailable" })).toMatchObject({ status: "action_required", attention: [expect.objectContaining({ id: "memory" })] });
   });

@@ -55,6 +55,10 @@ export interface MemoryProbeEnv {
   hindsightBaseUrl?: string;
   /** hindsight 可选 Bearer Token（BUTLER_HINDSIGHT_TOKEN）。 */
   hindsightToken?: string;
+  /** hindsight 探针超时（BUTLER_HINDSIGHT_TIMEOUT_MS，毫秒，默认 180000）。 */
+  hindsightTimeoutMs?: number;
+  /** hindsight 指定 bank（BUTLER_HINDSIGHT_BANK）。 */
+  hindsightBank?: string;
   /** mem0 API 网关地址（BUTLER_MEM0_BASE_URL）。 */
   mem0BaseUrl?: string;
   /** mem0 API Key（BUTLER_MEM0_API_KEY）。 */
@@ -355,6 +359,12 @@ export function loadWatchConfig(overrides: Partial<WatchConfig> = {}): WatchConf
     memoryProbe: {
       hindsightBaseUrl: overrides.memoryProbe?.hindsightBaseUrl ?? readStrEnv("BUTLER_HINDSIGHT_BASE_URL"),
       hindsightToken: overrides.memoryProbe?.hindsightToken ?? readStrEnv("BUTLER_HINDSIGHT_TOKEN"),
+      hindsightTimeoutMs:
+        overrides.memoryProbe?.hindsightTimeoutMs ??
+        readIntEnv("BUTLER_HINDSIGHT_TIMEOUT_MS", 180_000),
+      hindsightBank:
+        overrides.memoryProbe?.hindsightBank ??
+        readStrEnv("BUTLER_HINDSIGHT_BANK"),
       mem0BaseUrl: overrides.memoryProbe?.mem0BaseUrl ?? readStrEnv("BUTLER_MEM0_BASE_URL"),
       mem0ApiKey: overrides.memoryProbe?.mem0ApiKey ?? readStrEnv("BUTLER_MEM0_API_KEY"),
     },

@@ -71,4 +71,12 @@ describe("loadWatchConfig", () => {
     vi.stubEnv("BUTLER_CREDENTIAL_WRITES_ALLOWED", "");
     expect(loadWatchConfig({ watchHttpHost: "0.0.0.0" }).credentialWritesAllowed).toBe(false);
   });
+
+  it("reads hindsightTimeoutMs and hindsightBank from environment", () => {
+    vi.stubEnv("BUTLER_HINDSIGHT_TIMEOUT_MS", "240000");
+    vi.stubEnv("BUTLER_HINDSIGHT_BANK", "custom-bank");
+    const cfg = loadWatchConfig();
+    expect(cfg.memoryProbe.hindsightTimeoutMs).toBe(240000);
+    expect(cfg.memoryProbe.hindsightBank).toBe("custom-bank");
+  });
 });

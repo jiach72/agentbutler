@@ -12,8 +12,9 @@
  *
  * 显式声明（BUTLER_MEMORY_BACKEND）优先于文件标记，文件标记优先于默认假设。
  */
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { parse as parseYaml } from "yaml";
 
 /** 支持识别的记忆后端。 */
 export type MemoryBackendId = "hermes" | "hindsight" | "mem0";
@@ -22,16 +23,30 @@ export type MemoryBackendConfig = MemoryBackendId | "auto";
 
 export interface MemoryBackendDetection {
   backend: MemoryBackendId;
-  /** env 显式声明 > 实例目录文件标记 > 默认 SQLite 假设。 */
-  source: "env" | "marker" | "default";
+  /** env 显式声明 > config.yaml MCP 配置 > 实例目录文件标记 > 默认 SQLite 假设。 */
+  source: "env" | "config" | "marker" | "default";
   /** 人读判定依据（UI 直接展示）。 */
   detail: string;
 }
 
 /** hindsight 本地服务的部署标记（真实部署勘察：<root>/hindsight/config.json）。 */
 export const HINDSIGHT_CONFIG_FILE = "hindsight/config.json";
+/** hindsight 识别标记清单（包含 config.json、本地 env、虚拟环境及进程 pid 标记）。 */
+export const HINDSIGHT_MARKER_FILES = [
+  "hindsight/config.json",
+  "hindsight-local.env",
+  "hindsight-venv",
+  "hindsight-local.pid",
+] as const;
+
 /** mem0 部署标记（与 hindsight 目录约定对齐；json/yaml 任一即认定）。 */
 export const MEM0_CONFIG_FILES = ["mem0/config.json", "mem0/config.yaml"] as const;
+/** mem0 识别标记清单。 */
+export const MEM0_MARKER_FILES = [
+  "mem0/config.json",
+  "mem0/config.yaml",
+  "mem0-local.env",
+] as const;
 
 /**
  * 归一化 BUTLER_MEMORY_BACKEND 原始值；空值/未知值一律回落 auto（自动检测），
@@ -48,6 +63,16 @@ export interface DetectMemoryBackendOptions {
   configured?: MemoryBackendConfig;
   /** 文件存在性探测（测试注入）；默认 existsSync。 */
   exists?: (path: string) => boolean;
+  /** 文本文件读取（测试注入）；默认 readFileSync。 */
+  readTextFile?: (path: string) => string | null;
+}
+
+function defaultReadTextFile(path: string): string | null {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
 }
 
 export function detectMemoryBackend(
@@ -55,6 +80,7 @@ export function detectMemoryBackend(
   options: DetectMemoryBackendOptions = {},
 ): MemoryBackendDetection {
   const exists = options.exists ?? existsSync;
+  const readText = options.readTextFile ?? defaultReadTextFile;
   const configured = options.configured ?? "auto";
   if (configured !== "auto") {
     return {
@@ -63,14 +89,52 @@ export function detectMemoryBackend(
       detail: `BUTLER_MEMORY_BACKEND 显式指定 ${configured}`,
     };
   }
-  if (exists(join(rootPath, HINDSIGHT_CONFIG_FILE))) {
+
+  // 检查 Hermes config.yaml / config.yml 中的 mcp_servers 配置
+  for (const configFile of ["config.yaml", "config.yml"]) {
+    const configPath = join(rootPath, configFile);
+    if (exists(configPath)) {
+      const raw = readText(configPath);
+      if (raw !== null && raw.trim() !== "") {
+        try {
+          const parsed = parseYaml(raw);
+          if (parsed !== null && typeof parsed === "object") {
+            const record = parsed as Record<string, unknown>;
+            const mcp = record["mcp_servers"] ?? record["mcpServers"];
+            if (mcp !== null && typeof mcp === "object") {
+              const mcpRecord = mcp as Record<string, unknown>;
+              if ("hindsight" in mcpRecord && mcpRecord["hindsight"] != null) {
+                return {
+                  backend: "hindsight",
+                  source: "config",
+                  detail: `检测到 ${configFile} 中配置了 hindsight MCP 记忆服务`,
+                };
+              }
+              if ("mem0" in mcpRecord && mcpRecord["mem0"] != null) {
+                return {
+                  backend: "mem0",
+                  source: "config",
+                  detail: `检测到 ${configFile} 中配置了 mem0 MCP 记忆服务`,
+                };
+              }
+            }
+          }
+        } catch {
+          // YAML 解析异常降级检查 marker
+        }
+      }
+    }
+  }
+
+  const hindsightMarker = HINDSIGHT_MARKER_FILES.find((file) => exists(join(rootPath, file)));
+  if (hindsightMarker !== undefined) {
     return {
       backend: "hindsight",
       source: "marker",
-      detail: `检测到 ${HINDSIGHT_CONFIG_FILE}（hindsight 记忆服务）`,
+      detail: `检测到 ${hindsightMarker}（hindsight 记忆服务）`,
     };
   }
-  const mem0Marker = MEM0_CONFIG_FILES.find((file) => exists(join(rootPath, file)));
+  const mem0Marker = MEM0_MARKER_FILES.find((file) => exists(join(rootPath, file)));
   if (mem0Marker !== undefined) {
     return {
       backend: "mem0",

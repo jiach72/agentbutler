@@ -54,48 +54,32 @@ function backupFile(from, to) {
   fs.mkdirSync(dirname(to), { recursive: true });
   const base = basename(from);
   if (base.endsWith(".db")) {
-    // 跨挂载（如 virtiofs）直接对宿主 live state.db 打开 SQLite 句柄会建立锁与 mmap，
+    // 跨挂载（如 virtiofs）直接对宿主 live 数据库打开 SQLite 句柄会建立锁与 mmap，
     // 引发宿主 Python 遭遇致命 SIGBUS (138)。
-    // 先通过纯系统文件流（copyFileSync）拷贝至私有 /tmp 快照，再对快照执行 VACUUM INTO。
-    if (base === "state.db" || fs.existsSync(from + "-wal")) {
-      const snapDir = fs.mkdtempSync(join(os.tmpdir(), "butler-snap-"));
-      const snapDb = join(snapDir, base);
+    // 统一通过纯系统文件流（copyFileSync）拷贝至私有 /tmp 快照，再对快照执行 VACUUM INTO。
+    const snapDir = fs.mkdtempSync(join(os.tmpdir(), "butler-snap-"));
+    const snapDb = join(snapDir, base);
+    try {
+      fs.copyFileSync(from, snapDb);
+      if (fs.existsSync(from + "-wal")) {
+        try { fs.copyFileSync(from + "-wal", snapDb + "-wal"); } catch {}
+      }
+      if (fs.existsSync(from + "-shm")) {
+        try { fs.copyFileSync(from + "-shm", snapDb + "-shm"); } catch {}
+      }
+      const q = String.fromCharCode(39);
+      if (fs.existsSync(to)) fs.rmSync(to, { force: true });
+      const db = new DatabaseSync(snapDb, { readOnly: true });
       try {
-        fs.copyFileSync(from, snapDb);
-        if (fs.existsSync(from + "-wal")) {
-          try { fs.copyFileSync(from + "-wal", snapDb + "-wal"); } catch {}
-        }
-        if (fs.existsSync(from + "-shm")) {
-          try { fs.copyFileSync(from + "-shm", snapDb + "-shm"); } catch {}
-        }
-        const q = String.fromCharCode(39);
-        if (fs.existsSync(to)) fs.rmSync(to, { force: true });
-        const db = new DatabaseSync(snapDb, { readOnly: true });
-        try {
-          db.exec("VACUUM INTO " + q + to + q);
-        } finally {
-          db.close();
-        }
-        return fs.statSync(to).size;
-      } catch {
-        // VACUUM 失败（加密库/权限等）→ 回退普通复制，尽力而为
+        db.exec("VACUUM INTO " + q + to + q);
       } finally {
-        try { fs.rmSync(snapDir, { recursive: true, force: true }); } catch {}
+        db.close();
       }
-    } else {
-      try {
-        const q = String.fromCharCode(39);
-        if (fs.existsSync(to)) fs.rmSync(to, { force: true });
-        const db = new DatabaseSync(from, { readOnly: true });
-        try {
-          db.exec("VACUUM INTO " + q + to + q);
-        } finally {
-          db.close();
-        }
-        return fs.statSync(to).size;
-      } catch {
-        // VACUUM 失败（加密库/权限等）→ 回退普通复制，尽力而为
-      }
+      return fs.statSync(to).size;
+    } catch {
+      // VACUUM 失败（加密库/权限等）→ 回退普通复制，尽力而为
+    } finally {
+      try { fs.rmSync(snapDir, { recursive: true, force: true }); } catch {}
     }
   }
   fs.cpSync(from, to, { force: true, errorOnExist: false });

@@ -144,7 +144,7 @@ export function MemoryHealthCard({
               ? "无法确认当前部署是否允许记忆写操作；在状态明确前，按只读处理。"
               : memoryWritesEnabled
                 ? "归档、恢复、清理和重建索引入口已可用；每次写操作前会先备份并写入本机审计记录。"
-                : "当前只提供查看、检索、自检和备份。需要归档、恢复、清理或重建索引时，请在本机部署配置中设置 BUTLER_MEMORY_WRITES_ENABLED=true 后重启 Watch；网页不会代你修改 .env 或执行宿主命令。"
+                : "当前只提供查看、检索、自检和备份。需要归档、恢复、清理或重建索引时，请在本机部署配置中设置 BUTLER_MEMORY_WRITES_ENABLED=true 后重启 Watch；网页不会代你修改 .env 或执行宿主命令（外部记忆服务如 hindsight 的日常读写不受此门禁限制）。"
           }
         />
 

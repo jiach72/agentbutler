@@ -43,7 +43,7 @@ export const MEM0_PROBE_USER_ID = "butler-probe";
 const MEM0_RECALL_ATTEMPTS = 3;
 const MEM0_RECALL_RETRY_MS = 1_500;
 /** hindsight retain 同步模式会做事实抽取，可能显著慢于普通 HTTP；给足预算。 */
-const DEFAULT_HINDSIGHT_TIMEOUT_MS = 60_000;
+const DEFAULT_HINDSIGHT_TIMEOUT_MS = 180_000;
 const DEFAULT_MEM0_TIMEOUT_MS = 30_000;
 /**
  * hindsight 探针内容与召回语。
@@ -126,7 +126,7 @@ async function requestJson(
   fetchFn: FetchLike,
   url: string,
   init: { method: string; headers?: Record<string, string>; body?: string; timeoutMs: number },
-): Promise<{ ok: true; data: unknown } | { ok: false; status: number; reason: string }> {
+): Promise<{ ok: true; data: unknown } | { ok: false; status: number; reason: string; isTimeout?: boolean }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), init.timeoutMs);
   try {
@@ -146,7 +146,8 @@ async function requestJson(
       ? { ok: true, data }
       : { ok: false, status: response.status, reason: `HTTP ${response.status}` };
   } catch (error) {
-    return { ok: false, status: 0, reason: describeError(error) };
+    const isTimeout = controller.signal.aborted || (error instanceof Error && error.name === "AbortError");
+    return { ok: false, status: 0, reason: describeError(error), isTimeout };
   } finally {
     clearTimeout(timer);
   }
@@ -173,7 +174,7 @@ export function resolveHindsightBaseUrl(
   if ("error" in resolved) {
     return {
       error:
-        "无法确定 hindsight 服务地址（<root>/hindsight/config.json 缺少 api_url，或未设置 BUTLER_HINDSIGHT_BASE_URL），记忆探针降级跳过",
+        "无法确定 hindsight 服务地址（<root>/hindsight/config.json 缺少 api_url、config.yaml 缺少 hindsight MCP url，或未设置 BUTLER_HINDSIGHT_BASE_URL），记忆探针降级跳过",
     };
   }
   return { baseUrl: resolved.baseUrl };
@@ -211,6 +212,7 @@ export function createHindsightMemoryProbe(
     // 标记记入 document_id（召回结果可精确归属），不依赖 LLM 抽取后的文本。
     const documentId = `butler-probe-${randomUUID()}`;
     let bankReady = false;
+    let attemptedBank = false;
     try {
       // 1. 健康检查：连接失败单独给容器场景的可操作提示。
       const health = await requestJson(fetchFn, `${base}/health`, { method: "GET", headers, timeoutMs: 5_000 });
@@ -240,6 +242,12 @@ export function createHindsightMemoryProbe(
           timeoutMs,
         });
         if (!recalled.ok) {
+          if (recalled.isTimeout) {
+            return {
+              status: "warn",
+              detail: `hindsight 只读召回超时（bank=${userBankId}，已等待 ${Math.round(timeoutMs / 1000)}s）：服务响应较慢`,
+            };
+          }
           return { status: "fail", detail: `hindsight 只读召回失败（bank=${userBankId}）：${recalled.reason}` };
         }
         if (!Array.isArray(asRecord(recalled.data)?.["results"])) {
@@ -249,6 +257,7 @@ export function createHindsightMemoryProbe(
       }
 
       // 2. 幂等创建探针 bank（PUT = create or update，不污染既有 bank）。
+      attemptedBank = true;
       const created = await requestJson(fetchFn, bank, {
         method: "PUT",
         headers,
@@ -270,6 +279,12 @@ export function createHindsightMemoryProbe(
         timeoutMs,
       });
       if (!retained.ok) {
+        if (retained.isTimeout) {
+          return {
+            status: "warn",
+            detail: `hindsight 测试记忆写入超时（已等待 ${Math.round(timeoutMs / 1000)}s）：服务可能正在冷启动或模型推理较慢`,
+          };
+        }
         return { status: "fail", detail: `hindsight 测试记忆写入失败：${retained.reason}` };
       }
       const retainedData = asRecord(retained.data);
@@ -284,6 +299,12 @@ export function createHindsightMemoryProbe(
         timeoutMs,
       });
       if (!recalled.ok) {
+        if (recalled.isTimeout) {
+          return {
+            status: "warn",
+            detail: `hindsight 召回查询超时（已等待 ${Math.round(timeoutMs / 1000)}s）：服务可能正在冷启动或模型推理较慢`,
+          };
+        }
         return { status: "fail", detail: `hindsight 召回查询失败：${recalled.reason}` };
       }
       const results = asRecord(recalled.data)?.["results"];
@@ -304,9 +325,13 @@ export function createHindsightMemoryProbe(
       }
       return { status: "pass", detail: `写入并召回成功（hindsight bank=${bankId}，document_id=${documentId}），探针 bank 已删除` };
     } finally {
-      // 5. 清理：整库删除探针 bank（仅在确认创建成功后执行，避免误删同名既有库）。
-      if (bankReady) {
-        await requestJson(fetchFn, bank, { method: "DELETE", headers, timeoutMs: 10_000 });
+      // 5. 清理：只要尝试过专用探针 bank（HINDSIGHT_PROBE_BANK_ID）或已准备就绪，无论成功与否均尽力删除
+      if (attemptedBank && (bankReady || bankId === HINDSIGHT_PROBE_BANK_ID)) {
+        try {
+          await requestJson(fetchFn, bank, { method: "DELETE", headers, timeoutMs: 10_000 });
+        } catch {
+          // 尽力清理
+        }
       }
     }
   };
