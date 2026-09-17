@@ -172,6 +172,7 @@ services:
       BUTLER_OLLAMA_URL: ${BUTLER_OLLAMA_URL:-http://ollama:11434}
       # 面板发布到非回环地址时必填；留空则只允许本机访问。
       BUTLER_ACCESS_TOKEN: ${BUTLER_ACCESS_TOKEN:-}
+      BUTLER_ALLOW_INSECURE_PUBLIC: ${BUTLER_ALLOW_INSECURE_PUBLIC:-}
       BUTLER_GIT_COMMIT: ${BUTLER_GIT_COMMIT:-}
     depends_on:
       butler-gateway:

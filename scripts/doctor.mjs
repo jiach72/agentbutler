@@ -232,12 +232,17 @@ if (!existsSync(envPath)) {
 
   const publishHost = get("BUTLER_WEB_PUBLISH_HOST");
   const accessToken = get("BUTLER_ACCESS_TOKEN");
+  const allowInsecure = get("BUTLER_ALLOW_INSECURE_PUBLIC");
   if (publishHost !== "" && publishHost !== "127.0.0.1" && accessToken === "") {
-    fail(
-      "公网暴露配套口令",
-      `BUTLER_WEB_PUBLISH_HOST=${publishHost} 但未设置 BUTLER_ACCESS_TOKEN——端口一旦可达，任何人都能打开你的面板`,
-      "生成强随机口令填入 BUTLER_ACCESS_TOKEN，或改回 BUTLER_WEB_PUBLISH_HOST=127.0.0.1",
-    );
+    if (allowInsecure === "1") {
+      warn("Web 暴露策略", `BUTLER_WEB_PUBLISH_HOST=${publishHost} 且未配置访问口令（已通过 BUTLER_ALLOW_INSECURE_PUBLIC=1 放行）`, "同一网络设备可免口令直达面板");
+    } else {
+      fail(
+        "公网暴露配套口令",
+        `BUTLER_WEB_PUBLISH_HOST=${publishHost} 但未设置 BUTLER_ACCESS_TOKEN——端口一旦可达，任何人都能打开你的面板`,
+        "生成强随机口令填入 BUTLER_ACCESS_TOKEN，或改回 BUTLER_WEB_PUBLISH_HOST=127.0.0.1",
+      );
+    }
   } else {
     pass("Web 暴露策略安全", publishHost === "" || publishHost === "127.0.0.1" ? "仅本机可访问" : "非回环发布且已配置访问口令");
   }
