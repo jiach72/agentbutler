@@ -306,15 +306,6 @@ export function SettingsPage() {
       default:
         return (
           <>
-            {sources.baseline.status === "ready" && sources.baseline.data.warnings.length > 0 && (
-              <Alert
-                role="status"
-                type="warning"
-                showIcon
-                message="当前风险提示"
-                description={sources.baseline.data.warnings.join("；")}
-              />
-            )}
             <SecurityBaseline
               baseline={sources.baseline}
               alerts={sources.alerts}

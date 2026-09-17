@@ -70,17 +70,21 @@ function tabCount(html: string): number {
   return (html.match(/role="tab"/g) ?? []).length;
 }
 
+import type { GatewayTab } from "../src/pages/gateway/helpers.js";
+
 describe("标签解析与深链兼容（resolveGatewayTab）", () => {
-  const cases: Array<[string, string | undefined, "messages" | "channels" | "rules" | "history"]> = [
+  const cases: Array<[string, string | undefined, GatewayTab]> = [
     ["?tab=history", undefined, "history"],
+    ["?tab=optimization", undefined, "optimization"],
     ["?tab=messages", undefined, "messages"],
-    ["?tab=channels", undefined, "channels"],
-    ["?tab=rules", undefined, "rules"],
-    ["?tab=foo", undefined, "messages"], // 非法值回落
-    ["", undefined, "messages"], // 缺省回落
-    ["?tab=prompt-optimization", undefined, "rules"], // 旧深链 → 规则
-    ["", `#${PROMPT_OPTIMIZATION_ANCHOR}`, "rules"], // 旧 hash 深链 → 规则
-    ["?tab=channels", `#${PROMPT_OPTIMIZATION_ANCHOR}`, "channels"], // 显式 tab 优先于 hash
+    ["?tab=settings", undefined, "settings"],
+    ["?tab=channels", undefined, "settings"], // 兼容旧通道标签
+    ["?tab=rules", undefined, "settings"], // 兼容旧规则标签
+    ["?tab=foo", undefined, "history"], // 非法值回落至默认工作台
+    ["", undefined, "history"], // 缺省回落至默认工作台
+    ["?tab=prompt-optimization", undefined, "optimization"], // 旧深链 → 优化顶级标签
+    ["", `#${PROMPT_OPTIMIZATION_ANCHOR}`, "optimization"], // 旧 hash 深链 → 优化顶级标签
+    ["?tab=settings", `#${PROMPT_OPTIMIZATION_ANCHOR}`, "settings"], // 显式 tab 优先于 hash
   ];
   for (const [search, hash, expected] of cases) {
     it(`"${search}"${hash ? ` + hash ${hash}` : ""} → ${expected}`, () => {
@@ -120,38 +124,53 @@ describe("通道分区与三态（helpers）", () => {
   });
 });
 
-describe("网关页：URL 驱动三标签", () => {
-  it("默认进入渲染出三个标签，且消息标签为激活态", () => {
+describe("网关页：URL 驱动四工作台与标签", () => {
+  it("默认进入渲染出四个顶级标签，且即时通讯工作台为激活态", () => {
     const html = renderGateway("/gateway");
     expect(tabCount(html)).toBe(4);
-    expect(activeTabLabel(html)).toBe(GATEWAY_TAB_LABELS.messages);
+    expect(activeTabLabel(html)).toBe(GATEWAY_TAB_LABELS.history);
   });
 
-  it("非法 tab 参数回落到消息标签", () => {
+  it("非法 tab 参数回落到即时通讯工作台", () => {
     const html = renderGateway("/gateway?tab=foo");
+    expect(activeTabLabel(html)).toBe(GATEWAY_TAB_LABELS.history);
+  });
+
+  it("?tab=optimization 激活消息整理与对照标签", () => {
+    const html = renderGateway("/gateway?tab=optimization");
+    expect(activeTabLabel(html)).toBe(GATEWAY_TAB_LABELS.optimization);
+  });
+
+  it("?tab=messages 激活待处理与监控标签", () => {
+    const html = renderGateway("/gateway?tab=messages");
     expect(activeTabLabel(html)).toBe(GATEWAY_TAB_LABELS.messages);
   });
 
-  it("?tab=channels 激活通道设置标签", () => {
+  it("?tab=settings 激活通道与规则设置标签", () => {
+    const html = renderGateway("/gateway?tab=settings");
+    expect(activeTabLabel(html)).toBe(GATEWAY_TAB_LABELS.settings);
+  });
+
+  it("?tab=channels 兼容旧链接并激活设置标签", () => {
     const html = renderGateway("/gateway?tab=channels");
-    expect(activeTabLabel(html)).toBe(GATEWAY_TAB_LABELS.channels);
+    expect(activeTabLabel(html)).toBe(GATEWAY_TAB_LABELS.settings);
   });
 
-  it("?tab=rules 激活通知规则标签", () => {
+  it("?tab=rules 兼容旧链接并激活设置标签", () => {
     const html = renderGateway("/gateway?tab=rules");
-    expect(activeTabLabel(html)).toBe(GATEWAY_TAB_LABELS.rules);
+    expect(activeTabLabel(html)).toBe(GATEWAY_TAB_LABELS.settings);
   });
 
-  it("?tab=prompt-optimization 旧深链映射到规则标签", () => {
+  it("?tab=prompt-optimization 旧深链映射到消息整理与对照顶级标签", () => {
     const html = renderGateway("/gateway?tab=prompt-optimization");
-    expect(activeTabLabel(html)).toBe(GATEWAY_TAB_LABELS.rules);
+    expect(activeTabLabel(html)).toBe(GATEWAY_TAB_LABELS.optimization);
   });
 });
 
-describe("验收点 2：默认可见消息记录与需要关注条目（不再折叠）", () => {
-  const html = renderGateway("/gateway");
+describe("验收点 2：待处理与监控标签可见消息记录与需要关注条目", () => {
+  const html = renderGateway("/gateway?tab=messages");
 
-  it("消息标签含「待处理通知」（需要关注）与「最近发送的消息」（消息记录）", () => {
+  it("消息监控标签含「待处理通知」（需要关注）与「最近发送的消息」（消息记录）", () => {
     expect(html).toContain("发送失败的通知");
     expect(html).toContain("需要处理的消息");
   });
@@ -161,16 +180,16 @@ describe("验收点 2：默认可见消息记录与需要关注条目（不再�
   });
 });
 
-describe("验收点 6：提示词优化在规则标签高级配置区，旧深链可达", () => {
-  it("规则标签挂载后含提示词优化锚点 id", () => {
-    const html = renderGateway("/gateway?tab=rules");
+describe("验收点 6：提示词优化提升为顶级标签，设置中不再出现重复冗余配置", () => {
+  it("访问 ?tab=optimization 挂载提示词优化面板", () => {
+    const html = renderGateway("/gateway?tab=optimization");
     expect(html).toContain(`id="${PROMPT_OPTIMIZATION_ANCHOR}"`);
-    expect(html).toContain("提示词优化");
+    expect(html).toContain("消息整理");
   });
 
-  it("默认（消息标签）不挂载规则面板，锚点不可见，避免误导", () => {
-    const html = renderGateway("/gateway");
-    expect(html).not.toContain(`id="${PROMPT_OPTIMIZATION_ANCHOR}"`);
+  it("设置标签（?tab=settings）不再冗余内嵌提示词面板", () => {
+    const html = renderGateway("/gateway?tab=settings");
+    expect(html).not.toContain("高级详情 · 提示词优化与消息整理");
   });
 });
 
@@ -206,7 +225,7 @@ describe("验收点 4 & 5：通道排序、添加通道区与三态（ChannelGri
 });
 
 describe("验收点 3：标签独立且切换不丢状态、确认弹窗始终可达（结构保证）", () => {
-  it("三标签并行存在且互不嵌套", () => {
+  it("四个顶级标签并行存在且互不嵌套", () => {
     const html = renderGateway("/gateway");
     expect(tabCount(html)).toBe(4);
     for (const label of Object.values(GATEWAY_TAB_LABELS)) {

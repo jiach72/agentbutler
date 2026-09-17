@@ -21,6 +21,7 @@ import type {
   PromptReloadMode,
   PromptTargetRow,
 } from "@butler/core";
+export type { PromptProtectedClause } from "@butler/core";
 
 export const PROMPT_OPTIMIZATION_ACTOR = "prompt-optimization";
 export const PROMPT_REGISTER_ACTION = "prompt-target-register";
@@ -108,11 +109,13 @@ export interface PromptVersionView {
   snapshotPath: string;
   kind: "baseline" | "version";
   createdAt: string;
+  content?: string;
 }
 
 export interface PromptActiveView {
   target: PromptTargetView;
   active: PromptVersionView | null;
+  content?: string;
 }
 
 export interface RegisterPromptTargetInput {
@@ -346,6 +349,7 @@ export interface PromptOptimizationService {
   listCandidates(targetId?: string): PromptCandidateView[];
   getCandidate(candidateId: string): PromptCandidateView | null;
   getCandidateReport(candidateId: string): PromptCandidateReportOutcome | null;
+  getProtectedClauses(targetId: string): PromptProtectedClause[];
   evaluateCandidate(input: unknown): Promise<PromptEvaluationOutcome>;
   promoteCandidate(input: unknown): PromptPromotionOutcome;
 }
@@ -478,7 +482,7 @@ function optionalBoolean(value: unknown): boolean | undefined {
   return undefined;
 }
 
-function normalizePairCase(row: unknown, index: number): PromptPairCase | null {
+export function normalizePairCase(row: unknown, index: number): PromptPairCase | null {
   if (!isRecord(row)) return null;
   const baseline = isRecord(row["baseline"]) ? row["baseline"] : undefined;
   const candidate = isRecord(row["candidate"]) ? row["candidate"] : undefined;
@@ -1519,6 +1523,20 @@ export function createPromptOptimizationService(
       const row = core.store.getPromptTarget(targetId);
       if (row === undefined) return null;
       const version = core.store.getPromptVersion(row.targetId, row.activeVersion);
+      let content: string | undefined;
+      if (version?.snapshotPath && existsSync(version.snapshotPath)) {
+        try {
+          content = readFileSync(version.snapshotPath, "utf8");
+        } catch {
+          // ignore
+        }
+      } else if (row.sourcePath && existsSync(row.sourcePath)) {
+        try {
+          content = readFileSync(row.sourcePath, "utf8");
+        } catch {
+          // ignore
+        }
+      }
       return {
         target: toTargetView(row, now),
         active:
@@ -1531,7 +1549,9 @@ export function createPromptOptimizationService(
                 snapshotPath: version.snapshotPath,
                 kind: version.kind,
                 createdAt: version.createdAt,
+                content,
               },
+        content,
       };
     },
     verifyTarget: (targetId) => {
@@ -1568,6 +1588,10 @@ export function createPromptOptimizationService(
         candidate: toCandidateView(row),
         report: latest === undefined ? null : toEvaluationReport(latest),
       };
+    },
+    getProtectedClauses: (targetId: string) => {
+      const row = core.store.getPromptTarget(targetId);
+      return row?.protectedClauses ? [...row.protectedClauses] : [];
     },
     evaluateCandidate,
     promoteCandidate,

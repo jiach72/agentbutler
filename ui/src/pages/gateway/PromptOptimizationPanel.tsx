@@ -10,14 +10,18 @@ import {
   Button,
   Card,
   Col,
+  Collapse,
+  Divider,
   Flex,
   Form,
   Input,
   Pagination,
   Row,
   Select,
+  Space,
   Statistic,
   Table,
+  Tabs,
   Tag,
   Tooltip,
   Typography,
@@ -25,7 +29,19 @@ import {
 } from "antd";
 import { Empty } from "../../components/Empty.js";
 import type { TableColumnsType } from "antd";
-import { ArrowRightOutlined, DownOutlined, UpOutlined } from "@ant-design/icons";
+import {
+  ArrowRightOutlined,
+  CheckCircleOutlined,
+  CloseCircleOutlined,
+  DownOutlined,
+  ExperimentOutlined,
+  InfoCircleOutlined,
+  RobotOutlined,
+  SafetyCertificateOutlined,
+  SyncOutlined,
+  ThunderboltOutlined,
+  UpOutlined,
+} from "@ant-design/icons";
 import { TrendCard, ChartEmpty, TrendColumn } from "../../components/charts/index.js";
 import {
   chartThemeFor,
@@ -42,6 +58,40 @@ import { usePolling } from "../../hooks/usePolling.js";
 import { filterHistoryByDay, historyDayOptions, historySummaryLine } from "./helpers.js";
 
 const { Paragraph, Text, Title } = Typography;
+
+interface OllamaModelItem {
+  name: string;
+  size?: number;
+}
+
+interface OllamaTestChatResponse {
+  ok: boolean;
+  model: string;
+  reply?: string;
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    durationMs: number;
+    tokensPerSecond: number;
+  };
+  error?: string;
+}
+
+interface PromptActivePayload {
+  target: PromptTarget;
+  active: {
+    version: string;
+    sourcePath: string;
+    contentSha256: string;
+    snapshotPath: string;
+    kind: string;
+    createdAt: string;
+    content?: string;
+  } | null;
+  content?: string;
+}
+
 
 interface PromptGate {
   status:
@@ -110,6 +160,74 @@ interface CandidateFormValues {
 
 interface EvaluationFormValues {
   cases: string;
+}
+
+interface PromptfooSuiteItem {
+  suiteId: string;
+  name: string;
+  description: string;
+  targetId: string;
+  tier: "formal" | "exploratory";
+  tests: Array<{
+    id: string;
+    description: string;
+    vars: { input: string; [key: string]: string | undefined };
+    assert: Array<{ type: string; value?: string | number }>;
+  }>;
+}
+
+interface PromptfooAssertionResult {
+  assertionType: string;
+  expected?: string | number;
+  passed: boolean;
+  score: number;
+  reason?: string;
+}
+
+interface PromptfooDetailItem {
+  caseId: string;
+  description: string;
+  input: string;
+  baselineOutput: string;
+  candidateOutput: string;
+  baselineScore: number;
+  candidateScore: number;
+  delta: number;
+  baselinePassed: boolean;
+  candidatePassed: boolean;
+  safetyViolation: boolean;
+  candidateAssertions: PromptfooAssertionResult[];
+}
+
+interface PromptfooEvaluationResponse {
+  ok: boolean;
+  report?: {
+    evaluationId: string;
+    candidateId: string;
+    status: string;
+    tier: string;
+    holdoutCount: number;
+    canPromote: boolean;
+    confidence?: { z?: number; pValue?: number } | null;
+    metrics: {
+      baselineMean: number;
+      candidateMean: number;
+      deltaMean: number;
+      deltaPp?: number | null;
+      safetyViolationCount: number;
+      canPromote: boolean;
+      reasons?: string[];
+    };
+  };
+  details?: PromptfooDetailItem[];
+  suite?: {
+    suiteId: string;
+    name: string;
+    tier: string;
+    totalTests: number;
+  };
+  error?: string;
+  detail?: string;
 }
 
 type OptimizeMode = "pass-through" | "quick" | "rule" | "llm";
@@ -336,6 +454,103 @@ export function PromptOptimizationPanel() {
   const [candidateForm] = Form.useForm<CandidateFormValues>();
   const [evaluationForm] = Form.useForm<EvaluationFormValues>();
   const [candidateBusy, setCandidateBusy] = useState(false);
+  const [ollamaModels, setOllamaModels] = useState<OllamaModelItem[]>([]);
+  const [selectedOllamaModel, setSelectedOllamaModel] = useState<string>("");
+  const [aiOptimizing, setAiOptimizing] = useState(false);
+  const [promptfooOptimizing, setPromptfooOptimizing] = useState(false);
+  const [aiInstruction, setAiInstruction] = useState("更加精炼亲切，强化指令遵循，适合微信沟通");
+  const [aiMetrics, setAiMetrics] = useState<{
+    durationMs: number;
+    totalTokens: number;
+    tokensPerSecond: number;
+  } | null>(null);
+  const [activeTargetContent, setActiveTargetContent] = useState<string>("");
+  const [activeContentLoading, setActiveContentLoading] = useState(false);
+
+  // Promptfoo 自动化门禁测试状态
+  const [promptfooSuites, setPromptfooSuites] = useState<PromptfooSuiteItem[]>([]);
+  const [selectedSuiteId, setSelectedSuiteId] = useState<string>("hermes-standard-30");
+  const [evalModel, setEvalModel] = useState<string>("builtin");
+  const [evaluatingWithPromptfoo, setEvaluatingWithPromptfoo] = useState(false);
+  const [promptfooEvalResult, setPromptfooEvalResult] = useState<PromptfooEvaluationResponse | null>(null);
+  const [evalActiveTab, setEvalActiveTab] = useState<string>("promptfoo");
+
+  const loadPromptfooSuites = useCallback(async () => {
+    const res = await fetchJson<{ suites: PromptfooSuiteItem[] }>(
+      "/api/prompt-optimization/promptfoo/suites",
+    );
+    if (res?.suites && Array.isArray(res.suites) && res.suites.length > 0) {
+      setPromptfooSuites(res.suites);
+      setSelectedSuiteId((prev) => prev || res.suites[0]?.suiteId || "hermes-standard-30");
+    }
+  }, []);
+
+  const loadActiveTargetContent = useCallback(async (targetId: string) => {
+    if (!targetId) return;
+    setActiveContentLoading(true);
+    const res = await fetchJson<PromptActivePayload>(
+      `/api/prompt-optimization/active/${encodeURIComponent(targetId)}`,
+    );
+    setActiveContentLoading(false);
+    const content = res?.content ?? res?.active?.content ?? "";
+    setActiveTargetContent(content);
+    const current = candidateForm.getFieldValue("content");
+    if (!current && content) {
+      candidateForm.setFieldsValue({ content });
+    }
+  }, [candidateForm]);
+
+  const loadOllamaModels = useCallback(async () => {
+    const res = await fetchJson<{ ok: boolean; models: OllamaModelItem[] }>("/api/ollama/models");
+    if (res?.ok && Array.isArray(res.models) && res.models.length > 0) {
+      setOllamaModels(res.models);
+      setSelectedOllamaModel((prev) => prev || res.models[0]?.name || "");
+    }
+  }, []);
+
+  const runAiOptimization = useCallback(async () => {
+    if (!selectedOllamaModel) {
+      setPromotionNotice("请先选择用于优化的本地 Ollama 模型");
+      return;
+    }
+    const currentPrompt = candidateForm.getFieldValue("content") || activeTargetContent;
+    if (!currentPrompt.trim()) {
+      setPromotionNotice("当前提示词内容为空，请先选择目标或输入提示词基础文本");
+      return;
+    }
+    setAiOptimizing(true);
+    setAiMetrics(null);
+    const result = await postJson(
+      "/api/ollama/test-chat",
+      {
+        model: selectedOllamaModel,
+        system:
+          "你是一个资深系统提示词（Prompt）工程专家。用户会提供待优化的系统提示词和具体优化方向。你的任务是在严格保留原有核心职责、系统约束、安全边界与保护段（如 <system>、[CRITICAL] 或特殊标记）的前提下，根据优化要求进行重构改写。直接输出优化后的完整提示词正文，严禁包含任何前言客套话、解释说明或外部 markdown 代码块包裹。",
+        prompt: `【优化诉求】：\n${aiInstruction}\n\n【待优化的系统提示词】：\n${currentPrompt}`,
+      },
+      120_000,
+    );
+    setAiOptimizing(false);
+    const data = result.data as OllamaTestChatResponse | null;
+    if (result.ok && data?.ok && data.reply) {
+      const optimizedReply = data.reply.trim();
+      candidateForm.setFieldsValue({
+        content: optimizedReply,
+        description: `[${selectedOllamaModel}] ${aiInstruction.slice(0, 18)}`,
+      });
+      if (data.usage) {
+        setAiMetrics({
+          durationMs: data.usage.durationMs,
+          totalTokens: data.usage.totalTokens,
+          tokensPerSecond: data.usage.tokensPerSecond,
+        });
+      }
+    } else {
+      const errMsg =
+        data?.error || "本地模型优化调用失败，请确认 Ollama 正在运行且已下载对应模型";
+      setPromotionNotice(errMsg);
+    }
+  }, [selectedOllamaModel, candidateForm, activeTargetContent, aiInstruction]);
 
   const refresh = useCallback(async () => {
     const payload = await fetchJson<PromptPayload>("/api/prompt-optimization");
@@ -353,6 +568,69 @@ export function PromptOptimizationPanel() {
     );
     setHistory(payload.ok ? { status: "ready", data: payload.data } : { status: "failed", reason: payload.reason });
   }, []);
+
+  const runPromptfooOptimization = useCallback(
+    async (directCreate: boolean) => {
+      const targetId = candidateForm.getFieldValue("targetId");
+      if (!targetId) {
+        setPromotionNotice("请先选择优化目标规则");
+        return;
+      }
+      setPromptfooOptimizing(true);
+      setPromotionNotice(null);
+      const result = await postJson(
+        "/api/prompt-optimization/promptfoo/optimize",
+        {
+          targetId,
+          instruction: aiInstruction,
+          model: selectedOllamaModel || undefined,
+        },
+        120_000,
+      );
+      setPromptfooOptimizing(false);
+
+      if (
+        result.ok &&
+        result.data &&
+        typeof result.data === "object" &&
+        "ok" in result.data &&
+        (result.data as { ok: boolean }).ok
+      ) {
+        const payload = result.data as {
+          ok: boolean;
+          candidate: PromptCandidate;
+          changes: string[];
+          preservedClauses: number;
+        };
+        if (directCreate) {
+          setPromotionNotice(
+            `Promptfoo 智能优化完成并自动创建候选！已保障 ${payload.preservedClauses} 处关键保护段。`,
+          );
+          setCandidateModalOpen(false);
+          await refreshCandidates();
+          setEvaluationCandidate(payload.candidate);
+          setPromptfooEvalResult(null);
+        } else {
+          candidateForm.setFieldsValue({
+            description: payload.candidate.description,
+          });
+          void loadActiveTargetContent(targetId);
+          setPromotionNotice(
+            `Promptfoo 优化已完成（保持 ${payload.preservedClauses} 处保护段），可在下方核对后提交。`,
+          );
+        }
+      } else {
+        const errDetail =
+          result.data && typeof result.data === "object" && "detail" in result.data
+            ? String((result.data as { detail: unknown }).detail)
+            : result.data && typeof result.data === "object" && "error" in result.data
+              ? String((result.data as { error: unknown }).error)
+              : "Promptfoo 智能优化失败，请确认本地模型是否就绪。";
+        setPromotionNotice(`优化失败：${errDetail}`);
+      }
+    },
+    [candidateForm, aiInstruction, selectedOllamaModel, refreshCandidates, loadActiveTargetContent],
+  );
 
   const promoteCandidate = useCallback(
     async (candidate: PromptCandidate) => {
@@ -409,6 +687,39 @@ export function PromptOptimizationPanel() {
     await refreshCandidates();
   }, [candidateForm, data?.targets, refreshCandidates]);
 
+  const runPromptfooEvaluation = useCallback(async () => {
+    if (evaluationCandidate === null) return;
+    setEvaluatingWithPromptfoo(true);
+    setPromptfooEvalResult(null);
+    setPromotionNotice(null);
+
+    const result = await postJson(
+      "/api/prompt-optimization/promptfoo/evaluate",
+      {
+        candidateId: evaluationCandidate.candidateId,
+        suiteId: selectedSuiteId,
+        model: evalModel === "builtin" ? undefined : evalModel,
+      },
+      120_000,
+    );
+
+    setEvaluatingWithPromptfoo(false);
+    const data = result.data as PromptfooEvaluationResponse | null;
+    if (result.ok && data?.ok) {
+      setPromptfooEvalResult(data);
+      await refreshCandidates();
+      if (data.report?.canPromote) {
+        setPromotionNotice("🎉 Promptfoo 门禁评测达标！已满足正式样本 (n>=30)、净胜率与零安全违规，现可直接采用。");
+      } else {
+        setPromotionNotice("评测已完成。测试结果未达到正式采用门禁，请查看断言明细。");
+      }
+    } else {
+      const errMsg =
+        data?.detail || data?.error || (typeof result.data === "string" ? result.data : "自动化评测执行失败");
+      setPromotionNotice(`自动化评测执行失败：${errMsg}`);
+    }
+  }, [evaluationCandidate, selectedSuiteId, evalModel, refreshCandidates]);
+
   const evaluateCandidate = useCallback(async (values: EvaluationFormValues) => {
     if (evaluationCandidate === null) return;
     let cases: unknown;
@@ -443,7 +754,8 @@ export function PromptOptimizationPanel() {
     void refresh();
     void refreshCandidates();
     void refreshHistory();
-  }, [refresh, refreshCandidates, refreshHistory]);
+    void loadPromptfooSuites();
+  }, [refresh, refreshCandidates, refreshHistory, loadPromptfooSuites]);
 
   useEffect(() => {
     refreshAll();
@@ -772,8 +1084,15 @@ export function PromptOptimizationPanel() {
               type="primary"
               disabled={data?.targets.length === 0 || data === null}
               onClick={() => {
-                candidateForm.setFieldsValue({ targetId: data?.targets[0]?.targetId ?? "" });
+                const firstId = data?.targets[0]?.targetId ?? "";
+                candidateForm.resetFields();
+                candidateForm.setFieldsValue({ targetId: firstId });
                 setCandidateModalOpen(true);
+                setAiMetrics(null);
+                void loadOllamaModels();
+                if (firstId) {
+                  void loadActiveTargetContent(firstId);
+                }
               }}
             >
               新建候选
@@ -993,11 +1312,20 @@ export function PromptOptimizationPanel() {
       </AdvancedDetails>
       <Modal
         open={candidateModalOpen}
-        title="新建提示词候选"
+        title={
+          <Flex align="center" gap={8}>
+            <span>新建提示词候选</span>
+            <Tag color="cyan">支持本地模型智能改写</Tag>
+          </Flex>
+        }
+        width={720}
         okText="创建候选"
         cancelText="取消"
         confirmLoading={candidateBusy}
-        onCancel={() => setCandidateModalOpen(false)}
+        onCancel={() => {
+          setCandidateModalOpen(false);
+          setAiMetrics(null);
+        }}
         onOk={() => void candidateForm.submit()}
       >
         <Form<CandidateFormValues>
@@ -1005,49 +1333,431 @@ export function PromptOptimizationPanel() {
           layout="vertical"
           onFinish={(values) => void createCandidate(values)}
         >
-          <Form.Item name="targetId" label="目标" rules={[{ required: true, message: "请选择目标" }]}>
+          <Form.Item name="targetId" label="目标规则" rules={[{ required: true, message: "请选择目标" }]}>
             <Select
+              onChange={(val) => void loadActiveTargetContent(val)}
               options={(data?.targets ?? []).map((target) => ({
                 value: target.targetId,
                 label: `${promptTargetLabel(target.targetId)} · ${target.activeSha256.slice(0, 8)}`,
               }))}
             />
           </Form.Item>
+
+          {/* 本地模型智能优化扩展卡片 */}
+          <Card
+            size="small"
+            style={{
+              marginBottom: 16,
+              background: "var(--ant-color-fill-quaternary)",
+              border: "1px dashed var(--ant-color-primary-border)",
+            }}
+          >
+            <Flex vertical gap={12}>
+              <Flex justify="space-between" align="center" wrap="wrap" gap={8}>
+                <Flex align="center" gap={6}>
+                  <RobotOutlined style={{ color: "var(--ant-color-primary)", fontSize: 16 }} />
+                  <Typography.Text strong>本地模型智能改写与优化</Typography.Text>
+                  <Tag color="processing">Ollama 引擎</Tag>
+                </Flex>
+                <Button
+                  size="small"
+                  type="text"
+                  icon={<SyncOutlined spin={activeContentLoading} />}
+                  onClick={() => {
+                    const tid = candidateForm.getFieldValue("targetId");
+                    if (tid) void loadActiveTargetContent(tid);
+                  }}
+                >
+                  重新载入当前版本
+                </Button>
+              </Flex>
+
+              <Row gutter={[12, 12]} align="middle">
+                <Col xs={24} sm={10}>
+                  <Typography.Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>
+                    选择本地模型
+                  </Typography.Text>
+                  <Select
+                    style={{ width: "100%" }}
+                    size="small"
+                    placeholder="选择本地模型"
+                    value={selectedOllamaModel || undefined}
+                    onChange={(val) => setSelectedOllamaModel(val)}
+                    notFoundContent={
+                      <div style={{ padding: 8, fontSize: 12 }}>
+                        暂未发现已安装的模型，可先至「设置 → 本地模型」拉取
+                      </div>
+                    }
+                    options={ollamaModels.map((m) => ({
+                      value: m.name,
+                      label: m.name,
+                    }))}
+                  />
+                </Col>
+                <Col xs={24} sm={14}>
+                  <Typography.Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>
+                    优化方向与诉求
+                  </Typography.Text>
+                  <Input
+                    size="small"
+                    value={aiInstruction}
+                    onChange={(e) => setAiInstruction(e.target.value)}
+                    placeholder="如：精炼亲切，适应微信沟通"
+                  />
+                </Col>
+              </Row>
+
+              <Flex wrap="wrap" gap={6} align="center">
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>快捷预设：</Typography.Text>
+                {[
+                  "更加精炼亲切，适合微信聊天",
+                  "强化指令遵循与安全性，减少幻觉",
+                  "温和自然、去除机械官腔",
+                  "收紧任务边界，明确完成条件",
+                ].map((preset) => (
+                  <Tag
+                    key={preset}
+                    style={{ cursor: "pointer", fontSize: 12 }}
+                    onClick={() => setAiInstruction(preset)}
+                  >
+                    {preset}
+                  </Tag>
+                ))}
+              </Flex>
+
+              <Flex justify="space-between" align="center" wrap="wrap" gap={8}>
+                <Space wrap>
+                  <Button
+                    type="primary"
+                    icon={<ThunderboltOutlined />}
+                    loading={promptfooOptimizing}
+                    disabled={!selectedOllamaModel || ollamaModels.length === 0}
+                    onClick={() => void runPromptfooOptimization(true)}
+                  >
+                    {promptfooOptimizing ? "Promptfoo 优化中…" : "Promptfoo 一键优化并创建候选（自动门禁）"}
+                  </Button>
+                  <Button
+                    icon={<RobotOutlined />}
+                    loading={aiOptimizing}
+                    disabled={!selectedOllamaModel || ollamaModels.length === 0}
+                    onClick={() => void runAiOptimization()}
+                  >
+                    {aiOptimizing ? "本地模型改写中…" : "改写并填入下方编辑器（手动修改）"}
+                  </Button>
+                </Space>
+                {aiMetrics && (
+                  <Flex align="center" gap={6}>
+                    <CheckCircleOutlined style={{ color: "var(--ant-color-success)" }} />
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      耗时 {(aiMetrics.durationMs / 1000).toFixed(1)}s · 消耗 {aiMetrics.totalTokens} Tokens · {aiMetrics.tokensPerSecond} tok/s
+                    </Typography.Text>
+                  </Flex>
+                )}
+              </Flex>
+            </Flex>
+          </Card>
+
           <Form.Item name="description" label="候选说明">
-            <Input placeholder="例如：收紧任务完成条件" />
+            <Input placeholder="例如：[Promptfoo + qwen2.5] 适应微信即时沟通口吻优化" />
           </Form.Item>
           <Form.Item
             name="content"
-            label="候选完整内容"
-            rules={[{ required: true, message: "请粘贴候选完整内容" }]}
+            label="候选完整内容（可二次预览并微调）"
+            rules={[{ required: true, message: "请提供候选完整内容" }]}
           >
-            <Input.TextArea rows={12} placeholder="粘贴完整内容，并保留系统要求的保护段。" />
+            <Input.TextArea
+              rows={10}
+              placeholder="完整提示词内容。使用本地模型优化后会自动生成并填入此处，并保留关键保护段。"
+            />
           </Form.Item>
         </Form>
       </Modal>
+
+      {/* Promptfoo 自动化门禁评估模态框 */}
       <Modal
         open={evaluationCandidate !== null}
-        title={`评估候选：${evaluationCandidate?.description || "改进版本"}`}
-        okText="开始评估"
-        cancelText="取消"
-        confirmLoading={candidateBusy}
-        onCancel={() => setEvaluationCandidate(null)}
-        onOk={() => void evaluationForm.submit()}
+        title={
+          <Flex align="center" gap={8}>
+            <ExperimentOutlined style={{ color: "var(--ant-color-primary)", fontSize: 18 }} />
+            <span>Promptfoo 门禁评估</span>
+            <Tag color="blue">{evaluationCandidate?.description || "候选版本"}</Tag>
+          </Flex>
+        }
+        width={820}
+        footer={null}
+        onCancel={() => {
+          setEvaluationCandidate(null);
+          setPromptfooEvalResult(null);
+        }}
       >
-        <Form<EvaluationFormValues>
-          form={evaluationForm}
-          layout="vertical"
-          onFinish={(values) => void evaluateCandidate(values)}
-        >
-          <Form.Item
-            name="cases"
-            label="成对样本 JSON"
-            extra="每项至少包含 caseId、baselineScore、candidateScore；正式采用至少需要 30 条样本。"
-            rules={[{ required: true, message: "请提供成对样本" }]}
-          >
-            <Input.TextArea rows={14} />
-          </Form.Item>
-        </Form>
+        <Tabs
+          activeKey={evalActiveTab}
+          onChange={setEvalActiveTab}
+          items={[
+            {
+              key: "promptfoo",
+              label: (
+                <Flex align="center" gap={6}>
+                  <ThunderboltOutlined />
+                  <span>Promptfoo 自动化门禁测试（推荐）</span>
+                </Flex>
+              ),
+              children: (
+                <Flex vertical gap={16} style={{ paddingTop: 8 }}>
+                  <Card size="small" style={{ background: "var(--ant-color-fill-quaternary)" }}>
+                    <Flex vertical gap={12}>
+                      <Row gutter={[12, 12]}>
+                        <Col xs={24} sm={14}>
+                          <Typography.Text strong style={{ fontSize: 12, display: "block", marginBottom: 4 }}>
+                            选择评测基准套件 (Promptfoo Suite)
+                          </Typography.Text>
+                          <Select
+                            style={{ width: "100%" }}
+                            value={selectedSuiteId}
+                            onChange={setSelectedSuiteId}
+                            options={promptfooSuites.map((suite) => ({
+                              value: suite.suiteId,
+                              label: `${suite.name} (${suite.tests.length} 项 · ${suite.tier === "formal" ? "正式门禁" : "探索测试"})`,
+                            }))}
+                          />
+                        </Col>
+                        <Col xs={24} sm={10}>
+                          <Typography.Text strong style={{ fontSize: 12, display: "block", marginBottom: 4 }}>
+                            评测执行引擎
+                          </Typography.Text>
+                          <Select
+                            style={{ width: "100%" }}
+                            value={evalModel}
+                            onChange={setEvalModel}
+                            options={[
+                              { value: "builtin", label: "内置 Promptfoo 断言引擎（毫秒级执行，推荐）" },
+                              ...ollamaModels.map((m) => ({
+                                value: m.name,
+                                label: `本地模型驱动: ${m.name}`,
+                              })),
+                            ]}
+                          />
+                        </Col>
+                      </Row>
+
+                      {selectedSuiteId && (
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          {promptfooSuites.find((s) => s.suiteId === selectedSuiteId)?.description ||
+                            "涵盖人设性格、工具遵循、微信即时沟通、边界防御与中文语境的正式门禁基准。"}
+                        </Typography.Text>
+                      )}
+
+                      <Flex justify="space-between" align="center" wrap="wrap" gap={8}>
+                        <Button
+                          type="primary"
+                          icon={<ThunderboltOutlined />}
+                          loading={evaluatingWithPromptfoo}
+                          onClick={() => void runPromptfooEvaluation()}
+                        >
+                          {evaluatingWithPromptfoo ? "Promptfoo 评测运行中…" : "开始 Promptfoo 自动化断言评测"}
+                        </Button>
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          正式采用需满足：样本数 ≥ 30、净提升 &gt; 0%、零安全违规、受信评估
+                        </Typography.Text>
+                      </Flex>
+                    </Flex>
+                  </Card>
+
+                  {/* 评测结果得分卡 */}
+                  {promptfooEvalResult && promptfooEvalResult.report && (
+                    <Flex vertical gap={12}>
+                      {promptfooEvalResult.report.canPromote ? (
+                        <Alert
+                          type="success"
+                          showIcon
+                          icon={<SafetyCertificateOutlined />}
+                          message="🎉 门禁评测全部通过！已达到正式采用门禁（Formal Benchmark）"
+                          description={
+                            <span>
+                              共通过 <strong>{promptfooEvalResult.suite?.totalTests ?? 30}</strong> 项开源标准断言测试，
+                              提升幅度 <strong>{((promptfooEvalResult.report.metrics.deltaMean ?? 0) * 100).toFixed(1)}%</strong>，
+                              零安全违规，且为受信评估。您现在可以直接采用此版本。
+                            </span>
+                          }
+                          action={
+                            <Button
+                              type="primary"
+                              icon={<CheckCircleOutlined />}
+                              onClick={async () => {
+                                await promoteCandidate(evaluationCandidate!);
+                                setEvaluationCandidate(null);
+                              }}
+                            >
+                              立即采用此版本
+                            </Button>
+                          }
+                        />
+                      ) : (
+                        <Alert
+                          type="warning"
+                          showIcon
+                          message="尚未达到正式采用门禁"
+                          description={
+                            <span>
+                              {promptfooEvalResult.report.metrics.reasons?.join("；") ||
+                                "未完全满足正式门禁要求，建议根据下方断言明细优化提示词后重新测试。"}
+                            </span>
+                          }
+                        />
+                      )}
+
+                      <Row gutter={[12, 12]}>
+                        <Col xs={12} sm={6}>
+                          <Card size="small">
+                            <Statistic
+                              title="基线通过率"
+                              value={Number(((promptfooEvalResult.report.metrics.baselineMean ?? 0) * 100).toFixed(1))}
+                              suffix="%"
+                            />
+                          </Card>
+                        </Col>
+                        <Col xs={12} sm={6}>
+                          <Card size="small">
+                            <Statistic
+                              title="候选通过率"
+                              value={Number(((promptfooEvalResult.report.metrics.candidateMean ?? 0) * 100).toFixed(1))}
+                              suffix="%"
+                              valueStyle={{
+                                color:
+                                  (promptfooEvalResult.report.metrics.deltaMean ?? 0) > 0
+                                    ? "var(--ant-color-success)"
+                                    : undefined,
+                              }}
+                            />
+                          </Card>
+                        </Col>
+                        <Col xs={12} sm={6}>
+                          <Card size="small">
+                            <Statistic
+                              title="净提升 (Delta)"
+                              value={`${(promptfooEvalResult.report.metrics.deltaMean ?? 0) > 0 ? "+" : ""}${((promptfooEvalResult.report.metrics.deltaMean ?? 0) * 100).toFixed(1)}%`}
+                              valueStyle={{
+                                color:
+                                  (promptfooEvalResult.report.metrics.deltaMean ?? 0) > 0
+                                    ? "var(--ant-color-success)"
+                                    : "var(--ant-color-error)",
+                              }}
+                            />
+                          </Card>
+                        </Col>
+                        <Col xs={12} sm={6}>
+                          <Card size="small">
+                            <Statistic
+                              title="安全违规"
+                              value={promptfooEvalResult.report.metrics.safetyViolationCount ?? 0}
+                              suffix="项"
+                              valueStyle={{
+                                color:
+                                  (promptfooEvalResult.report.metrics.safetyViolationCount ?? 0) === 0
+                                    ? "var(--ant-color-success)"
+                                    : "var(--ant-color-error)",
+                              }}
+                            />
+                          </Card>
+                        </Col>
+                      </Row>
+
+                      {/* 断言明细查看 */}
+                      {promptfooEvalResult.details && promptfooEvalResult.details.length > 0 && (
+                        <Collapse
+                          size="small"
+                          items={[
+                            {
+                              key: "details",
+                              label: `查看断言明细（共 ${promptfooEvalResult.details.length} 项测试用例）`,
+                              children: (
+                                <Flex vertical gap={8} style={{ maxHeight: 320, overflowY: "auto" }}>
+                                  {promptfooEvalResult.details.map((item) => (
+                                    <div
+                                      key={item.caseId}
+                                      style={{
+                                        padding: 8,
+                                        borderRadius: 6,
+                                        background: item.candidatePassed
+                                          ? "var(--ant-color-fill-quaternary)"
+                                          : "rgba(255, 77, 79, 0.08)",
+                                        border: "1px solid var(--ant-color-border-secondary)",
+                                      }}
+                                    >
+                                      <Flex justify="space-between" align="center" gap={8}>
+                                        <Flex align="center" gap={8}>
+                                          {item.candidatePassed ? (
+                                            <Tag color="success">通过</Tag>
+                                          ) : (
+                                            <Tag color="error">未通过</Tag>
+                                          )}
+                                          <Typography.Text strong style={{ fontSize: 12 }}>
+                                            {item.description}
+                                          </Typography.Text>
+                                        </Flex>
+                                        <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                                          得分: {item.candidateScore.toFixed(2)}
+                                        </Typography.Text>
+                                      </Flex>
+                                      <Typography.Paragraph
+                                        type="secondary"
+                                        style={{ fontSize: 12, margin: "4px 0 0 0" }}
+                                        ellipsis={{ rows: 2 }}
+                                      >
+                                        <strong>输入：</strong>
+                                        {item.input}
+                                      </Typography.Paragraph>
+                                      {item.candidateAssertions && item.candidateAssertions.length > 0 && (
+                                        <div style={{ marginTop: 4 }}>
+                                          {item.candidateAssertions.map((a, idx) => (
+                                            <Tag key={idx} style={{ fontSize: 11 }}>
+                                              {a.assertionType}: {a.reason || (a.passed ? "达标" : "未达标")}
+                                            </Tag>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  ))}
+                                </Flex>
+                              ),
+                            },
+                          ]}
+                        />
+                      )}
+                    </Flex>
+                  )}
+                </Flex>
+              ),
+            },
+            {
+              key: "custom_json",
+              label: "高级：自定义成对样本 (JSON)",
+              children: (
+                <Form<EvaluationFormValues>
+                  form={evaluationForm}
+                  layout="vertical"
+                  onFinish={(values) => void evaluateCandidate(values)}
+                  style={{ paddingTop: 8 }}
+                >
+                  <Form.Item
+                    name="cases"
+                    label="成对样本 JSON"
+                    extra="每项至少包含 caseId、baselineScore、candidateScore；正式采用至少需要 30 条样本。"
+                    rules={[{ required: true, message: "请提供成对样本" }]}
+                  >
+                    <Input.TextArea rows={12} />
+                  </Form.Item>
+                  <Flex justify="flex-end" gap={8}>
+                    <Button onClick={() => setEvaluationCandidate(null)}>取消</Button>
+                    <Button type="primary" htmlType="submit" loading={candidateBusy}>
+                      提交自定义评估
+                    </Button>
+                  </Flex>
+                </Form>
+              ),
+            },
+          ]}
+        />
       </Modal>
     </Flex>
   );

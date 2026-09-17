@@ -99,7 +99,9 @@ import { createEvolutionInsightsService } from "./evolution-insights.js";
 import { createEvolutionAnalyticsService, type EvolutionAnalyticsService } from "./evolution-analytics.js";
 import {
   createPromptOptimizationService,
+  normalizePairCase,
   type PromptOptimizationService,
+  type PromptPairCase,
 } from "./prompt-optimization.js";
 import { createRepairSessionService } from "./http.js";
 import { resolveButlerSourceDir } from "./self-upgrade.js";
@@ -1177,6 +1179,11 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     core,
     hermesRoot: config.framework === "openclaw" ? config.openclawRoot : config.hermesRoot,
     now: options.now,
+    evaluator: async ({ cases }) => {
+      return cases
+        .map((c, i) => normalizePairCase(c, i))
+        .filter((p): p is PromptPairCase => p !== null);
+    },
   });
 
   // M1 独立关键记忆探针：与整轮巡检分离，探针行即时清理，避免高频巡检污染用户记忆。

@@ -4008,6 +4008,42 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     }
   });
 
+  app.get("/api/prompt-optimization/promptfoo/suites", async (_request, reply) => {
+    const res = await fetchWatch("/api/prompt-optimization/promptfoo/suites");
+    if (res === null) return reply.status(502).send({ error: "watch-unreachable" });
+    const raw = await res.text();
+    if (!res.ok) {
+      try {
+        return reply.status(res.status).send(JSON.parse(raw) as unknown);
+      } catch {
+        return reply.status(res.status).send({ error: "watch-invalid-response" });
+      }
+    }
+    try {
+      return reply.send(JSON.parse(raw) as unknown);
+    } catch {
+      return reply.status(502).send({ error: "watch-invalid-response" });
+    }
+  });
+
+  app.post("/api/prompt-optimization/promptfoo/evaluate", async (request, reply) => {
+    return proxyWatchPost(
+      "/api/prompt-optimization/promptfoo/evaluate",
+      request.body,
+      reply,
+      120_000,
+    );
+  });
+
+  app.post("/api/prompt-optimization/promptfoo/optimize", async (request, reply) => {
+    return proxyWatchPost(
+      "/api/prompt-optimization/promptfoo/optimize",
+      request.body,
+      reply,
+      120_000,
+    );
+  });
+
   /* --------------------------- 大盘聚合（Task 10） --------------------------- */
 
   // 一次取齐面板首页数据（实例 + 每实例最新巡检 + 指纹 + 巡检控制状态 + 消息网关状态），

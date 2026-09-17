@@ -708,30 +708,31 @@ export function historySummaryLine(content: string, max = 64): string {
   return firstLine.length > max ? `${firstLine.slice(0, max)}…` : firstLine;
 }
 
-/* ---- 网关页三标签导航与深链兼容 ---- */
+/* ---- 网关页标签导航与深链兼容 ---- */
 
-/** 三个并列标签的合法取值。 */
-export type GatewayTab = "messages" | "channels" | "rules" | "history";
+/** 顶级并列标签的合法取值（4 个核心维度）。 */
+export type GatewayTab = "history" | "optimization" | "messages" | "settings";
 
 /** 标签的展示名（与页面 Tabs 文案保持一致，便于测试断言）。 */
 export const GATEWAY_TAB_LABELS: Record<GatewayTab, string> = {
-  messages: "待处理",
-  channels: "通道设置",
-  rules: "通知规则",
-  history: "发送历史",
+  history: "即时通讯工作台",
+  optimization: "消息整理与对照",
+  messages: "待处理与监控",
+  settings: "通道与规则设置",
 };
 
-/** 旧「提示词优化」深链的锚点 id：保留在规则标签的高级配置区，旧 hash 仍能滚动到位。 */
+/** 旧「提示词优化」深链的锚点 id：保留兼容，旧 hash 仍能直接跳转到对照与优化。 */
 export const PROMPT_OPTIMIZATION_ANCHOR = "prompt-optimization-panel";
 
-/** 旧深链中代表「提示词优化」的 tab 取值，统一映射到规则标签。 */
+/** 旧深链中代表「提示词优化」的 tab 取值，统一映射到新的 optimization 顶级标签。 */
 const LEGACY_PROMPT_TAB = "prompt-optimization";
 
 /**
  * 把 URL 查询（或字符串）解析为当前标签。
- * 约定：messages / channels / rules 直用；prompt-optimization（旧深链）映射为 rules；
- * 缺省、非法或空值一律回落 messages。hash 为旧 #prompt-optimization-panel 深链时，
- * 即便没有 tab 参数也强制落到规则标签，保证跳转可达。
+ * 约定：history / optimization / messages / settings 直用；
+ * channels / rules 兼容映射到 settings；
+ * prompt-optimization（旧深链）或 #prompt-optimization-panel 直接映射为 optimization；
+ * 缺省、非法或空值一律回落主工作台即时通讯（history）。
  */
 export function resolveGatewayTab(
   search: URLSearchParams | string,
@@ -739,10 +740,21 @@ export function resolveGatewayTab(
 ): GatewayTab {
   const params = typeof search === "string" ? new URLSearchParams(search) : search;
   const tab = params.get("tab");
-  if (tab === "messages" || tab === "channels" || tab === "rules" || tab === "history") return tab;
-  if (tab === LEGACY_PROMPT_TAB) return "rules";
-  if (hash === `#${PROMPT_OPTIMIZATION_ANCHOR}`) return "rules";
-  return "messages";
+  if (
+    tab === "history" ||
+    tab === "optimization" ||
+    tab === "messages" ||
+    tab === "settings"
+  ) {
+    return tab;
+  }
+  if (tab === "channels" || tab === "rules") {
+    return "settings";
+  }
+  if (tab === LEGACY_PROMPT_TAB || hash === `#${PROMPT_OPTIMIZATION_ANCHOR}`) {
+    return "optimization";
+  }
+  return "history";
 }
 
 /* ---- 通道分区与三态展示 ---- */

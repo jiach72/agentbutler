@@ -11,6 +11,7 @@ import {
   historySummaryLine,
   loginStateCopy,
   relayModeCopy,
+  resolveGatewayTab,
 } from "./helpers.js";
 import type { AlertsView, MessageBridgeView, MessageOverviewPayload, RecoveryStateInput } from "./helpers.js";
 
@@ -191,3 +192,28 @@ describe("对照历史日期分组与摘要", () => {
     expect(historySummaryLine("")).toBe("（图片或语音消息，没有文字）");
   });
 });
+
+describe("resolveGatewayTab 标签解析与深链映射", () => {
+  it("标准标签原样解析", () => {
+    expect(resolveGatewayTab("?tab=history")).toBe("history");
+    expect(resolveGatewayTab("?tab=optimization")).toBe("optimization");
+    expect(resolveGatewayTab("?tab=messages")).toBe("messages");
+    expect(resolveGatewayTab("?tab=settings")).toBe("settings");
+  });
+
+  it("旧通道与规则标签映射到 settings", () => {
+    expect(resolveGatewayTab("?tab=channels")).toBe("settings");
+    expect(resolveGatewayTab("?tab=rules")).toBe("settings");
+  });
+
+  it("旧深链 prompt-optimization 映射到 optimization 顶级标签", () => {
+    expect(resolveGatewayTab("?tab=prompt-optimization")).toBe("optimization");
+    expect(resolveGatewayTab("", "#prompt-optimization-panel")).toBe("optimization");
+  });
+
+  it("缺省或未知 tab 回退到 history（即时通讯工作台）", () => {
+    expect(resolveGatewayTab("")).toBe("history");
+    expect(resolveGatewayTab("?tab=unknown")).toBe("history");
+  });
+});
+

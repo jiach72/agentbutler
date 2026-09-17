@@ -83,6 +83,7 @@ services:
       BUTLER_HERMES_READ_ONLY: "true"
       # AES-256-GCM 主密钥仅注入 Watch；缺失时凭据库 fail-closed。
       BUTLER_SECRET_MASTER_KEY: ${BUTLER_SECRET_MASTER_KEY:-}
+      BUTLER_OLLAMA_URL: ${BUTLER_OLLAMA_URL:-http://ollama:11434}
       # 候选、日志和引擎副本始终写 Butler 数据卷，不写 Hermes checkout。
       BUTLER_EVOLUTION_RUN_ROOT: /home/butler/evolution-runs
       HERMES_ROOT: /home/butler/hermes

@@ -36,6 +36,7 @@ import { ConnectionHealth } from "./ConnectionHealth.js";
 import { DeliveryTrendCard } from "./DeliveryTrendCard.js";
 import { DndRulesCard } from "./DndRulesCard.js";
 import { MessageInspector } from "./MessageInspector.js";
+import { WeChatHistoryView } from "./WeChatHistoryView.js";
 import { PatchBoard } from "./PatchBoard.js";
 import { RateLimitsTable } from "./RateLimitsTable.js";
 import { RelayControlCard } from "./RelayControlCard.js";
@@ -120,9 +121,6 @@ export function GatewayPage() {
   // URL 驱动三标签：?tab=messages|channels|rules；缺省/非法回落 messages，
   // prompt-optimization（旧深链）→ rules，#prompt-optimization-panel 深链也落到规则标签。
   const [searchParams, setSearchParams] = useSearchParams();
-  const promptDeepLinked =
-    searchParams.get("tab") === "prompt-optimization" ||
-    location.hash === `#${PROMPT_OPTIMIZATION_ANCHOR}`;
   const activeTab = resolveGatewayTab(searchParams, location.hash);
   const pendingOnly = activeTab !== "history";
   const messageView = pendingOnly ? "pending" : messageStateFilter;
@@ -619,15 +617,39 @@ export function GatewayPage() {
           </>
         )}
 
-        {messageData?.status?.relay !== undefined && messageData.status.relay !== null && (
-          <RelayControlCard relay={messageData.status.relay} onChanged={() => void refresh()} />
-        )}
-
         <Tabs
           activeKey={activeTab}
           onChange={handleTabChange}
           destroyOnHidden={false}
           items={[
+            {
+              key: "history",
+              label: GATEWAY_TAB_LABELS.history,
+              children: (
+                <WeChatHistoryView
+                  items={messageItems}
+                  counts={messageCounts}
+                  reachable={messagesReachable}
+                  selectedMessage={selectedMessage}
+                  onSelectMessage={setSelectedMessageId}
+                  taskData={taskData}
+                  taskLoading={taskLoading}
+                  onRedeliver={(messageId) => setConfirmRedeliverId(messageId)}
+                  redeliverBusy={redeliverBusy}
+                  onExpedite={(messageId) => void expediteMessage(messageId)}
+                  expediteBusy={expediteBusy}
+                />
+              ),
+            },
+            {
+              key: "optimization",
+              label: GATEWAY_TAB_LABELS.optimization,
+              children: (
+                <div id={PROMPT_OPTIMIZATION_ANCHOR}>
+                  <PromptOptimizationPanel />
+                </div>
+              ),
+            },
             {
               key: "messages",
               label: GATEWAY_TAB_LABELS.messages,
@@ -659,45 +681,59 @@ export function GatewayPage() {
                       <Link to="/approvals">查看全部待处理审批</Link>
                     </Flex>
                   )}
+                  <MessageInspector
+                    messageBridge={messageBridge}
+                    coverageEntries={coverageEntries}
+                    messageCounts={messageCounts}
+                    messageItems={messageItems}
+                    messagesReachable={messagesReachable}
+                    selectedMessage={selectedMessage}
+                    onSelectMessage={setSelectedMessageId}
+                    taskData={taskData}
+                    taskLoading={taskLoading}
+                    pendingOnly={pendingOnly}
+                    activeStateFilter={messageStateFilter}
+                    onStateFilterChange={(filter) => {
+                      setSelectedMessageId(null);
+                      setMessageStateFilter(filter);
+                    }}
+                    onRedeliver={(messageId) => setConfirmRedeliverId(messageId)}
+                    redeliverBusy={redeliverBusy}
+                    onExpedite={(messageId) => void expediteMessage(messageId)}
+                    expediteBusy={expediteBusy}
+                  />
+                  <AdvancedEvidence title="通知历史与送达趋势">
+                    <AlertQueuePanel alerts={alerts} history />
+                    <ConnectionHealth
+                      messageBridge={messageBridge}
+                      bridgeReady={bridgeReady}
+                      messageCounts={messageCounts}
+                    />
+                    <DeliveryTrendCard />
+                  </AdvancedEvidence>
                 </Flex>
               ),
             },
             {
-              key: "history",
-              label: GATEWAY_TAB_LABELS.history,
-              children: (
-                <AdvancedEvidence title="通知历史与送达趋势">
-                  <AlertQueuePanel alerts={alerts} history />
-                  <ConnectionHealth
-                    messageBridge={messageBridge}
-                    bridgeReady={bridgeReady}
-                    messageCounts={messageCounts}
-                  />
-                  <DeliveryTrendCard />
-                </AdvancedEvidence>
-              ),
-            },
-            {
-              key: "channels",
-              label: GATEWAY_TAB_LABELS.channels,
-              children: <ChannelGrid onReconnect={() => void reconnectMessages()} />,
-            },
-            {
-              key: "rules",
-              label: GATEWAY_TAB_LABELS.rules,
+              key: "settings",
+              label: GATEWAY_TAB_LABELS.settings,
               children: (
                 <Flex vertical gap={24}>
+                  {messageData?.status?.relay !== undefined && messageData.status.relay !== null && (
+                    <RelayControlCard relay={messageData.status.relay} onChanged={() => void refresh()} />
+                  )}
+                  <ChannelGrid onReconnect={() => void reconnectMessages()} />
                   <DndRulesCard />
-                  <ChannelMetricsCard />
                   <AdvancedDetails
                     summary={
                       <>
                         <strong>频率与补丁参数</strong>
-                        <small>频率规则、消息参数和通知队列；普通用户通常不需要动</small>
+                        <small>频率规则、消息参数和高级配置；普通用户通常无需调整</small>
                       </>
                     }
                   >
                     <Flex vertical gap={16}>
+                      <ChannelMetricsCard />
                       <Flex wrap="wrap" gap={16} align="center" aria-label="观察面状态">
                         <Typography.Text type="secondary">
                           发送频率 <StatusBadge {...overallBadge} />
@@ -729,49 +765,11 @@ export function GatewayPage() {
                       />
                     </Flex>
                   </AdvancedDetails>
-                  {/* 旧「提示词优化」深链锚点：保留在规则标签的高级配置区。 */}
-                  <div id={PROMPT_OPTIMIZATION_ANCHOR}>
-                    <AdvancedDetails
-                      defaultActive={promptDeepLinked}
-                      summary={
-                        <>
-                          <strong>提示词优化（高级配置）</strong>
-                          <small>消息整理对照历史、规则文件改进与候选版本采用</small>
-                        </>
-                      }
-                    >
-                      <PromptOptimizationPanel />
-                    </AdvancedDetails>
-                  </div>
                 </Flex>
               ),
             },
           ]}
         />
-
-        {(activeTab === "messages" || activeTab === "history") && (
-          <MessageInspector
-            messageBridge={messageBridge}
-            coverageEntries={coverageEntries}
-            messageCounts={messageCounts}
-            messageItems={messageItems}
-            messagesReachable={messagesReachable}
-            selectedMessage={selectedMessage}
-            onSelectMessage={setSelectedMessageId}
-            taskData={taskData}
-            taskLoading={taskLoading}
-            pendingOnly={pendingOnly}
-            activeStateFilter={messageStateFilter}
-            onStateFilterChange={(filter) => {
-              setSelectedMessageId(null);
-              setMessageStateFilter(filter);
-            }}
-            onRedeliver={(messageId) => setConfirmRedeliverId(messageId)}
-            redeliverBusy={redeliverBusy}
-            onExpedite={(messageId) => void expediteMessage(messageId)}
-            expediteBusy={expediteBusy}
-          />
-        )}
 
         {pendingPatchAction !== null && (
           <DangerConfirmModal

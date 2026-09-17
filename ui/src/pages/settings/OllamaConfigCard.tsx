@@ -8,7 +8,7 @@
  * 4. 模型下载器（流式进度条 + 官方模型库链接）；
  * 5. 已安装模型列表（卡片展示、体积与日期、一键绑定探针、删除）。
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   App,
@@ -20,6 +20,7 @@ import {
   Input,
   Popconfirm,
   Progress,
+  Segmented,
   Select,
   Space,
   Table,
@@ -34,13 +35,28 @@ import {
   CloudDownloadOutlined,
   DeleteOutlined,
   DownloadOutlined,
+  LineChartOutlined,
   LinkOutlined,
   LoadingOutlined,
   ReloadOutlined,
   SendOutlined,
+  TableOutlined,
   ThunderboltOutlined,
 } from "@ant-design/icons";
 import { deleteJson, loadJson, postJson } from "../../lib/api.js";
+import {
+  ChartEmpty,
+  ChartSkeleton,
+  TrendCard,
+  TrendColumn,
+} from "../../components/charts/index.js";
+import {
+  chartThemeFor,
+  quietAxes,
+  semanticSeries,
+  topLegend,
+} from "../../components/charts/chartTheme.js";
+import { useTheme } from "../../theme/ThemeProvider.js";
 
 const { Text, Title, Link } = Typography;
 
@@ -159,6 +175,45 @@ export function OllamaConfigCard() {
   const [testingChat, setTestingChat] = useState(false);
   const [chatResult, setChatResult] = useState<ChatTestResult | null>(null);
 
+  const [existingProfiles, setExistingProfiles] = useState<Array<{ profileId: string; provider: string; model: string }>>([]);
+  const [bindingModel, setBindingModel] = useState<string | null>(null);
+
+  const { mode } = useTheme();
+  const isDark = mode === "dark";
+  const [usageViewMode, setUsageViewMode] = useState<"tokens" | "calls" | "table">("tokens");
+
+  const chartTheme = useMemo(() => chartThemeFor(mode), [mode]);
+  const tokenSeries = useMemo(
+    () =>
+      semanticSeries(mode, [
+        ["输入 (Prompt)", "输入 (Prompt)", "accent"],
+        ["输出 (Completion)", "输出 (Completion)", "brand"],
+      ]),
+    [mode],
+  );
+
+  const tokenRows = useMemo(() => {
+    return (usageSummary?.dailyHistory ?? []).flatMap((item) => {
+      const shortDate = item.date.length >= 10 ? item.date.slice(5) : item.date;
+      return [
+        { date: shortDate, fullDate: item.date, type: "输入 (Prompt)", tokens: item.promptTokens },
+        { date: shortDate, fullDate: item.date, type: "输出 (Completion)", tokens: item.completionTokens },
+      ];
+    });
+  }, [usageSummary]);
+
+  const callRows = useMemo(() => {
+    return (usageSummary?.dailyHistory ?? []).map((item) => {
+      const shortDate = item.date.length >= 10 ? item.date.slice(5) : item.date;
+      return {
+        date: shortDate,
+        fullDate: item.date,
+        count: item.callCount,
+        type: "调用次数",
+      };
+    });
+  }, [usageSummary]);
+
   // 1. 检查服务健康状态
   const checkStatus = useCallback(async () => {
     setCheckingStatus(true);
@@ -273,13 +328,25 @@ export function OllamaConfigCard() {
     }
   }, [models, testModel]);
 
+  // 7. 加载已接入的 Butler 模型配置
+  const loadExistingProfiles = useCallback(async () => {
+    const res = await loadJson<{ profiles: Array<{ profileId: string; provider: string; model: string }> }>(
+      "/api/llm/profiles",
+      10_000,
+    );
+    if (res.ok && Array.isArray(res.data?.profiles)) {
+      setExistingProfiles(res.data.profiles);
+    }
+  }, []);
+
   // 初始化加载
   useEffect(() => {
     void checkStatus();
     void loadHardwareProfile();
     void loadModels();
     void loadUsageSummary();
-  }, [checkStatus, loadHardwareProfile, loadModels, loadUsageSummary]);
+    void loadExistingProfiles();
+  }, [checkStatus, loadHardwareProfile, loadModels, loadUsageSummary, loadExistingProfiles]);
 
   // 发起下载模型
   const handleStartPull = async (modelToPull?: string) => {
@@ -318,23 +385,32 @@ export function OllamaConfigCard() {
     }
   };
 
-  // 一键录入到 Butler 模型凭据库（设为探针模型）
+  // 一键录入到 Butler 模型凭据库（设为探针/管家模型）
   const handleQuickBind = async (modelName: string) => {
-    const endpoint = status?.endpoint ? `${status.endpoint}/v1` : "http://ollama:11434/v1";
-    const profileId = `ollama-${modelName.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
-    const payload = {
-      profileId,
-      provider: "Ollama (本地)",
-      protocol: "openai-compatible",
-      endpoint,
-      model: modelName,
-      apiKey: "ollama",
-    };
-    const res = await postJson("/api/llm/profiles", payload, 10_000);
-    if (res.ok) {
-      message.success(`已成功将 ${modelName} 接入 Butler 模型列表（端点：${endpoint}）`);
-    } else {
-      message.error("录入失败，请确认管家服务在线");
+    setBindingModel(modelName);
+    try {
+      const endpoint = status?.endpoint ? `${status.endpoint}/v1` : "http://ollama:11434/v1";
+      const profileId = `ollama-${modelName.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+      const payload = {
+        profileId,
+        provider: "Ollama (本地)",
+        protocol: "openai-compatible",
+        endpoint,
+        model: modelName,
+        apiKey: "ollama",
+      };
+      const res = await postJson("/api/llm/profiles", payload, 10_000);
+      if (res.ok) {
+        message.success(`已成功将 ${modelName} 接入 Butler 模型列表（端点：${endpoint}）`);
+        setExistingProfiles((prev) => [
+          ...prev.filter((p) => p.model !== modelName),
+          { profileId, provider: "Ollama (本地)", model: modelName },
+        ]);
+      } else {
+        message.error("录入失败，请确认管家服务在线");
+      }
+    } finally {
+      setBindingModel(null);
     }
   };
 
@@ -649,14 +725,35 @@ export function OllamaConfigCard() {
                       {item.modifiedAt}
                     </Text>
                   </Flex>
-                    <Button
-                      size="small"
-                      style={{ marginTop: 2 }}
-                      icon={<CloudDownloadOutlined />}
-                      onClick={() => handleQuickBind(item.name)}
-                    >
-                      设为 Butler 模型
-                    </Button>
+                    {existingProfiles.some(
+                      (p) =>
+                        p.model === item.name &&
+                        (p.provider === "Ollama (本地)" || (p.profileId && p.profileId.startsWith("ollama-"))),
+                    ) ? (
+                      <Button
+                        size="small"
+                        style={{
+                          marginTop: 2,
+                          borderColor: "#52c41a",
+                          color: "#52c41a",
+                          backgroundColor: isDark ? "rgba(82, 196, 26, 0.1)" : "rgba(82, 196, 26, 0.05)",
+                        }}
+                        icon={<CheckCircleFilled style={{ color: "#52c41a" }} />}
+                        disabled
+                      >
+                        已设为 Butler 模型
+                      </Button>
+                    ) : (
+                      <Button
+                        size="small"
+                        style={{ marginTop: 2 }}
+                        icon={<CloudDownloadOutlined />}
+                        loading={bindingModel === item.name}
+                        onClick={() => handleQuickBind(item.name)}
+                      >
+                        设为 Butler 模型
+                      </Button>
+                    )}
                   </div>
                 ))}
               </Flex>
@@ -799,53 +896,129 @@ export function OllamaConfigCard() {
               </div>
             </Flex>
 
-            {/* 每日明细表格 */}
-            <div style={{ marginTop: 4 }}>
-              <Text strong style={{ fontSize: 13, marginBottom: 8, display: "block" }}>
-                📅 最近 14 天每日调用明细
-              </Text>
-              <Table
-                size="small"
-                dataSource={usageSummary?.dailyHistory || []}
-                rowKey="date"
-                pagination={{ pageSize: 7, size: "small" }}
-                columns={[
-                  { title: "日期", dataIndex: "date", key: "date", width: 120 },
-                  {
-                    title: "调用次数",
-                    dataIndex: "callCount",
-                    key: "callCount",
-                    width: 100,
-                    render: (val: number) => (
-                      <Tag color={val > 0 ? "blue" : "default"}>{val} 次</Tag>
-                    ),
-                  },
-                  {
-                    title: "输入 (Prompt)",
-                    dataIndex: "promptTokens",
-                    key: "promptTokens",
-                    render: (val: number) => val.toLocaleString(),
-                  },
-                  {
-                    title: "输出 (Completion)",
-                    dataIndex: "completionTokens",
-                    key: "completionTokens",
-                    render: (val: number) => val.toLocaleString(),
-                  },
-                  {
-                    title: "总消耗 Token",
-                    dataIndex: "totalTokens",
-                    key: "totalTokens",
-                    render: (val: number) => <Text strong>{val.toLocaleString()}</Text>,
-                  },
-                  {
-                    title: "平均速率",
-                    dataIndex: "avgTokensPerSecond",
-                    key: "avgTokensPerSecond",
-                    render: (val: number) => (val > 0 ? `${val} tokens/s` : "-"),
-                  },
-                ]}
-              />
+            {/* 6.2 14 天每日调用趋势与 Token 消耗图表 */}
+            <div style={{ marginTop: 6 }}>
+              <TrendCard
+                title="最近 14 天每日调用趋势与 Token 消耗"
+                summary={
+                  usageSummary
+                    ? `近 14 天累计调用 ${usageSummary.totalCalls} 次 · 消耗 ${usageSummary.totalTokens.toLocaleString()} Tokens · 平均生成速率 ${usageSummary.avgTokensPerSecond} tokens/s`
+                    : "正在读取本地调用统计…"
+                }
+                extra={
+                  <Segmented
+                    size="small"
+                    value={usageViewMode}
+                    onChange={(val) => setUsageViewMode(val as "tokens" | "calls" | "table")}
+                    options={[
+                      { label: "Token 消耗趋势", value: "tokens", icon: <BarChartOutlined /> },
+                      { label: "调用频次趋势", value: "calls", icon: <LineChartOutlined /> },
+                      { label: "每日数据表格", value: "table", icon: <TableOutlined /> },
+                    ]}
+                  />
+                }
+              >
+                {loadingUsage ? (
+                  <ChartSkeleton height={220} />
+                ) : usageViewMode === "tokens" ? (
+                  !usageSummary || usageSummary.totalTokens === 0 ? (
+                    <ChartEmpty hint="近 14 天尚未产生本地模型调用；可在下方发起在线测试体验 Token 吞吐。" />
+                  ) : (
+                    <TrendColumn
+                      data={tokenRows}
+                      xField="date"
+                      yField="tokens"
+                      colorField="type"
+                      transform={[{ type: "stackY" }]}
+                      theme={chartTheme.g2Theme}
+                      autoFit
+                      height={220}
+                      scale={{ color: { range: tokenSeries.map((s) => s.color) } }}
+                      axis={quietAxes(chartTheme, { integerY: true })}
+                      legend={topLegend(chartTheme)}
+                      style={{ maxWidth: 28, radiusTopLeft: 3, radiusTopRight: 3 }}
+                      tooltip={{
+                        items: [
+                          {
+                            field: "tokens",
+                            name: "Token",
+                            valueFormatter: (val: number) => Number(val).toLocaleString(),
+                          },
+                        ],
+                      }}
+                    />
+                  )
+                ) : usageViewMode === "calls" ? (
+                  !usageSummary || usageSummary.totalCalls === 0 ? (
+                    <ChartEmpty hint="近 14 天尚未产生本地模型调用记录。" />
+                  ) : (
+                    <TrendColumn
+                      data={callRows}
+                      xField="date"
+                      yField="count"
+                      colorField="type"
+                      theme={chartTheme.g2Theme}
+                      autoFit
+                      height={220}
+                      scale={{ color: { range: [chartTheme.seriesColors[0] || "#1677ff"] } }}
+                      axis={quietAxes(chartTheme, { integerY: true })}
+                      style={{ maxWidth: 24, radiusTopLeft: 3, radiusTopRight: 3 }}
+                      tooltip={{
+                        items: [
+                          {
+                            field: "count",
+                            name: "调用次数",
+                            valueFormatter: (val: number) => `${val} 次`,
+                          },
+                        ],
+                      }}
+                    />
+                  )
+                ) : (
+                  <Table
+                    size="small"
+                    dataSource={usageSummary?.dailyHistory || []}
+                    rowKey="date"
+                    pagination={{ pageSize: 7, size: "small" }}
+                    columns={[
+                      { title: "日期", dataIndex: "date", key: "date", width: 120 },
+                      {
+                        title: "调用次数",
+                        dataIndex: "callCount",
+                        key: "callCount",
+                        width: 100,
+                        render: (val: number) => (
+                          <Tag color={val > 0 ? "blue" : "default"}>{val} 次</Tag>
+                        ),
+                      },
+                      {
+                        title: "输入 (Prompt)",
+                        dataIndex: "promptTokens",
+                        key: "promptTokens",
+                        render: (val: number) => val.toLocaleString(),
+                      },
+                      {
+                        title: "输出 (Completion)",
+                        dataIndex: "completionTokens",
+                        key: "completionTokens",
+                        render: (val: number) => val.toLocaleString(),
+                      },
+                      {
+                        title: "总消耗 Token",
+                        dataIndex: "totalTokens",
+                        key: "totalTokens",
+                        render: (val: number) => <Text strong>{val.toLocaleString()}</Text>,
+                      },
+                      {
+                        title: "平均速率",
+                        dataIndex: "avgTokensPerSecond",
+                        key: "avgTokensPerSecond",
+                        render: (val: number) => (val > 0 ? `${val} tokens/s` : "-"),
+                      },
+                    ]}
+                  />
+                )}
+              </TrendCard>
             </div>
           </div>
 
