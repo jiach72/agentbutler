@@ -43,7 +43,11 @@ function getChannelAvatar(channel: string) {
     return (
       <Avatar
         size={36}
-        style={{ backgroundColor: "#1677ff", flexShrink: 0 }}
+        style={{
+          background: "linear-gradient(135deg, #3b82f6, #1d4ed8)",
+          boxShadow: "0 2px 8px -1px rgba(37, 99, 235, 0.35)",
+          flexShrink: 0,
+        }}
         icon={<RobotOutlined style={{ fontSize: 18, color: "#ffffff" }} />}
       />
     );
@@ -52,7 +56,11 @@ function getChannelAvatar(channel: string) {
     return (
       <Avatar
         size={36}
-        style={{ backgroundColor: "#07c160", flexShrink: 0 }}
+        style={{
+          background: "linear-gradient(135deg, #10b981, #059669)",
+          boxShadow: "0 2px 8px -1px rgba(16, 185, 129, 0.35)",
+          flexShrink: 0,
+        }}
         icon={<WechatOutlined style={{ fontSize: 18, color: "#ffffff" }} />}
       />
     );
@@ -61,7 +69,11 @@ function getChannelAvatar(channel: string) {
     return (
       <Avatar
         size={36}
-        style={{ backgroundColor: "#722ed1", flexShrink: 0 }}
+        style={{
+          background: "linear-gradient(135deg, #8b5cf6, #6d28d9)",
+          boxShadow: "0 2px 8px -1px rgba(139, 92, 246, 0.35)",
+          flexShrink: 0,
+        }}
         icon={<ApiOutlined style={{ fontSize: 18, color: "#ffffff" }} />}
       />
     );
@@ -69,7 +81,11 @@ function getChannelAvatar(channel: string) {
   return (
     <Avatar
       size={36}
-      style={{ backgroundColor: "#8c8c8c", flexShrink: 0 }}
+      style={{
+        background: "linear-gradient(135deg, #64748b, #475569)",
+        boxShadow: "0 2px 8px -1px rgba(100, 116, 139, 0.25)",
+        flexShrink: 0,
+      }}
       icon={<MessageOutlined style={{ fontSize: 18, color: "#ffffff" }} />}
     />
   );
@@ -81,8 +97,8 @@ export function IMConversationList(props: IMConversationListProps) {
 
   const filteredList = useMemo(() => {
     return props.conversations.filter((c) => {
-      if (filterType === "direct" && c.type !== "direct") return false;
-      if (filterType === "external" && c.type !== "external") return false;
+      if (filterType === "direct" && c.type !== "direct" && c.channel !== "api-server") return false;
+      if (filterType === "external" && (c.type !== "external" || c.channel === "api-server" || c.channel === "hermes")) return false;
 
       if (searchKeyword.trim() !== "") {
         const kw = searchKeyword.toLowerCase();
@@ -166,7 +182,7 @@ export function IMConversationList(props: IMConversationListProps) {
                           position: "absolute",
                           right: -1,
                           bottom: -1,
-                          border: "2px solid var(--ant-color-bg-container)",
+                          border: "2px solid var(--ab-surface)",
                         }}
                       />
                     )}
@@ -178,7 +194,7 @@ export function IMConversationList(props: IMConversationListProps) {
                       <Text
                         strong
                         ellipsis
-                        style={{ fontSize: 13, color: isActive ? "var(--ant-color-primary)" : undefined }}
+                        style={{ fontSize: 13, color: isActive ? "var(--ab-primary)" : "var(--ab-text)" }}
                       >
                         {conv.title}
                       </Text>

@@ -133,10 +133,20 @@ export function IMWorkbench(props: IMWorkbenchProps) {
       }
     >();
 
+    // 收集全部直连会话的 sessionId（如 "default" 等）以供精准去重与识别
+    const directSessionIds = new Set(directSessions.map((s) => s.sessionId || "default"));
+
     // 聚合出站 (Outbox)
     for (const item of props.items) {
       const ch = item.channel || "weixin";
       const cid = item.chatId || "default";
+
+      // 核心修正：Hermes api-server/直连接口产生的出站消息属于内部直连会话，
+      // 绝不作为所谓的“外部通道”单独创建重复会话，彻底避免两个通道同时收到相同回复的混淆！
+      if ((ch === "api-server" || ch === "hermes") && directSessionIds.has(cid)) {
+        continue;
+      }
+
       const key = `channel:${ch}:${cid}`;
       let group = externalMap.get(key);
       if (!group) {
@@ -155,6 +165,11 @@ export function IMWorkbench(props: IMWorkbenchProps) {
     for (const item of inboundItems) {
       const ch = item.inbound?.channel || "weixin";
       const cid = item.inbound?.chatId || "default";
+
+      if ((ch === "api-server" || ch === "hermes") && directSessionIds.has(cid)) {
+        continue;
+      }
+
       const key = `channel:${ch}:${cid}`;
       let group = externalMap.get(key);
       if (!group) {
@@ -178,10 +193,17 @@ export function IMWorkbench(props: IMWorkbenchProps) {
         (m) => m.state === "dead_letter" || m.state === "policy_error"
       ).length;
 
-      const title =
-        group.chatId === "default"
-          ? `${group.channel === "weixin" ? "微信默认会话" : "外部通道"}`
-          : `${group.channel === "weixin" ? "微信联系人" : group.channel} · ${group.chatId}`;
+      let title: string;
+      if (group.channel === "api-server") {
+        title =
+          group.chatId === "butler-prompt-optimizer"
+            ? "系统后台 · 提示词优化 (Prompt Optimizer)"
+            : `Hermes 后台服务 · ${group.chatId}`;
+      } else if (group.channel === "weixin") {
+        title = group.chatId === "default" ? "微信默认会话" : `微信联系人 · ${group.chatId}`;
+      } else {
+        title = group.chatId === "default" ? `${group.channel} 通道` : `${group.channel} · ${group.chatId}`;
+      }
 
       list.push({
         id: key,
@@ -200,13 +222,22 @@ export function IMWorkbench(props: IMWorkbenchProps) {
     return list;
   }, [directSessions, directMessagesMap, props.items, inboundItems]);
 
+  // 平滑回退：如果此前选中的是已被消除的重复假会话 channel:api-server:default，则切换到 DEFAULT_DIRECT_CONVERSATION_ID
+  useEffect(() => {
+    if (activeConversationId === "channel:api-server:default") {
+      setActiveConversationId(DEFAULT_DIRECT_CONVERSATION_ID);
+    }
+  }, [activeConversationId]);
+
   // 当前选中的会话对象
   const activeConversation = useMemo(() => {
-    return (
-      conversations.find((c) => c.id === activeConversationId) ||
-      conversations[0] ||
-      null
-    );
+    const found = conversations.find((c) => c.id === activeConversationId);
+    if (found) return found;
+    if (activeConversationId === "channel:api-server:default") {
+      const defaultDirect = conversations.find((c) => c.id === DEFAULT_DIRECT_CONVERSATION_ID);
+      if (defaultDirect) return defaultDirect;
+    }
+    return conversations[0] || null;
   }, [conversations, activeConversationId]);
 
   // 当前选中会话的消息流
@@ -215,7 +246,32 @@ export function IMWorkbench(props: IMWorkbenchProps) {
 
     // 如果是直连会话：读 directMessages
     if (activeConversation.type === "direct") {
-      return directMessagesMap[activeConversation.id] || getDirectMessages(activeConversation.id);
+      const stored = directMessagesMap[activeConversation.id] || getDirectMessages(activeConversation.id);
+      if (stored.length > 0) return stored;
+
+      // 若本地存储为空（例如新客户端或清空后刷新），尝试从 Outbox 中恢复该 sessionId 的历史记录
+      const targetSessionId = activeConversation.sessionId || "default";
+      const outboxFallback: IMChatMessage[] = props.items
+        .filter(
+          (item) =>
+            (item.channel === "api-server" || item.channel === "hermes") &&
+            (item.chatId || "default") === targetSessionId
+        )
+        .map((item) => ({
+          id: item.messageId,
+          conversationId: activeConversation.id,
+          sender: "ai" as const,
+          content: item.content,
+          timestamp: item.capturedAt,
+          dateStr: toLocalDateString(new Date(item.capturedAt)),
+          channel: "hermes",
+          chatId: item.chatId,
+          sessionId: item.sessionId,
+          state: item.state,
+          isDirect: true,
+        }));
+      outboxFallback.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      return outboxFallback;
     }
 
     // 如果是外部通道会话：组装当前 channel + chatId 的消息

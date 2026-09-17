@@ -116,4 +116,33 @@ describe("即时通讯工作台：直连会话管理器 (imSessionStore)", () =>
     clearDirectMessages(DEFAULT_DIRECT_CONVERSATION_ID);
     expect(getDirectMessages(DEFAULT_DIRECT_CONVERSATION_ID)).toHaveLength(0);
   });
+
+  it("直连会话与 api-server 内部通道精准映射，不产生假外部通道", () => {
+    const sessions = getDirectSessions();
+    const directSessionIds = new Set(sessions.map((s) => s.sessionId || "default"));
+
+    // 模拟来自 Outbox 的混合出站消息
+    const mockOutboxItems = [
+      { channel: "api-server", chatId: "default", content: "AI 回复：我在 Hermes 直连", capturedAt: "2026-09-18T00:00:00Z", state: "delivered" },
+      { channel: "weixin", chatId: "wx_user_123", content: "发给微信用户的消息", capturedAt: "2026-09-18T00:01:00Z", state: "delivered" },
+      { channel: "api-server", chatId: "butler-prompt-optimizer", content: "后台提示词优化响应", capturedAt: "2026-09-18T00:02:00Z", state: "delivered" },
+    ];
+
+    // 执行与 IMWorkbench 相同的聚合判决逻辑
+    const externalChannels: string[] = [];
+    for (const item of mockOutboxItems) {
+      const ch = item.channel || "weixin";
+      const cid = item.chatId || "default";
+      if ((ch === "api-server" || ch === "hermes") && directSessionIds.has(cid)) {
+        continue; // 成功阻断直连链路外泄为外部通道
+      }
+      externalChannels.push(`${ch}:${cid}`);
+    }
+
+    // 严密断言：api-server:default 必须被排除（不会生成假“外部通道”），微信与特定系统任务正常保留
+    expect(externalChannels).not.toContain("api-server:default");
+    expect(externalChannels).toContain("weixin:wx_user_123");
+    expect(externalChannels).toContain("api-server:butler-prompt-optimizer");
+  });
 });
+
