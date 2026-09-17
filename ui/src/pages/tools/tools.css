@@ -3,11 +3,11 @@
 }
 
 .tools-hero-card {
-  background: var(--ant-color-bg-container);
-  border: 1px solid var(--ant-color-border-secondary);
-  border-radius: var(--ant-border-radius-lg);
-  padding: 20px;
-  box-shadow: var(--ant-box-shadow-tertiary);
+  background: var(--ab-surface);
+  border: 1px solid var(--ab-border);
+  border-radius: var(--ab-r-card, 16px);
+  padding: 22px;
+  box-shadow: var(--ab-shadow-1);
 }
 
 .tools-hero-header {
@@ -23,17 +23,19 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  background: var(--ant-color-fill-quaternary);
-  border: 1px solid var(--ant-color-border);
-  border-radius: var(--ant-border-radius);
+  background: var(--ab-surface-2);
+  border: 1px solid var(--ab-border);
+  border-radius: var(--ab-r-ctl, 8px);
   padding: 8px 14px;
   font-family: var(--ab-mono, monospace);
   font-size: 13px;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.02);
 }
 
 .tools-cmd-text {
-  color: var(--ant-color-text);
+  color: var(--ab-text);
   user-select: all;
+  font-weight: 500;
 }
 
 .tools-section {
@@ -45,12 +47,42 @@
 .tools-section-title {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   font-size: 16px;
   font-weight: 600;
-  color: var(--ant-color-text);
+  color: var(--ab-text);
   cursor: pointer;
   user-select: none;
+}
+
+.tools-section-icon-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  font-size: 15px;
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+
+.tools-section-icon-badge.badge-blue {
+  background: var(--ab-primary-soft);
+  color: var(--ab-primary);
+  border: 1px solid var(--ab-primary-soft-border);
+}
+
+.tools-section-icon-badge.badge-emerald {
+  background: var(--ab-ok-soft);
+  color: var(--ab-ok);
+  border: 1px solid color-mix(in srgb, var(--ab-ok) 25%, transparent);
+}
+
+.tools-section-icon-badge.badge-purple {
+  background: color-mix(in srgb, #8b5cf6 12%, var(--ab-surface));
+  color: #7c3aed;
+  border: 1px solid color-mix(in srgb, #8b5cf6 25%, transparent);
 }
 
 .tools-grid {
@@ -60,21 +92,23 @@
 }
 
 .tool-card {
-  background: var(--ant-color-bg-container);
-  border: 1px solid var(--ant-color-border-secondary);
-  border-radius: var(--ant-border-radius-lg);
-  padding: 18px;
+  background: var(--ab-surface);
+  border: 1px solid var(--ab-border);
+  border-radius: var(--ab-r-card, 16px);
+  padding: 18px 20px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   gap: 14px;
-  transition: all 0.2s ease-in-out;
-  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.2s ease;
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.03);
 }
 
 .tool-card:hover {
-  border-color: var(--ant-color-primary-hover);
-  box-shadow: var(--ant-box-shadow-secondary);
+  border-color: var(--ab-primary-soft-border);
+  box-shadow: var(--ab-shadow-2);
   transform: translateY(-2px);
 }
 
@@ -88,32 +122,88 @@
 .tool-card-icon-title {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
 }
 
+/* 现代应用级拟物/微光渐变图标砖，彻底告别单调灰色 */
 .tool-card-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-  background: var(--ant-color-primary-bg);
-  color: var(--ant-color-primary);
-  font-size: 20px;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  font-size: 22px;
   flex-shrink: 0;
+  color: #ffffff;
+  box-shadow: 0 4px 10px -2px rgba(0, 0, 0, 0.16);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.tool-card:hover .tool-card-icon {
+  transform: scale(1.06);
+}
+
+.tool-card-icon.tone-blue {
+  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+  box-shadow: 0 4px 12px -2px rgba(37, 99, 235, 0.35);
+}
+
+.tool-card-icon.tone-orange {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  box-shadow: 0 4px 12px -2px rgba(217, 119, 6, 0.35);
+}
+
+.tool-card-icon.tone-cyan {
+  background: linear-gradient(135deg, #06b6d4, #0891b2);
+  box-shadow: 0 4px 12px -2px rgba(8, 145, 178, 0.35);
+}
+
+.tool-card-icon.tone-purple {
+  background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+  box-shadow: 0 4px 12px -2px rgba(109, 40, 217, 0.35);
+}
+
+.tool-card-icon.tone-indigo {
+  background: linear-gradient(135deg, #6366f1, #4338ca);
+  box-shadow: 0 4px 12px -2px rgba(67, 56, 202, 0.35);
+}
+
+.tool-card-icon.tone-emerald {
+  background: linear-gradient(135deg, #10b981, #059669);
+  box-shadow: 0 4px 12px -2px rgba(5, 150, 105, 0.35);
+}
+
+.tool-card-icon.tone-rose {
+  background: linear-gradient(135deg, #f43f5e, #e11d48);
+  box-shadow: 0 4px 12px -2px rgba(225, 29, 72, 0.35);
+}
+
+.tool-card-icon.tone-sky {
+  background: linear-gradient(135deg, #0284c7, #0369a1);
+  box-shadow: 0 4px 12px -2px rgba(2, 132, 199, 0.35);
+}
+
+.tool-card-icon.tone-violet {
+  background: linear-gradient(135deg, #7c3aed, #5b21b6);
+  box-shadow: 0 4px 12px -2px rgba(124, 58, 237, 0.35);
+}
+
+.tool-card-icon.tone-pink {
+  background: linear-gradient(135deg, #ec4899, #be185d);
+  box-shadow: 0 4px 12px -2px rgba(236, 72, 153, 0.35);
 }
 
 .tool-card-title {
   font-size: 15px;
   font-weight: 600;
-  color: var(--ant-color-text);
+  color: var(--ab-text);
   line-height: 1.3;
 }
 
 .tool-card-desc {
   font-size: 13px;
-  color: var(--ant-color-text-secondary);
+  color: var(--ab-text-2);
   line-height: 1.5;
   margin: 0;
   flex-grow: 1;
@@ -123,7 +213,74 @@
   display: flex;
   justify-content: flex-end;
   padding-top: 8px;
-  border-top: 1px solid var(--ant-color-border-secondary);
+  border-top: 1px solid var(--ab-border);
+}
+
+/* 记录与报告直达网格 */
+.tools-report-links-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+.tools-report-link-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--ab-surface);
+  border: 1px solid var(--ab-border);
+  border-radius: 10px;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.02);
+  transition: all 0.15s ease;
+  color: var(--ab-text);
+  text-decoration: none;
+}
+
+.tools-report-link-card:hover {
+  border-color: var(--ab-primary-soft-border);
+  box-shadow: 0 4px 12px -2px rgb(0 0 0 / 0.06);
+  transform: translateY(-1px);
+  color: var(--ab-primary);
+}
+
+.tools-report-icon-tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--ab-primary-soft);
+  color: var(--ab-primary);
+  border: 1px solid var(--ab-primary-soft-border);
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.tools-report-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.tools-report-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ab-text);
+}
+
+.tools-report-arrow {
+  font-size: 11px;
+  color: var(--ab-text-4);
+  transition: transform 0.15s ease;
+}
+
+.tools-report-link-card:hover .tools-report-arrow {
+  transform: translateX(2px);
+  color: var(--ab-primary);
 }
 
 @media (max-width: 768px) {
@@ -136,7 +293,7 @@
   }
 }
 
-/* 诊断中心仪表盘增强样式 */
+/* 诊断中心仪表盘增强样式（彻底告别水泥灰底层） */
 .diag-stat-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -144,14 +301,21 @@
 }
 
 .diag-stat-card {
-  background: var(--ant-color-fill-quaternary);
-  border: 1px solid var(--ant-color-border-secondary);
-  border-radius: var(--ant-border-radius);
-  padding: 10px 12px;
+  background: var(--ab-surface);
+  border: 1px solid var(--ab-border);
+  border-radius: 10px;
+  padding: 12px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.02);
+  transition: all 0.15s ease;
+}
+
+.diag-stat-card:hover {
+  border-color: var(--ab-primary-soft-border);
+  box-shadow: 0 4px 12px -2px rgb(0 0 0 / 0.06);
 }
 
 .diag-scope-grid {
@@ -167,10 +331,11 @@
 }
 
 .diag-outcome-item {
-  background: var(--ant-color-fill-quaternary);
-  border: 1px solid var(--ant-color-border-secondary);
-  border-radius: var(--ant-border-radius);
+  background: var(--ab-surface);
+  border: 1px solid var(--ab-border);
+  border-radius: 8px;
   padding: 8px 10px;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.02);
 }
 
 @media (max-width: 640px) {

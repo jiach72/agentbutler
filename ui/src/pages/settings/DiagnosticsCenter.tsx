@@ -264,8 +264,8 @@ export function DiagnosticsCenter({ actionBusy }: DiagnosticsCenterProps) {
             {/* 核心脱敏保障卡片 */}
             <div
               style={{
-                background: "var(--ant-color-fill-quaternary)",
-                border: "1px solid var(--ant-color-border-secondary)",
+                background: "var(--ab-surface)",
+                border: "1px solid var(--ab-border)",
                 borderRadius: "var(--ant-border-radius-lg)",
                 padding: "12px 14px",
               }}
@@ -363,11 +363,11 @@ export function DiagnosticsCenter({ actionBusy }: DiagnosticsCenterProps) {
             ) : (
               <div
                 style={{
-                  border: "1px dashed var(--ant-color-border)",
+                  border: "1px dashed var(--ab-border)",
                   borderRadius: "var(--ant-border-radius-lg)",
                   padding: "16px",
                   textAlign: "center",
-                  background: "var(--ant-color-fill-quaternary)",
+                  background: "var(--ab-surface)",
                 }}
               >
                 <FileTextOutlined style={{ fontSize: 24, color: "var(--ant-color-text-tertiary)", marginBottom: 6 }} />
@@ -389,7 +389,7 @@ export function DiagnosticsCenter({ actionBusy }: DiagnosticsCenterProps) {
                   width: 34,
                   height: 34,
                   borderRadius: 8,
-                  background: (summaryData?.security?.insecureSecretFiles ?? 0) === 0 ? "rgba(82, 196, 26, 0.12)" : "rgba(255, 77, 79, 0.12)",
+                  background: (summaryData?.security?.insecureSecretFiles ?? 0) === 0 ? "var(--ab-ok-soft)" : "var(--ab-err-soft)",
                   color: (summaryData?.security?.insecureSecretFiles ?? 0) === 0 ? "var(--ant-color-success)" : "var(--ant-color-error)",
                   display: "flex",
                   alignItems: "center",
@@ -415,7 +415,7 @@ export function DiagnosticsCenter({ actionBusy }: DiagnosticsCenterProps) {
                   width: 34,
                   height: 34,
                   borderRadius: 8,
-                  background: "rgba(22, 119, 255, 0.12)",
+                  background: "var(--ab-primary-soft)",
                   color: "var(--ant-color-primary)",
                   display: "flex",
                   alignItems: "center",
@@ -441,7 +441,7 @@ export function DiagnosticsCenter({ actionBusy }: DiagnosticsCenterProps) {
                   width: 34,
                   height: 34,
                   borderRadius: 8,
-                  background: "rgba(250, 140, 22, 0.12)",
+                  background: "var(--ab-warn-soft)",
                   color: "var(--ant-color-warning)",
                   display: "flex",
                   alignItems: "center",
@@ -467,8 +467,8 @@ export function DiagnosticsCenter({ actionBusy }: DiagnosticsCenterProps) {
                   width: 34,
                   height: 34,
                   borderRadius: 8,
-                  background: "rgba(19, 194, 194, 0.12)",
-                  color: "#13c2c2",
+                  background: "rgba(6, 182, 212, 0.12)",
+                  color: "#0891b2",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -493,8 +493,8 @@ export function DiagnosticsCenter({ actionBusy }: DiagnosticsCenterProps) {
             <section
               aria-label="本机结果摘要"
               style={{
-                background: "var(--ant-color-fill-quaternary)",
-                border: "1px solid var(--ant-color-border-secondary)",
+                background: "var(--ab-surface)",
+                border: "1px solid var(--ab-border)",
                 borderRadius: "var(--ant-border-radius-lg)",
                 padding: "12px 14px",
               }}
@@ -561,8 +561,8 @@ export function DiagnosticsCenter({ actionBusy }: DiagnosticsCenterProps) {
             {summaryData?.logIssues && summaryData.logIssues.length > 0 && (
               <div
                 style={{
-                  background: "var(--ant-color-fill-quaternary)",
-                  border: "1px solid var(--ant-color-border-secondary)",
+                  background: "var(--ab-surface)",
+                  border: "1px solid var(--ab-border)",
                   borderRadius: "var(--ant-border-radius-lg)",
                   padding: "10px 14px",
                 }}

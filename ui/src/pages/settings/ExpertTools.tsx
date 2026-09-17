@@ -42,9 +42,24 @@ export function ExpertTools({ children }: { children?: React.ReactNode }) {
           <Link
             key={path}
             to={path}
-            style={{ display: "flex", gap: 8, alignItems: "center", minHeight: 44 }}
+            style={{ display: "flex", gap: 10, alignItems: "center", minHeight: 44 }}
           >
-            <Icon aria-hidden="true" />
+            <span
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 8,
+                background: "var(--ab-primary-soft)",
+                color: "var(--ab-primary)",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 14,
+                flexShrink: 0,
+              }}
+            >
+              <Icon aria-hidden="true" />
+            </span>
             {route.title}
           </Link>
         );

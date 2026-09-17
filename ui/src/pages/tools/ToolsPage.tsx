@@ -54,15 +54,16 @@ interface ToolCardProps {
   title: string;
   tag?: string;
   tagColor?: string;
+  tone?: "blue" | "orange" | "cyan" | "purple" | "indigo" | "emerald" | "rose" | "sky" | "violet" | "pink";
   description: string;
 }
 
-function ToolCard({ to, icon, title, tag, tagColor = "blue", description }: ToolCardProps) {
+function ToolCard({ to, icon, title, tag, tagColor = "blue", tone = "blue", description }: ToolCardProps) {
   return (
     <div className="tool-card">
       <div className="tool-card-header">
         <div className="tool-card-icon-title">
-          <div className="tool-card-icon">{icon}</div>
+          <div className={`tool-card-icon tone-${tone}`}>{icon}</div>
           <div>
             <div className="tool-card-title">{title}</div>
             {tag && <Tag color={tagColor} style={{ marginTop: 4, borderRadius: 10 }}>{tag}</Tag>}
@@ -132,7 +133,7 @@ export function ToolsPage() {
   const paths = settingsToolPaths(experiments, instanceCount);
 
   const renderReportLinks = (items: string[]) => (
-    <Flex vertical gap={8}>
+    <div className="tools-report-links-grid">
       {items.map((path) => {
         const route = routeMetaFor(path);
         if (route === null) return null;
@@ -141,15 +142,20 @@ export function ToolsPage() {
           <Link
             key={path}
             to={path}
-            style={{ display: "flex", gap: 8, alignItems: "center", minHeight: 40 }}
+            className="tools-report-link-card"
           >
-            <Icon aria-hidden="true" />
-            <span>{route.title}</span>
-            <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>{route.note}</Text>
+            <span className="tools-report-icon-tile">
+              <Icon aria-hidden="true" />
+            </span>
+            <div className="tools-report-info">
+              <span className="tools-report-title">{route.title}</span>
+              <Text type="secondary" style={{ fontSize: 12 }}>{route.note}</Text>
+            </div>
+            <RightOutlined className="tools-report-arrow" />
           </Link>
         );
       })}
-    </Flex>
+    </div>
   );
 
   return (
@@ -229,7 +235,9 @@ export function ToolsPage() {
         {/* 专区 1：链路诊断与系统维护（包含自动化选择器匹配文本） */}
         <div className="tools-section">
           <div className="tools-section-title" role="button" tabIndex={0}>
-            <ToolOutlined style={{ color: "var(--ant-color-primary)" }} />
+            <span className="tools-section-icon-badge badge-blue">
+              <ToolOutlined />
+            </span>
             <span>专家工具 · 诊断与维护</span>
           </div>
           <div className="tools-grid">
@@ -239,6 +247,7 @@ export function ToolsPage() {
               title="连接体检"
               tag="链路健康"
               tagColor="blue"
+              tone="blue"
               description="宿主三环体检，检测 Docker、Token 挂载与 Hermes 网关 8754/8755 连通性，提供自愈指引。"
             />
             <ToolCard
@@ -247,6 +256,7 @@ export function ToolsPage() {
               title="排障助手"
               tag="快速自愈"
               tagColor="orange"
+              tone="orange"
               description="按故障现象（模型 401/超时、消息卡死、SQLite 锁死、权限缺失）逐步引导排查与一键自愈。"
             />
             <ToolCard
@@ -255,6 +265,7 @@ export function ToolsPage() {
               title="系统日志"
               tag="实时流"
               tagColor="cyan"
+              tone="cyan"
               description="实时捕获与过滤 Gateway、Watch、Web 各容器日志，支持关键字检索与异常堆栈高亮。"
             />
             {experiments && (
@@ -264,6 +275,7 @@ export function ToolsPage() {
                 title="自进化"
                 tag="实验功能"
                 tagColor="purple"
+                tone="purple"
                 description="自主分析运行日志与故障模式，生成系统提示词优化方案与行为反思改进建议。"
               />
             )}
@@ -274,6 +286,7 @@ export function ToolsPage() {
                 title="实例联邦"
                 tag="多实例"
                 tagColor="geekblue"
+                tone="indigo"
                 description={`已探测到 ${instanceCount} 个活跃实例，跨机汇总状态分布、同步会话记录与协同管控。`}
               />
             )}
@@ -286,7 +299,9 @@ export function ToolsPage() {
         {/* 专区 2：核心配置与资产维护 */}
         <div className="tools-section">
           <div className="tools-section-title">
-            <FileMarkdownOutlined style={{ color: "var(--ant-color-primary)" }} />
+            <span className="tools-section-icon-badge badge-emerald">
+              <FileMarkdownOutlined />
+            </span>
             <span>核心配置与资产维护</span>
           </div>
           <div className="tools-grid">
@@ -296,6 +311,7 @@ export function ToolsPage() {
               title="核心文件"
               tag="规则资产"
               tagColor="green"
+              tone="emerald"
               description="安全查看、在线编辑与版本历史回滚 AGENTS.md、SOPS.md、HERMES.md 等核心指令文件。"
             />
             <ToolCard
@@ -304,6 +320,7 @@ export function ToolsPage() {
               title="升级策略"
               tag="稳定性"
               tagColor="volcano"
+              tone="rose"
               description="金丝雀升级与影子环境验证，确保配置与规则在生产环境切换前无抖动零风险。"
             />
           </div>
@@ -313,7 +330,9 @@ export function ToolsPage() {
         {/* 专区 3：审计追踪与深度分析 */}
         <div className="tools-section">
           <div className="tools-section-title">
-            <SafetyCertificateOutlined style={{ color: "var(--ant-color-primary)" }} />
+            <span className="tools-section-icon-badge badge-purple">
+              <SafetyCertificateOutlined />
+            </span>
             <span>审计追踪与深度分析</span>
           </div>
           <div className="tools-grid">
@@ -322,7 +341,8 @@ export function ToolsPage() {
               icon={<AuditOutlined />}
               title="行为审计"
               tag="安全存证"
-              tagColor="default"
+              tagColor="blue"
+              tone="sky"
               description="完整记录 Agent 外部工具调用、文件改动、系统命令及审批流转的不可篡改审计时间线。"
             />
             <ToolCard
@@ -330,7 +350,8 @@ export function ToolsPage() {
               icon={<HistoryOutlined />}
               title="会话追踪"
               tag="上下文分析"
-              tagColor="default"
+              tagColor="purple"
+              tone="violet"
               description="按会话深入查看 Hermes 交互明细、模型上下文流转与前后动作序列回放。"
             />
             <ToolCard
@@ -338,7 +359,8 @@ export function ToolsPage() {
               icon={<DiffOutlined />}
               title="记忆变更"
               tag="记忆 diff"
-              tagColor="default"
+              tagColor="magenta"
+              tone="pink"
               description="对比管家记忆提取前后的 diff 变更差异，核实长期记忆沉淀的准确性与完整性。"
             />
           </div>

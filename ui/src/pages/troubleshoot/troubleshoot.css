@@ -18,7 +18,7 @@
 .ts-tile.tone-warn { background: var(--ab-warn-soft); color: var(--ab-warn); border: 1px solid color-mix(in srgb, var(--ab-warn) 28%, transparent); }
 .ts-tile.tone-error { background: var(--ab-error-soft); color: var(--ab-error); border: 1px solid color-mix(in srgb, var(--ab-error) 28%, transparent); }
 .ts-tile.tone-cinnabar { background: var(--ab-warn-soft); color: var(--ab-warn); border: 1px solid color-mix(in srgb, var(--ab-warn) 28%, transparent); }
-.ts-tile.tone-muted { background: var(--ab-surface-2); color: var(--ab-text-3); border: 1px solid var(--ab-border); }
+.ts-tile.tone-muted { background: var(--ab-primary-soft); color: var(--ab-primary); border: 1px solid color-mix(in srgb, var(--ab-primary) 22%, transparent); }
 
 /* 现象选择：统一卡规格网格（宽屏 4 列）。 */
 .ts-symptom-grid {
