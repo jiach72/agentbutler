@@ -54,6 +54,20 @@ if ($deploySha) {
   [System.IO.File]::WriteAllText((Join-Path (Get-Location) ".env"), $envContent)
 }
 
+$env:BUTLER_HOST_OS = "Windows"
+$env:BUTLER_HOST_ARCH = if ([System.Environment]::Is64BitOperatingSystem) { "x64" } else { "x86" }
+if ([regex]::IsMatch($envContent, '(?m)^BUTLER_HOST_OS=')) {
+  $envContent = [regex]::Replace($envContent, '(?m)^BUTLER_HOST_OS=.*$', "BUTLER_HOST_OS=$($env:BUTLER_HOST_OS)")
+} else {
+  $envContent = $envContent.TrimEnd("`r", "`n") + "`r`nBUTLER_HOST_OS=$($env:BUTLER_HOST_OS)`r`n"
+}
+if ([regex]::IsMatch($envContent, '(?m)^BUTLER_HOST_ARCH=')) {
+  $envContent = [regex]::Replace($envContent, '(?m)^BUTLER_HOST_ARCH=.*$', "BUTLER_HOST_ARCH=$($env:BUTLER_HOST_ARCH)")
+} else {
+  $envContent = $envContent.TrimEnd("`r", "`n") + "`r`nBUTLER_HOST_ARCH=$($env:BUTLER_HOST_ARCH)`r`n"
+}
+[System.IO.File]::WriteAllText((Join-Path (Get-Location) ".env"), $envContent)
+
 # ---- 升级前备份数据卷（失败默认阻断部署；与 deploy.sh 同一口径）----
 function Read-EnvValue([string]$Key) {
   $m = [regex]::Match($envContent, "(?m)^$Key=(.*)$")

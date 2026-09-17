@@ -174,11 +174,15 @@ services:
       BUTLER_ACCESS_TOKEN: ${BUTLER_ACCESS_TOKEN:-}
       BUTLER_ALLOW_INSECURE_PUBLIC: ${BUTLER_ALLOW_INSECURE_PUBLIC:-}
       BUTLER_GIT_COMMIT: ${BUTLER_GIT_COMMIT:-}
+      BUTLER_HOST_OS: ${BUTLER_HOST_OS:-}
+      BUTLER_HOST_ARCH: ${BUTLER_HOST_ARCH:-}
     depends_on:
       butler-gateway:
         condition: service_healthy
       butler-watch:
         condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       # Default expansion is 127.0.0.1:7531:7531; override with .env when needed.
       - "${BUTLER_WEB_PUBLISH_HOST:-127.0.0.1}:${BUTLER_WEB_PORT:-7531}:7531"

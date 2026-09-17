@@ -68,6 +68,16 @@ BUTLER_HERMES_BRIDGE_ALLOW_NON_LOOPBACK=true
 
 **不要**设置 `COMPOSE_PROFILES=bridge-forward`（该 profile 的 `network_mode: host` 在 Docker Desktop for Mac 指向的是 VM，不是 macOS 宿主）。
 
+### 2.2.1 macOS + Ollama 本地模型接入（分支 A 扩展）
+
+- **方案 1（Compose 容器自托管，零配置）**：默认启动内置 `ollama` 容器。镜像自动兼容 Apple Silicon（`linux/arm64`）和 Intel Mac（`linux/amd64`），模型持久化于 `ollama-data` 命名卷中，自适应硬件阶梯推荐。
+- **方案 2（推荐：宿主机原生 Metal GPU 加速）**：若 Mac 宿主已运行原生 Ollama（`brew install ollama` 或 Ollama.app，享 Apple Silicon Metal 硬件加速）：
+  ```ini
+  BUTLER_OLLAMA_URL=http://host.docker.internal:11434
+  BUTLER_OLLAMA_PORT=11435   # 避免容器映射与宿主 11434 端口冲突
+  ```
+  `butler-web` 已内建 `host.docker.internal` 解析，可无缝直连 Mac 宿主 Metal 加速引擎。
+
 ### 2.3 跨设备访问（可选）
 
 默认仅本机可访问（Web 绑定 `127.0.0.1:7531`）。需要局域网访问时，在 `.env` 同时设置 `BUTLER_WEB_PUBLISH_HOST=<非回环地址>` 与强随机 `BUTLER_ACCESS_TOKEN`。**未配置口令时禁止把端口暴露到不可信网络。**

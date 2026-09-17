@@ -1577,6 +1577,17 @@ function openStore(home: string): SqliteStore | null {
   }
 }
 
+/** 打开 Ollama 用量 SQLite；任何失败（目录不可建/文件不可开）返回 null 走降级。 */
+function openOllamaUsageStore(home: string): OllamaUsageStore | null {
+  try {
+    const dataDir = path.join(home, "data");
+    fs.mkdirSync(dataDir, { recursive: true });
+    return new OllamaUsageStore(path.join(dataDir, "ollama_usage.db"));
+  } catch {
+    return null;
+  }
+}
+
 /** ui/dist 默认路径：src/ 与 dist/ 同为 apps/web 下一级，向上三级即仓库根。 */
 function defaultUiDist(): string {
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -1849,10 +1860,10 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
 
   const app = Fastify({ logger: false });
   let store = openStore(home);
-  const ollamaUsageStore =
+  let ollamaUsageStore =
     options.ollamaUsageStore !== undefined
       ? options.ollamaUsageStore
-      : new OllamaUsageStore(path.join(home, "data", "ollama_usage.db"));
+      : openOllamaUsageStore(home);
 
   // /ws 轮询定时器登记：连接断开或服务关闭时统一清理。
   const wsTimers = new Set<ReturnType<typeof setInterval>>();
@@ -1960,6 +1971,8 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     wsTimers.clear();
     store?.close();
     store = null;
+    ollamaUsageStore?.close();
+    ollamaUsageStore = null;
   });
 
   const getStore = (): SqliteStore | null => {

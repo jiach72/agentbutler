@@ -120,6 +120,13 @@ if [[ -n "$deploy_sha" ]]; then
   env_set BUTLER_GIT_COMMIT "$deploy_sha"
 fi
 
+host_os="$(uname -s 2>/dev/null || echo "Linux")"
+host_arch="$(uname -m 2>/dev/null || echo "x86_64")"
+export BUTLER_HOST_OS="$host_os"
+export BUTLER_HOST_ARCH="$host_arch"
+env_set BUTLER_HOST_OS "$host_os"
+env_set BUTLER_HOST_ARCH "$host_arch"
+
 # ---- 预检：提前暴露两类已知事故（见 docs/deployment-20260825.md 踩坑记录）----
 
 # 坑4：HERMES_BUTLER_HOST 改成非回环会让 Hermes gateway 崩溃循环（代码强制 loopback）。

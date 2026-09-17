@@ -137,8 +137,15 @@ export function detectHardwareProfile(): HardwareProfile {
     // 无 nvidia-smi 或无 NVIDIA GPU
   }
 
-  // 2. 若未检测到 NVIDIA，检查 Apple Silicon 统一内存
-  if (!gpu && process.platform === "darwin" && process.arch === "arm64") {
+  // 2. 检查 Apple Silicon 统一内存架构（支持宿主机原生 macOS 与 Docker 容器内环境）
+  const hostOs = (process.env["BUTLER_HOST_OS"] || "").toLowerCase();
+  const hostArch = (process.env["BUTLER_HOST_ARCH"] || "").toLowerCase();
+  const isDarwin = process.platform === "darwin" || hostOs === "darwin";
+  const isArm64 = process.arch === "arm64" || hostArch === "arm64" || hostArch === "aarch64";
+  const isAppleCpu = /apple|virtualapple/i.test(cpuModel);
+
+  if (!gpu && ((isDarwin && isArm64) || isAppleCpu)) {
+    // Apple Silicon 统一内存架构：系统物理内存由 CPU 与 GPU 高速共享
     const unifiedVramGb = Math.round(totalGb * 0.7 * 10) / 10;
     gpu = {
       detected: true,
@@ -147,6 +154,9 @@ export function detectHardwareProfile(): HardwareProfile {
       isUnified: true,
     };
   }
+
+  const effectivePlatform = isDarwin ? "darwin" : (hostOs || process.platform);
+  const effectiveArch = isArm64 ? "arm64" : (hostArch || process.arch);
 
   return {
     cpu: {
@@ -160,8 +170,8 @@ export function detectHardwareProfile(): HardwareProfile {
       freeGb,
     },
     gpu,
-    platform: process.platform,
-    arch: process.arch,
+    platform: effectivePlatform,
+    arch: effectiveArch,
   };
 }
 
@@ -179,15 +189,21 @@ export function evaluateHardwareTier(hw: HardwareProfile): HardwareEvaluation {
   if (vramGb >= 14 || (isAppleSilicon && ramGb >= 32) || ramGb >= 64) {
     tier = 4;
     tierLabel = "高阶梯队 (大算力加速模式)";
-    description = "检测到高显存独立显卡或大容量统一内存，支持流畅运行 7B ~ 14B 参数模型，具备出色的复杂逻辑与多任务能力。";
+    description = isAppleSilicon
+      ? "检测到 Apple Silicon 大容量统一内存架构 (≥ 32GB)，可高效运行 7B ~ 14B 参数模型，具备出色的复杂推理与多任务能力。"
+      : "检测到高显存独立显卡或大容量内存，支持流畅运行 7B ~ 14B 参数模型，具备出色的复杂逻辑与多任务能力。";
   } else if (vramGb >= 6 || (isAppleSilicon && ramGb >= 16) || (hasDedicatedGpu && vramGb >= 6)) {
     tier = 3;
     tierLabel = "性能梯队 (GPU 全显存加速模式)";
-    description = "检测到独立显卡 (≥ 6GB 显存)，轻量与 7B 量化模型可完全载入显存全速推理 (>50~100 tokens/s)。";
-  } else if (ramGb >= 12 || vramGb >= 4) {
+    description = isAppleSilicon
+      ? "检测到 Apple Silicon 统一内存架构 (≥ 16GB)，轻量与 7B 量化模型可完全载入内存全速推理 (>50~100 tokens/s)。"
+      : "检测到独立显卡 (≥ 6GB 显存)，轻量与 7B 量化模型可完全载入显存全速推理 (>50~100 tokens/s)。";
+  } else if (ramGb >= 12 || vramGb >= 4 || (isAppleSilicon && ramGb >= 8)) {
     tier = 2;
     tierLabel = "平衡梯队 (轻量增强模式)";
-    description = "检测到充裕内存 (≥ 12GB) 或入门级显卡，可流畅支持 1.5B ~ 3B 级别模型进行精准事实抽取与向量召回。";
+    description = isAppleSilicon
+      ? "检测到 Apple Silicon 基础内存配置 (8~16GB)，推荐 1.5B ~ 3B 级别模型，兼顾轻量与高响应速度。"
+      : "检测到充裕内存 (≥ 12GB) 或入门级显卡，可流畅支持 1.5B ~ 3B 级别模型进行精准事实抽取与向量召回。";
   }
 
   // 动态构建模型推荐清单
