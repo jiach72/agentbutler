@@ -48,6 +48,11 @@ import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
 import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply } from "fastify";
 import { recentEventsAscending, selectNewEvents } from "./events-pump.js";
+import {
+  defaultOllamaService,
+  detectHardwareProfile,
+  evaluateHardwareTier,
+} from "./ollama-service.js";
 
 export const WEB_VERSION = `web@0.1.0-beta.260911.13+${CONTRACT_VERSION}`;
 
@@ -56,6 +61,9 @@ export const DEFAULT_GATEWAY_URL = "http://127.0.0.1:7532";
 
 /** watch HTTP 控制通道默认基址（butler-watch 的固定回环端口）。 */
 export const DEFAULT_WATCH_URL = "http://127.0.0.1:7533";
+
+/** 本地 Ollama 服务默认基址（容器内 http://ollama:11434，宿主直跑 127.0.0.1:11434）。 */
+export const DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434";
 
 /** 告警队列视图（/api/alerts 路由与 /api/gateway 聚合共用；reachable=false 表示网关不可达）。 */
 interface AlertsView {
@@ -145,6 +153,8 @@ export interface WebServerOptions {
    * 但宿主机可能只发布到 127.0.0.1；安全基线必须使用这个地址。
    */
   publishHost?: string;
+  /** 本地 Ollama 引擎基址；缺省 env BUTLER_OLLAMA_URL 或 http://127.0.0.1:11434。 */
+  ollamaUrl?: string;
 }
 
 /** 受保护前缀：口令校验覆盖所有数据面接口与事件流，健康检查与静态外壳放行。 */
@@ -1825,6 +1835,7 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   const home = options.home ?? resolveButlerHome();
   const gatewayUrl = options.gatewayUrl ?? process.env["BUTLER_GATEWAY_URL"] ?? DEFAULT_GATEWAY_URL;
   const watchUrl = options.watchUrl ?? process.env["BUTLER_WATCH_URL"] ?? DEFAULT_WATCH_URL;
+  const ollamaUrl = options.ollamaUrl ?? process.env["BUTLER_OLLAMA_URL"] ?? DEFAULT_OLLAMA_URL;
   const doFetch = options.fetchImpl ?? fetch;
   const uiDist = path.resolve(options.uiDist ?? defaultUiDist());
   const bundleVersion = readBundleVersion(uiDist);
@@ -4042,6 +4053,50 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
       warnings.push(`面板发布在 ${publishHost} 且没有访问口令，同一网络内的任何人都能操作你的 AI，请立即处理。`);
     }
     return { listenHost, publishHost, loopback, auth, warnings };
+  });
+
+  /* ------------------------------ Ollama 本地模型管理 ------------------------------ */
+
+  /** Ollama 服务健康与版本探活 */
+  app.get("/api/ollama/status", async () => {
+    return defaultOllamaService.getStatus(ollamaUrl);
+  });
+
+  /** 动态读取当前宿主机客观硬件档案与自适应推荐模型 */
+  app.get("/api/ollama/hardware-profile", async () => {
+    const hw = detectHardwareProfile();
+    const evaluation = evaluateHardwareTier(hw);
+    return { hardware: hw, evaluation };
+  });
+
+  /** 获取 Ollama 当前已下载的模型列表 */
+  app.get("/api/ollama/models", async () => {
+    return defaultOllamaService.getModels(ollamaUrl);
+  });
+
+  /** 发起拉取新模型任务 */
+  app.post("/api/ollama/pull", async (request, reply) => {
+    const body = request.body as Record<string, unknown> | null;
+    const name = typeof body?.["name"] === "string" ? body["name"] : "";
+    if (!name.trim()) {
+      return reply.status(400).send({ ok: false, message: "模型名称不能为空" });
+    }
+    return defaultOllamaService.pullModel(ollamaUrl, name);
+  });
+
+  /** 获取当前活跃拉取进度 */
+  app.get("/api/ollama/pull-status", async () => {
+    return { pull: defaultOllamaService.getPullStatus() };
+  });
+
+  /** 删除本地已下载的模型 */
+  app.delete("/api/ollama/models/:name", async (request, reply) => {
+    const params = request.params as Record<string, string>;
+    const name = params["name"] || "";
+    if (!name) {
+      return reply.status(400).send({ ok: false, message: "模型名称不能为空" });
+    }
+    return defaultOllamaService.deleteModel(ollamaUrl, name);
   });
 
   /* ------------------------------ WebSocket /ws ------------------------------ */

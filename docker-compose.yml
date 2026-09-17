@@ -169,6 +169,7 @@ services:
       BUTLER_WEB_PORT: 7531
       BUTLER_GATEWAY_URL: http://butler-gateway:7532
       BUTLER_WATCH_URL: http://butler-watch:7533
+      BUTLER_OLLAMA_URL: ${BUTLER_OLLAMA_URL:-http://ollama:11434}
       # 面板发布到非回环地址时必填；留空则只允许本机访问。
       BUTLER_ACCESS_TOKEN: ${BUTLER_ACCESS_TOKEN:-}
       BUTLER_GIT_COMMIT: ${BUTLER_GIT_COMMIT:-}
@@ -266,9 +267,21 @@ services:
     command: tcp-listen:9178,fork,reuseaddr tcp:127.0.0.1:${BUTLER_HINDSIGHT_PORT:-9177}
     logging: *default-logging
     restart: unless-stopped
-    profiles:
-      - hindsight-forward
+  # 本地轻量模型引擎（用于记忆管理、向量召回与全天候健康探针）
+  # 严格绑定宿主回环 127.0.0.1:11434，禁止发布至 0.0.0.0。
+  # 容器间通过 http://ollama:11434 通信；模型权重持久化保存在 ollama-data 命名卷中。
+  ollama:
+    image: ollama/ollama:latest
+    container_name: butler-ollama
+    restart: unless-stopped
+    ports:
+      - "${BUTLER_OLLAMA_BIND_HOST:-127.0.0.1}:${BUTLER_OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    logging: *default-logging
 
 volumes:
   butler-data:
     name: ${BUTLER_DATA_VOLUME:-agent-butler-data}
+  ollama-data:
+    name: ${BUTLER_OLLAMA_DATA_VOLUME:-agent-butler-ollama-data}

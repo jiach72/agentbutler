@@ -37,6 +37,7 @@ import { SettingsCategoryNav, resolveCategoryKey } from "./SettingsCategoryNav.j
 import { SourceStatusBar } from "./SourceStatusBar.js";
 import { PreferencesPanel } from "../preferences/PreferencesPage.js";
 import { LlmProfileManager } from "./LlmProfileManager.js";
+import { OllamaConfigCard } from "./OllamaConfigCard.js";
 import { TaskDefaultsPanel } from "./TaskDefaultsPanel.js";
 import { VersionsPanel } from "../versions/VersionsPage.js";
 import "./settings.css";
@@ -272,17 +273,24 @@ export function SettingsPage() {
                 ? "preferences"
                 : searchParams.get("section") === "channels"
                   ? "channels"
-                  : "llm"
+                  : searchParams.get("section") === "ollama"
+                    ? "ollama"
+                    : "llm"
             }
             onChange={(key) => {
               setSearchParams(
-                key === "channels" ? { tab: "llm", section: "channels" } : { tab: key },
+                key === "channels"
+                  ? { tab: "llm", section: "channels" }
+                  : key === "ollama"
+                    ? { tab: "llm", section: "ollama" }
+                    : { tab: key },
                 { replace: true },
               );
             }}
             destroyOnHidden={false}
             items={[
               { key: "llm", label: "模型与密钥", children: <LlmProfileManager /> },
+              { key: "ollama", label: "Ollama 本地模型", children: <OllamaConfigCard /> },
               { key: "preferences", label: "通知与偏好", children: <PreferencesPanel /> },
               {
                 key: "channels",
