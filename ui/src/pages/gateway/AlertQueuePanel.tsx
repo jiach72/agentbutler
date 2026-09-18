@@ -128,7 +128,7 @@ export function AlertQueuePanel({ alerts, history = false }: AlertQueuePanelProp
         title="通知详情"
         open={selected !== null}
         onClose={() => setSelected(null)}
-        size={640}
+        width={640}
         styles={{ wrapper: { maxWidth: "100vw" } }}
       >
         {selected !== null && (

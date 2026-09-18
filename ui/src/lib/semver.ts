@@ -11,17 +11,24 @@ interface ParsedVersion {
 
 function parseVersion(input: string): ParsedVersion | null {
   const text = input.trim().replace(/^v/i, "");
-  const match = /^(\d+)\.(\d+)\.(\d+)(?:[-.]?([\w.]+))?$/.exec(text);
+  const match = /^(\d+)\.(\d+)(?:\.(\d+))?(?:[-.]?([\w.]+))?$/.exec(text);
   if (match === null) return null;
   const core = [
     Number(match[1]),
     Number(match[2]),
-    Number(match[3]),
+    match[3] === undefined ? 0 : Number(match[3]),
   ];
   const pre =
     match[4] === undefined ? [] : match[4].split(".").filter(Boolean);
   return { core, pre };
 }
+
+const PRERELEASE_ORDER: Record<string, number> = {
+  dev: 10,
+  alpha: 20,
+  beta: 30,
+  rc: 40,
+};
 
 function comparePreSegment(a: string, b: string): number {
   const aNum = /^\d+$/.test(a);
@@ -31,6 +38,12 @@ function comparePreSegment(a: string, b: string): number {
     return diff === 0 ? 0 : diff > 0 ? 1 : -1;
   }
   if (aNum !== bNum) return aNum ? -1 : 1;
+  const aRank = PRERELEASE_ORDER[a.toLowerCase()];
+  const bRank = PRERELEASE_ORDER[b.toLowerCase()];
+  if (aRank !== undefined && bRank !== undefined) {
+    const diff = aRank - bRank;
+    return diff === 0 ? 0 : diff > 0 ? 1 : -1;
+  }
   return a === b ? 0 : a > b ? 1 : -1;
 }
 

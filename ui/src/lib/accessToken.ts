@@ -11,7 +11,7 @@
 const STORAGE_KEY = "butler.accessToken";
 const UNAUTHORIZED_EVENT = "butler:unauthorized";
 
-function storage(): Storage | null {
+function sessionStore(): Storage | null {
   try {
     return typeof window === "undefined" ? null : window.sessionStorage;
   } catch {
@@ -19,22 +19,11 @@ function storage(): Storage | null {
   }
 }
 
-/** 一次性迁移：localStorage 的存量口令搬进 sessionStorage 后即焚。 */
-let migrated = false;
-function migrateLegacyToken(): void {
-  if (migrated) return;
-  migrated = true;
+function localStore(): Storage | null {
   try {
-    if (typeof window === "undefined" || storage() === null) return;
-    const legacy = window.localStorage.getItem(STORAGE_KEY);
-    if (legacy !== null && legacy !== "") {
-      if (storage()?.getItem(STORAGE_KEY) === null || storage()?.getItem(STORAGE_KEY) === "") {
-        storage()?.setItem(STORAGE_KEY, legacy);
-      }
-      window.localStorage.removeItem(STORAGE_KEY);
-    }
+    return typeof window === "undefined" ? null : window.localStorage;
   } catch {
-    // 迁移失败不阻塞登录流程
+    return null;
   }
 }
 
@@ -47,7 +36,7 @@ function consumeUrlToken(): void {
   try {
     const fromUrl = new URLSearchParams(window.location.search).get("token");
     if (fromUrl === null || fromUrl.trim() === "") return;
-    setAccessToken(fromUrl);
+    setAccessToken(fromUrl, true);
     // 口令不该留在地址栏与浏览历史里
     window.history.replaceState({}, "", window.location.pathname + window.location.hash);
   } catch {
@@ -55,27 +44,44 @@ function consumeUrlToken(): void {
   }
 }
 
-/** 读取已保存的访问口令；地址栏 ?token= 优先一次，便于书签直达。 */
+/** 读取已保存的访问口令；地址栏 ?token= 优先一次，会话级优先，本地持久化兜底。 */
 export function getAccessToken(): string {
   consumeUrlToken();
-  migrateLegacyToken();
-  return storage()?.getItem(STORAGE_KEY) ?? "";
+  const fromSession = sessionStore()?.getItem(STORAGE_KEY);
+  if (fromSession !== null && fromSession !== undefined && fromSession !== "") {
+    return fromSession;
+  }
+  const fromLocal = localStore()?.getItem(STORAGE_KEY);
+  if (fromLocal !== null && fromLocal !== undefined && fromLocal !== "") {
+    sessionStore()?.setItem(STORAGE_KEY, fromLocal);
+    return fromLocal;
+  }
+  return "";
 }
 
-export function setAccessToken(token: string): void {
+export function setAccessToken(token: string, remember = true): void {
   try {
-    migrateLegacyToken();
     const value = token.trim();
-    if (value === "") storage()?.removeItem(STORAGE_KEY);
-    else storage()?.setItem(STORAGE_KEY, value);
+    if (value === "") {
+      sessionStore()?.removeItem(STORAGE_KEY);
+      localStore()?.removeItem(STORAGE_KEY);
+    } else {
+      sessionStore()?.setItem(STORAGE_KEY, value);
+      if (remember) {
+        localStore()?.setItem(STORAGE_KEY, value);
+      } else {
+        localStore()?.removeItem(STORAGE_KEY);
+      }
+    }
   } catch {
-    // 隐私模式下 sessionStorage 不可写，退化为仅内存有效
+    // 隐私模式下 Storage 不可写，退化为仅内存有效
   }
 }
 
 export function clearAccessToken(): void {
   try {
-    storage()?.removeItem(STORAGE_KEY);
+    sessionStore()?.removeItem(STORAGE_KEY);
+    localStore()?.removeItem(STORAGE_KEY);
   } catch {
     // 忽略
   }

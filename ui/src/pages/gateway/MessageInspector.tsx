@@ -464,7 +464,7 @@ export function MessageInspector(props: MessageInspectorProps) {
         title="消息详情"
         open={selectedMessage !== null}
         onClose={() => props.onSelectMessage(null)}
-        size={640}
+        width={640}
         styles={{ wrapper: { maxWidth: "100vw" }, body: { overflowWrap: "anywhere" } }}
       >
         {selectedMessage !== null && (

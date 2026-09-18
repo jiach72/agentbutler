@@ -177,8 +177,78 @@ function git(args: string[], timeout = 20_000): Promise<CommandResult> {
   return run("git", args, sourceDir, timeout);
 }
 
+function isLegacyTag(tag: string): boolean {
+  // 历史遗留 tag（切换到 0.1-beta.YYMMDD 体系前的 1.0.0-beta.1 ~ 31，SemVer 会误判为高于 0.1.x）
+  return /^v?1\.0\.0-beta\.\d+$/.test(tag);
+}
+
 function semanticVersion(value: string): boolean {
-  return /^(?:v)?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(value);
+  if (isLegacyTag(value)) return false;
+  return /^(?:v)?\d+\.\d+(?:\.\d+)?(?:-[0-9A-Za-z.-]+)?$/.test(value);
+}
+
+interface ParsedVersion {
+  core: [number, number, number];
+  prerelease: string[];
+}
+
+function parseVersion(version: string): ParsedVersion {
+  const normalized = version.trim().replace(/^v/i, "").split("+", 1)[0] ?? "";
+  const separator = normalized.indexOf("-");
+  const coreText = separator === -1 ? normalized : normalized.slice(0, separator);
+  const prereleaseText = separator === -1 ? undefined : normalized.slice(separator + 1);
+  const parts = coreText.split(".");
+  return {
+    core: [0, 1, 2].map((index) => Number(parts[index]) || 0) as [number, number, number],
+    prerelease: prereleaseText === undefined ? [] : prereleaseText.split("."),
+  };
+}
+
+const PRERELEASE_ORDER: Record<string, number> = {
+  dev: 10,
+  alpha: 20,
+  beta: 30,
+  rc: 40,
+};
+
+function compareIdentifier(a: string, b: string): number {
+  const aRank = PRERELEASE_ORDER[a.toLowerCase()];
+  const bRank = PRERELEASE_ORDER[b.toLowerCase()];
+  if (aRank !== undefined && bRank !== undefined) {
+    return aRank - bRank;
+  }
+  return a.localeCompare(b);
+}
+
+function compareVersion(a: string, b: string): number {
+  const left = parseVersion(a);
+  const right = parseVersion(b);
+  for (let index = 0; index < left.core.length; index += 1) {
+    const diff = left.core[index]! - right.core[index]!;
+    if (diff !== 0) return diff;
+  }
+  if (left.prerelease.length === 0 || right.prerelease.length === 0) {
+    return left.prerelease.length === right.prerelease.length
+      ? 0
+      : left.prerelease.length === 0
+        ? 1
+        : -1;
+  }
+  const length = Math.max(left.prerelease.length, right.prerelease.length);
+  for (let index = 0; index < length; index += 1) {
+    const leftPart = left.prerelease[index];
+    const rightPart = right.prerelease[index];
+    if (leftPart === undefined || rightPart === undefined) {
+      return leftPart === rightPart ? 0 : leftPart === undefined ? -1 : 1;
+    }
+    if (leftPart === rightPart) continue;
+    const leftNumeric = /^\d+$/.test(leftPart);
+    const rightNumeric = /^\d+$/.test(rightPart);
+    if (leftNumeric && rightNumeric) return Number(leftPart) - Number(rightPart);
+    if (leftNumeric !== rightNumeric) return leftNumeric ? -1 : 1;
+    return compareIdentifier(leftPart, rightPart);
+  }
+  return 0;
 }
 
 function channelOf(version: string): "stable" | "beta" {
@@ -201,7 +271,7 @@ async function updates(): Promise<Array<{ version: string; channel: "stable" | "
       const version = tag.replace(/^v/i, "");
       return { version, channel: channelOf(version), commit: revList[index] ?? null, tag };
     })
-    .sort((left, right) => right.version.localeCompare(left.version, undefined, { numeric: true }));
+    .sort((left, right) => compareVersion(right.version, left.version));
 }
 
 /** 仓库侧状态（git 探测 + 版本偏好 + 快照清单），与进行中的任务信息分开缓存。 */
@@ -269,10 +339,31 @@ async function repoView(): Promise<RepoView> {
   return view;
 }
 
+function normalizeJob(job: Job | null): Job | null {
+  if (job === null) return null;
+  // 如果进程当前未在执行升级/回滚（active 为 false），但任务状态却为 running，
+  // 或任务启动时间超过 30 分钟，说明上一次执行被外部中断或容器重启终止。
+  const started = Date.parse(job.startedAt);
+  const isExpired = !Number.isNaN(started) && Date.now() - started > 30 * 60_000;
+  if (job.status === "running" && (!active || isExpired)) {
+    const expired: Job = {
+      ...job,
+      status: "failed",
+      phase: "failed",
+      finishedAt: job.finishedAt ?? now(),
+      error: job.error ?? "升级任务被服务重启或外部中断终止",
+    };
+    writeJson(stateFile, expired);
+    return expired;
+  }
+  return job;
+}
+
 /** 组装对外状态视图。升级进行中绝不触碰 git（工作树正被 checkout/构建），用缓存仓库视图 + 实时 job。 */
 async function statusView(lastJob: Job | null): Promise<Record<string, unknown>> {
+  const normalized = normalizeJob(lastJob);
   const view = active && repoViewCache !== null ? repoViewCache.view : await repoView();
-  return { ...view, lastJob, checkedAt: now() };
+  return { ...view, lastJob: normalized, checkedAt: now() };
 }
 
 async function persistStatus(lastJob?: Job | null): Promise<void> {
@@ -432,8 +523,9 @@ const server = createServer(async (request, response) => {
   // 能响应即代表进程存活。这不等于「git/docker 后端可用」——后者由任务执行时的 fail-closed 校验兜底。
   if (request.method === "GET" && path === "/healthz") return send(response, 200, { ok: true });
 
-  // 除健康检查外的一切接口都要求口令；未配置口令时一律拒绝，不做"无口令也能用"的兜底。
-  if (accessToken === "" || !tokensMatch(accessToken, extractToken(request, url))) {
+  // 当配置了访问口令时，除健康检查外的一切接口都要求口令；
+  // 未配置口令时（如本地回环推荐模式），放行内部请求。
+  if (accessToken !== "" && !tokensMatch(accessToken, extractToken(request, url))) {
     return send(response, 401, { error: "unauthorized", reason: "需要访问口令" });
   }
 
@@ -497,6 +589,13 @@ const server = createServer(async (request, response) => {
 
 void (async () => {
   mkdirSync(stateDir, { recursive: true });
+  if (existsSync(lockFile)) {
+    try {
+      unlinkSync(lockFile);
+    } catch {
+      // ignore
+    }
+  }
   await persistStatus();
   server.listen(port, host, () => console.log(`[butler-updater] listening on ${host}:${port}`));
 })();

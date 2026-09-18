@@ -117,6 +117,7 @@ export function TasksPage() {
     // Hermes reports the delivery error itself; there is no run failure to look up.
     if (task.lastStatus === "delivery_failed") return taskFailureLabel("delivery");
     if (task.lastStatus !== "failed") return null;
+    if (task.failureReason) return task.failureReason;
     const incident = incidents?.items.filter((item) => item.taskId === task.id && item.state !== "closed")
       .sort((a, b) => (b.lastSeenAt ?? "").localeCompare(a.lastSeenAt ?? ""))[0];
     return taskFailureLabel(incident?.failureType ?? "unknown");

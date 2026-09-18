@@ -130,7 +130,7 @@ export function TaskEditorDrawer({ open, taskId, initialDraft, timezone, onClose
   const advanced = draft.advanced ?? {};
   return (
     <Drawer title={taskId ? "编辑定时任务" : "新建定时任务"} open={open} onClose={close}
-      size={560} className="task-editor" maskClosable={!busy}
+      width={560} className="task-editor" maskClosable={!busy}
       footer={<Space wrap><Button onClick={close} disabled={busy}>取消</Button>
         <Button type="primary" icon={<SaveOutlined />} loading={busy} disabled={!preview}
           onClick={() => void save()}>{uncertain ? "核对并重试保存" : "保存任务"}</Button></Space>}>

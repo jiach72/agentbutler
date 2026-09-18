@@ -55,7 +55,7 @@ import {
 } from "./ollama-service.js";
 import { OllamaUsageStore } from "./ollama-usage-store.js";
 
-export const WEB_VERSION = `web@0.1.0-beta.260911.13+${CONTRACT_VERSION}`;
+export const WEB_VERSION = `web@0.1.0-beta.260918.1+${CONTRACT_VERSION}`;
 
 /** 告警网关默认基址（butler-gateway 的固定回环端口）。 */
 export const DEFAULT_GATEWAY_URL = "http://127.0.0.1:7532";

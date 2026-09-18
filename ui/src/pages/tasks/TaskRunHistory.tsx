@@ -32,7 +32,7 @@ export function TaskRunHistory({ task, onClose, timezone }: {
     return () => { current = false; };
   }, [task?.id, retry]);
   return <Drawer open={task !== null} title={`${task?.name ?? "任务"} · 执行历史`} onClose={onClose}
-    size={560} className="task-history">
+    width={560} className="task-history">
     {error ? <Alert type="warning" showIcon title="暂时无法读取执行历史"
       action={<Button icon={<ReloadOutlined />} onClick={() => setRetry((value) => value + 1)}>重试</Button>} />
       : items === null ? <Skeleton active />

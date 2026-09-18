@@ -1,6 +1,6 @@
 {
   "name": "@butler/core",
-  "version": "0.1.0-beta.260911.13",
+  "version": "0.1.0-beta.260918.1",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",

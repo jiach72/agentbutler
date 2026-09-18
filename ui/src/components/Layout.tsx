@@ -239,7 +239,7 @@ export function Layout() {
           open={drawerOpen}
           onClose={() => setDrawerOpen(false)}
           placement="left"
-          size={280}
+          width={280}
           title="Agent Butler"
           className="mobile-nav-drawer"
         >

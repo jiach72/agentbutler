@@ -11,7 +11,7 @@
  * 视觉完全交给 antd 原生 Modal/Input：不造自定义卡片皮肤。
  */
 import { useEffect, useState } from "react";
-import { Alert, Button, Flex, Input, Modal, Typography } from "antd";
+import { Alert, Button, Checkbox, Flex, Input, Modal, Typography } from "antd";
 import { setAccessToken, subscribeUnauthorized } from "../lib/accessToken.js";
 
 const { Text } = Typography;
@@ -19,6 +19,7 @@ const { Text } = Typography;
 export function AccessGate() {
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState("");
+  const [remember, setRemember] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => subscribeUnauthorized(() => {
@@ -34,7 +35,7 @@ export function AccessGate() {
       setError("请先填写访问口令");
       return;
     }
-    setAccessToken(token);
+    setAccessToken(token, remember);
     setError(null);
     // 整页刷新是最可靠的重新取数方式：所有请求都会带上新口令。
     window.location.reload();
@@ -47,7 +48,7 @@ export function AccessGate() {
       closable={false}
       mask={{ closable: false }}
       keyboard={false}
-      width={480}
+      width={500}
       title="需要访问口令"
     >
       <Flex vertical gap={16}>
@@ -55,7 +56,7 @@ export function AccessGate() {
           type="info"
           showIcon
           message="当前部署需要访问口令"
-          description="口令在部署时设置（BUTLER_ACCESS_TOKEN）。输入后即可进入；口令只保存在本浏览器会话中，关闭标签页后需要重新输入。"
+          description="口令在部署时设置（BUTLER_ACCESS_TOKEN）。输入后即可进入系统控制台。"
         />
         <form
           className="access-gate-field"
@@ -75,8 +76,16 @@ export function AccessGate() {
             status={error === null ? undefined : "error"}
             aria-describedby="access-gate-hint"
           />
+          <Flex justify="flex-start" style={{ marginTop: 8, marginBottom: 8 }}>
+            <Checkbox
+              checked={remember}
+              onChange={(event) => setRemember(event.target.checked)}
+            >
+              记住这台设备（在此设备上持久保持登录，免重复输入）
+            </Checkbox>
+          </Flex>
           {error !== null && (
-            <Text type="danger" role="alert">
+            <Text type="danger" role="alert" style={{ display: "block", marginBottom: 8 }}>
               {error}
             </Text>
           )}
@@ -84,11 +93,13 @@ export function AccessGate() {
             输入口令进入
           </Button>
         </form>
-        <Flex vertical gap={4} id="access-gate-hint">
-          <Text strong>口令去哪里找</Text>
+        <Flex vertical gap={6} id="access-gate-hint">
+          <Text strong>口令去哪里找？</Text>
           <Text type="secondary">
-            部署目录 <Text code>.env</Text> 里的 <Text code>BUTLER_ACCESS_TOKEN</Text>；
-            如果由管理员部署，请向管理员索取，不需要自己修改文件。
+            位于部署目录 <Text code>.env</Text> 里的 <Text code>BUTLER_ACCESS_TOKEN</Text>；如果由管理员部署，请向管理员索取。
+          </Text>
+          <Text type="secondary">
+            <strong>免口令提示：</strong>如果您是本机或受信任局域网用户，不希望受到口令弹窗打扰，可将 <Text code>.env</Text> 中的 <Text code>BUTLER_ACCESS_TOKEN=</Text> 留空并重启服务即可完全免口令运行。
           </Text>
         </Flex>
       </Flex>

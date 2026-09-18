@@ -44,6 +44,11 @@ const SELF_JOB_POLL_MS = 5000;
 const SELF_REFRESH_TIMEOUT_MS = 30_000;
 const UPGRADE_POLL_MS = 2000;
 
+function formatDisplayVersion(version: string | null | undefined): string {
+  if (!version) return "";
+  return version.replace(/^0\.1\.0-beta\./, "0.1-beta.");
+}
+
 export function VersionsPanel() {
   const { message } = App.useApp();
   const { mode } = useTheme();
@@ -335,7 +340,7 @@ export function VersionsPanel() {
         <Spin />
         <Text>
           {runningSelfJob.kind === "upgrade" ? "正在更新管家" : "正在回滚管家"}
-          {displayVersion !== null ? `（版本 ${displayVersion}）` : ""}
+          {displayVersion !== null ? `（版本 ${formatDisplayVersion(displayVersion)}）` : ""}
         </Text>
       </Flex>
     );
@@ -355,7 +360,7 @@ export function VersionsPanel() {
     statusLine = (
       <Flex wrap align="center" gap={12}>
         <Text>
-          有可用更新 <Text strong>{selfUpgradeCandidate.version}</Text>
+          有可用更新 <Text strong>{formatDisplayVersion(selfUpgradeCandidate.version)}</Text>
           （{selfUpgradeCandidate.channel === "beta" ? "测试" : "正式"} 通道）
         </Text>
         <Tooltip title={selfBusy ? "有升级操作正在执行" : "偏好已锁定，先在偏好设置里解锁"}>
@@ -550,7 +555,7 @@ export function VersionsPanel() {
         tone={selfUpgradeCandidate !== null ? "warn" : "ok"}
         title={
           selfUpgradeCandidate !== null
-            ? `管家有可用更新 ${selfUpgradeCandidate.version}（${selfUpgradeCandidate.channel === "beta" ? "测试" : "正式"} 通道）`
+            ? `管家有可用更新 ${formatDisplayVersion(selfUpgradeCandidate.version)}（${selfUpgradeCandidate.channel === "beta" ? "测试" : "正式"} 通道）`
             : "管家已是最新版本"
         }
         copy={
@@ -583,7 +588,7 @@ export function VersionsPanel() {
                 管家 Butler
               </Title>
               <Text type="secondary">
-                版本 {displayVersion ?? "—"}
+                版本 {formatDisplayVersion(displayVersion) || "—"}
                 （{prefs.channel === "beta" ? "测试版" : "正式版"} 通道
                 {butlerSelf?.commit !== null && butlerSelf?.commit !== undefined
                   ? ` · commit ${butlerSelf.commit}`

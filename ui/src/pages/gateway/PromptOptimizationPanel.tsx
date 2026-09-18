@@ -18,6 +18,7 @@ import {
   Row,
   Select,
   Space,
+  Spin,
   Statistic,
   Table,
   Tabs,
@@ -29,6 +30,7 @@ import { Empty } from "../../components/Empty.js";
 import type { TableColumnsType } from "antd";
 import {
   CheckCircleOutlined,
+  ExclamationCircleOutlined,
   ExperimentOutlined,
   ReloadOutlined,
   RobotOutlined,
@@ -206,6 +208,13 @@ interface PromptfooEvaluationResponse {
       canPromote: boolean;
       reasons?: string[];
     };
+    failures?: Array<{
+      caseId: string;
+      baselineScore: number;
+      candidateScore: number;
+      delta: number;
+      note: string;
+    }>;
   };
   details?: PromptfooDetailItem[];
   suite?: {
@@ -320,6 +329,7 @@ export function PromptOptimizationPanel() {
   const [selectedSuiteId, setSelectedSuiteId] = useState<string>("hermes-standard-30");
   const [evalModel, setEvalModel] = useState<string>("builtin");
   const [evaluatingWithPromptfoo, setEvaluatingWithPromptfoo] = useState(false);
+  const [loadingEvaluationReport, setLoadingEvaluationReport] = useState(false);
   const [promptfooEvalResult, setPromptfooEvalResult] = useState<PromptfooEvaluationResponse | null>(null);
   const [evalActiveTab, setEvalActiveTab] = useState<string>("promptfoo");
 
@@ -551,6 +561,39 @@ export function PromptOptimizationPanel() {
       setPromotionNotice(`自动化评测执行失败：${errMsg}`);
     }
   }, [evaluationCandidate, selectedSuiteId, evalModel, refreshCandidates]);
+
+  const openEvaluationModal = useCallback(async (candidate: PromptCandidate) => {
+    setEvaluationCandidate(candidate);
+    setPromptfooEvalResult(null);
+    if (candidate.latestEvaluation) {
+      setLoadingEvaluationReport(true);
+      const res = await fetchJson<{
+        candidate: PromptCandidate;
+        report: PromptfooEvaluationResponse["report"] | null;
+      }>(`/api/prompt-optimization/candidates/${encodeURIComponent(candidate.candidateId)}/report`);
+      setLoadingEvaluationReport(false);
+      if (res?.report) {
+        setPromptfooEvalResult({
+          ok: true,
+          report: res.report,
+          details: (res.report.failures ?? []).map((f) => ({
+            caseId: f.caseId,
+            description: f.note || f.caseId,
+            input: f.note || f.caseId,
+            baselineOutput: "",
+            candidateOutput: "",
+            baselineScore: f.baselineScore,
+            candidateScore: f.candidateScore,
+            delta: f.delta,
+            baselinePassed: f.baselineScore >= 1,
+            candidatePassed: f.candidateScore >= 1,
+            safetyViolation: false,
+            candidateAssertions: [],
+          })),
+        });
+      }
+    }
+  }, []);
 
   const evaluateCandidate = useCallback(
     async (values: EvaluationFormValues) => {
@@ -996,7 +1039,7 @@ export function PromptOptimizationPanel() {
                   },
                   {
                     title: "当前状态",
-                    width: 130,
+                    width: 170,
                     render: (_, candidate) => (
                       <Flex vertical gap={2}>
                         <Badge
@@ -1004,14 +1047,18 @@ export function PromptOptimizationPanel() {
                           text={candidateLabel(candidate.status)}
                         />
                         {candidate.gateErrors.length > 0 && (
-                          <Text
-                            type="secondary"
-                            style={{ fontSize: 11 }}
-                            title={candidate.gateErrors.join("；")}
-                            ellipsis
-                          >
-                            {candidate.gateErrors[0]}
-                          </Text>
+                          <Tooltip title={candidate.gateErrors.join("；")}>
+                            <Text
+                              type="secondary"
+                              style={{ fontSize: 11, cursor: "help" }}
+                              ellipsis
+                            >
+                              <ExclamationCircleOutlined
+                                style={{ color: "var(--ant-color-warning, #faad14)", marginRight: 4 }}
+                              />
+                              {candidate.gateErrors[0]}
+                            </Text>
+                          </Tooltip>
                         )}
                       </Flex>
                     ),
@@ -1029,12 +1076,16 @@ export function PromptOptimizationPanel() {
                           <Flex align="center" gap={6}>
                             {evalSummary.canPromote ? (
                               <Tag color="success" style={{ margin: 0 }}>
-                                通过 30 项基准测试
+                                通过门禁测试 ({evalSummary.holdoutCount} 项)
                               </Tag>
                             ) : (
-                              <Tag color="warning" style={{ margin: 0 }}>
-                                未达标 ({evalSummary.holdoutCount} 项)
-                              </Tag>
+                              <Tooltip
+                                title={`门禁要求：评测用例 ≥ 30 项且品质净得分提升、零安全违规。当前评测了 ${evalSummary.holdoutCount} 项，暂未满足自动晋升标准。`}
+                              >
+                                <Tag color="warning" style={{ margin: 0, cursor: "help" }}>
+                                  未达晋升门禁 (共 {evalSummary.holdoutCount} 项)
+                                </Tag>
+                              </Tooltip>
                             )}
                           </Flex>
                           <Text type="secondary" style={{ fontSize: 11 }}>
@@ -1067,10 +1118,7 @@ export function PromptOptimizationPanel() {
                           <Button
                             size="small"
                             disabled={candidate.status === "promoted"}
-                            onClick={() => {
-                              setEvaluationCandidate(candidate);
-                              setPromptfooEvalResult(null);
-                            }}
+                            onClick={() => void openEvaluationModal(candidate)}
                           >
                             {candidate.latestEvaluation ? "体检详情" : "运行体检"}
                           </Button>
@@ -1396,6 +1444,25 @@ export function PromptOptimizationPanel() {
                       </Flex>
                     </Flex>
                   </Card>
+
+                  {/* 加载报告骨架/状态 */}
+                  {loadingEvaluationReport && (
+                    <Card size="small">
+                      <Flex vertical gap={12} align="center" justify="center" style={{ padding: "28px 0" }}>
+                        <Spin size="default" />
+                        <Text type="secondary">正在获取该候选版本的基准体检报告与断言结果...</Text>
+                      </Flex>
+                    </Card>
+                  )}
+
+                  {!loadingEvaluationReport && !promptfooEvalResult?.report && !evaluatingWithPromptfoo && (
+                    <Alert
+                      type="info"
+                      showIcon
+                      message="该候选版本尚未执行基准体检"
+                      description="点击上方“开始执行门禁测试”按钮，系统将使用标准基准用例执行全场景断言测试与安全审查。"
+                    />
+                  )}
 
                   {/* 评测结果卡 */}
                   {promptfooEvalResult?.report && (

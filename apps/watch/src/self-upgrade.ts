@@ -238,7 +238,12 @@ interface ParsedVersion {
 }
 
 const SEMVER_PATTERN =
-  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+  /^(0|[1-9]\d*)\.(0|[1-9]\d*)(?:\.(0|[1-9]\d*))?(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+
+export function isLegacyTag(tag: string): boolean {
+  // 历史遗留 tag（切换到 0.1-beta.YYMMDD 体系前的 1.0.0-beta.1 ~ 31，SemVer 会误判为高于 0.1.x）
+  return /^v?1\.0\.0-beta\.\d+$/.test(tag);
+}
 
 function parseVersion(version: string): ParsedVersion {
   const normalized = version.trim().replace(/^v/i, "").split("+", 1)[0] ?? "";
@@ -250,6 +255,22 @@ function parseVersion(version: string): ParsedVersion {
     core: [0, 1, 2].map((index) => Number(parts[index]) || 0) as [number, number, number],
     prerelease: prereleaseText === undefined ? [] : prereleaseText.split("."),
   };
+}
+
+const PRERELEASE_ORDER: Record<string, number> = {
+  dev: 10,
+  alpha: 20,
+  beta: 30,
+  rc: 40,
+};
+
+function compareIdentifier(a: string, b: string): number {
+  const aRank = PRERELEASE_ORDER[a.toLowerCase()];
+  const bRank = PRERELEASE_ORDER[b.toLowerCase()];
+  if (aRank !== undefined && bRank !== undefined) {
+    return aRank - bRank;
+  }
+  return a.localeCompare(b);
 }
 
 function compareVersion(a: string, b: string): number {
@@ -278,7 +299,7 @@ function compareVersion(a: string, b: string): number {
     const rightNumeric = /^\d+$/.test(rightPart);
     if (leftNumeric && rightNumeric) return Number(leftPart) - Number(rightPart);
     if (leftNumeric !== rightNumeric) return leftNumeric ? -1 : 1;
-    return leftPart.localeCompare(rightPart);
+    return compareIdentifier(leftPart, rightPart);
   }
   return 0;
 }
@@ -288,6 +309,7 @@ function channelOf(version: string): "stable" | "beta" {
 }
 
 function isSemanticVersion(version: string): boolean {
+  if (isLegacyTag(version)) return false;
   return SEMVER_PATTERN.test(version.replace(/^v/i, ""));
 }
 
@@ -630,7 +652,20 @@ export function createButlerSelfUpgradeService(
 
   function inFlight(): ButlerSelfJobView | null {
     const job = readJson<ButlerSelfJobView | null>(stateFile, null);
-    return job !== null && job.status === "running" ? job : null;
+    if (job === null || job.status !== "running") return null;
+    const started = Date.parse(job.startedAt);
+    if (!Number.isNaN(started) && (now() - started) > 30 * 60_000) {
+      const expired: ButlerSelfJobView = {
+        ...job,
+        status: "failed",
+        phase: "failed",
+        finishedAt: isoNow(now),
+        error: job.error ?? "升级超时或服务重启，任务已自动终止",
+      };
+      writeJsonAtomic(stateFile, expired);
+      return null;
+    }
+    return job;
   }
 
   function writeJob(job: ButlerSelfJobView): void {
@@ -765,7 +800,23 @@ export function createButlerSelfUpgradeService(
         snapshots: snapshots(),
         snapshotRetention: SELF_SNAPSHOT_KEEP,
         availableUpdates: listUpdates(),
-        lastJob: lastJob ?? (upstream?.lastJob as ButlerSelfJobView | null | undefined) ?? null,
+        lastJob: (() => {
+          const candidate = lastJob ?? (upstream?.lastJob as ButlerSelfJobView | null | undefined) ?? null;
+          if (candidate === null) return null;
+          if (candidate.status === "running") {
+            const started = Date.parse(candidate.startedAt);
+            if (!Number.isNaN(started) && (now() - started) > 30 * 60_000) {
+              return {
+                ...candidate,
+                status: "failed" as const,
+                phase: "failed",
+                finishedAt: candidate.finishedAt ?? isoNow(now),
+                error: candidate.error ?? "升级超时或服务重启，任务已自动终止",
+              };
+            }
+          }
+          return candidate;
+        })(),
         checkedAt:
           typeof upstream?.checkedAt === "string" ? upstream.checkedAt : isoNow(now),
       };

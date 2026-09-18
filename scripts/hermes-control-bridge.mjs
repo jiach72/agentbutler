@@ -21,7 +21,7 @@ const MAX_CRON_BODY_BYTES = 64 * 1024;
 // Versioned against the installed Hermes f94a7a1 source. Unknown layouts fail closed.
 // Do not call list_jobs/list_executions: those "read" APIs repair storage/create tables.
 export const HERMES_CRON_PYTHON = String.raw`
-import sys, os, json, re, sqlite3, hashlib, hmac, subprocess, contextlib, io, logging, math
+import sys, os, json, re, sqlite3, hashlib, hmac, subprocess, contextlib, io, logging, math, time
 from pathlib import Path
 from datetime import datetime
 import fcntl
