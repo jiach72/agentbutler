@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createHermesControlBridgeServer } from "./hermes-control-bridge.mjs";
+import { createHermesControlBridgeServer, isSupportedNodeVersion } from "./hermes-control-bridge.mjs";
 
 function call(server, token, action, endpoint = "/v1/control") {
   const address = server.address();
@@ -242,5 +242,28 @@ describe("Hermes control bridge", () => {
     const deployContent = readFileSync(join(import.meta.dirname, "deploy.sh"), "utf8");
     expect(deployContent).toContain('deploy_sha="$(git rev-parse HEAD 2>/dev/null || true)"');
     expect(deployContent).toContain('env_set BUTLER_GIT_COMMIT "$deploy_sha"');
+  });
+
+  it("verifies Node.js version >= 22.5.0 requirement logic and install script gates", () => {
+    // Exact unit test of isSupportedNodeVersion
+    expect(isSupportedNodeVersion("v22.5.0")).toBe(true);
+    expect(isSupportedNodeVersion("v22.22.3")).toBe(true);
+    expect(isSupportedNodeVersion("v24.1.0")).toBe(true);
+    expect(isSupportedNodeVersion("22.5")).toBe(true);
+    expect(isSupportedNodeVersion("24.0.0")).toBe(true);
+
+    expect(isSupportedNodeVersion("v22.4.9")).toBe(false);
+    expect(isSupportedNodeVersion("v22.0.0")).toBe(false);
+    expect(isSupportedNodeVersion("v20.18.0")).toBe(false);
+    expect(isSupportedNodeVersion("v18.20.0")).toBe(false);
+    expect(isSupportedNodeVersion("")).toBe(false);
+    expect(isSupportedNodeVersion(null)).toBe(false);
+    expect(isSupportedNodeVersion("invalid")).toBe(false);
+
+    // Verify install-hermes-control-bridge.sh has the version check
+    const installContent = readFileSync(join(import.meta.dirname, "install-hermes-control-bridge.sh"), "utf8");
+    expect(installContent).toContain('node_major="$(echo "$node_version_clean" | cut -d. -f1)"');
+    expect(installContent).toContain('node_minor="$(echo "$node_version_clean" | cut -d. -f2)"');
+    expect(installContent).toContain('Node.js >= 22.5.0 is required');
   });
 });

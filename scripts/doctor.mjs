@@ -18,6 +18,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { isSupportedNodeVersion } from "./hermes-control-bridge.mjs";
 
 const argv = process.argv.slice(2);
 const webIndex = argv.indexOf("--web");
@@ -53,6 +54,19 @@ if (gitVersion === null) {
   warn("git 可用", "git 命令不存在（不影响已部署实例运行，但自升级通道需要它）", "安装 git 后重试");
 } else {
   pass("git 可用", gitVersion);
+}
+
+/* Node.js 运行时版本校验（需 >= 22.5.0 以满足 node:sqlite 及现代内置能力） */
+const nodeVer = process.version;
+const nodeOk = isSupportedNodeVersion(nodeVer);
+if (nodeOk) {
+  pass("Node.js 运行时", `${nodeVer}（${process.execPath}，满足 >= 22.5.0 要求）`);
+} else {
+  fail(
+    "Node.js 运行时",
+    `当前 Node 版本 ${nodeVer} 过低（路径：${process.execPath}）`,
+    "升级 Node.js 到 >= 22.5.0（推荐使用 nvm 或从官方安装），以支持内置 node:sqlite 数据库与控制桥服务",
+  );
 }
 
 /* ------------------------------ 2. 核心端口 ------------------------------ */

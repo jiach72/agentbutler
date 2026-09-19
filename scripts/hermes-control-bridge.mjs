@@ -861,4 +861,16 @@ function startFromEnvironment() {
   tryListen();
 }
 
+/**
+ * 校验 Node.js 版本是否满足 >= 22.5.0（支持内置 node:sqlite 与控制桥特性）。
+ */
+export function isSupportedNodeVersion(versionStr) {
+  if (!versionStr || typeof versionStr !== "string") return false;
+  const clean = versionStr.trim().replace(/^v/, "");
+  const parts = clean.split(".").map(Number);
+  const [major, minor = 0] = parts;
+  if (!Number.isInteger(major) || major < 0) return false;
+  return major > 22 || (major === 22 && Number.isInteger(minor) && minor >= 5);
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) startFromEnvironment();

@@ -14,6 +14,21 @@ if [[ -z "$node_bin" ]]; then
   exit 1
 fi
 
+# 校验 Node 版本（必须 >= 22.5.0，以支持内置 node:sqlite 及现代 runtime 能力）
+node_version="$("$node_bin" --version 2>/dev/null || echo "")"
+node_version_clean="${node_version#v}"
+node_major="$(echo "$node_version_clean" | cut -d. -f1)"
+node_minor="$(echo "$node_version_clean" | cut -d. -f2)"
+
+if [[ -z "$node_major" || ! "$node_major" =~ ^[0-9]+$ ]] || \
+   [[ "$node_major" -lt 22 ]] || \
+   [[ "$node_major" -eq 22 && "${node_minor:-0}" -lt 5 ]]; then
+  echo "ERROR: Node.js >= 22.5.0 is required to run the Hermes control bridge." >&2
+  echo "       Found: ${node_version:-unknown} at ${node_bin}" >&2
+  echo "       Please update Node.js (e.g. in $HOME/.hermes/node/bin/node or your PATH) to >= 22.5.0." >&2
+  exit 1
+fi
+
 mkdir -p "$HOME/.hermes/agent-butler"
 token_file="$HOME/.hermes/agent-butler/control.token"
 if [[ ! -s "$token_file" ]]; then
