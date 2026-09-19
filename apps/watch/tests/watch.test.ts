@@ -304,6 +304,34 @@ describe("Hermes 连接状态", () => {
       ]),
     );
   }, 15_000);
+
+  it("无参 /api/connections/check 回退到默认实例，并在探针与控制就绪时将 Degraded 自动提级为 Serving", async () => {
+    app = await createWatchApp({
+      home,
+      config: { hermesRoot, watchHttpPort: 0, autoStart: false },
+      exec: fakeExec,
+      prober: async () => true,
+      fetchFn: fakeFetch,
+    });
+    const address = app.watchHttp.address();
+    const base = "http://127.0.0.1:" + (address?.port ?? 0);
+
+    // Set instance to Degraded
+    app.core.instances.markDegraded("hermes-main", "test degraded");
+
+    // Call /api/connections/check with empty body {}
+    const response = await fetch(`${base}/api/connections/check`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as { status: string; connection: { state: string } };
+    expect(payload.status).toBe("checked");
+    // Should be auto-promoted to Serving
+    expect(payload.connection.state).toBe("Serving");
+    expect(app.core.instances.getInstance("hermes-main")?.state).toBe("Serving");
+  }, 15_000);
 });
 
 describe("进化前备份门禁", () => {

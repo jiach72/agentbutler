@@ -1517,9 +1517,10 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     if (instanceId !== undefined && instanceId.trim() !== "") {
       return core.instances.getInstance(instanceId.trim());
     }
-    return core.instances
+    const candidates = core.instances
       .listInstances()
-      .find((record) => record.state === "Serving" && record.rootPath !== "");
+      .filter((record) => record.rootPath !== "");
+    return candidates.find((record) => record.state === "Serving") ?? candidates[0];
   }
 
   /**
@@ -1698,10 +1699,15 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     memory.lastError = null;
     const latest = core.instances.getInstance(record.instanceId) ?? record;
     core.store.saveInstance(toInstanceRow({ ...latest, capability: report, updatedAt: new Date().toISOString() }));
-    if (promote) {
+    const shouldPromote =
+      promote ||
+      (report.capabilities["probe"] === "ok" &&
+        report.capabilities["control"] === "ok" &&
+        report.anomalies.length === 0);
+    if (shouldPromote) {
       const refreshed = core.instances.getInstance(record.instanceId);
       if (refreshed?.state === "Offline") {
-        core.instances.reattach(record.instanceId, "手动连接后重新接入");
+        core.instances.reattach(record.instanceId, promote ? "手动连接后重新接入" : "探针恢复后自动重新接入");
       }
       const afterReattach = core.instances.getInstance(record.instanceId);
       if (afterReattach?.state === "Negotiating" || afterReattach?.state === "Degraded") {
@@ -1731,12 +1737,18 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       if (checked.status === "failed" && connectionMemoryFor(record.instanceId).lastError !== null) {
         return checked;
       }
-      // 连接操作必须幂等：探针已确认通道在线时，不再调用 control.start。
+      // 连接操作必须幂等：探针已确认通道在线时，若状态需要提级则触发提级，否则不再重复调用 control.start。
       // 这也避免只读/外部 WSL 部署因重复 start 被错误标记为控制冲突。
       if (
         checked.status === "checked" &&
         (checked.connection["connected"] === true || checked.connection["connectionState"] === "connected")
       ) {
+        const currentRec = core.instances.getInstance(record.instanceId);
+        if (currentRec?.state === "Degraded" || currentRec?.state === "Negotiating" || currentRec?.state === "Offline") {
+          const promoted = await checkConnection(record.instanceId, true);
+          if (promoted.status === "no-instance") return promoted;
+          return { status: "connected", connection: promoted.connection };
+        }
         return { status: "connected", connection: checked.connection };
       }
     }

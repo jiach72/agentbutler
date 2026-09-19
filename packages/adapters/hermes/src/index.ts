@@ -54,7 +54,7 @@ export function createHermesAdapter(options: HermesAdapterOptions = {}): Adapter
   const controlBridge = options.controlBridge;
   const discovery: DiscoveryAdapter = {
     frameworkId: "hermes",
-    detect: (hint) => detect(hint),
+    detect: (hint) => detect(hint, { prober: options.prober }),
     capabilityScan: async (ref) => {
       const rootPath = rootPathFromRef(ref);
       if (!rootPath) {
@@ -67,6 +67,7 @@ export function createHermesAdapter(options: HermesAdapterOptions = {}): Adapter
         );
       }
       return capabilityScan(rootPath, {
+        prober: options.prober,
         controlProbe: controlBridge ? () => controlBridge.probe() : undefined,
       });
     },
