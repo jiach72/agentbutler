@@ -63,6 +63,8 @@ interface MessageInspectorProps {
   redeliverBusy?: boolean;
   onExpedite?: (messageId: string) => void;
   expediteBusy?: boolean;
+  onResolve?: (messageId: string, outcome: "delivered" | "cancelled", reason?: string) => void;
+  resolveBusy?: boolean;
   onDismiss?: (messageId: string) => void;
   defaultTimeFilter?: ActionableTimeFilter;
 }
@@ -91,6 +93,8 @@ type DetailProps = Pick<
   | "redeliverBusy"
   | "onExpedite"
   | "expediteBusy"
+  | "onResolve"
+  | "resolveBusy"
   | "onDismiss"
 > & { message: MessageItemView };
 
@@ -102,6 +106,8 @@ export function MessageDetail({
   redeliverBusy,
   onExpedite,
   expediteBusy,
+  onResolve,
+  resolveBusy,
   onDismiss,
 }: DetailProps) {
   return (
@@ -124,13 +130,42 @@ export function MessageDetail({
           type="warning"
           showIcon
           title="这条消息的发送结果未知"
-          description="请先在接收通道核实是否收到，请勿重复发送。恢复连接后重新检查送达记录；结果未知不等于发送失败。"
+          description="请先在接收通道核实是否收到，请勿重复发送。结果未知不等于发送失败；线下核实后请进行结案处理以消除待办。"
           action={
-            onDismiss && (
-              <Button size="small" onClick={() => onDismiss(message.messageId)}>
-                已核实并忽略
-              </Button>
-            )
+            <Flex gap={8} wrap>
+              {onResolve && (
+                <Popconfirm
+                  title="确认送达"
+                  description="已在线下核实对方收到此消息？此操作将记录为成功送达并结案。"
+                  onConfirm={() => onResolve(message.messageId, "delivered")}
+                  okText="确认送达"
+                  cancelText="取消"
+                >
+                  <Button type="primary" size="small" loading={resolveBusy}>
+                    已确认送达
+                  </Button>
+                </Popconfirm>
+              )}
+              {onResolve && (
+                <Popconfirm
+                  title="作废结案"
+                  description="确认不再重发并作废此消息？此操作将记录为已作废并结案。"
+                  onConfirm={() => onResolve(message.messageId, "cancelled")}
+                  okText="作废结案"
+                  cancelText="取消"
+                  okButtonProps={{ danger: true }}
+                >
+                  <Button danger size="small" loading={resolveBusy}>
+                    作废并结案
+                  </Button>
+                </Popconfirm>
+              )}
+              {onDismiss && (
+                <Button size="small" onClick={() => onDismiss(message.messageId)}>
+                  已核实并忽略
+                </Button>
+              )}
+            </Flex>
           }
         />
       )}

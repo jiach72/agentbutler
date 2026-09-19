@@ -325,6 +325,12 @@ export interface GatewayServerOptions {
   redeliver?: (messageId: string) => Promise<Result<OutboxMessageView>>;
   /** 立即发送（held_dnd/held_pacing/ready → ready + availableAt=now；由 Hermes 消息运行时注入）。 */
   expedite?: (messageId: string) => Promise<Result<OutboxMessageView>>;
+  /** 结果未知结案（delivery_unknown → delivered | cancelled；由 Hermes 消息运行时注入）。 */
+  resolveMessage?: (
+    messageId: string,
+    outcome: "delivered" | "cancelled",
+    reason?: string,
+  ) => Promise<Result<OutboxMessageView>>;
   /** Bridge 通道控制面端口（目录/启停/微信扫码；仅 Hermes 消息运行时注入）。 */
   channelControl?: ChannelControlPort;
   /** Hermes native is authoritative by default; the Butler runtime is observe-only when enabled. */
@@ -918,6 +924,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
     options.channelControl,
     options.redeliver,
     options.expedite,
+    options.resolveMessage,
   );
 
   if (options.startLoop !== false) loop.start();
@@ -934,6 +941,11 @@ function registerMessageRoutes(
   channelControl?: ChannelControlPort,
   redeliver?: (messageId: string) => Promise<Result<OutboxMessageView>>,
   expedite?: (messageId: string) => Promise<Result<OutboxMessageView>>,
+  resolveMessage?: (
+    messageId: string,
+    outcome: "delivered" | "cancelled",
+    reason?: string,
+  ) => Promise<Result<OutboxMessageView>>,
 ): void {
   const hints = new BoundedHintDeduper(10_000);
 
@@ -1093,6 +1105,50 @@ function registerMessageRoutes(
     return {
       message: result.data,
       nextStep: "已跳过剩余等待，将按当前队列顺序尽快投递。",
+    };
+  });
+
+  /** 结果未知结案：把 delivery_unknown 消息标记为 delivered 或 cancelled。 */
+  app.post("/api/messages/:messageId/resolve", async (request, reply) => {
+    const messageId = readString((request.params as Record<string, unknown>)["messageId"]);
+    if (messageId === null)
+      return reply.code(400).send({ error: "messageId must be a non-empty string" });
+    const body = asRecord(request.body);
+    const outcome = body !== null && typeof body["outcome"] === "string" ? body["outcome"] : null;
+    if (outcome !== "delivered" && outcome !== "cancelled") {
+      return reply.code(400).send({ error: "outcome must be 'delivered' or 'cancelled'" });
+    }
+    const reason = body !== null && typeof body["reason"] === "string" ? body["reason"] : undefined;
+
+    let bridgeResult: Result<OutboxMessageView> | undefined;
+    if (resolveMessage !== undefined) {
+      bridgeResult = await resolveMessage(messageId, outcome, reason);
+    }
+
+    let localUpdated = false;
+    if (messageStore !== undefined) {
+      localUpdated = messageStore.resolveUnknownMessage(messageId, outcome, reason);
+    }
+
+    if (bridgeResult !== undefined && !bridgeResult.ok && !localUpdated) {
+      return reply.code(502).send({
+        error: "resolve-failed",
+        detail: bridgeResult.error?.userHint ?? bridgeResult.error?.message,
+      });
+    }
+
+    if (!localUpdated && (bridgeResult === undefined || !bridgeResult.ok)) {
+      if (messageStore === undefined && resolveMessage === undefined) {
+        return bridgeUnavailable(reply, "E302");
+      }
+      return reply.code(404).send({ error: "message not found or not in delivery_unknown state" });
+    }
+
+    messageService?.wake();
+    const updated = messageStore?.messageView(messageId);
+    return {
+      message: updated ?? (bridgeResult?.ok ? bridgeResult.data : null),
+      nextStep: outcome === "delivered" ? "已结案为核实送达。" : "已结案为作废取消。",
     };
   });
 

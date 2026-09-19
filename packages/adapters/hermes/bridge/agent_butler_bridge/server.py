@@ -214,6 +214,23 @@ def create_app(
         except ValueError as exc:
             return _conflict_or_invalid(exc)
 
+    async def resolve_unknown(request: web.Request) -> web.Response:
+        route_message_id = request.match_info["message_id"]
+        try:
+            payload = await _read_object(
+                request,
+                required={"outcome"},
+                allowed={"outcome", "reason"},
+            )
+            outcome = str(payload["outcome"])
+            reason = str(payload.get("reason", "manual resolution"))
+            row = outbox.resolve_unknown(route_message_id, outcome, reason)
+            return web.json_response(row)
+        except KeyError:
+            return _error(404, "not_found", "message not found")
+        except ValueError as exc:
+            return _conflict_or_invalid(exc)
+
     async def deliver(request: web.Request) -> web.Response:
         try:
             payload = await _read_object(
@@ -360,6 +377,7 @@ def create_app(
     app.router.add_post("/v1/outbox/{message_id}/decision", decide)
     app.router.add_post("/v1/outbox/{message_id}/dead-letter", dead_letter)
     app.router.add_post("/v1/outbox/{message_id}/requeue", requeue)
+    app.router.add_post("/v1/outbox/{message_id}/resolve", resolve_unknown)
     app.router.add_post("/v1/deliver", deliver)
     app.router.add_post("/v1/inbound/{inbound_id}/decision", inbound_decision)
     app.router.add_get("/v1/inbound/history", inbound_history)

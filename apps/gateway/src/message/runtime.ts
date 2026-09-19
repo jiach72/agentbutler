@@ -68,6 +68,12 @@ export interface HermesMessageRuntime {
   inboundHistory(limit?: number): Promise<Result<InboundHistoryView>>;
   /** 死信重投（dead_letter → policy_pending），由面板显式触发。 */
   requeueMessage(messageId: string): Promise<Result<OutboxMessageView>>;
+  /** 结果未知结案（delivery_unknown → delivered | cancelled），由面板显式触发。 */
+  resolveUnknownMessage(
+    messageId: string,
+    outcome: "delivered" | "cancelled",
+    reason?: string,
+  ): Promise<Result<OutboxMessageView>>;
   /**
    * 立即发送：把等待中的消息（held_dnd / held_pacing / ready 且未到期）重新决策为
    * ready + availableAt=now，跳过剩余的频率控制/免打扰/汇总窗口等待。
@@ -218,6 +224,16 @@ export function createHermesMessageRuntime(
     stop,
     inboundHistory: (limit?: number) => adapter.inboundHistory(instance, limit),
     requeueMessage: (messageId: string) => adapter.requeueOutbound(instance, messageId),
+    resolveUnknownMessage: (
+      messageId: string,
+      outcome: "delivered" | "cancelled",
+      reason?: string,
+    ) => {
+      if (typeof adapter.resolveOutbound === "function") {
+        return adapter.resolveOutbound(instance, messageId, outcome, reason);
+      }
+      return Promise.resolve(fail("E203", "adapter does not support resolving unknown messages"));
+    },
     expediteMessage: (messageId: string) => {
       const message = store.messageView(messageId);
       if (message === undefined) {

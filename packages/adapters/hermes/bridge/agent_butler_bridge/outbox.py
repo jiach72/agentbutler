@@ -1895,6 +1895,42 @@ class Outbox:
             )
             return self._message_from_row(self._require_message_locked(message_id))
 
+    def resolve_unknown(
+        self,
+        message_id: str,
+        outcome: str,
+        reason: str = "manual resolution",
+    ) -> dict[str, Any]:
+        """结果未知结案：delivery_unknown → delivered 或 cancelled。
+
+        仅允许从 delivery_unknown 变更为终态 delivered（核实已送达）或 cancelled（已作废不补发）。
+        分配新 change sequence，更新 message_state_events 审计事件。
+        """
+        if outcome not in ("delivered", "cancelled"):
+            raise ValueError("resolution outcome must be 'delivered' or 'cancelled'")
+        with self._transaction():
+            row = self._require_message_locked(message_id)
+            if row["state"] != "delivery_unknown":
+                raise ValueError(f"message is not in delivery_unknown state: {row['state']}")
+            now = _utc_now()
+            sequence = self._next_sequence_locked()
+            delivered_at = now if outcome == "delivered" else row["delivered_at"]
+            self._conn.execute(
+                """UPDATE outbound_messages
+                   SET sequence = ?, state = ?, active_attempt_id = NULL,
+                       available_at = NULL, delivered_at = ?, updated_at = ?,
+                       last_error = CASE WHEN ? = 'cancelled' THEN ? ELSE last_error END
+                   WHERE message_id = ?""",
+                (sequence, outcome, delivered_at, now, outcome, reason.strip() or "cancelled", message_id),
+            )
+            self._conn.execute(
+                """INSERT INTO message_state_events(
+                     event_id, message_id, from_state, to_state, reason, occurred_at
+                   ) VALUES (?, ?, 'delivery_unknown', ?, ?, ?)""",
+                (uuid7(), message_id, outcome, reason.strip() or "manual resolution", now),
+            )
+            return self._message_from_row(self._require_message_locked(message_id))
+
     def state_history(self, message_id: str) -> list[dict[str, Any]]:
         with self._lock:
             self._ensure_open()

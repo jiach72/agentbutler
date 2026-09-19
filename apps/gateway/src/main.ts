@@ -139,6 +139,9 @@ async function main(): Promise<void> {
     inboundHistory: runtime ? (limit) => runtime!.inboundHistory(limit) : undefined,
     redeliver: runtime ? (messageId) => runtime!.requeueMessage(messageId) : undefined,
     expedite: runtime ? (messageId) => runtime!.expediteMessage(messageId) : undefined,
+    resolveMessage: runtime
+      ? (messageId, outcome, reason) => runtime!.resolveUnknownMessage(messageId, outcome, reason)
+      : undefined,
     messageMode: runtime === null ? "native" : "observe",
   }); // home 由 BUTLER_HOME / ~/.agent-butler 解析
   await app.listen({ host, port });

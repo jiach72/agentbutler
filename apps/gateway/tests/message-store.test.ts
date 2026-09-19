@@ -700,4 +700,52 @@ describe("MessagePolicyStore", () => {
     expect(store.listPolicyCandidates().map((message) => message.messageId)).toEqual(["a-message", "z-message"]);
     store.close();
   });
+
+  it("resolves delivery_unknown message to delivered and cancelled, clearing unknown count", () => {
+    const store = new MessagePolicyStore(dbFile);
+    const unknownBatch: OutboxChangeBatch = {
+      afterSequence: 0,
+      nextSequence: 2,
+      items: [
+        {
+          ...BATCH.items[0]!,
+          messageId: "m-unknown-1",
+          state: "delivery_unknown",
+          sequence: 1,
+        },
+        {
+          ...BATCH.items[0]!,
+          messageId: "m-unknown-2",
+          state: "delivery_unknown",
+          sequence: 2,
+        },
+      ],
+      taskEvents: [],
+      inbound: [],
+    };
+    store.ingestBatch(unknownBatch);
+    expect(store.counts().delivery_unknown).toBe(2);
+
+    // 1. Resolve m-unknown-1 to delivered
+    const ok1 = store.resolveUnknownMessage("m-unknown-1", "delivered", "verified by operator");
+    expect(ok1).toBe(true);
+    const view1 = store.messageView("m-unknown-1");
+    expect(view1?.state).toBe("delivered");
+    expect(view1?.deliveredAt).not.toBeNull();
+    expect(store.counts().delivery_unknown).toBe(1);
+
+    // 2. Resolve m-unknown-2 to cancelled
+    const ok2 = store.resolveUnknownMessage("m-unknown-2", "cancelled", "operator cancelled");
+    expect(ok2).toBe(true);
+    const view2 = store.messageView("m-unknown-2");
+    expect(view2?.state).toBe("cancelled");
+    expect(view2?.lastError).toBe("operator cancelled");
+    expect(store.counts().delivery_unknown).toBe(0);
+
+    // 3. Trying to resolve again returns false
+    expect(store.resolveUnknownMessage("m-unknown-1", "delivered")).toBe(false);
+    expect(store.resolveUnknownMessage("non-existent", "delivered")).toBe(false);
+
+    store.close();
+  });
 });

@@ -2216,6 +2216,14 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
       reply,
     ),
   );
+  // 结果未知结案：把 delivery_unknown 消息标记为 delivered 或 cancelled，透传 gateway。
+  app.post("/api/messages/:messageId/resolve", async (request, reply) =>
+    proxyGatewayPost(
+      `/api/messages/${encodeURIComponent(String((request.params as Record<string, string>)["messageId"] ?? ""))}/resolve`,
+      request.body,
+      reply,
+    ),
+  );
   // 免打扰规则代理：DND 规则的增删查透传 gateway，状态码原样透传。
   app.get("/api/messages/dnd", async (_request, reply) => {
     const res = await fetchGateway("/api/messages/dnd");

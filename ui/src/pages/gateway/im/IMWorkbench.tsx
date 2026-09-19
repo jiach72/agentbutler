@@ -41,6 +41,8 @@ export interface IMWorkbenchProps {
   redeliverBusy?: boolean;
   onExpedite?: (messageId: string) => void;
   expediteBusy?: boolean;
+  onResolve?: (messageId: string, outcome: "delivered" | "cancelled", reason?: string) => void;
+  resolveBusy?: boolean;
 }
 
 export function IMWorkbench(props: IMWorkbenchProps) {
@@ -490,6 +492,8 @@ export function IMWorkbench(props: IMWorkbenchProps) {
             redeliverBusy={props.redeliverBusy}
             onExpedite={props.onExpedite}
             expediteBusy={props.expediteBusy}
+            onResolve={props.onResolve}
+            resolveBusy={props.resolveBusy}
           />
         )}
       </Drawer>

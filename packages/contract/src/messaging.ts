@@ -233,6 +233,13 @@ export interface MessagingAdapter {
   ): Promise<Result<OutboxMessageView>>;
   /** 死信重投：dead_letter → policy_pending（新 change sequence），由运营者显式触发。 */
   requeueOutbound(instance: InstanceRef, messageId: string): Promise<Result<OutboxMessageView>>;
+  /** 结果未知结案：delivery_unknown → delivered | cancelled，由运营者显式触发。 */
+  resolveOutbound?(
+    instance: InstanceRef,
+    messageId: string,
+    outcome: "delivered" | "cancelled",
+    reason?: string,
+  ): Promise<Result<OutboxMessageView>>;
   deliver(instance: InstanceRef, request: DeliveryRequest): Promise<Result<DeliveryAck>>;
   forwardInbound(
     instance: InstanceRef,

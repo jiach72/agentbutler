@@ -96,6 +96,7 @@ export function GatewayPage() {
   const [confirmRedeliverId, setConfirmRedeliverId] = useState<string | null>(null);
   const [redeliverBusy, setRedeliverBusy] = useState(false);
   const [expediteBusy, setExpediteBusy] = useState(false);
+  const [resolveBusy, setResolveBusy] = useState(false);
   const [taskData, setTaskData] = useState<MessageTaskView | null>(null);
   const [taskLoading, setTaskLoading] = useState(false);
   const [drafts, setDrafts] = useState<PatchDrafts>({});
@@ -462,6 +463,36 @@ export function GatewayPage() {
     }
   };
 
+  /** 结果未知结案：将 delivery_unknown 消息标记为 delivered 或 cancelled。 */
+  const resolveUnknownMessage = async (
+    messageId: string,
+    outcome: "delivered" | "cancelled",
+    reason?: string,
+  ) => {
+    setResolveBusy(true);
+    const result = await postJson(
+      `/api/messages/${encodeURIComponent(messageId)}/resolve`,
+      { outcome, reason },
+      15_000,
+    );
+    setResolveBusy(false);
+    if (result.status === 200) {
+      message.success(
+        outcome === "delivered" ? "已结案：核实对方已收到该消息" : "已结案：该消息已作废",
+      );
+      await refresh();
+    } else {
+      const data = result.data as { error?: unknown; detail?: unknown } | null;
+      const detail =
+        typeof data?.detail === "string"
+          ? data.detail
+          : typeof data?.error === "string"
+            ? data.error
+            : undefined;
+      message.error(detail !== undefined ? `结案失败：${detail}` : "结案失败，请稍后重试");
+    }
+  };
+
   return (
     <section className="gateway-page">
       <Flex vertical gap={24}>
@@ -701,6 +732,10 @@ export function GatewayPage() {
                     redeliverBusy={redeliverBusy}
                     onExpedite={(messageId) => void expediteMessage(messageId)}
                     expediteBusy={expediteBusy}
+                    onResolve={(messageId, outcome, reason) =>
+                      void resolveUnknownMessage(messageId, outcome, reason)
+                    }
+                    resolveBusy={resolveBusy}
                   />
                   <AdvancedEvidence title="通知历史与送达趋势">
                     <AlertQueuePanel alerts={alerts} history />

@@ -1038,6 +1038,94 @@ class OutboxTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "mode"):
             self.outbox.apply_inbound_decision("inbound-invalid-1", {**base, "mode": 42})
 
+    def test_resolve_unknown_to_delivered_and_cancelled(self) -> None:
+        # 1. 构造 delivery_unknown 状态消息
+        envelope = make_envelope("018bcfe5-6800-7000-8000-000000000301")
+        self.outbox.capture(envelope)
+        self.outbox.apply_decision(
+            "018bcfe5-6800-7000-8000-000000000301",
+            "dec-1",
+            envelope["contentSha256"],
+            "ready",
+            None,
+            [],
+            "p1",
+            "ok",
+        )
+        self.outbox.begin_delivery(
+            "018bcfe5-6800-7000-8000-000000000301",
+            "att-1",
+            envelope["contentSha256"],
+        )
+        self.outbox.mark_unknown(
+            "018bcfe5-6800-7000-8000-000000000301",
+            "att-1",
+            "timeout waiting for ack",
+        )
+        msg = self.outbox.get("018bcfe5-6800-7000-8000-000000000301")
+        self.assertEqual(msg["state"], "delivery_unknown")
+
+        # 2. 结案为 delivered
+        resolved = self.outbox.resolve_unknown(
+            "018bcfe5-6800-7000-8000-000000000301",
+            "delivered",
+            "manually confirmed received",
+        )
+        self.assertEqual(resolved["state"], "delivered")
+        self.assertIsNotNone(resolved["deliveredAt"])
+        self.assertIsNone(self.outbox._require_message_locked("018bcfe5-6800-7000-8000-000000000301")["active_attempt_id"])
+        self.assertGreater(resolved["sequence"], msg["sequence"])
+
+        history = self.outbox.state_history("018bcfe5-6800-7000-8000-000000000301")
+        last_event = history[-1]
+        self.assertEqual(last_event["fromState"], "delivery_unknown")
+        self.assertEqual(last_event["toState"], "delivered")
+        self.assertEqual(last_event["reason"], "manually confirmed received")
+
+        # 3. 构造另一个消息并结案为 cancelled
+        envelope2 = make_envelope("018bcfe5-6800-7000-8000-000000000302")
+        self.outbox.capture(envelope2)
+        self.outbox.apply_decision(
+            "018bcfe5-6800-7000-8000-000000000302",
+            "dec-2",
+            envelope2["contentSha256"],
+            "ready",
+            None,
+            [],
+            "p1",
+            "ok",
+        )
+        self.outbox.begin_delivery(
+            "018bcfe5-6800-7000-8000-000000000302",
+            "att-2",
+            envelope2["contentSha256"],
+        )
+        self.outbox.mark_unknown(
+            "018bcfe5-6800-7000-8000-000000000302",
+            "att-2",
+            "timeout",
+        )
+        cancelled = self.outbox.resolve_unknown(
+            "018bcfe5-6800-7000-8000-000000000302",
+            "cancelled",
+            "lost and cancelled",
+        )
+        self.assertEqual(cancelled["state"], "cancelled")
+        self.assertEqual(cancelled["lastError"], "lost and cancelled")
+
+        # 4. 非法调用校验
+        # 已经不是 delivery_unknown
+        with self.assertRaisesRegex(ValueError, "not in delivery_unknown state"):
+            self.outbox.resolve_unknown(
+                "018bcfe5-6800-7000-8000-000000000302", "delivered"
+            )
+        # 非法 outcome
+        with self.assertRaisesRegex(ValueError, "must be 'delivered' or 'cancelled'"):
+            self.outbox.resolve_unknown(
+                "018bcfe5-6800-7000-8000-000000000301", "ready"
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
+

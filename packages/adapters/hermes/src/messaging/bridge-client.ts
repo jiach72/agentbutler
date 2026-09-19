@@ -85,6 +85,18 @@ export class HermesBridgeClient {
     return this.request("POST", `/v1/outbox/${encodeURIComponent(messageId)}/requeue`);
   }
 
+  resolveUnknown(
+    messageId: string,
+    outcome: "delivered" | "cancelled",
+    reason?: string,
+  ): Promise<OutboxMessageView> {
+    return this.request(
+      "POST",
+      `/v1/outbox/${encodeURIComponent(messageId)}/resolve`,
+      { outcome, reason: reason ?? "manual resolution" },
+    );
+  }
+
   deliver(request: DeliveryRequest): Promise<DeliveryAck> {
     return this.request("POST", "/v1/deliver", request);
   }

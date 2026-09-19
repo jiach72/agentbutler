@@ -182,4 +182,29 @@ describe("butler-web 消息接管代理与 relay 透传（Task 7，fastify injec
     expect(body.reachable).toBe(true);
     expect(body.status?.relay).toEqual(RELAY);
   });
+
+  it("透传 POST /api/messages/:messageId/resolve：请求体与状态码原样代理给 gateway", async () => {
+    const transport = makeFetch({
+      [`POST ${GATEWAY_URL}/api/messages/m-unknown-1/resolve`]: {
+        status: 200,
+        body: { message: { messageId: "m-unknown-1", state: "delivered" }, nextStep: "已结案为核实送达。" },
+      },
+    });
+    const app = build(transport.fetch);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/messages/m-unknown-1/resolve",
+      payload: { outcome: "delivered", reason: "verified" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      message: { messageId: "m-unknown-1", state: "delivered" },
+      nextStep: "已结案为核实送达。",
+    });
+    expect(transport.calls).toHaveLength(1);
+    expect(transport.calls[0]?.url).toBe(`${GATEWAY_URL}/api/messages/m-unknown-1/resolve`);
+    expect(JSON.parse(transport.calls[0]?.body ?? "{}")).toEqual({ outcome: "delivered", reason: "verified" });
+  });
 });

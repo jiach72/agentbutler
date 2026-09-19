@@ -54,6 +54,8 @@ export async function launchHermesGateway(
       inboundHistory: (limit) => runtime.inboundHistory(limit),
       redeliver: (messageId) => runtime.requeueMessage(messageId),
       expedite: (messageId) => runtime.expediteMessage(messageId),
+      resolveMessage: (messageId, outcome, reason) =>
+        runtime.resolveUnknownMessage(messageId, outcome, reason),
       messageMode: "observe",
     });
     await app.listen({ host, port });

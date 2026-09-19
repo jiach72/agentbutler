@@ -69,6 +69,7 @@ const message = (overrides: Partial<MessageItemView> = {}): MessageItemView => (
 function renderInspector(overrides: {
   items?: MessageItemView[];
   selected?: MessageItemView | null;
+  onResolve?: (messageId: string, outcome: "delivered" | "cancelled", reason?: string) => void;
 }): string {
   const items = overrides.items ?? [];
   const selected =
@@ -76,7 +77,7 @@ function renderInspector(overrides: {
   return renderToStaticMarkup(
     <ConfigProvider>
       <AntApp>
-        {selected ? <MessageDetail message={selected} taskData={null} taskLoading={false} onRedeliver={() => undefined} onExpedite={() => undefined} /> : <MessageInspector
+        {selected ? <MessageDetail message={selected} taskData={null} taskLoading={false} onRedeliver={() => undefined} onExpedite={() => undefined} onResolve={overrides.onResolve} /> : <MessageInspector
           messageBridge={bridge}
           coverageEntries={[]}
           messageCounts={{ delivery_unknown: 53, cancelled: 24 }}
@@ -89,6 +90,7 @@ function renderInspector(overrides: {
           activeStateFilter="delivery_unknown"
           onRedeliver={() => undefined}
           onExpedite={() => undefined}
+          onResolve={overrides.onResolve}
         />}
       </AntApp>
     </ConfigProvider>,
@@ -132,6 +134,12 @@ describe("delivery_unknown 详情：提示但不提供重投动作", () => {
   it("不渲染死信重投按钮（requeue 只接受 dead_letter）", () => {
     const html = renderInspector({ items: [unknown], selected: unknown });
     expect(html).not.toContain("重新投递");
+  });
+
+  it("提供「已确认送达」与「作废并结案」结案操作按钮", () => {
+    const html = renderInspector({ items: [unknown], selected: unknown, onResolve: () => undefined });
+    expect(html).toContain("已确认送达");
+    expect(html).toContain("作废并结案");
   });
 });
 

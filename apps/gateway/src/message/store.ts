@@ -714,6 +714,45 @@ export class MessagePolicyStore {
     return row === undefined ? undefined : this.mapMessage(row);
   }
 
+  /**
+   * 结果未知手动结案（delivery_unknown → delivered | cancelled）。
+   * 同步更新 message_projection 与 message_outcome_history，即使 Bridge 离线也能立刻消除首页待办。
+   */
+  resolveUnknownMessage(
+    messageId: string,
+    outcome: "delivered" | "cancelled",
+    reason = "manual resolution",
+  ): boolean {
+    const row = this.prepare("SELECT * FROM message_projection WHERE message_id = ?")
+      .get(messageId) as Record<string, unknown> | undefined;
+    if (row === undefined) return false;
+    if (String(row["state"]) !== "delivery_unknown") return false;
+
+    const now = new Date().toISOString();
+    let payload: OutboxMessageView;
+    try {
+      payload = JSON.parse(String(row["payload_json"])) as OutboxMessageView;
+    } catch {
+      return false;
+    }
+
+    payload.state = outcome;
+    if (outcome === "delivered") {
+      payload.deliveredAt = payload.deliveredAt ?? now;
+    } else {
+      payload.lastError = reason;
+    }
+
+    this.prepare(
+      `UPDATE message_projection
+       SET state = ?, payload_json = ?, updated_at = ?
+       WHERE message_id = ?`,
+    ).run(outcome, JSON.stringify(payload), now, messageId);
+
+    this.recordOutcome(messageId, outcome, payload.deliveredAt ?? now, now, payload.channel);
+    return true;
+  }
+
   listMessages(limit: number, state?: OutboxState): ProjectedMessageView[] {
     if (!Number.isInteger(limit) || limit < 1 || limit > 200) {
       throw new Error("message limit must be an integer from 1 through 200");

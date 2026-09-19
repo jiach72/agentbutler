@@ -400,6 +400,82 @@ class ServerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status, 409)
         self.assertIn("delivery_unknown", (await response.json())["detail"])
 
+    async def test_resolve_unknown_route(self) -> None:
+        envelope = make_envelope("018bcfe5-6800-7000-8000-000000000701")
+        self.outbox.capture(envelope)
+        self.outbox.apply_decision(
+            envelope["messageId"],
+            "decision-http-resolve-1",
+            envelope["contentSha256"],
+            "ready",
+            None,
+            [],
+            "policy-1",
+            "ready",
+        )
+        self.outbox.begin_delivery(envelope["messageId"], "attempt-res-1", envelope["contentSha256"])
+        self.outbox.mark_unknown(envelope["messageId"], "attempt-res-1", "timeout")
+
+        # 1. 结案为 delivered
+        res = await self.client.post(
+            f"/v1/outbox/{envelope['messageId']}/resolve",
+            headers=AUTH,
+            json={"outcome": "delivered", "reason": "client confirmed"},
+        )
+        self.assertEqual(res.status, 200)
+        body = await res.json()
+        self.assertEqual(body["state"], "delivered")
+        self.assertIsNotNone(body["deliveredAt"])
+
+        # 重复结案返回 409
+        dup = await self.client.post(
+            f"/v1/outbox/{envelope['messageId']}/resolve",
+            headers=AUTH,
+            json={"outcome": "delivered"},
+        )
+        self.assertEqual(dup.status, 409)
+
+        # 2. 结案为 cancelled
+        envelope2 = make_envelope("018bcfe5-6800-7000-8000-000000000702")
+        self.outbox.capture(envelope2)
+        self.outbox.apply_decision(
+            envelope2["messageId"],
+            "decision-http-resolve-2",
+            envelope2["contentSha256"],
+            "ready",
+            None,
+            [],
+            "policy-1",
+            "ready",
+        )
+        self.outbox.begin_delivery(envelope2["messageId"], "attempt-res-2", envelope2["contentSha256"])
+        self.outbox.mark_unknown(envelope2["messageId"], "attempt-res-2", "timeout")
+
+        res2 = await self.client.post(
+            f"/v1/outbox/{envelope2['messageId']}/resolve",
+            headers=AUTH,
+            json={"outcome": "cancelled", "reason": "dropped"},
+        )
+        self.assertEqual(res2.status, 200)
+        body2 = await res2.json()
+        self.assertEqual(body2["state"], "cancelled")
+        self.assertEqual(body2["lastError"], "dropped")
+
+        # 3. 参数校验
+        bad_outcome = await self.client.post(
+            f"/v1/outbox/{envelope2['messageId']}/resolve",
+            headers=AUTH,
+            json={"outcome": "invalid_outcome"},
+        )
+        self.assertEqual(bad_outcome.status, 400)
+
+        # 4. 不存在的消息
+        not_found = await self.client.post(
+            "/v1/outbox/non-existent-msg/resolve",
+            headers=AUTH,
+            json={"outcome": "delivered"},
+        )
+        self.assertEqual(not_found.status, 404)
 
     async def test_inbound_history_requires_auth_and_returns_decisions(self) -> None:
         denied = await self.client.get("/v1/inbound/history")
