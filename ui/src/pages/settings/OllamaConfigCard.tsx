@@ -85,6 +85,15 @@ interface HardwareProfilePayload {
     gpu: { detected: boolean; name: string; vramGb?: number; isUnified?: boolean } | null;
     platform: string;
     arch: string;
+    host?: {
+      cpu?: { model?: string; cores?: number; logicalCores?: number };
+      memory?: { totalGb?: number };
+      isContainerized: boolean;
+    };
+    container?: {
+      cpu: { model: string; cores: number; logicalCores: number };
+      memory: { totalBytes: number; totalGb: number; freeGb: number };
+    };
   };
   evaluation: {
     tier: 1 | 2 | 3 | 4;

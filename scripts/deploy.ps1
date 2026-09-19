@@ -56,16 +56,42 @@ if ($deploySha) {
 
 $env:BUTLER_HOST_OS = "Windows"
 $env:BUTLER_HOST_ARCH = if ([System.Environment]::Is64BitOperatingSystem) { "x64" } else { "x86" }
-if ([regex]::IsMatch($envContent, '(?m)^BUTLER_HOST_OS=')) {
-  $envContent = [regex]::Replace($envContent, '(?m)^BUTLER_HOST_OS=.*$', "BUTLER_HOST_OS=$($env:BUTLER_HOST_OS)")
-} else {
-  $envContent = $envContent.TrimEnd("`r", "`n") + "`r`nBUTLER_HOST_OS=$($env:BUTLER_HOST_OS)`r`n"
+
+# 探测 Windows 宿主真实客观硬件（供容器内 Ollama 自适应推荐引擎精准评估）
+try {
+  $cs = Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue
+  $allProcs = Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue
+  $firstProc = $allProcs | Select-Object -First 1
+  if ($cs -and $cs.TotalPhysicalMemory) {
+    $env:BUTLER_HOST_MEM_GB = [string][math]::Round($cs.TotalPhysicalMemory / 1GB, 1)
+  }
+  if ($allProcs) {
+    $totalCores = ($allProcs | Measure-Object -Property NumberOfCores -Sum).Sum
+    $totalLogicals = ($allProcs | Measure-Object -Property NumberOfLogicalProcessors -Sum).Sum
+    if ($totalCores) { $env:BUTLER_HOST_CORES = [string]$totalCores }
+    if ($totalLogicals) { $env:BUTLER_HOST_LOGICAL_CORES = [string]$totalLogicals }
+    if ($firstProc -and $firstProc.Name) { $env:BUTLER_HOST_CPU_MODEL = $firstProc.Name.Trim() }
+  }
+} catch {
+  # 探测异常平滑忽略
 }
-if ([regex]::IsMatch($envContent, '(?m)^BUTLER_HOST_ARCH=')) {
-  $envContent = [regex]::Replace($envContent, '(?m)^BUTLER_HOST_ARCH=.*$', "BUTLER_HOST_ARCH=$($env:BUTLER_HOST_ARCH)")
-} else {
-  $envContent = $envContent.TrimEnd("`r", "`n") + "`r`nBUTLER_HOST_ARCH=$($env:BUTLER_HOST_ARCH)`r`n"
+
+function Set-EnvVar([string]$Key, [string]$Val) {
+  if (-not $Val) { return }
+  if ([regex]::IsMatch($script:envContent, "(?m)^$Key=")) {
+    $script:envContent = [regex]::Replace($script:envContent, "(?m)^$Key=.*$", "$Key=$Val")
+  } else {
+    $script:envContent = $script:envContent.TrimEnd("`r", "`n") + "`r`n$Key=$Val`r`n"
+  }
 }
+
+Set-EnvVar "BUTLER_HOST_OS" $env:BUTLER_HOST_OS
+Set-EnvVar "BUTLER_HOST_ARCH" $env:BUTLER_HOST_ARCH
+if ($env:BUTLER_HOST_MEM_GB) { Set-EnvVar "BUTLER_HOST_MEM_GB" $env:BUTLER_HOST_MEM_GB }
+if ($env:BUTLER_HOST_CORES) { Set-EnvVar "BUTLER_HOST_CORES" $env:BUTLER_HOST_CORES }
+if ($env:BUTLER_HOST_LOGICAL_CORES) { Set-EnvVar "BUTLER_HOST_LOGICAL_CORES" $env:BUTLER_HOST_LOGICAL_CORES }
+if ($env:BUTLER_HOST_CPU_MODEL) { Set-EnvVar "BUTLER_HOST_CPU_MODEL" $env:BUTLER_HOST_CPU_MODEL }
+
 [System.IO.File]::WriteAllText((Join-Path (Get-Location) ".env"), $envContent)
 
 # ---- 升级前备份数据卷（失败默认阻断部署；与 deploy.sh 同一口径）----

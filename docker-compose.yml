@@ -133,6 +133,12 @@ services:
       BUTLER_PROGRESS_RETENTION_DAYS: ${BUTLER_PROGRESS_RETENTION_DAYS:-30}
       # Optional GitHub token for higher API limits when staging recommended skills.
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      BUTLER_HOST_OS: ${BUTLER_HOST_OS:-}
+      BUTLER_HOST_ARCH: ${BUTLER_HOST_ARCH:-}
+      BUTLER_HOST_MEM_GB: ${BUTLER_HOST_MEM_GB:-}
+      BUTLER_HOST_CORES: ${BUTLER_HOST_CORES:-}
+      BUTLER_HOST_LOGICAL_CORES: ${BUTLER_HOST_LOGICAL_CORES:-}
+      BUTLER_HOST_CPU_MODEL: ${BUTLER_HOST_CPU_MODEL:-}
     depends_on:
       butler-gateway:
         condition: service_healthy
@@ -177,6 +183,10 @@ services:
       BUTLER_GIT_COMMIT: ${BUTLER_GIT_COMMIT:-}
       BUTLER_HOST_OS: ${BUTLER_HOST_OS:-}
       BUTLER_HOST_ARCH: ${BUTLER_HOST_ARCH:-}
+      BUTLER_HOST_MEM_GB: ${BUTLER_HOST_MEM_GB:-}
+      BUTLER_HOST_CORES: ${BUTLER_HOST_CORES:-}
+      BUTLER_HOST_LOGICAL_CORES: ${BUTLER_HOST_LOGICAL_CORES:-}
+      BUTLER_HOST_CPU_MODEL: ${BUTLER_HOST_CPU_MODEL:-}
     depends_on:
       butler-gateway:
         condition: service_healthy

@@ -44,6 +44,29 @@ export interface HardwareProfile {
   } | null;
   platform: string;
   arch: string;
+  host?: {
+    cpu?: {
+      model?: string;
+      cores?: number;
+      logicalCores?: number;
+    };
+    memory?: {
+      totalGb?: number;
+    };
+    isContainerized: boolean;
+  };
+  container?: {
+    cpu: {
+      model: string;
+      cores: number;
+      logicalCores: number;
+    };
+    memory: {
+      totalBytes: number;
+      totalGb: number;
+      freeGb: number;
+    };
+  };
 }
 
 export interface RecommendedModel {
@@ -99,20 +122,74 @@ export function formatBytes(bytes: number): string {
   return `${mb.toFixed(1)} MB`;
 }
 
-/** 动态探测当前宿主机客观硬件信息。 */
+/** 动态探测当前宿主机客观硬件信息（宿主环境变量优先，平滑回退容器内部指标）。 */
 export function detectHardwareProfile(): HardwareProfile {
   const cpus = os.cpus() || [];
-  const logicalCores = cpus.length;
-  const cpuModel = cpus[0]?.model?.trim() || "Unknown CPU";
+  const containerLogicalCores = cpus.length || 1;
+  const containerCpuModel = cpus[0]?.model?.trim() || "Unknown CPU";
 
-  const totalBytes = os.totalmem();
-  const freeBytes = os.freemem();
-  const totalGb = Math.round((totalBytes / (1024 * 1024 * 1024)) * 10) / 10;
-  const freeGb = Math.round((freeBytes / (1024 * 1024 * 1024)) * 10) / 10;
+  const containerTotalBytes = os.totalmem();
+  const containerFreeBytes = os.freemem();
+  const containerTotalGb = Math.round((containerTotalBytes / (1024 * 1024 * 1024)) * 10) / 10;
+  const containerFreeGb = Math.round((containerFreeBytes / (1024 * 1024 * 1024)) * 10) / 10;
+
+  // 1. 读取宿主操作系统与架构
+  const hostOs = (process.env["BUTLER_HOST_OS"] || "").toLowerCase();
+  const hostArch = (process.env["BUTLER_HOST_ARCH"] || "").toLowerCase();
+  const isDarwin = process.platform === "darwin" || hostOs === "darwin";
+  const isArm64 = process.arch === "arm64" || hostArch === "arm64" || hostArch === "aarch64";
+
+  // 2. 读取宿主真实物理硬件环境变量（由 deploy.sh / deploy.ps1 注入）
+  const envHostMemGbRaw = process.env["BUTLER_HOST_MEM_GB"]?.trim();
+  const envHostCoresRaw = process.env["BUTLER_HOST_CORES"]?.trim();
+  const envHostLogicalCoresRaw = process.env["BUTLER_HOST_LOGICAL_CORES"]?.trim();
+  const envHostCpuModelRaw = process.env["BUTLER_HOST_CPU_MODEL"]?.trim();
+
+  const hostMemGb =
+    envHostMemGbRaw && !Number.isNaN(Number(envHostMemGbRaw)) && Number(envHostMemGbRaw) > 0
+      ? Math.round(Number(envHostMemGbRaw) * 10) / 10
+      : undefined;
+  const hostCores =
+    envHostCoresRaw && !Number.isNaN(Number(envHostCoresRaw)) && Number(envHostCoresRaw) > 0
+      ? parseInt(envHostCoresRaw, 10)
+      : undefined;
+  const hostLogicalCores =
+    envHostLogicalCoresRaw && !Number.isNaN(Number(envHostLogicalCoresRaw)) && Number(envHostLogicalCoresRaw) > 0
+      ? parseInt(envHostLogicalCoresRaw, 10)
+      : undefined;
+  const hostCpuModel = envHostCpuModelRaw || undefined;
+
+  // 3. 确定 CPU 型号与 Apple 芯片判定
+  const effectiveCpuModel = hostCpuModel || containerCpuModel;
+  const isAppleCpu = /apple|virtualapple/i.test(effectiveCpuModel);
+  const isAppleSilicon = (isDarwin && isArm64) || isAppleCpu;
+
+  // 4. 核心数计算（Apple Silicon 无 SMT，物理核与逻辑核一致，严禁减半；x86 容器回退时折半）
+  const containerPhysicalCores = isAppleSilicon
+    ? containerLogicalCores
+    : Math.max(1, Math.floor(containerLogicalCores / 2));
+
+  const effectiveLogicalCores =
+    hostLogicalCores ?? (isAppleSilicon && hostCores ? hostCores : containerLogicalCores);
+
+  let effectiveCores: number;
+  if (hostCores !== undefined) {
+    effectiveCores = hostCores;
+  } else if (isAppleSilicon) {
+    effectiveCores = effectiveLogicalCores;
+  } else {
+    effectiveCores = Math.max(1, Math.floor(effectiveLogicalCores / 2));
+  }
+
+  // 5. 内存大小判定（宿主真实内存优先于容器/VM 限额）
+  const totalGb = hostMemGb !== undefined ? hostMemGb : containerTotalGb;
+  const totalBytes =
+    hostMemGb !== undefined ? Math.round(hostMemGb * 1024 * 1024 * 1024) : containerTotalBytes;
+  const freeGb = containerFreeGb;
 
   let gpu: HardwareProfile["gpu"] = null;
 
-  // 1. 尝试探测 NVIDIA GPU
+  // 6. 尝试探测 NVIDIA GPU
   try {
     const stdout = execSync("nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits", {
       timeout: 1500,
@@ -137,15 +214,9 @@ export function detectHardwareProfile(): HardwareProfile {
     // 无 nvidia-smi 或无 NVIDIA GPU
   }
 
-  // 2. 检查 Apple Silicon 统一内存架构（支持宿主机原生 macOS 与 Docker 容器内环境）
-  const hostOs = (process.env["BUTLER_HOST_OS"] || "").toLowerCase();
-  const hostArch = (process.env["BUTLER_HOST_ARCH"] || "").toLowerCase();
-  const isDarwin = process.platform === "darwin" || hostOs === "darwin";
-  const isArm64 = process.arch === "arm64" || hostArch === "arm64" || hostArch === "aarch64";
-  const isAppleCpu = /apple|virtualapple/i.test(cpuModel);
-
-  if (!gpu && ((isDarwin && isArm64) || isAppleCpu)) {
-    // Apple Silicon 统一内存架构：系统物理内存由 CPU 与 GPU 高速共享
+  // 7. 检查 Apple Silicon 统一内存架构（支持宿主机原生 macOS 与 Docker 容器内环境）
+  if (!gpu && isAppleSilicon) {
+    // Apple Silicon 统一内存架构：系统物理内存由 CPU 与 GPU 高速共享，以宿主真实物理内存为基准推导可用显存
     const unifiedVramGb = Math.round(totalGb * 0.7 * 10) / 10;
     gpu = {
       detected: true,
@@ -158,11 +229,18 @@ export function detectHardwareProfile(): HardwareProfile {
   const effectivePlatform = isDarwin ? "darwin" : (hostOs || process.platform);
   const effectiveArch = isArm64 ? "arm64" : (hostArch || process.arch);
 
+  const isContainerized = Boolean(
+    process.env["BUTLER_HOST_OS"] ||
+      process.env["BUTLER_HOST_MEM_GB"] ||
+      process.env["KUBERNETES_SERVICE_HOST"] ||
+      process.env["CONTAINER"],
+  );
+
   return {
     cpu: {
-      model: cpuModel,
-      cores: Math.max(1, Math.floor(logicalCores / 2)),
-      logicalCores,
+      model: effectiveCpuModel,
+      cores: effectiveCores,
+      logicalCores: effectiveLogicalCores,
     },
     memory: {
       totalBytes,
@@ -172,6 +250,29 @@ export function detectHardwareProfile(): HardwareProfile {
     gpu,
     platform: effectivePlatform,
     arch: effectiveArch,
+    host: {
+      cpu: {
+        model: effectiveCpuModel,
+        cores: effectiveCores,
+        logicalCores: effectiveLogicalCores,
+      },
+      memory: {
+        totalGb,
+      },
+      isContainerized,
+    },
+    container: {
+      cpu: {
+        model: containerCpuModel,
+        cores: containerPhysicalCores,
+        logicalCores: containerLogicalCores,
+      },
+      memory: {
+        totalBytes: containerTotalBytes,
+        totalGb: containerTotalGb,
+        freeGb: containerFreeGb,
+      },
+    },
   };
 }
 
@@ -317,7 +418,21 @@ export function evaluateHardwareTier(hw: HardwareProfile): HardwareEvaluation {
   const gpuPart = hw.gpu?.detected
     ? `${hw.gpu.name}${hw.gpu.vramGb ? ` (${hw.gpu.vramGb}GB)` : ""}`
     : "未检测到独显 (CPU 计算)";
-  const hardwareSummary = `CPU: ${hw.cpu.logicalCores} 线程 · 内存: ${hw.memory.totalGb} GB · 显卡: ${gpuPart}`;
+
+  let memSummary = `${hw.memory.totalGb} GB`;
+  if (
+    hw.container?.memory?.totalGb &&
+    hw.container.memory.totalGb < hw.memory.totalGb - 0.5
+  ) {
+    memSummary = `${hw.memory.totalGb} GB (容器配额: ${hw.container.memory.totalGb} GB)`;
+  }
+
+  const cpuSummary =
+    hw.cpu.model && hw.cpu.model !== "Unknown CPU"
+      ? `${hw.cpu.logicalCores} 线程 (${hw.cpu.model})`
+      : `${hw.cpu.logicalCores} 线程`;
+
+  const hardwareSummary = `CPU: ${cpuSummary} · 内存: ${memSummary} · 显卡: ${gpuPart}`;
 
   return {
     tier,

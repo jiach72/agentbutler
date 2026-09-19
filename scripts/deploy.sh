@@ -127,6 +127,95 @@ export BUTLER_HOST_ARCH="$host_arch"
 env_set BUTLER_HOST_OS "$host_os"
 env_set BUTLER_HOST_ARCH "$host_arch"
 
+# 宿主客观物理硬件探测（内存、核心、型号），供容器内 Ollama 自适应推荐引擎精准评估
+host_mem_gb=""
+host_cores=""
+host_logical_cores=""
+host_cpu_model=""
+
+if [[ "$host_os" == "Darwin" ]]; then
+  hw_memsize="$(sysctl -n hw.memsize 2>/dev/null || true)"
+  if [[ -n "$hw_memsize" && "$hw_memsize" =~ ^[0-9]+$ ]]; then
+    host_mem_gb="$(awk -v b="$hw_memsize" 'BEGIN {printf "%.1f", b / 1073741824}')"
+  fi
+  host_cores="$(sysctl -n hw.physicalcpu 2>/dev/null || true)"
+  host_logical_cores="$(sysctl -n hw.logicalcpu 2>/dev/null || true)"
+  host_cpu_model="$(sysctl -n machdep.cpu.brand_string 2>/dev/null | tr -d '"\r\n' || true)"
+elif [[ "$host_os" == "Linux" ]]; then
+  # WSL2 探测：若存在 powershell.exe，优先读取 Windows 宿主真实硬件指标
+  is_wsl=0
+  if [[ -n "${WSL_DISTRO_NAME:-}" ]] || grep -qi microsoft /proc/version 2>/dev/null; then
+    is_wsl=1
+  fi
+
+  if [[ "$is_wsl" -eq 1 ]] && command -v powershell.exe >/dev/null 2>&1; then
+    wsl_ps_out="$(powershell.exe -NoProfile -NonInteractive -Command '
+      try {
+        $cs = Get-CimInstance Win32_ComputerSystem;
+        $proc = Get-CimInstance Win32_Processor | Select-Object -First 1;
+        $all = Get-CimInstance Win32_Processor;
+        $cores = ($all | Measure-Object -Property NumberOfCores -Sum).Sum;
+        $logicals = ($all | Measure-Object -Property NumberOfLogicalProcessors -Sum).Sum;
+        $mem = [math]::Round($cs.TotalPhysicalMemory / 1GB, 1);
+        "$mem|$cores|$logicals|$($proc.Name.Trim())"
+      } catch {}
+    ' 2>/dev/null | tr -d '\r\n' || true)"
+
+    if [[ "$wsl_ps_out" == *"|"* ]]; then
+      IFS='|' read -r ps_mem ps_cores ps_logicals ps_cpu <<< "$wsl_ps_out"
+      [[ -n "$ps_mem" ]] && host_mem_gb="$ps_mem"
+      [[ -n "$ps_cores" ]] && host_cores="$ps_cores"
+      [[ -n "$ps_logicals" ]] && host_logical_cores="$ps_logicals"
+      [[ -n "$ps_cpu" ]] && host_cpu_model="$(echo "$ps_cpu" | tr -d '"\r\n')"
+    fi
+  fi
+
+  # Linux 裸机或 VM 常规探测（WSL 未取到时平滑回退）
+  if [[ -z "$host_mem_gb" && -f /proc/meminfo ]]; then
+    host_mem_gb="$(awk '/MemTotal/ {printf "%.1f", $2 / 1048576}' /proc/meminfo 2>/dev/null || true)"
+  fi
+  if [[ -z "$host_cores" ]]; then
+    if command -v lscpu >/dev/null 2>&1; then
+      host_cores="$(lscpu -p=CORE 2>/dev/null | grep -v '^#' | sort -u | wc -l || true)"
+    fi
+    if [[ -z "$host_cores" || "$host_cores" -eq 0 ]] && [[ -f /proc/cpuinfo ]]; then
+      host_cores="$(grep -m1 '^cpu cores' /proc/cpuinfo 2>/dev/null | awk '{print $NF}' || true)"
+    fi
+  fi
+  if [[ -z "$host_logical_cores" ]]; then
+    if command -v nproc >/dev/null 2>&1; then
+      host_logical_cores="$(nproc 2>/dev/null || true)"
+    elif [[ -f /proc/cpuinfo ]]; then
+      host_logical_cores="$(grep -c '^processor' /proc/cpuinfo 2>/dev/null || true)"
+    fi
+  fi
+  if [[ -z "$host_cpu_model" ]]; then
+    if [[ -f /proc/cpuinfo ]]; then
+      host_cpu_model="$(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2- | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | tr -d '"\r\n' || true)"
+    fi
+    if [[ -z "$host_cpu_model" ]] && command -v lscpu >/dev/null 2>&1; then
+      host_cpu_model="$(lscpu 2>/dev/null | grep -m1 'Model name:' | cut -d: -f2- | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | tr -d '"\r\n' || true)"
+    fi
+  fi
+fi
+
+if [[ -n "$host_mem_gb" ]]; then
+  export BUTLER_HOST_MEM_GB="$host_mem_gb"
+  env_set BUTLER_HOST_MEM_GB "$host_mem_gb"
+fi
+if [[ -n "$host_cores" ]]; then
+  export BUTLER_HOST_CORES="$host_cores"
+  env_set BUTLER_HOST_CORES "$host_cores"
+fi
+if [[ -n "$host_logical_cores" ]]; then
+  export BUTLER_HOST_LOGICAL_CORES="$host_logical_cores"
+  env_set BUTLER_HOST_LOGICAL_CORES "$host_logical_cores"
+fi
+if [[ -n "$host_cpu_model" ]]; then
+  export BUTLER_HOST_CPU_MODEL="$host_cpu_model"
+  env_set BUTLER_HOST_CPU_MODEL "$host_cpu_model"
+fi
+
 # ---- 预检：提前暴露两类已知事故（见 docs/deployment-20260825.md 踩坑记录）----
 
 # 坑4：HERMES_BUTLER_HOST 改成非回环会让 Hermes gateway 崩溃循环（代码强制 loopback）。

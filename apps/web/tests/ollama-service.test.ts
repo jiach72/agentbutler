@@ -160,8 +160,8 @@ describe("Ollama Service & Hardware Tier Engine", () => {
       const hw = detectHardwareProfile();
       expect(hw.platform).toBe("darwin");
       expect(hw.arch).toBe("arm64");
-      // Since BUTLER_HOST_OS=Darwin and BUTLER_HOST_ARCH=arm64, if no NVIDIA GPU is present,
-      // it identifies Apple Silicon unified memory
+      // Apple Silicon has no SMT: cores should not be halved
+      expect(hw.cpu.cores).toBe(hw.cpu.logicalCores);
       if (!hw.gpu?.name.includes("NVIDIA")) {
         expect(hw.gpu?.isUnified).toBe(true);
         expect(hw.gpu?.name).toContain("Apple Silicon");
@@ -180,7 +180,76 @@ describe("Ollama Service & Hardware Tier Engine", () => {
     }
   });
 
-  it("exposes /api/ollama/hardware-profile endpoint via Fastify", async () => {
+  it("prioritizes host hardware env vars (Apple M4 16GB) over container limits and evaluates Tier 3", () => {
+    const orig = {
+      os: process.env["BUTLER_HOST_OS"],
+      arch: process.env["BUTLER_HOST_ARCH"],
+      mem: process.env["BUTLER_HOST_MEM_GB"],
+      cores: process.env["BUTLER_HOST_CORES"],
+      logicals: process.env["BUTLER_HOST_LOGICAL_CORES"],
+      cpu: process.env["BUTLER_HOST_CPU_MODEL"],
+    };
+
+    try {
+      process.env["BUTLER_HOST_OS"] = "Darwin";
+      process.env["BUTLER_HOST_ARCH"] = "arm64";
+      process.env["BUTLER_HOST_MEM_GB"] = "16.0";
+      process.env["BUTLER_HOST_CORES"] = "10";
+      process.env["BUTLER_HOST_LOGICAL_CORES"] = "10";
+      process.env["BUTLER_HOST_CPU_MODEL"] = "Apple M4";
+
+      const hw = detectHardwareProfile();
+
+      expect(hw.memory.totalGb).toBe(16.0);
+      expect(hw.cpu.cores).toBe(10);
+      expect(hw.cpu.logicalCores).toBe(10);
+      expect(hw.cpu.model).toBe("Apple M4");
+      expect(hw.platform).toBe("darwin");
+      expect(hw.arch).toBe("arm64");
+
+      // Apple Silicon unified memory should be calculated based on host 16GB (16 * 0.7 = 11.2)
+      if (!hw.gpu?.name.includes("NVIDIA")) {
+        expect(hw.gpu?.isUnified).toBe(true);
+        expect(hw.gpu?.vramGb).toBe(11.2);
+      }
+
+      // Check host & container blocks
+      expect(hw.host).toBeDefined();
+      expect(hw.host?.cpu?.model).toBe("Apple M4");
+      expect(hw.host?.cpu?.cores).toBe(10);
+      expect(hw.host?.memory?.totalGb).toBe(16.0);
+      expect(hw.host?.isContainerized).toBe(true);
+
+      expect(hw.container).toBeDefined();
+      expect(hw.container?.cpu?.logicalCores).toBeGreaterThan(0);
+      expect(hw.container?.memory?.totalBytes).toBeGreaterThan(0);
+
+      // Verify tier evaluation evaluates to Tier 3 for 16GB Apple Silicon
+      const evaluation = evaluateHardwareTier(hw);
+      if (!hw.gpu?.name.includes("NVIDIA")) {
+        expect(evaluation.tier).toBe(3);
+        expect(evaluation.tierLabel).toContain("性能梯队");
+        expect(evaluation.description).toContain("Apple Silicon");
+        expect(evaluation.recommendations.map((r) => r.name)).toContain("qwen2.5:7b");
+      }
+      expect(evaluation.hardwareSummary).toContain("16 GB");
+      expect(evaluation.hardwareSummary).toContain("Apple M4");
+    } finally {
+      for (const [k, v] of Object.entries({
+        BUTLER_HOST_OS: orig.os,
+        BUTLER_HOST_ARCH: orig.arch,
+        BUTLER_HOST_MEM_GB: orig.mem,
+        BUTLER_HOST_CORES: orig.cores,
+        BUTLER_HOST_LOGICAL_CORES: orig.logicals,
+        BUTLER_HOST_CPU_MODEL: orig.cpu,
+      })) {
+        if (v !== undefined) process.env[k] = v;
+        else delete process.env[k];
+      }
+    }
+  });
+
+  it("exposes /api/ollama/hardware-profile endpoint via Fastify with host and container structures", async () => {
     const app = createWebServer({
       accessToken: "", // Loopback / test mode
     });
@@ -192,6 +261,10 @@ describe("Ollama Service & Hardware Tier Engine", () => {
     const body = res.json();
     expect(body).toHaveProperty("hardware");
     expect(body).toHaveProperty("evaluation");
+    expect(body.hardware).toHaveProperty("cpu");
+    expect(body.hardware).toHaveProperty("memory");
+    expect(body.hardware).toHaveProperty("host");
+    expect(body.hardware).toHaveProperty("container");
     expect(body.evaluation).toHaveProperty("tier");
     expect(body.evaluation).toHaveProperty("recommendations");
     expect(Array.isArray(body.evaluation.recommendations)).toBe(true);
