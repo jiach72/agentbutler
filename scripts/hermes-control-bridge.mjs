@@ -319,8 +319,12 @@ def read_action(q):
  if a=="list":
   states=latest_execution_states([j["id"] for j in jobs])
   return envelope(items=[summary(j,{"status":states[j["id"]]} if j["id"] in states else None) for j in jobs])
- from cron.jobs import get_ticker_heartbeat_age, get_ticker_success_age, TICKER_INTERVAL_SECONDS
- hb=get_ticker_heartbeat_age(); ok=get_ticker_success_age()
+ try:
+  from cron.jobs import get_ticker_heartbeat_age, get_ticker_success_age, TICKER_INTERVAL_SECONDS
+  hb=get_ticker_heartbeat_age(); ok=get_ticker_success_age()
+  ticker_interval=TICKER_INTERVAL_SECONDS
+ except Exception:
+  hb=None; ok=None; ticker_interval=60
  if hb is not None and not math.isfinite(hb): reject("data_unavailable")
  # Probe the existing runtime lock read-only; Hermes' own helper opens r+/a+
  # and can delete an inaccessible lock. Missing lock is unknown, not healthy.
@@ -331,14 +335,16 @@ def read_action(q):
    try: fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB); fcntl.flock(lock,fcntl.LOCK_UN)
    except BlockingIOError: alive=True
  builtin=builtin_provider()
- running=(alive is True and hb is not None and hb <= TICKER_INTERVAL_SECONDS*3+20 and
-   (ok is None or ok <= TICKER_INTERVAL_SECONDS*3+20)) if builtin else None
+ running=(alive is True and hb is not None and hb <= ticker_interval*3+20 and
+   (ok is None or ok <= ticker_interval*3+20)) if builtin else None
  active=[j for j in jobs if j.get("enabled",True)]
  today_runs,failed_tasks=status_counts(jobs)
  times=[iso(j["next_run_at"]) for j in active if j.get("next_run_at")]
+ writes_allowed = builtin and (is_exact or allow_drift)
+ run_allowed = builtin and (is_exact or allow_drift)
  return envelope(schedulerRunning=running,activeCount=len(active),todayRunCount=today_runs,failedTaskCount=failed_tasks,
    nextRunAt=min(times,key=lambda v:datetime.fromisoformat(v).timestamp()) if times else None,
-   heartbeatAgeSeconds=hb,timezone=tz_name(),writesSupported=builtin,runSupported=builtin,
+   heartbeatAgeSeconds=hb,timezone=tz_name(),writesSupported=writes_allowed,runSupported=run_allowed,
    **({} if builtin else {"reason":"unsupported_scheduler"}))
 
 def durable(path, value, exclusive=False):
@@ -473,10 +479,22 @@ def write_action(q):
   return result
 
 q={}
+drifted_files = []
+is_exact = True
+allow_drift = os.environ.get("BUTLER_ALLOW_CRON_DRIFT") == "1"
 try:
  q=validate_request(json.loads(sys.stdin.read(65537)))
  for rel, expected in HASHES.items():
-  if hashlib.sha256((repo/rel).read_bytes()).hexdigest()!=expected: reject("unsupported_version")
+  p = repo/rel
+  try:
+   if not p.exists() or hashlib.sha256(p.read_bytes()).hexdigest()!=expected:
+    drifted_files.append(rel)
+  except Exception:
+   drifted_files.append(rel)
+ is_exact = len(drifted_files) == 0
+ is_write = "requestId" in q
+ if is_write and not (is_exact or allow_drift):
+  reject("unsupported_version")
  # Match the CLI's profile .env timezone without importing or exposing its secrets.
  env_file=home/".env"
  if "HERMES_TIMEZONE" not in os.environ and env_file.exists():
@@ -484,9 +502,26 @@ try:
   timezone_value=dotenv_values(stream=io.StringIO(read_bytes(env_file,1024*1024).decode())).get("HERMES_TIMEZONE")
   if timezone_value: os.environ["HERMES_TIMEZONE"]=timezone_value
  with open(os.devnull,"w") as sink, contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
-  result=write_action(q) if "requestId" in q else read_action(q)
-except Rejected as e: result=failure(q,e.code)
-except Exception: result=failure(q,"outcome_unknown" if "requestId" in q else "data_unavailable")
+  result=write_action(q) if is_write else read_action(q)
+ if isinstance(result, dict):
+  result["versionExact"] = is_exact
+  if not is_exact:
+   result["driftedFiles"] = drifted_files
+  result["expectedRevision"] = VERSION
+except Rejected as e:
+ result=failure(q,e.code)
+ if isinstance(result, dict):
+  result["versionExact"] = is_exact
+  if not is_exact:
+   result["driftedFiles"] = drifted_files
+  result["expectedRevision"] = VERSION
+except Exception:
+ result=failure(q,"outcome_unknown" if "requestId" in q else "data_unavailable")
+ if isinstance(result, dict):
+  result["versionExact"] = is_exact
+  if not is_exact:
+   result["driftedFiles"] = drifted_files
+  result["expectedRevision"] = VERSION
 print(json.dumps(result,allow_nan=False,separators=(",",":")))
 `;
 
@@ -560,6 +595,12 @@ function cronResponse(q, raw) {
     if (!CRON_REASONS.has(raw.reason)) throw new Error("invalid_response");
     base.reason = raw.reason;
   }
+  if ("versionExact" in raw && typeof raw.versionExact === "boolean") base.versionExact = raw.versionExact;
+  if ("driftedFiles" in raw && Array.isArray(raw.driftedFiles) && raw.driftedFiles.every((f) => typeof f === "string")) {
+    base.driftedFiles = raw.driftedFiles;
+  }
+  if ("expectedRevision" in raw && typeof raw.expectedRevision === "string") base.expectedRevision = raw.expectedRevision;
+  if ("detectedRevision" in raw && typeof raw.detectedRevision === "string") base.detectedRevision = raw.detectedRevision;
   if ((!base.supported || !base.reachable) && !base.reason) throw new Error("invalid_response");
   if (q.action === "status") return { ...base, ...pickCron(raw, {
     schedulerRunning: (v) => v === null || cronBool(v), activeCount: cronCount,

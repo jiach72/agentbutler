@@ -63,6 +63,10 @@ export type ScheduledTaskReason = typeof scheduledTaskReasons[number];
 const reason = z.enum(scheduledTaskReasons);
 const base = {
   schemaVersion: z.literal(1), supported: z.boolean(), reachable: z.boolean(), reason: reason.optional(),
+  versionExact: z.boolean().optional(),
+  driftedFiles: z.array(z.string()).optional(),
+  expectedRevision: z.string().optional(),
+  detectedRevision: z.string().optional(),
 };
 // Hermes keeps "delivery_failed" separate: the run succeeded, only the notification did not arrive.
 const lastStatus = z.enum(["success", "failed", "delivery_failed", "running", "never", "unknown"]);

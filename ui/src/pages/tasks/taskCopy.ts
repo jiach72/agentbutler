@@ -30,9 +30,9 @@ export function compareTasks(left: SortableTask, right: SortableTask): number {
     ? Date.parse(task.nextRunAt) : Number.MAX_SAFE_INTEGER;
   return rank(left) - rank(right) || timestamp(left) - timestamp(right);
 }
-
 export function taskMutationError(status: number, data: unknown): string {
   const reason = data !== null && typeof data === "object" && "reason" in data ? data.reason : null;
+  if (reason === "unsupported_version") return "宿主 Hermes 源码版本与控制桥存在差异，写操作已自动保护阻断。若确认 CLI 兼容，可在环境配置 BUTLER_ALLOW_CRON_DRIFT=1 放行。";
   if (reason === "backup_failed") return "任务备份未能完成，未执行修改。请检查磁盘空间和备份目录权限。";
   if (reason === "manual_run_not_supported") return "当前 Hermes 版本暂不支持安全的下一轮执行请求。";
   if (reason === "timezone_mismatch") return "执行时区与 Hermes 不一致，请刷新后重新确认执行时间。";

@@ -266,4 +266,121 @@ describe("Hermes control bridge", () => {
     expect(installContent).toContain('node_minor="$(echo "$node_version_clean" | cut -d. -f2)"');
     expect(installContent).toContain('Node.js >= 22.5.0 is required');
   });
+
+  it("preserves drift diagnostic fields (versionExact, driftedFiles, expectedRevision) in cronResponse", async () => {
+    const server = createHermesControlBridgeServer({
+      readToken: () => "secret",
+      runCron: async (body) => {
+        if (body.action === "status") {
+          return {
+            schemaVersion: 1,
+            supported: true,
+            reachable: true,
+            schedulerRunning: true,
+            activeCount: 3,
+            todayRunCount: 12,
+            failedTaskCount: 0,
+            nextRunAt: "2026-09-19T10:00:00Z",
+            heartbeatAgeSeconds: 15,
+            timezone: "UTC",
+            writesSupported: false,
+            runSupported: false,
+            versionExact: false,
+            driftedFiles: ["cron/jobs.py", "hermes_cli/cron.py"],
+            expectedRevision: "hermes-f94a7a1-cron-v1",
+            detectedRevision: "custom-v2",
+          };
+        }
+        if (body.action === "list") {
+          return {
+            schemaVersion: 1,
+            supported: true,
+            reachable: true,
+            versionExact: false,
+            driftedFiles: ["cron/jobs.py"],
+            expectedRevision: "hermes-f94a7a1-cron-v1",
+            items: [
+              {
+                id: "job-1",
+                name: "Nightly Backup",
+                enabled: true,
+                scheduleLabel: "every 24h",
+                nextRunAt: null,
+                lastRunAt: null,
+                lastStatus: "never",
+                failureStreak: 0,
+                deliveryEnabled: false,
+                editable: false,
+              },
+            ],
+          };
+        }
+        return {
+          schemaVersion: 1,
+          supported: false,
+          reachable: true,
+          reason: "unsupported_version",
+          versionExact: false,
+          driftedFiles: ["cron/jobs.py"],
+          expectedRevision: "hermes-f94a7a1-cron-v1",
+          requestId: body.requestId,
+          taskId: body.id ?? null,
+          outcome: "failed",
+        };
+      },
+    });
+    await new Promise((resolve) => server.listen(0, resolve));
+    try {
+      // 1. Status with drift preserves diagnostic fields
+      const statusRes = await call(server, "secret", { action: "status" }, "/v1/cron");
+      expect(statusRes.status).toBe(200);
+      expect(statusRes.body).toMatchObject({
+        schemaVersion: 1,
+        supported: true,
+        reachable: true,
+        writesSupported: false,
+        runSupported: false,
+        versionExact: false,
+        driftedFiles: ["cron/jobs.py", "hermes_cli/cron.py"],
+        expectedRevision: "hermes-f94a7a1-cron-v1",
+        detectedRevision: "custom-v2",
+      });
+
+      // 2. List with drift allows read and preserves items + drift diagnostics
+      const listRes = await call(server, "secret", { action: "list" }, "/v1/cron");
+      expect(listRes.status).toBe(200);
+      expect(listRes.body.supported).toBe(true);
+      expect(listRes.body.versionExact).toBe(false);
+      expect(listRes.body.driftedFiles).toEqual(["cron/jobs.py"]);
+      expect(listRes.body.items).toHaveLength(1);
+      expect(listRes.body.items[0].id).toBe("job-1");
+
+      // 3. Write action rejected with unsupported_version returns failure details
+      const writeRes = await call(server, "secret", { action: "pause", id: "job-1", requestId: "pause-request-001" }, "/v1/cron");
+      expect(writeRes.status).toBe(200);
+      expect(writeRes.body).toMatchObject({
+        schemaVersion: 1,
+        supported: false,
+        reachable: true,
+        reason: "unsupported_version",
+        versionExact: false,
+        driftedFiles: ["cron/jobs.py"],
+        expectedRevision: "hermes-f94a7a1-cron-v1",
+        outcome: "failed",
+      });
+    } finally {
+      server.close();
+    }
+  });
+
+  it("HERMES_CRON_PYTHON decouples read and write on hash drift and checks BUTLER_ALLOW_CRON_DRIFT", async () => {
+    const { HERMES_CRON_PYTHON } = await import("./hermes-control-bridge.mjs");
+    expect(HERMES_CRON_PYTHON).toContain('allow_drift = os.environ.get("BUTLER_ALLOW_CRON_DRIFT") == "1"');
+    expect(HERMES_CRON_PYTHON).toContain('if is_write and not (is_exact or allow_drift):');
+    expect(HERMES_CRON_PYTHON).toContain('reject("unsupported_version")');
+    expect(HERMES_CRON_PYTHON).toContain('result["versionExact"] = is_exact');
+    expect(HERMES_CRON_PYTHON).toContain('result["driftedFiles"] = drifted_files');
+    expect(HERMES_CRON_PYTHON).toContain('result["expectedRevision"] = VERSION');
+    expect(HERMES_CRON_PYTHON).toContain('writes_allowed = builtin and (is_exact or allow_drift)');
+  });
 });

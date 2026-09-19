@@ -24,8 +24,8 @@ import { TaskTestRunModal } from "./TaskTestRunModal.js";
 import { compareTasks, humanizeSchedule, taskFailureLabel, taskMutationError, taskStatusLabel, taskTime } from "./taskCopy.js";
 import "./tasks.css";
 
-interface TasksPayload { supported: boolean; reachable: boolean; reason?: string; items: ScheduledTaskSummary[] }
-type StatusView = ScheduledTaskStatus & { reachable: boolean; writesSupported?: boolean; timezone?: string | null };
+interface TasksPayload { supported: boolean; reachable: boolean; reason?: string; versionExact?: boolean; driftedFiles?: string[]; expectedRevision?: string; items: ScheduledTaskSummary[] }
+type StatusView = ScheduledTaskStatus & { reachable: boolean; writesSupported?: boolean; timezone?: string | null; versionExact?: boolean; driftedFiles?: string[]; expectedRevision?: string; };
 type TaskView = ScheduledTaskSummary & { editable?: boolean; failureReason?: string | null };
 type Editor = { key: string; taskId?: string; initialDraft?: ScheduledTaskDraft };
 type Action = "pause" | "resume" | "run" | "delete";
@@ -208,8 +208,40 @@ export function TasksPage() {
           <span className="summary-subtext">{status.nextRunAt ? formatRelativeNext(status.nextRunAt) : "暂无待触发排程"}</span>
         </div>
       </section>}
-    {supported && reachable && !writable && <Alert type="info" showIcon title="当前为只读模式"
-      description="宿主控制服务尚未确认写入能力或执行时区，现有任务可以继续查看。" />}
+    {supported && reachable && !writable && (
+      status?.versionExact === false ? (
+        <Alert
+          type="warning"
+          showIcon
+          title="检测到宿主 Hermes 源码版本变动（已开启只读保护）"
+          description={
+            <div>
+              现有定时任务仍由 Hermes 正常调度与执行，面板可正常查看与监控。若需通过面板创建或修改任务，可在 <code>.env</code> 中配置 <code>BUTLER_ALLOW_CRON_DRIFT=1</code> 放行兼容写入，或重新安装控制桥。
+              {status.driftedFiles && status.driftedFiles.length > 0 && (
+                <div style={{ marginTop: 4, fontSize: 12, opacity: 0.85 }}>
+                  差异文件: {status.driftedFiles.join(", ")}
+                </div>
+              )}
+            </div>
+          }
+        />
+      ) : (
+        <Alert
+          type="info"
+          showIcon
+          title="当前为只读模式"
+          description="宿主控制服务尚未确认写入能力或执行时区，现有任务可以继续查看。"
+        />
+      )
+    )}
+    {supported && reachable && writable && status?.versionExact === false && (
+      <Alert
+        type="info"
+        showIcon
+        title="已启用定时任务版本漂移兼容模式 (BUTLER_ALLOW_CRON_DRIFT=1)"
+        description="写操作已放行，请关注任务变更结果。"
+      />
+    )}
     {actionError && <Alert type="error" showIcon title={actionError} closable onClose={() => setActionError(null)} />}
     {supported && <section className="tasks-list-section">
       <div className="tasks-main-layout">
