@@ -86,7 +86,11 @@ interface SystemsResponse {
   };
 }
 
-export function MemoryCenterPage() {
+export interface MemoryCenterPageProps {
+  isTab?: boolean;
+}
+
+export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) {
   const { message } = App.useApp();
   const [loading, setLoading] = useState(true);
   const [systemsData, setSystemsData] = useState<SystemsResponse | null>(null);
@@ -234,20 +238,22 @@ export function MemoryCenterPage() {
 
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto", paddingBottom: 48 }}>
-      <PageHeader
-        title="记忆系统中心"
-        description="统一管理与切换 Hermes 支持的第三方记忆后端，覆盖本地 Docker 编排、云端 API 与本地进程，提供 TypeSafe Jev 智能选型决策与受控生效闭环。"
-        extra={
-          <Space>
-            <Button icon={<DiffOutlined />} href="/memory-diff">
-              记忆变更流
-            </Button>
-            <Button icon={<ReloadOutlined />} onClick={() => void fetchSystems()} loading={loading}>
-              刷新状态
-            </Button>
-          </Space>
-        }
-      />
+      {!isTab && (
+        <PageHeader
+          title="记忆系统中心"
+          description="统一管理与切换 Hermes 支持的第三方记忆后端，覆盖本地 Docker 编排、云端 API 与本地进程，提供 TypeSafe Jev 智能选型决策与受控生效闭环。"
+          extra={
+            <Space>
+              <Button icon={<DiffOutlined />} href="/memory-diff">
+                记忆变更流
+              </Button>
+              <Button icon={<ReloadOutlined />} onClick={() => void fetchSystems()} loading={loading}>
+                刷新状态
+              </Button>
+            </Space>
+          }
+        />
+      )}
 
       {/* 顶部结论条 */}
       <div style={{ marginBottom: 20 }}>

@@ -17,7 +17,13 @@ import {
   Tag,
   Typography,
 } from "antd";
-import { DatabaseOutlined, DeleteOutlined, LineChartOutlined, SearchOutlined } from "@ant-design/icons";
+import {
+  DatabaseOutlined,
+  DeleteOutlined,
+  LineChartOutlined,
+  SearchOutlined,
+  ThunderboltOutlined,
+} from "@ant-design/icons";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { ChartEmpty, TrendColumn } from "../../components/charts/index.js";
 import { chartThemeFor, primaryFill, quietAxes } from "../../components/charts/chartTheme.js";
@@ -63,6 +69,8 @@ interface MemoryPanelProps {
   memoryWritesEnabled?: boolean | null;
   /** 一键遗忘特定记忆 */
   onForget?: (entryId: string) => Promise<boolean>;
+  /** 跳转至记忆系统中心标签页 */
+  onGoToSystems?: () => void;
 }
 
 export function MemoryPanel({
@@ -81,6 +89,7 @@ export function MemoryPanel({
   rebuildBusy,
   memoryWritesEnabled,
   onForget,
+  onGoToSystems,
 }: MemoryPanelProps) {
   const [memoryInput, setMemoryInput] = useState("");
   const [forgettingId, setForgettingId] = useState<string | null>(null);
@@ -120,15 +129,65 @@ export function MemoryPanel({
           </Flex>
           <Text type="secondary">先确认记忆是否健康，再查看写入趋势或检索内容。</Text>
           {data?.memory.backend !== undefined && (
-            <Text type="secondary" title={data.memory.backend.detail}>
-              记忆后端：{memoryBackendLabel(data.memory.backend)}
-            </Text>
+            <Flex align="center" gap={8} wrap="wrap">
+              <Text type="secondary" title={data.memory.backend.detail}>
+                记忆后端：{memoryBackendLabel(data.memory.backend)}
+              </Text>
+              <Button
+                type="link"
+                size="small"
+                style={{ padding: 0 }}
+                onClick={() => (onGoToSystems ? onGoToSystems() : (window.location.href = "/memory"))}
+              >
+                [管理 / 切换后端]
+              </Button>
+            </Flex>
           )}
         </Flex>
-        <Button type="default" onClick={onRefresh} disabled={refreshing}>
-          {refreshing ? "刷新中" : "刷新"}
-        </Button>
+        <Flex gap={8} align="center">
+          <Button
+            type="primary"
+            icon={<ThunderboltOutlined />}
+            onClick={() => (onGoToSystems ? onGoToSystems() : (window.location.href = "/memory"))}
+            style={{
+              background: "linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)",
+              border: "none",
+            }}
+          >
+            记忆系统中心
+          </Button>
+          <Button type="default" onClick={onRefresh} disabled={refreshing}>
+            {refreshing ? "刷新中" : "刷新"}
+          </Button>
+        </Flex>
       </Flex>
+
+      <Alert
+        type="info"
+        showIcon
+        icon={<ThunderboltOutlined style={{ color: "#6366f1" }} />}
+        style={{
+          borderRadius: 8,
+          background: "linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, rgba(168, 85, 247, 0.05) 100%)",
+          border: "1px solid rgba(99, 102, 241, 0.2)",
+        }}
+        message={
+          <Flex justify="space-between" align="center" wrap="wrap" gap={8}>
+            <span>
+              <strong>第三方记忆系统中心现已就绪：</strong>
+              支持自由切换 Hindsight（知识图谱）、Mem0（双层向量）、原生 SQLite 等后端，内置本地 Docker 编排与 TypeSafe Jev 智能选型顾问。
+            </span>
+            <Button
+              size="small"
+              type="primary"
+              onClick={() => (onGoToSystems ? onGoToSystems() : (window.location.href = "/memory"))}
+              style={{ background: "#6366f1", borderColor: "#6366f1" }}
+            >
+              打开选型与配置中心 →
+            </Button>
+          </Flex>
+        }
+      />
 
       <Row gutter={[12, 12]} className="memory-stat-grid">
         <Col flex="1 1 150px">

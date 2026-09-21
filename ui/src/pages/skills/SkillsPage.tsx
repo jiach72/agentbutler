@@ -23,6 +23,7 @@ import { MemoryPanel } from "./MemoryPanel.js";
 import { PluginLibrary } from "./PluginLibrary.js";
 import { SkillsMarketplace } from "./SkillsMarketplace.js";
 import { buildSkillsConclusion, buildSkillsOverview } from "./summary.js";
+import { MemoryCenterPage } from "../memory/MemoryCenterPage.js";
 
 const { Text } = Typography;
 
@@ -292,7 +293,17 @@ export function SkillsPage() {
                   rebuildBusy={rebuildBusy}
                   memoryWritesEnabled={memoryWritesEnabled}
                   onForget={runForgetMemory}
+                  onGoToSystems={() => setActiveTab("systems")}
                 />
+              </div>
+            ),
+          },
+          {
+            key: "systems",
+            label: "记忆系统中心",
+            children: (
+              <div id="memory-systems-panel" style={{ paddingTop: 8 }}>
+                <MemoryCenterPage isTab />
               </div>
             ),
           },
