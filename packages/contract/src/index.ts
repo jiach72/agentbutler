@@ -10,6 +10,7 @@ export * from "./drivers.js";
 export * from "./operations.js";
 export * from "./scheduled-tasks.js";
 export * from "./attention.js";
+export * from "./memory-systems.js";
 
 import type { ControlAdapter } from "./control.js";
 import type { DiscoveryAdapter } from "./discovery.js";

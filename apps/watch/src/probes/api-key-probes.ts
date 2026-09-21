@@ -108,6 +108,16 @@ export async function probeApiKey(
         headers["Authorization"] = `Token ${cleanKey}`;
         break;
 
+      case "hindsight":
+        url = (options.endpoint?.trim() || "https://api.hindsight.vectorize.io").replace(/\/+$/, "") + "/v1/health";
+        headers["Authorization"] = `Bearer ${cleanKey}`;
+        break;
+
+      case "typesafe":
+        url = (options.endpoint?.trim() || "https://api.typesafe.ai").replace(/\/+$/, "") + "/v1/models";
+        headers["Authorization"] = `Bearer ${cleanKey}`;
+        break;
+
       case "github":
         url = "https://api.github.com/user";
         headers["Authorization"] = `Bearer ${cleanKey}`;

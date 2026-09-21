@@ -2,13 +2,16 @@
  * 记忆后端检测测试：显式 env > 目录标记 > 默认假设的三级判定，
  * 以及 normalize 对空值/未知值的回落（未知配置不得把默认实例误判为外部后端）。
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   detectMemoryBackend,
   normalizeMemoryBackendConfig,
+  listSupportedMemorySystems,
+  previewMemoryBackendChange,
+  applyMemoryBackendChange,
 } from "../src/memory-backend.js";
 
 let root: string;
@@ -111,3 +114,66 @@ describe("normalizeMemoryBackendConfig", () => {
     expect(normalizeMemoryBackendConfig("meemo")).toBe("auto");
   });
 });
+
+describe("listSupportedMemorySystems", () => {
+  it("默认环境下返回全部预设系统，原生 SQLite 为 active", () => {
+    const systems = listSupportedMemorySystems(root);
+    expect(systems.length).toBeGreaterThanOrEqual(4);
+    const hermesSys = systems.find((s) => s.id === "hermes");
+    expect(hermesSys?.active).toBe(true);
+    expect(hermesSys?.currentMode).toBe("builtin");
+
+    const hindsightSys = systems.find((s) => s.id === "hindsight");
+    expect(hindsightSys?.active).toBe(false);
+  });
+
+  it("当存在 hindsight/config.json 且包含 9177 时识别为 active 且 mode 为 docker", () => {
+    mkdirSync(join(root, "hindsight"), { recursive: true });
+    writeFileSync(
+      join(root, "hindsight", "config.json"),
+      JSON.stringify({ url: "http://127.0.0.1:9177" })
+    );
+    const systems = listSupportedMemorySystems(root);
+    const hindsightSys = systems.find((s) => s.id === "hindsight");
+    expect(hindsightSys?.active).toBe(true);
+    expect(hindsightSys?.currentMode).toBe("docker");
+  });
+});
+
+describe("previewMemoryBackendChange & applyMemoryBackendChange", () => {
+  it("预览切换到 Hindsight Docker 时生成 Diff 和目标文件", () => {
+    writeFileSync(join(root, "config.yaml"), "version: 1\n");
+    const preview = previewMemoryBackendChange(root, {
+      engineId: "hindsight",
+      deployMode: "docker",
+      customEndpoint: "http://127.0.0.1:9177",
+    });
+
+    expect(preview.targetFiles.length).toBeGreaterThanOrEqual(2);
+    const configDiff = preview.diffs.find((d) => d.file === "config.yaml");
+    expect(configDiff).toBeDefined();
+    expect(configDiff?.newContent).toContain("mcp_servers");
+    expect(configDiff?.newContent).toContain("hindsight");
+
+    const hindsightDiff = preview.diffs.find((d) => d.file.includes("hindsight"));
+    expect(hindsightDiff).toBeDefined();
+  });
+
+  it("应用配置更改时自动生成备份，并原子落盘", () => {
+    writeFileSync(join(root, "config.yaml"), "initial_version: 1\n");
+    const res = applyMemoryBackendChange(root, {
+      engineId: "hindsight",
+      deployMode: "docker",
+      customEndpoint: "http://127.0.0.1:9177",
+    });
+
+    expect(res.success).toBe(true);
+    expect(res.backupPaths.length).toBeGreaterThanOrEqual(1);
+    expect(existsSync(res.backupPaths[0]!)).toBe(true);
+
+    const updatedConfig = readFileSync(join(root, "config.yaml"), "utf-8");
+    expect(updatedConfig).toContain("mcp_servers");
+    expect(updatedConfig).toContain("hindsight");
+  });
+});
+

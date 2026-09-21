@@ -106,6 +106,9 @@ export { capabilityScan, parseRootPath, type ScanOptions } from "./capability-sc
 export {
   detectMemoryBackend,
   normalizeMemoryBackendConfig,
+  listSupportedMemorySystems,
+  previewMemoryBackendChange,
+  applyMemoryBackendChange,
   HINDSIGHT_CONFIG_FILE,
   MEM0_CONFIG_FILES,
   type DetectMemoryBackendOptions,

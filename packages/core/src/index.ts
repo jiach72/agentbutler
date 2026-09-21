@@ -31,6 +31,7 @@ export * from "./api-credentials.js";
 export * from "./atomic-write.js";
 export * from "./operation-lock.js";
 export * from "./user-facing-error.js";
+export * from "./typesafe/client.js";
 
 export const CORE_VERSION = `core@0.1.0-beta.260918.1+${CONTRACT_VERSION}`;
 

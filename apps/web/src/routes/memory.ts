@@ -17,6 +17,23 @@ export async function registerMemoryRoutes(
   const { proxy, doFetch, watchUrl } = options;
   const { fetchWatch, proxyWatchGet, proxyWatchPost } = proxy;
 
+  // 记忆系统中心：引擎列表、Jev 选型顾问与配置受控预览/生效
+  app.get("/api/memory/systems", async (_request, reply) =>
+    proxyWatchGet("/api/memory/systems", reply),
+  );
+
+  app.post("/api/memory/advisor", async (request, reply) =>
+    proxyWatchPost("/api/memory/advisor", request.body, reply, 20_000),
+  );
+
+  app.post("/api/memory/config/preview", async (request, reply) =>
+    proxyWatchPost("/api/memory/config/preview", request.body, reply),
+  );
+
+  app.post("/api/memory/config/apply", async (request, reply) =>
+    proxyWatchPost("/api/memory/config/apply", request.body, reply, 30_000),
+  );
+
   // 记忆面板读取：GET /api/memory 透传给 watch（instanceId 查询参数原样跟随）。
   app.get("/api/memory", async (request, reply) => {
     const query = (request.raw.url ?? "").split("?")[1] ?? "";

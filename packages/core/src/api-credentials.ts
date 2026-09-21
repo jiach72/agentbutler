@@ -150,6 +150,17 @@ export const API_CREDENTIAL_PRESETS: ApiCredentialPreset[] = [
 
   // Memory & Tools
   {
+    id: "preset-hindsight",
+    name: "Hindsight 知识图谱记忆",
+    category: "memory",
+    envVar: "HINDSIGHT_API_KEY",
+    provider: "hindsight",
+    docsUrl: "https://hindsight.vectorize.io",
+    description: "图谱记忆与跨会话 Reflect 综合推理服务",
+    defaultEndpoint: "https://api.hindsight.vectorize.io",
+    probeType: "http-get",
+  },
+  {
     id: "preset-mem0",
     name: "Mem0 记忆服务",
     category: "memory",
@@ -157,6 +168,17 @@ export const API_CREDENTIAL_PRESETS: ApiCredentialPreset[] = [
     provider: "mem0",
     docsUrl: "https://mem0.ai",
     description: "智能体长期记忆平台",
+    probeType: "http-get",
+  },
+  {
+    id: "preset-typesafe",
+    name: "TypeSafe (Jev)",
+    category: "llm",
+    envVar: "TYPESAFE_API_KEY",
+    provider: "typesafe",
+    docsUrl: "https://typesafe.ai",
+    description: "TypeSafe Jev System One 类型化判断与决策模型",
+    defaultEndpoint: "https://api.typesafe.ai",
     probeType: "http-get",
   },
   {

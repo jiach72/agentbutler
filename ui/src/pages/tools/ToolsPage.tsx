@@ -22,6 +22,7 @@ import {
   CheckOutlined,
   ClusterOutlined,
   CopyOutlined,
+  DatabaseOutlined,
   DeploymentUnitOutlined,
   DiffOutlined,
   ExperimentOutlined,
@@ -313,6 +314,15 @@ export function ToolsPage() {
               tagColor="green"
               tone="emerald"
               description="安全查看、在线编辑与版本历史回滚 AGENTS.md、SOPS.md、HERMES.md 等核心指令文件。"
+            />
+            <ToolCard
+              to="/memory"
+              icon={<DatabaseOutlined />}
+              title="记忆系统中心"
+              tag="Jev 智能选型"
+              tagColor="purple"
+              tone="violet"
+              description="自由切换 Hermes 支持的第三方记忆后端（Hindsight、Mem0 等），本地 Docker 一键部署与 Jev 智能治理。"
             />
             <ToolCard
               to="/canary"

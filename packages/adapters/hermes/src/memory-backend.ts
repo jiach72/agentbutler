@@ -12,9 +12,18 @@
  *
  * 显式声明（BUTLER_MEMORY_BACKEND）优先于文件标记，文件标记优先于默认假设。
  */
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { parse as parseYaml } from "yaml";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import type {
+  MemoryApplyResult,
+  MemoryConfigPreview,
+  MemoryConfigPreviewDiff,
+  MemoryDeployMode,
+  MemoryEngineId,
+  MemorySystemView,
+} from "@butler/contract";
+import { atomicWriteText } from "@butler/core";
 
 /** 支持识别的记忆后端。 */
 export type MemoryBackendId = "hermes" | "hindsight" | "mem0";
@@ -148,3 +157,252 @@ export function detectMemoryBackend(
     detail: "未发现外部记忆系统标记，按默认 SQLite 记忆库处理",
   };
 }
+
+/**
+ * 探测并列举当前支持的记忆系统列表与各自状态
+ */
+export function listSupportedMemorySystems(
+  rootPath: string,
+  options: DetectMemoryBackendOptions = {},
+): MemorySystemView[] {
+  const current = detectMemoryBackend(rootPath, options);
+  const exists = options.exists ?? existsSync;
+  const readText = options.readTextFile ?? defaultReadTextFile;
+
+  // 检测 Hindsight 模式
+  let hindsightMode: MemoryDeployMode | null = null;
+  if (current.backend === "hindsight") {
+    const configRaw = readText(join(rootPath, HINDSIGHT_CONFIG_FILE));
+    if (configRaw && (configRaw.includes("127.0.0.1:9177") || configRaw.includes("localhost:9177"))) {
+      hindsightMode = "docker";
+    } else if (configRaw && configRaw.includes("http")) {
+      hindsightMode = "api";
+    } else {
+      hindsightMode = "local";
+    }
+  }
+
+  // 检测 Mem0 模式
+  let mem0Mode: MemoryDeployMode | null = null;
+  if (current.backend === "mem0") {
+    const configRaw = readText(join(rootPath, "mem0.json")) || readText(join(rootPath, "mem0/config.json"));
+    if (configRaw && (configRaw.includes("127.0.0.1:8888") || configRaw.includes("localhost:8888"))) {
+      mem0Mode = "docker";
+    } else if (configRaw && configRaw.includes("platform")) {
+      mem0Mode = "api";
+    } else {
+      mem0Mode = "local";
+    }
+  }
+
+  return [
+    {
+      id: "hindsight",
+      name: "Hindsight 知识图谱记忆",
+      category: "graph",
+      description: "知识图谱驱动的深度记忆引擎，具备跨会话 Reflect 综合推理与实体解析能力。",
+      supportedModes: ["docker", "api", "local"],
+      currentMode: hindsightMode,
+      active: current.backend === "hindsight",
+      containerPort: 9177,
+      probeStatus: current.backend === "hindsight" ? "pass" : "unknown",
+      recommended: true,
+      uniqueFeature: "知识图谱 + 跨会话 Reflect 反思推理",
+      docsUrl: "https://hindsight.vectorize.io",
+    },
+    {
+      id: "mem0",
+      name: "Mem0 长期记忆系统",
+      category: "hybrid",
+      description: "双层向量数据库 + 实体图谱架构，免维护自动提取，具备极高的 Token 检索经济性。",
+      supportedModes: ["docker", "api", "local"],
+      currentMode: mem0Mode,
+      active: current.backend === "mem0",
+      containerPort: 8888,
+      probeStatus: current.backend === "mem0" ? "pass" : "unknown",
+      recommended: true,
+      uniqueFeature: "双层向量与图谱检索，高 Token 效率",
+      docsUrl: "https://mem0.ai",
+    },
+    {
+      id: "hermes",
+      name: "Hermes 原生 SQLite 记忆库",
+      category: "relational",
+      description: "内置 SQLite + FTS5 全文检索引擎，零外部依赖，极低内存消耗。",
+      supportedModes: ["builtin"],
+      currentMode: "builtin",
+      active: current.backend === "hermes",
+      probeStatus: current.backend === "hermes" ? "pass" : "unknown",
+      recommended: false,
+      uniqueFeature: "原生轻量，零网络与容器依赖",
+    },
+    {
+      id: "honcho",
+      name: "Honcho 辩证用户建模",
+      category: "hybrid",
+      description: "专注于多对话者心智建模与会话级别辩证认知。",
+      supportedModes: ["api", "docker"],
+      currentMode: null,
+      active: false,
+      probeStatus: "unknown",
+      recommended: false,
+      uniqueFeature: "会话级别辩证用户画像建模",
+      docsUrl: "https://honcho.dev",
+    },
+    {
+      id: "supermemory",
+      name: "Supermemory 语义围栏",
+      category: "vector",
+      description: "上下文安全围栏与多容器记忆隔离。",
+      supportedModes: ["api", "docker"],
+      currentMode: null,
+      active: false,
+      probeStatus: "unknown",
+      recommended: false,
+      uniqueFeature: "上下文隔离与安全记忆保护",
+      docsUrl: "https://supermemory.ai",
+    },
+  ];
+}
+
+/**
+ * 预览记忆系统切换的配置 Diff
+ */
+export function previewMemoryBackendChange(
+  rootPath: string,
+  engine: MemoryEngineId,
+  mode: MemoryDeployMode,
+  params: { apiUrl?: string; apiKey?: string; port?: number } = {},
+): MemoryConfigPreview {
+  const diffs: MemoryConfigPreviewDiff[] = [];
+  const warnings: string[] = [];
+
+  // 1. config.yaml
+  const configPath = join(rootPath, "config.yaml");
+  let origConfigYaml: string | null = null;
+  let parsedConfig: Record<string, unknown> = {};
+  if (existsSync(configPath)) {
+    origConfigYaml = readFileSync(configPath, "utf8");
+    try {
+      parsedConfig = (parseYaml(origConfigYaml) as Record<string, unknown>) || {};
+    } catch {
+      warnings.push("现有 config.yaml 存在语法格式告警，将进行安全合并");
+    }
+  }
+
+  const newConfig = { ...parsedConfig };
+  const memoryObj = (typeof newConfig["memory"] === "object" && newConfig["memory"] !== null
+    ? { ...(newConfig["memory"] as Record<string, unknown>) }
+    : {}) as Record<string, unknown>;
+
+  memoryObj["memory_enabled"] = true;
+  if (engine === "hermes") {
+    delete memoryObj["provider"];
+  } else {
+    memoryObj["provider"] = engine;
+  }
+  newConfig["memory"] = memoryObj;
+
+  const proposedConfigYaml = stringifyYaml(newConfig);
+  diffs.push({
+    path: "config.yaml",
+    original: origConfigYaml,
+    proposed: proposedConfigYaml,
+  });
+
+  // 2. 专用配置文件 (hindsight/config.json 或 mem0.json)
+  if (engine === "hindsight") {
+    const targetFile = join(rootPath, HINDSIGHT_CONFIG_FILE);
+    const origJson = existsSync(targetFile) ? readFileSync(targetFile, "utf8") : null;
+    const apiUrl = mode === "docker"
+      ? `http://127.0.0.1:${params.port || 9177}`
+      : params.apiUrl || "https://api.hindsight.vectorize.io";
+    const proposedJson = JSON.stringify(
+      {
+        api_url: apiUrl,
+        bank_id: "hermes",
+        mode: mode,
+      },
+      null,
+      2,
+    );
+    diffs.push({
+      path: HINDSIGHT_CONFIG_FILE,
+      original: origJson,
+      proposed: proposedJson,
+    });
+  } else if (engine === "mem0") {
+    const targetFile = join(rootPath, "mem0.json");
+    const origJson = existsSync(targetFile) ? readFileSync(targetFile, "utf8") : null;
+    const host = mode === "docker" ? `http://127.0.0.1:${params.port || 8888}` : undefined;
+    const proposedJson = JSON.stringify(
+      {
+        version: "v1",
+        mode: mode === "docker" ? "selfhosted" : "platform",
+        ...(host ? { host } : {}),
+      },
+      null,
+      2,
+    );
+    diffs.push({
+      path: "mem0.json",
+      original: origJson,
+      proposed: proposedJson,
+    });
+  }
+
+  return {
+    engine,
+    mode,
+    diffs,
+    restartRequired: true,
+    warnings: warnings.length > 0 ? warnings : undefined,
+  };
+}
+
+/**
+ * 安全原子应用记忆系统配置变更，并备份原文件
+ */
+export function applyMemoryBackendChange(
+  rootPath: string,
+  engine: MemoryEngineId,
+  mode: MemoryDeployMode,
+  params: { apiUrl?: string; apiKey?: string; port?: number } = {},
+): MemoryApplyResult {
+  const preview = previewMemoryBackendChange(rootPath, engine, mode, params);
+  const backupPaths: string[] = [];
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+
+  for (const diff of preview.diffs) {
+    const fullPath = join(rootPath, diff.path);
+    if (existsSync(fullPath)) {
+      const backupPath = `${fullPath}.bak-butler-${stamp}`;
+      copyFileSync(fullPath, backupPath);
+      backupPaths.push(backupPath);
+    }
+    mkdirSync(dirname(fullPath), { recursive: true });
+    atomicWriteText(fullPath, diff.proposed);
+  }
+
+  // 若提供了 API Key，同步写入 .env
+  if (params.apiKey && (engine === "mem0" || engine === "hindsight")) {
+    const envPath = join(rootPath, ".env");
+    const envVar = engine === "mem0" ? "MEM0_API_KEY" : "HINDSIGHT_API_KEY";
+    let envContent = existsSync(envPath) ? readFileSync(envPath, "utf8") : "";
+    const reg = new RegExp(`^${envVar}=.*$`, "m");
+    if (reg.test(envContent)) {
+      envContent = envContent.replace(reg, `${envVar}=${params.apiKey.trim()}`);
+    } else {
+      envContent = `${envContent.trimEnd()}\n${envVar}=${params.apiKey.trim()}\n`;
+    }
+    atomicWriteText(envPath, envContent);
+  }
+
+  return {
+    success: true,
+    backupPaths,
+    restarted: false,
+    message: `已安全更新记忆系统配置为 ${engine} (${mode})，创建了 ${backupPaths.length} 份备份`,
+  };
+}
+

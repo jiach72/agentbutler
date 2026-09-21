@@ -296,8 +296,44 @@ services:
       - ollama-data:/root/.ollama
     logging: *default-logging
 
+  # Hindsight 官方推荐本地容器（知识图谱 + Reflect 深度推理）
+  # 严格绑定宿主回环 127.0.0.1:9177，独立数据持久化卷
+  butler-memory-hindsight:
+    image: ghcr.io/vectorize-io/hindsight:latest
+    container_name: butler-memory-hindsight
+    restart: unless-stopped
+    ports:
+      - "${BUTLER_HINDSIGHT_BIND_HOST:-127.0.0.1}:${BUTLER_HINDSIGHT_PORT:-9177}:9177"
+    environment:
+      - HINDSIGHT_HOST=0.0.0.0
+      - HINDSIGHT_PORT=9177
+      - HINDSIGHT_STORAGE_PATH=/data
+    volumes:
+      - hindsight-data:/data
+    profiles:
+      - memory-hindsight
+    logging: *default-logging
+
+  # Mem0 自托管长期记忆容器（双层向量 + 实体图谱）
+  # 严格绑定宿主回环 127.0.0.1:8888，独立数据持久化卷
+  butler-memory-mem0:
+    image: mem0/mem0:latest
+    container_name: butler-memory-mem0
+    restart: unless-stopped
+    ports:
+      - "${BUTLER_MEM0_BIND_HOST:-127.0.0.1}:${BUTLER_MEM0_PORT:-8888}:8888"
+    volumes:
+      - mem0-data:/data
+    profiles:
+      - memory-mem0
+    logging: *default-logging
+
 volumes:
   butler-data:
     name: ${BUTLER_DATA_VOLUME:-agent-butler-data}
   ollama-data:
     name: ${BUTLER_OLLAMA_DATA_VOLUME:-agent-butler-ollama-data}
+  hindsight-data:
+    name: ${BUTLER_HINDSIGHT_DATA_VOLUME:-agent-butler-hindsight-data}
+  mem0-data:
+    name: ${BUTLER_MEM0_DATA_VOLUME:-agent-butler-mem0-data}

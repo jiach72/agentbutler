@@ -21,6 +21,7 @@ import {
   CalendarOutlined,
   ClusterOutlined,
   DashboardOutlined,
+  DatabaseOutlined,
   DeploymentUnitOutlined,
   DiffOutlined,
   DollarOutlined,
@@ -112,6 +113,7 @@ export const ROUTES: RouteMeta[] = [
 
   /* ---- 维护与升级（可折叠；系统日志不进侧栏，入口在「排查问题」页内） ---- */
   { path: "/core-files", group: "maintain", title: "核心文件", note: "查看、编辑与回滚 Markdown", icon: FileMarkdownOutlined, nav: false },
+  { path: "/memory", group: "maintain", title: "记忆系统中心", note: "切换第三方记忆、Docker 部署与 Jev 智能治理", icon: DatabaseOutlined, nav: false },
   { path: "/troubleshoot", group: "maintain", title: "排查问题", note: "按现象一步步处理", icon: ToolOutlined, nav: false },
   { path: "/evolution", group: "maintain", title: "自进化", note: "分析日志与优化方案", icon: ExperimentOutlined, nav: false },
   { path: "/logs", group: "maintain", title: "系统日志", note: "查看记录与修复建议", icon: FileSearchOutlined, nav: false },

@@ -1,4 +1,17 @@
 import {
+  listSupportedMemorySystems,
+  previewMemoryBackendChange,
+  applyMemoryBackendChange,
+  detectMemoryBackend,
+} from "@butler/adapter-hermes";
+import { JevClient } from "@butler/core";
+import type {
+  JevAdvisorRequest,
+  MemoryApplyParams,
+  MemoryDeployMode,
+  MemoryEngineId,
+} from "@butler/contract";
+import {
   type RequestContext,
   isStringArray,
   readJsonBody,
@@ -8,6 +21,102 @@ import {
 
 export async function handleMemory(ctx: RequestContext): Promise<boolean> {
   const { deps, req, res, url, path, method } = ctx;
+
+  if (path === "/api/memory/systems") {
+    if (method !== "GET") {
+      sendJson(res, 405, { error: "method-not-allowed" });
+      return true;
+    }
+    const hermesRoot = deps.hermesRoot ?? process.env.BUTLER_HERMES_ROOT ?? "./.runtime/hermes";
+    const current = detectMemoryBackend(hermesRoot);
+    const systems = listSupportedMemorySystems(hermesRoot);
+    const typesafeKey = deps.apiKeyCredentials?.getDecryptedKeyByEnvVar("TYPESAFE_API_KEY") ?? process.env.TYPESAFE_API_KEY;
+    sendJson(res, 200, {
+      ok: true,
+      activeBackend: current.backend,
+      activeDetail: current.detail,
+      activeSource: current.source,
+      systems,
+      jevStatus: {
+        configured: Boolean(typesafeKey && typesafeKey.trim() !== ""),
+        endpoint: "https://api.typesafe.ai",
+      },
+    });
+    return true;
+  }
+
+  if (path === "/api/memory/advisor") {
+    if (method !== "POST") {
+      sendJson(res, 405, { error: "method-not-allowed" });
+      return true;
+    }
+    const body = (await readJsonBody(req, res)) as JevAdvisorRequest | null;
+    if (body === null) return true;
+
+    const typesafeKey = deps.apiKeyCredentials?.getDecryptedKeyByEnvVar("TYPESAFE_API_KEY") ?? process.env.TYPESAFE_API_KEY;
+    const client = new JevClient({ apiKey: typesafeKey });
+    const result = await client.adviseMemorySystem(body);
+    sendJson(res, 200, { ok: true, result });
+    return true;
+  }
+
+  if (path === "/api/memory/config/preview") {
+    if (method !== "POST") {
+      sendJson(res, 405, { error: "method-not-allowed" });
+      return true;
+    }
+    const body = (await readJsonBody(req, res)) as {
+      engine?: MemoryEngineId;
+      mode?: MemoryDeployMode;
+      config?: { apiUrl?: string; apiKey?: string; port?: number };
+    } | null;
+    if (body === null) return true;
+
+    const engine = body.engine ?? "hindsight";
+    const mode = body.mode ?? "docker";
+    const hermesRoot = deps.hermesRoot ?? process.env.BUTLER_HERMES_ROOT ?? "./.runtime/hermes";
+    const preview = previewMemoryBackendChange(hermesRoot, engine, mode, body.config);
+    sendJson(res, 200, { ok: true, preview });
+    return true;
+  }
+
+  if (path === "/api/memory/config/apply") {
+    if (method !== "POST") {
+      sendJson(res, 405, { error: "method-not-allowed" });
+      return true;
+    }
+    const body = (await readJsonBody(req, res)) as MemoryApplyParams | null;
+    if (body === null) return true;
+
+    const engine = body.engine;
+    const mode = body.mode;
+    if (!engine || !mode) {
+      sendJson(res, 400, { error: "missing-engine-or-mode" });
+      return true;
+    }
+
+    const hermesRoot = deps.hermesRoot ?? process.env.BUTLER_HERMES_ROOT ?? "./.runtime/hermes";
+    const applyOutcome = applyMemoryBackendChange(hermesRoot, engine, mode, body.config);
+
+    let restarted = false;
+    if (body.restartNow) {
+      try {
+        const restartRes = await deps.executeRunbook("rb-restart");
+        restarted = restartRes.status === "started";
+      } catch {
+        // restart best effort
+      }
+    }
+
+    sendJson(res, 200, {
+      ok: true,
+      result: {
+        ...applyOutcome,
+        restarted,
+      },
+    });
+    return true;
+  }
 
   if (path === "/api/memory") {
     if (method !== "GET") {

@@ -46,6 +46,7 @@ const ApprovalDetailPage = lazy(() => import("./pages/approvals/ApprovalDetailPa
 const CanaryPage = lazy(() => import("./pages/canary/CanaryPage.js").then(({ CanaryPage: Page }) => ({ default: Page })));
 const ProgressPage = lazy(() => import("./pages/progress/ProgressPage.js").then(({ ProgressPage: Page }) => ({ default: Page })));
 const MemoryDiffPage = lazy(() => import("./pages/memory/MemoryDiffPage.js").then(({ MemoryDiffPage: Page }) => ({ default: Page })));
+const MemoryCenterPage = lazy(() => import("./pages/memory/MemoryCenterPage.js").then(({ MemoryCenterPage: Page }) => ({ default: Page })));
 const FederationPage = lazy(() => import("./pages/federation/FederationPage.js").then(({ FederationPage: Page }) => ({ default: Page })));
 
 function FirstRunRedirect() {
@@ -140,6 +141,8 @@ function ThemedApp({ locale }: { locale: React.ComponentProps<typeof ConfigProvi
               <Route path="/canary" element={<CanaryPage />} />
               <Route path="/progress" element={<ProgressPage />} />
               <Route path="/memory-diff" element={<MemoryDiffPage />} />
+              <Route path="/memory" element={<MemoryCenterPage />} />
+              <Route path="/memory-center" element={<Navigate to="/memory" replace />} />
               <Route path="/federation" element={<FederationPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/preferences" element={<Navigate to="/settings" replace />} />
