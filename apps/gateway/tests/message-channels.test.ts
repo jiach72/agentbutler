@@ -53,18 +53,27 @@ class FakeChannelControl implements ChannelControlPort {
   async disableChannel() { return { restarting: false }; }
   enabledChannels?: string[] = [];
   loginSessions = new Set<string>();
-  async weixinLoginStart() {
-    const sessionId = "s1";
+  async channelLoginStart(channel: string) {
+    const sessionId = `${channel}_s1`;
     this.loginSessions.add(sessionId);
-    return { sessionId, qrValue: "tok", qrUrl: "https://qr/1", expiresAt: "2026-09-01T00:05:00.000Z" };
+    return { sessionId, qrUrl: `https://qr/${channel}/1`, expiresAt: "2026-09-01T00:05:00.000Z" };
   }
-  async weixinLoginStatus(sessionId: string) {
+  async channelLoginStatus(channel: string, sessionId: string) {
     return this.loginSessions.has(sessionId)
-      ? { state: "scanned" as const }
+      ? { state: "scanned" as const, qrUrl: `https://qr/${channel}/1` }
       : { state: "failed" as const, reason: "session expired" };
   }
-  async weixinLoginCancel(sessionId: string) {
+  async channelLoginCancel(_channel: string, sessionId: string) {
     return { cancelled: this.loginSessions.delete(sessionId) };
+  }
+  async weixinLoginStart() {
+    return this.channelLoginStart("weixin");
+  }
+  async weixinLoginStatus(sessionId: string) {
+    return this.channelLoginStatus("weixin", sessionId);
+  }
+  async weixinLoginCancel(sessionId: string) {
+    return this.channelLoginCancel("weixin", sessionId);
   }
 }
 
@@ -128,6 +137,30 @@ describe("gateway weixin login routes", () => {
     try {
       const res = await app.inject({ method: "POST", url: "/api/messages/channels/weixin/login/cancel", payload: {} });
       expect(res.statusCode).toBe(400);
+    } finally {
+      await app.gateway.close();
+    }
+  });
+
+  it("通用通道扫码登录链路（feishu / qqbot）", async () => {
+    const app = buildApp();
+    try {
+      const start = await app.inject({ method: "POST", url: "/api/messages/channels/feishu/login/start" });
+      expect(start.statusCode).toBe(200);
+      const { sessionId, qrUrl } = start.json();
+      expect(sessionId).toBe("feishu_s1");
+      expect(qrUrl).toContain("https://qr/feishu/1");
+
+      const status = await app.inject({ method: "GET", url: `/api/messages/channels/feishu/login/status?sessionId=${sessionId}` });
+      expect(status.statusCode).toBe(200);
+      expect(status.json().state).toBe("scanned");
+
+      const cancel = await app.inject({ method: "POST", url: "/api/messages/channels/feishu/login/cancel", payload: { sessionId } });
+      expect(cancel.statusCode).toBe(200);
+      expect(cancel.json().cancelled).toBe(true);
+
+      const after = await app.inject({ method: "GET", url: `/api/messages/channels/feishu/login/status?sessionId=${sessionId}` });
+      expect(after.json().state).toBe("failed");
     } finally {
       await app.gateway.close();
     }

@@ -189,4 +189,37 @@ describe("gateway 结果未知结案路由 (/api/messages/:messageId/resolve)", 
       await app.gateway.close();
     }
   });
+
+  it("Bridge 失败但本地 store 存在时降级结案并标记 degraded: true", async () => {
+    const store = new MessagePolicyStore(`${tmp}/degraded.sqlite`);
+    store.ingestBatch({
+      afterSequence: 0,
+      nextSequence: 1,
+      items: [mockUnknownView("m-deg-1")],
+      taskEvents: [],
+      inbound: [],
+    });
+    const app = createGatewayServer({
+      home: tmp,
+      startLoop: false,
+      messageStore: store,
+      resolveMessage: async () => fail("E002", "Bridge 404: not found"),
+    });
+
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/messages/m-deg-1/resolve",
+        payload: { outcome: "delivered", reason: "manual confirm" },
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.message.state).toBe("delivered");
+      expect(body.degraded).toBe(true);
+      expect(body.degradedReason).toContain("宿主 Bridge 未实现 resolve 端点或未找到消息，仅更新网关本地投影");
+    } finally {
+      await app.gateway.close();
+      store.close();
+    }
+  });
 });

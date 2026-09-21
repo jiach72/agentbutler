@@ -201,6 +201,28 @@ describe("hindsight 记忆探针", () => {
     expect(result.detail).toContain("hindsight 测试记忆写入超时");
     expect(calls[calls.length - 1].method).toBe("DELETE");
   });
+
+  it("整轮时长超出总预算（totalBudgetMs）→ warn 并中止后续步骤", async () => {
+    writeHindsightConfig({ api_url: "http://127.0.0.1:9177" });
+    let virtualNow = 1_000_000;
+    const { fetchFn, calls } = fetchMock((call) => {
+      if (call.url.endsWith("/health")) {
+        virtualNow += 100_000;
+        return { data: {} };
+      }
+      if (call.method === "PUT") return { data: {} };
+      return undefined;
+    });
+    const probe = createHindsightMemoryProbe({
+      fetchFn,
+      totalBudgetMs: 50_000,
+      now: () => virtualNow,
+    });
+    const result = await probe(ctxOf(), providerOptions);
+    expect(result.status).toBe("warn");
+    expect(result.detail).toContain("hindsight 探针耗时超出总时长预算");
+    expect(calls.some((c) => c.url.endsWith("/memories"))).toBe(false);
+  });
 });
 
 describe("mem0 记忆探针", () => {

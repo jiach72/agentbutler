@@ -14,4 +14,15 @@ describe("scheduled task trust boundary", () => {
       schemaVersion: 1, supported: true, reachable: true, items: [{ id: "a", prompt: "SECRET" }],
     })).toBeNull();
   });
+  it("accepts valid incidents including resolved state", () => {
+    const valid = parseScheduledTaskResponse("incidents", {
+      schemaVersion: 1, supported: true, reachable: true, items: [{
+        id: "task-1", taskId: "task-1", state: "resolved", failureType: "timeout",
+        firstSeenAt: "2026-09-20T10:00:00Z", lastSeenAt: "2026-09-20T10:30:00Z",
+      }],
+    });
+    expect(valid).not.toBeNull();
+    expect(valid?.items[0]?.state).toBe("resolved");
+  });
 });
+

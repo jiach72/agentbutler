@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createHermesControlBridgeServer, isSupportedNodeVersion } from "./hermes-control-bridge.mjs";
+import { createHermesControlBridgeServer, isSupportedNodeVersion, CONTROL_BRIDGE_VERSION } from "./hermes-control-bridge.mjs";
 
 function call(server, token, action, endpoint = "/v1/control") {
   const address = server.address();
@@ -204,7 +204,7 @@ describe("Hermes control bridge", () => {
       expect(health.status).toBe(200);
       expect(health.body).toMatchObject({
         ok: true,
-        bridgeVersion: "0.1.0-beta.260911.13",
+        bridgeVersion: CONTROL_BRIDGE_VERSION,
         supervisor: "systemd",
         active: true,
         unit: "hermes-gateway.service",
@@ -383,4 +383,58 @@ describe("Hermes control bridge", () => {
     expect(HERMES_CRON_PYTHON).toContain('result["expectedRevision"] = VERSION');
     expect(HERMES_CRON_PYTHON).toContain('writes_allowed = builtin and (is_exact or allow_drift)');
   });
+
+  it("handles incidents with resolved state and skips malformed incident rows gracefully", async () => {
+    const server = createHermesControlBridgeServer({
+      readToken: () => "secret",
+      runCron: async (body) => {
+        if (body.action === "incidents") {
+          return {
+            schemaVersion: 1,
+            supported: true,
+            reachable: true,
+            items: [
+              {
+                id: "inc-1",
+                taskId: "task-1",
+                state: "resolved",
+                failureType: "timeout",
+                firstSeenAt: "2026-09-20T10:00:00Z",
+                lastSeenAt: "2026-09-20T10:15:00Z",
+              },
+              {
+                id: "inc-bad",
+                taskId: "task-bad",
+                state: "unknown_weird_state",
+                failureType: "timeout",
+                firstSeenAt: "2026-09-20T10:00:00Z",
+                lastSeenAt: "2026-09-20T10:15:00Z",
+              },
+              {
+                id: "inc-2",
+                taskId: "task-2",
+                state: "detected",
+                failureType: "rate_limit",
+                firstSeenAt: "2026-09-20T11:00:00Z",
+                lastSeenAt: "2026-09-20T11:05:00Z",
+              },
+            ],
+          };
+        }
+        throw new Error("unexpected action");
+      },
+    });
+    await new Promise((resolve) => server.listen(0, resolve));
+    try {
+      const res = await call(server, "secret", { action: "incidents" }, "/v1/cron");
+      expect(res.status).toBe(200);
+      expect(res.body.supported).toBe(true);
+      expect(res.body.items).toHaveLength(2);
+      expect(res.body.items[0].state).toBe("resolved");
+      expect(res.body.items[1].state).toBe("detected");
+    } finally {
+      server.close();
+    }
+  });
 });
+

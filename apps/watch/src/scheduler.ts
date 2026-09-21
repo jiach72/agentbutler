@@ -56,6 +56,12 @@ export interface InspectionStatus {
   intervalMin: number;
   /** 是否有巡检在飞。 */
   inFlight: boolean;
+  /** 上次巡检耗时（毫秒；未完成过为 null）。 */
+  lastDurationMs?: number | null;
+  /** 因上一轮巡检未结束而跳过的触发计数。 */
+  skippedTicks?: number;
+  /** 若当前巡检在飞，当前轮已执行毫秒数。 */
+  currentRunDurationMs?: number | null;
   /** 独立关键记忆探针状态；未配置时省略。 */
   criticalProbe?: CriticalProbeStatus;
 }
@@ -73,6 +79,9 @@ export class InspectionScheduler {
   /** 上次巡检完成时刻（ISO）。 */
   private lastCompletedAt: string | null = null;
   private criticalStatus?: () => CriticalProbeStatus;
+  private skippedTicks = 0;
+  private lastDurationMs: number | null = null;
+  private currentRunStartedAt: number | null = null;
 
   constructor(options: InspectionSchedulerOptions) {
     this.intervalMs = options.intervalMs;
@@ -112,11 +121,18 @@ export class InspectionScheduler {
       this.handle !== undefined && baseMs !== null
         ? new Date(baseMs + this.intervalMs).toISOString()
         : null;
+    const currentRunDurationMs =
+      this.inFlight && this.currentRunStartedAt !== null
+        ? Math.max(0, this.now() - this.currentRunStartedAt)
+        : null;
     return {
       lastAt: this.lastCompletedAt,
       nextAt,
       intervalMin: Math.round((this.intervalMs / 60_000) * 100) / 100,
       inFlight: this.inFlight,
+      lastDurationMs: this.lastDurationMs,
+      skippedTicks: this.skippedTicks,
+      ...(currentRunDurationMs !== null ? { currentRunDurationMs } : {}),
       ...(this.criticalStatus === undefined ? {} : { criticalProbe: this.criticalStatus() }),
     };
   }
@@ -137,16 +153,28 @@ export class InspectionScheduler {
   }
 
   private async fire(): Promise<void> {
-    if (this.inFlight) return; // 防重叠：上一轮未完成时跳过本次触发
+    if (this.inFlight) {
+      this.skippedTicks += 1;
+      const elapsedMs = this.currentRunStartedAt !== null ? this.now() - this.currentRunStartedAt : null;
+      console.warn(
+        `[butler-watch] 巡检正在执行中${elapsedMs !== null ? `（已耗时 ${Math.round(elapsedMs / 1000)}s）` : ""}，跳过本次触发（累计跳过 ${this.skippedTicks} 次）`,
+      );
+      return;
+    }
     if (this.firstFireAt === null) this.firstFireAt = this.now();
     this.inFlight = true;
+    const startMs = this.now();
+    this.currentRunStartedAt = startMs;
     try {
       await this.run();
     } catch (error) {
       this.onError(error);
     } finally {
       this.inFlight = false;
-      this.lastCompletedAt = new Date(this.now()).toISOString();
+      const endMs = this.now();
+      this.lastDurationMs = Math.max(0, endMs - startMs);
+      this.currentRunStartedAt = null;
+      this.lastCompletedAt = new Date(endMs).toISOString();
     }
   }
 }

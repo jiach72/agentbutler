@@ -30,7 +30,7 @@ import {
   partitionChannels,
 } from "./helpers.js";
 import type { ChannelDirectoryEntryView } from "./helpers.js";
-import { WeixinLoginModal } from "./WeixinLoginModal.js";
+import { ChannelQrLoginModal } from "./ChannelQrLoginModal.js";
 import "./gateway.css";
 
 /** 通道名关键词 → 图标与色调（不命中走通用消息图标）。 */
@@ -59,7 +59,7 @@ export function ChannelGrid({ onReconnect, channels: injected }: ChannelGridProp
   const { message } = App.useApp();
   const [channels, setChannels] = useState<ChannelDirectoryEntryView[] | null>(injected ?? null);
   const [unreachable, setUnreachable] = useState(false);
-  const [loginOpen, setLoginOpen] = useState(false);
+  const [qrLoginTarget, setQrLoginTarget] = useState<ChannelDirectoryEntryView | null>(null);
   const [configChannel, setConfigChannel] = useState<ChannelDirectoryEntryView | null>(null);
   const [applyingIds, setApplyingIds] = useState<ReadonlySet<string>>(new Set());
   const [pingingId, setPingingId] = useState<string | null>(null);
@@ -155,11 +155,11 @@ export function ChannelGrid({ onReconnect, channels: injected }: ChannelGridProp
 
   // 保持引用稳定：弹窗轮询 effect 依赖 onConfirmed/onClose，避免目录轮询重渲染重启扫码会话。
   const closeLogin = useCallback(() => {
-    setLoginOpen(false);
+    setQrLoginTarget(null);
     void refresh();
   }, [refresh]);
   const confirmLogin = useCallback(() => {
-    setLoginOpen(false);
+    setQrLoginTarget(null);
     void refresh();
   }, [refresh]);
 
@@ -222,7 +222,7 @@ export function ChannelGrid({ onReconnect, channels: injected }: ChannelGridProp
                     {channel.kind === "qr-login" ? (
                       // §3.1 行内操作不占 primary 名额，页面主 primary 在页头。
                       <Flex gap={8} wrap="wrap">
-                        <Button size="small" onClick={() => setLoginOpen(true)}>
+                        <Button size="small" onClick={() => setQrLoginTarget(channel)}>
                           扫码登录
                         </Button>
                         {channel.enabled && (
@@ -237,8 +237,17 @@ export function ChannelGrid({ onReconnect, channels: injected }: ChannelGridProp
                       </Flex>
                     ) : channel.kind === "credential" ? (
                       <Flex gap={8} wrap="wrap">
+                        {(channel.supportsQr || channel.id === "feishu" || channel.id === "qqbot") && (
+                          <Button size="small" onClick={() => setQrLoginTarget(channel)}>
+                            扫码接入
+                          </Button>
+                        )}
                         <Button size="small" onClick={() => setConfigChannel(channel)}>
-                          {channel.credentialsConfigured ? "配置" : "配置接入"}
+                          {channel.credentialsConfigured
+                            ? "配置"
+                            : channel.supportsQr || channel.id === "feishu" || channel.id === "qqbot"
+                              ? "手动配置"
+                              : "配置接入"}
                         </Button>
                         {channel.credentialsConfigured &&
                           (applyingIds.has(channel.id) ? (
@@ -303,7 +312,15 @@ export function ChannelGrid({ onReconnect, channels: injected }: ChannelGridProp
           })()
         )}
       </div>
-      <WeixinLoginModal open={loginOpen} onClose={closeLogin} onConfirmed={confirmLogin} />
+      {qrLoginTarget !== null && (
+        <ChannelQrLoginModal
+          open={qrLoginTarget !== null}
+          channel={qrLoginTarget.id}
+          channelLabel={qrLoginTarget.label}
+          onClose={closeLogin}
+          onConfirmed={confirmLogin}
+        />
+      )}
       {configChannel !== null && (
         <ChannelConfigModal
           channel={configChannel.id}

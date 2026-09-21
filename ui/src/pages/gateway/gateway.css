@@ -40,3 +40,14 @@
 .gateway-page {
   padding-bottom: 24px;
 }
+
+/* 移动触控热区增强 (ui-ux-pro-max: touch-target-size >= 44px) */
+@media (pointer: coarse) {
+  .channel-grid .ant-btn {
+    min-height: 40px;
+    min-width: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+}

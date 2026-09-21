@@ -477,9 +477,17 @@ export function GatewayPage() {
     );
     setResolveBusy(false);
     if (result.status === 200) {
-      message.success(
-        outcome === "delivered" ? "已结案：核实对方已收到该消息" : "已结案：该消息已作废",
-      );
+      const data = result.data as { degraded?: boolean; degradedReason?: string } | null;
+      if (data?.degraded) {
+        message.warning(
+          data.degradedReason ?? "已在网关投影结案，但宿主 Bridge 权威状态未同步（请升级宿主 Bridge 副本）",
+          6,
+        );
+      } else {
+        message.success(
+          outcome === "delivered" ? "已结案：核实对方已收到该消息" : "已结案：该消息已作废",
+        );
+      }
       await refresh();
     } else {
       const data = result.data as { error?: unknown; detail?: unknown } | null;

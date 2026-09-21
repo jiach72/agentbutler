@@ -37,6 +37,7 @@ import { SettingsCategoryNav, resolveCategoryKey } from "./SettingsCategoryNav.j
 import { SourceStatusBar } from "./SourceStatusBar.js";
 import { PreferencesPanel } from "../preferences/PreferencesPage.js";
 import { LlmProfileManager } from "./LlmProfileManager.js";
+import { UnifiedApiKeyManager } from "./UnifiedApiKeyManager.js";
 import { OllamaConfigCard } from "./OllamaConfigCard.js";
 import { TaskDefaultsPanel } from "./TaskDefaultsPanel.js";
 import { VersionsPanel } from "../versions/VersionsPage.js";
@@ -275,7 +276,9 @@ export function SettingsPage() {
                   ? "channels"
                   : searchParams.get("section") === "ollama"
                     ? "ollama"
-                    : "llm"
+                    : searchParams.get("section") === "models"
+                      ? "models"
+                      : "llm"
             }
             onChange={(key) => {
               setSearchParams(
@@ -283,13 +286,16 @@ export function SettingsPage() {
                   ? { tab: "llm", section: "channels" }
                   : key === "ollama"
                     ? { tab: "llm", section: "ollama" }
-                    : { tab: key },
+                    : key === "models"
+                      ? { tab: "llm", section: "models" }
+                      : { tab: key },
                 { replace: true },
               );
             }}
             destroyOnHidden={false}
             items={[
-              { key: "llm", label: "模型与密钥", children: <LlmProfileManager /> },
+              { key: "llm", label: "API 密钥管理", children: <UnifiedApiKeyManager /> },
+              { key: "models", label: "高级模型配置", children: <LlmProfileManager /> },
               { key: "ollama", label: "Ollama 本地模型", children: <OllamaConfigCard /> },
               { key: "preferences", label: "通知与偏好", children: <PreferencesPanel /> },
               {

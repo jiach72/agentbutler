@@ -74,6 +74,8 @@ def create_app(
     channel_control: Any | None = None,
     channel_status_provider: Callable[[], Mapping[str, Any]] | None = None,
     weixin_login: Any | None = None,
+    feishu_login: Any | None = None,
+    qqbot_login: Any | None = None,
 ) -> web.Application:
     app = web.Application(
         client_max_size=MAX_BODY_BYTES,
@@ -294,32 +296,47 @@ def create_app(
             return _error(404, "not_found", "task not found")
         return web.json_response(view)
 
-    async def weixin_login_start(_request: web.Request) -> web.Response:
-        if weixin_login is None:
-            return _error(404, "not_found", "weixin login unavailable")
+    def _get_login_manager(channel: str):
+        if channel == "weixin":
+            return weixin_login
+        if channel == "feishu":
+            return feishu_login
+        if channel in ("qqbot", "qq"):
+            return qqbot_login
+        return None
+
+    async def channel_login_start(request: web.Request) -> web.Response:
+        channel = request.match_info.get("channel", "weixin")
+        mgr = _get_login_manager(channel)
+        if mgr is None:
+            return _error(404, "not_found", f"{channel} login unavailable")
         try:
-            return web.json_response(await weixin_login.start())
+            return web.json_response(await mgr.start())
         except ValueError as exc:
             return _conflict_or_invalid(exc)
         except Exception as exc:
             return _error(409, "conflict", str(exc))
 
-    async def weixin_login_status(request: web.Request) -> web.Response:
-        if weixin_login is None:
-            return _error(404, "not_found", "weixin login unavailable")
+    async def channel_login_status(request: web.Request) -> web.Response:
+        channel = request.match_info.get("channel", "weixin")
+        mgr = _get_login_manager(channel)
+        if mgr is None:
+            return _error(404, "not_found", f"{channel} login unavailable")
         session_id = request.query.get("sessionId", "")
         if not session_id:
             return _error(400, "invalid", "sessionId is required")
-        return web.json_response(weixin_login.status(session_id))
+        return web.json_response(mgr.status(session_id))
 
-    async def weixin_login_cancel(request: web.Request) -> web.Response:
-        if weixin_login is None:
-            return _error(404, "not_found", "weixin login unavailable")
+    async def channel_login_cancel(request: web.Request) -> web.Response:
+        channel = request.match_info.get("channel", "weixin")
+        mgr = _get_login_manager(channel)
+        if mgr is None:
+            return _error(404, "not_found", f"{channel} login unavailable")
         try:
             payload = await _read_object(request, required={"sessionId"}, allowed={"sessionId"})
         except ValueError as exc:
             return _conflict_or_invalid(exc)
-        return web.json_response({"cancelled": weixin_login.cancel(str(payload["sessionId"]))})
+        return web.json_response({"cancelled": mgr.cancel(str(payload["sessionId"]))})
 
     async def channel_schema(request: web.Request) -> web.Response:
         if channel_control is None:
@@ -365,9 +382,12 @@ def create_app(
 
     app.router.add_get("/v1/health", health)
     app.router.add_get("/v1/channels", channels_directory)
-    app.router.add_post("/v1/channels/weixin/login/start", weixin_login_start)
-    app.router.add_get("/v1/channels/weixin/login/status", weixin_login_status)
-    app.router.add_post("/v1/channels/weixin/login/cancel", weixin_login_cancel)
+    app.router.add_post("/v1/channels/weixin/login/start", channel_login_start)
+    app.router.add_get("/v1/channels/weixin/login/status", channel_login_status)
+    app.router.add_post("/v1/channels/weixin/login/cancel", channel_login_cancel)
+    app.router.add_post("/v1/channels/{channel}/login/start", channel_login_start)
+    app.router.add_get("/v1/channels/{channel}/login/status", channel_login_status)
+    app.router.add_post("/v1/channels/{channel}/login/cancel", channel_login_cancel)
     app.router.add_get("/v1/channels/{channel}/schema", channel_schema)
     app.router.add_put("/v1/channels/{channel}/config", channel_config_put)
     app.router.add_post("/v1/channels/{channel}/enable", channel_enable)

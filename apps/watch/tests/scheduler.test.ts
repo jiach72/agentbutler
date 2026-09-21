@@ -105,25 +105,48 @@ describe("InspectionScheduler（注入式定时器）", () => {
     scheduler.stop();
   });
 
-  it("在飞巡检防重叠（fire 期间的 interval tick 被忽略）", async () => {
+  it("在飞巡检防重叠（fire 期间的 interval tick 被忽略并记录 skippedTicks/duration）", async () => {
     const driver = new FakeDriver();
     let runs = 0;
     let release: (() => void) | undefined;
+    let clock = 10_000;
     const scheduler = new InspectionScheduler({
       intervalMs: 1000,
       run: async () => {
         runs += 1;
-        await new Promise<void>((resolve) => {
-          release = resolve;
-        });
+        if (runs === 2) {
+          clock += 250;
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+        }
       },
       driver,
+      now: () => clock,
     });
-    const starting = scheduler.start();
-    driver.tick(); // 首轮仍在飞 → 被忽略
+    await scheduler.start(); // 首轮立即完成，setInterval 注册完毕
     expect(runs).toBe(1);
+
+    // 触发第二轮：卡在 in-flight
+    driver.tick();
+    expect(runs).toBe(2);
+
+    clock += 500;
+    driver.tick(); // 第二轮仍在飞 → 触发 fire() 并被忽略，记录 skippedTicks
+    expect(runs).toBe(2);
+    const inFlightStatus = scheduler.status();
+    expect(inFlightStatus.inFlight).toBe(true);
+    expect(inFlightStatus.skippedTicks).toBe(1);
+    expect(inFlightStatus.currentRunDurationMs).toBe(750);
+
+    clock += 200;
     release!();
-    await starting;
+    await new Promise((resolve) => setImmediate(resolve));
+    const completedStatus = scheduler.status();
+    expect(completedStatus.inFlight).toBe(false);
+    expect(completedStatus.skippedTicks).toBe(1);
+    expect(completedStatus.lastDurationMs).toBe(950);
+    expect(completedStatus.currentRunDurationMs).toBeUndefined();
     scheduler.stop();
   });
 

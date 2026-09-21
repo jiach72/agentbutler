@@ -56,13 +56,17 @@ def check(
     if len(patch_states) > 1:
         raise PatchDriftError("Hermes contains only a subset of the managed hook blocks")
     only_patch_state = next(iter(patch_states))
-    if (only_patch_state == "installed") != (managed_status == "installed"):
+    if only_patch_state == "installed" and managed_status == "drifted":
+        # 允许检查更新：hook 存在但 bridge 源码已更新或漂移
+        pass
+    elif (only_patch_state == "installed") != (managed_status == "installed"):
         raise PatchDriftError("managed package and Hermes hook blocks are out of sync")
 
     return {
         "root": str(root),
         "installable": only_patch_state == "missing" and managed_status == "missing",
         "alreadyInstalled": only_patch_state == "installed" and managed_status == "installed",
+        "updatable": only_patch_state == "installed" and managed_status == "drifted",
         "managedPackage": managed_status,
         "patches": patch_reports,
         "coverage": {
@@ -164,6 +168,90 @@ def install(
     }
 
 
+def update(
+    hermes_root: str | Path,
+    *,
+    source_package: str | Path | None = None,
+    backup_root: str | Path | None = None,
+) -> dict[str, Any]:
+    """Atomically update managed files in gateway/butler_bridge to match source package."""
+
+    root = _existing_directory(hermes_root)
+    source = _source_package(source_package)
+    source_files = _managed_source_files(source)
+    _validate_python_files(source_files.values())
+
+    operations: list[tuple[Path, bytes]] = []
+    for relative, source_file in sorted(source_files.items(), key=lambda item: item[0].as_posix()):
+        operations.append((_target(root, MANAGED_RELATIVE_ROOT / relative), source_file.read_bytes()))
+
+    for target, payload in operations:
+        if target.exists() and not target.is_file():
+            raise IsADirectoryError(f"managed target is not a regular file: {target}")
+        if target.suffix == ".py":
+            compile(payload.decode("utf-8"), str(target), "exec")
+
+    selected_backup_root = (
+        Path(backup_root).expanduser().resolve()
+        if backup_root is not None
+        else (root.parent / f".{root.name}-agent-butler-backups").resolve()
+    )
+    transaction_dir = selected_backup_root / f"update-{_timestamp_id()}"
+    transaction_dir.mkdir(parents=True, exist_ok=False)
+    manifest_path = transaction_dir / "manifest.json"
+    entries: list[dict[str, Any]] = []
+
+    for target, payload in operations:
+        relative = target.relative_to(root)
+        existed = target.is_file()
+        pre_sha = _sha256_file(target) if existed else None
+        backup_path = transaction_dir / "files" / relative
+        if existed:
+            backup_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(target, backup_path)
+        entries.append(
+            {
+                "path": relative.as_posix(),
+                "existed": existed,
+                "preSha256": pre_sha,
+                "postSha256": _sha256_bytes(payload),
+                "backupPath": str(backup_path) if existed else None,
+            }
+        )
+
+    applied: list[dict[str, Any]] = []
+    try:
+        for (target, payload), entry in zip(operations, entries):
+            applied.append(entry)
+            _atomic_write_bytes(target, payload)
+            if _sha256_file(target) != entry["postSha256"]:
+                raise RuntimeError(f"post-write hash mismatch: {target}")
+        manifest = {
+            "version": MANIFEST_VERSION,
+            "createdAt": _utc_now(),
+            "root": str(root),
+            "sourcePackage": str(source),
+            "command": "update",
+            "files": entries,
+        }
+        _atomic_write_bytes(
+            manifest_path,
+            (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+        )
+        updated_check = check(root, source_package=source)
+    except BaseException:
+        _restore_entries(root, reversed(applied), verify_current=False)
+        if manifest_path.is_file():
+            manifest_path.unlink()
+        raise
+
+    return {
+        "status": "updated",
+        "manifest": str(manifest_path),
+        "check": updated_check,
+    }
+
+
 def rollback(manifest_file: str | Path) -> dict[str, Any]:
     """Restore exactly one manifest after verifying every current post hash."""
 
@@ -241,10 +329,10 @@ def _managed_status(root: Path, source_files: dict[Path, Path]) -> str:
         return "missing"
     expected = set(source_files)
     if actual_files != expected:
-        raise PatchDriftError("managed package file set has drifted")
+        return "drifted"
     for relative, source in source_files.items():
         if _sha256_file(destination / relative) != _sha256_file(source):
-            raise PatchDriftError(f"managed package file has drifted: {relative.as_posix()}")
+            return "drifted"
     return "installed"
 
 
@@ -334,11 +422,11 @@ def _utc_now() -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
-    for command in ("check", "install"):
+    for command in ("check", "install", "update"):
         selected = subparsers.add_parser(command)
         selected.add_argument("root")
         selected.add_argument("--source-package")
-        if command == "install":
+        if command in ("install", "update"):
             selected.add_argument("--backup-root")
     rollback_parser = subparsers.add_parser("rollback")
     rollback_parser.add_argument("manifest")
@@ -348,6 +436,12 @@ def main(argv: list[str] | None = None) -> int:
         result = check(args.root, source_package=args.source_package)
     elif args.command == "install":
         result = install(
+            args.root,
+            source_package=args.source_package,
+            backup_root=args.backup_root,
+        )
+    elif args.command == "update":
+        result = update(
             args.root,
             source_package=args.source_package,
             backup_root=args.backup_root,

@@ -145,11 +145,30 @@ if (bridgeDirect || bridgeForward) {
   );
 }
 
+const defaultHermesHome = join(process.env.HOME || homedir() || "", ".hermes");
+const bridgeServerPath = join(defaultHermesHome, "hermes-agent", "gateway", "butler_bridge", "server.py");
+if (existsSync(bridgeServerPath)) {
+  try {
+    const installedContent = readFileSync(bridgeServerPath, "utf8");
+    const hasResolve = installedContent.includes("resolve_unknown") && installedContent.includes("/resolve");
+    if (!hasResolve) {
+      warn(
+        "Hermes 消息桥副本版本",
+        "宿主已安装的 Bridge 副本缺少 resolve 权威结案端点（旧版本）",
+        "执行 python -m agent_butler_bridge.installer update ~/.hermes/hermes-agent 同步最新代码并重启 hermes-gateway",
+      );
+    } else {
+      pass("Hermes 消息桥副本版本", "宿主 Bridge 副本具备 resolve 结案能力");
+    }
+  } catch (err) {
+    warn("Hermes 消息桥副本版本", `读取检查失败：${err.message}`);
+  }
+}
+
 /* ------------------ 4b. Hermes Host Control Bridge ------------------ */
 
 const controlDirect = await probeTcp("127.0.0.1", 8756);
 const controlForward = await probeTcp("127.0.0.1", 8757);
-const defaultHermesHome = join(process.env.HOME || homedir() || "", ".hermes");
 const controlTokenPath = join(defaultHermesHome, "agent-butler", "control.token");
 
 if (controlDirect || controlForward) {

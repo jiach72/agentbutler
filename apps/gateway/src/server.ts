@@ -1146,9 +1146,22 @@ function registerMessageRoutes(
 
     messageService?.wake();
     const updated = messageStore?.messageView(messageId);
+    const degraded = bridgeResult !== undefined && !bridgeResult.ok;
+    let degradedReason: string | undefined;
+    if (bridgeResult !== undefined && !bridgeResult.ok) {
+      const err = bridgeResult.error;
+      const msg = err?.message ?? "";
+      if (msg.includes("404") || msg.toLowerCase().includes("not found")) {
+        degradedReason = "宿主 Bridge 未实现 resolve 端点或未找到消息，仅更新网关本地投影";
+      } else {
+        degradedReason = `宿主 Bridge 结案未成功（${err?.userHint ?? msg}），仅更新网关本地投影`;
+      }
+    }
+
     return {
       message: updated ?? (bridgeResult?.ok ? bridgeResult.data : null),
       nextStep: outcome === "delivered" ? "已结案为核实送达。" : "已结案为作废取消。",
+      ...(degraded ? { degraded: true, degradedReason } : {}),
     };
   });
 
@@ -1165,7 +1178,49 @@ function registerMessageRoutes(
     }
   });
 
-  /** 微信扫码登录：start 建会话，status 轮询（sessionId 必填），cancel 主动取消。 */
+  /** 通道扫码登录：start 建会话，status 轮询（sessionId 必填），cancel 主动取消。 */
+  app.post("/api/messages/channels/:channel/login/start", async (request, reply) => {
+    if (channelControl === undefined) return channelUnavailable(reply);
+    const channel = readString((request.params as Record<string, unknown>)["channel"]);
+    if (channel === null) return reply.code(400).send({ error: "channel is required" });
+    try {
+      return await channelControl.channelLoginStart(channel);
+    } catch {
+      return channelUnavailable(reply);
+    }
+  });
+
+  app.get("/api/messages/channels/:channel/login/status", async (request, reply) => {
+    if (channelControl === undefined) return channelUnavailable(reply);
+    const channel = readString((request.params as Record<string, unknown>)["channel"]);
+    if (channel === null) return reply.code(400).send({ error: "channel is required" });
+    const query = (request.query ?? {}) as Record<string, string | undefined>;
+    const sessionId = query["sessionId"];
+    if (sessionId === undefined || sessionId.trim() === "") {
+      return reply.code(400).send({ error: "sessionId is required" });
+    }
+    try {
+      return await channelControl.channelLoginStatus(channel, sessionId);
+    } catch {
+      return channelUnavailable(reply);
+    }
+  });
+
+  app.post("/api/messages/channels/:channel/login/cancel", async (request, reply) => {
+    if (channelControl === undefined) return channelUnavailable(reply);
+    const channel = readString((request.params as Record<string, unknown>)["channel"]);
+    if (channel === null) return reply.code(400).send({ error: "channel is required" });
+    const body = asRecord(request.body);
+    const sessionId = body === null ? null : readString(body["sessionId"]);
+    if (sessionId === null) return reply.code(400).send({ error: "sessionId is required" });
+    try {
+      return await channelControl.channelLoginCancel(channel, sessionId);
+    } catch {
+      return channelUnavailable(reply);
+    }
+  });
+
+  /** 微信扫码登录兼容路由 */
   app.post("/api/messages/channels/weixin/login/start", async (_request, reply) => {
     if (channelControl === undefined) return channelUnavailable(reply);
     try {

@@ -104,7 +104,7 @@ const runsSchema = z.object({
 const incidentsSchema = z.object({
   ...base, items: z.array(z.object({
     id: scheduledTaskIdSchema, taskId: scheduledTaskIdSchema,
-    state: z.enum(["detected", "alerted", "closed"]),
+    state: z.enum(["detected", "alerted", "resolved", "closed"]),
     failureType: z.enum(["rate_limit", "timeout", "auth", "delivery", "config", "script", "agent", "unknown"]),
     firstSeenAt: timestamp, lastSeenAt: timestamp,
   })).max(1000),

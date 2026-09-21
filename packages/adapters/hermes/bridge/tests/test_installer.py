@@ -131,6 +131,29 @@ class InstallerTest(unittest.TestCase):
 
         self.assertEqual(tree_hashes(self.root), before)
 
+    def test_update_managed_files_and_check_updatable(self) -> None:
+        installed = installer.install(self.root, backup_root=self.backups)
+        self.assertEqual(installed["status"], "installed")
+
+        # 模拟源码包更新或已安装副本落后
+        target_bridge_file = self.root / "gateway" / "butler_bridge" / "server.py"
+        self.assertTrue(target_bridge_file.is_file())
+        target_bridge_file.write_text(target_bridge_file.read_text(encoding="utf-8") + "\n# older version\n", encoding="utf-8")
+
+        # check 应报告 updatable: True, managedPackage: "drifted"
+        check_report = installer.check(self.root)
+        self.assertTrue(check_report["updatable"])
+        self.assertEqual(check_report["managedPackage"], "drifted")
+        self.assertFalse(check_report["alreadyInstalled"])
+
+        # 执行 update
+        update_result = installer.update(self.root, backup_root=self.backups)
+        self.assertEqual(update_result["status"], "updated")
+        self.assertTrue(update_result["check"]["alreadyInstalled"])
+        self.assertFalse(update_result["check"]["updatable"])
+        self.assertEqual(update_result["check"]["managedPackage"], "installed")
+        self.assertFalse(target_bridge_file.read_text(encoding="utf-8").endswith("# older version\n"))
+
 
 def tree_hashes(root: Path) -> dict[str, str]:
     return {

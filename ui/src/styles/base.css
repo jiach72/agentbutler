@@ -21,6 +21,8 @@ body {
   font-family: var(--ab-font);
   font-size: var(--ab-text-size-md);
   line-height: 1.55;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -172,4 +174,19 @@ h4 {
 
 p {
   margin: 0;
+}
+
+/* 数据与计时等宽排版增强 (ui-ux-pro-max: number-tabular) */
+.tabular-nums,
+[data-tabular="true"],
+.ant-statistic-content-value,
+.metric-value,
+.time-display {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+.mono-digits {
+  font-family: var(--ab-font-mono, "JetBrains Mono", monospace);
+  font-variant-numeric: tabular-nums;
 }

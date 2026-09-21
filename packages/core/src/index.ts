@@ -27,6 +27,7 @@ export * from "./executor.js";
 export * from "./tail.js";
 export * from "./fingerprint.js";
 export * from "./llm-credentials.js";
+export * from "./api-credentials.js";
 export * from "./atomic-write.js";
 export * from "./operation-lock.js";
 export * from "./user-facing-error.js";

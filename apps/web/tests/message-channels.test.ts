@@ -374,6 +374,29 @@ describe("butler-web 微信扫码登录代理（Task 15，fastify inject）", ()
     expect(notOkRes.statusCode).toBe(502);
     expect(notOkRes.json()).toEqual({ error: "gateway-unreachable" });
   });
+
+  it("feishu 通用通道扫码代理透传", async () => {
+    const transport = makeFetch({
+      [`POST ${GATEWAY_URL}/api/messages/channels/feishu/login/start`]: {
+        status: 200,
+        body: { sessionId: "fs_1", qrUrl: "https://qr.feishu/1", expiresAt: "2026-09-01T00:05:00.000Z" },
+      },
+      [`GET ${GATEWAY_URL}/api/messages/channels/feishu/login/status?sessionId=fs_1`]: {
+        status: 200,
+        body: { state: "confirmed", account: "cli_123" },
+      },
+    });
+    const app = build(transport.fetch);
+
+    const startRes = await app.inject({ method: "POST", url: "/api/messages/channels/feishu/login/start", payload: {} });
+    expect(startRes.statusCode).toBe(200);
+    expect(startRes.json().sessionId).toBe("fs_1");
+
+    const statusRes = await app.inject({ method: "GET", url: "/api/messages/channels/feishu/login/status?sessionId=fs_1" });
+    expect(statusRes.statusCode).toBe(200);
+    expect(statusRes.json().state).toBe("confirmed");
+    expect(statusRes.json().account).toBe("cli_123");
+  });
 });
 
 describe("butler-web 通道启停与配置代理（Task 18，fastify inject）", () => {

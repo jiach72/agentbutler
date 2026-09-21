@@ -39,10 +39,15 @@
   background: var(--ab-ok-soft);
   color: var(--ab-ok);
 }
-.agent-pulse-badge[data-pulse="offline"] {
+.agent-pulse-badge[data-pulse="discovering"] {
   border-color: color-mix(in srgb, var(--ab-warn) 40%, transparent);
   background: var(--ab-warn-soft);
   color: var(--ab-warn);
+}
+.agent-pulse-badge[data-pulse="offline"] {
+  border-color: var(--ab-border);
+  background: var(--ab-surface-muted, #f8fafc);
+  color: var(--ab-ink-muted, #64748b);
 }
 .pulse-dot {
   width: 8px;

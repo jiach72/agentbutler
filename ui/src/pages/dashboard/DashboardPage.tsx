@@ -38,6 +38,25 @@ export function RuntimeDetails({ open, onOpenChange, children }: RuntimeDetailsP
   /></div>;
 }
 
+function DashboardSkeleton() {
+  return (
+    <div className="dashboard-skeleton" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ padding: "20px 24px", background: "var(--ab-surface)", border: "1px solid var(--ab-border)", borderRadius: "var(--ab-r-card, 14px)" }}>
+        <Skeleton.Button active size="small" shape="round" style={{ width: 180, marginBottom: 14 }} />
+        <Skeleton active title={{ width: "35%" }} paragraph={{ rows: 2, width: ["75%", "55%"] }} />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
+        <div style={{ height: 110, padding: 16, background: "var(--ab-surface)", border: "1px solid var(--ab-border)", borderRadius: "var(--ab-r-card, 14px)" }}>
+          <Skeleton active paragraph={{ rows: 2, width: ["80%", "40%"] }} />
+        </div>
+        <div style={{ height: 110, padding: 16, background: "var(--ab-surface)", border: "1px solid var(--ab-border)", borderRadius: "var(--ab-r-card, 14px)" }}>
+          <Skeleton active paragraph={{ rows: 2, width: ["80%", "40%"] }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function DashboardPage() {
   const data = useUserHealthData();
   const { message } = App.useApp();
@@ -64,18 +83,30 @@ export function DashboardPage() {
   return (
     <section className="dashboard-page dashboard-simple">
       <PageHeader title="首页" extra={<Link className="health-wall-link" to="/wall"><DashboardOutlined />大屏模式</Link>} />
-      {data.loading ? <Skeleton active paragraph={{ rows: 6 }} /> : <>
+      {data.loading ? <DashboardSkeleton /> : <>
         {/* 顶部结论横幅 */}
         <section className="health-conclusion" data-status={health.status} aria-labelledby="health-headline">
           <div className="health-conclusion-header">
-            <div className="agent-pulse-badge" data-pulse={onlineInstances && onlineInstances > 0 ? "online" : "offline"}>
-              <span className="pulse-dot" aria-hidden="true" />
-              <span className="pulse-text">
-                {onlineInstances && onlineInstances > 0
+            {(() => {
+              const pulseStatus: "online" | "offline" | "discovering" =
+                onlineInstances && onlineInstances > 0
+                  ? "online"
+                  : totalInstances !== null && totalInstances > 0
+                    ? "offline"
+                    : "discovering";
+              const pulseText =
+                pulseStatus === "online"
                   ? `Hermes Agent 就绪待命 (${onlineInstances}/${totalInstances ?? 1} 在线)`
-                  : "Hermes Agent 待命 / 离线"}
-              </span>
-            </div>
+                  : pulseStatus === "offline"
+                    ? `Hermes Agent 离线 (${totalInstances} 个实例均未连接)`
+                    : "正在探测 Hermes Agent 连接…";
+              return (
+                <div className="agent-pulse-badge" data-pulse={pulseStatus}>
+                  <span className="pulse-dot" aria-hidden="true" />
+                  <span className="pulse-text">{pulseText}</span>
+                </div>
+              );
+            })()}
             <h2 id="health-headline">{health.headline}</h2>
             <p>{health.explanation}</p>
             <div className="health-conclusion-meta">

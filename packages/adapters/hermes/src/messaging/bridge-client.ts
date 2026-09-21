@@ -14,6 +14,8 @@ import {
   type PolicyAck,
   type PolicySnapshot,
   type PrewarmAck,
+  type ChannelLoginStartAck,
+  type ChannelLoginStatusView,
   type WeixinLoginStartAck,
   type WeixinLoginStatusView,
 } from "@butler/contract";
@@ -138,16 +140,31 @@ export class HermesBridgeClient {
     return this.request("POST", `/v1/channels/${encodeURIComponent(channel)}/disable`);
   }
 
+  channelLoginStart(channel: ChannelId): Promise<ChannelLoginStartAck> {
+    return this.request("POST", `/v1/channels/${encodeURIComponent(channel)}/login/start`);
+  }
+
+  channelLoginStatus(channel: ChannelId, sessionId: string): Promise<ChannelLoginStatusView> {
+    return this.request(
+      "GET",
+      `/v1/channels/${encodeURIComponent(channel)}/login/status?sessionId=${encodeURIComponent(sessionId)}`,
+    );
+  }
+
+  channelLoginCancel(channel: ChannelId, sessionId: string): Promise<{ cancelled: boolean }> {
+    return this.request("POST", `/v1/channels/${encodeURIComponent(channel)}/login/cancel`, { sessionId });
+  }
+
   weixinLoginStart(): Promise<WeixinLoginStartAck> {
-    return this.request("POST", "/v1/channels/weixin/login/start");
+    return this.channelLoginStart("weixin");
   }
 
   weixinLoginStatus(sessionId: string): Promise<WeixinLoginStatusView> {
-    return this.request("GET", `/v1/channels/weixin/login/status?sessionId=${encodeURIComponent(sessionId)}`);
+    return this.channelLoginStatus("weixin", sessionId);
   }
 
   weixinLoginCancel(sessionId: string): Promise<{ cancelled: boolean }> {
-    return this.request("POST", "/v1/channels/weixin/login/cancel", { sessionId });
+    return this.channelLoginCancel("weixin", sessionId);
   }
 
   private async request<T>(method: "GET" | "POST" | "PUT", path: string, body?: unknown): Promise<T> {

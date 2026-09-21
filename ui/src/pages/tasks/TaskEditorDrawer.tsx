@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Alert, App, Button, Collapse, Drawer, Input, Select, Space, Switch, Typography } from "antd";
-import { SaveOutlined } from "@ant-design/icons";
+import { Link } from "react-router-dom";
+import { Alert, App, Button, Collapse, Drawer, Input, Select, Space, Switch, Tag, Typography } from "antd";
+import { BellOutlined, CheckCircleOutlined, ExclamationCircleOutlined, SaveOutlined } from "@ant-design/icons";
 import type { ScheduledTaskDraft } from "@butler/contract";
-import { mutateJson, postJson } from "../../lib/api.js";
+import { fetchJson, mutateJson, postJson } from "../../lib/api.js";
 import { SchedulePicker } from "./SchedulePicker.js";
 import { scheduleConfirmation, taskMutationError } from "./taskCopy.js";
 import { readScheduledTaskDefaults } from "../settings/taskDefaults.js";
@@ -71,8 +72,26 @@ export function TaskEditorDrawer({ open, taskId, initialDraft, timezone, onClose
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [uncertain, setUncertain] = useState(false);
+  const [channels, setChannels] = useState<Array<{ id: string; label: string; kind: string; enabled: boolean; credentialsConfigured: boolean; loginState: string; account?: string }> | null>(null);
+  const [channelsLoading, setChannelsLoading] = useState(false);
   const request = useRef<{ fingerprint: string; id: string } | null>(null);
   const scheduleKey = JSON.stringify(draft.schedule);
+
+  useEffect(() => {
+    if (!open || !draft.delivery.enabled) return;
+    let active = true;
+    setChannelsLoading(true);
+    void fetchJson<{ channels: Array<{ id: string; label: string; kind: string; enabled: boolean; credentialsConfigured: boolean; loginState: string; account?: string }> }>("/api/messages/channels").then((data) => {
+      if (!active) return;
+      setChannelsLoading(false);
+      setChannels(data?.channels ?? []);
+    });
+    return () => { active = false; };
+  }, [open, draft.delivery.enabled]);
+
+  const activeChannels = (channels ?? []).filter((c) =>
+    c.enabled && (c.kind === "qr-login" ? c.loginState === "logged_in" : c.credentialsConfigured)
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -177,6 +196,45 @@ export function TaskEditorDrawer({ open, taskId, initialDraft, timezone, onClose
           <Switch id="task-delivery" checked={draft.delivery.enabled} disabled={frozen}
             onChange={(enabled) => setDraft({ ...draft, delivery: { enabled } })} />
         </div>
+        {draft.delivery.enabled && (
+          <div className="task-delivery-status" style={{ marginTop: 6, marginBottom: 12, padding: "8px 12px", borderRadius: 8, background: "var(--ab-surface-muted, #f8fafc)", border: "1px solid var(--ab-border, #e2e8f0)" }}>
+            {channelsLoading && channels === null ? (
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                正在检查已连接的通讯工具…
+              </Typography.Text>
+            ) : activeChannels.length > 0 ? (
+              <Space direction="vertical" size={4} style={{ width: "100%" }}>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  <CheckCircleOutlined style={{ color: "var(--ab-ok, #16a34a)", marginRight: 6 }} />
+                  任务执行完成后，结果将通过以下已连接的通讯工具推送：
+                </Typography.Text>
+                <Space wrap size={[6, 6]}>
+                  {activeChannels.map((c) => (
+                    <Tag key={c.id} color="success" style={{ margin: 0, fontSize: 12 }}>
+                      {c.label}{c.account ? ` (${c.account})` : ""}
+                    </Tag>
+                  ))}
+                </Space>
+              </Space>
+            ) : (
+              <Alert
+                type="warning"
+                showIcon
+                icon={<ExclamationCircleOutlined />}
+                title="尚未连接通讯工具"
+                description={
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    当前没有任何已登录或已配置的通讯工具（如微信、QQ、钉钉）。任务完成后将无法外发通知，结果仅保留在执行历史中。
+                    <Link to="/gateway" style={{ marginLeft: 6, fontWeight: 500 }}>
+                      去配置通讯工具 →
+                    </Link>
+                  </Typography.Text>
+                }
+                style={{ padding: "8px 12px" }}
+              />
+            )}
+          </div>
+        )}
         <Collapse items={[{ key: "advanced", label: "高级设置", children: <div className="task-editor-fields">
           <label htmlFor="task-model">模型</label>
           <Input id="task-model" value={advanced.model ?? ""} maxLength={160} disabled={frozen}

@@ -52,6 +52,11 @@ const sourceVersions = [
     value: (version) => `adapterVersion: "${version}"`,
   },
   {
+    file: "scripts/hermes-control-bridge.mjs",
+    pattern: /return "(?:0\.1\.0-beta|0\.1-beta)[0-9A-Za-z.]*";/,
+    value: (version) => `return "${version}";`,
+  },
+  {
     file: "README.md",
     // 接受显示形态（0.1-beta.x，规范）与存储形态（0.1.0-beta.x）任一写法。
     pattern: /当前开发版本：`(?:0\.1\.0-beta|0\.1-beta)[0-9A-Za-z.]*`/,

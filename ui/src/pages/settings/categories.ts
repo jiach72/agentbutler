@@ -9,7 +9,7 @@ export const SETTINGS_CATEGORIES = [
   { key: "security", label: "本机安全", icon: SafetyOutlined },
   { key: "tasks", label: "定时任务默认值", icon: CalendarOutlined },
   { key: "backups", label: "备份与升级", icon: HistoryOutlined },
-  { key: "llm", label: "模型与通知", icon: KeyOutlined },
+  { key: "llm", label: "API 密钥与服务", icon: KeyOutlined },
 ];
 
 const LEGACY_CATEGORIES: Record<string, string> = {

@@ -48,6 +48,7 @@ import {
   FingerprintEngine,
   LogTailer,
   LlmCredentialService,
+  ApiKeyCredentialService,
   SecretVault,
   toInstanceRow,
   type Core,
@@ -209,6 +210,7 @@ export interface WatchApp {
   /** Task 16：进化预检、扩集、写入守门与 Markdown 台账服务。 */
   evolution: EvolutionService;
   llm: LlmCredentialService;
+  apiKeyCredentials: ApiKeyCredentialService;
   /** Task 17：技能与记忆只读清单、统计、检索预览与目录降级服务。 */
   skills: SkillsMemoryService;
   externalEvolution: ExternalEvolutionService;
@@ -516,16 +518,21 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     ...(options.home !== undefined ? { home: options.home } : {}),
   });
   const core = createCore({ home: config.home });
-  const llm = new LlmCredentialService(core.store, new SecretVault(), options.fetchFn === undefined ? undefined : async (url, init) => {
+  const vault = new SecretVault();
+  const llm = new LlmCredentialService(core.store, vault, options.fetchFn === undefined ? undefined : async (url, init) => {
     const response = await options.fetchFn!(url, init);
     return { status: response.status };
   });
+  const apiKeyCredentials = new ApiKeyCredentialService(core.store, vault);
   const runtime = detectButlerRuntime({
     sourceDir: process.env["BUTLER_SRC"]?.trim() || process.cwd(),
     butlerDataDir: config.home,
     hermesRoot: config.hermesRoot,
     openclawRoot: config.openclawRoot,
   });
+  if (runtime.hermesRoot) {
+    void apiKeyCredentials.autoMigrateFromHermesEnv(runtime.hermesRoot).catch(() => {});
+  }
   const commandExec = options.exec ?? createRuntimeCommandExecutor(runtime);
   // 模型发现优先 Node 直读（Docker 挂载/宿主直跑均可用），目录不可达时退回 python3 通道。
   llm.setDiscoveryReader(async () => discoverHermesLlm(runtime.hermesRoot, { exec: commandExec }));
@@ -2270,6 +2277,8 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       // github-token.json 与 skill-assets / upgrade 消费端同源（core.paths.home）。
       dataDir: core.paths.home,
       llm,
+      apiKeyCredentials,
+      hermesRoot: runtime.hermesRoot,
       skills,
       m6WritesEnabled: memoryWritesUnlocked,
       memorySelfCheck: runMemorySelfCheck,
@@ -2367,6 +2376,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     gateway,
     evolution,
     llm,
+    apiKeyCredentials,
     skills,
     externalEvolution,
     evolutionInsights,

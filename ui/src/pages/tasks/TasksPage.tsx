@@ -118,7 +118,7 @@ export function TasksPage() {
     if (task.lastStatus === "delivery_failed") return taskFailureLabel("delivery");
     if (task.lastStatus !== "failed") return null;
     if (task.failureReason) return task.failureReason;
-    const incident = incidents?.items.filter((item) => item.taskId === task.id && item.state !== "closed")
+    const incident = incidents?.items.filter((item) => item.taskId === task.id && item.state !== "closed" && item.state !== "resolved")
       .sort((a, b) => (b.lastSeenAt ?? "").localeCompare(a.lastSeenAt ?? ""))[0];
     return taskFailureLabel(incident?.failureType ?? "unknown");
   };

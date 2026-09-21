@@ -589,7 +589,11 @@
   .task-card-footer .task-actions .ant-btn {
     flex: 1;
     min-width: 0;
+    min-height: 40px;
     padding-inline: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
   .task-editor .ant-input, .task-editor .ant-select, .task-editor .ant-input-number { font-size: 16px; }
   .task-schedule-fields .ant-checkbox-wrapper { min-height: 44px; align-items: center; }

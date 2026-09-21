@@ -186,27 +186,33 @@ describe("MessagePolicyStore", () => {
 
   it("保留期清理：删除长期无活动的非终态滞留行与过期入站投影", () => {
     const store = new MessagePolicyStore(dbFile);
-    store.ingestBatch(BATCH); // captured 行 + inbound 投影
-    const staleCutoff = "2026-09-20T00:00:00.000Z"; // 晚于批次时间 → 全部命中
-    const result = store.pruneProjectionHistory(
-      "2026-09-20T00:00:00.000Z",
-      staleCutoff,
-    );
-    expect(result.stale).toBe(1);
-    expect(result.inbound).toBe(1);
-    expect(store.cursor("hermes-main")).toBe(BATCH.nextSequence); // cursor 不受清理影响
-    store.close();
+    try {
+      store.ingestBatch(BATCH); // captured 行 + inbound 投影
+      const staleCutoff = new Date(Date.now() + 60_000).toISOString(); // 晚于当前时间 → 全部命中
+      const result = store.pruneProjectionHistory(
+        staleCutoff,
+        staleCutoff,
+      );
+      expect(result.stale).toBe(1);
+      expect(result.inbound).toBe(1);
+      expect(store.cursor("hermes-main")).toBe(BATCH.nextSequence); // cursor 不受清理影响
+    } finally {
+      store.close();
+    }
 
     const raw = new DatabaseSync(dbFile);
-    const remaining = raw.prepare("SELECT COUNT(*) AS n FROM message_projection").get() as {
-      n: number;
-    };
-    const inboundLeft = raw.prepare("SELECT COUNT(*) AS n FROM inbound_projection").get() as {
-      n: number;
-    };
-    expect(remaining.n).toBe(0);
-    expect(inboundLeft.n).toBe(0);
-    raw.close();
+    try {
+      const remaining = raw.prepare("SELECT COUNT(*) AS n FROM message_projection").get() as {
+        n: number;
+      };
+      const inboundLeft = raw.prepare("SELECT COUNT(*) AS n FROM inbound_projection").get() as {
+        n: number;
+      };
+      expect(remaining.n).toBe(0);
+      expect(inboundLeft.n).toBe(0);
+    } finally {
+      raw.close();
+    }
   });
 
   it("accepts empty-text inbound records without blocking the ordered batch", () => {

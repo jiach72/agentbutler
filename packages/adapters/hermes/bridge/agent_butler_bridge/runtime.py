@@ -19,6 +19,8 @@ from .outbox import Outbox
 from .registry import AdapterBinding, NativeRegistry
 from .server import create_app
 from .weixin_login import WeixinLoginManager
+from .feishu_login import FeishuLoginManager
+from .qqbot_login import QqbotLoginManager
 from .wrapper import attach_adapter
 
 
@@ -104,10 +106,14 @@ class BridgeRuntime:
         config: RuntimeConfig,
         channel_control: ChannelControl | None = None,
         weixin_login: WeixinLoginManager | None = None,
+        feishu_login: FeishuLoginManager | None = None,
+        qqbot_login: QqbotLoginManager | None = None,
     ):
         self.config = config
         self.channel_control: ChannelControl | None = channel_control
         self.weixin_login: WeixinLoginManager | None = weixin_login
+        self.feishu_login: FeishuLoginManager | None = feishu_login
+        self.qqbot_login: QqbotLoginManager | None = qqbot_login
         self.outbox: Outbox | None = None
         self.registry: NativeRegistry | None = None
         self._runner: web.AppRunner | None = None
@@ -148,10 +154,32 @@ class BridgeRuntime:
             if self.channel_control is None:
                 self.channel_control = ChannelControl()
             channel_control = self.channel_control
-            # 懒初始化：WeixinLoginManager 的默认构造会延迟导入 gateway.platforms.weixin
-            # （真实 Hermes 运行时才有），非微信部署 / 测试环境没有该模块。
-            # server.py 对 weixin_login=None 已有降级响应，微信扫码接口不可用不影响其他通道。
+            # 懒初始化：各个 LoginManager 的默认构造会延迟导入相应平台模块
+            # server.py 对 login manager=None 已有降级响应，扫码接口不可用不影响其他通道。
             weixin_login = self.weixin_login
+            if weixin_login is None:
+                try:
+                    weixin_login = WeixinLoginManager()
+                    self.weixin_login = weixin_login
+                except Exception:
+                    weixin_login = None
+
+            feishu_login = self.feishu_login
+            if feishu_login is None:
+                try:
+                    feishu_login = FeishuLoginManager()
+                    self.feishu_login = feishu_login
+                except Exception:
+                    feishu_login = None
+
+            qqbot_login = self.qqbot_login
+            if qqbot_login is None:
+                try:
+                    qqbot_login = QqbotLoginManager()
+                    self.qqbot_login = qqbot_login
+                except Exception:
+                    qqbot_login = None
+
             outbox: Outbox | None = None
             runner: web.AppRunner | None = None
             try:
@@ -169,6 +197,8 @@ class BridgeRuntime:
                     channel_control=channel_control,
                     channel_status_provider=lambda: channel_control.status_map(registry),
                     weixin_login=weixin_login,
+                    feishu_login=feishu_login,
+                    qqbot_login=qqbot_login,
                 )
                 runner = web.AppRunner(app, access_log=None)
                 await runner.setup()

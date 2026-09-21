@@ -16,10 +16,11 @@ import yaml
 # 第一批国内 IM。字段与 Hermes 适配器实际读取的配置键一一对应
 # （2026-09-01 自 hermes-agent 提取；适配器变更时回填）。
 CHANNEL_SCHEMAS: dict[str, dict[str, Any]] = {
-    "weixin": {"label": "微信", "kind": "qr-login", "fields": []},
+    "weixin": {"label": "微信", "kind": "qr-login", "supports_qr": True, "fields": []},
     "qqbot": {
         "label": "QQ 机器人",
         "kind": "credential",
+        "supports_qr": True,
         "fields": [
             {"name": "app_id", "label": "App ID", "type": "string", "required": True, "secret": False},
             {"name": "client_secret", "label": "Client Secret", "type": "string", "required": True, "secret": True},
@@ -28,6 +29,7 @@ CHANNEL_SCHEMAS: dict[str, dict[str, Any]] = {
     "yuanbao": {
         "label": "腾讯元宝",
         "kind": "credential",
+        "supports_qr": False,
         "fields": [
             {"name": "app_id", "label": "App ID", "type": "string", "required": True, "secret": False},
             {"name": "app_secret", "label": "App Secret", "type": "string", "required": True, "secret": True},
@@ -37,6 +39,7 @@ CHANNEL_SCHEMAS: dict[str, dict[str, Any]] = {
     "feishu": {
         "label": "飞书",
         "kind": "credential",
+        "supports_qr": True,
         "fields": [
             {"name": "app_id", "label": "App ID", "type": "string", "required": True, "secret": False},
             {"name": "app_secret", "label": "App Secret", "type": "string", "required": True, "secret": True},
@@ -46,6 +49,7 @@ CHANNEL_SCHEMAS: dict[str, dict[str, Any]] = {
     "dingtalk": {
         "label": "钉钉",
         "kind": "credential",
+        "supports_qr": False,
         "fields": [
             {"name": "client_id", "label": "Client ID", "type": "string", "required": True, "secret": False},
             {"name": "client_secret", "label": "Client Secret", "type": "string", "required": True, "secret": True},
@@ -55,6 +59,7 @@ CHANNEL_SCHEMAS: dict[str, dict[str, Any]] = {
     "wecom": {
         "label": "企业微信",
         "kind": "credential",
+        "supports_qr": False,
         "fields": [
             {"name": "bot_id", "label": "Bot ID", "type": "string", "required": True, "secret": False},
             {"name": "secret", "label": "Secret", "type": "string", "required": True, "secret": True},
@@ -164,10 +169,12 @@ class ChannelControl:
             account = str(section.get("app_id") or section.get("client_id") or section.get("bot_id") or "") or None
         else:
             login_state, account = ("configuring", None) if section else ("unknown", None)
+        supports_qr = bool(schema.get("supports_qr", False)) if schema else False
         return {
             "id": channel,
             "label": schema["label"] if schema else channel,
             "kind": schema["kind"] if schema else "builtin",
+            "supportsQr": supports_qr,
             "enabled": self._is_enabled(channel, section),
             "credentialsConfigured": self._credentials_configured(channel, section),
             "loginState": login_state,
@@ -197,7 +204,13 @@ class ChannelControl:
         base = CHANNEL_SCHEMAS.get(channel)
         if base is None:
             raise ValueError(f"unsupported channel: {channel}")
-        return {"channel": channel, "kind": base["kind"], "label": base["label"], "fields": list(base["fields"])}
+        return {
+            "channel": channel,
+            "kind": base["kind"],
+            "supportsQr": bool(base.get("supports_qr", False)),
+            "label": base["label"],
+            "fields": list(base["fields"]),
+        }
 
     def update_config(self, channel: str, values: dict[str, str]) -> dict[str, Any]:
         base = CHANNEL_SCHEMAS.get(channel)

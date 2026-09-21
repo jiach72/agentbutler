@@ -42,8 +42,10 @@ export const MEM0_PROBE_USER_ID = "butler-probe";
 /** mem0 写入后索引可见存在延迟，召回校验做有限重试。 */
 const MEM0_RECALL_ATTEMPTS = 3;
 const MEM0_RECALL_RETRY_MS = 1_500;
-/** hindsight retain 同步模式会做事实抽取，可能显著慢于普通 HTTP；给足预算。 */
-const DEFAULT_HINDSIGHT_TIMEOUT_MS = 180_000;
+/** hindsight retain 同步模式会做事实抽取，可能显著慢于普通 HTTP；单次请求给足预算。 */
+const DEFAULT_HINDSIGHT_TIMEOUT_MS = 60_000;
+/** hindsight 探针整轮总时长预算（默认 90 秒，杜绝无节制拖慢巡检循环）。 */
+export const DEFAULT_HINDSIGHT_TOTAL_BUDGET_MS = 90_000;
 const DEFAULT_MEM0_TIMEOUT_MS = 30_000;
 /**
  * hindsight 探针内容与召回语。
@@ -65,6 +67,8 @@ export interface HindsightProbeOptions {
   /** 探针 bank（默认 butler-probe）。 */
   bankId?: string;
   timeoutMs?: number;
+  /** 探针整轮总时长预算（毫秒，默认 90_000）。 */
+  totalBudgetMs?: number;
 }
 
 export interface Mem0ProbeOptions {
@@ -185,7 +189,7 @@ export function resolveHindsightBaseUrl(
  * 全程不触碰用户 bank；bank 删除放在 finally，召回失败也保证清理。
  */
 export function createHindsightMemoryProbe(
-  options: HindsightProbeOptions & { fetchFn?: FetchLike; readTextFile?: (path: string) => string | null } = {},
+  options: HindsightProbeOptions & { fetchFn?: FetchLike; readTextFile?: (path: string) => string | null; now?: () => number } = {},
 ): MemoryProbeProvider {
   const fetchFn = options.fetchFn ?? defaultFetchLike;
   const readTextFile =
@@ -197,7 +201,10 @@ export function createHindsightMemoryProbe(
         return null;
       }
     });
+  const now = options.now ?? Date.now;
   const timeoutMs = options.timeoutMs ?? DEFAULT_HINDSIGHT_TIMEOUT_MS;
+  const totalBudgetMs = options.totalBudgetMs ?? Math.min(timeoutMs, DEFAULT_HINDSIGHT_TOTAL_BUDGET_MS);
+
   return async (ctx, providerOptions) => {
     const resolved = resolveHindsightBaseUrl(ctx.rootPath, options, readTextFile);
     if ("error" in resolved) {
@@ -213,9 +220,23 @@ export function createHindsightMemoryProbe(
     const documentId = `butler-probe-${randomUUID()}`;
     let bankReady = false;
     let attemptedBank = false;
+    const startMs = now();
+    const remainingBudgetMs = () => Math.max(0, totalBudgetMs - (now() - startMs));
+
     try {
+      if (remainingBudgetMs() <= 0) {
+        return {
+          status: "warn",
+          detail: `hindsight 探针耗时超出总时长预算（${Math.round(totalBudgetMs / 1000)}s），已中止后续步骤`,
+        };
+      }
+
       // 1. 健康检查：连接失败单独给容器场景的可操作提示。
-      const health = await requestJson(fetchFn, `${base}/health`, { method: "GET", headers, timeoutMs: 5_000 });
+      const health = await requestJson(fetchFn, `${base}/health`, {
+        method: "GET",
+        headers,
+        timeoutMs: Math.min(5_000, remainingBudgetMs() || 5_000),
+      });
       if (!health.ok) {
         return {
           status: "fail",
@@ -235,17 +256,24 @@ export function createHindsightMemoryProbe(
           typeof userBank?.["bank_id"] === "string" && userBank["bank_id"] !== ""
             ? String(userBank["bank_id"])
             : "hermes";
+        const stepBudget = Math.min(timeoutMs, remainingBudgetMs());
+        if (stepBudget <= 0) {
+          return {
+            status: "warn",
+            detail: `hindsight 只读召回超时或超出总时长预算（${Math.round(totalBudgetMs / 1000)}s）`,
+          };
+        }
         const recalled = await requestJson(fetchFn, `${base}/v1/default/banks/${encodeURIComponent(userBankId)}/memories/recall`, {
           method: "POST",
           headers,
           body: JSON.stringify({ query: "最近的会话与工作记忆", budget: "low" }),
-          timeoutMs,
+          timeoutMs: stepBudget,
         });
         if (!recalled.ok) {
           if (recalled.isTimeout) {
             return {
               status: "warn",
-              detail: `hindsight 只读召回超时（bank=${userBankId}，已等待 ${Math.round(timeoutMs / 1000)}s）：服务响应较慢`,
+              detail: `hindsight 只读召回超时（bank=${userBankId}，已等待 ${Math.round(stepBudget / 1000)}s）：服务响应较慢`,
             };
           }
           return { status: "fail", detail: `hindsight 只读召回失败（bank=${userBankId}）：${recalled.reason}` };
@@ -258,17 +286,35 @@ export function createHindsightMemoryProbe(
 
       // 2. 幂等创建探针 bank（PUT = create or update，不污染既有 bank）。
       attemptedBank = true;
+      const bankBudget = Math.min(10_000, remainingBudgetMs());
+      if (bankBudget <= 0) {
+        return {
+          status: "warn",
+          detail: `hindsight 探针耗时超出总时长预算（${Math.round(totalBudgetMs / 1000)}s），已中止探针 bank 创建`,
+        };
+      }
       const created = await requestJson(fetchFn, bank, {
         method: "PUT",
         headers,
         body: JSON.stringify({}),
-        timeoutMs: 10_000,
+        timeoutMs: bankBudget,
       });
       if (!created.ok) {
+        if (created.isTimeout) {
+          return { status: "warn", detail: `hindsight 探针 bank 创建超时（${bankId}）：服务响应较慢` };
+        }
         return { status: "fail", detail: `hindsight 探针 bank 创建失败（${bankId}）：${created.reason}` };
       }
       bankReady = true;
+
       // 3. retain：同步模式写入自然语句（真实走「LLM 抽取 → 嵌入」链路）。
+      const retainBudget = Math.min(timeoutMs, remainingBudgetMs());
+      if (retainBudget <= 0) {
+        return {
+          status: "warn",
+          detail: `hindsight 探针耗时超出总时长预算（${Math.round(totalBudgetMs / 1000)}s），已中止记忆写入`,
+        };
+      }
       const retained = await requestJson(fetchFn, `${bank}/memories`, {
         method: "POST",
         headers,
@@ -276,13 +322,13 @@ export function createHindsightMemoryProbe(
           items: [{ content: `${HINDSIGHT_PROBE_CONTENT}${documentId}。`, document_id: documentId, tags: ["butler-probe"] }],
           async: false,
         }),
-        timeoutMs,
+        timeoutMs: retainBudget,
       });
       if (!retained.ok) {
         if (retained.isTimeout) {
           return {
             status: "warn",
-            detail: `hindsight 测试记忆写入超时（已等待 ${Math.round(timeoutMs / 1000)}s）：服务可能正在冷启动或模型推理较慢`,
+            detail: `hindsight 测试记忆写入超时（已等待 ${Math.round(retainBudget / 1000)}s）：服务可能正在冷启动或模型推理较慢`,
           };
         }
         return { status: "fail", detail: `hindsight 测试记忆写入失败：${retained.reason}` };
@@ -291,18 +337,26 @@ export function createHindsightMemoryProbe(
       if (retainedData?.["success"] !== true) {
         return { status: "fail", detail: "hindsight retain 返回 success=false（嵌入/抽取链路异常）" };
       }
+
       // 4. recall：语义召回刚写入的内容，按 document_id 归属校验（budget=low 控制开销）。
+      const recallBudget = Math.min(timeoutMs, remainingBudgetMs());
+      if (recallBudget <= 0) {
+        return {
+          status: "warn",
+          detail: `hindsight 探针耗时超出总时长预算（${Math.round(totalBudgetMs / 1000)}s），已中止记忆召回`,
+        };
+      }
       const recalled = await requestJson(fetchFn, `${bank}/memories/recall`, {
         method: "POST",
         headers,
         body: JSON.stringify({ query: HINDSIGHT_RECALL_QUERY, budget: "low" }),
-        timeoutMs,
+        timeoutMs: recallBudget,
       });
       if (!recalled.ok) {
         if (recalled.isTimeout) {
           return {
             status: "warn",
-            detail: `hindsight 召回查询超时（已等待 ${Math.round(timeoutMs / 1000)}s）：服务可能正在冷启动或模型推理较慢`,
+            detail: `hindsight 召回查询超时（已等待 ${Math.round(recallBudget / 1000)}s）：服务可能正在冷启动或模型推理较慢`,
           };
         }
         return { status: "fail", detail: `hindsight 召回查询失败：${recalled.reason}` };
@@ -328,7 +382,7 @@ export function createHindsightMemoryProbe(
       // 5. 清理：只要尝试过专用探针 bank（HINDSIGHT_PROBE_BANK_ID）或已准备就绪，无论成功与否均尽力删除
       if (attemptedBank && (bankReady || bankId === HINDSIGHT_PROBE_BANK_ID)) {
         try {
-          await requestJson(fetchFn, bank, { method: "DELETE", headers, timeoutMs: 10_000 });
+          await requestJson(fetchFn, bank, { method: "DELETE", headers, timeoutMs: 5_000 });
         } catch {
           // 尽力清理
         }
@@ -506,10 +560,12 @@ export function createRoutedMemoryProbeProvider(options: RoutedMemoryProbeOption
         return null;
       }
     });
+  const now = options.now ?? Date.now;
   const hindsightProbe = createHindsightMemoryProbe({
     ...(options.hindsight ?? {}),
     fetchFn: options.fetchFn,
     readTextFile,
+    now,
   });
   const mem0Probe = createMem0MemoryProbe({
     ...(options.mem0 ?? {}),
@@ -517,7 +573,6 @@ export function createRoutedMemoryProbeProvider(options: RoutedMemoryProbeOption
     readTextFile,
     delay: options.delay,
   });
-  const now = options.now ?? Date.now;
   const fallbackSqlite: MemoryProbeProvider =
     options.fallbackSqlite ??
     ((ctx, providerOptions) =>

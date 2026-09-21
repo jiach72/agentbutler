@@ -156,6 +156,7 @@ export interface ChannelDirectoryEntryView {
   id: string;
   label: string;
   kind: "qr-login" | "credential" | "builtin";
+  supportsQr?: boolean;
   enabled: boolean;
   credentialsConfigured: boolean;
   loginState: "logged_in" | "logged_out" | "configuring" | "unknown";

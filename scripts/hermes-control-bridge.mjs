@@ -4,8 +4,20 @@ import { readFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { timingSafeEqual } from "node:crypto";
 import { execFile } from "node:child_process";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+
+function resolveControlBridgeVersion() {
+  try {
+    const pkgPath = resolve(import.meta.dirname, "..", "package.json");
+    if (existsSync(pkgPath)) {
+      const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+      if (typeof pkg.version === "string" && pkg.version) return pkg.version;
+    }
+  } catch {}
+  return "0.1.0-beta.260918.1";
+}
+export const CONTROL_BRIDGE_VERSION = resolveControlBridgeVersion();
 
 export const HERMES_CONTROL_ACTIONS = new Set([
   "status",
@@ -637,17 +649,25 @@ function cronResponse(q, raw) {
       failureStreak: cronCount, deliveryEnabled: cronBool, editable: cronBool },
     runs: { id: cronId, taskId: (v) => v === q.id, status: (v) => ["claimed","running","completed","failed","unknown"].includes(v),
       claimedAt: cronTime, startedAt: cronTime, finishedAt: cronTime },
-    incidents: { id: cronId, taskId: cronId, state: (v) => ["detected","alerted","closed"].includes(v),
+    incidents: { id: cronId, taskId: cronId, state: (v) => ["detected","alerted","resolved","closed"].includes(v),
       failureType: (v) => ["rate_limit","timeout","auth","delivery","config","script","agent","unknown"].includes(v),
       firstSeenAt: cronTime, lastSeenAt: cronTime },
   };
-  return { ...base, items: raw.items.map((row) => {
-    const item = pickCron(row, shapes[q.action]);
-    if (q.action === "list" && "editableReason" in row) {
-      if (!["advanced_job","unsupported_schedule","unsupported_delivery","timezone_unknown"].includes(row.editableReason)) throw new Error("invalid_response");
-      item.editableReason = row.editableReason;
+  return { ...base, items: raw.items.flatMap((row) => {
+    try {
+      const item = pickCron(row, shapes[q.action]);
+      if (q.action === "list" && "editableReason" in row) {
+        if (!["advanced_job","unsupported_schedule","unsupported_delivery","timezone_unknown"].includes(row.editableReason)) throw new Error("invalid_response");
+        item.editableReason = row.editableReason;
+      }
+      return [item];
+    } catch (err) {
+      if (q.action === "incidents") {
+        console.warn("[hermes-control-bridge] 丢弃非法 incident 行:", row, err?.message ?? err);
+        return [];
+      }
+      throw err;
     }
-    return item;
   }) };
 }
 
@@ -811,7 +831,7 @@ export function createHermesControlBridgeServer(options) {
       );
       return json(res, 200, {
         ok: true,
-        bridgeVersion: "0.1.0-beta.260911.13",
+        bridgeVersion: CONTROL_BRIDGE_VERSION,
         supervisor: currentStatus.supervisor,
         active: currentStatus.active,
         unit: options.unit,

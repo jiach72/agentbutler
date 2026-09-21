@@ -246,3 +246,26 @@ describe("验收点 3：标签独立且切换不丢状态、确认弹窗始终�
     expect(redeliverModal).toBeGreaterThan(tabsMarker);
   });
 });
+
+describe("飞书与 QQ 机器人通道扫码与双模支持", () => {
+  it("飞书与 QQ 机器人未配置时同时提供「扫码接入」与「手动配置」", () => {
+    const channels: ChannelDirectoryEntryView[] = [
+      { id: "feishu", label: "飞书", kind: "credential", enabled: false, credentialsConfigured: false, loginState: "unknown", supportsQr: true },
+      { id: "qqbot", label: "QQ 机器人", kind: "credential", enabled: false, credentialsConfigured: false, loginState: "unknown", supportsQr: true },
+    ];
+    const html = renderChannelGrid(channels);
+    expect(html).toContain("飞书");
+    expect(html).toContain("QQ 机器人");
+    expect(html).toContain("扫码接入");
+    expect(html).toContain("手动配置");
+  });
+
+  it("已配置的飞书/QQ 机器人保留扫码接入与快捷配置", () => {
+    const channels: ChannelDirectoryEntryView[] = [
+      { id: "feishu", label: "飞书", kind: "credential", enabled: true, credentialsConfigured: true, loginState: "logged_in", supportsQr: true },
+    ];
+    const html = renderChannelGrid(channels);
+    expect(html).toContain("扫码接入");
+    expect(html).toContain("配置");
+  });
+});
