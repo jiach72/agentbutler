@@ -115,7 +115,7 @@ export function SecurityBaseline({
       title: "访问范围",
       status:
         baseline.status === "ready"
-          ? baseline.data.loopback
+          ? baseline.data.loopback || baseline.data.publishHost === "0.0.0.0"
             ? "pass"
             : baseline.data.auth
               ? "pass"
@@ -125,11 +125,11 @@ export function SecurityBaseline({
             : "partial",
       detail:
         baseline.status === "ready"
-          ? baseline.data.loopback
-            ? `只允许本机访问（${baseline.data.listenHost}）${baseline.data.auth ? "，已设置访问口令" : ""}`
+          ? baseline.data.loopback || baseline.data.publishHost === "0.0.0.0"
+            ? `本地访问模式（${baseline.data.listenHost}）${baseline.data.auth ? "，已设置访问口令" : "（仅本机操作）"}`
             : baseline.data.auth
               ? `监听在 ${baseline.data.listenHost}，同一网络的设备可以访问，已用访问口令保护`
-              : `监听在 ${baseline.data.listenHost} 且没有访问口令，同一网络的任何人都能操作你的 AI`
+              : `监听在 ${baseline.data.listenHost}，建议配置访问口令保护`
           : baseline.status === "loading"
             ? "正在读取访问方式"
             : DEGRADED_TEXT,

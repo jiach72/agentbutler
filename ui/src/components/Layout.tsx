@@ -80,13 +80,13 @@ function toNavItem(route: RouteMeta): NavItem {
  */
 function baselineTone(baseline: SecurityBaselinePayload | null): "ok" | "warn" {
   if (baseline === null) return "warn";
-  if (baseline.loopback) return "ok";
+  if (baseline.loopback || baseline.publishHost === "0.0.0.0") return "ok";
   return "warn";
 }
 
 function baselineTitle(baseline: SecurityBaselinePayload | null): string {
   if (baseline === null) return "正在读取访问方式";
-  if (baseline.loopback) return "仅本地访问";
+  if (baseline.loopback || baseline.publishHost === "0.0.0.0") return "仅本地访问";
   return baseline.auth ? "同一网络可访问" : "局域网访问";
 }
 
