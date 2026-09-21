@@ -365,6 +365,14 @@ for _ in {1..30}; do
         echo "WARNING: 消息网关尚未连上 Hermes Bridge（当前状态: $bridge_state）。" >&2
         echo "         Gateway 会每秒自动重试，Bridge 就绪后自动接回；排查: bash scripts/bridge-healthcheck.sh" >&2
       fi
+      host_bridge_py=""
+      for cand in "${hermes_probe_path:-}/../hermes-agent/gateway/butler_bridge/server.py" "${HOME:-}/.hermes/hermes-agent/gateway/butler_bridge/server.py"; do
+        if [[ -f "$cand" ]]; then host_bridge_py="$cand"; break; fi
+      done
+      if [[ -n "$host_bridge_py" ]] && ! grep -q "resolve_unknown" "$host_bridge_py" 2>/dev/null; then
+        echo "WARNING: 宿主 Hermes Bridge 副本缺少 resolve 权威结案端点。" >&2
+        echo "         建议同步更新：python -m agent_butler_bridge.installer update <hermes-agent-path> 并重启网关" >&2
+      fi
     fi
     deploy_sha=$(git rev-parse HEAD 2>/dev/null || echo unknown)
     echo "DEPLOY_RESULT=ok sha=$deploy_sha backup=$latest_backup"

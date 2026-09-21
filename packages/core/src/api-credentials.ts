@@ -1,6 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
 import { SecretVault } from "./llm-credentials.js";
 import type { SqliteStore } from "./store.js";
 import type {

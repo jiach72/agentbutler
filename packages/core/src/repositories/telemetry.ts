@@ -1,4 +1,3 @@
-import type { DatabaseSync, StatementSync } from "node:sqlite";
 import { BaseRepository, fromJson, nowIso } from "./base.js";
 
 export type EventSeverity = "info" | "warn" | "error";

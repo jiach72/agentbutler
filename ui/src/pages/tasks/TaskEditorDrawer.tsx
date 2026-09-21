@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Alert, App, Button, Collapse, Drawer, Input, Select, Space, Switch, Tag, Typography } from "antd";
-import { BellOutlined, CheckCircleOutlined, ExclamationCircleOutlined, SaveOutlined } from "@ant-design/icons";
+import { CheckCircleOutlined, ExclamationCircleOutlined, SaveOutlined } from "@ant-design/icons";
 import type { ScheduledTaskDraft } from "@butler/contract";
 import { fetchJson, mutateJson, postJson } from "../../lib/api.js";
 import { SchedulePicker } from "./SchedulePicker.js";

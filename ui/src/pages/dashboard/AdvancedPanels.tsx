@@ -112,7 +112,19 @@ export function InspectCard({
           { key: "last", label: "上次检查", children: formatRelative(inspectStatus.lastAt) },
           { key: "next", label: "下次预计", children: formatRelative(inspectStatus.nextAt) },
           { key: "interval", label: "多久检查一次", children: `${inspectStatus.intervalMin ?? "—"} 分钟` },
-          { key: "now", label: "现在", children: inspectStatus.inFlight ? "正在检查" : "没有在检查" },
+          {
+            key: "now",
+            label: "现在",
+            children: inspectStatus.inFlight
+              ? `正在检查${inspectStatus.currentRunDurationMs ? `（已耗时 ${Math.round(inspectStatus.currentRunDurationMs / 1000)}s）` : ""}`
+              : "没有在检查",
+          },
+          ...(inspectStatus.lastDurationMs !== null && inspectStatus.lastDurationMs !== undefined
+            ? [{ key: "duration", label: "上次耗时", children: formatDuration(inspectStatus.lastDurationMs) }]
+            : []),
+          ...(typeof inspectStatus.skippedTicks === "number" && inspectStatus.skippedTicks > 0
+            ? [{ key: "skipped", label: "防重叠跳过", children: `${inspectStatus.skippedTicks} 次` }]
+            : []),
         ]}
       />
       <Button onClick={onInspect}>立即检查</Button>

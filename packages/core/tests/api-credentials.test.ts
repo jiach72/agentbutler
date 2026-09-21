@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SqliteStore } from "../src/store.js";
 import { SecretVault } from "../src/llm-credentials.js";
-import { ApiKeyCredentialService, API_CREDENTIAL_PRESETS } from "../src/api-credentials.js";
+import { ApiKeyCredentialService } from "../src/api-credentials.js";
 
 describe("ApiKeyCredentialService", () => {
   let tempDir: string;

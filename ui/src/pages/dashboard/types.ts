@@ -171,6 +171,9 @@ export interface InspectStatusView {
   nextAt?: string | null;
   intervalMin?: number | null;
   inFlight?: boolean;
+  lastDurationMs?: number | null;
+  skippedTicks?: number;
+  currentRunDurationMs?: number | null;
   criticalProbe?: {
     intervalMin: number;
     slaMin: number;

@@ -166,6 +166,24 @@ if [[ -n "$BRIDGE_URL" ]] && command -v docker >/dev/null 2>&1; then
   fi
 fi
 
+# 8. 宿主 Bridge 副本版本与能力（resolve 端点）检查
+host_bridge_py=""
+for cand in "$hermes_host_path/../hermes-agent/gateway/butler_bridge/server.py" "${HOME:-}/.hermes/hermes-agent/gateway/butler_bridge/server.py"; do
+  if [[ -f "$cand" ]]; then
+    host_bridge_py="$cand"
+    break
+  fi
+done
+
+if [[ -n "$host_bridge_py" ]]; then
+  if grep -q "resolve_unknown" "$host_bridge_py" 2>/dev/null && grep -q "/resolve" "$host_bridge_py" 2>/dev/null; then
+    pass "宿主 Bridge 副本具备 resolve 权威结案能力"
+  else
+    warn "宿主 Bridge 副本缺少 resolve 权威结案端点（建议执行 python -m agent_butler_bridge.installer update <hermes-agent-path> 并重启 hermes-gateway）"
+  fi
+fi
+
 echo "----"
 echo "结果: $fails 个 FAIL"
 [[ "$fails" -eq 0 ]] && exit 0 || exit 1
+

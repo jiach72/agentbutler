@@ -11,7 +11,6 @@ import {
   Card,
   Col,
   Descriptions,
-  Divider,
   Flex,
   Form,
   Input,
@@ -29,12 +28,9 @@ import {
 import {
   CheckCircleOutlined,
   CloseCircleOutlined,
-  CopyOutlined,
   DeleteOutlined,
   EditOutlined,
   ExperimentOutlined,
-  EyeInvisibleOutlined,
-  GlobalOutlined,
   LinkOutlined,
   PlusOutlined,
   QuestionCircleOutlined,
@@ -43,10 +39,9 @@ import {
   SyncOutlined,
 } from "@ant-design/icons";
 import { deleteJson, loadJson, postJson } from "../../lib/api.js";
-import { StatusBadge } from "../../components/StatusBadge.js";
 import { SectionHeader } from "../../components/SectionHeader.js";
 
-const { Text, Paragraph } = Typography;
+const { Text } = Typography;
 
 export type ApiKeyCategory = "all" | "search" | "vision" | "llm" | "memory" | "tool" | "custom";
 
@@ -430,7 +425,7 @@ export function UnifiedApiKeyManager() {
       title: "生效状态",
       key: "status",
       width: 120,
-      render: (_: unknown, record: ApiCredentialView) => (
+      render: (_: unknown, _record: ApiCredentialView) => (
         <Tag color="cyan">已生效 (~/.hermes)</Tag>
       ),
     },

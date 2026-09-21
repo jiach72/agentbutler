@@ -27,7 +27,7 @@ const sourceVersions = [
     value: (version) => `web@${version}+\${CONTRACT_VERSION}`,
   },
   {
-    file: "apps/watch/src/http.ts",
+    file: "apps/watch/src/http-common.ts",
     pattern: /watch@[0-9A-Za-z.+-]+\+\$\{CONTRACT_VERSION\}/,
     value: (version) => `watch@${version}+\${CONTRACT_VERSION}`,
   },

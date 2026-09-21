@@ -282,6 +282,18 @@ export function DashboardPage() {
                       <span className="telemetry-label">探针总运行计数</span>
                       <strong className="telemetry-value">{probe?.runCount ?? 0} 次</strong>
                     </div>
+                    {inspectStatus?.lastDurationMs !== null && inspectStatus?.lastDurationMs !== undefined && (
+                      <div className="telemetry-card">
+                        <span className="telemetry-label">上次体检耗时</span>
+                        <strong className="telemetry-value">{Math.round(inspectStatus.lastDurationMs / 1000)} 秒</strong>
+                      </div>
+                    )}
+                    {typeof inspectStatus?.skippedTicks === "number" && inspectStatus.skippedTicks > 0 && (
+                      <div className="telemetry-card">
+                        <span className="telemetry-label">防重叠跳过周期</span>
+                        <strong className="telemetry-value" style={{ color: "var(--ab-warn, #d97706)" }}>{inspectStatus.skippedTicks} 次</strong>
+                      </div>
+                    )}
                   </div>
                   {checks.length > 0 && (
                     <div className="telemetry-checks-list">

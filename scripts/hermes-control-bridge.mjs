@@ -14,7 +14,9 @@ function resolveControlBridgeVersion() {
       const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
       if (typeof pkg.version === "string" && pkg.version) return pkg.version;
     }
-  } catch {}
+  } catch {
+    // Fall back to current build version
+  }
   return "0.1.0-beta.260918.1";
 }
 export const CONTROL_BRIDGE_VERSION = resolveControlBridgeVersion();
