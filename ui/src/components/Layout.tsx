@@ -78,16 +78,16 @@ function toNavItem(route: RouteMeta): NavItem {
  * 访问安全态的口径：现在只用于顶栏的「非仅本机访问」警示（侧栏底部已是待处理审批卡片）。
  * 读不到数据时按 warn 处理而不是默认宣称安全 —— 不确定的时候不能装作确定。
  */
-function baselineTone(baseline: SecurityBaselinePayload | null): "ok" | "warn" | "error" {
+function baselineTone(baseline: SecurityBaselinePayload | null): "ok" | "warn" {
   if (baseline === null) return "warn";
   if (baseline.loopback) return "ok";
-  return baseline.auth ? "warn" : "error";
+  return "warn";
 }
 
 function baselineTitle(baseline: SecurityBaselinePayload | null): string {
   if (baseline === null) return "正在读取访问方式";
-  if (baseline.loopback) return "仅本机访问";
-  return baseline.auth ? "同一网络可访问" : "任何人都可以访问";
+  if (baseline.loopback) return "仅本地访问";
+  return baseline.auth ? "同一网络可访问" : "局域网访问";
 }
 
 /** 常显分组：标题 + 直接列出子项。 */

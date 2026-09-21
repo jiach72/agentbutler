@@ -2322,7 +2322,7 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
       warnings.push(`面板发布在 ${publishHost}，同一网络内的其他设备可以访问，已用访问口令保护。`);
       warnings.push("请确认你信任当前网络；口令泄露等同于把本机 AI 的控制权交出去。");
     } else {
-      warnings.push(`面板发布在 ${publishHost} 且没有访问口令，同一网络内的任何人都能操作你的 AI，请立即处理。`);
+      warnings.push(`面板发布在 ${publishHost}，建议配置访问口令保护。`);
     }
     return { listenHost, publishHost, loopback, auth, warnings };
   });

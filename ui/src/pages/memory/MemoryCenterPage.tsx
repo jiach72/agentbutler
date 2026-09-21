@@ -404,58 +404,60 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
           <Spin indicator={<LoadingOutlined style={{ fontSize: 32 }} spin />} />
         </Flex>
       ) : (
-        <Row gutter={[16, 16]}>
+        <Row gutter={[12, 12]}>
           {systemsData?.systems.map((system) => {
             const isHindsight = system.id === "hindsight";
             const isMem0 = system.id === "mem0";
             const isNative = system.id === "hermes";
 
             return (
-              <Col xs={24} md={12} key={system.id}>
+              <Col xs={24} sm={12} md={8} key={system.id}>
                 <Card
                   hoverable
+                  size="small"
                   style={{
                     height: "100%",
-                    borderRadius: 12,
+                    borderRadius: 10,
                     border: system.active
                       ? "2px solid var(--ant-color-primary)"
                       : "1px solid var(--ant-color-border-secondary)",
                     display: "flex",
                     flexDirection: "column",
                   }}
-                  bodyStyle={{ flex: 1, display: "flex", flexDirection: "column" }}
+                  styles={{ body: { padding: "12px 14px", flex: 1, display: "flex", flexDirection: "column" } }}
                 >
-                  <Flex vertical gap={12} style={{ flex: 1 }}>
+                  <Flex vertical gap={10} style={{ flex: 1 }}>
                     <Flex justify="space-between" align="start">
                       <Flex align="center" gap={8}>
                         <div
                           style={{
-                            width: 36,
-                            height: 36,
-                            borderRadius: 8,
+                            width: 28,
+                            height: 28,
+                            borderRadius: 6,
                             background: isHindsight
-                              ? "rgba(99, 102, 241, 0.1)"
+                              ? "rgba(99, 102, 241, 0.12)"
                               : isMem0
-                                ? "rgba(16, 185, 129, 0.1)"
-                                : "rgba(100, 116, 139, 0.1)",
+                                ? "rgba(16, 185, 129, 0.12)"
+                                : "rgba(100, 116, 139, 0.12)",
                             display: "flex",
                             alignItems: "center",
                             justifyContent: "center",
                             color: isHindsight ? "#6366f1" : isMem0 ? "#10b981" : "#64748b",
-                            fontSize: 18,
+                            fontSize: 15,
+                            flexShrink: 0,
                           }}
                         >
                           {isNative ? <DatabaseOutlined /> : isHindsight ? <ClusterOutlined /> : <CloudOutlined />}
                         </div>
                         <div>
-                          <Text strong style={{ fontSize: 15 }}>
+                          <Text strong style={{ fontSize: 13, lineHeight: "18px", display: "block" }}>
                             {system.name}
                           </Text>
-                          <div style={{ marginTop: 2 }}>
-                            {system.active && <Tag color="success">当前激活中</Tag>}
-                            {system.recommended && <Tag color="blue">推荐方案</Tag>}
-                            <Tag>{system.category.toUpperCase()}</Tag>
-                          </div>
+                          <Space size={4} style={{ marginTop: 2 }} wrap>
+                            {system.active && <Tag color="success" style={{ fontSize: 11, margin: 0, padding: "0 4px" }}>当前激活</Tag>}
+                            {system.recommended && <Tag color="blue" style={{ fontSize: 11, margin: 0, padding: "0 4px" }}>推荐</Tag>}
+                            <Tag style={{ fontSize: 11, margin: 0, padding: "0 4px" }}>{system.category.toUpperCase()}</Tag>
+                          </Space>
                         </div>
                       </Flex>
                       {system.docsUrl && (
@@ -463,53 +465,61 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
                           <Button
                             type="text"
                             size="small"
-                            icon={<LinkOutlined />}
+                            icon={<LinkOutlined style={{ fontSize: 12 }} />}
                             href={system.docsUrl}
                             target="_blank"
+                            style={{ padding: 0, height: 22, width: 22 }}
                           />
                         </Tooltip>
                       )}
                     </Flex>
 
-                    <Paragraph type="secondary" style={{ fontSize: 13, minHeight: 38, margin: 0 }}>
+                    <Paragraph
+                      type="secondary"
+                      style={{ fontSize: 12, lineHeight: "17px", minHeight: 34, margin: 0 }}
+                      ellipsis={{ rows: 2, tooltip: system.description }}
+                    >
                       {system.description}
                     </Paragraph>
 
                     <div
                       style={{
-                        padding: "8px 12px",
-                        borderRadius: 8,
+                        padding: "6px 8px",
+                        borderRadius: 6,
                         background: "var(--ant-color-fill-quaternary)",
-                        fontSize: 12,
+                        fontSize: 11,
+                        lineHeight: "15px",
                       }}
                     >
-                      <Text type="secondary">核心优势：</Text>
-                      <Text strong style={{ marginLeft: 4 }}>{system.uniqueFeature}</Text>
+                      <Text type="secondary">特性：</Text>
+                      <Text strong style={{ marginLeft: 2 }}>{system.uniqueFeature}</Text>
                     </div>
 
-                    <Divider style={{ margin: "8px 0" }} />
+                    <Divider style={{ margin: "4px 0" }} />
 
-                    <Flex justify="space-between" align="center" style={{ marginTop: "auto" }}>
-                      <Flex gap={6}>
+                    <Flex justify="space-between" align="center" gap={4} style={{ marginTop: "auto" }}>
+                      <Space size={4} wrap>
                         {system.supportedModes.map((m) => (
                           <Tag
                             key={m}
-                            icon={m === "docker" ? <ContainerOutlined /> : m === "api" ? <CloudOutlined /> : <CodeOutlined />}
                             color={m === "docker" ? "processing" : "default"}
+                            style={{ fontSize: 11, margin: 0, padding: "0 4px" }}
                           >
-                            {m === "docker" ? "本地 Docker (推荐)" : m === "api" ? "云端 API" : m === "builtin" ? "原生内建" : "本地进程"}
+                            {m === "docker" ? "Docker" : m === "api" ? "API" : m === "builtin" ? "原生" : "本地"}
                           </Tag>
                         ))}
-                      </Flex>
+                      </Space>
 
                       <Button
+                        size="small"
                         type={system.active ? "default" : "primary"}
                         onClick={() => {
                           const defaultMode = system.supportedModes.includes("docker") ? "docker" : system.supportedModes[0] || "api";
                           void handleOpenPreview(system.id, defaultMode);
                         }}
+                        style={{ fontSize: 12 }}
                       >
-                        {system.active ? "重新配置 / 切换模式" : "切换为此后端"}
+                        {system.active ? "切换模式" : "切换为此后端"}
                       </Button>
                     </Flex>
                   </Flex>
