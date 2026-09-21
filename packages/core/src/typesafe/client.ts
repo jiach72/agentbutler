@@ -9,6 +9,12 @@ import type {
   JevAdvisorResult,
   MemoryDeployMode,
   MemoryEngineId,
+  TaskDiagnosisRequest,
+  TaskDiagnosisResult,
+  TaskRootCauseCategory,
+  MessageTriageRequest,
+  MessageTriageResult,
+  MessageTriageCategory,
 } from "@butler/contract";
 
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
@@ -50,6 +56,10 @@ export class JevClient {
 
   get isConfigured(): boolean {
     return this.apiKey !== null && this.apiKey.length > 0;
+  }
+
+  get isAvailable(): boolean {
+    return this.isConfigured;
   }
 
   /** Choice 原语：从候选集合中根据 state 和 instructions 判定最优分支 */
@@ -252,6 +262,248 @@ export class JevClient {
       hardwareFitScore: 5,
       maintenanceComplexityScore: 2,
       reason: "推荐本地 Docker 部署 Mem0：双层向量+实体检索自适应维护，兼具速度与数据私密性。",
+      source: "heuristic",
+    };
+  }
+
+  /**
+   * 定时任务异常诊断与归因：
+   * 优先通过 TypeSafe Jev 进行根因分类（Choice）与严重程度打分（Score）；
+   * 未配置或异常时平滑降级至确定性启发式规则。
+   */
+  async diagnoseTaskError(req: TaskDiagnosisRequest): Promise<TaskDiagnosisResult> {
+    if (this.isConfigured) {
+      try {
+        const choiceRes = await this.choice<TaskRootCauseCategory>({
+          state: {
+            taskName: req.taskName,
+            exitCode: req.exitCode,
+            errorSnippet: req.errorSnippet.slice(0, 800),
+            durationMs: req.durationMs,
+            schedule: req.schedule,
+          },
+          instructions:
+            "分析该自动化任务的执行错误信息，将其归结为最精确的故障根因类别。",
+          criteria: {
+            credential_expired: "API Key 失效、鉴权失败、返回 401/403 或认证凭据缺失",
+            rate_limited: "遭遇上游模型或通信渠道并发限制、配额耗尽或返回 429",
+            syntax_or_format: "脚本语法错误、JSON 解析失败、Prompt 格式损坏或参数非法",
+            timeout_or_killed: "任务执行超时被杀、内存溢出 OOM 或收到 SIGKILL/SIGTERM",
+            network_or_offline: "网络不可达、DNS 解析失败、连接重置或 Hermes 网关离线",
+            unknown_runtime: "其他无法从日志片断中明确归类的内部运行崩溃",
+          },
+        });
+
+        if (choiceRes) {
+          const scoreRes = await this.score({
+            state: {
+              rootCause: choiceRes.choice,
+              exitCode: req.exitCode,
+              errorSnippet: req.errorSnippet.slice(0, 400),
+            },
+            instructions:
+              "评分 1-5：评估此错误对整个 Agent 系统的影响严重度（1=轻微无害，5=关键致命）。",
+            levels: {
+              1: "偶发轻微波动，不影响核心功能",
+              2: "局部非关键错误，建议关注",
+              3: "单次任务失败，需注意重试",
+              4: "高频或关键任务失败，需尽快处理",
+              5: "致命阻断错误，系统核心功能瘫痪",
+            },
+          });
+
+          const actionMap: Record<TaskRootCauseCategory, string> = {
+            credential_expired: "检查并更新模型或通道的 API Key 凭据",
+            rate_limited: "适当调低定时任务执行频率或等待配额恢复",
+            syntax_or_format: "检查任务 Prompt 模版与输入参数格式",
+            timeout_or_killed: "适当增加超时时间或拆分长耗时任务",
+            network_or_offline: "检查网络连接与宿主 Hermes 网关运行状态",
+            unknown_runtime: "查看任务详情中的完整运行时日志以定位故障",
+          };
+
+          return {
+            rootCause: choiceRes.choice,
+            severity: scoreRes ? scoreRes.score : 3,
+            confidence: choiceRes.confidence,
+            recommendedAction: actionMap[choiceRes.choice] || "查看完整日志排查",
+            explanation: `TypeSafe Jev 诊断识别为「${choiceRes.choice}」故障。`,
+            source: "jev",
+          };
+        }
+      } catch {
+        // 平滑降级
+      }
+    }
+
+    return this.heuristicDiagnoseTaskError(req);
+  }
+
+  /** 启发式任务错误诊断兜底规则 */
+  private heuristicDiagnoseTaskError(req: TaskDiagnosisRequest): TaskDiagnosisResult {
+    const text = `${req.errorSnippet || ""} exit=${req.exitCode ?? ""}`.toLowerCase();
+
+    if (/401|403|unauthorized|invalid api key|bad credential|auth failure|forbidden/i.test(text)) {
+      return {
+        rootCause: "credential_expired",
+        severity: 4,
+        confidence: 0.92,
+        recommendedAction: "检查并更新模型或通道的 API Key 凭据",
+        explanation: "检测到凭据鉴权或访问被拒错误，请更新相关密钥。",
+        source: "heuristic",
+      };
+    }
+
+    if (/429|rate limit|quota exceeded|too many requests|resource_exhausted/i.test(text)) {
+      return {
+        rootCause: "rate_limited",
+        severity: 3,
+        confidence: 0.9,
+        recommendedAction: "适当调低定时任务执行频率或等待配额恢复",
+        explanation: "上游服务返回 429 限流或调用配额耗尽，建议错峰调度。",
+        source: "heuristic",
+      };
+    }
+
+    if (/timeout|timed out|sigkill|sigterm|exit code 137|oom|killed/i.test(text) || req.exitCode === 137) {
+      return {
+        rootCause: "timeout_or_killed",
+        severity: 4,
+        confidence: 0.88,
+        recommendedAction: "适当增加超时时间或优化任务耗时",
+        explanation: "任务执行超出时限或因内存不足被系统强行终止。",
+        source: "heuristic",
+      };
+    }
+
+    if (/econnrefused|enotfound|offline|network error|etimedout|socket hang up|connection refused/i.test(text)) {
+      return {
+        rootCause: "network_or_offline",
+        severity: 3,
+        confidence: 0.86,
+        recommendedAction: "检查网络连接与宿主 Hermes 网关运行状态",
+        explanation: "检测到网络断开或目标服务未就绪，建议检查网络连接。",
+        source: "heuristic",
+      };
+    }
+
+    if (/syntaxerror|parse error|invalid json|unexpected token/i.test(text)) {
+      return {
+        rootCause: "syntax_or_format",
+        severity: 3,
+        confidence: 0.85,
+        recommendedAction: "检查任务 Prompt 模版与输入参数格式",
+        explanation: "任务脚本或输出解析遇到语法错误，需修正格式。",
+        source: "heuristic",
+      };
+    }
+
+    return {
+      rootCause: "unknown_runtime",
+      severity: 2,
+      confidence: 0.7,
+      recommendedAction: "查看任务详情中的完整运行时日志以定位故障",
+      explanation: "任务遇到未知运行异常，建议查阅完整日志详情。",
+      source: "heuristic",
+    };
+  }
+
+  /**
+   * 即时消息分流判定：
+   * 优先通过 TypeSafe Jev 判定紧急度（Noul）与业务分类（Choice）；
+   * 未配置或异常时平滑降级至确定性启发式规则。
+   */
+  async triageMessage(req: MessageTriageRequest): Promise<MessageTriageResult> {
+    if (this.isConfigured) {
+      try {
+        const noulRes = await this.noul({
+          state: {
+            channel: req.channel,
+            sender: req.sender,
+            summary: req.summary.slice(0, 500),
+            status: req.status,
+            userActiveHours: req.userActiveHours,
+          },
+          instructions:
+            "判定该即时通讯消息是否属于需要用户立即关注、人工审批或处理的紧急重要事件（1.0=必须打扰，0.0=无需打扰）。",
+        });
+
+        const choiceRes = await this.choice<MessageTriageCategory>({
+          state: {
+            channel: req.channel,
+            summary: req.summary.slice(0, 500),
+            status: req.status,
+          },
+          instructions: "将该消息划分为对应的业务处理分类。",
+          criteria: {
+            approval_request: "需要人类介入审批、确认或高危操作授权",
+            critical_failure: "消息投递失败、通道断开或严重故障提醒",
+            task_completion: "日常定时任务顺利完成或阶段性健康报告",
+            heartbeat_chatter: "系统周期心跳、通道日常闲聊或普通调试日志",
+          },
+        });
+
+        if (choiceRes) {
+          const prob = noulRes ? noulRes.probability : 0.5;
+          return {
+            requiresUrgentAttention:
+              prob >= 0.6 || choiceRes.choice === "approval_request" || choiceRes.choice === "critical_failure",
+            urgencyProbability: prob,
+            category: choiceRes.choice,
+            confidence: choiceRes.confidence,
+            explanation: `TypeSafe Jev 分流分类为「${choiceRes.choice}」，紧急度概率 ${(prob * 100).toFixed(0)}%。`,
+            source: "jev",
+          };
+        }
+      } catch {
+        // 平滑降级
+      }
+    }
+
+    return this.heuristicTriageMessage(req);
+  }
+
+  /** 启发式消息分流兜底规则 */
+  private heuristicTriageMessage(req: MessageTriageRequest): MessageTriageResult {
+    if (req.status === "pending_approval" || req.status === "need_confirmation") {
+      return {
+        requiresUrgentAttention: true,
+        urgencyProbability: 0.95,
+        category: "approval_request",
+        confidence: 0.95,
+        explanation: "消息处于等待审批或用户确认状态，需要立即人工决策。",
+        source: "heuristic",
+      };
+    }
+
+    if (req.status === "failed") {
+      return {
+        requiresUrgentAttention: true,
+        urgencyProbability: 0.88,
+        category: "critical_failure",
+        confidence: 0.9,
+        explanation: "消息投递明确失败，需及时排查通道或网络故障。",
+        source: "heuristic",
+      };
+    }
+
+    const text = req.summary.toLowerCase();
+    if (text.includes("完成") || text.includes("成功") || text.includes("success") || text.includes("done")) {
+      return {
+        requiresUrgentAttention: false,
+        urgencyProbability: 0.2,
+        category: "task_completion",
+        confidence: 0.85,
+        explanation: "属于例行任务完成或通知汇报，无需打扰用户。",
+        source: "heuristic",
+      };
+    }
+
+    return {
+      requiresUrgentAttention: false,
+      urgencyProbability: 0.1,
+      category: "heartbeat_chatter",
+      confidence: 0.8,
+      explanation: "常规消息或心跳，默认不打扰。",
       source: "heuristic",
     };
   }

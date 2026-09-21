@@ -19,7 +19,21 @@
   box-shadow: var(--ab-shadow-2);
   border-color: color-mix(in srgb, var(--ab-primary) 20%, var(--ab-border));
 }
-.health-conclusion-header { display: flex; flex-direction: column; gap: 6px; }
+.health-conclusion-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+  flex: 1;
+  min-width: 280px;
+}
+.health-mascot {
+  margin-top: 2px;
+  transition: transform var(--ab-dur-fast) var(--ab-ease);
+}
+.health-mascot:hover {
+  transform: scale(1.06);
+}
+.health-conclusion-header { display: flex; flex-direction: column; gap: 6px; flex: 1; }
 .agent-pulse-badge {
   display: inline-flex;
   align-items: center;

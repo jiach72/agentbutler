@@ -17,6 +17,7 @@ import {
 import { postJson } from "../../lib/api.js";
 import { formatRelative } from "../../lib/format.js";
 import { PageHeader } from "../../components/PageHeader.js";
+import { ButlerMascot, type ButlerMascotStatus } from "../../components/ButlerMascot.js";
 import { AttentionList, TaskPreview } from "./HealthOverview.js";
 import { capabilityLabel } from "./userHealth.js";
 import { useUserHealthData } from "./useUserHealthData.js";
@@ -80,41 +81,54 @@ export function DashboardPage() {
   const probe = inspectStatus?.criticalProbe;
   const checks = sources.dashboard?.latestInspections?.[0]?.checks ?? [];
 
+  const mascotStatus: ButlerMascotStatus = inspecting
+    ? "inspecting"
+    : totalInstances !== null && totalInstances > 0 && (!onlineInstances || onlineInstances === 0)
+      ? "offline"
+      : health.status === "action_required"
+        ? "blocked"
+        : health.status === "degraded"
+          ? "alert"
+          : "normal";
+
   return (
     <section className="dashboard-page dashboard-simple">
       <PageHeader title="首页" extra={<Link className="health-wall-link" to="/wall"><DashboardOutlined />大屏模式</Link>} />
       {data.loading ? <DashboardSkeleton /> : <>
         {/* 顶部结论横幅 */}
         <section className="health-conclusion" data-status={health.status} aria-labelledby="health-headline">
-          <div className="health-conclusion-header">
-            {(() => {
-              const pulseStatus: "online" | "offline" | "discovering" =
-                onlineInstances && onlineInstances > 0
-                  ? "online"
-                  : totalInstances !== null && totalInstances > 0
-                    ? "offline"
-                    : "discovering";
-              const pulseText =
-                pulseStatus === "online"
-                  ? `Hermes Agent 就绪待命 (${onlineInstances}/${totalInstances ?? 1} 在线)`
-                  : pulseStatus === "offline"
-                    ? `Hermes Agent 离线 (${totalInstances} 个实例均未连接)`
-                    : "正在探测 Hermes Agent 连接…";
-              return (
-                <div className="agent-pulse-badge" data-pulse={pulseStatus}>
-                  <span className="pulse-dot" aria-hidden="true" />
-                  <span className="pulse-text">{pulseText}</span>
-                </div>
-              );
-            })()}
-            <h2 id="health-headline">{health.headline}</h2>
-            <p>{health.explanation}</p>
-            <div className="health-conclusion-meta">
-              <span>上次检查：{formatRelative(inspectStatus?.lastAt)}</span>
-              <span className="meta-sep">·</span>
-              <span>自动巡检：{inspectStatus?.intervalMin ?? 10} 分钟/次</span>
-              <span className="meta-sep">·</span>
-              <span>探针 SLA：{probe?.overdue ? "需留意" : "正常"}</span>
+          <div className="health-conclusion-main">
+            <ButlerMascot status={mascotStatus} size="lg" className="health-mascot" />
+            <div className="health-conclusion-header">
+              {(() => {
+                const pulseStatus: "online" | "offline" | "discovering" =
+                  onlineInstances && onlineInstances > 0
+                    ? "online"
+                    : totalInstances !== null && totalInstances > 0
+                      ? "offline"
+                      : "discovering";
+                const pulseText =
+                  pulseStatus === "online"
+                    ? `Hermes Agent 就绪待命 (${onlineInstances}/${totalInstances ?? 1} 在线)`
+                    : pulseStatus === "offline"
+                      ? `Hermes Agent 离线 (${totalInstances} 个实例均未连接)`
+                      : "正在探测 Hermes Agent 连接…";
+                return (
+                  <div className="agent-pulse-badge" data-pulse={pulseStatus}>
+                    <span className="pulse-dot" aria-hidden="true" />
+                    <span className="pulse-text">{pulseText}</span>
+                  </div>
+                );
+              })()}
+              <h2 id="health-headline">{health.headline}</h2>
+              <p>{health.explanation}</p>
+              <div className="health-conclusion-meta">
+                <span>上次检查：{formatRelative(inspectStatus?.lastAt)}</span>
+                <span className="meta-sep">·</span>
+                <span>自动巡检：{inspectStatus?.intervalMin ?? 10} 分钟/次</span>
+                <span className="meta-sep">·</span>
+                <span>探针 SLA：{probe?.overdue ? "需留意" : "正常"}</span>
+              </div>
             </div>
           </div>
           <div className="health-conclusion-actions">
