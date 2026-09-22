@@ -680,7 +680,7 @@ export interface SkillsApiView {
     mode: SkillsInventoryMode;
     driverId: string | null;
     /** watch 检测到的记忆后端（hermes|hindsight|mem0；env 声明 > 目录标记 > 默认）。 */
-    backend: { id: string; source: string; detail: string };
+    backend: { id: string; backend?: string; source: string; detail: string };
     stats: null | {
       totalEntries: number;
       byMonth: Array<{ month: string; count: number }>;
@@ -747,7 +747,7 @@ function degradedSkills(): SkillsApiView {
     memory: {
       mode: "unavailable",
       driverId: null,
-      backend: { id: "hermes", source: "default", detail: "watch 不可达，按默认记忆库处理" },
+      backend: { id: "hermes", backend: "hermes", source: "default", detail: "watch 不可达，按默认记忆库处理" },
       stats: null,
       health: null,
       preview: [],
@@ -764,11 +764,11 @@ function isNonNegativeNumber(value: unknown): value is number {
 }
 
 function isMemoryBackendId(value: unknown): value is string {
-  return value === "hermes" || value === "hindsight" || value === "mem0";
+  return typeof value === "string" && value.trim() !== "";
 }
 
 function isMemoryBackendSource(value: unknown): value is string {
-  return value === "env" || value === "marker" || value === "default";
+  return value === "env" || value === "config" || value === "marker" || value === "default";
 }
 
 function parseDirectoryInventory(value: unknown): DirectoryInventoryView | null {
@@ -1055,6 +1055,7 @@ function parseSkillsStatus(value: unknown): Omit<SkillsApiView, "watchReachable"
     }
     backend = {
       id: rawId,
+      backend: rawId,
       source: memory["backend"]["source"],
       detail: memory["backend"]["detail"],
     };
