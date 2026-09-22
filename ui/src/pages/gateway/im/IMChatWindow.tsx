@@ -19,6 +19,7 @@ import {
   CheckCircleFilled,
   ClearOutlined,
   CloseCircleFilled,
+  DownOutlined,
   LoadingOutlined,
   RobotOutlined,
   ThunderboltOutlined,
@@ -46,14 +47,57 @@ export interface IMChatWindowProps {
 export function IMChatWindow(props: IMChatWindowProps) {
   const { mode } = useTheme();
   const isDark = mode === "dark";
+  const streamContainerRef = useRef<HTMLDivElement>(null);
   const streamBottomRef = useRef<HTMLDivElement>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [expandedOptimizations, setExpandedOptimizations] = useState<Set<string>>(new Set());
 
-  // 消息更新或发送时自动滚动贴底
+  // 用户是否向上滚动离开了底部（此时锁定滚动位置，不再随轮询自动回弹）
+  const [userScrolledUp, setUserScrolledUp] = useState(false);
+  const lastConversationIdRef = useRef<string | null>(null);
+
+  // 滚动监听：判断是否接近底部（小于 80px 视为处于底部）
+  const handleScroll = () => {
+    const el = streamContainerRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setUserScrolledUp(distanceFromBottom > 80);
+  };
+
+  const scrollToBottom = (smooth = true) => {
+    if (streamBottomRef.current) {
+      streamBottomRef.current.scrollIntoView({ behavior: smooth ? "smooth" : "auto" });
+      setUserScrolledUp(false);
+    }
+  };
+
+  // 智能滚动决策：
+  // 1. 切换会话 -> 立即滚动到底部（auto）并重置上滑状态
+  // 2. 发送中或用户刚发送消息 -> 滚动到底部（smooth）
+  // 3. 轮询更新消息 -> 若用户已上滑查看历史，严格保持滚动位置，绝不回滚！
   useEffect(() => {
-    streamBottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [props.messages, props.sending]);
+    const currentConvId = props.conversation?.id ?? null;
+    const isConvChanged = currentConvId !== lastConversationIdRef.current;
+    lastConversationIdRef.current = currentConvId;
+
+    if (isConvChanged) {
+      scrollToBottom(false);
+      return;
+    }
+
+    if (props.sending) {
+      scrollToBottom(true);
+      return;
+    }
+
+    // 用户正在查看上方历史记录，锁住滚动位置
+    if (userScrolledUp) {
+      return;
+    }
+
+    // 默认保持在底部
+    scrollToBottom(true);
+  }, [props.conversation?.id, props.messages, props.sending, userScrolledUp]);
 
   // 复制文本
   const copyText = (id: string, text: string) => {
@@ -145,7 +189,7 @@ export function IMChatWindow(props: IMChatWindowProps) {
       </div>
 
       {/* 2. 聊天流消息视窗 */}
-      <div className="im-chat-stream">
+      <div className="im-chat-stream" ref={streamContainerRef} onScroll={handleScroll}>
         {props.messages.length === 0 ? (
           <div style={{ margin: "auto", textAlign: "center" }}>
             <Empty
@@ -383,6 +427,20 @@ export function IMChatWindow(props: IMChatWindowProps) {
 
         <div ref={streamBottomRef} />
       </div>
+
+      {/* 悬浮回到底部按钮 */}
+      {userScrolledUp && (
+        <button
+          type="button"
+          className="im-scroll-bottom-btn"
+          onClick={() => scrollToBottom(true)}
+          title="回到底部"
+          aria-label="回到底部"
+        >
+          <DownOutlined />
+          <span>回到底部</span>
+        </button>
+      )}
 
       {/* 3. 底部拟真输入基座（内置 ✨ 增强提示词按钮） */}
       <IMMessageInput

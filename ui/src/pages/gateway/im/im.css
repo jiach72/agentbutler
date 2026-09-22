@@ -143,6 +143,7 @@
   flex-direction: column;
   min-width: 0;
   background: var(--ab-surface);
+  position: relative;
 }
 
 .im-chat-header {
@@ -327,3 +328,38 @@
     transform: translateY(0);
   }
 }
+
+/* 回到底部悬浮胶囊按钮 */
+.im-scroll-bottom-btn {
+  position: absolute;
+  bottom: 82px;
+  right: 28px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--ab-border);
+  background: var(--ab-surface);
+  color: var(--ab-text);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.05);
+  backdrop-filter: blur(8px);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: imFadeSlideIn 0.25s ease-out;
+}
+
+.im-scroll-bottom-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18), 0 2px 4px rgba(0, 0, 0, 0.08);
+  border-color: var(--ab-primary);
+  color: var(--ab-primary);
+}
+
+.im-scroll-bottom-btn:active {
+  transform: translateY(0);
+}
+

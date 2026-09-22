@@ -435,22 +435,32 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
   );
 
   const [activeInstalledCategory, setActiveInstalledCategory] = useState(ALL_CATEGORY_LABEL);
+  const [installedUpdateFilter, setInstalledUpdateFilter] = useState<"all" | "updates_only">("all");
   useEffect(() => setActiveInstalledCategory(ALL_CATEGORY_LABEL), [mode, tab]);
-
-  const visibleInstalled = useMemo(() => {
-    const needle = keyword.trim().toLowerCase();
-    return installedCards.filter((card) => {
-      if (activeInstalledCategory !== ALL_CATEGORY_LABEL && card.category !== activeInstalledCategory) return false;
-      if (needle === "") return true;
-      const text = `${card.item.displayName} ${card.item.name} ${card.item.description}`;
-      return text.toLowerCase().includes(needle);
-    });
-  }, [installedCards, keyword, activeInstalledCategory]);
 
   const availableUpdates = useMemo(
     () => localItems.filter((item) => updateMap[item.name]?.status === "available"),
     [localItems, updateMap],
   );
+
+  const goToUpdatesOnly = useCallback(() => {
+    setMode("installed");
+    setInstalledUpdateFilter("updates_only");
+    setActiveInstalledCategory(ALL_CATEGORY_LABEL);
+  }, []);
+
+  const visibleInstalled = useMemo(() => {
+    const needle = keyword.trim().toLowerCase();
+    return installedCards.filter((card) => {
+      if (installedUpdateFilter === "updates_only" && updateMap[card.item.name]?.status !== "available") {
+        return false;
+      }
+      if (activeInstalledCategory !== ALL_CATEGORY_LABEL && card.category !== activeInstalledCategory) return false;
+      if (needle === "") return true;
+      const text = `${card.item.displayName} ${card.item.name} ${card.item.description}`;
+      return text.toLowerCase().includes(needle);
+    });
+  }, [installedCards, keyword, activeInstalledCategory, installedUpdateFilter, updateMap]);
 
   // ---- 推荐视图卡片 ----
   const recommendedCards = useMemo(() => {
@@ -842,11 +852,22 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
         description={item.description !== "" ? item.description : "本机技能，详情见技能文件。"}
         category={card.category}
         tags={[]}
-        statusTag={update?.status === "available" ? { text: "有可用更新", color: "warning" } : undefined}
+        statusTag={
+          update?.status === "available"
+            ? {
+                text: update.latestVersion ? `可更新 ➔ v${update.latestVersion}` : "有可用更新",
+                color: "warning",
+              }
+            : undefined
+        }
         footerLeft={
           <Text type="secondary" className="wb-card-meta">
             {[
-              item.version === null ? "版本未知" : `v${item.version}`,
+              item.version === null
+                ? "版本未知"
+                : update?.status === "available" && update.latestVersion
+                  ? `当前 v${item.version} ➔ 最新 v${update.latestVersion}`
+                  : `v${item.version}`,
               item.installedAt === null ? null : `装于 ${formatTime(item.installedAt)}`,
               update?.status === "unknown" ? update.reason ?? "更新检查失败" : null,
             ].filter((part) => part !== null).join(" · ")}
@@ -857,10 +878,12 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
             {update?.status === "available" && (
               <Button
                 size="small"
+                type="primary"
+                ghost
                 loading={updateBusyName === item.name || updateAllBusy}
                 onClick={() => void updateOne(item)}
               >
-                更新
+                {update.latestVersion ? `升级到 v${update.latestVersion}` : "更新"}
               </Button>
             )}
             <Button size="small" onClick={() => setDetailItem(item)}>
@@ -976,18 +999,75 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
   const installedBody = (
     <>
       <Flex justify="space-between" align="center" gap={12} wrap="wrap" style={{ marginBottom: 12 }}>
-        <Flex gap={24} wrap="wrap">
-          <Statistic title="本机已安装" value={localItems.length} />
-          <Statistic title="有可用更新" value={availableUpdates.length} />
+        <Flex gap={12} wrap="wrap" align="center">
+          <button
+            type="button"
+            onClick={() => setInstalledUpdateFilter("all")}
+            style={{
+              background: installedUpdateFilter === "all" ? "var(--ab-surface-2)" : "transparent",
+              border: `1px solid ${installedUpdateFilter === "all" ? "var(--ab-border)" : "transparent"}`,
+              borderRadius: 8,
+              padding: "4px 10px",
+              cursor: "pointer",
+              textAlign: "left",
+            }}
+            title="查看全部已安装技能"
+          >
+            <Statistic title="本机已安装" value={localItems.length} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setInstalledUpdateFilter(installedUpdateFilter === "updates_only" ? "all" : "updates_only")}
+            style={{
+              background: installedUpdateFilter === "updates_only" ? "rgba(250, 140, 22, 0.1)" : "transparent",
+              border: `1px solid ${installedUpdateFilter === "updates_only" ? "#fa8c16" : "transparent"}`,
+              borderRadius: 8,
+              padding: "4px 10px",
+              cursor: "pointer",
+              textAlign: "left",
+            }}
+            title={installedUpdateFilter === "updates_only" ? "点击取消筛选" : "点击仅看待更新技能"}
+          >
+            <Statistic
+              title={
+                <span>
+                  有可用更新
+                  {availableUpdates.length > 0 && installedUpdateFilter !== "updates_only" && (
+                    <span style={{ fontSize: 11, marginLeft: 6, color: "#fa8c16" }}>点击筛选 ➔</span>
+                  )}
+                </span>
+              }
+              value={availableUpdates.length}
+              valueStyle={{ color: availableUpdates.length > 0 ? "#fa8c16" : undefined }}
+            />
+          </button>
         </Flex>
         <Button
+          type={availableUpdates.length > 0 ? "primary" : "default"}
           loading={updateAllBusy}
           disabled={availableUpdates.length === 0}
           onClick={() => void updateAllAvailable()}
         >
-          一键更新全部
+          一键更新全部 ({availableUpdates.length})
         </Button>
       </Flex>
+      {installedUpdateFilter === "updates_only" && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12, borderRadius: 8 }}
+          message={
+            <Flex justify="space-between" align="center" wrap="wrap" gap={8}>
+              <span>
+                当前仅展示 <strong>{availableUpdates.length} 个有可用更新</strong>的技能（本机共已安装 {localItems.length} 个）
+              </span>
+              <Button size="small" type="link" onClick={() => setInstalledUpdateFilter("all")}>
+                清除筛选，查看全部已安装技能 ➔
+              </Button>
+            </Flex>
+          }
+        />
+      )}
       {localError !== null && (
         <Alert
           type="warning"
@@ -1018,8 +1098,19 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
       ) : visibleInstalled.length === 0 && localError === null ? (
         <Empty
           mascot={false}
-          title="没有匹配当前分类和筛选的技能"
-          hint="试试切换分类，或清空搜索关键词。"
+          title={installedUpdateFilter === "updates_only" ? "暂无待更新的技能" : "没有匹配当前分类和筛选的技能"}
+          hint={
+            installedUpdateFilter === "updates_only"
+              ? "本机所有已安装技能均为最新版本，无需更新。"
+              : "试试切换分类，或清空搜索关键词。"
+          }
+          action={
+            installedUpdateFilter === "updates_only" ? (
+              <Button size="small" onClick={() => setInstalledUpdateFilter("all")}>
+                查看全部已安装技能
+              </Button>
+            ) : undefined
+          }
         />
       ) : (
         <div className="wb-grid">
@@ -1071,7 +1162,26 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
         copy={conclusionCopy}
         extra={
           <Text type="secondary" style={{ fontSize: 12 }}>
-            SkillHub 库 {hub.total} 个 · 推荐 {recommendations.length} 个 · 已装 {localItems.length} 个 · 待更新 {availableUpdates.length} 个
+            SkillHub 库 {hub.total} 个 · 推荐 {recommendations.length} 个 · 已装 {localItems.length} 个 ·{" "}
+            {availableUpdates.length > 0 ? (
+              <Button
+                type="link"
+                size="small"
+                style={{
+                  padding: 0,
+                  height: "auto",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: "#fa8c16",
+                  textDecoration: "underline",
+                }}
+                onClick={goToUpdatesOnly}
+              >
+                待更新 {availableUpdates.length} 个 ➔
+              </Button>
+            ) : (
+              `待更新 ${availableUpdates.length} 个`
+            )}
           </Text>
         }
         action={
@@ -1130,10 +1240,32 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
             type="button"
             className={`wb-installed-chip${mode === "installed" ? " active" : ""}`}
             aria-pressed={mode === "installed"}
-            onClick={() => setMode(mode === "installed" ? "market" : "installed")}
+            onClick={() => {
+              if (mode === "installed") {
+                setMode("market");
+              } else {
+                setMode("installed");
+                setInstalledUpdateFilter("all");
+              }
+            }}
           >
             我安装的
             <span className="count">{localItems.length}</span>
+            {availableUpdates.length > 0 && (
+              <span
+                style={{
+                  marginLeft: 6,
+                  padding: "1px 6px",
+                  borderRadius: 10,
+                  fontSize: 11,
+                  background: "#fa8c16",
+                  color: "#fff",
+                }}
+                title={`有 ${availableUpdates.length} 个可用更新`}
+              >
+                {availableUpdates.length} 待更新
+              </span>
+            )}
           </button>
           {/* + 添加技能的主按钮已上移到 ConclusionBar 的 action 槽位，保持一屏 1 个 primary。 */}
         </Flex>
