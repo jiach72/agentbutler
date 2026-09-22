@@ -46,6 +46,13 @@ export async function registerSkillsRoutes(
     const name = encodeURIComponent((request.params as { name?: string }).name ?? "");
     return proxyWatchPost(`/api/skills/local/${name}/remove`, request.body, reply, 30_000);
   });
+  app.post("/api/skills/local/:name/update", async (request, reply) => {
+    const name = encodeURIComponent((request.params as { name?: string }).name ?? "");
+    return proxyWatchPost(`/api/skills/local/${name}/update`, request.body, reply, 120_000);
+  });
+  app.post("/api/skills/local/remove", async (request, reply) =>
+    proxyWatchPost("/api/skills/local/remove", request.body, reply, 30_000),
+  );
   app.post("/api/skills/local/update", async (request, reply) =>
     proxyWatchPost("/api/skills/local/update", request.body, reply, 120_000),
   );

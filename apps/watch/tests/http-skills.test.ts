@@ -253,4 +253,83 @@ describe("startWatchHttp 技能与记忆端点", () => {
     expect((await install("backup-unavailable")).status).toBe(503);
     expect((await install("skill-risk-blocked")).status).toBe(409);
   });
+
+  it("本地技能更新与删除端点支持请求体与路径参数两种路由", async () => {
+    http.close();
+    const actions: Array<{ action: string; name: string; confirmed: boolean }> = [];
+    const assets = {
+      usage: async () => ({}) as never,
+      archive: async () => ({ ok: true }),
+      restore: async () => ({ ok: true }),
+      purge: async () => ({ ok: true }),
+      githubTrends: async () => ({ items: [] }),
+      refreshGithubTrends: async () => ({ items: [] }),
+      recommendations: async () => ({ items: [] }),
+      stageRecommendation: async () => ({ ok: true }),
+      installStaged: async () => ({ ok: true }),
+      skillHubCategories: async () => ({ items: [] }),
+      skillHubList: async () => ({ total: 0, items: [] }),
+      stageSkillHub: async () => ({ ok: true }),
+      listLocal: async () => ({ items: [], root: "" }),
+      checkLocalUpdates: async () => ({ items: [], checkedAt: "2026-09-22T00:00:00.000Z" }),
+      updateLocal: async (name: string, confirmed: boolean) => {
+        actions.push({ action: "update", name, confirmed });
+        return { ok: true, name };
+      },
+      removeLocal: async (name: string, confirmed: boolean) => {
+        actions.push({ action: "remove", name, confirmed });
+        return { ok: true, name };
+      },
+    };
+    http = startWatchHttp({ ...fake.deps, skillAssets: assets as never }, { port: 0 });
+    const address = await http.start();
+    base = `http://127.0.0.1:${address.port}`;
+
+    // 1. POST /api/skills/local/update (body: { name, confirmed })
+    const res1 = await fetch(`${base}/api/skills/local/update`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "my-skill", confirmed: true }),
+    });
+    expect(res1.status).toBe(200);
+
+    // 2. POST /api/skills/local/update 缺 name 返回 400
+    const res2 = await fetch(`${base}/api/skills/local/update`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirmed: true }),
+    });
+    expect(res2.status).toBe(400);
+
+    // 3. POST /api/skills/local/:name/update (path param)
+    const res3 = await fetch(`${base}/api/skills/local/my-skill/update`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirmed: true }),
+    });
+    expect(res3.status).toBe(200);
+
+    // 4. POST /api/skills/local/remove (body: { name, confirmed })
+    const res4 = await fetch(`${base}/api/skills/local/remove`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "my-skill", confirmed: true }),
+    });
+    expect(res4.status).toBe(200);
+
+    // 5. POST /api/skills/local/:name/remove (path param)
+    const res5 = await fetch(`${base}/api/skills/local/my-skill/remove`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirmed: true }),
+    });
+    expect(res5.status).toBe(200);
+
+    expect(actions).toEqual([
+      { action: "update", name: "my-skill", confirmed: true },
+      { action: "update", name: "my-skill", confirmed: true },
+      { action: "remove", name: "my-skill", confirmed: true },
+      { action: "remove", name: "my-skill", confirmed: true },
+    ]);
+  });
 });

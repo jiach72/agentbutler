@@ -377,6 +377,18 @@ describe("butler-web 服务（fastify inject）", () => {
 
     ws.close();
   });
+
+  it("响应包含安全响应头，CSP 允许 https/blob 图片和 data 字体以适配 SkillHub 图标", async () => {
+    const app = build(tmp);
+    const res = await app.inject({ method: "GET", url: "/api/health" });
+    expect(res.statusCode).toBe(200);
+    const csp = res.headers["content-security-policy"];
+    expect(csp).toBeDefined();
+    expect(csp).toContain("img-src 'self' data: https: blob:;");
+    expect(csp).toContain("font-src 'self' data:;");
+    expect(res.headers["x-frame-options"]).toBe("DENY");
+    expect(res.headers["x-content-type-options"]).toBe("nosniff");
+  });
 });
 
 /** WebSocket 消息收集器：按到达顺序供 await 消费。 */

@@ -293,8 +293,8 @@ function tokensMatch(presented: string, expected: string): boolean {
 
 /**
  * 安全响应头（纵深防御）：
- * - CSP 锁死资源来源：脚本/字体/图片仅本源（index.html 的主题引导已外置为本源
- *   theme-boot.js，无需 'unsafe-inline'）；style 允许 inline（antd 运行时注入样式）；
+ * - CSP 锁死资源来源：脚本仅本源（theme-boot.js 已外置）；style 允许 inline（antd 运行时注入样式）；
+ *   图片允许本源、data、https（支持 SkillHub 技能图标与 CDN 头像）与 blob；字体允许本源与 data；
  *   connect 允许本源与 ws/wss（事件流）；
  * - frame-ancestors 'none' + X-Frame-Options 防点击劫持（面板含急停/重启按钮）；
  * - nosniff / Referrer-Policy 收窄浏览器默认行为。
@@ -302,7 +302,7 @@ function tokensMatch(presented: string, expected: string): boolean {
 const SECURITY_HEADERS: Readonly<Record<string, string>> = {
   "content-security-policy":
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
-    "img-src 'self' data:; font-src 'self'; connect-src 'self' ws: wss:; " +
+    "img-src 'self' data: https: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; " +
     "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
   "x-frame-options": "DENY",
   "x-content-type-options": "nosniff",

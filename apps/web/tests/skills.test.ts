@@ -155,7 +155,7 @@ describe("butler-web 技能与记忆代理", () => {
       // watch 的 {backend,...} 形状被归一为 {id,...} 后透传 UI。
       memory: {
         ...WATCH_VIEW.memory,
-        backend: { id: "hindsight", source: "marker", detail: "检测到 hindsight/config.json（hindsight 记忆服务）" },
+        backend: { id: "hindsight", backend: "hindsight", source: "marker", detail: "检测到 hindsight/config.json（hindsight 记忆服务）" },
       },
     });
     expect(transport.calls).toEqual([
@@ -173,13 +173,14 @@ describe("butler-web 技能与记忆代理", () => {
     expect(idResponse.statusCode).toBe(200);
     expect(idResponse.json().memory.backend).toEqual({
       id: "mem0",
+      backend: "mem0",
       source: "env",
       detail: "BUTLER_MEMORY_BACKEND 显式指定 mem0",
     });
 
     const malformed = makeFetch({
       ...WATCH_VIEW,
-      memory: { ...WATCH_VIEW.memory, backend: { id: "not-a-backend", source: "marker", detail: "x" } },
+      memory: { ...WATCH_VIEW.memory, backend: { id: "", source: "marker", detail: "x" } },
     });
     const malformedApp = build(malformed.fetch);
     const malformedResponse = await malformedApp.inject({ method: "GET", url: "/api/skills" });
@@ -277,5 +278,45 @@ describe("butler-web 技能与记忆代理", () => {
       watchReachable: false,
       skills: { mode: "unavailable", items: [] },
     });
+  });
+
+  it("透传本地技能更新与删除请求（兼容路径参数与请求体两种风格）", async () => {
+    const transport = makeFetch({ ok: true });
+    const app = build(transport.fetch);
+
+    const res1 = await app.inject({
+      method: "POST",
+      url: "/api/skills/local/update",
+      payload: { name: "demo-skill", confirmed: true },
+    });
+    expect(res1.statusCode).toBe(200);
+
+    const res2 = await app.inject({
+      method: "POST",
+      url: "/api/skills/local/demo-skill/update",
+      payload: { confirmed: true },
+    });
+    expect(res2.statusCode).toBe(200);
+
+    const res3 = await app.inject({
+      method: "POST",
+      url: "/api/skills/local/remove",
+      payload: { name: "demo-skill", confirmed: true },
+    });
+    expect(res3.statusCode).toBe(200);
+
+    const res4 = await app.inject({
+      method: "POST",
+      url: "/api/skills/local/demo-skill/remove",
+      payload: { confirmed: true },
+    });
+    expect(res4.statusCode).toBe(200);
+
+    expect(transport.calls).toEqual([
+      "http://127.0.0.1:7533/api/skills/local/update",
+      "http://127.0.0.1:7533/api/skills/local/demo-skill/update",
+      "http://127.0.0.1:7533/api/skills/local/remove",
+      "http://127.0.0.1:7533/api/skills/local/demo-skill/remove",
+    ]);
   });
 });

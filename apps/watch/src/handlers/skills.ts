@@ -211,6 +211,31 @@ export async function handleSkills(ctx: RequestContext): Promise<boolean> {
     return true;
   }
 
+  if (path === "/api/skills/local/update" || path === "/api/skills/local/remove") {
+    if (method !== "POST") {
+      sendJson(res, 405, { error: "method-not-allowed" });
+      return true;
+    }
+    if (deps.skillAssets === undefined) {
+      sendJson(res, 503, { error: "skill-assets-unavailable" });
+      return true;
+    }
+    const body = await readJsonBody(req, res);
+    if (body === null) return true;
+    const name = typeof body["name"] === "string" ? body["name"].trim() : "";
+    if (name === "") {
+      sendJson(res, 400, { error: "missing-skill-name", fix: "请在请求体中提供技能名称（name 字段）。" });
+      return true;
+    }
+    const confirmed = body["confirmed"] === true;
+    const result =
+      path === "/api/skills/local/remove"
+        ? await deps.skillAssets.removeLocal(name, confirmed)
+        : await deps.skillAssets.updateLocal(name, confirmed);
+    sendJson(res, result.ok === true ? 200 : 409, result);
+    return true;
+  }
+
   const localActionMatch = /^\/api\/skills\/local\/([^/]+)\/(remove|update)$/.exec(path);
   if (localActionMatch !== null) {
     if (method !== "POST") {

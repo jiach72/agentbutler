@@ -711,7 +711,14 @@ export function createSkillAssetService(deps: { core: Core; skills: SkillsMemory
     async checkLocalUpdates() {
       const { items } = await this.listLocal();
       const updates: LocalUpdateItem[] = [];
-      const hubSlugs = [...new Set(items.filter((item) => item.origin === "skillhub" && item.slug !== null).map((item) => item.slug!))];
+      const hubSlugs = [
+        ...new Set(
+          items
+            .filter((item) => item.origin === "skillhub")
+            .map((item) => item.slug ?? item.name)
+            .filter((slug): slug is string => slug !== null && slug !== ""),
+        ),
+      ];
       const hubLatest = hubSlugs.length > 0 ? await skillHub.latestVersions(hubSlugs) : new Map<string, string>();
       const gitRepos = [...new Set(items.filter((item) => item.origin === "git" && item.gitUrl !== null).map((item) => item.gitUrl!))];
       const gitLatest = new Map<string, string | null>();
@@ -726,8 +733,9 @@ export function createSkillAssetService(deps: { core: Core; skills: SkillsMemory
         } catch { gitLatest.set(gitUrl, null); }
       }
       for (const item of items) {
-        if (item.origin === "skillhub" && item.slug !== null) {
-          const latest = hubLatest.get(item.slug) ?? null;
+        const hubSlug = item.origin === "skillhub" ? (item.slug ?? item.name) : null;
+        if (item.origin === "skillhub" && hubSlug !== null) {
+          const latest = hubLatest.get(hubSlug) ?? null;
           if (latest === null) {
             updates.push({ name: item.name, status: "unknown", installedVersion: item.version, latestVersion: null, reason: "暂时连不上 SkillHub，稍后再查。" });
             continue;
@@ -771,7 +779,8 @@ export function createSkillAssetService(deps: { core: Core; skills: SkillsMemory
         return { ok: true, preview: { name, action: "重新下载最新版并替换本机版本；旧版本会先移入备份区。", installedVersion: item.version } };
       }
       let staged: Record<string, unknown>;
-      if (item.origin === "skillhub" && item.slug !== null) staged = await this.stageSkillHub(item.slug);
+      const hubSlug = item.origin === "skillhub" ? (item.slug ?? item.name) : null;
+      if (item.origin === "skillhub" && hubSlug !== null) staged = await this.stageSkillHub(hubSlug);
       else if (item.origin === "git" && item.gitUrl !== null) staged = await this.stageGitSource(item.gitUrl);
       else return { ok: false, error: "no-source", fix: "该技能没有记录来源，无法自动更新。" };
       if (staged.ok !== true) return staged;
