@@ -16,6 +16,8 @@
  * - `forgotten`：窗口内出现删除动作，且此后没有再次写入（「忘了就再没想起来」）。
  */
 import type { ActionEventRow, SqliteStore } from "@butler/core";
+import type { MemoryEngineId } from "@butler/contract";
+import type { MemoryBackendDetection, MemoryBackendId } from "@butler/adapter-hermes";
 
 /** 记忆类路径特征（命中即视为记忆文件）。规则显式暴露，便于用户核对与调整预期。 */
 export const MEMORY_PATH_PATTERNS: readonly RegExp[] = [
@@ -44,6 +46,9 @@ export interface MemoryDiffEntry {
 
 export interface MemoryDiffView {
   windowDays: number;
+  activeEngine: MemoryEngineId;
+  activeEngineName: string;
+  activeEngineDetail: string;
   entries: MemoryDiffEntry[];
   /** 变化最多的 TOP N（周报「本周它记住了什么」直接用）。 */
   top: MemoryDiffEntry[];
@@ -64,6 +69,8 @@ export interface MemoryDiffOptions {
   /** 可选的受管文件清单（用于判定「当前是否仍在」）；缺省则该字段为 null。 */
   managedPaths?: () => string[];
   now?: () => number;
+  /** 记忆后端检测供应器；默认按原生 SQLite hermes。 */
+  getBackend?: () => MemoryBackendDetection;
 }
 
 /** 路径是否属于记忆类文件。 */
@@ -87,24 +94,85 @@ export function classifyChange(input: {
   return "modified";
 }
 
+/** 判定动作是否与外部第三方记忆后端（hindsight / mem0）直接相关。 */
+export function isExternalMemoryAction(row: ActionEventRow, backend: MemoryBackendId): boolean {
+  if (backend === "hindsight") {
+    const target = row.target.toLowerCase();
+    if (
+      target.includes("hindsight") ||
+      target.includes("9177") ||
+      target.includes("/banks/") ||
+      target.includes("memories/retain") ||
+      target.includes("memories/recall") ||
+      target.includes("memories")
+    ) {
+      return true;
+    }
+  } else if (backend === "mem0") {
+    const target = row.target.toLowerCase();
+    if (
+      target.includes("mem0") ||
+      target.includes("8888") ||
+      target.includes("api.mem0.ai") ||
+      target.includes("/v1/memories") ||
+      target.includes("/v2/memories")
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function normalizeTarget(row: ActionEventRow, backend: MemoryBackendId): string {
+  if (backend === "hindsight" && isExternalMemoryAction(row, backend)) {
+    return row.target.startsWith("hindsight:")
+      ? row.target
+      : `hindsight://${row.target.replace(/^https?:\/\/[^/]+/, "").replace(/^\/+/, "") || "memories"}`;
+  }
+  if (backend === "mem0" && isExternalMemoryAction(row, backend)) {
+    return row.target.startsWith("mem0:")
+      ? row.target
+      : `mem0://${row.target.replace(/^https?:\/\/[^/]+/, "").replace(/^\/+/, "") || "memories"}`;
+  }
+  return row.target;
+}
+
 export function createMemoryDiffService(options: MemoryDiffOptions): MemoryDiffService {
   const now = options.now ?? (() => Date.now());
 
   /** 窗口开始前的全部历史路径集合（用于区分「新增」与「修改」）。 */
-  function pathsBefore(cutoff: string): Set<string> {
+  function pathsBefore(cutoff: string, backend: MemoryBackendId): Set<string> {
     const rows = options.store.listActionEvents({ until: cutoff, limit: 2000 });
     return new Set(
       rows
-        .filter((row) => row.kind === "file-write" || row.kind === "file-delete")
-        .map((row) => row.target)
-        .filter((target) => target !== "" && isMemoryPath(target)),
+        .filter((row) => {
+          if (row.target === "") return false;
+          if (row.kind === "file-write" || row.kind === "file-delete") return isMemoryPath(row.target);
+          if (backend !== "hermes") return isExternalMemoryAction(row, backend);
+          return false;
+        })
+        .map((row) => normalizeTarget(row, backend)),
     );
   }
 
   function diff(windowDays: number): MemoryDiffView {
     const days = Math.max(1, Math.min(90, Math.floor(windowDays)));
     const cutoff = new Date(now() - days * 86_400_000).toISOString();
-    const knownBefore = pathsBefore(cutoff);
+    const backendDetection = options.getBackend?.() ?? {
+      backend: "hermes",
+      source: "default",
+      detail: "未发现外部记忆系统标记，按默认 SQLite 记忆库处理",
+    };
+    const activeEngine: MemoryEngineId = backendDetection.backend;
+    const activeEngineName =
+      activeEngine === "hindsight"
+        ? "Hindsight 知识图谱记忆"
+        : activeEngine === "mem0"
+          ? "Mem0 长期记忆系统"
+          : "Hermes 原生 SQLite 记忆库";
+    const activeEngineDetail = backendDetection.detail;
+
+    const knownBefore = pathsBefore(cutoff, backendDetection.backend);
     const rows: ActionEventRow[] = options.store.listActionEvents({ since: cutoff, limit: 5000 });
 
     interface Acc {
@@ -119,10 +187,13 @@ export function createMemoryDiffService(options: MemoryDiffOptions): MemoryDiffS
     }
     const byPath = new Map<string, Acc>();
     for (const row of rows) {
-      if (row.kind !== "file-write" && row.kind !== "file-delete") continue;
-      if (row.target === "" || !isMemoryPath(row.target)) continue;
-      const entry = byPath.get(row.target) ?? {
-        path: row.target,
+      const isFileMemory = (row.kind === "file-write" || row.kind === "file-delete") && isMemoryPath(row.target);
+      const isExtMemory = activeEngine !== "hermes" && isExternalMemoryAction(row, backendDetection.backend);
+      if (!isFileMemory && !isExtMemory) continue;
+
+      const targetPath = normalizeTarget(row, backendDetection.backend);
+      const entry = byPath.get(targetPath) ?? {
+        path: targetPath,
         writes: 0,
         deletes: 0,
         firstAt: row.ts,
@@ -131,7 +202,8 @@ export function createMemoryDiffService(options: MemoryDiffOptions): MemoryDiffS
         lastDeleteAt: null,
         sessionIds: new Set<string>(),
       };
-      if (row.kind === "file-write") {
+      const isDelete = row.kind === "file-delete" || row.target.toLowerCase().includes("delete");
+      if (!isDelete) {
         entry.writes += 1;
         entry.lastWriteAt = row.ts;
       } else {
@@ -141,7 +213,7 @@ export function createMemoryDiffService(options: MemoryDiffOptions): MemoryDiffS
       if (row.ts < entry.firstAt) entry.firstAt = row.ts;
       if (row.ts > entry.lastAt) entry.lastAt = row.ts;
       if (row.sessionId !== null && entry.sessionIds.size < 5) entry.sessionIds.add(row.sessionId);
-      byPath.set(row.target, entry);
+      byPath.set(targetPath, entry);
     }
 
     const managed = options.managedPaths === undefined ? null : new Set(options.managedPaths());
@@ -171,8 +243,36 @@ export function createMemoryDiffService(options: MemoryDiffOptions): MemoryDiffS
       .sort((a, b) => b.writes + b.deletes - (a.writes + a.deletes) || b.lastAt.localeCompare(a.lastAt))
       .slice(0, 5);
 
+    let basis: string;
+    let basisLimits: string[];
+    if (activeEngine === "hindsight") {
+      basis = `近 ${days} 天基于 Hindsight 知识图谱记忆系统的行为审计流（共扫描 ${rows.length} 条动作事件，捕获 ${entries.length} 项图谱与记忆文件改动）`;
+      basisLimits = [
+        "主记忆系统为 Hindsight（知识图谱），记忆条目通过图谱实体与反思提取维护，不再频繁改动本地 Markdown 文件",
+        "只反映观测窗口内被 agent 调用的 Hindsight 记忆 API 及受管记忆文件，不做远程图谱全量快照",
+        "「不在受管清单内」不等于文件被删除；若图谱条目无本地映射，清单状态显示为未知属正常现象",
+      ];
+    } else if (activeEngine === "mem0") {
+      basis = `近 ${days} 天基于 Mem0 长期记忆系统的行为审计流（共扫描 ${rows.length} 条动作事件，捕获 ${entries.length} 项向量与记忆文件改动）`;
+      basisLimits = [
+        "主记忆系统为 Mem0（双层向量/图谱），记忆条目通过 API 与向量索引维护，不依赖本地 Markdown 扁平文件",
+        "只反映观测窗口内被 agent 调用的 Mem0 记忆 API 及受管记忆文件，不做外部向量全量快照",
+        "「不在受管清单内」不等于文件被删除；若向量条目无本地映射，清单状态显示为未知属正常现象",
+      ];
+    } else {
+      basis = `近 ${days} 天行为审计流中命中记忆类路径的写入/删除动作（共扫描 ${rows.length} 条动作事件）`;
+      basisLimits = [
+        "只反映观测窗口内被 agent 动作过的记忆文件，不做内容级语义 diff",
+        "窗口之前的存量、以及不经 agent 动作的外部改动，本视图看不到",
+        "「不在受管清单内」不等于已被删除——清单可能只覆盖部分目录",
+      ];
+    }
+
     return {
       windowDays: days,
+      activeEngine,
+      activeEngineName,
+      activeEngineDetail,
       entries,
       top,
       summary: {
@@ -181,12 +281,8 @@ export function createMemoryDiffService(options: MemoryDiffOptions): MemoryDiffS
         forgotten: count("forgotten"),
         total: entries.length,
       },
-      basis: `近 ${days} 天行为审计流中命中记忆类路径的写入/删除动作（共扫描 ${rows.length} 条动作事件）`,
-      basisLimits: [
-        "只反映观测窗口内被 agent 动作过的记忆文件，不做内容级语义 diff",
-        "窗口之前的存量、以及不经 agent 动作的外部改动，本视图看不到",
-        "「不在受管清单内」不等于已被删除——清单可能只覆盖部分目录",
-      ],
+      basis,
+      basisLimits,
       lastActionAt: rows[0]?.ts ?? null,
     };
   }

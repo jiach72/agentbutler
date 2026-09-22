@@ -11,7 +11,7 @@
  * ——「遗忘」用 warn 而不是 error：这一页存在的意义正是安抚「它是不是把事忘了」的焦虑，
  * 用错误红会和页面文案自相矛盾（评审 P1-1）。
  */
-import { Alert, Button, Card, Flex, Segmented, Table, Tooltip, Typography } from "antd";
+import { Alert, Button, Card, Flex, Segmented, Table, Tag, Tooltip, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { ReloadOutlined, InfoCircleOutlined } from "@ant-design/icons";
 import { useCallback, useEffect, useState } from "react";
@@ -42,6 +42,9 @@ interface MemoryEntry {
 
 interface MemoryDiffPayload {
   windowDays: number;
+  activeEngine?: string;
+  activeEngineName?: string;
+  activeEngineDetail?: string;
   entries: MemoryEntry[];
   top: MemoryEntry[];
   summary: { added: number; modified: number; forgotten: number; total: number };
@@ -103,7 +106,7 @@ export function MemoryDiffPage() {
       render: (change: Change) => <StatusBadge tone={CHANGE_TONE[change]} label={CHANGE_LABEL[change]} />,
     },
     {
-      title: "记忆文件",
+      title: data?.activeEngine && data.activeEngine !== "hermes" ? "记忆实体 / 路径" : "记忆文件",
       dataIndex: "path",
       key: "path",
       ellipsis: true,
@@ -133,7 +136,7 @@ export function MemoryDiffPage() {
         value === true ? (
           <StatusBadge tone="ok" label="在清单内" />
         ) : (
-          <Tooltip title="不在受管清单内，或该目录未被清单覆盖——这不等于文件已被删除">
+          <Tooltip title="不在受管清单内，或属于第三方外部记忆服务的虚拟实体——这不等于文件已被删除">
             <span>
               <StatusBadge tone="unknown" label="未知" />
             </span>
@@ -166,6 +169,8 @@ export function MemoryDiffPage() {
   const summary = data?.summary;
   const entries = (data?.entries ?? []).filter((entry) => filter === "all" || entry.change === filter);
   const windowDays = data?.windowDays ?? 7;
+  const isExternal = Boolean(data?.activeEngine && data.activeEngine !== "hermes");
+  const engineName = data?.activeEngineName || "原生记忆库";
 
   /**
    * 页面结论条（规范 03 §2.3 ②「必须有」）。
@@ -180,40 +185,62 @@ export function MemoryDiffPage() {
           action: <Button onClick={refresh}>重试</Button>,
         }
       : data === null
-        ? { tone: "unknown", title: "正在整理记忆变更", copy: `正在统计最近 ${windowDays} 天记忆类文件的改动。` }
+        ? { tone: "unknown", title: "正在整理记忆变更", copy: `正在统计最近 ${windowDays} 天记忆改动。` }
         : summary === undefined || summary.total === 0
           ? {
               tone: "ok",
               title: `最近 ${windowDays} 天没有观测到记忆改动`,
-              copy: "没有改动不代表记忆丢了，只是这段时间没动过记忆类文件。",
+              copy: isExternal
+                ? `当前生效系统为「${engineName}」，记忆由其 API/图谱服务维护。本周未产生新的图谱/实体改动。`
+                : "没有改动不代表记忆丢了，只是这段时间没动过记忆类文件。",
             }
           : summary.forgotten > 0
             ? {
                 tone: "warn",
-                title: `最近 ${windowDays} 天它记住了 ${summary.added} 个文件，另有 ${summary.forgotten} 个疑似遗忘`,
-                copy: `共涉及 ${summary.total} 个记忆文件（修改 ${summary.modified} 个）。「不在受管清单内」不等于文件被删除，判断口径见页尾说明。`,
+                title: `最近 ${windowDays} 天在「${engineName}」记住了 ${summary.added} 项条目，另有 ${summary.forgotten} 项疑似遗忘`,
+                copy: `共涉及 ${summary.total} 项记忆变动（修改 ${summary.modified} 项）。「不在受管清单内」不等于实体已被物理删除，判断口径见页尾说明。`,
               }
             : {
                 tone: "ok",
-                title: `最近 ${windowDays} 天它记住了 ${summary.added} 个文件、修改了 ${summary.modified} 个`,
-                copy: `共涉及 ${summary.total} 个记忆文件，没有观测到遗忘。`,
+                title: `最近 ${windowDays} 天在「${engineName}」记住了 ${summary.added} 项条目、修改了 ${summary.modified} 项`,
+                copy: `共涉及 ${summary.total} 项记忆条目变动，没有观测到遗忘。`,
               };
 
   const stats: StatStripItem[] =
     summary === undefined
       ? []
       : [
-          { key: "added", label: "新增", value: summary.added, unit: "个", tone: "ok", sub: "新写入的记忆文件" },
-          { key: "modified", label: "修改", value: summary.modified, unit: "个", tone: "brand", sub: "被再次写入" },
+          {
+            key: "added",
+            label: "新增",
+            value: summary.added,
+            unit: "个",
+            tone: "ok",
+            sub: isExternal ? "新记录的记忆实体/动作" : "新写入的记忆文件",
+          },
+          {
+            key: "modified",
+            label: "修改",
+            value: summary.modified,
+            unit: "个",
+            tone: "brand",
+            sub: isExternal ? "被更新的实体/动作" : "被再次写入",
+          },
           {
             key: "forgotten",
             label: "遗忘",
             value: summary.forgotten,
             unit: "个",
             tone: summary.forgotten > 0 ? "warn" : undefined,
-            sub: "被删除或移出受管清单",
+            sub: isExternal ? "被移除或归档" : "被删除或移出受管清单",
           },
-          { key: "total", label: "涉及文件", value: summary.total, unit: "个", sub: `统计窗口 ${windowDays} 天` },
+          {
+            key: "total",
+            label: isExternal ? "涉及条目" : "涉及文件",
+            value: summary.total,
+            unit: "个",
+            sub: `统计窗口 ${windowDays} 天`,
+          },
         ];
 
   return (
@@ -222,9 +249,27 @@ export function MemoryDiffPage() {
         <PageHeader
           title="记忆变更"
           extra={
-            <Button icon={<ReloadOutlined />} onClick={refresh}>
-              刷新
-            </Button>
+            <Flex gap={8} align="center" wrap="wrap">
+              {data?.activeEngineName && (
+                <Tag
+                  color={data.activeEngine === "hermes" ? "default" : "processing"}
+                  style={{ borderRadius: 6, padding: "2px 8px" }}
+                  title={data.activeEngineDetail}
+                >
+                  主系统：{data.activeEngineName}
+                </Tag>
+              )}
+              <Button
+                type="link"
+                size="small"
+                onClick={() => (window.location.href = "/memory")}
+              >
+                切换主记忆系统 →
+              </Button>
+              <Button icon={<ReloadOutlined />} onClick={refresh}>
+                刷新
+              </Button>
+            </Flex>
           }
         />
 

@@ -76,9 +76,9 @@ export interface MemoryEntry {
   cold?: boolean;
 }
 
-/** watch 检测到的记忆后端（hermes|hindsight|mem0；env 声明 > 目录标记 > 默认）。 */
 export interface MemoryBackendView {
-  id: string;
+  id?: string;
+  backend?: string;
   source: string;
   detail: string;
 }
@@ -199,22 +199,24 @@ export function modeLabel(mode: InventoryMode): string {
 }
 
 const MEMORY_BACKEND_LABELS: Record<string, string> = {
-  hermes: "默认 SQLite 记忆库",
-  hindsight: "Hindsight 记忆服务",
-  mem0: "mem0 记忆服务",
+  hermes: "Hermes 原生 SQLite 记忆库",
+  hindsight: "Hindsight 知识图谱记忆",
+  mem0: "Mem0 长期记忆系统",
 };
 
 const MEMORY_BACKEND_SOURCE_LABELS: Record<string, string> = {
-  env: "按配置指定",
+  env: "按环境变量指定",
+  config: "配置文件",
   marker: "自动检测",
   default: "默认",
 };
 
-/** 记忆后端的人读标签，如「Hindsight 记忆服务（自动检测）」；未上报时返回空串。 */
+/** 记忆后端的人读标签，如「Hindsight 知识图谱记忆（配置文件）」；未上报时返回空串。 */
 export function memoryBackendLabel(backend: MemoryBackendView | undefined): string {
   if (backend === undefined) return "";
-  const id = MEMORY_BACKEND_LABELS[backend.id] ?? backend.id;
-  const source = MEMORY_BACKEND_SOURCE_LABELS[backend.source] ?? "";
+  const rawId = (backend.id ?? backend.backend ?? "hermes").toLowerCase();
+  const id = MEMORY_BACKEND_LABELS[rawId] ?? rawId;
+  const source = MEMORY_BACKEND_SOURCE_LABELS[backend.source] ?? backend.source;
   return source === "" ? id : `${id}（${source}）`;
 }
 

@@ -166,6 +166,8 @@ export interface SkillsMemoryServiceDeps {
   memoryDriver?: MemoryDriver;
   /** hindsight 只读记忆驱动：检测到 hindsight 后端时，统计/预览/健康改走该驱动。 */
   hindsightMemoryDriver?: MemoryDriver;
+  /** mem0 只读记忆驱动：检测到 mem0 后端时，统计/预览/健康改走该驱动。 */
+  mem0MemoryDriver?: MemoryDriver;
   /** 记忆后端声明（BUTLER_MEMORY_BACKEND 归一化值；缺省 auto 按目录标记检测）。 */
   memoryBackend?: MemoryBackendConfig;
   now?: () => number;
@@ -249,22 +251,23 @@ function writeActivity(
   stats: MemoryStats | null,
   now: () => number,
   thresholdMin: number,
-  hindsightActive = false,
+  externalActive = false,
+  backendName = "外部",
 ): WriteActivityView {
   if (stats === null) return { status: "unknown", detail: "驱动未能解析最近写入时间" };
   if (stats.lastWriteAt === null) {
-    return hindsightActive
-      ? { status: "external", detail: "记忆由 hindsight 服务接管；本地旧记忆库无写入记录，不作为停写依据" }
+    return externalActive
+      ? { status: "external", detail: `记忆由 ${backendName} 服务接管；本地旧记忆库无写入记录，不作为停写依据` }
       : { status: "empty", detail: "记忆库尚无用户记忆写入" };
   }
   const last = Date.parse(stats.lastWriteAt);
   if (!Number.isFinite(last)) return { status: "unknown", detail: "最近写入时间格式无法识别" };
   const ageMin = Math.max(0, Math.floor((now() - last) / 60_000));
   if (ageMin > thresholdMin) {
-    return hindsightActive
+    return externalActive
       ? {
           status: "external",
-          detail: `记忆由 hindsight 服务接管；旧本地记忆库 ${ageMin} 分钟未写入属预期，不作为停写告警`,
+          detail: `记忆由 ${backendName} 服务接管；距上次活跃已 ${ageMin} 分钟，由服务自身维护索引`,
         }
       : { status: "stalled", detail: `距上次写入 ${ageMin} 分钟，超过 ${thresholdMin} 分钟阈值` };
   }
@@ -336,8 +339,11 @@ export function createSkillsMemoryService(deps: SkillsMemoryServiceDeps): Skills
     const backend = detectMemoryBackend(instance.rootPath, {
       configured: deps.memoryBackend ?? "auto",
     });
-    if (backend.backend !== "hermes" && deps.hindsightMemoryDriver !== undefined) {
+    if (backend.backend === "hindsight" && deps.hindsightMemoryDriver !== undefined) {
       return deps.hindsightMemoryDriver;
+    }
+    if (backend.backend === "mem0" && deps.mem0MemoryDriver !== undefined) {
+      return deps.mem0MemoryDriver;
     }
     return deps.memoryDriver;
   }
@@ -433,9 +439,11 @@ export function createSkillsMemoryService(deps: SkillsMemoryServiceDeps): Skills
         configured: deps.memoryBackend ?? "auto",
       });
       const activeMemoryDriver =
-        backend.backend !== "hermes" && deps.hindsightMemoryDriver !== undefined
+        backend.backend === "hindsight" && deps.hindsightMemoryDriver !== undefined
           ? deps.hindsightMemoryDriver
-          : deps.memoryDriver;
+          : backend.backend === "mem0" && deps.mem0MemoryDriver !== undefined
+            ? deps.mem0MemoryDriver
+            : deps.memoryDriver;
       const skillsDirectory = scanDirectoryTargets(instance.rootPath, [
         join(instance.rootPath, "skills"),
       ]);
@@ -444,6 +452,8 @@ export function createSkillsMemoryService(deps: SkillsMemoryServiceDeps): Skills
         join(instance.rootPath, "memory"),
         join(instance.rootPath, "memories"),
         join(instance.rootPath, "hindsight"),
+        join(instance.rootPath, "mem0"),
+        join(instance.rootPath, "mem0.json"),
       ]);
       const pluginsDirectory = scanDirectoryTargets(instance.rootPath, [
         join(instance.rootPath, "plugins"),
@@ -542,9 +552,11 @@ export function createSkillsMemoryService(deps: SkillsMemoryServiceDeps): Skills
             ? "driver"
             : "directory-fallback";
       // 统计来自外部驱动（真实 hindsight 数据）时，停写按常规口径判定；
-      // 只有"检测到 hindsight 但仍在读本地旧库"才需要 suppress 停写告警。
+      // 只有"检测到外部后端但仍在读本地旧库"才需要 suppress 停写告警。
       const readingLocalStoreWhileExternal =
-        backend.backend === "hindsight" && activeMemoryDriver === deps.memoryDriver;
+        backend.backend !== "hermes" && activeMemoryDriver === deps.memoryDriver;
+      const backendName =
+        backend.backend === "hindsight" ? "Hindsight" : backend.backend === "mem0" ? "Mem0" : "外部";
 
       return {
         instance: {
@@ -583,7 +595,13 @@ export function createSkillsMemoryService(deps: SkillsMemoryServiceDeps): Skills
           health: memoryHealth,
           preview: memoryPreview,
           previewLimit: MEMORY_PREVIEW_LIMIT,
-          writeActivity: writeActivity(memoryStats, now, stallThresholdMin, readingLocalStoreWhileExternal),
+          writeActivity: writeActivity(
+            memoryStats,
+            now,
+            stallThresholdMin,
+            readingLocalStoreWhileExternal,
+            backendName,
+          ),
           directory: memoryDirectory,
           notice:
             memoryMode === "driver"

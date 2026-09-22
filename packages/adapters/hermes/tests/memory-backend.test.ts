@@ -48,6 +48,11 @@ describe("detectMemoryBackend", () => {
     expect(detectMemoryBackend(root)).toMatchObject({ backend: "mem0", source: "marker" });
   });
 
+  it("存在 mem0.json → mem0（source=marker）", () => {
+    writeFileSync(join(root, "mem0.json"), '{"version":"v1"}\n');
+    expect(detectMemoryBackend(root)).toMatchObject({ backend: "mem0", source: "marker" });
+  });
+
   it("显式声明优先于标记（声明 hermes 时即便有 hindsight 标记也按默认库）", () => {
     mkdirSync(join(root, "hindsight"), { recursive: true });
     writeFileSync(join(root, "hindsight", "config.json"), "{}");

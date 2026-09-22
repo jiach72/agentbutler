@@ -148,6 +148,40 @@ describe("M4.3 记忆变更流：服务", () => {
     expect(a.stillPresent).toBe(true);
     expect(b.stillPresent).toBeNull();
   });
+
+  it("当切换为第三方外部记忆后端（如 hindsight）时，识别 API 动作流并切换 activeEngine 声明与口径", () => {
+    const dir = makeTempDir();
+    const store = new SqliteStore(join(dir, "butler.db"));
+    // 注入 hindsight 相关的 API 审计记录
+    store.insertActionEvent({
+      ts: new Date(FIXED - 86_400_000).toISOString(),
+      kind: "api-call",
+      severity: "info",
+      actor: "hermes-agent",
+      target: "http://127.0.0.1:9177/v1/default/banks/hermes/memories/retain",
+      detailJson: JSON.stringify({ action: "retain" }),
+      sessionId: "s-1",
+      parserVersion: "v1",
+    });
+
+    const service = createMemoryDiffService({
+      store,
+      now: () => FIXED,
+      getBackend: () => ({
+        backend: "hindsight",
+        source: "config",
+        detail: "检测到 config.yaml 中配置了 hindsight MCP 记忆服务",
+      }),
+    });
+
+    const view = service.diff(7);
+    expect(view.activeEngine).toBe("hindsight");
+    expect(view.activeEngineName).toContain("Hindsight");
+    expect(view.basis).toContain("Hindsight");
+    expect(view.entries.length).toBeGreaterThanOrEqual(1);
+    expect(view.entries[0]?.path).toContain("hindsight://");
+    expect(view.entries[0]?.change).toBe("added");
+  });
 });
 
 describe("M4.4 联邦：服务", () => {

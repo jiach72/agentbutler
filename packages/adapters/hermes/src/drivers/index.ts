@@ -7,3 +7,4 @@ export {
   type WritableSqliteOpener,
 } from "./memory.js";
 export { createHindsightMemoryDriver, type HindsightMemoryDriverOptions } from "./hindsight-memory.js";
+export { createMem0MemoryDriver, type Mem0MemoryDriverOptions } from "./mem0-memory.js";

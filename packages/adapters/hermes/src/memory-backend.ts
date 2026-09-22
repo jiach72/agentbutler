@@ -54,6 +54,7 @@ export const MEM0_CONFIG_FILES = ["mem0/config.json", "mem0/config.yaml"] as con
 export const MEM0_MARKER_FILES = [
   "mem0/config.json",
   "mem0/config.yaml",
+  "mem0.json",
   "mem0-local.env",
 ] as const;
 
@@ -109,6 +110,25 @@ export function detectMemoryBackend(
           const parsed = parseYaml(raw);
           if (parsed !== null && typeof parsed === "object") {
             const record = parsed as Record<string, unknown>;
+            const memoryConfig = record["memory"];
+            if (memoryConfig !== null && typeof memoryConfig === "object") {
+              const memRecord = memoryConfig as Record<string, unknown>;
+              const provider = typeof memRecord["provider"] === "string" ? memRecord["provider"].trim().toLowerCase() : "";
+              if (provider === "hindsight") {
+                return {
+                  backend: "hindsight",
+                  source: "config",
+                  detail: `检测到 ${configFile} 中 memory.provider 配置为 hindsight`,
+                };
+              }
+              if (provider === "mem0") {
+                return {
+                  backend: "mem0",
+                  source: "config",
+                  detail: `检测到 ${configFile} 中 memory.provider 配置为 mem0`,
+                };
+              }
+            }
             const mcp = record["mcp_servers"] ?? record["mcpServers"];
             if (mcp !== null && typeof mcp === "object") {
               const mcpRecord = mcp as Record<string, unknown>;
@@ -265,16 +285,44 @@ export function listSupportedMemorySystems(
   ];
 }
 
+export interface MemoryBackendChangeOptions {
+  engineId?: MemoryEngineId;
+  deployMode?: MemoryDeployMode;
+  customEndpoint?: string;
+  apiUrl?: string;
+  apiKey?: string;
+  port?: number;
+}
+
 /**
  * 预览记忆系统切换的配置 Diff
  */
 export function previewMemoryBackendChange(
   rootPath: string,
-  engine: MemoryEngineId,
-  mode: MemoryDeployMode,
-  params: { apiUrl?: string; apiKey?: string; port?: number } = {},
-): MemoryConfigPreview {
-  const diffs: MemoryConfigPreviewDiff[] = [];
+  engineOrOptions: MemoryEngineId | MemoryBackendChangeOptions,
+  modeArg?: MemoryDeployMode,
+  paramsArg: { apiUrl?: string; apiKey?: string; port?: number } = {},
+): MemoryConfigPreview & { targetFiles: string[] } {
+  let engine: MemoryEngineId;
+  let mode: MemoryDeployMode;
+  let params: { apiUrl?: string; apiKey?: string; port?: number };
+
+  if (typeof engineOrOptions === "object" && engineOrOptions !== null) {
+    const opts = engineOrOptions as MemoryBackendChangeOptions;
+    engine = opts.engineId ?? "hermes";
+    mode = opts.deployMode ?? "docker";
+    params = {
+      apiUrl: opts.customEndpoint ?? opts.apiUrl,
+      apiKey: opts.apiKey,
+      port: opts.port,
+    };
+  } else {
+    engine = engineOrOptions;
+    mode = modeArg ?? "docker";
+    params = paramsArg;
+  }
+
+  const diffs: (MemoryConfigPreviewDiff & { file: string; oldContent: string | null; newContent: string })[] = [];
   const warnings: string[] = [];
 
   // 1. config.yaml
@@ -303,11 +351,35 @@ export function previewMemoryBackendChange(
   }
   newConfig["memory"] = memoryObj;
 
+  // 同时也维护 mcp_servers，使外部后端在各客户端与测试环境下一体化就绪
+  const mcpObj = (typeof newConfig["mcp_servers"] === "object" && newConfig["mcp_servers"] !== null
+    ? { ...(newConfig["mcp_servers"] as Record<string, unknown>) }
+    : {}) as Record<string, unknown>;
+
+  if (engine === "hindsight") {
+    const ep =
+      mode === "docker"
+        ? `http://127.0.0.1:${params.port || 9177}`
+        : params.apiUrl || "https://api.hindsight.vectorize.io";
+    mcpObj["hindsight"] = { url: ep };
+    newConfig["mcp_servers"] = mcpObj;
+  } else if (engine === "mem0") {
+    const ep =
+      mode === "docker"
+        ? `http://127.0.0.1:${params.port || 8888}`
+        : params.apiUrl || "https://api.mem0.ai";
+    mcpObj["mem0"] = { url: ep };
+    newConfig["mcp_servers"] = mcpObj;
+  }
+
   const proposedConfigYaml = stringifyYaml(newConfig);
   diffs.push({
     path: "config.yaml",
     original: origConfigYaml,
     proposed: proposedConfigYaml,
+    file: "config.yaml",
+    oldContent: origConfigYaml,
+    newContent: proposedConfigYaml,
   });
 
   // 2. 专用配置文件 (hindsight/config.json 或 mem0.json)
@@ -330,6 +402,9 @@ export function previewMemoryBackendChange(
       path: HINDSIGHT_CONFIG_FILE,
       original: origJson,
       proposed: proposedJson,
+      file: HINDSIGHT_CONFIG_FILE,
+      oldContent: origJson,
+      newContent: proposedJson,
     });
   } else if (engine === "mem0") {
     const targetFile = join(rootPath, "mem0.json");
@@ -348,6 +423,9 @@ export function previewMemoryBackendChange(
       path: "mem0.json",
       original: origJson,
       proposed: proposedJson,
+      file: "mem0.json",
+      oldContent: origJson,
+      newContent: proposedJson,
     });
   }
 
@@ -355,6 +433,7 @@ export function previewMemoryBackendChange(
     engine,
     mode,
     diffs,
+    targetFiles: diffs.map((d) => d.path),
     restartRequired: true,
     warnings: warnings.length > 0 ? warnings : undefined,
   };
@@ -365,11 +444,11 @@ export function previewMemoryBackendChange(
  */
 export function applyMemoryBackendChange(
   rootPath: string,
-  engine: MemoryEngineId,
-  mode: MemoryDeployMode,
-  params: { apiUrl?: string; apiKey?: string; port?: number } = {},
+  engineOrOptions: MemoryEngineId | MemoryBackendChangeOptions,
+  modeArg?: MemoryDeployMode,
+  paramsArg: { apiUrl?: string; apiKey?: string; port?: number } = {},
 ): MemoryApplyResult {
-  const preview = previewMemoryBackendChange(rootPath, engine, mode, params);
+  const preview = previewMemoryBackendChange(rootPath, engineOrOptions, modeArg, paramsArg);
   const backupPaths: string[] = [];
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 
@@ -384,16 +463,21 @@ export function applyMemoryBackendChange(
     atomicWriteText(fullPath, diff.proposed);
   }
 
+  const apiKey =
+    typeof engineOrOptions === "object" && engineOrOptions !== null
+      ? (engineOrOptions as MemoryBackendChangeOptions).apiKey
+      : paramsArg.apiKey;
+
   // 若提供了 API Key，同步写入 .env
-  if (params.apiKey && (engine === "mem0" || engine === "hindsight")) {
+  if (apiKey && (preview.engine === "mem0" || preview.engine === "hindsight")) {
     const envPath = join(rootPath, ".env");
-    const envVar = engine === "mem0" ? "MEM0_API_KEY" : "HINDSIGHT_API_KEY";
+    const envVar = preview.engine === "mem0" ? "MEM0_API_KEY" : "HINDSIGHT_API_KEY";
     let envContent = existsSync(envPath) ? readFileSync(envPath, "utf8") : "";
     const reg = new RegExp(`^${envVar}=.*$`, "m");
     if (reg.test(envContent)) {
-      envContent = envContent.replace(reg, `${envVar}=${params.apiKey.trim()}`);
+      envContent = envContent.replace(reg, `${envVar}=${apiKey.trim()}`);
     } else {
-      envContent = `${envContent.trimEnd()}\n${envVar}=${params.apiKey.trim()}\n`;
+      envContent = `${envContent.trimEnd()}\n${envVar}=${apiKey.trim()}\n`;
     }
     atomicWriteText(envPath, envContent);
   }
@@ -402,7 +486,7 @@ export function applyMemoryBackendChange(
     success: true,
     backupPaths,
     restarted: false,
-    message: `已安全更新记忆系统配置为 ${engine} (${mode})，创建了 ${backupPaths.length} 份备份`,
+    message: `已安全更新记忆系统配置为 ${preview.engine} (${preview.mode})，创建了 ${backupPaths.length} 份备份`,
   };
 }
 

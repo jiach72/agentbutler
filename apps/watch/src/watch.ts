@@ -34,6 +34,7 @@ import { fail } from "@butler/contract";
 import {
   createHermesAdapter,
   createHindsightMemoryDriver,
+  createMem0MemoryDriver,
   detectMemoryBackend,
   HermesControlBridgeClient,
   HermesCronClient,
@@ -956,6 +957,13 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     hindsightMemoryDriver: createHindsightMemoryDriver({
       baseUrl: config.memoryProbe.hindsightBaseUrl,
       token: config.memoryProbe.hindsightToken,
+      fetchFn: options.fetchFn,
+      now: options.now,
+    }),
+    // mem0 接管记忆时，统计/预览/健康改读 mem0 服务。
+    mem0MemoryDriver: createMem0MemoryDriver({
+      baseUrl: config.memoryProbe.mem0BaseUrl,
+      apiKey: config.memoryProbe.mem0ApiKey,
       fetchFn: options.fetchFn,
       now: options.now,
     }),
@@ -2052,7 +2060,7 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     now: options.now,
   });
 
-  // 记忆变更流（M4.3）：从行为审计流推导「本周新增/修改/遗忘」的记忆文件。
+  // 记忆变更流（M4.3）：从行为审计流推导「本周新增/修改/遗忘」的记忆文件与外部记忆实体变更。
   const memoryDiff: MemoryDiffService = createMemoryDiffService({
     store: core.store,
     managedPaths: () =>
@@ -2060,6 +2068,10 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
         .list()
         .filter((file) => file.exists)
         .map((file) => file.absolutePath),
+    getBackend: () =>
+      detectMemoryBackend(managedRoot, {
+        configured: config.memoryBackend,
+      }),
     now: options.now,
   });
 

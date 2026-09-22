@@ -129,17 +129,22 @@ export function MemoryPanel({
           </Flex>
           <Text type="secondary">先确认记忆是否健康，再查看写入趋势或检索内容。</Text>
           {data?.memory.backend !== undefined && (
-            <Flex align="center" gap={8} wrap="wrap">
-              <Text type="secondary" title={data.memory.backend.detail}>
-                记忆后端：{memoryBackendLabel(data.memory.backend)}
-              </Text>
+            <Flex align="center" gap={8} wrap="wrap" style={{ marginTop: 4 }}>
+              <Tag
+                color={(data.memory.backend.backend ?? data.memory.backend.id) === "hermes" ? "default" : "processing"}
+                style={{ borderRadius: 6, padding: "2px 8px" }}
+                title={data.memory.backend.detail}
+              >
+                <strong>当前主记忆系统：</strong>
+                {memoryBackendLabel(data.memory.backend)}
+              </Tag>
               <Button
                 type="link"
                 size="small"
                 style={{ padding: 0 }}
                 onClick={() => (onGoToSystems ? onGoToSystems() : (window.location.href = "/memory"))}
               >
-                [管理 / 切换后端]
+                [管理 / 切换后端 →]
               </Button>
             </Flex>
           )}
@@ -174,8 +179,9 @@ export function MemoryPanel({
         message={
           <Flex justify="space-between" align="center" wrap="wrap" gap={8}>
             <span>
-              <strong>第三方记忆系统中心现已就绪：</strong>
-              支持自由切换 Hindsight（知识图谱）、Mem0（双层向量）、原生 SQLite 等后端，内置本地 Docker 编排与 TypeSafe Jev 智能选型顾问。
+              <strong>多记忆引擎数据已联动生效：</strong>
+              当前正在呈现 <strong>{memoryBackendLabel(data?.memory.backend)}</strong> 的实时条目与检索索引。
+              如需更改主要记忆库或部署新引擎，可进入记忆系统中心完成一键配置。
             </span>
             <Button
               size="small"

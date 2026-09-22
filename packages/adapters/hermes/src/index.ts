@@ -134,7 +134,9 @@ export {
   createHermesPluginDriver,
   createHermesSkillDriver,
   createHindsightMemoryDriver,
+  createMem0MemoryDriver,
   type HindsightMemoryDriverOptions,
+  type Mem0MemoryDriverOptions,
   type HermesMemoryDriverOptions,
   type ReadonlySqliteOpener,
 } from "./drivers/index.js";
