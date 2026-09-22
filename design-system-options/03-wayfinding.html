@@ -1,0 +1,558 @@
+<!-- AI生成 -->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>系统 03 · 路网导视</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #eef1f4;
+    --surface: #ffffff;
+    --ink: #15202b;
+    --ink-2: #3d4f61;
+    --muted: #6b7c8e;
+    --line: #d5dde6;
+    --line-strong: #b7c3d0;
+    --line-blue: #1f6fb2;
+    --line-green: #1f8a5c;
+    --line-amber: #c47b12;
+    --line-red: #c23b3b;
+    --soft-blue: #e7f0f8;
+    --soft-green: #e5f4ec;
+    --soft-amber: #faf0dc;
+    --sans: "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+  .board-label {
+    position: fixed; top: 14px; right: 14px; z-index: 50;
+    padding: 7px 11px;
+    background: var(--ink); color: #fff;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+  }
+  .app {
+    display: grid;
+    grid-template-columns: 248px 1fr;
+    height: 100vh; overflow: hidden;
+  }
+
+  /* Sidebar as line directory */
+  .sider {
+    background: var(--surface);
+    border-right: 1px solid var(--line);
+    display: flex; flex-direction: column;
+    min-height: 0;
+  }
+  .brand {
+    display: flex; align-items: center; gap: 12px;
+    padding: 16px 14px;
+    border-bottom: 3px solid var(--ink);
+  }
+  .roundel {
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    background: var(--line-blue);
+    color: #fff;
+    display: grid; place-items: center;
+    font-weight: 700;
+    font-size: 13px;
+    flex-shrink: 0;
+    border: 3px solid var(--ink);
+    box-shadow: 0 0 0 2px var(--line-blue);
+  }
+  .brand strong {
+    display: block;
+    font-size: 15px; font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  .brand span {
+    font-family: var(--mono);
+    font-size: 10.5px; color: var(--muted);
+    letter-spacing: 0.04em;
+  }
+
+  .nav { flex: 1; overflow-y: auto; padding: 10px 0; min-height: 0; }
+  .line-group {
+    display: flex; align-items: stretch;
+    min-height: 100%;
+  }
+  .line-rail {
+    width: 10px;
+    margin-left: 18px;
+    background: var(--line-blue);
+    border-radius: 999px;
+    position: relative;
+    flex-shrink: 0;
+  }
+  .line-rail.green { background: var(--line-green); }
+  .line-rail.amber { background: var(--line-amber); }
+  .line-items {
+    flex: 1;
+    padding: 4px 10px 4px 14px;
+    min-width: 0;
+  }
+  .line-label {
+    font-family: var(--mono);
+    font-size: 10px; font-weight: 600;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    padding: 10px 0 6px;
+  }
+  .station {
+    position: relative;
+    display: flex; flex-direction: column;
+    padding: 8px 10px 8px 18px;
+    margin-bottom: 2px;
+    color: var(--ink-2);
+    text-decoration: none;
+    border-radius: 0 8px 8px 0;
+    min-height: 44px;
+    justify-content: center;
+  }
+  .station::before {
+    content: "";
+    position: absolute;
+    left: -19px; top: 50%;
+    width: 12px; height: 12px;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    background: var(--surface);
+    border: 3px solid var(--line-blue);
+    z-index: 1;
+  }
+  .station .t { font-size: 13.5px; font-weight: 650; color: var(--ink); }
+  .station .d { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
+  .station:hover { background: var(--soft-blue); }
+  .station.active {
+    background: var(--soft-blue);
+    box-shadow: inset 3px 0 0 var(--line-blue);
+  }
+  .station.active::before {
+    background: var(--line-blue);
+    box-shadow: inset 0 0 0 2px #fff;
+  }
+  .green-group .station::before { border-color: var(--line-green); }
+  .green-group .station.active { background: var(--soft-green); box-shadow: inset 3px 0 0 var(--line-green); }
+  .green-group .station.active::before { background: var(--line-green); }
+  .green-group .station:hover { background: var(--soft-green); }
+  .amber-group .station::before { border-color: var(--line-amber); }
+  .amber-group .station.active { background: var(--soft-amber); box-shadow: inset 3px 0 0 var(--line-amber); }
+  .amber-group .station.active::before { background: var(--line-amber); }
+  .amber-group .station:hover { background: var(--soft-amber); }
+
+  .sider-foot {
+    border-top: 1px solid var(--line);
+    padding: 12px 14px;
+    background: #f7f9fb;
+    font-size: 12.5px;
+    color: var(--ink-2);
+  }
+  .sider-foot strong {
+    display: block;
+    color: var(--ink);
+    font-size: 13px;
+  }
+
+  .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    height: 56px;
+    padding: 0 22px;
+    background: var(--surface);
+    border-bottom: 3px solid var(--ink);
+    gap: 12px;
+  }
+  .topbar .left { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+  .topbar h1 {
+    font-size: 18px; font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  .topbar .sub {
+    font-family: var(--mono);
+    font-size: 11px; color: var(--muted);
+    letter-spacing: 0.06em;
+  }
+  .topbar .right { display: flex; gap: 8px; align-items: center; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 7px;
+    height: 32px; padding: 0 12px;
+    border: 2px solid var(--ink);
+    background: var(--surface);
+    font-size: 12.5px; font-weight: 650;
+    border-radius: 999px;
+  }
+  .badge .pip {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--line-green);
+  }
+  .badge.alert {
+    background: var(--line-red);
+    border-color: var(--line-red);
+    color: #fff;
+    font-family: var(--mono);
+  }
+
+  .scroll {
+    flex: 1; overflow-y: auto;
+    padding: 20px 24px 32px;
+  }
+  .page { max-width: 1280px; margin: 0 auto; }
+
+  .route-meta {
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: var(--mono);
+    font-size: 11.5px; letter-spacing: 0.05em;
+    color: var(--muted);
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--line);
+  }
+  .route-meta .on { color: var(--line-green); font-weight: 600; }
+
+  /* Destination board */
+  .dest {
+    margin-top: 16px;
+    background: var(--surface);
+    border: 3px solid var(--ink);
+    border-radius: 16px;
+    overflow: hidden;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 0;
+    align-items: stretch;
+  }
+  .dest-code {
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 22px 20px;
+    background: var(--line-green);
+    color: #fff;
+    min-width: 100px;
+    border-right: 3px solid var(--ink);
+  }
+  .dest-code .id {
+    font-family: var(--mono);
+    font-size: 36px; font-weight: 700;
+    line-height: 1;
+    letter-spacing: -0.04em;
+  }
+  .dest-code .cap {
+    margin-top: 6px;
+    font-size: 11px; font-weight: 700;
+    letter-spacing: 0.12em;
+  }
+  .dest-main {
+    padding: 20px 24px;
+    display: flex; flex-direction: column;
+    justify-content: center;
+  }
+  .dest-main .dir {
+    font-family: var(--mono);
+    font-size: 11px; font-weight: 600;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  .dest-main h3 {
+    font-size: clamp(28px, 3.2vw, 38px);
+    font-weight: 700;
+    letter-spacing: -0.035em;
+    line-height: 1.08;
+  }
+  .dest-main p {
+    margin-top: 8px;
+    font-size: 14.5px;
+    color: var(--ink-2);
+    line-height: 1.55;
+    max-width: 36em;
+  }
+  .dest-act {
+    display: flex; flex-direction: column;
+    justify-content: center; gap: 8px;
+    padding: 18px 20px;
+    border-left: 1px solid var(--line);
+    min-width: 150px;
+  }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    height: 44px; padding: 0 16px;
+    background: var(--ink);
+    color: #fff;
+    font-size: 14px; font-weight: 700;
+    border: none;
+    border-radius: 999px;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .btn.alt {
+    background: var(--surface);
+    color: var(--ink);
+    border: 2px solid var(--ink);
+    height: 42px;
+    font-size: 13.5px;
+  }
+
+  .meta-chips {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    margin-top: 12px;
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 32px; padding: 0 12px;
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+    border-radius: 999px;
+    font-size: 12.5px;
+    color: var(--ink-2);
+  }
+  .chip strong { color: var(--ink); font-weight: 700; }
+
+  /* Platform strip of stops */
+  .platform {
+    margin-top: 16px;
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+    border-radius: 14px;
+    overflow: hidden;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .stop {
+    padding: 16px 16px 14px;
+    min-height: 150px;
+    display: flex; flex-direction: column;
+    position: relative;
+    border-right: 1px solid var(--line);
+  }
+  .stop:last-child { border-right: 0; }
+  .stop-k {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; font-weight: 700;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+  .stop-k .pin {
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    border: 3px solid var(--line-blue);
+    background: #fff;
+    flex-shrink: 0;
+  }
+  .stop.ok .stop-k .pin { border-color: var(--line-green); background: var(--line-green); box-shadow: inset 0 0 0 2px #fff; }
+  .stop.warn .stop-k .pin { border-color: var(--line-amber); background: var(--line-amber); box-shadow: inset 0 0 0 2px #fff; }
+  .stop-v {
+    font-size: 26px; font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+    color: var(--line-blue);
+  }
+  .stop.ok .stop-v { color: var(--line-green); }
+  .stop.warn .stop-v { color: var(--line-amber); }
+  .stop-m {
+    margin-top: 6px;
+    font-size: 12.5px; color: var(--muted);
+    line-height: 1.4;
+  }
+  .stop-a {
+    margin-top: auto; padding-top: 12px;
+    font-size: 12.5px; font-weight: 700;
+    color: var(--line-blue);
+    text-decoration: none;
+  }
+
+  .transfer {
+    margin-top: 16px;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; flex-wrap: wrap;
+    padding: 16px 18px;
+    background: var(--soft-amber);
+    border: 2px solid var(--line-amber);
+    border-radius: 14px;
+  }
+  .transfer h4 {
+    font-size: 16px; font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  .transfer p {
+    margin-top: 3px;
+    font-size: 13.5px; color: var(--ink-2);
+    line-height: 1.45;
+  }
+  .btn.amber {
+    background: var(--line-amber);
+    border-color: var(--line-amber);
+  }
+
+  .ledger {
+    margin-top: 12px;
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 14px;
+    background: var(--surface);
+    border: 1px dashed var(--line-strong);
+    border-radius: 10px;
+    font-size: 13.5px;
+    color: var(--ink-2);
+  }
+  .ledger strong { color: var(--ink); }
+  .ledger .tick {
+    font-family: var(--mono);
+    color: var(--muted);
+    font-weight: 600;
+  }
+
+  @media (max-width: 1000px) {
+    .platform { grid-template-columns: repeat(2, 1fr); }
+    .stop:nth-child(2) { border-right: 0; }
+    .stop:nth-child(n+3) { border-top: 1px solid var(--line); }
+    .dest { grid-template-columns: 1fr; }
+    .dest-code { border-right: 0; border-bottom: 3px solid var(--ink); flex-direction: row; gap: 10px; padding: 14px; }
+    .dest-act { border-left: 0; border-top: 1px solid var(--line); flex-direction: row; }
+    .app { grid-template-columns: 200px 1fr; }
+  }
+</style>
+</head>
+<body>
+<p data-aigc-mark="1" style="margin:0 0 8px;font-size:10px;line-height:1.3;color:#6b6560;font-weight:400;">AI生成</p>
+
+  <div class="board-label">系统 03 · 路网导视</div>
+  <div class="app">
+    <aside class="sider">
+      <div class="brand">
+        <div class="roundel">AB</div>
+        <div>
+          <strong>Agent Butler</strong>
+          <span>本地运维控制台</span>
+        </div>
+      </div>
+      <nav class="nav">
+        <div class="line-group">
+          <div class="line-rail"></div>
+          <div class="line-items">
+            <div class="line-label">1 号线 · 控制台</div>
+            <a class="station active" href="#"><span class="t">首页</span><span class="d">运行总览与一键检查</span></a>
+            <a class="station" href="#"><span class="t">智能体与记忆</span><span class="d">技能、插件与记忆</span></a>
+            <a class="station" href="#"><span class="t">消息通知</span><span class="d">频率控制与送达记录</span></a>
+          </div>
+        </div>
+        <div class="line-group green-group">
+          <div class="line-rail green"></div>
+          <div class="line-items">
+            <div class="line-label">2 号线 · 维护与升级</div>
+            <a class="station" href="#"><span class="t">核心文件</span><span class="d">查看、编辑与回滚</span></a>
+            <a class="station" href="#"><span class="t">自进化</span><span class="d">分析日志与优化方案</span></a>
+            <a class="station" href="#"><span class="t">排查问题</span><span class="d">按现象一步步处理</span></a>
+            <a class="station" href="#"><span class="t">系统日志</span><span class="d">查看记录与修复建议</span></a>
+            <a class="station" href="#"><span class="t">连接设置</span><span class="d">检查本机实例连接</span></a>
+          </div>
+        </div>
+        <div class="line-group amber-group">
+          <div class="line-rail amber"></div>
+          <div class="line-items">
+            <div class="line-label">3 号线 · 系统</div>
+            <a class="station" href="#"><span class="t">设置</span><span class="d">本机安全、备份与偏好</span></a>
+          </div>
+        </div>
+      </nav>
+      <div class="sider-foot">
+        <strong>同一网络可访问</strong>
+        已设访问口令
+      </div>
+    </aside>
+
+    <div class="main">
+      <header class="topbar">
+        <div class="left">
+          <h1>首页</h1>
+          <span class="sub">LINE 1 · HOME</span>
+        </div>
+        <div class="right">
+          <span class="badge"><span class="pip"></span>管家服务已连接</span>
+          <span class="badge">排查问题</span>
+          <span class="badge alert">305</span>
+        </div>
+      </header>
+
+      <div class="scroll">
+        <div class="page">
+          <div class="route-meta">
+            <span>控制台 · 本机状态</span>
+            <span class="on">● 服务在线</span>
+          </div>
+
+          <section class="dest">
+            <div class="dest-code">
+              <div class="id">A1</div>
+              <div class="cap">正常</div>
+            </div>
+            <div class="dest-main">
+              <div class="dir">下一站 · 一切正常</div>
+              <h3>一切正常</h3>
+              <p>管家刚检查过 1 个实例，没有发现需要处理的事。</p>
+            </div>
+            <div class="dest-act">
+              <a class="btn" href="#">立即检查</a>
+              <a class="btn alt" href="#">运行详情</a>
+            </div>
+          </section>
+
+          <div class="meta-chips">
+            <span class="chip">上次检查 <strong>2 小时前</strong></span>
+            <span class="chip">自动检查 <strong>5 分钟一次</strong></span>
+            <span class="chip">管家服务 <strong>在线</strong></span>
+          </div>
+
+          <section class="platform" aria-label="关键站点">
+            <article class="stop ok">
+              <div class="stop-k"><span class="pin"></span>管家服务</div>
+              <div class="stop-v">在线</div>
+              <div class="stop-m">上次检查 2 小时前</div>
+              <a class="stop-a" href="#">查看运行详情 →</a>
+            </article>
+            <article class="stop warn">
+              <div class="stop-k"><span class="pin"></span>消息通知</div>
+              <div class="stop-v">在线</div>
+              <div class="stop-m">有 33 条紧急提醒已送到</div>
+              <a class="stop-a" href="#">查看消息 →</a>
+            </article>
+            <article class="stop">
+              <div class="stop-k"><span class="pin"></span>待处理</div>
+              <div class="stop-v">0 项</div>
+              <div class="stop-m">暂无待办</div>
+              <a class="stop-a" href="#">查看运行详情 →</a>
+            </article>
+            <article class="stop ok">
+              <div class="stop-k"><span class="pin"></span>受管实例</div>
+              <div class="stop-v">1/1 正常</div>
+              <div class="stop-m">运行正常</div>
+              <a class="stop-a" href="#">查看运行详情 →</a>
+            </article>
+          </section>
+
+          <section class="transfer">
+            <div>
+              <h4>选择一个常用用途</h4>
+              <p>告诉管家你想先做什么，它会保留相应入口和下一步。</p>
+            </div>
+            <a class="btn amber" href="#">开始设置</a>
+          </section>
+
+          <div class="ledger">
+            <span class="tick">›</span>
+            <strong>运行详情</strong>
+            <span>资源、连接与实例检查</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
