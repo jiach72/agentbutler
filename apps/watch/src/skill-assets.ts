@@ -557,7 +557,7 @@ export function createSkillAssetService(deps: { core: Core; skills: SkillsMemory
           const single = installedNames.length === 1;
           // 合集安装：成员已逐个移出，清掉隔离区残壳（空目录与 source.json）。
           if (!single) rmSync(path, { recursive: true, force: true });
-          return { ok: true, name: installedNames[0]!, names: installedNames, count: installedNames.length, installedPath: join(skillsRoot, installedNames[0]!), ...(overwrite ? { replaced: true } : {}), ...(single ? {} : { notice: `已安装 ${installedNames.length} 个技能（合集仓库）` }) };
+          return { ok: true, name: installedNames[0]!, names: installedNames, count: installedNames.length, installedPath: join(skillsRoot, installedNames[0]!), ...(overwrite ? { replaced: true } : {}), ...(single ? {} : { notice: overwrite ? `已更新 ${installedNames.length} 个技能（合集仓库）` : `已安装 ${installedNames.length} 个技能（合集仓库）` }) };
         } catch (error) {
           return { ok: false, error: "install-failed", detail: error instanceof Error ? error.message : String(error), fix: "检查备份和 Hermes 技能目录权限" };
         }
@@ -643,7 +643,7 @@ export function createSkillAssetService(deps: { core: Core; skills: SkillsMemory
       const instance = instanceOf(deps.core);
       if (instance === undefined) return { items: [], root: "" };
       const root = join(instance.rootPath, "skills");
-      const items: LocalSkillView[] = [];
+      const itemsMap = new Map<string, { depth: number; item: LocalSkillView }>();
       const readSource = (dir: string): Record<string, unknown> | null => {
         try {
           const parsed = JSON.parse(readFileSync(join(dir, "source.json"), "utf8")) as unknown;
@@ -655,7 +655,7 @@ export function createSkillAssetService(deps: { core: Core; skills: SkillsMemory
         let entries;
         try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
         for (const entry of entries) {
-          if (entry.isSymbolicLink() || !entry.isDirectory()) continue;
+          if (entry.name.startsWith(".") || entry.isSymbolicLink() || !entry.isDirectory()) continue;
           const path = join(dir, entry.name);
           const skillFile = join(path, "SKILL.md");
           if (!existsSync(skillFile)) { visit(path, depth + 1); continue; }
@@ -665,7 +665,7 @@ export function createSkillAssetService(deps: { core: Core; skills: SkillsMemory
           const sourceUrl = typeof source?.["sourceUrl"] === "string" ? source["sourceUrl"] : "";
           const origin: LocalSkillView["origin"] = sourceType === "skillhub" ? "skillhub" : sourceType === "git" || sourceUrl.includes("github.com") ? "git" : "local";
           const asStr = (value: unknown): string | null => (typeof value === "string" && value !== "" ? value : null);
-          items.push({
+          const item: LocalSkillView = {
             name: entry.name,
             displayName: fm.name ?? entry.name,
             description: fm.description ?? "",
@@ -676,10 +676,19 @@ export function createSkillAssetService(deps: { core: Core; skills: SkillsMemory
             ref: asStr(source?.["ref"]),
             commit: asStr(source?.["commit"]),
             installedAt: asStr(source?.["stagedAt"]),
-          });
+          };
+          const existing = itemsMap.get(entry.name);
+          if (
+            existing === undefined ||
+            depth < existing.depth ||
+            (depth === existing.depth && item.origin !== "local" && existing.item.origin === "local")
+          ) {
+            itemsMap.set(entry.name, { depth, item });
+          }
         }
       };
       if (existsSync(root)) visit(root, 0);
+      const items = Array.from(itemsMap.values()).map((e) => e.item);
       return { items: items.sort((a, b) => a.name.localeCompare(b.name)), root };
     },
 

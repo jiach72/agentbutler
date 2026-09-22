@@ -356,7 +356,12 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
     const result = await loadJson<{ items: LocalUpdateItem[] }>("/api/skills/local/updates", 30_000);
     if (result.ok && Array.isArray(result.data.items)) {
       const map: Record<string, LocalUpdateItem> = {};
-      for (const item of result.data.items) map[item.name] = item;
+      for (const item of result.data.items) {
+        const existing = map[item.name];
+        if (!existing || item.status === "available") {
+          map[item.name] = item;
+        }
+      }
       setUpdateMap(map);
     }
     setUpdatesChecking(false);
@@ -684,7 +689,14 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
       message.error(friendlyError(result.data, "更新未完成，请稍后重试。"));
       return;
     }
-    if (!silent) message.success("已更新到最新版。");
+    if (!silent) {
+      const data = result.data as { count?: number; notice?: string };
+      if (typeof data?.count === "number" && data.count > 1) {
+        message.success(data.notice ?? `该技能属于合集仓库，已同时将合集内的全部 ${data.count} 个技能更新到最新版。`);
+      } else {
+        message.success("已更新到最新版。");
+      }
+    }
     void loadLocal(true);
     void loadUpdates();
     onInstalled?.();
@@ -695,14 +707,24 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
     setUpdateAllBusy(true);
     let succeeded = 0;
     let failed = 0;
+    const doneRepos = new Set<string>();
     for (const item of availableUpdates) {
+      if (item.origin === "git" && item.gitUrl !== null) {
+        if (doneRepos.has(item.gitUrl)) continue;
+      }
       const result = await postJson(
         "/api/skills/local/update",
         { name: item.name, confirmed: true },
         120_000,
       );
-      if (result.ok) succeeded += 1;
-      else failed += 1;
+      if (result.ok) {
+        succeeded += 1;
+        if (item.origin === "git" && item.gitUrl !== null) {
+          doneRepos.add(item.gitUrl);
+        }
+      } else {
+        failed += 1;
+      }
     }
     setUpdateAllBusy(false);
     if (failed > 0) message.warning(`更新完成：${succeeded} 成功，${failed} 失败。`);

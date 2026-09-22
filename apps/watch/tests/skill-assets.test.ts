@@ -1,6 +1,6 @@
 import { createCore } from "@butler/core";
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSkillAssetService } from "../src/skill-assets.js";
@@ -184,6 +184,54 @@ describe("技能资产 GitHub 阶段化下载", () => {
       );
     } finally {
       core.close();
+    }
+  });
+
+  it("listLocal 忽略以点开头的隐藏/归档目录（如 .archive），并按顶层优先去重", async () => {
+    const hermesRoot = join(tmpdir(), `hermes-root-${Date.now()}`);
+    mkdirSync(join(hermesRoot, "skills"), { recursive: true });
+    const { core, service } = makeService(async () => new Response());
+    try {
+      const skillsRoot = join(hermesRoot, "skills");
+      core.instances.createInstance({
+        instanceId: "hermes-main",
+        frameworkId: "hermes",
+        rootPath: hermesRoot,
+        confidence: 1,
+      });
+      core.instances.beginDiscover("hermes-main");
+      core.instances.confirmInstance("hermes-main", "test");
+      core.instances.beginNegotiate("hermes-main");
+      core.instances.markServing("hermes-main", 2, {
+        effectiveLevel: 2,
+        capabilities: {},
+        anomalies: [],
+      });
+
+      // 正常技能 skills/my-skill
+      const liveSkill = join(skillsRoot, "my-skill");
+      mkdirSync(liveSkill, { recursive: true });
+      writeFileSync(join(liveSkill, "SKILL.md"), "---\nname: my-skill\n---\nHello");
+      writeFileSync(join(liveSkill, "source.json"), JSON.stringify({ source: "git", commit: "commit-live" }));
+
+      // 归档目录 skills/.archive/my-skill（带旧 commit，必须被忽略）
+      const archiveSkill = join(skillsRoot, ".archive", "my-skill");
+      mkdirSync(archiveSkill, { recursive: true });
+      writeFileSync(join(archiveSkill, "SKILL.md"), "---\nname: my-skill\n---\nOld Hello");
+      writeFileSync(join(archiveSkill, "source.json"), JSON.stringify({ source: "git", commit: "commit-old" }));
+
+      // 分类子目录 skills/cat/sub-skill
+      const subSkill = join(skillsRoot, "cat", "sub-skill");
+      mkdirSync(subSkill, { recursive: true });
+      writeFileSync(join(subSkill, "SKILL.md"), "---\nname: sub-skill\n---\nSub");
+
+      const local = await service.listLocal();
+      expect(local.items).toHaveLength(2);
+      expect(local.items.map((i) => i.name)).toEqual(["my-skill", "sub-skill"]);
+      expect(local.items.find((i) => i.name === "my-skill")?.commit).toBe("commit-live");
+    } finally {
+      core.close();
+      rmSync(hermesRoot, { recursive: true, force: true });
     }
   });
 });
