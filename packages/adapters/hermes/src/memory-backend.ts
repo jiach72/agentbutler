@@ -12,7 +12,7 @@
  *
  * 显式声明（BUTLER_MEMORY_BACKEND）优先于文件标记，文件标记优先于默认假设。
  */
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import type {
@@ -186,7 +186,6 @@ export function listSupportedMemorySystems(
   options: DetectMemoryBackendOptions = {},
 ): MemorySystemView[] {
   const current = detectMemoryBackend(rootPath, options);
-  const exists = options.exists ?? existsSync;
   const readText = options.readTextFile ?? defaultReadTextFile;
 
   // 检测 Hindsight 模式

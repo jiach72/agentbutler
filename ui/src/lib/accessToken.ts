@@ -5,7 +5,7 @@
  * 口令存 sessionStorage（审计 F-20）：仅当前标签页会话有效，关页即清——
  * localStorage 里的常驻口令会把任意一次 XSS 变成永久控制权泄露。
  * 升级兼容：老版本存在 localStorage 的口令会在首次读取时迁移进 sessionStorage
- * 并从 localStorage 移除。
+ * 并从 localStorage 移除；此后绝不写回 localStorage。
  */
 
 const STORAGE_KEY = "butler.accessToken";
@@ -36,7 +36,7 @@ function consumeUrlToken(): void {
   try {
     const fromUrl = new URLSearchParams(window.location.search).get("token");
     if (fromUrl === null || fromUrl.trim() === "") return;
-    setAccessToken(fromUrl, true);
+    setAccessToken(fromUrl, false);
     // 口令不该留在地址栏与浏览历史里
     window.history.replaceState({}, "", window.location.pathname + window.location.hash);
   } catch {
@@ -44,7 +44,7 @@ function consumeUrlToken(): void {
   }
 }
 
-/** 读取已保存的访问口令；地址栏 ?token= 优先一次，会话级优先，本地持久化兜底。 */
+/** 读取已保存的访问口令；地址栏 ?token= 优先一次（随即从 history 剥离），会话级存储兜底。 */
 export function getAccessToken(): string {
   consumeUrlToken();
   const fromSession = sessionStore()?.getItem(STORAGE_KEY);
@@ -59,7 +59,11 @@ export function getAccessToken(): string {
   return "";
 }
 
-export function setAccessToken(token: string, remember = true): void {
+/**
+ * 写入口令。F-20：只写 sessionStorage，永不持久化到 localStorage。
+ * 第二个参数已废弃并忽略（兼容旧调用签名）。
+ */
+export function setAccessToken(token: string, _remember?: boolean): void {
   try {
     const value = token.trim();
     if (value === "") {
@@ -67,11 +71,8 @@ export function setAccessToken(token: string, remember = true): void {
       localStore()?.removeItem(STORAGE_KEY);
     } else {
       sessionStore()?.setItem(STORAGE_KEY, value);
-      if (remember) {
-        localStore()?.setItem(STORAGE_KEY, value);
-      } else {
-        localStore()?.removeItem(STORAGE_KEY);
-      }
+      // 清掉历史遗留的持久化口令
+      localStore()?.removeItem(STORAGE_KEY);
     }
   } catch {
     // 隐私模式下 Storage 不可写，退化为仅内存有效

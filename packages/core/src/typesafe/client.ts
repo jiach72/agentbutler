@@ -20,7 +20,6 @@ import type {
   SystemOneChoiceAnswer,
   SystemOneScoreAnswer,
   SystemOneNoulAnswer,
-  SystemOneRequestPayload,
   SystemOneResponsePayload,
 } from "@butler/contract";
 

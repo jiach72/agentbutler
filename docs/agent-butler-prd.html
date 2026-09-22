@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent Butler 产品说明</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; line-height: 1.65; }
+    body { margin: 0; background: light-dark(#ffffff, #181818); color: light-dark(#242424, #eeeeee); }
+    main { max-width: 64rem; margin: auto; padding: 2rem 1.25rem; overflow-wrap: anywhere; }
+    h1 { font-size: 2rem; } h2 { font-size: 1.25rem; margin-top: 2rem; }
+    p, li { max-width: 75ch; } code { font-size: .9em; }
+    dl { display: grid; grid-template-columns: minmax(8rem, 1fr) minmax(0, 4fr); gap: .75rem 1.5rem; }
+    dt { font-weight: 600; } dd { margin: 0; }
+    section { border-top: 1px solid light-dark(#d9d9d9, #454545); margin-top: 2rem; }
+    @media (max-width: 40rem) { dl { grid-template-columns: 1fr; gap: .4rem; } dd { margin-bottom: 1rem; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Agent Butler</h1>
+  <p>本地优先的智能体管家。先给可验证的结论，再给用户能采取的行动。</p>
+  <section>
+    <h2>首次使用</h2>
+    <p>安装后打开首页，确认 Hermes 已连接，再创建第一个定时任务并核实运行结果。离线、不支持或状态未知必须明确呈现，不能伪装为空列表或成功。</p>
+  </section>
+  <section>
+    <h2>日常入口</h2>
+    <dl>
+      <dt>首页</dt><dd><code>/dashboard</code>：当前可用性、待处理事项和下一任务。</dd>
+      <dt>定时任务</dt><dd><code>/tasks</code>：执行时间、启停和真实运行结果。</dd>
+      <dt>消息通知</dt><dd><code>/gateway</code>：待处理、通道、规则与发送历史。</dd>
+      <dt>智能体与记忆</dt><dd><code>/skills</code>：实例、技能和记忆的可用结论。</dd>
+      <dt>设置</dt><dd><code>/settings</code>：本机安全、任务默认值、备份与升级、模型与通知、专家工具。</dd>
+    </dl>
+    <p>手机底部只保留首页、任务、消息、设置；紧急暂停在顶栏。旧路由及审批、会话、日志深链至少保留两个发布周期。</p>
+  </section>
+  <section>
+    <h2>消息与证据</h2>
+    <p>默认只展示失败、结果未知、等待审批和等待用户确认。普通排队与已送达历史不计为待处理。未知结果需先在接收通道核实，禁止用直接重投代替确认。</p>
+    <p>列表显示摘要，详情保留完整正文。日志、路径、内部状态与原始错误默认折叠。排障问题说明发生了什么、影响、建议动作、操作风险和验证方法。</p>
+  </section>
+  <section>
+    <h2>任务边界</h2>
+    <p>Hermes 是唯一调度和执行引擎，Butler 不创建第二套调度器。OpenClaw 不伪装支持 Hermes 定时任务。</p>
+    <p>实际时区来自任务状态接口。已核实的 CLI 不支持单任务时区，因此设置不提供任意时区选择；这是对原实施计划的修正。浏览器新建任务偏好仅保存完成后通知，默认关闭，不影响已有任务。</p>
+    <p>创建、编辑、启停与删除等写入操作的真实 CLI 验证由定时任务交付阶段负责；本说明不代表这些集成已经完成部署验收。</p>
+  </section>
+  <section>
+    <h2>旧功能迁移</h2>
+    <p>成本、周报、会话、记忆变更、审计、事件、审批和进度核实进入设置的记录与报告。日志、连接体检、排障、核心文件与升级策略进入专家工具，默认收起。实验功能默认关闭；自进化入口需主动开启。实例联邦入口仅在检测到至少两个不同实例时显示。</p>
+    <p><code>?tab=about</code> 保留版本升级内容；<code>?tab=preferences</code> 保留通知偏好；<code>?tab=diagnostics</code> 保留专家诊断入口。可见性开关不替代后端权限与安全确认。</p>
+  </section>
+  <section>
+    <h2>验收</h2>
+    <ul>
+      <li>五项桌面导航、四项移动导航，旧深链可访问。</li>
+      <li>大量已送达历史不会挤掉失败记录；部分请求失败不宣称没有问题。</li>
+      <li>完整消息、原始日志和诊断证据可按需查看，默认不占据首屏。</li>
+      <li>桌面 1440×1000 与手机 390×844 无页面级水平溢出。</li>
+      <li>编译、定向测试、浏览器和真实运行验证分别报告，不相互替代。</li>
+    </ul>
+  </section>
+</main>
+</body>
+</html>

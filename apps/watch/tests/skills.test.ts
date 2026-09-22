@@ -148,7 +148,8 @@ describe("技能与记忆只读聚合服务", () => {
 
     const withHindsight = await makeService().status({});
     expect(withHindsight.memory.writeActivity.status).toBe("external");
-    expect(withHindsight.memory.writeActivity.detail).toContain("hindsight");
+    // 用户可见文案用产品名 Hindsight；后端 id 是 hindsight，两者都指向同一接管源。
+    expect(withHindsight.memory.writeActivity.detail).toContain("Hindsight");
   });
 
   it("风险状态显式区分未扫描与解析失败资产", async () => {

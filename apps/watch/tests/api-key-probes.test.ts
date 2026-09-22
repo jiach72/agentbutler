@@ -77,7 +77,7 @@ describe("probeApiKey", () => {
 
   it("TypeSafe 探针：正确向 /v1/systemone 发起探活 ping 请求", async () => {
     let capturedUrl = "";
-    let capturedBody: any = null;
+    let capturedBody: unknown = null;
     const fakeFetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
       capturedUrl = url;
       capturedBody = JSON.parse((init?.body as string) || "{}");

@@ -3,6 +3,38 @@
 本项目遵循 [Semantic Versioning](https://semver.org/)；开发预览版本可能包含不兼容调整。
 版本规则：`0.1-beta.YYMMDD.构建号`（构建号=CI 流水线号；详见 README「版本规则」）。
 
+## [0.1-beta.260922.x] - 2026-09-22 — 全量审计修复（P0-P3）+ ENG-01 parse 层拆解
+
+### Fixed（P0）
+
+- **lint 全绿（80 errors → 0）**：清理 `no-unused-vars` 74 处与 `no-explicit-any` 6 处——`store.ts` 未用类型导入、`http-common.ts` 死导入、`web/server.ts` 死函数（`degradedEvolution` / `parsePromptOptimization` / `parseEvolutionStatus` 等）、`MemoryCenterPage.tsx` 未用 AntD 导入、测试里的 `any` 改为精确类型。
+- **访问口令 F-20 落实**：`ui/src/lib/accessToken.ts` 只写 `sessionStorage`，**永不写入 localStorage**（写入时顺带清除历史遗留键）；地址栏 `?token=` 仅会话级一次消费并 `replaceState` 剥离；`AccessGate` 移除「记住这台设备」勾选（原实现与 F-20 注释矛盾，XSS 可升级为永久凭据泄露）。
+
+### Fixed（P1）
+
+- **前端 URL 明文口令收敛**：`useEventStream` WebSocket 握手只走一次性 `?ticket=`（`POST /api/ws-ticket`），签发失败退回空 suffix，**不再回退 `?token=`**；web `extractRequestToken` 同步移除 query 口令（仅 `Authorization: Bearer` / `x-butler-token`）。
+- **Watch 写操作 fail-closed（plan0922）**：`http-common.writeRequestAuthorized` + `http.ts` 门禁——状态变更且无 Origin 时必须携带 `BUTLER_ACCESS_TOKEN`/`BUTLER_INTERNAL_TOKEN`；未配置任何口令时仅回环连接放行，其余 401。不再无条件放行缺 Origin 的 curl/内网脚本。
+- **集成测试清账**：全量实测仅 1 处失败（`writeActivity.detail` 产品文案 `Hindsight` vs 测试小写 `hindsight` 断言）已修；**CI 去掉 `integration-tests` 的 `continue-on-error`**，恢复硬门禁。
+- **Vitest 3 兼容**：`http-github-token.test.ts` 两处 `expect(...).resolves` 补 `await`。
+
+### Changed（ENG-01 parse 层拆解）
+
+- `apps/web/src/server.ts` 从 ~2373 行收至 **575 行装配层**（常量、安全头、`createWebServer`）：
+  - **NEW** `http-auth.ts`（93 行）：Origin/口令/ticket 纯函数（含 query 口令移除）。
+  - **NEW** `api-views.ts`（385 行）：全部 API 视图类型 + `MESSAGE_OUTBOX_STATES`。
+  - **NEW** `api-parsers.ts`（1028 行）：载荷解析、降级视图、实例/巡检/消息投影、`probeServiceHealth`、store 装配。
+  - 既有 14 个 `routes/*.ts` 插件保持不动；测试与 `index.ts` 的 `server.js` 导入面兼容（`export *` / 具名再导出）。
+- **docs 入库策略**：`.gitignore` 不再整目录屏蔽 `docs/`（仅忽略 `docs/superpowers/` 与草稿）；`product-audit` / `optimization-plan` / `implementation_plan0922` / PRD 可入库跟踪。
+
+### Tests
+
+- 全量 **1904 通过 / 0 失败**（208 文件，1 skip）；`tsc -b` 0 error；`eslint .` 0 error；`version:check` 一致；`pnpm build` 通过。
+- web 套件 138/138；鉴权相关 `access-token` / `http-scheduled-tasks` / `jev-client` / `skills` 回归绿。
+
+### 产品确认（无代码变更）
+
+- **UX-01 定时任务通知闭环**已完整落地（`TaskEditorDrawer`：通道概况、绿标通道 Tag、无通道黄条 + 去配置跳转）。
+
 ## [0.1-beta.260914.x] - 2026-09-14 — 客户缺陷批次修复（A1/B1-B12）+ 全部允许模式 + 事件中心可读化
 
 ### Added

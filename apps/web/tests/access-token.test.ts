@@ -185,9 +185,13 @@ describe("butler-web 访问口令", () => {
 
     const websocketCrossSite = await app.inject({
       method: "GET",
-      url: "/ws?token=secret-token",
+      url: "/ws",
       remoteAddress: "192.168.1.88",
-      headers: { host: "192.168.1.88:7531", origin: "https://evil.example.com" },
+      headers: {
+        host: "192.168.1.88:7531",
+        origin: "https://evil.example.com",
+        "x-butler-token": "secret-token",
+      },
     });
     expect(websocketCrossSite.statusCode).toBe(403);
   });

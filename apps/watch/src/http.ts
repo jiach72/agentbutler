@@ -17,6 +17,7 @@ import {
   diagnoseRecovery,
   internalErrorResponse,
   originAllowed,
+  writeRequestAuthorized,
   recoveryActionCatalog,
   recoveryTracker,
   sendJson,
@@ -209,6 +210,15 @@ export async function handle(
     sendJson(res, 403, {
       error: "origin-not-allowed",
       detail: "这个请求来自不受信任的页面，管家已拒绝执行。",
+    });
+    return;
+  }
+
+  // 写操作无 Origin 时必须带口令（plan0922 fail-closed）。
+  if (!writeRequestAuthorized(req)) {
+    sendJson(res, 401, {
+      error: "unauthorized",
+      detail: "写操作需要访问口令（Authorization: Bearer 或 x-butler-token）。",
     });
     return;
   }

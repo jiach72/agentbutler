@@ -5,13 +5,13 @@
  * - 只在真正被拒绝时出现。未配置口令的纯本机部署不会返回 401，闸门永不打扰。
  * - 文案与部署方式解耦：只说「当前部署需要访问口令」，不承诺「本机免口令」——
  *   免口令与否是服务端按监听地址判定的（本机便利通道），客户端不该替它做承诺。
- * - 真实表单提交（Enter 可用），口令只存 sessionStorage，整页刷新让所有数据源
- *   带着新口令重新取数。
+ * - 真实表单提交（Enter 可用），口令只存 sessionStorage（审计 F-20，绝不写
+ *   localStorage），整页刷新让所有数据源带着新口令重新取数。
  *
  * 视觉完全交给 antd 原生 Modal/Input：不造自定义卡片皮肤。
  */
 import { useEffect, useState } from "react";
-import { Alert, Button, Checkbox, Flex, Input, Modal, Typography } from "antd";
+import { Alert, Button, Flex, Input, Modal, Typography } from "antd";
 import { setAccessToken, subscribeUnauthorized } from "../lib/accessToken.js";
 
 const { Text } = Typography;
@@ -19,7 +19,6 @@ const { Text } = Typography;
 export function AccessGate() {
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState("");
-  const [remember, setRemember] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => subscribeUnauthorized(() => {
@@ -35,7 +34,7 @@ export function AccessGate() {
       setError("请先填写访问口令");
       return;
     }
-    setAccessToken(token, remember);
+    setAccessToken(token);
     setError(null);
     // 整页刷新是最可靠的重新取数方式：所有请求都会带上新口令。
     window.location.reload();
@@ -76,14 +75,6 @@ export function AccessGate() {
             status={error === null ? undefined : "error"}
             aria-describedby="access-gate-hint"
           />
-          <Flex justify="flex-start" style={{ marginTop: 8, marginBottom: 8 }}>
-            <Checkbox
-              checked={remember}
-              onChange={(event) => setRemember(event.target.checked)}
-            >
-              记住这台设备（在此设备上持久保持登录，免重复输入）
-            </Checkbox>
-          </Flex>
           {error !== null && (
             <Text type="danger" role="alert" style={{ display: "block", marginBottom: 8 }}>
               {error}

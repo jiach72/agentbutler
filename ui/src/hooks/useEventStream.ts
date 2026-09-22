@@ -4,7 +4,6 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { disposeWebSocket } from "../lib/websocket.js";
-import { getAccessToken } from "../lib/accessToken.js";
 import { postJson } from "../lib/api.js";
 
 export interface EventFrame {
@@ -31,8 +30,8 @@ function notifyStatus(online: boolean): void {
 
 /**
  * WS 握手凭据：优先向后端签发一次性短时 ticket（POST /api/ws-ticket），
- * 真实口令从此不出现在 URL（浏览器历史/代理日志）；旧后端或签发失败时
- * 退回口令 query，行为与旧版一致。
+ * 真实口令从此不出现在 URL（浏览器历史/代理日志）。签发失败时退回空
+ * suffix（依赖同源会话/后端本机免密），不再回退 `?token=` 明文口令。
  */
 async function handshakeSuffix(): Promise<string> {
   const result = await postJson("/api/ws-ticket", {}, 5000);
@@ -40,9 +39,7 @@ async function handshakeSuffix(): Promise<string> {
     result.ok && result.data !== null && typeof (result.data as { ticket?: unknown }).ticket === "string"
       ? String((result.data as { ticket?: unknown }).ticket)
       : "";
-  if (ticket !== "") return `?ticket=${encodeURIComponent(ticket)}`;
-  const token = getAccessToken();
-  return token === "" ? "" : `?token=${encodeURIComponent(token)}`;
+  return ticket === "" ? "" : `?ticket=${encodeURIComponent(ticket)}`;
 }
 
 function connect(): void {

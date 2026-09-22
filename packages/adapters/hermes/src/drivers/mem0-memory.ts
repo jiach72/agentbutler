@@ -5,13 +5,12 @@
  * stats / preview / verifyIntegrity / analyze；
  * 归档、恢复、物理删除等写操作一律安全返回 E403（记忆由 Mem0 外部托管）。
  */
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   MEMORY_PREVIEW_LIMIT,
   fail,
   ok,
-  type ArchivePolicy,
   type ArchiveReport,
   type DriverScope,
   type IntegrityReport,
@@ -20,10 +19,8 @@ import {
   type MemoryHealth,
   type MemoryQuery,
   type MemoryStats,
-  type PurgePolicy,
   type PurgeReport,
   type RebuildIndexReport,
-  type RestorePolicy,
   type RestoreReport,
   type Result,
 } from "@butler/contract";

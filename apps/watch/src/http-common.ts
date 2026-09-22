@@ -1,26 +1,15 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { CONTRACT_VERSION, CONTROL_API_SCHEMA_VERSION, type ManagedMarkdownFile } from "@butler/contract";
-import { toUserFacingError, type LlmCredentialService, type ApiKeyCredentialService, type LlmProtocol } from "@butler/core";
+import { CONTRACT_VERSION, type ManagedMarkdownFile } from "@butler/contract";
+import { toUserFacingError, type LlmCredentialService, type ApiKeyCredentialService } from "@butler/core";
 import type { ScheduledTaskService } from "./scheduled-tasks.js";
-import {
-  BUILTIN_PROMPTFOO_SUITES,
-  type ModelExecutor,
-  type PromptfooSuite,
-} from "./promptfoo.js";
-import type {
-  EvolutionExpandInput,
-  EvolutionPreflightInput,
-  EvolutionPromoteInput,
-  EvolutionResultInput,
-  EvolutionService,
-} from "./evolution.js";
+import { type ModelExecutor } from "./promptfoo.js";
+import type { EvolutionService } from "./evolution.js";
 import type { ExternalEvolutionService } from "./external-evolution.js";
 import type { GatewayPanelService } from "./gateway-stats.js";
-import { createRecoveryJobTracker, type RecoveryJobView } from "./recovery-jobs.js";
+import { createRecoveryJobTracker } from "./recovery-jobs.js";
 import type { SkillsMemoryService } from "./skills.js";
 import type { SkillAssetService } from "./skill-assets.js";
-import type { SkillHubSortBy } from "./skillhub.js";
 import type { UpgradeService } from "./upgrade.js";
 import type { ButlerSelfService } from "./self-upgrade.js";
 import type { PromptOptimizationService } from "./prompt-optimization.js";
@@ -31,11 +20,11 @@ import type { BackupService } from "./backup.js";
 import type { SecurityService } from "./invariants.js";
 import type { ButlerRuntimeInfo } from "./runtime.js";
 import { MarkdownFileError, type MarkdownFileService } from "./markdown-files.js";
-import { createDiagnosticZip, type DiagnosticSummary } from "./diagnostics.js";
+import { type DiagnosticSummary } from "./diagnostics.js";
 import { classifyRuntimeState } from "./runtime-diagnosis.js";
 import type { HostMetricsService } from "./host-metrics.js";
 import type { LlmUsageService } from "./llm-usage.js";
-import type { BudgetActionConfig, BudgetEngine, BudgetStatus } from "./budget.js";
+import type { BudgetEngine } from "./budget.js";
 import type { ActionAuditService } from "./action-audit.js";
 import type { KillSwitchService } from "./killswitch.js";
 import type { TrustEventHub } from "./trust-events.js";
@@ -45,10 +34,9 @@ import type { ApprovalService } from "./approvals.js";
 import type { CanaryService } from "./canary.js";
 import type { ProgressIntegrityService } from "./progress-integrity.js";
 import type { MemoryDiffService } from "./memory-diff.js";
-import { GROUP_LABEL, type FederationService, type InstanceGroup } from "./federation.js";
+import type { FederationService } from "./federation.js";
 import { SkillsManagerError, SKILLS_MANAGER_INSTALL_HINT, type SkillsManagerCli } from "./skills-manager.js";
-import { readGithubToken, writeGithubToken } from "./github-token.js";
-import { RepairSessionService, type RepairActionExecution, type RepairDiagnosis, type RepairSessionDeps } from "./repair-session.js";
+import { RepairSessionService } from "./repair-session.js";
 
 /** 记忆按需自检（memory-probe 单阶段）的结论。 */
 export interface MemorySelfCheckResult {
@@ -926,6 +914,54 @@ function isSameRequestOrigin(origin: string, hostHeader: string | undefined): bo
   }
 }
 
+/** 从请求头提取访问口令（Authorization: Bearer 或 x-butler-token）。不读 URL query。 */
+function extractHeaderToken(req: IncomingMessage): string {
+  const auth = req.headers["authorization"];
+  if (typeof auth === "string" && auth.length > 0) {
+    const match = /^Bearer\s+(.+)$/i.exec(auth.trim());
+    if (match?.[1]) return match[1].trim();
+  }
+  const header = req.headers["x-butler-token"];
+  if (typeof header === "string" && header !== "") return header.trim();
+  return "";
+}
+
+function tokensMatch(expected: string, presented: string): boolean {
+  if (expected === "") return false;
+  const a = Buffer.from(presented, "utf8");
+  const b = Buffer.from(expected, "utf8");
+  if (a.length !== b.length) {
+    // 长度不同时也执行一次等价开销的比较，抹平错误路径的时序差异。
+    timingSafeEqual(b, b);
+    return false;
+  }
+  return timingSafeEqual(a, b);
+}
+
+function isLoopbackConnection(req: IncomingMessage): boolean {
+  const raw = req.socket?.remoteAddress ?? "";
+  const host = raw.replace(/^::ffff:/i, "").toLowerCase();
+  return host === "127.0.0.1" || host === "::1" || host === "[::1]" || host === "localhost";
+}
+
+/**
+ * 写请求鉴权（plan0922）：无 Origin 的状态变更请求不得无条件放行。
+ * - 配置了 BUTLER_ACCESS_TOKEN / BUTLER_INTERNAL_TOKEN 时，必须携带匹配口令；
+ * - 未配置任何口令时，仅允许回环连接（本机便利通道），其余一律拒绝。
+ */
+export function writeRequestAuthorized(req: IncomingMessage): boolean {
+  if (!STATE_CHANGING_METHODS.has(req.method ?? "")) return true;
+  const accessToken = (process.env["BUTLER_ACCESS_TOKEN"] ?? "").trim();
+  const internalToken = (process.env["BUTLER_INTERNAL_TOKEN"] ?? "").trim();
+  const presented = extractHeaderToken(req);
+  if (accessToken !== "" && tokensMatch(accessToken, presented)) return true;
+  if (internalToken !== "" && tokensMatch(internalToken, presented)) return true;
+  if (accessToken === "" && internalToken === "") {
+    return isLoopbackConnection(req);
+  }
+  return false;
+}
+
 export function originAllowed(req: IncomingMessage): boolean {
   if (!STATE_CHANGING_METHODS.has(req.method ?? "")) return true;
   // 检查 Sec-Fetch-Site 防跨站伪造请求 (CSRF)
@@ -934,7 +970,10 @@ export function originAllowed(req: IncomingMessage): boolean {
     return false;
   }
   const origin = req.headers["origin"];
-  if (typeof origin !== "string" || origin.trim() === "") return true;
+  // 缺失 Origin（curl/服务间调用）：交由 writeRequestAuthorized 做口令门禁，不在这里放行。
+  if (typeof origin !== "string" || origin.trim() === "") {
+    return writeRequestAuthorized(req);
+  }
   if (isLoopbackOrigin(origin) || isSameRequestOrigin(origin, req.headers.host)) return true;
   const extra = (process.env["BUTLER_ALLOWED_ORIGINS"] ?? "")
     .split(",")

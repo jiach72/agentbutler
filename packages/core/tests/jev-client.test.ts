@@ -26,7 +26,7 @@ describe("JevClient (TypeSafe System One)", () => {
   describe("systemOne 核心原语与批量评估", () => {
     it("正确向 /v1/systemone 发送结构化 payload 并解析 answers", async () => {
       let capturedUrl = "";
-      let capturedBody: any = null;
+      let capturedBody: Record<string, unknown> | null = null;
       let capturedHeaders: Record<string, string> = {};
 
       globalThis.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
@@ -88,9 +88,9 @@ describe("JevClient (TypeSafe System One)", () => {
 
       expect(answers).toBeDefined();
       expect(answers?.q_cat?.type).toBe("choice");
-      expect((answers?.q_cat as any).choice).toBe("security");
-      expect((answers?.q_score as any).score).toBe(4);
-      expect((answers?.q_noul as any).noul).toBe(0.92);
+      expect((answers?.q_cat as { choice?: unknown }).choice).toBe("security");
+      expect((answers?.q_score as { score?: unknown }).score).toBe(4);
+      expect((answers?.q_noul as { noul?: unknown }).noul).toBe(0.92);
     });
 
     it("便利方法 choice, score, noul 均正确转译为 /v1/systemone", async () => {

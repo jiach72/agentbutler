@@ -51,7 +51,7 @@ describe("TypeSafe Jev 全项目架构与安全审计", () => {
 
     // 预设不允许明文暴露任何默认 key
     for (const p of API_CREDENTIAL_PRESETS) {
-      expect((p as any).apiKey).toBeUndefined();
+      expect((p as { apiKey?: unknown }).apiKey).toBeUndefined();
     }
   });
 

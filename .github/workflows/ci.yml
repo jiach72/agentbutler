@@ -26,12 +26,10 @@ jobs:
       - run: pnpm lint
       - run: pnpm build
 
-  # 集成测试（2026-09-11 现状：9 个存量失败——updater 构建集成 4、web 网关聚合计数 2、
-  # installer Windows 场景 1、UI 源码文本断言 1、install 1。均为信任层之前的历史债务，
-  # 修复跟踪见 CHANGELOG；不作为发版阻塞，但保持可见不掩盖）。
+  # 集成测试：发版硬门禁。历史 9 个存量失败已清账（2026-09-22）；
+  # 再失败不得 continue-on-error 放行。
   integration-tests:
     needs: [core]
-    continue-on-error: true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

@@ -62,7 +62,7 @@ describe("startWatchHttp /api/github-token 端点", () => {
     const address = await http.start();
     base = `http://127.0.0.1:${address.port}`;
 
-    expect((await fetch(`${base}/api/github-token`)).json()).resolves.toMatchObject({ configured: false });
+    await expect((await fetch(`${base}/api/github-token`)).json()).resolves.toMatchObject({ configured: false });
 
     const saved = await post({ token: "ghp_super_secret_value" });
     expect(saved.status).toBe(200);
@@ -114,7 +114,7 @@ describe("startWatchHttp /api/github-token 端点", () => {
     const address = await http.start();
     base = `http://127.0.0.1:${address.port}`;
     expect((await fetch(`${base}/api/github-token`, { method: "PUT" })).status).toBe(405);
-    expect((await fetch(`${base}/api/github-token`)).json()).resolves.toMatchObject({
+    await expect((await fetch(`${base}/api/github-token`)).json()).resolves.toMatchObject({
       error: "github-token-unavailable",
     });
     expect((await post({ token: "12345678" })).status).toBe(503);

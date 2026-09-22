@@ -21,7 +21,7 @@ describe("createMem0MemoryDriver", () => {
 
     const driver = createMem0MemoryDriver({
       baseUrl: "http://127.0.0.1:8888",
-      fetchFn: async (url, init) => {
+      fetchFn: async (_url, _init) => {
         return {
           ok: true,
           status: 200,
