@@ -34,6 +34,11 @@ export async function handleCredentials(ctx: RequestContext): Promise<boolean> {
 
   // 2. POST /api/credentials/test (测试探针，无需事先保存)
   if (path === "/api/credentials/test" && method === "POST") {
+    if (!credentialWritesAllowed) {
+      sendJson(res, 403, { error: "credential-writes-require-loopback" });
+      return true;
+    }
+
     const body = await readJsonBody(req, res);
     if (body === null) return true;
 

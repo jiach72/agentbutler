@@ -6,6 +6,76 @@
 
 export type JevSource = "jev" | "heuristic";
 
+/** TypeSafe System One 官方原语类型 */
+export type SystemOneQuestionType = "choice" | "score" | "noul";
+
+export interface SystemOneNoulQuestion {
+  type: "noul";
+  instructions: string | Record<string, unknown> | unknown[];
+  criteria?: {
+    true?: string | Record<string, unknown> | unknown[];
+    false?: string | Record<string, unknown> | unknown[];
+  };
+}
+
+export interface SystemOneChoiceQuestion<T extends string = string> {
+  type: "choice";
+  instructions: string | Record<string, unknown> | unknown[];
+  criteria: Record<T, string | Record<string, unknown> | unknown[] | null>;
+}
+
+export interface SystemOneScoreQuestion {
+  type: "score";
+  instructions: string | Record<string, unknown> | unknown[];
+  criteria: Array<string | Record<string, unknown> | unknown[]>;
+}
+
+export type SystemOneQuestion =
+  | SystemOneNoulQuestion
+  | SystemOneChoiceQuestion
+  | SystemOneScoreQuestion;
+
+export interface SystemOneNoulAnswer {
+  type: "noul";
+  noul: number;
+}
+
+export interface SystemOneChoiceAnswer<T extends string = string> {
+  type: "choice";
+  choice: T;
+  probabilities: Record<T, number>;
+  confidence: number;
+}
+
+export interface SystemOneScoreAnswer {
+  type: "score";
+  score: number;
+  confidence: number;
+  legend?: Record<string, string>;
+  probabilities?: Record<string, number>;
+}
+
+export type SystemOneAnswer =
+  | SystemOneNoulAnswer
+  | SystemOneChoiceAnswer
+  | SystemOneScoreAnswer;
+
+export interface SystemOneRequestPayload {
+  state: unknown;
+  model: string;
+  questions: Record<string, SystemOneQuestion>;
+}
+
+export interface SystemOneResponsePayload {
+  model: string;
+  answers: Record<string, SystemOneAnswer>;
+  usage?: {
+    input_tokens: number;
+    output_tokens: number;
+  };
+}
+
+
 /** 定时任务错误诊断请求 */
 export interface TaskDiagnosisRequest {
   taskName: string;

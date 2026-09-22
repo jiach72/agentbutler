@@ -6,6 +6,32 @@ export interface ApiKeyProbeResult {
 
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
+export function isSafeProbeUrl(urlStr: string): { safe: boolean; reason?: string } {
+  try {
+    const parsed = new URL(urlStr);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return { safe: false, reason: `不支持的协议: ${parsed.protocol}` };
+    }
+    const host = parsed.hostname.toLowerCase();
+    // 阻断云厂商元数据服务（AWS/GCP/Azure/Aliyun IMDS）
+    if (
+      host === "169.254.169.254" ||
+      host === "metadata.google.internal" ||
+      host === "instance-data" ||
+      host.startsWith("169.254.")
+    ) {
+      return { safe: false, reason: "禁止访问云元数据服务 (SSRF 保护)" };
+    }
+    // 阻断通配与广播地址
+    if (host === "0.0.0.0" || host === "::" || host === "255.255.255.255") {
+      return { safe: false, reason: "禁止探测通配或广播地址" };
+    }
+    return { safe: true };
+  } catch {
+    return { safe: false, reason: "非法的 URL 格式" };
+  }
+}
+
 function redactApiKey(str: string, key: string): string {
   if (!key || key.length < 4) return str;
   return str.split(key).join("[REDACTED]");
@@ -114,8 +140,19 @@ export async function probeApiKey(
         break;
 
       case "typesafe":
-        url = (options.endpoint?.trim() || "https://api.typesafe.ai").replace(/\/+$/, "") + "/v1/models";
+        url = (options.endpoint?.trim() || "https://api.typesafe.ai").replace(/\/+$/, "") + "/v1/systemone";
+        method = "POST";
+        headers["content-type"] = "application/json";
         headers["Authorization"] = `Bearer ${cleanKey}`;
+        body = JSON.stringify({
+          model: "jev-latest",
+          questions: {
+            ping: {
+              type: "noul",
+              instructions: "ping",
+            },
+          },
+        });
         break;
 
       case "github":
@@ -136,6 +173,15 @@ export async function probeApiKey(
           };
         }
         break;
+    }
+
+    const urlCheck = isSafeProbeUrl(url);
+    if (!urlCheck.safe) {
+      return {
+        status: "fail",
+        category: "error",
+        detail: `安全拦截：${urlCheck.reason}`,
+      };
     }
 
     const res = await fetchFn(url, {

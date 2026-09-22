@@ -66,7 +66,7 @@ const accessToken = (
   process.env["BUTLER_UPDATER_ACCESS_TOKEN"] ?? process.env["BUTLER_ACCESS_TOKEN"] ?? ""
 ).trim();
 
-function extractToken(request: IncomingMessage, url: URL): string {
+function extractToken(request: IncomingMessage): string {
   const auth = request.headers["authorization"];
   if (typeof auth === "string") {
     const match = /^Bearer\s+(.+)$/i.exec(auth.trim());
@@ -74,8 +74,7 @@ function extractToken(request: IncomingMessage, url: URL): string {
   }
   const header = request.headers["x-butler-token"];
   if (typeof header === "string" && header !== "") return header.trim();
-  const queryToken = url.searchParams.get("token");
-  return queryToken === null ? "" : queryToken.trim();
+  return "";
 }
 
 function tokensMatch(expected: string, received: string): boolean {
@@ -523,10 +522,15 @@ const server = createServer(async (request, response) => {
   // 能响应即代表进程存活。这不等于「git/docker 后端可用」——后者由任务执行时的 fail-closed 校验兜底。
   if (request.method === "GET" && path === "/healthz") return send(response, 200, { ok: true });
 
-  // 当配置了访问口令时，除健康检查外的一切接口都要求口令；
-  // 未配置口令时（如本地回环推荐模式），放行内部请求。
-  if (accessToken !== "" && !tokensMatch(accessToken, extractToken(request, url))) {
-    return send(response, 401, { error: "unauthorized", reason: "需要访问口令" });
+  // 必须配置访问口令；未配置时 Fail-Closed 锁定（除健康检查外拒绝一切请求）。
+  // 防止在 Compose 内部网络或反向代理环境下发生未授权破坏性升级与执行。
+  if (accessToken === "" || !tokensMatch(accessToken, extractToken(request))) {
+    return send(response, 401, {
+      error: "unauthorized",
+      reason: accessToken === ""
+        ? "Updater 服务未配置 BUTLER_UPDATER_ACCESS_TOKEN 或 BUTLER_ACCESS_TOKEN 访问口令，已处于安全锁定状态"
+        : "需要有效访问口令",
+    });
   }
 
   if (request.method === "GET" && path === "/api/status") {

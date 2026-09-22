@@ -286,12 +286,19 @@ describe("butler-updater security and rollback", () => {
 
     const healthDuringBuild = await fetch(`${updater.baseUrl}/healthz`, { signal: AbortSignal.timeout(1_000) });
     expect(healthDuringBuild.status).toBe(200);
-    const statusDuringBuild = await fetch(`${updater.baseUrl}/api/status?token=${encodeURIComponent(TOKEN)}`, {
+    const statusDuringBuild = await fetch(`${updater.baseUrl}/api/status`, {
+      headers: { "x-butler-token": TOKEN },
       signal: AbortSignal.timeout(1_000),
     });
     expect(statusDuringBuild.status).toBe(200);
     const view = (await statusDuringBuild.json()) as Record<string, unknown>;
     expect((view["lastJob"] as Record<string, unknown>)["phase"]).toBe("install-build");
+
+    // 验证安全收敛：不再接受 URL query 中的 ?token=
+    const queryTokenRejected = await fetch(`${updater.baseUrl}/api/status?token=${encodeURIComponent(TOKEN)}`, {
+      signal: AbortSignal.timeout(1_000),
+    });
+    expect(queryTokenRejected.status).toBe(401);
 
     const status = await terminalStatus();
     expect(status["lastJob"]).toMatchObject({ status: "done", phase: "done" });

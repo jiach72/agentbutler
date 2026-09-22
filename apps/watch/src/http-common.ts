@@ -928,6 +928,11 @@ function isSameRequestOrigin(origin: string, hostHeader: string | undefined): bo
 
 export function originAllowed(req: IncomingMessage): boolean {
   if (!STATE_CHANGING_METHODS.has(req.method ?? "")) return true;
+  // 检查 Sec-Fetch-Site 防跨站伪造请求 (CSRF)
+  const secFetchSite = req.headers["sec-fetch-site"];
+  if (typeof secFetchSite === "string" && secFetchSite.toLowerCase() === "cross-site") {
+    return false;
+  }
   const origin = req.headers["origin"];
   if (typeof origin !== "string" || origin.trim() === "") return true;
   if (isLoopbackOrigin(origin) || isSameRequestOrigin(origin, req.headers.host)) return true;

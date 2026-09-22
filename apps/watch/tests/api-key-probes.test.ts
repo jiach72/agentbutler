@@ -48,4 +48,46 @@ describe("probeApiKey", () => {
     expect(res.detail).not.toContain(secretKey);
     expect(res.detail).toContain("[REDACTED]");
   });
+
+  it("SSRF 防护：拦截云厂商元数据地址与非法协议", async () => {
+    const fakeFetch = vi.fn();
+    const resMeta = await probeApiKey("custom", "test-key", {
+      endpoint: "http://169.254.169.254/latest/meta-data/",
+      fetchFn: fakeFetch,
+    });
+    expect(resMeta.status).toBe("fail");
+    expect(resMeta.category).toBe("error");
+    expect(resMeta.detail).toContain("安全拦截");
+    expect(fakeFetch).not.toHaveBeenCalled();
+
+    const resGcp = await probeApiKey("custom", "test-key", {
+      endpoint: "http://metadata.google.internal/computeMetadata/v1/",
+      fetchFn: fakeFetch,
+    });
+    expect(resGcp.status).toBe("fail");
+    expect(fakeFetch).not.toHaveBeenCalled();
+
+    const resFile = await probeApiKey("custom", "test-key", {
+      endpoint: "file:///etc/passwd",
+      fetchFn: fakeFetch,
+    });
+    expect(resFile.status).toBe("fail");
+    expect(fakeFetch).not.toHaveBeenCalled();
+  });
+
+  it("TypeSafe 探针：正确向 /v1/systemone 发起探活 ping 请求", async () => {
+    let capturedUrl = "";
+    let capturedBody: any = null;
+    const fakeFetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      capturedUrl = url;
+      capturedBody = JSON.parse((init?.body as string) || "{}");
+      return new Response(JSON.stringify({ answers: { ping: { type: "noul", noul: 1.0 } } }), { status: 200 });
+    });
+
+    const res = await probeApiKey("typesafe", "ts_test_key", { fetchFn: fakeFetch });
+    expect(res.status).toBe("pass");
+    expect(capturedUrl).toBe("https://api.typesafe.ai/v1/systemone");
+    expect(capturedBody.model).toBe("jev-latest");
+    expect(capturedBody.questions.ping.type).toBe("noul");
+  });
 });

@@ -29,6 +29,13 @@ describe("gateway 访问口令与 wake 限速", () => {
       });
       expect(ok.statusCode).toBe(200);
 
+      // 安全收敛：禁止在 URL Query 中传递敏感口令
+      const queryDenied = await app.inject({
+        method: "GET",
+        url: `/api/alerts?token=${TOKEN}`,
+      });
+      expect(queryDenied.statusCode).toBe(401);
+
       const health = await app.inject({ method: "GET", url: "/healthz" });
       expect(health.statusCode).toBe(200);
     } finally {

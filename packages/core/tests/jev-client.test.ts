@@ -23,6 +23,140 @@ describe("JevClient (TypeSafe System One)", () => {
     });
   });
 
+  describe("systemOne 核心原语与批量评估", () => {
+    it("正确向 /v1/systemone 发送结构化 payload 并解析 answers", async () => {
+      let capturedUrl = "";
+      let capturedBody: any = null;
+      let capturedHeaders: Record<string, string> = {};
+
+      globalThis.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+        capturedUrl = url;
+        capturedBody = JSON.parse((init?.body as string) || "{}");
+        capturedHeaders = (init?.headers as Record<string, string>) || {};
+
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            answers: {
+              q_cat: {
+                type: "choice",
+                choice: "security",
+                confidence: 0.95,
+                probabilities: { security: 0.95, bug: 0.05 },
+              },
+              q_score: {
+                type: "score",
+                score: 4,
+                confidence: 0.88,
+              },
+              q_noul: {
+                type: "noul",
+                noul: 0.92,
+              },
+            },
+          }),
+        };
+      });
+
+      const client = new JevClient({ apiKey: "ts_live_key_test" });
+      const answers = await client.systemOne({
+        state: { test: true },
+        questions: {
+          q_cat: {
+            type: "choice",
+            instructions: "分类该漏洞",
+            criteria: { security: "安全漏洞", bug: "普通功能缺陷" },
+          },
+          q_score: {
+            type: "score",
+            instructions: "评估严重等级",
+            criteria: ["低", "中", "高", "严重", "紧急"],
+          },
+          q_noul: {
+            type: "noul",
+            instructions: "是否需要立即修复？",
+          },
+        },
+      });
+
+      expect(capturedUrl).toBe("https://api.typesafe.ai/v1/systemone");
+      expect(capturedHeaders["Authorization"]).toBe("Bearer ts_live_key_test");
+      expect(capturedHeaders["Content-Type"]).toBe("application/json");
+      expect(capturedBody.model).toBe("jev-latest");
+      expect(Object.keys(capturedBody.questions)).toHaveLength(3);
+
+      expect(answers).toBeDefined();
+      expect(answers?.q_cat?.type).toBe("choice");
+      expect((answers?.q_cat as any).choice).toBe("security");
+      expect((answers?.q_score as any).score).toBe(4);
+      expect((answers?.q_noul as any).noul).toBe(0.92);
+    });
+
+    it("便利方法 choice, score, noul 均正确转译为 /v1/systemone", async () => {
+      globalThis.fetch = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse((init?.body as string) || "{}");
+        const q = body.questions.item;
+        if (q.type === "choice") {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              answers: {
+                item: { type: "choice", choice: "option_a", confidence: 0.91 },
+              },
+            }),
+          };
+        }
+        if (q.type === "score") {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              answers: {
+                item: { type: "score", score: 3, confidence: 0.85 },
+              },
+            }),
+          };
+        }
+        if (q.type === "noul") {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              answers: {
+                item: { type: "noul", noul: 0.77 },
+              },
+            }),
+          };
+        }
+        return { ok: false, status: 404 };
+      });
+
+      const client = new JevClient({ apiKey: "ts_live_key_test" });
+      const c = await client.choice({
+        state: "state_data",
+        instructions: "选择方案",
+        criteria: { option_a: "方案 A", option_b: "方案 B" },
+      });
+      expect(c?.choice).toBe("option_a");
+      expect(c?.confidence).toBe(0.91);
+
+      const s = await client.score({
+        state: "state_data",
+        instructions: "打分",
+        criteria: ["1", "2", "3", "4", "5"],
+      });
+      expect(s?.score).toBe(3);
+
+      const n = await client.noul({
+        state: "state_data",
+        instructions: "是否可行？",
+      });
+      expect(n?.probability).toBe(0.77);
+    });
+  });
+
   describe("adviseMemorySystem 选型顾问", () => {
     it("未配置 API Key 时自动平滑降级为确定性启发式推荐", async () => {
       const client = new JevClient({ apiKey: "" });
@@ -47,26 +181,28 @@ describe("JevClient (TypeSafe System One)", () => {
       expect(resHighMem.mode).toBe("docker");
     });
 
-    it("配置 API Key 且 Jev 响应正常时，返回 Jev 判定结果", async () => {
-      globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
-        if (url.includes("/v1/choice")) {
+    it("配置 API Key 且 Jev 响应正常时，单次请求并发返回 Jev 判定结果", async () => {
+      globalThis.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+        if (url.includes("/v1/systemone")) {
+          const body = JSON.parse((init?.body as string) || "{}");
+          expect(Object.keys(body.questions)).toHaveLength(2);
           return {
             ok: true,
             status: 200,
             json: async () => ({
-              choice: "mem0_docker",
-              confidence: 0.94,
-              probabilities: { mem0_docker: 0.85, hindsight_docker: 0.15 },
-            }),
-          };
-        }
-        if (url.includes("/v1/score")) {
-          return {
-            ok: true,
-            status: 200,
-            json: async () => ({
-              score: 5,
-              confidence: 0.9,
+              answers: {
+                recommendation: {
+                  type: "choice",
+                  choice: "mem0_docker",
+                  confidence: 0.94,
+                  probabilities: { mem0_docker: 0.85, hindsight_docker: 0.15 },
+                },
+                hardwareFit: {
+                  type: "score",
+                  score: 4,
+                  confidence: 0.9,
+                },
+              },
             }),
           };
         }
@@ -127,25 +263,27 @@ describe("JevClient (TypeSafe System One)", () => {
       expect(res.recommendedAction).toContain("超时时间");
     });
 
-    it("配置 API Key 时正确调用 Jev Choice & Score 进行类型化归因", async () => {
-      globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
-        if (url.includes("/v1/choice")) {
+    it("配置 API Key 时正确调用 Jev System One 进行单次批量类型化归因", async () => {
+      globalThis.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+        if (url.includes("/v1/systemone")) {
+          const body = JSON.parse((init?.body as string) || "{}");
+          expect(Object.keys(body.questions)).toHaveLength(2);
           return {
             ok: true,
             status: 200,
             json: async () => ({
-              choice: "network_or_offline",
-              confidence: 0.96,
-            }),
-          };
-        }
-        if (url.includes("/v1/score")) {
-          return {
-            ok: true,
-            status: 200,
-            json: async () => ({
-              score: 4,
-              confidence: 0.91,
+              answers: {
+                rootCause: {
+                  type: "choice",
+                  choice: "network_or_offline",
+                  confidence: 0.96,
+                },
+                severity: {
+                  type: "score",
+                  score: 3,
+                  confidence: 0.91,
+                },
+              },
             }),
           };
         }
@@ -194,24 +332,26 @@ describe("JevClient (TypeSafe System One)", () => {
       expect(res.category).toBe("task_completion");
     });
 
-    it("配置 API Key 时调用 Jev Noul 与 Choice 获得类型化概率与分类", async () => {
-      globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
-        if (url.includes("/v1/noul")) {
+    it("配置 API Key 时调用 Jev System One 批量获得类型化概率与分类", async () => {
+      globalThis.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+        if (url.includes("/v1/systemone")) {
+          const body = JSON.parse((init?.body as string) || "{}");
+          expect(Object.keys(body.questions)).toHaveLength(2);
           return {
             ok: true,
             status: 200,
             json: async () => ({
-              probability: 0.88,
-            }),
-          };
-        }
-        if (url.includes("/v1/choice")) {
-          return {
-            ok: true,
-            status: 200,
-            json: async () => ({
-              choice: "critical_failure",
-              confidence: 0.95,
+              answers: {
+                is_urgent: {
+                  type: "noul",
+                  noul: 0.88,
+                },
+                category: {
+                  type: "choice",
+                  choice: "critical_failure",
+                  confidence: 0.95,
+                },
+              },
             }),
           };
         }

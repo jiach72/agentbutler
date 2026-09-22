@@ -39,13 +39,13 @@ describe("TypeSafe Jev 全项目架构与安全审计", () => {
   });
 
   it("[Jev 审计 2/5] 凭据安全、预设完整性与脱敏审查", () => {
-    const typesafePreset = API_CREDENTIAL_PRESETS.find((p) => p.presetId === "preset-typesafe");
+    const typesafePreset = API_CREDENTIAL_PRESETS.find((p) => p.id === "preset-typesafe");
     expect(typesafePreset).toBeDefined();
     expect(typesafePreset?.envVar).toBe("TYPESAFE_API_KEY");
     expect(typesafePreset?.category).toBe("llm");
     expect(typesafePreset?.provider).toBe("typesafe");
 
-    const hindsightPreset = API_CREDENTIAL_PRESETS.find((p) => p.presetId === "preset-hindsight");
+    const hindsightPreset = API_CREDENTIAL_PRESETS.find((p) => p.id === "preset-hindsight");
     expect(hindsightPreset).toBeDefined();
     expect(hindsightPreset?.envVar).toBe("HINDSIGHT_API_KEY");
 
@@ -60,9 +60,9 @@ describe("TypeSafe Jev 全项目架构与安全审计", () => {
     expect(existsSync(dockerComposePath)).toBe(true);
     const content = readFileSync(dockerComposePath, "utf-8");
 
-    // 核心安全规则：记忆服务端口必须且只能绑定 127.0.0.1
-    expect(content).toContain('"127.0.0.1:9177:9177"');
-    expect(content).toContain('"127.0.0.1:8888:8888"');
+    // 核心安全规则：记忆服务端口默认必须且只能绑定 127.0.0.1 回环
+    expect(content).toMatch(/127\.0\.0\.1.*9177.*:9177/);
+    expect(content).toMatch(/127\.0\.0\.1.*8888.*:8888/);
     expect(content).not.toContain('"0.0.0.0:9177:9177"');
     expect(content).not.toContain('"0.0.0.0:8888:8888"');
 

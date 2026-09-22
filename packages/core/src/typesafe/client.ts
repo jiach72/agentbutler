@@ -15,6 +15,13 @@ import type {
   MessageTriageRequest,
   MessageTriageResult,
   MessageTriageCategory,
+  SystemOneQuestion,
+  SystemOneAnswer,
+  SystemOneChoiceAnswer,
+  SystemOneScoreAnswer,
+  SystemOneNoulAnswer,
+  SystemOneRequestPayload,
+  SystemOneResponsePayload,
 } from "@butler/contract";
 
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
@@ -50,7 +57,7 @@ export class JevClient {
   constructor(options: JevClientOptions = {}) {
     this.apiKey = options.apiKey?.trim() || null;
     this.endpoint = (options.endpoint?.trim() || "https://api.typesafe.ai").replace(/\/+$/, "");
-    this.fetchFn = options.fetchFn ?? fetch;
+    this.fetchFn = options.fetchFn ?? ((input, init) => globalThis.fetch(input, init));
     this.timeoutMs = options.timeoutMs ?? 10_000;
   }
 
@@ -62,81 +69,109 @@ export class JevClient {
     return this.isConfigured;
   }
 
-  /** Choice 原语：从候选集合中根据 state 和 instructions 判定最优分支 */
-  async choice<T extends string>(params: {
-    state: Record<string, unknown>;
-    instructions: string;
-    criteria: Record<T, string>;
-  }): Promise<JevChoiceResult<T> | null> {
+  /**
+   * System One 基础原语：向 POST /v1/systemone 提交 state 和多 typed questions
+   */
+  async systemOne<Q extends Record<string, SystemOneQuestion>>(params: {
+    state: unknown;
+    questions: Q;
+    model?: string;
+  }): Promise<Record<keyof Q, SystemOneAnswer> | null> {
     if (!this.isConfigured) return null;
     try {
-      const response = await this.postJson<{
-        choice: T;
-        probabilities?: Record<T, number>;
-        confidence?: number;
-      }>("/v1/choice", {
+      const response = await this.postJson<SystemOneResponsePayload>("/v1/systemone", {
         state: params.state,
-        instructions: params.instructions,
-        criteria: params.criteria,
+        model: params.model ?? "jev-latest",
+        questions: params.questions,
       });
-      if (!response.ok || !response.data) return null;
-      const data = response.data;
-      return {
-        choice: data.choice,
-        probabilities: data.probabilities ?? ({ [data.choice]: 1.0 } as Record<T, number>),
-        confidence: data.confidence ?? 0.85,
-      };
+      if (!response.ok || !response.data || !response.data.answers) return null;
+      return response.data.answers as Record<keyof Q, SystemOneAnswer>;
     } catch {
       return null;
     }
   }
 
-  /** Score 原语：按离散等级评定维度得分 */
+  /** Choice 原语：从候选集合中根据 state 和 instructions 判定最优分支 */
+  async choice<T extends string>(params: {
+    state: unknown;
+    instructions: string | Record<string, unknown> | unknown[];
+    criteria: Record<T, string | Record<string, unknown> | unknown[] | null>;
+  }): Promise<JevChoiceResult<T> | null> {
+    const answers = await this.systemOne({
+      state: params.state,
+      questions: {
+        item: {
+          type: "choice",
+          instructions: params.instructions,
+          criteria: params.criteria,
+        },
+      },
+    });
+    if (!answers || !answers.item || answers.item.type !== "choice") return null;
+    const ans = answers.item as SystemOneChoiceAnswer<T>;
+    return {
+      choice: ans.choice,
+      probabilities: ans.probabilities ?? ({ [ans.choice]: 1.0 } as Record<T, number>),
+      confidence: ans.confidence ?? 0.85,
+    };
+  }
+
+  /** Score 原语：按离散等级评定维度得分（criteria: string[] 有序数组） */
   async score(params: {
-    state: Record<string, unknown>;
-    instructions: string;
-    levels: Record<number, string>;
+    state: unknown;
+    instructions: string | Record<string, unknown> | unknown[];
+    criteria?: Array<string | Record<string, unknown> | unknown[]>;
+    levels?: Record<number, string>;
   }): Promise<JevScoreResult | null> {
-    if (!this.isConfigured) return null;
-    try {
-      const response = await this.postJson<{
-        score: number;
-        confidence?: number;
-      }>("/v1/score", {
-        state: params.state,
-        instructions: params.instructions,
-        levels: params.levels,
-      });
-      if (!response.ok || !response.data) return null;
-      return {
-        score: response.data.score,
-        confidence: response.data.confidence ?? 0.85,
-      };
-    } catch {
-      return null;
-    }
+    const criteria = params.criteria ?? (
+      params.levels
+        ? Object.keys(params.levels)
+            .sort((a, b) => Number(a) - Number(b))
+            .map((k) => params.levels![Number(k)])
+        : []
+    );
+    const answers = await this.systemOne({
+      state: params.state,
+      questions: {
+        item: {
+          type: "score",
+          instructions: params.instructions,
+          criteria,
+        },
+      },
+    });
+    if (!answers || !answers.item || answers.item.type !== "score") return null;
+    const ans = answers.item as SystemOneScoreAnswer;
+    return {
+      score: ans.score,
+      confidence: ans.confidence ?? 0.85,
+    };
   }
 
   /** Noul 原语：判定某个条件是否成立的概率 (0.0 ~ 1.0) */
   async noul(params: {
-    state: Record<string, unknown>;
-    instructions: string;
+    state: unknown;
+    instructions: string | Record<string, unknown> | unknown[];
+    criteria?: {
+      true?: string | Record<string, unknown> | unknown[];
+      false?: string | Record<string, unknown> | unknown[];
+    };
   }): Promise<JevNoulResult | null> {
-    if (!this.isConfigured) return null;
-    try {
-      const response = await this.postJson<{
-        probability: number;
-      }>("/v1/noul", {
-        state: params.state,
-        instructions: params.instructions,
-      });
-      if (!response.ok || !response.data) return null;
-      return {
-        probability: response.data.probability,
-      };
-    } catch {
-      return null;
-    }
+    const answers = await this.systemOne({
+      state: params.state,
+      questions: {
+        item: {
+          type: "noul",
+          instructions: params.instructions,
+          ...(params.criteria ? { criteria: params.criteria } : {}),
+        },
+      },
+    });
+    if (!answers || !answers.item || answers.item.type !== "noul") return null;
+    const ans = answers.item as SystemOneNoulAnswer;
+    return {
+      probability: ans.noul,
+    };
   }
 
   /**
@@ -155,20 +190,42 @@ export class JevClient {
           hermes_sqlite: "Hermes 原生 SQLite 记忆库：适合资源极简（<4GB 内存）、无额外依赖的轻量本地场景",
         };
 
-        const choiceRes = await this.choice({
+        const answers = await this.systemOne({
           state: {
             scenario: req.scenario,
             userCount: req.userCount ?? 1,
             hardware: req.hardware ?? {},
             priorities: req.priorities ?? {},
           },
-          instructions:
-            "评估当前 Agent 运行环境与业务场景，选出最适用的记忆后端架构组合（引擎 + 部署模式）。优先权衡隐私、机器内存容量及推理深度。",
-          criteria: candidateCriteria,
+          questions: {
+            recommendation: {
+              type: "choice",
+              instructions:
+                "评估当前 Agent 运行环境与业务场景，选出最适用的记忆后端架构组合（引擎 + 部署模式）。优先权衡隐私、机器内存容量及推理深度。",
+              criteria: candidateCriteria,
+            },
+            hardwareFit: {
+              type: "score",
+              instructions:
+                "评分 1-5：评估在当前硬件资源（内存/CPU）和使用场景下运行适合的记忆后端的顺畅契合度（1=吃力/资源不足，5=完美契合/充裕）。",
+              criteria: [
+                "严重资源瓶颈",
+                "基本能跑但有内存压力",
+                "平稳适配正常运转",
+                "资源适配良好有冗余",
+                "完美契合且性能充沛",
+              ],
+            },
+          },
         });
 
-        if (choiceRes) {
-          const parts = choiceRes.choice.split("_");
+        if (answers && answers.recommendation?.type === "choice") {
+          const choiceAns = answers.recommendation as SystemOneChoiceAnswer;
+          const scoreAns = answers.hardwareFit?.type === "score"
+            ? (answers.hardwareFit as SystemOneScoreAnswer)
+            : null;
+
+          const parts = choiceAns.choice.split("_");
           const engine = (parts[0] ?? "hindsight") as MemoryEngineId;
           const mode = (parts[1] === "docker"
             ? "docker"
@@ -176,27 +233,15 @@ export class JevClient {
               ? "api"
               : "builtin") as MemoryDeployMode;
 
-          const scoreRes = await this.score({
-            state: {
-              chosen: choiceRes.choice,
-              hardware: req.hardware ?? {},
-            },
-            instructions: "评分 1-5：评估此选型在当前硬件资源下的运行适配流畅度（1=吃力/资源不足，5=完美契合/充裕）。",
-            levels: {
-              1: "严重资源瓶颈",
-              2: "基本能跑但有内存压力",
-              3: "平稳适配正常运转",
-              4: "资源适配良好有冗余",
-              5: "完美契合且性能充沛",
-            },
-          });
+          const rawScore = scoreAns ? scoreAns.score : 4;
+          const hardwareFitScore = Math.min(5, Math.max(1, Math.round(rawScore <= 4 ? rawScore + 1 : rawScore)));
 
           return {
             engine,
             mode,
-            confidence: choiceRes.confidence,
-            probabilities: choiceRes.probabilities,
-            hardwareFitScore: scoreRes ? scoreRes.score : 4,
+            confidence: choiceAns.confidence,
+            probabilities: choiceAns.probabilities,
+            hardwareFitScore,
             maintenanceComplexityScore: mode === "docker" ? 2 : mode === "api" ? 1 : 1,
             reason: `TypeSafe Jev 基于「${req.scenario}」场景及当前硬件配置推荐方案：${engine} (${mode})。`,
             source: "jev",
@@ -206,6 +251,7 @@ export class JevClient {
         // 异常自动平滑降级
       }
     }
+
 
     // 平滑降级：确定性启发式规则
     return this.heuristicAdvise(req);
@@ -274,7 +320,7 @@ export class JevClient {
   async diagnoseTaskError(req: TaskDiagnosisRequest): Promise<TaskDiagnosisResult> {
     if (this.isConfigured) {
       try {
-        const choiceRes = await this.choice<TaskRootCauseCategory>({
+        const answers = await this.systemOne({
           state: {
             taskName: req.taskName,
             exitCode: req.exitCode,
@@ -282,35 +328,40 @@ export class JevClient {
             durationMs: req.durationMs,
             schedule: req.schedule,
           },
-          instructions:
-            "分析该自动化任务的执行错误信息，将其归结为最精确的故障根因类别。",
-          criteria: {
-            credential_expired: "API Key 失效、鉴权失败、返回 401/403 或认证凭据缺失",
-            rate_limited: "遭遇上游模型或通信渠道并发限制、配额耗尽或返回 429",
-            syntax_or_format: "脚本语法错误、JSON 解析失败、Prompt 格式损坏或参数非法",
-            timeout_or_killed: "任务执行超时被杀、内存溢出 OOM 或收到 SIGKILL/SIGTERM",
-            network_or_offline: "网络不可达、DNS 解析失败、连接重置或 Hermes 网关离线",
-            unknown_runtime: "其他无法从日志片断中明确归类的内部运行崩溃",
+          questions: {
+            rootCause: {
+              type: "choice",
+              instructions:
+                "分析该自动化任务的执行错误信息，将其归结为最精确的故障根因类别。",
+              criteria: {
+                credential_expired: "API Key 失效、鉴权失败、返回 401/403 或认证凭据缺失",
+                rate_limited: "遭遇上游模型或通信渠道并发限制、配额耗尽或返回 429",
+                syntax_or_format: "脚本语法错误、JSON 解析失败、Prompt 格式损坏或参数非法",
+                timeout_or_killed: "任务执行超时被杀、内存溢出 OOM 或收到 SIGKILL/SIGTERM",
+                network_or_offline: "网络不可达、DNS 解析失败、连接重置或 Hermes 网关离线",
+                unknown_runtime: "其他无法从日志片断中明确归类的内部运行崩溃",
+              },
+            },
+            severity: {
+              type: "score",
+              instructions:
+                "评分 1-5：评估此错误对整个 Agent 系统的影响严重度（1=轻微无害，5=关键致命）。",
+              criteria: [
+                "偶发轻微波动，不影响核心功能",
+                "局部非关键错误，建议关注",
+                "单次任务失败，需注意重试",
+                "高频或关键任务失败，需尽快处理",
+                "致命阻断错误，系统核心功能瘫痪",
+              ],
+            },
           },
         });
 
-        if (choiceRes) {
-          const scoreRes = await this.score({
-            state: {
-              rootCause: choiceRes.choice,
-              exitCode: req.exitCode,
-              errorSnippet: req.errorSnippet.slice(0, 400),
-            },
-            instructions:
-              "评分 1-5：评估此错误对整个 Agent 系统的影响严重度（1=轻微无害，5=关键致命）。",
-            levels: {
-              1: "偶发轻微波动，不影响核心功能",
-              2: "局部非关键错误，建议关注",
-              3: "单次任务失败，需注意重试",
-              4: "高频或关键任务失败，需尽快处理",
-              5: "致命阻断错误，系统核心功能瘫痪",
-            },
-          });
+        if (answers && answers.rootCause?.type === "choice") {
+          const choiceAns = answers.rootCause as SystemOneChoiceAnswer<TaskRootCauseCategory>;
+          const scoreAns = answers.severity?.type === "score"
+            ? (answers.severity as SystemOneScoreAnswer)
+            : null;
 
           const actionMap: Record<TaskRootCauseCategory, string> = {
             credential_expired: "检查并更新模型或通道的 API Key 凭据",
@@ -321,12 +372,15 @@ export class JevClient {
             unknown_runtime: "查看任务详情中的完整运行时日志以定位故障",
           };
 
+          const rawScore = scoreAns ? scoreAns.score : 3;
+          const severity = Math.min(5, Math.max(1, Math.round(rawScore <= 4 ? rawScore + 1 : rawScore)));
+
           return {
-            rootCause: choiceRes.choice,
-            severity: scoreRes ? scoreRes.score : 3,
-            confidence: choiceRes.confidence,
-            recommendedAction: actionMap[choiceRes.choice] || "查看完整日志排查",
-            explanation: `TypeSafe Jev 诊断识别为「${choiceRes.choice}」故障。`,
+            rootCause: choiceAns.choice,
+            severity,
+            confidence: choiceAns.confidence,
+            recommendedAction: actionMap[choiceAns.choice] || "查看完整日志排查",
+            explanation: `TypeSafe Jev 诊断识别为「${choiceAns.choice}」故障。`,
             source: "jev",
           };
         }
@@ -334,6 +388,7 @@ export class JevClient {
         // 平滑降级
       }
     }
+
 
     return this.heuristicDiagnoseTaskError(req);
   }
@@ -415,7 +470,7 @@ export class JevClient {
   async triageMessage(req: MessageTriageRequest): Promise<MessageTriageResult> {
     if (this.isConfigured) {
       try {
-        const noulRes = await this.noul({
+        const answers = await this.systemOne({
           state: {
             channel: req.channel,
             sender: req.sender,
@@ -423,34 +478,39 @@ export class JevClient {
             status: req.status,
             userActiveHours: req.userActiveHours,
           },
-          instructions:
-            "判定该即时通讯消息是否属于需要用户立即关注、人工审批或处理的紧急重要事件（1.0=必须打扰，0.0=无需打扰）。",
+          questions: {
+            is_urgent: {
+              type: "noul",
+              instructions:
+                "判定该即时通讯消息是否属于需要用户立即关注、人工审批或处理的紧急重要事件（1.0=必须打扰，0.0=无需打扰）。",
+            },
+            category: {
+              type: "choice",
+              instructions: "将该消息划分为对应的业务处理分类。",
+              criteria: {
+                approval_request: "需要人类介入审批、确认或高危操作授权",
+                critical_failure: "消息投递失败、通道断开或严重故障提醒",
+                task_completion: "日常定时任务顺利完成或阶段性健康报告",
+                heartbeat_chatter: "系统周期心跳、通道日常闲聊或普通调试日志",
+              },
+            },
+          },
         });
 
-        const choiceRes = await this.choice<MessageTriageCategory>({
-          state: {
-            channel: req.channel,
-            summary: req.summary.slice(0, 500),
-            status: req.status,
-          },
-          instructions: "将该消息划分为对应的业务处理分类。",
-          criteria: {
-            approval_request: "需要人类介入审批、确认或高危操作授权",
-            critical_failure: "消息投递失败、通道断开或严重故障提醒",
-            task_completion: "日常定时任务顺利完成或阶段性健康报告",
-            heartbeat_chatter: "系统周期心跳、通道日常闲聊或普通调试日志",
-          },
-        });
+        if (answers && answers.category?.type === "choice") {
+          const choiceAns = answers.category as SystemOneChoiceAnswer<MessageTriageCategory>;
+          const noulAns = answers.is_urgent?.type === "noul"
+            ? (answers.is_urgent as SystemOneNoulAnswer)
+            : null;
+          const prob = noulAns ? noulAns.noul : 0.5;
 
-        if (choiceRes) {
-          const prob = noulRes ? noulRes.probability : 0.5;
           return {
             requiresUrgentAttention:
-              prob >= 0.6 || choiceRes.choice === "approval_request" || choiceRes.choice === "critical_failure",
+              prob >= 0.6 || choiceAns.choice === "approval_request" || choiceAns.choice === "critical_failure",
             urgencyProbability: prob,
-            category: choiceRes.choice,
-            confidence: choiceRes.confidence,
-            explanation: `TypeSafe Jev 分流分类为「${choiceRes.choice}」，紧急度概率 ${(prob * 100).toFixed(0)}%。`,
+            category: choiceAns.choice,
+            confidence: choiceAns.confidence,
+            explanation: `TypeSafe Jev 分流分类为「${choiceAns.choice}」，紧急度概率 ${(prob * 100).toFixed(0)}%。`,
             source: "jev",
           };
         }
@@ -458,6 +518,7 @@ export class JevClient {
         // 平滑降级
       }
     }
+
 
     return this.heuristicTriageMessage(req);
   }

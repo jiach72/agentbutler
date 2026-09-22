@@ -413,8 +413,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
       const auth = request.headers["authorization"];
       const match = typeof auth === "string" ? /^Bearer\s+(.+)$/i.exec(auth.trim()) : null;
       const header = request.headers["x-butler-token"];
-      const queryToken = new URL(request.url, "http://127.0.0.1").searchParams.get("token");
-      const received = (match?.[1] ?? (typeof header === "string" ? header : "") ?? "").trim() || (queryToken ?? "").trim();
+      const received = (match?.[1] ?? (typeof header === "string" ? header : "") ?? "").trim();
       const expected = Buffer.from(accessToken, "utf8");
       const receivedBytes = Buffer.from(received, "utf8");
       if (
