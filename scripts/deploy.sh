@@ -335,6 +335,18 @@ if [[ -n "$bridge_url" && ! -s "$hermes_host_path/agent-butler/bridge.token" ]];
   exit 1
 fi
 
+# ---- 先构建镜像，再停栈（#33）----
+# 构建是整条链路里最容易失败的一步：要经网络拉基础镜像（docker:*-cli / node:*-slim）、
+# npm registry 与 debian 源。旧实现把构建放在停栈之后（`up -d --build`），一旦构建失败，
+# 整栈就留在停机态且无人恢复 —— 面板、消息面（Bridge/投递）、定时调度、巡检同时中断，
+# 而脚本只以失败退出。把构建提到停栈之前，构建失败时运行中的服务完全不受影响。
+echo "Building images before stopping the running stack ..."
+if ! compose build; then
+  echo "ERROR: 镜像构建失败；正在运行的服务未被改动（未停栈、未换版本）。" >&2
+  echo "DEPLOY_RESULT=failed step=compose_build running_stack=untouched" >&2
+  exit 1
+fi
+
 # ---- 升级前备份数据卷（失败默认阻断部署）----
 DATA_VOLUME="${BUTLER_DATA_VOLUME:-$(env_value BUTLER_DATA_VOLUME)}"
 DATA_VOLUME="${DATA_VOLUME:-agent-butler-data}"
@@ -368,7 +380,18 @@ if docker volume inspect "$DATA_VOLUME" >/dev/null 2>&1; then
 fi
 
 compose config -q
-compose up -d --build
+# 镜像已在上一步构建完成，这里只重建容器（--no-build）：
+# 失败时立即把升级前的实例拉回来，绝不把用户留在停机状态（#33）。
+if ! compose up -d --no-build; then
+  echo "ERROR: 重建容器失败；正在恢复升级前的实例 ..." >&2
+  if [[ "${was_running:-false}" == true ]] && compose start >/dev/null 2>&1; then
+    echo "已恢复：升级前的容器已重新启动（版本未变更，面板/消息面/调度随即可用）。" >&2
+    echo "DEPLOY_RESULT=failed step=compose_up restored=previous_release" >&2
+  else
+    echo "DEPLOY_RESULT=failed step=compose_up restored=none" >&2
+  fi
+  exit 1
+fi
 compose ps
 
 for _ in {1..30}; do
