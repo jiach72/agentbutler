@@ -19,12 +19,22 @@ export function createProxyHelpers(
   doFetch: typeof fetch,
   watchUrl: string,
 ): ProxyHelpers {
+  const watchAuthHeaders = (): Record<string, string> => {
+    const accessToken = (process.env["BUTLER_ACCESS_TOKEN"] ?? "").trim();
+    const internalToken = (process.env["BUTLER_INTERNAL_TOKEN"] ?? "").trim();
+    return {
+      ...(accessToken === "" ? {} : { "x-butler-token": accessToken }),
+      ...(internalToken === "" ? {} : { "x-butler-internal-token": internalToken }),
+    };
+  };
+
   const fetchWatch = async (
     watchPath: string,
     timeoutMs = 5_000,
   ): Promise<Response | null> => {
     try {
       return await doFetch(`${watchUrl}${watchPath}`, {
+        headers: watchAuthHeaders(),
         signal: AbortSignal.timeout(timeoutMs),
       });
     } catch {
@@ -42,7 +52,10 @@ export function createProxyHelpers(
     try {
       res = await doFetch(`${watchUrl}${watchPath}`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          ...watchAuthHeaders(),
+        },
         body: JSON.stringify(body ?? {}),
         signal: AbortSignal.timeout(timeoutMs),
       });
@@ -69,6 +82,7 @@ export function createProxyHelpers(
     let res: Response;
     try {
       res = await doFetch(`${watchUrl}${watchPath}`, {
+        headers: watchAuthHeaders(),
         signal: AbortSignal.timeout(timeoutMs),
       });
     } catch {

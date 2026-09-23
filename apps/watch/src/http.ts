@@ -206,7 +206,10 @@ export async function handle(
   const path = url.pathname.replace(/\/+$/, "") || "/";
   const method = req.method ?? "GET";
 
-  if (!originAllowed(req)) {
+  const origin = req.headers["origin"];
+  const hasOrigin = typeof origin === "string" && origin.trim() !== "";
+
+  if (hasOrigin && !originAllowed(req)) {
     sendJson(res, 403, {
       error: "origin-not-allowed",
       detail: "这个请求来自不受信任的页面，管家已拒绝执行。",
@@ -216,9 +219,18 @@ export async function handle(
 
   // 写操作无 Origin 时必须带口令（plan0922 fail-closed）。
   if (!writeRequestAuthorized(req)) {
+    const accessToken = (process.env["BUTLER_ACCESS_TOKEN"] ?? "").trim();
+    const internalToken = (process.env["BUTLER_INTERNAL_TOKEN"] ?? "").trim();
+    if (accessToken === "" && internalToken === "") {
+      sendJson(res, 403, {
+        error: "write-locked",
+        detail: "写操作已处于安全锁定状态（未配置 BUTLER_INTERNAL_TOKEN 或 BUTLER_ACCESS_TOKEN，且请求非本地回环）。",
+      });
+      return;
+    }
     sendJson(res, 401, {
       error: "unauthorized",
-      detail: "写操作需要访问口令（Authorization: Bearer 或 x-butler-token）。",
+      detail: "写操作需要访问口令（Authorization: Bearer、x-butler-token 或 x-butler-internal-token）。",
     });
     return;
   }

@@ -168,7 +168,7 @@ fi
 
 # 8. 宿主 Bridge 副本版本与能力（resolve 端点）检查
 host_bridge_py=""
-for cand in "$hermes_host_path/../hermes-agent/gateway/butler_bridge/server.py" "${HOME:-}/.hermes/hermes-agent/gateway/butler_bridge/server.py"; do
+for cand in "$hermes_host_path/hermes-agent/gateway/butler_bridge/server.py" "$hermes_host_path/../hermes-agent/gateway/butler_bridge/server.py" "${HOME:-}/.hermes/hermes-agent/gateway/butler_bridge/server.py"; do
   if [[ -f "$cand" ]]; then
     host_bridge_py="$cand"
     break
@@ -181,6 +181,8 @@ if [[ -n "$host_bridge_py" ]]; then
   else
     warn "宿主 Bridge 副本缺少 resolve 权威结案端点（建议执行 python -m agent_butler_bridge.installer update <hermes-agent-path> 并重启 hermes-gateway）"
   fi
+else
+  warn "未在宿主找到 Bridge 副本 (server.py)，跳过结案端点检查"
 fi
 
 echo "----"

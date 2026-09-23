@@ -43,6 +43,8 @@ RUN corepack pnpm install --frozen-lockfile --prod
 
 FROM node:22-slim AS runtime
 
+RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils && rm -rf /var/lib/apt/lists/*
+
 ENV NODE_ENV=production
 ENV BUTLER_HOME=/home/butler
 WORKDIR /app

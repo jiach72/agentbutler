@@ -21,6 +21,7 @@ import { registerLlmRoutes } from "./routes/llm.js";
 import { registerLogsRoutes } from "./routes/logs.js";
 import { registerMarkdownRoutes } from "./routes/markdown.js";
 import { registerMemoryRoutes } from "./routes/memory.js";
+import { registerKnowledgeRoutes } from "./routes/knowledge.js";
 import { registerOllamaRoutes } from "./routes/ollama.js";
 import { registerPromptOptimizationRoutes } from "./routes/prompt-optimization.js";
 import { registerRecoveryRoutes } from "./routes/recovery.js";
@@ -78,7 +79,7 @@ export {
   type RemoteServiceHealth,
 } from "./api-parsers.js";
 
-export const WEB_VERSION = `web@0.1.0-beta.260918.1+${CONTRACT_VERSION}`;
+export const WEB_VERSION = `web@0.1.0-beta.260923.1+${CONTRACT_VERSION}`;
 
 /** 告警网关默认基址（butler-gateway 的固定回环端口）。 */
 export const DEFAULT_GATEWAY_URL = "http://127.0.0.1:7532";
@@ -143,7 +144,10 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     options.publishHost?.trim() || process.env["BUTLER_WEB_PUBLISH_HOST"]?.trim() || listenHost;
   const accessToken = (options.accessToken ?? process.env["BUTLER_ACCESS_TOKEN"] ?? "").trim();
 
-  const app = Fastify({ logger: false });
+  const app = Fastify({
+    logger: false,
+    bodyLimit: 100 * 1024 * 1024, // 100MB 允许本地知识库/笔记库与文档批量上传
+  });
   let store = openStore(home);
   let ollamaUsageStore =
     options.ollamaUsageStore !== undefined
@@ -596,8 +600,9 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     return { listenHost, publishHost, loopback, auth, warnings };
   });
 
-  /* ------------------------------ Ollama 本地模型管理 ------------------------------ */
+  /* ------------------------------ Ollama 本地模型与知识库管理 ------------------------------ */
   void registerOllamaRoutes(app, { ollamaUrl, ollamaUsageStore });
+  void registerKnowledgeRoutes(app, { home, ollamaUrl, fetchImpl: options.fetchImpl });
 
   /* ------------------------------ WebSocket /ws ------------------------------ */
 

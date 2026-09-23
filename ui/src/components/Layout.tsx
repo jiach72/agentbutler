@@ -136,8 +136,12 @@ function collapsibleGroupItem(
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const location = useLocation();
   const currentMeta = routeMetaFor(location.pathname);
-  const settingsActive = currentMeta?.group === "settings" || currentMeta?.nav === false || location.pathname.startsWith("/preferences");
-  const selectedKey = settingsActive ? PINNED_ROUTE.path : (currentMeta?.path ?? "");
+  const settingsActive = currentMeta?.group === "settings" || location.pathname.startsWith("/preferences");
+  const selectedKey = settingsActive
+    ? PINNED_ROUTE.path
+    : currentMeta?.nav === true
+      ? currentMeta.path
+      : "";
 
   // 折叠分组的展开态：路由切换时按「当前所属组」重置（深链 /sessions/:id 也会
   // 展开记录与审批）；用户手动收起/展开在两次路由切换之间保留。

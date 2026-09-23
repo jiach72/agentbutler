@@ -4,7 +4,11 @@
  * 2. 直连会话管理器（imSessionStore 状态机与持久化断言）。
  */
 import { describe, expect, it, beforeEach } from "vitest";
+import React from "react";
+import { App } from "antd";
+import { renderToStaticMarkup } from "react-dom/server";
 import { enhancePromptRules } from "../src/pages/gateway/im/promptEnhancer.js";
+import { IMMessageInput } from "../src/pages/gateway/im/IMMessageInput.js";
 import {
   appendDirectMessage,
   clearDirectMessages,
@@ -54,6 +58,23 @@ describe("即时通讯工作台：提示词增强引擎 (promptEnhancer)", () =>
     const res = enhancePromptRules("肥嘟嘟");
     expect(res.enhanced).toBe("请针对「肥嘟嘟」展开分析，并提供具体的行动建议与状态");
     expect(res.changes).toContain("补充任务上下文与行动建议");
+  });
+});
+
+describe("即时通讯工作台：键盘可操作性", () => {
+  it("快捷指令和发送操作使用可聚焦按钮，并为图标操作提供名称", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(
+        App,
+        null,
+        React.createElement(IMMessageInput, { onSend: async () => undefined, sending: false }),
+      ),
+    );
+
+    expect(html).toContain("检查系统健康与网关状态");
+    expect((html.match(/<button\b/g) ?? []).length).toBeGreaterThanOrEqual(6);
+    expect(html).toMatch(/class="[^"]*\bim-action-chip\b/);
+    expect(html).toContain('aria-label="发送消息"');
   });
 });
 
@@ -145,4 +166,3 @@ describe("即时通讯工作台：直连会话管理器 (imSessionStore)", () =>
     expect(externalChannels).toContain("api-server:butler-prompt-optimizer");
   });
 });
-

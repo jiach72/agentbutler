@@ -374,7 +374,14 @@ export interface SkillsApiView {
     mode: SkillsInventoryMode;
     driverId: string | null;
     /** watch 检测到的记忆后端（hermes|hindsight|mem0；env 声明 > 目录标记 > 默认）。 */
-    backend: { id: string; backend?: string; source: string; detail: string };
+    backend: {
+      id: string;
+      backend?: string;
+      source: string;
+      detail: string;
+      degraded?: boolean;
+      degradedReason?: string;
+    };
     stats: null | {
       totalEntries: number;
       byMonth: Array<{ month: string; count: number }>;

@@ -17,7 +17,7 @@ function resolveControlBridgeVersion() {
   } catch {
     // Fall back to current build version
   }
-  return "0.1.0-beta.260918.1";
+  return "0.1.0-beta.260923.1";
 }
 export const CONTROL_BRIDGE_VERSION = resolveControlBridgeVersion();
 

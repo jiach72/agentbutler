@@ -13,7 +13,7 @@ class PatchSpec:
     patch_id: str
     class_name: str
     methods: tuple[str, ...]
-    tail_suffix: str
+    tail_suffix: str | tuple[str, ...]
     install_function: str
     install_arguments: str
     #: (file_path, mixin_class_name) 对：v0.21.0 起官方把网关生命周期拆进 mixin 文件，
@@ -43,7 +43,8 @@ class PatchSpec:
         )
 
     def validate_base(self, text: str, read_file: Callable[[str], str] | None = None) -> None:
-        if not text.rstrip().endswith(self.tail_suffix.rstrip()):
+        suffixes = (self.tail_suffix,) if isinstance(self.tail_suffix, str) else self.tail_suffix
+        if not any(text.rstrip().endswith(s.rstrip()) for s in suffixes):
             raise PatchDriftError(f"{self.path}: expected file-tail suffix is absent")
         try:
             tree = ast.parse(text, filename=self.path)
@@ -152,7 +153,10 @@ PATCH_SPECS: tuple[PatchSpec, ...] = (
         patch_id="a2a",
         class_name="A2AAdapter",
         methods=("send", "_send_push_notification"),
-        tail_suffix='            }.get(outcome, (protocol.STATE_COMPLETED, "")))',
+        tail_suffix=(
+            '            }.get(outcome, default))',
+            '            }.get(outcome, (protocol.STATE_COMPLETED, "")))',
+        ),
         install_function="install_a2a_hooks",
         install_arguments="A2AAdapter",
     ),

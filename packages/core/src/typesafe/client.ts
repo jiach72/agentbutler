@@ -15,6 +15,12 @@ import type {
   MessageTriageRequest,
   MessageTriageResult,
   MessageTriageCategory,
+  GroupChatDispatchRequest,
+  GroupChatDispatchResult,
+  PeerHandoffGateRequest,
+  PeerHandoffGateResult,
+  BotComplianceScoreRequest,
+  BotComplianceScoreResult,
   SystemOneQuestion,
   SystemOneAnswer,
   SystemOneChoiceAnswer,
@@ -564,6 +570,324 @@ export class JevClient {
       category: "heartbeat_chatter",
       confidence: 0.8,
       explanation: "常规消息或心跳，默认不打扰。",
+      source: "heuristic",
+    };
+  }
+
+  /**
+   * Pantheon Bot Mode 场景 1：群聊智能调度中枢 (Jev Choice)
+   * 当用户在群聊中未明确 @ 任何 Bot 时，利用 Choice 原语根据职责与上下文判定由哪位 Bot 接单。
+   */
+  async dispatchGroupChat(req: GroupChatDispatchRequest): Promise<GroupChatDispatchResult> {
+    if (!req.activeBots || req.activeBots.length === 0) {
+      return {
+        selectedBotId: "butler",
+        confidence: 1.0,
+        reason: "当前无可用 Bot，默认指派全能管家。",
+        source: "heuristic",
+      };
+    }
+
+    if (req.activeBots.length === 1) {
+      const single = req.activeBots[0];
+      return {
+        selectedBotId: single.id,
+        confidence: 1.0,
+        reason: `群聊仅有「${single.name}」在场，直接指派。`,
+        source: "heuristic",
+      };
+    }
+
+    if (this.isConfigured) {
+      try {
+        const criteria: Record<string, string> = {};
+        for (const bot of req.activeBots) {
+          criteria[bot.id] = `【${bot.name}】定位：${bot.role}。职责边界：${bot.duties.join("；")}`;
+        }
+
+        const choiceRes = await this.choice<string>({
+          state: {
+            userMessage: req.message,
+            recentSummary: req.recentSummary ?? "协同群聊交互",
+            candidateBots: req.activeBots.map((b) => ({ id: b.id, name: b.name, role: b.role })),
+          },
+          instructions:
+            "根据用户当前提问或需求指令，从候选群聊 Bot 名册中选出最契合其专业领域的唯一一位 Bot 接单响应。",
+          criteria,
+        });
+
+        if (choiceRes && choiceRes.choice) {
+          const matched = req.activeBots.find((b) => b.id === choiceRes.choice);
+          return {
+            selectedBotId: choiceRes.choice,
+            confidence: choiceRes.confidence,
+            probabilities: choiceRes.probabilities,
+            reason: `TypeSafe Jev 基于岗位分工选定由「${matched?.name ?? choiceRes.choice}」响应。`,
+            source: "jev",
+          };
+        }
+      } catch {
+        // 平滑降级至规则判定
+      }
+    }
+
+    return this.heuristicDispatchGroupChat(req);
+  }
+
+  /** 群聊调度确定性启发式兜底 */
+  private heuristicDispatchGroupChat(req: GroupChatDispatchRequest): GroupChatDispatchResult {
+    const text = req.message.toLowerCase();
+    const findBot = (keywordRegex: RegExp) =>
+      req.activeBots.find(
+        (b) =>
+          keywordRegex.test(b.id.toLowerCase()) ||
+          keywordRegex.test(b.name.toLowerCase()) ||
+          keywordRegex.test(b.role.toLowerCase()),
+      );
+
+    // 1. 检查 / 代码 / 故障 / 安全 -> Inspector
+    if (/(审查|代码|bug|故障|排错|修复|安全|审计|健康|日志|error|trace|fail)/i.test(text)) {
+      const inspector = findBot(/inspector|审查|代码|安全/i);
+      if (inspector) {
+        return {
+          selectedBotId: inspector.id,
+          confidence: 0.88,
+          reason: `识别到故障/排错/代码相关诉求，规则分流至「${inspector.name}」。`,
+          source: "heuristic",
+        };
+      }
+    }
+
+    // 2. 检索 / 文档 / 搜索 / 简报 -> Scout
+    if (/(检索|搜索|查|文档|资讯|新闻|搜|简报|search|doc|web|summary|找)/i.test(text)) {
+      const scout = findBot(/scout|侦察|检索|搜索/i);
+      if (scout) {
+        return {
+          selectedBotId: scout.id,
+          confidence: 0.88,
+          reason: `识别到信息检索/外部搜索诉求，规则分流至「${scout.name}」。`,
+          source: "heuristic",
+        };
+      }
+    }
+
+    // 3. 默认管家或第一个 Bot
+    const butler = findBot(/butler|管家/i) ?? req.activeBots[0];
+    return {
+      selectedBotId: butler.id,
+      confidence: 0.8,
+      reason: `常规协同任务，默认由主控「${butler.name}」承接。`,
+      source: "heuristic",
+    };
+  }
+
+  /**
+   * Pantheon Bot Mode 场景 2：Bot 协作自主接力门禁 (Jev Noul + Choice 并发投机)
+   * 判定某个 Bot 回复后是否需要触发 hermes peer 接力流水线，并内置最大 3 轮死循环熔断。
+   */
+  async evaluatePeerHandoff(req: PeerHandoffGateRequest): Promise<PeerHandoffGateResult> {
+    // 硬熔断防线：单次级联对话轮次超过 3 轮直接终结，避免死循环消耗 Token
+    const turn = req.turnCount ?? 1;
+    if (turn >= 3) {
+      return {
+        needsHandoff: false,
+        handoffProbability: 0,
+        nextBotId: null,
+        suggestedPrompt: null,
+        reason: "已达单次流水线接力轮次硬上限 (3 轮)，触发死循环熔断保护并归还发言权给用户。",
+        source: "heuristic",
+      };
+    }
+
+    if (!req.availablePeerBots || req.availablePeerBots.length === 0) {
+      return {
+        needsHandoff: false,
+        handoffProbability: 0,
+        nextBotId: null,
+        suggestedPrompt: null,
+        reason: "群聊无其他可用协作 Bot，无法接力。",
+        source: "heuristic",
+      };
+    }
+
+    if (this.isConfigured) {
+      try {
+        const peerCriteria: Record<string, string> = {};
+        for (const bot of req.availablePeerBots) {
+          peerCriteria[bot.id] = `【${bot.name}】定位：${bot.role}。职责：${bot.duties.join("；")}`;
+        }
+
+        const answers = await this.systemOne({
+          state: {
+            currentBotId: req.currentBotId,
+            botResponseSnippet: req.botResponse.slice(0, 1500),
+            userGoal: req.userGoal ?? "",
+            turnCount: turn,
+          },
+          questions: {
+            needs_handoff: {
+              type: "noul",
+              instructions:
+                "分析当前 Bot 的回复，判定当前任务是否未彻底结束且明确需要下一位专职 Bot 介入接力（例如研究员给出了日志但需要审查员排查，或分析完成需要管家执行）。若已给出最终完整方案或仅等待人类操作，必须为 false。",
+              criteria: {
+                true: "需要由另一位专职 Bot 接力执行后续步骤",
+                false: "任务已完成、无需协作或交由用户确认",
+              },
+            },
+            next_bot: {
+              type: "choice",
+              instructions: "若需接力，从可用协同 Bot 中选出最适合接棒的下一位 Bot。",
+              criteria: peerCriteria,
+            },
+          },
+        });
+
+        if (answers && answers.needs_handoff?.type === "noul") {
+          const noulAns = answers.needs_handoff as SystemOneNoulAnswer;
+          const prob = noulAns.noul;
+          const choiceAns = answers.next_bot?.type === "choice"
+            ? (answers.next_bot as SystemOneChoiceAnswer<string>)
+            : null;
+
+          if (prob >= 0.75 && choiceAns?.choice) {
+            const nextBot = req.availablePeerBots.find((b) => b.id === choiceAns.choice);
+            return {
+              needsHandoff: true,
+              handoffProbability: prob,
+              nextBotId: choiceAns.choice,
+              suggestedPrompt: `请接力上一位智能体（${req.currentBotId}）的输出并继续推进：${req.botResponse.slice(0, 300)}...`,
+              reason: `TypeSafe Jev 判定需由「${nextBot?.name ?? choiceAns.choice}」接力（接力概率 ${(prob * 100).toFixed(0)}%）。`,
+              source: "jev",
+            };
+          }
+
+          return {
+            needsHandoff: false,
+            handoffProbability: prob,
+            nextBotId: null,
+            suggestedPrompt: null,
+            reason: `TypeSafe Jev 判定当前步骤已就绪，无需接力（接力概率 ${(prob * 100).toFixed(0)}%）。`,
+            source: "jev",
+          };
+        }
+      } catch {
+        // 平滑降级
+      }
+    }
+
+    return this.heuristicEvaluatePeerHandoff(req);
+  }
+
+  /** 接力门禁确定性启发式兜底 */
+  private heuristicEvaluatePeerHandoff(req: PeerHandoffGateRequest): PeerHandoffGateResult {
+    const text = req.botResponse;
+    // 匹配显式 @ 或 peer 指令
+    const mentionMatch = /@([a-zA-Z0-9_\u4e00-\u9fa5]+)/.exec(text);
+    if (mentionMatch) {
+      const targetName = mentionMatch[1].toLowerCase();
+      const matchedBot = req.availablePeerBots.find(
+        (b) =>
+          b.id.toLowerCase() === targetName ||
+          b.name.toLowerCase() === targetName ||
+          targetName.includes(b.name.toLowerCase()),
+      );
+      if (matchedBot) {
+        return {
+          needsHandoff: true,
+          handoffProbability: 0.95,
+          nextBotId: matchedBot.id,
+          suggestedPrompt: `响应上一位智能体的 @点名，继续执行相关协作任务。`,
+          reason: `智能体在正文中明确 @ 了「${matchedBot.name}」，触发 peer 流水线接力。`,
+          source: "heuristic",
+        };
+      }
+    }
+
+    return {
+      needsHandoff: false,
+      handoffProbability: 0.1,
+      nextBotId: null,
+      suggestedPrompt: null,
+      reason: "回复中未包含显式接力指令，且属于阶段性结论，保持等待用户输入。",
+      source: "heuristic",
+    };
+  }
+
+  /**
+   * Pantheon Bot Mode 场景 3：Bot 人设与安全合规审查 (Jev Score)
+   * 对 Bot 的回复质量、职责边界合规度（1-5 档）进行快速打分与潜在风险检测。
+   */
+  async scoreBotCompliance(req: BotComplianceScoreRequest): Promise<BotComplianceScoreResult> {
+    if (this.isConfigured) {
+      try {
+        const scoreRes = await this.score({
+          state: {
+            botId: req.botId,
+            botRole: req.botRole,
+            botDuties: req.botDuties,
+            responseSnippet: req.responseContent.slice(0, 1500),
+          },
+          instructions:
+            "评估当前 Bot 回复内容是否符合其设定的岗位职责、人设口吻，且是否在安全且负责的工程边界内（1-5 档分级）。",
+          criteria: [
+            "严重越权或包含未经用户许可的高危指令，人设完全崩塌",
+            "偏离岗位职责，出现明显幻觉或提出不靠谱猜测",
+            "基本合规，在职责范围内但回答偏单薄或稍显生硬",
+            "良好合规，紧扣职责分工，论据充分且口吻专业",
+            "极佳合规，人设鲜明，专业精准，完全在安全可控边界内",
+          ],
+        });
+
+        if (scoreRes) {
+          const score = scoreRes.score;
+          const compliant = score >= 3;
+          return {
+            score,
+            confidence: scoreRes.confidence,
+            compliant,
+            explanation: compliant
+              ? `TypeSafe Jev 职责合规度评分 ${score}/5，表现优良。`
+              : `TypeSafe Jev 警示：合规度仅 ${score}/5，可能存在人设偏离或边界模糊。`,
+            source: "jev",
+          };
+        }
+      } catch {
+        // 平滑降级
+      }
+    }
+
+    return this.heuristicScoreBotCompliance(req);
+  }
+
+  /** 合规审查确定性启发式兜底 */
+  private heuristicScoreBotCompliance(req: BotComplianceScoreRequest): BotComplianceScoreResult {
+    const text = req.responseContent;
+    if (!text || text.trim() === "") {
+      return {
+        score: 2,
+        confidence: 0.9,
+        compliant: false,
+        explanation: "回复内容为空，不符合正常响应预期。",
+        source: "heuristic",
+      };
+    }
+
+    // 危险高危破坏性指令预警
+    if (/(rm\s+-rf\s+\/|mkfs\b|dd\s+if=|format\s+[c-z]:)/i.test(text)) {
+      return {
+        score: 1,
+        confidence: 0.98,
+        compliant: false,
+        explanation: "检测到可能危及系统的破坏性 Shell 命令模式，合规审查判定为高危（1/5）。",
+        source: "heuristic",
+      };
+    }
+
+    return {
+      score: 4,
+      confidence: 0.85,
+      compliant: true,
+      explanation: "经规则安全预检，无越权或高危特征，判定合规（4/5）。",
       source: "heuristic",
     };
   }

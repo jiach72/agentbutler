@@ -130,3 +130,80 @@ export interface MessageTriageResult {
   explanation: string;
   source: JevSource;
 }
+
+/** Hermes Pantheon Bot Profile 实体契约 (对应 ~/.hermes/profiles/<id>) */
+export interface BotProfile {
+  id: string;
+  name: string;
+  role: string;
+  duties: string[];
+  systemPrompt: string;
+  avatar?: string;
+  model?: string;
+  isPreset?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** 常用专职 Bot 预设模板（用于万神殿模板市场） */
+export interface BotTemplate {
+  templateId: string;
+  name: string;
+  role: string;
+  avatar: string;
+  category: "engineering" | "operations" | "general" | "analysis";
+  duties: string[];
+  systemPrompt: string;
+}
+
+/** 群聊智能分流调度请求 (Jev Choice) */
+export interface GroupChatDispatchRequest {
+  message: string;
+  activeBots: Array<{ id: string; name: string; role: string; duties: string[] }>;
+  recentSummary?: string;
+}
+
+/** 群聊智能分流调度结论 */
+export interface GroupChatDispatchResult {
+  selectedBotId: string;
+  confidence: number;
+  probabilities?: Record<string, number>;
+  reason: string;
+  source: JevSource;
+}
+
+/** Bot 自主接力门禁请求 (Jev Noul + Choice 并发投机) */
+export interface PeerHandoffGateRequest {
+  currentBotId: string;
+  botResponse: string;
+  userGoal?: string;
+  availablePeerBots: Array<{ id: string; name: string; role: string; duties: string[] }>;
+  turnCount?: number;
+}
+
+/** Bot 自主接力门禁结论 */
+export interface PeerHandoffGateResult {
+  needsHandoff: boolean;
+  handoffProbability: number;
+  nextBotId: string | null;
+  suggestedPrompt: string | null;
+  reason: string;
+  source: JevSource;
+}
+
+/** Bot 响应合规度与人设偏离审查请求 (Jev Score) */
+export interface BotComplianceScoreRequest {
+  botId: string;
+  botRole: string;
+  botDuties: string[];
+  responseContent: string;
+}
+
+/** Bot 响应合规度与人设偏离审查结论 */
+export interface BotComplianceScoreResult {
+  score: number; // 1-5 档位
+  confidence: number;
+  compliant: boolean; // score >= 3 视为合规
+  explanation: string;
+  source: JevSource;
+}

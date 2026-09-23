@@ -20,8 +20,11 @@ import {
   CloseOutlined,
   EyeOutlined,
   UndoOutlined,
+  RobotOutlined,
+  TeamOutlined,
 } from "@ant-design/icons";
 import { enhancePrompt } from "./promptEnhancer.js";
+import type { BotProfile } from "./imTypes.js";
 
 const { TextArea } = Input;
 const { Text } = Typography;
@@ -31,6 +34,8 @@ export interface IMMessageInputProps {
   sending: boolean;
   disabled?: boolean;
   placeholder?: string;
+  isGroupChat?: boolean;
+  availableBots?: BotProfile[];
 }
 
 const QUICK_CHIPS = [
@@ -107,9 +112,43 @@ export function IMMessageInput(props: IMMessageInputProps) {
   };
 
   const hasText = inputText.trim().length > 0;
+  const hasMention = /@([a-zA-Z0-9_\u4e00-\u9fa5]+)/.test(inputText);
 
   return (
     <div className="im-input-dock">
+      {/* 群聊场景：展示可用 Bot @快捷点名与 Jev 智能指派指示器 */}
+      {props.isGroupChat && props.availableBots && props.availableBots.length > 0 && (
+        <div style={{ marginBottom: 6, paddingBottom: 6, borderBottom: "1px dashed var(--ant-color-border-secondary)" }}>
+          <Flex justify="space-between" align="center" wrap="wrap" gap={6}>
+            <Flex align="center" gap={4}>
+              <Text type="secondary" style={{ fontSize: 11 }}>
+                <TeamOutlined aria-hidden="true" /> 点名专家:
+              </Text>
+              {props.availableBots.map((bot) => (
+                <Button
+                  key={bot.id}
+                  size="small"
+                  className="im-action-chip"
+                  aria-label={`点名 ${bot.name}`}
+                  disabled={props.disabled || props.sending}
+                  onClick={() => {
+                    setInputText((prev) => (prev ? `@${bot.name} ${prev}` : `@${bot.name} `));
+                  }}
+                >
+                  @{bot.name}
+                </Button>
+              ))}
+            </Flex>
+
+            {!hasMention && hasText && (
+              <Tag color="cyan" style={{ fontSize: 11, borderRadius: 10, margin: 0 }}>
+                <RobotOutlined aria-hidden="true" /> Jev 智能分流中枢生效中
+              </Tag>
+            )}
+          </Flex>
+        </div>
+      )}
+
       {/* 优化后一键撤回胶囊 (Undo Capsule) */}
       {undoState && (
         <div className="im-undo-capsule">
@@ -139,6 +178,8 @@ export function IMMessageInput(props: IMMessageInputProps) {
             type="text"
             size="small"
             icon={<CloseOutlined style={{ fontSize: 10 }} />}
+            aria-label="关闭提示词增强提示"
+            title="关闭提示词增强提示"
             onClick={() => setUndoState(null)}
             style={{ width: 16, height: 16, padding: 0, marginLeft: 4 }}
           />
@@ -151,21 +192,17 @@ export function IMMessageInput(props: IMMessageInputProps) {
           快捷指令:
         </Text>
         {QUICK_CHIPS.map((chip) => (
-          <Tag
+          <Button
             key={chip}
-            style={{
-              cursor: "pointer",
-              fontSize: 11,
-              borderRadius: 10,
-              padding: "1px 8px",
-              margin: 0,
-            }}
+            size="small"
+            className="im-action-chip"
+            disabled={props.disabled || props.sending}
             onClick={() => {
               setInputText((prev) => (prev ? `${prev}\n${chip}` : chip));
             }}
           >
             {chip}
-          </Tag>
+          </Button>
         ))}
       </Flex>
 
@@ -210,8 +247,10 @@ export function IMMessageInput(props: IMMessageInputProps) {
             type="primary"
             shape="circle"
             icon={<ArrowUpOutlined />}
+            aria-label="发送消息"
+            title="发送消息"
             loading={props.sending}
-            disabled={!hasText || props.disabled}
+            disabled={!hasText || props.disabled || props.sending}
             onClick={handleSend}
             style={{
               backgroundColor: hasText ? "var(--ant-color-primary)" : undefined,

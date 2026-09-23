@@ -16,9 +16,27 @@ import os from "node:os";
 import { timingSafeEqual } from "node:crypto";
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import { CONTROL_API_SCHEMA_VERSION, CONTRACT_VERSION, isOutboxState } from "@butler/contract";
-import type { ChannelControlPort, InboundHistoryView, OutboxMessageView, PolicySnapshot, Result } from "@butler/contract";
+import type {
+  ChannelControlPort,
+  InboundHistoryView,
+  OutboxMessageView,
+  PolicySnapshot,
+  Result,
+  BotProfile,
+  GroupChatDispatchRequest,
+  PeerHandoffGateRequest,
+  BotComplianceScoreRequest,
+} from "@butler/contract";
 import { readHermesConfig } from "@butler/adapter-hermes";
-import { ensureButlerHome } from "@butler/core";
+import {
+  ensureButlerHome,
+  JevClient,
+  listBotProfiles,
+  saveBotProfile,
+  deleteBotProfile,
+  PRESET_BOT_TEMPLATES,
+  createBotFromTemplate,
+} from "@butler/core";
 import { buildEnvChannels, degradedChannelLabels, TelegramChannel, type AlertChannel } from "./channels.js";
 import { DeliveryLoop, type Clock, type LoopScheduler } from "./loop.js";
 import { validateMessagePolicy } from "./message/config.js";
@@ -72,7 +90,7 @@ function hasAllowedOrigin(origin: string): boolean {
     .filter((value) => value !== "")
     .includes(origin);
 }
-export const GATEWAY_SERVICE_VERSION = `gateway@0.1.0-beta.260918.1+${CONTRACT_VERSION}`;
+export const GATEWAY_SERVICE_VERSION = `gateway@0.1.0-beta.260923.1+${CONTRACT_VERSION}`;
 
 export type MessageDeliveryMode = "native" | "observe" | "disabled";
 
@@ -352,6 +370,8 @@ export interface GatewayServerOptions {
   killswitchPassphrase?: string;
   /** M1.3 指令白名单会话（缺省读 BUTLER_TELEGRAM_CHAT_ID；空 = 不限）。 */
   killswitchAllowedChat?: string;
+  /** TypeSafe Jev 客户端（测试注入或缺省读 env TYPESAFE_API_KEY）。 */
+  jevClient?: JevClient;
 }
 
 export interface GatewayHandle {
@@ -367,6 +387,7 @@ export interface GatewayHandle {
 export type GatewayApp = FastifyInstance & { gateway: GatewayHandle };
 
 export function createGatewayServer(options: GatewayServerOptions = {}): GatewayApp {
+  const jevClient = options.jevClient ?? new JevClient({ apiKey: process.env["TYPESAFE_API_KEY"] });
   let queue = options.queue;
   let ownsQueue = false;
   if (queue === undefined) {
@@ -746,11 +767,13 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
   });
 
   // 把求助提示词转发给本机 Hermes 智能体（走其 api_server 的 OpenAI 兼容聊天接口）。
+  // 支持 Hermes Pantheon Bot Mode（方案 A 原生 profile 隔离）：注入 x-hermes-profile 与专属 SOUL.md。
   // 面板→web→gateway→host:port；key 只在本链路内部使用，绝不回显。
   app.post("/api/agent-message", async (request, reply) => {
     const body = asRecord(request.body);
     const text = body === null ? null : readString(body["text"]);
     const sessionId = body === null ? null : readString(body["sessionId"]);
+    const botId = body === null ? null : readString(body["botId"]);
     const incomingMessages = body !== null && Array.isArray(body["messages"]) ? body["messages"] : null;
     if (text === null && incomingMessages === null) {
       return reply.code(400).send({ error: "text must be a non-empty string or messages array provided" });
@@ -787,18 +810,43 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
         detail: `api_server.host 指向不允许的目标（仅限本机/容器网/内网地址），已拒绝转发`,
       });
     }
-    const outboundMessages = incomingMessages ?? [{ role: "user", content: text }];
+
+    let outboundMessages = incomingMessages !== null ? [...incomingMessages] : [{ role: "user", content: text }];
+
+    // 若指定了 botId，读取对应 Bot 的 SOUL.md，并在不存在 system 提示词时注入
+    if (botId) {
+      try {
+        const bots = await listBotProfiles(hermesRoot);
+        const currentBot = bots.find((b) => b.id === botId);
+        if (currentBot && currentBot.systemPrompt) {
+          const hasSystem = outboundMessages.some(
+            (m) => typeof m === "object" && m !== null && (m as Record<string, unknown>)["role"] === "system",
+          );
+          if (!hasSystem) {
+            outboundMessages = [{ role: "system", content: currentBot.systemPrompt }, ...outboundMessages];
+          }
+        }
+      } catch {
+        // 容错继续
+      }
+    }
+
     let lastError = "unknown";
     for (const host of hosts) {
       let response: Response;
       try {
+        const headers: Record<string, string> = {
+          authorization: `Bearer ${api.key}`,
+          "content-type": "application/json",
+          "x-hermes-session-id": sessionId || "butler-troubleshoot",
+        };
+        if (botId) {
+          headers["x-hermes-profile"] = botId;
+        }
+
         response = await fetch(`http://${host}:${api.port}/v1/chat/completions`, {
           method: "POST",
-          headers: {
-            authorization: `Bearer ${api.key}`,
-            "content-type": "application/json",
-            "x-hermes-session-id": sessionId || "butler-troubleshoot",
-          },
+          headers,
           body: JSON.stringify({
             messages: outboundMessages,
             stream: false,
@@ -826,12 +874,158 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
         typeof payload?.choices?.[0]?.message?.content === "string"
           ? payload.choices[0].message.content
           : "";
-      return reply.code(200).send({ ok: true, reply: replyText });
+      return reply.code(200).send({ ok: true, reply: replyText, botId: botId ?? undefined });
     }
     return reply.code(502).send({
       error: "agent-unreachable",
       detail: `无法连接智能体接口：${lastError}`,
     });
+  });
+
+  // 获取全部可用 Bot 名册（对齐 ~/.hermes/profiles/）
+  app.get("/api/bots", async (_request, reply) => {
+    const hermesRoot =
+      process.env["BUTLER_HERMES_ROOT"]?.trim() || path.join(os.homedir(), ".hermes");
+    const bots = await listBotProfiles(hermesRoot);
+    return reply.code(200).send({ ok: true, bots });
+  });
+
+  // 创建或更新自定义 Bot Profile
+  app.post("/api/bots", async (request, reply) => {
+    const hermesRoot =
+      process.env["BUTLER_HERMES_ROOT"]?.trim() || path.join(os.homedir(), ".hermes");
+    const body = asRecord(request.body);
+    if (!body || typeof body["id"] !== "string" || typeof body["name"] !== "string") {
+      return reply.code(400).send({ error: "id and name are required strings" });
+    }
+    try {
+      const saved = await saveBotProfile(hermesRoot, body as unknown as BotProfile);
+      return reply.code(200).send({ ok: true, bot: saved });
+    } catch (err) {
+      return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // 删除自定义 Bot Profile（禁止删除系统预设）
+  app.delete("/api/bots/:id", async (request, reply) => {
+    const hermesRoot =
+      process.env["BUTLER_HERMES_ROOT"]?.trim() || path.join(os.homedir(), ".hermes");
+    const params = asRecord(request.params);
+    const id = params ? readString(params["id"]) : null;
+    if (!id) return reply.code(400).send({ error: "id is required" });
+    try {
+      const success = await deleteBotProfile(hermesRoot, id);
+      return reply.code(200).send({ ok: success });
+    } catch (err) {
+      return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // 获取常用专职 Bot 预设模板市场
+  app.get("/api/bots/templates", async (_request, reply) => {
+    return reply.code(200).send({ ok: true, templates: PRESET_BOT_TEMPLATES });
+  });
+
+  // 从预设模板一键实例化 Bot Profile
+  app.post("/api/bots/templates/:templateId/instantiate", async (request, reply) => {
+    const hermesRoot =
+      process.env["BUTLER_HERMES_ROOT"]?.trim() || path.join(os.homedir(), ".hermes");
+    const params = asRecord(request.params);
+    const templateId = params ? readString(params["templateId"]) : null;
+    if (!templateId) return reply.code(400).send({ error: "templateId is required" });
+    const body = asRecord(request.body) || {};
+    try {
+      const customId = typeof body["customId"] === "string" ? body["customId"] : undefined;
+      const customName = typeof body["customName"] === "string" ? body["customName"] : undefined;
+      const bot = await createBotFromTemplate(hermesRoot, templateId, { customId, customName });
+      return reply.code(200).send({ ok: true, bot });
+    } catch (err) {
+      return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // Jev System One 场景 1：群聊智能调度分流 (Choice)
+  app.post("/api/bots/dispatch", async (request, reply) => {
+    const raw = asRecord(request.body) || {};
+    const message = typeof raw["message"] === "string" && raw["message"].trim()
+      ? raw["message"].trim()
+      : typeof raw["userMessage"] === "string" && raw["userMessage"].trim()
+        ? raw["userMessage"].trim()
+        : null;
+    if (!message) {
+      return reply.code(400).send({ error: "message is required" });
+    }
+    const hermesRoot =
+      process.env["BUTLER_HERMES_ROOT"]?.trim() || path.join(os.homedir(), ".hermes");
+    const passedBots = raw["activeBots"] || raw["bots"];
+    const activeBots =
+      Array.isArray(passedBots) && passedBots.length > 0
+        ? passedBots
+        : await listBotProfiles(hermesRoot);
+
+    const result = await jevClient.dispatchGroupChat({
+      message,
+      activeBots,
+      recentSummary: typeof raw["recentSummary"] === "string" ? raw["recentSummary"] : undefined,
+    });
+    return reply.code(200).send({ ok: true, ...result });
+  });
+
+  // Jev System One 场景 2：Bot 协作自主接力门禁判定 (Noul + Choice)
+  app.post("/api/bots/handoff", async (request, reply) => {
+    const raw = asRecord(request.body) || {};
+    const currentBotId = typeof raw["currentBotId"] === "string" ? raw["currentBotId"].trim() : "";
+    const botResponse = typeof raw["botResponse"] === "string"
+      ? raw["botResponse"]
+      : typeof raw["replyText"] === "string"
+        ? raw["replyText"]
+        : "";
+    if (!currentBotId || !botResponse.trim()) {
+      return reply.code(400).send({ error: "currentBotId and botResponse are required" });
+    }
+    const hermesRoot =
+      process.env["BUTLER_HERMES_ROOT"]?.trim() || path.join(os.homedir(), ".hermes");
+    const passedPeers = raw["availablePeerBots"] || raw["availableBots"];
+    const availablePeerBots =
+      Array.isArray(passedPeers) && passedPeers.length > 0
+        ? passedPeers.filter((b: any) => b?.id !== currentBotId)
+        : (await listBotProfiles(hermesRoot)).filter((b) => b.id !== currentBotId);
+
+    const userGoal = typeof raw["userGoal"] === "string"
+      ? raw["userGoal"]
+      : typeof raw["userMessage"] === "string"
+        ? raw["userMessage"]
+        : undefined;
+
+    const result = await jevClient.evaluatePeerHandoff({
+      currentBotId,
+      botResponse,
+      userGoal,
+      availablePeerBots,
+      turnCount: typeof raw["turnCount"] === "number" ? raw["turnCount"] : 1,
+    });
+    return reply.code(200).send({ ok: true, ...result });
+  });
+
+  // Jev System One 场景 3：Bot 回复人设与合规安全审查 (Score)
+  app.post("/api/bots/compliance", async (request, reply) => {
+    const raw = asRecord(request.body) || {};
+    const botId = typeof raw["botId"] === "string" ? raw["botId"].trim() : "";
+    const responseContent = typeof raw["responseContent"] === "string"
+      ? raw["responseContent"]
+      : typeof raw["replyText"] === "string"
+        ? raw["replyText"]
+        : "";
+    if (!botId || !responseContent.trim()) {
+      return reply.code(400).send({ error: "botId and responseContent are required" });
+    }
+    const result = await jevClient.scoreBotCompliance({
+      botId,
+      botRole: typeof raw["botRole"] === "string" ? raw["botRole"] : "专职智能体",
+      botDuties: Array.isArray(raw["botDuties"]) ? raw["botDuties"] : [],
+      responseContent,
+    });
+    return reply.code(200).send({ ok: true, ...result });
   });
 
   // 提示词增强专用接口：接收原始输入，返回结构化、规范化的增强 Prompt

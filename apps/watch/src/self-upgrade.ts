@@ -92,6 +92,10 @@ export interface ButlerSelfStatus {
   repoClean: boolean;
   remoteConfigured: boolean;
   upgradeSupported?: boolean;
+  updater?: {
+    locked: boolean;
+    reason?: string;
+  };
   prefs: ButlerSelfPrefs;
   snapshots: ButlerSelfSnapshot[];
   snapshotRetention: number;
@@ -482,11 +486,21 @@ export function createButlerSelfUpgradeService(
   const updaterStatusFile = join(stateDir, SELF_UPDATER_STATUS_FILE);
   const updaterUrl = deps.updaterUrl?.trim().replace(/\/+$/, "") || null;
   const updaterFetch = deps.fetchImpl ?? fetch;
-  const updaterToken = (deps.updaterToken ?? process.env["BUTLER_ACCESS_TOKEN"] ?? "").trim();
+  const updaterToken = (
+    deps.updaterToken ??
+    process.env["BUTLER_UPDATER_ACCESS_TOKEN"] ??
+    process.env["BUTLER_INTERNAL_TOKEN"] ??
+    process.env["BUTLER_ACCESS_TOKEN"] ??
+    ""
+  ).trim();
   const updaterHeaders = (): Record<string, string> =>
     updaterToken === ""
       ? { "content-type": "application/json" }
-      : { "content-type": "application/json", "x-butler-token": updaterToken };
+      : {
+          "content-type": "application/json",
+          "x-butler-token": updaterToken,
+          "x-butler-internal-token": updaterToken,
+        };
   const audit = deps.audit ?? { append() {} };
   let upgradePreparing = false;
 
@@ -527,10 +541,26 @@ export function createButlerSelfUpgradeService(
         headers: updaterHeaders(),
         signal: AbortSignal.timeout(10_000),
       });
-      if (!response.ok) return;
+      if (!response.ok) {
+        if (response.status === 401) {
+          const body = (await response.json().catch(() => null)) as { reason?: string } | null;
+          writeJsonAtomic(updaterStatusFile, {
+            reachable: false,
+            upgradeSupported: false,
+            updater: {
+              locked: true,
+              reason: body?.reason ?? "Updater 服务未配置有效访问口令，已处于安全锁定状态",
+            },
+          });
+        }
+        return;
+      }
       const parsed = (await response.json().catch(() => null)) as unknown;
       if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
-        writeJsonAtomic(updaterStatusFile, parsed);
+        writeJsonAtomic(updaterStatusFile, {
+          ...(parsed as Record<string, unknown>),
+          updater: { locked: false },
+        });
       }
     } catch {
       // 刷新失败时继续使用最近一次缓存；不伪造“已同步”。
@@ -794,8 +824,17 @@ export function createButlerSelfUpgradeService(
             : info.repositorySource === "git-origin",
         upgradeSupported:
           updaterUrl !== null
-            ? upstream?.upgradeSupported !== false
+            ? (upstream?.upgradeSupported !== false && upstream?.updater?.locked !== true)
             : info.commit !== null,
+        updater:
+          upstream?.updater ??
+          (updaterUrl !== null && updaterToken === ""
+            ? {
+                locked: true,
+                reason:
+                  "未配置 BUTLER_INTERNAL_TOKEN 或 BUTLER_ACCESS_TOKEN 访问口令，Updater 处于安全锁定状态",
+              }
+            : undefined),
         prefs: prefs(),
         snapshots: snapshots(),
         snapshotRetention: SELF_SNAPSHOT_KEEP,

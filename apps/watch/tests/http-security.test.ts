@@ -132,6 +132,37 @@ describe("控制通道安全基线", () => {
     expect(res.status).toBe(202);
   });
 
+  it("配置 BUTLER_INTERNAL_TOKEN 时，带匹配 x-butler-internal-token 的写请求放行", async () => {
+    const prev = process.env["BUTLER_INTERNAL_TOKEN"];
+    process.env["BUTLER_INTERNAL_TOKEN"] = "test-internal-secret-token";
+    try {
+      const res = await fetch(`${base}/api/inspect/run`, {
+        method: "POST",
+        headers: { "x-butler-internal-token": "test-internal-secret-token" },
+      });
+      expect(res.status).toBe(202);
+    } finally {
+      if (prev === undefined) delete process.env["BUTLER_INTERNAL_TOKEN"];
+      else process.env["BUTLER_INTERNAL_TOKEN"] = prev;
+    }
+  });
+
+  it("配置 BUTLER_INTERNAL_TOKEN 时，未带口令或口令错误的写请求返回 401 unauthorized", async () => {
+    const prev = process.env["BUTLER_INTERNAL_TOKEN"];
+    process.env["BUTLER_INTERNAL_TOKEN"] = "test-internal-secret-token";
+    try {
+      const res = await fetch(`${base}/api/inspect/run`, {
+        method: "POST",
+        headers: { "x-butler-internal-token": "wrong-token" },
+      });
+      expect(res.status).toBe(401);
+      await expect(res.json()).resolves.toMatchObject({ error: "unauthorized" });
+    } finally {
+      if (prev === undefined) delete process.env["BUTLER_INTERNAL_TOKEN"];
+      else process.env["BUTLER_INTERNAL_TOKEN"] = prev;
+    }
+  });
+
   it("读请求不校验来源，外部站点也读不到才算安全边界（本例仅确认不被 403 拦截）", async () => {
     const res = await fetch(`${base}/healthz`, {
       headers: { origin: "https://evil.example.com" },

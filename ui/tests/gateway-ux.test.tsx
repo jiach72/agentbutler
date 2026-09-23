@@ -81,8 +81,8 @@ describe("标签解析与深链兼容（resolveGatewayTab）", () => {
     ["?tab=settings", undefined, "settings"],
     ["?tab=channels", undefined, "settings"], // 兼容旧通道标签
     ["?tab=rules", undefined, "settings"], // 兼容旧规则标签
-    ["?tab=foo", undefined, "history"], // 非法值回落至默认工作台
-    ["", undefined, "history"], // 缺省回落至默认工作台
+    ["?tab=foo", undefined, "messages"], // 非法值回落至待处理
+    ["", undefined, "messages"], // 缺省回落至待处理
     ["?tab=prompt-optimization", undefined, "prompts"], // 旧深链 → prompts 顶级标签
     ["", `#${PROMPT_OPTIMIZATION_ANCHOR}`, "prompts"], // 旧 hash 深链 → prompts 顶级标签
     ["?tab=settings", `#${PROMPT_OPTIMIZATION_ANCHOR}`, "settings"], // 显式 tab 优先于 hash
@@ -126,15 +126,15 @@ describe("通道分区与三态（helpers）", () => {
 });
 
 describe("网关页：URL 驱动四工作台与标签", () => {
-  it("默认进入渲染出四个顶级标签，且即时通讯工作台为激活态", () => {
+  it("默认进入渲染出四个顶级标签，且待处理消息为激活态", () => {
     const html = renderGateway("/gateway");
     expect(tabCount(html)).toBe(4);
-    expect(activeTabLabel(html)).toBe(GATEWAY_TAB_LABELS.history);
+    expect(activeTabLabel(html)).toBe(GATEWAY_TAB_LABELS.messages);
   });
 
-  it("非法 tab 参数回落到即时通讯工作台", () => {
+  it("非法 tab 参数回落到待处理消息", () => {
     const html = renderGateway("/gateway?tab=foo");
-    expect(activeTabLabel(html)).toBe(GATEWAY_TAB_LABELS.history);
+    expect(activeTabLabel(html)).toBe(GATEWAY_TAB_LABELS.messages);
   });
 
   it("?tab=prompts 激活提示词优化标签", () => {

@@ -163,7 +163,8 @@ async function startUpdater(options: { failBuildOnce?: boolean; composeBinary?: 
       BUTLER_UPDATER_HOST: "127.0.0.1",
       BUTLER_UPDATER_PORT: String(port),
       BUTLER_UPDATER_HEALTH_URLS: healthUrl,
-      BUTLER_ACCESS_TOKEN: TOKEN,
+      BUTLER_ACCESS_TOKEN: options.noAccessToken ? "" : TOKEN,
+      ...(options.internalToken ? { BUTLER_INTERNAL_TOKEN: options.internalToken } : {}),
       BUTLER_UPDATER_TEST_COMPOSE_ARGS_FILE: composeArgsFile,
       ...(options.failBuildOnce ? { BUTLER_UPDATER_TEST_BUILD_FAILURE_FILE: failureFile } : {}),
       ...(options.slowBuild ? { BUTLER_UPDATER_TEST_BUILD_DELAY: String(options.slowBuild) } : {}),
@@ -256,6 +257,18 @@ describe("butler-updater security and rollback", () => {
     });
     expect(invalidTarget.status).toBe(400);
     await expect(invalidTarget.json()).resolves.toMatchObject({ error: "invalid-target" });
+  });
+
+  it("authenticates using BUTLER_INTERNAL_TOKEN and x-butler-internal-token", async () => {
+    updater = await startUpdater({ noAccessToken: true, internalToken: "test-internal-token-12345" });
+    const noToken = await request("/api/status");
+    expect(noToken.status).toBe(401);
+    await expect(noToken.json()).resolves.toMatchObject({ error: "unauthorized" });
+
+    const withInternal = await request("/api/status", {
+      headers: { "x-butler-internal-token": "test-internal-token-12345" },
+    });
+    expect(withInternal.status).toBe(200);
   });
 
   it("checks out the requested version, rebuilds, restarts, and verifies health", async () => {

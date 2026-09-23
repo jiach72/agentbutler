@@ -174,6 +174,9 @@ export function VersionsPanel() {
       void refresh();
     } else if (result.status === 400) {
       message.error("管家自身升级请求被拒绝（可能已锁定版本或缺少目标版本）");
+    } else if (result.status === 401 || result.status === 403) {
+      const err = isRecord(result.data) && typeof result.data.reason === "string" ? result.data.reason : "";
+      message.error(`自更新服务已安全锁定${err ? `：${err}` : "（缺少有效口令）"}`);
     } else if (result.status === 409) {
       message.error("管家自身已经有升级或回滚正在进行，请等它完成");
     } else if (result.status === 503) {
@@ -357,22 +360,35 @@ export function VersionsPanel() {
       </Flex>
     );
   } else if (selfUpgradeCandidate !== null) {
+    const isUpdaterLocked = butlerSelf?.updater?.locked === true;
+    const tooltipTitle = selfBusy
+      ? "有升级操作正在执行"
+      : isUpdaterLocked
+        ? (butlerSelf?.updater?.reason ?? "自更新服务处于安全锁定状态（未配置口令）")
+        : prefs.locked
+          ? "偏好已锁定，先在偏好设置里解锁"
+          : "";
     statusLine = (
       <Flex wrap align="center" gap={12}>
         <Text>
           有可用更新 <Text strong>{formatDisplayVersion(selfUpgradeCandidate.version)}</Text>
           （{selfUpgradeCandidate.channel === "beta" ? "测试" : "正式"} 通道）
         </Text>
-        <Tooltip title={selfBusy ? "有升级操作正在执行" : "偏好已锁定，先在偏好设置里解锁"}>
+        <Tooltip title={tooltipTitle}>
           <Button
             type="primary"
             size="small"
-            disabled={selfBusy || prefs.locked}
+            disabled={selfBusy || prefs.locked || isUpdaterLocked}
             onClick={() => setConfirmAction({ kind: "self-upgrade", target: selfUpgradeCandidate })}
           >
             更新管家
           </Button>
         </Tooltip>
+        {isUpdaterLocked && (
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            （自更新已锁定，请使用 CLI 执行更新：<code>bash scripts/deploy.sh</code>）
+          </Text>
+        )}
       </Flex>
     );
   } else {

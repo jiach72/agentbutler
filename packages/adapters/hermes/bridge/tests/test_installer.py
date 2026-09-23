@@ -154,6 +154,41 @@ class InstallerTest(unittest.TestCase):
         self.assertEqual(update_result["check"]["managedPackage"], "installed")
         self.assertFalse(target_bridge_file.read_text(encoding="utf-8").endswith("# older version\n"))
 
+    def test_patch_spec_validate_base_supports_tuple_tail_suffix(self) -> None:
+        a2a_spec = next(s for s in PATCH_SPECS if s.patch_id == "a2a")
+        self.assertIsInstance(a2a_spec.tail_suffix, tuple)
+        self.assertIn('            }.get(outcome, default))', a2a_spec.tail_suffix)
+
+        # 0.21.4 style
+        v0214_code = (
+            "class A2AAdapter:\n"
+            "    async def send(self):\n"
+            "        pass\n"
+            "    async def _send_push_notification(self):\n"
+            "        pass\n"
+            "    def _encode_task_state(self, outcome, default):\n"
+            "        return self._normalized({\n"
+            "                'completed': (1, ''),\n"
+            "            }.get(outcome, default))\n"
+        )
+        # Should not raise
+        a2a_spec.validate_base(v0214_code)
+
+        # Drifted style (neither suffix)
+        drifted_code = (
+            "class A2AAdapter:\n"
+            "    async def send(self):\n"
+            "        pass\n"
+            "    async def _send_push_notification(self):\n"
+            "        pass\n"
+            "    def _encode_task_state(self, outcome, default):\n"
+            "        return self._normalized({\n"
+            "                'completed': (1, ''),\n"
+            "            }.get(outcome, unexpected))\n"
+        )
+        with self.assertRaises(PatchDriftError):
+            a2a_spec.validate_base(drifted_code)
+
 
 def tree_hashes(root: Path) -> dict[str, str]:
     return {

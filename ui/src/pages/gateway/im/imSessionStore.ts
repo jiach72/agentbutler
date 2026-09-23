@@ -8,11 +8,15 @@ const DIRECT_SESSIONS_STORAGE_KEY = "butler_im_direct_sessions_v1";
 const DIRECT_MESSAGES_STORAGE_PREFIX = "butler_im_messages_";
 
 export const DEFAULT_DIRECT_CONVERSATION_ID = "direct:default";
+export const DEFAULT_GROUP_CONVERSATION_ID = "group:pantheon-core";
 
 export interface DirectSessionMeta {
   id: string;
   sessionId: string;
   title: string;
+  type?: "direct" | "group";
+  botId?: string;
+  memberBotIds?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -51,23 +55,62 @@ function safeParseJson<T>(raw: string | null, fallback: T): T {
   }
 }
 
-/** 获取全部直连会话列表 */
+/** 预设初始会话（包含 Hermes 直连会话、万神殿协同中心群聊与专职 Bot） */
+function buildDefaultSessions(): DirectSessionMeta[] {
+  const now = new Date().toISOString();
+  return [
+    {
+      id: DEFAULT_DIRECT_CONVERSATION_ID,
+      sessionId: "default",
+      title: "Hermes 智能体 (直连通道)",
+      type: "direct",
+      botId: "butler",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: DEFAULT_GROUP_CONVERSATION_ID,
+      sessionId: "pantheon-core",
+      title: "万神殿协同中心 (多 Bot 群聊)",
+      type: "group",
+      memberBotIds: ["butler", "inspector", "scout"],
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "direct:inspector:default",
+      sessionId: "inspector-default",
+      title: "审查员",
+      type: "direct",
+      botId: "inspector",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "direct:scout:default",
+      sessionId: "scout-default",
+      title: "侦察员",
+      type: "direct",
+      botId: "scout",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ];
+}
+
+/** 获取全部直连与群聊会话列表 */
 export function getDirectSessions(): DirectSessionMeta[] {
   const storage = getStorage();
   const list = safeParseJson<DirectSessionMeta[]>(
     storage.getItem(DIRECT_SESSIONS_STORAGE_KEY),
     []
   );
-  if (list.length === 0) {
-    const defaultSession: DirectSessionMeta = {
-      id: DEFAULT_DIRECT_CONVERSATION_ID,
-      sessionId: "default",
-      title: "Hermes 智能体 (直连通道)",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    saveDirectSessions([defaultSession]);
-    return [defaultSession];
+  if (list.length === 0 || !list.some((s) => s.id === DEFAULT_GROUP_CONVERSATION_ID)) {
+    const defaultSessions = buildDefaultSessions();
+    // 合并已有会话，避免丢失用户历史
+    const merged = [...defaultSessions, ...list.filter((s) => !defaultSessions.some((d) => d.id === s.id))];
+    saveDirectSessions(merged);
+    return merged;
   }
   return list;
 }
@@ -81,16 +124,39 @@ export function saveDirectSessions(sessions: DirectSessionMeta[]): void {
   }
 }
 
-/** 创建新的直连会话 */
-export function createDirectSession(title?: string): DirectSessionMeta {
+/** 创建新的群聊会话 */
+export function createGroupSession(title?: string, memberBotIds: string[] = ["butler", "inspector", "scout"]): DirectSessionMeta {
+  const sessions = getDirectSessions();
+  const nowStr = new Date().toISOString();
+  const index = sessions.filter((s) => s.type === "group").length + 1;
+  const uniqueKey = `group-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const newSession: DirectSessionMeta = {
+    id: `group:${uniqueKey}`,
+    sessionId: uniqueKey,
+    title: title?.trim() || `智能体协同群 #${index}`,
+    type: "group",
+    memberBotIds,
+    createdAt: nowStr,
+    updatedAt: nowStr,
+  };
+  const updated = [newSession, ...sessions];
+  saveDirectSessions(updated);
+  return newSession;
+}
+
+/** 创建新的直连 Bot 会话 */
+export function createDirectSession(title?: string, botId?: string): DirectSessionMeta {
   const sessions = getDirectSessions();
   const nowStr = new Date().toISOString();
   const index = sessions.length + 1;
   const uniqueKey = `session-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const targetBotId = botId || "butler";
   const newSession: DirectSessionMeta = {
-    id: `direct:${uniqueKey}`,
+    id: botId ? `direct:${botId}:${uniqueKey}` : `direct:${uniqueKey}`,
     sessionId: uniqueKey,
     title: title?.trim() || `新对话 #${index}`,
+    type: "direct",
+    botId: targetBotId,
     createdAt: nowStr,
     updatedAt: nowStr,
   };
@@ -105,6 +171,17 @@ export function renameDirectSession(id: string, newTitle: string): void {
   const target = sessions.find((s) => s.id === id);
   if (target) {
     target.title = newTitle.trim() || target.title;
+    target.updatedAt = new Date().toISOString();
+    saveDirectSessions(sessions);
+  }
+}
+
+/** 更新群聊成员 Bot ID 名册 */
+export function updateGroupMembers(groupId: string, memberBotIds: string[]): void {
+  const sessions = getDirectSessions();
+  const target = sessions.find((s) => s.id === groupId);
+  if (target) {
+    target.memberBotIds = memberBotIds;
     target.updatedAt = new Date().toISOString();
     saveDirectSessions(sessions);
   }

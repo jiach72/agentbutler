@@ -47,6 +47,14 @@ describe("公共界面的任务入口", () => {
     expect(html).toContain(">消息通知</h1>");
   });
 
+  it("隐藏的进阶路由不把底部设置入口误标为当前页", () => {
+    const hiddenRoute = renderAt("/canary", <Layout />);
+    expect(hiddenRoute).not.toContain('class="sidebar-settings active"');
+
+    const settingsRoute = renderAt("/settings", <Layout />);
+    expect(settingsRoute).toContain('class="sidebar-settings active"');
+  });
+
   it("明确提供的业务上下文仍可展示", () => {
     const html = renderAt("/gateway", <PageHeader title="消息通知" eyebrow="待处理记录" />);
     expect(html).toContain("待处理记录");

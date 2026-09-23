@@ -59,11 +59,13 @@ const healthUrls = (process.env["BUTLER_UPDATER_HEALTH_URLS"]
  * 访问口令：updater 会执行 git checkout、重建镜像、重启服务，是这个项目里破坏性最强的组件。
  * 没有口令时必须拒绝一切请求，否则容器网络内任何人都能触发它。
  */
-// updater 等于主机控制权（git checkout + 重建重启，可选 docker.sock）：
 // 优先使用独立口令 BUTLER_UPDATER_ACCESS_TOKEN，实现与面板口令的分层与轮换隔离；
-// 未设置时回退共享的 BUTLER_ACCESS_TOKEN（兼容既有部署，迁移后建议拆分）。
+// 其次回退内部调用口令 BUTLER_INTERNAL_TOKEN，最后回退共享的 BUTLER_ACCESS_TOKEN。
 const accessToken = (
-  process.env["BUTLER_UPDATER_ACCESS_TOKEN"] ?? process.env["BUTLER_ACCESS_TOKEN"] ?? ""
+  process.env["BUTLER_UPDATER_ACCESS_TOKEN"] ??
+  process.env["BUTLER_INTERNAL_TOKEN"] ??
+  process.env["BUTLER_ACCESS_TOKEN"] ??
+  ""
 ).trim();
 
 function extractToken(request: IncomingMessage): string {
@@ -74,6 +76,8 @@ function extractToken(request: IncomingMessage): string {
   }
   const header = request.headers["x-butler-token"];
   if (typeof header === "string" && header !== "") return header.trim();
+  const internal = request.headers["x-butler-internal-token"];
+  if (typeof internal === "string" && internal !== "") return internal.trim();
   return "";
 }
 
@@ -528,7 +532,7 @@ const server = createServer(async (request, response) => {
     return send(response, 401, {
       error: "unauthorized",
       reason: accessToken === ""
-        ? "Updater 服务未配置 BUTLER_UPDATER_ACCESS_TOKEN 或 BUTLER_ACCESS_TOKEN 访问口令，已处于安全锁定状态"
+        ? "Updater 服务未配置 BUTLER_UPDATER_ACCESS_TOKEN、BUTLER_INTERNAL_TOKEN 或 BUTLER_ACCESS_TOKEN 访问口令，已处于安全锁定状态"
         : "需要有效访问口令",
     });
   }

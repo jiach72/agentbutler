@@ -15,18 +15,24 @@ import {
   type IMChatMessage,
   type IMConversation,
   type InboundHistoryItem,
+  type BotProfile,
 } from "./imTypes.js";
 import {
   appendDirectMessage,
   clearDirectMessages,
   createDirectSession,
+  createGroupSession,
   DEFAULT_DIRECT_CONVERSATION_ID,
+  DEFAULT_GROUP_CONVERSATION_ID,
   deleteDirectSession,
   getDirectMessages,
   getDirectSessions,
+  renameDirectSession,
+  updateGroupMembers,
 } from "./imSessionStore.js";
 import { IMConversationList } from "./IMConversationList.js";
 import { IMChatWindow } from "./IMChatWindow.js";
+import { IMBotTemplateDrawer } from "./IMBotTemplateDrawer.js";
 import "./im.css";
 
 export interface IMWorkbenchProps {
@@ -48,14 +54,26 @@ export interface IMWorkbenchProps {
 export function IMWorkbench(props: IMWorkbenchProps) {
   const { message } = App.useApp();
 
-  // 1. 直连会话状态
+  // 1. 直连与群聊会话状态
   const [directSessions, setDirectSessions] = useState(() => getDirectSessions());
-  const [activeConversationId, setActiveConversationId] = useState<string>(
-    DEFAULT_DIRECT_CONVERSATION_ID
-  );
+  const [availableBots, setAvailableBots] = useState<BotProfile[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string>(() => {
+    const sessions = getDirectSessions();
+    const hasGroup = sessions.find((s) => s.id === DEFAULT_GROUP_CONVERSATION_ID);
+    return hasGroup ? DEFAULT_GROUP_CONVERSATION_ID : DEFAULT_DIRECT_CONVERSATION_ID;
+  });
   const [directMessagesMap, setDirectMessagesMap] = useState<Record<string, IMChatMessage[]>>({});
   const [sendingDirect, setSendingDirect] = useState(false);
   const [apiServerAvailable, setApiServerAvailable] = useState(true);
+  const [botMarketOpen, setBotMarketOpen] = useState(false);
+
+  // 加载可用的 Bot 列表
+  const loadBots = useCallback(async () => {
+    const res = await loadJson<{ ok: boolean; bots: BotProfile[] }>("/api/bots", 5_000);
+    if (res.ok && Array.isArray(res.data?.bots)) {
+      setAvailableBots(res.data.bots);
+    }
+  }, []);
 
   // 2. 外部入站消息历史
   const [inboundItems, setInboundItems] = useState<InboundHistoryItem[]>([]);
@@ -78,38 +96,43 @@ export function IMWorkbench(props: IMWorkbenchProps) {
   }, []);
 
   useEffect(() => {
+    void loadBots();
     void loadInboundHistory();
     void checkApiServerStatus();
-  }, [loadInboundHistory, checkApiServerStatus]);
+  }, [loadBots, loadInboundHistory, checkApiServerStatus]);
 
-  // 加载当前激活直连会话的消息
+  // 加载当前激活直连/群聊会话的消息
   useEffect(() => {
-    if (activeConversationId.startsWith("direct:")) {
+    if (activeConversationId.startsWith("direct:") || activeConversationId.startsWith("group:")) {
       const msgs = getDirectMessages(activeConversationId);
       setDirectMessagesMap((prev) => ({ ...prev, [activeConversationId]: msgs }));
     }
   }, [activeConversationId]);
 
-  // 3. 聚合会话列表（直连会话 + 外部通道聚合）
+  // 3. 聚合会话列表（直连会话 + 群聊会话 + 外部通道聚合）
   const conversations = useMemo<IMConversation[]>(() => {
     const list: IMConversation[] = [];
 
-    // A. 直连智能体会话（置顶）
+    // A. 直连智能体会话与群聊（置顶）
     for (const ds of directSessions) {
       const msgs = directMessagesMap[ds.id] || getDirectMessages(ds.id);
       const last = msgs.length > 0 ? msgs[msgs.length - 1] : undefined;
+      const isGroup = ds.type === "group";
       list.push({
         id: ds.id,
-        type: "direct",
+        type: isGroup ? "group" : "direct",
         channel: "hermes",
         title: ds.title,
         sessionId: ds.sessionId,
+        botId: ds.botId,
+        memberBotIds: ds.memberBotIds,
         lastMessage: last
           ? {
               content: last.content,
               timestamp: last.timestamp,
               sender: last.sender,
               state: last.state,
+              botName: last.botName,
             }
           : undefined,
         messageCount: msgs.length,
@@ -246,34 +269,37 @@ export function IMWorkbench(props: IMWorkbenchProps) {
   const activeMessages = useMemo<IMChatMessage[]>(() => {
     if (!activeConversation) return [];
 
-    // 如果是直连会话：读 directMessages
-    if (activeConversation.type === "direct") {
+    // 如果是直连会话或群聊协同会话：读 directMessages
+    if (activeConversation.type === "direct" || activeConversation.type === "group") {
       const stored = directMessagesMap[activeConversation.id] || getDirectMessages(activeConversation.id);
       if (stored.length > 0) return stored;
 
-      // 若本地存储为空（例如新客户端或清空后刷新），尝试从 Outbox 中恢复该 sessionId 的历史记录
-      const targetSessionId = activeConversation.sessionId || "default";
-      const outboxFallback: IMChatMessage[] = props.items
-        .filter(
-          (item) =>
-            (item.channel === "api-server" || item.channel === "hermes") &&
-            (item.chatId || "default") === targetSessionId
-        )
-        .map((item) => ({
-          id: item.messageId,
-          conversationId: activeConversation.id,
-          sender: "ai" as const,
-          content: item.content,
-          timestamp: item.capturedAt,
-          dateStr: toLocalDateString(new Date(item.capturedAt)),
-          channel: "hermes",
-          chatId: item.chatId,
-          sessionId: item.sessionId,
-          state: item.state,
-          isDirect: true,
-        }));
-      outboxFallback.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-      return outboxFallback;
+      // 若本地存储为空（例如新客户端或清空后刷新），尝试从 Outbox 中恢复该 sessionId 的历史记录（仅直连单聊）
+      if (activeConversation.type === "direct") {
+        const targetSessionId = activeConversation.sessionId || "default";
+        const outboxFallback: IMChatMessage[] = props.items
+          .filter(
+            (item) =>
+              (item.channel === "api-server" || item.channel === "hermes") &&
+              (item.chatId || "default") === targetSessionId
+          )
+          .map((item) => ({
+            id: item.messageId,
+            conversationId: activeConversation.id,
+            sender: "ai" as const,
+            content: item.content,
+            timestamp: item.capturedAt,
+            dateStr: toLocalDateString(new Date(item.capturedAt)),
+            channel: "hermes",
+            chatId: item.chatId,
+            sessionId: item.sessionId,
+            state: item.state,
+            isDirect: true,
+          }));
+        outboxFallback.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+        return outboxFallback;
+      }
+      return [];
     }
 
     // 如果是外部通道会话：组装当前 channel + chatId 的消息
@@ -331,12 +357,20 @@ export function IMWorkbench(props: IMWorkbenchProps) {
     return list;
   }, [activeConversation, directMessagesMap, props.items, inboundItems]);
 
-  // 新建直连会话
+  // 新建直连专属对话
   const handleCreateDirectSession = () => {
     const newSession = createDirectSession();
     setDirectSessions(getDirectSessions());
     setActiveConversationId(newSession.id);
     message.success(`已创建 ${newSession.title}`);
+  };
+
+  // 新建万神殿协同群聊
+  const handleCreateGroupSession = () => {
+    const newSession = createGroupSession();
+    setDirectSessions(getDirectSessions());
+    setActiveConversationId(newSession.id);
+    message.success(`已创建协同群聊：${newSession.title}`);
   };
 
   // 删除直连会话
@@ -350,7 +384,7 @@ export function IMWorkbench(props: IMWorkbenchProps) {
     message.success("已删除对话");
   };
 
-  // 清空当前直连对话
+  // 清空当前对话历史
   const handleClearHistory = () => {
     if (!activeConversation) return;
     clearDirectMessages(activeConversation.id);
@@ -358,12 +392,40 @@ export function IMWorkbench(props: IMWorkbenchProps) {
     message.success("已清空消息记录");
   };
 
-  // 发送消息处理
+  // 重命名会话（单聊或群聊）
+  const handleRenameSession = (id: string, newTitle: string) => {
+    renameDirectSession(id, newTitle);
+    setDirectSessions(getDirectSessions());
+    message.success("会话名称已更新");
+  };
+
+  // 切换群聊成员 Bot 进退群
+  const handleToggleGroupMember = (botId: string, join: boolean) => {
+    if (!activeConversation || activeConversation.type !== "group") return;
+    const currentMembers = activeConversation.memberBotIds || ["butler", "inspector", "scout"];
+    const nextMembers = join
+      ? Array.from(new Set([...currentMembers, botId]))
+      : currentMembers.filter((id) => id !== botId);
+
+    updateGroupMembers(activeConversation.id, nextMembers);
+    setDirectSessions(getDirectSessions());
+    message.success(join ? "已将该 Bot 加入协同群" : "已将该 Bot 移出协同群");
+  };
+
+  // 新建 Bot 后的回调
+  const handleBotCreated = (newBot: BotProfile) => {
+    void loadBots();
+    if (activeConversation && activeConversation.type === "group") {
+      handleToggleGroupMember(newBot.id, true);
+    }
+  };
+
+  // 发送消息处理（融合 Jev 调度中枢 + Hermes 执行 + 安全合规审查 + 自主流水线接力）
   const handleSendMessage = async (text: string) => {
     if (!activeConversation) return;
 
-    // A. 直连通道发送
-    if (activeConversation.type === "direct") {
+    // A. 直连或群聊通道发送
+    if (activeConversation.type === "direct" || activeConversation.type === "group") {
       const nowStr = new Date().toISOString();
       const userMsg: IMChatMessage = {
         id: `user-msg-${Date.now()}`,
@@ -380,11 +442,69 @@ export function IMWorkbench(props: IMWorkbenchProps) {
 
       setSendingDirect(true);
       try {
+        const isGroup = activeConversation.type === "group";
+        let targetBotId: string = activeConversation.botId || "butler";
+        let dispatchInfo: IMChatMessage["dispatchInfo"] = undefined;
+
+        if (isGroup) {
+          // 1. 优先检查用户是否显式点名 @Bot（如 @全能管家 / @审查员 / @侦察员 / @butler 等）
+          const matchedBot = availableBots.find(
+            (b) =>
+              text.includes(`@${b.name}`) ||
+              text.includes(`@${b.id}`) ||
+              text.toLowerCase().includes(`@${b.id.toLowerCase()}`)
+          );
+
+          if (matchedBot) {
+            targetBotId = matchedBot.id;
+            dispatchInfo = {
+              selectedByJev: false,
+              confidence: 1.0,
+              reason: "用户显式点名指派",
+            };
+          } else {
+            // 2. 未指定 Bot：由 Jev 调度中枢 (Choice) 智能选择最匹配的专职 Bot
+            try {
+              const dispatchRes = await postJson(
+                "/api/bots/dispatch",
+                {
+                  message: text,
+                  userMessage: text,
+                  activeBots: availableBots,
+                  bots: availableBots,
+                },
+                10_000
+              );
+              const dispatchData = dispatchRes.data as {
+                ok?: boolean;
+                selectedBotId?: string;
+                reason?: string;
+                confidence?: number;
+              } | null;
+
+              if (dispatchRes.ok && dispatchData?.selectedBotId) {
+                targetBotId = dispatchData.selectedBotId;
+                dispatchInfo = {
+                  selectedByJev: true,
+                  confidence: typeof dispatchData.confidence === "number" ? dispatchData.confidence : 0.85,
+                  reason: dispatchData.reason || "Jev 智能调度",
+                };
+              }
+            } catch {
+              targetBotId = "butler";
+            }
+          }
+        }
+
+        const activeBotObj = availableBots.find((b) => b.id === targetBotId);
+
+        // 3. 调用 Hermes 智能体发送接口（自动附带 Profile 与 SOUL.md 人设）
         const res = await postJson(
           "/api/agent-message",
           {
             text,
             sessionId: activeConversation.sessionId || "default",
+            botId: targetBotId,
           },
           180_000
         );
@@ -393,24 +513,202 @@ export function IMWorkbench(props: IMWorkbenchProps) {
 
         if (res.ok && data) {
           const aiReplyText = data.reply || "（智能体已处理该指令）";
+
+          // 4. Jev 评估：合规审查 (Score) + 自主接力评估 (Handoff)
+          let compliance: IMChatMessage["compliance"] = undefined;
+          let peerHandoff: IMChatMessage["peerHandoff"] = undefined;
+
+          // A) 安全与合规审查
+          try {
+            const compRes = await postJson(
+              "/api/bots/compliance",
+              {
+                botId: targetBotId,
+                botRole: activeBotObj?.role,
+                botDuties: activeBotObj?.duties,
+                responseContent: aiReplyText,
+                replyText: aiReplyText,
+                userMessage: text,
+              },
+              10_000
+            );
+            const compData = compRes.data as {
+              ok?: boolean;
+              score?: number;
+              status?: string;
+              advice?: string;
+            } | null;
+            if (compRes.ok && compData && typeof compData.score === "number") {
+              compliance = {
+                score: compData.score,
+                compliant: compData.score >= 3,
+                explanation: compData.advice || (compData.status === "pass" ? "人设契合良好，符合安全规范" : "建议优化人设与规范"),
+              };
+            }
+          } catch {
+            // 审查异常不阻断主流程
+          }
+
+          // B) 群聊场景下的自主接力评估 (Handoff)
+          let needsFollowupHandoff = false;
+          let nextHandoffBotId = "";
+          let handoffReason = "";
+
+          if (isGroup) {
+            try {
+              const handoffRes = await postJson(
+                "/api/bots/handoff",
+                {
+                  currentBotId: targetBotId,
+                  botResponse: aiReplyText,
+                  replyText: aiReplyText,
+                  userGoal: text,
+                  userMessage: text,
+                  availablePeerBots: availableBots.filter((b) => b.id !== targetBotId),
+                  availableBots,
+                  turnCount: 0,
+                },
+                10_000
+              );
+              const handoffData = handoffRes.data as {
+                ok?: boolean;
+                needsHandoff?: boolean;
+                nextBotId?: string;
+                reason?: string;
+                turnCount?: number;
+              } | null;
+
+              if (handoffRes.ok && handoffData?.needsHandoff && handoffData.nextBotId) {
+                needsFollowupHandoff = true;
+                nextHandoffBotId = handoffData.nextBotId;
+                handoffReason = handoffData.reason || "自主接力协同";
+                const nextBotObj = availableBots.find((b) => b.id === nextHandoffBotId);
+                peerHandoff = {
+                  fromBotId: targetBotId,
+                  fromBotName: activeBotObj?.name || targetBotId,
+                  toBotId: nextHandoffBotId,
+                  toBotName: nextBotObj?.name || nextHandoffBotId,
+                  probability: 0.88,
+                  reason: handoffReason,
+                };
+              }
+            } catch {
+              // 接力评估异常不阻断主流程
+            }
+          }
+
+          // 追加第一棒 Bot 消息
           const aiMsg: IMChatMessage = {
             id: `ai-reply-${Date.now()}`,
             conversationId: activeConversation.id,
             sender: "ai",
+            botId: targetBotId,
+            botName: activeBotObj?.name || targetBotId,
             content: aiReplyText,
             timestamp: new Date().toISOString(),
             dateStr: toLocalDateString(new Date()),
             state: "delivered",
             isDirect: true,
+            dispatchInfo,
+            compliance,
+            peerHandoff,
           };
           const afterAi = appendDirectMessage(activeConversation.id, aiMsg);
           setDirectMessagesMap((prev) => ({ ...prev, [activeConversation.id]: afterAi }));
+
+          // 5. 若触发自主接力（如管家点名审查员复核，或点名侦察员检索），发起第二棒接力协作！
+          if (needsFollowupHandoff && nextHandoffBotId) {
+            const nextBotObj = availableBots.find((b) => b.id === nextHandoffBotId);
+            const handoffPrompt = `[来自 @${activeBotObj?.name || targetBotId} 的协同接力请求]
+用户的原始需求：${text}
+上一步处理结论：
+${aiReplyText}
+
+接力任务说明：${handoffReason}。请根据你的专业职责给出下一步处理或最终答复。`;
+
+            try {
+              const secondRes = await postJson(
+                "/api/agent-message",
+                {
+                  text: handoffPrompt,
+                  sessionId: activeConversation.sessionId || "default",
+                  botId: nextHandoffBotId,
+                },
+                180_000
+              );
+              const secondData = secondRes.data as { ok?: boolean; reply?: string; error?: string } | null;
+
+              if (secondRes.ok && secondData?.reply) {
+                const secondAiText = secondData.reply;
+
+                // 对第二棒回复进行合规审查
+                let secondCompliance: IMChatMessage["compliance"] = undefined;
+                try {
+                  const sCompRes = await postJson(
+                    "/api/bots/compliance",
+                    {
+                      botId: nextHandoffBotId,
+                      botRole: nextBotObj?.role,
+                      botDuties: nextBotObj?.duties,
+                      responseContent: secondAiText,
+                      replyText: secondAiText,
+                      userMessage: text,
+                    },
+                    10_000
+                  );
+                  const sCompData = sCompRes.data as { ok?: boolean; score?: number; status?: string; advice?: string } | null;
+                  if (sCompRes.ok && sCompData && typeof sCompData.score === "number") {
+                    secondCompliance = {
+                      score: sCompData.score,
+                      compliant: sCompData.score >= 3,
+                      explanation: sCompData.advice || (sCompData.status === "pass" ? "人设契合良好，符合安全规范" : "建议优化人设与规范"),
+                    };
+                  }
+                } catch {
+                  // 忽略
+                }
+
+                const secondAiMsg: IMChatMessage = {
+                  id: `ai-reply-handoff-${Date.now()}`,
+                  conversationId: activeConversation.id,
+                  sender: "ai",
+                  botId: nextHandoffBotId,
+                  botName: nextBotObj?.name || nextHandoffBotId,
+                  content: secondAiText,
+                  timestamp: new Date().toISOString(),
+                  dateStr: toLocalDateString(new Date()),
+                  state: "delivered",
+                  isDirect: true,
+                  dispatchInfo: {
+                    selectedByJev: false,
+                    confidence: 1.0,
+                    reason: `接力响应（由 @${activeBotObj?.name || targetBotId} 指派）`,
+                  },
+                  compliance: secondCompliance,
+                  peerHandoff: {
+                    fromBotId: targetBotId,
+                    fromBotName: activeBotObj?.name || targetBotId,
+                    toBotId: nextHandoffBotId,
+                    toBotName: nextBotObj?.name || nextHandoffBotId,
+                    probability: 1.0,
+                    reason: handoffReason,
+                  },
+                };
+                const afterSecondAi = appendDirectMessage(activeConversation.id, secondAiMsg);
+                setDirectMessagesMap((prev) => ({ ...prev, [activeConversation.id]: afterSecondAi }));
+              }
+            } catch {
+              // 接力异常不影响第一棒已发消息
+            }
+          }
         } else {
           const errDetail = data?.error || "无法连通 Hermes 智能体接口";
           const failMsg: IMChatMessage = {
             id: `ai-err-${Date.now()}`,
             conversationId: activeConversation.id,
             sender: "ai",
+            botId: targetBotId,
+            botName: activeBotObj?.name || targetBotId,
             content: `智能体回复失败：${errDetail}`,
             timestamp: new Date().toISOString(),
             dateStr: toLocalDateString(new Date()),
@@ -454,6 +752,7 @@ export function IMWorkbench(props: IMWorkbenchProps) {
           activeId={activeConversationId}
           onSelectConversation={setActiveConversationId}
           onCreateDirectSession={handleCreateDirectSession}
+          onCreateGroupSession={handleCreateGroupSession}
           onDeleteDirectSession={handleDeleteDirectSession}
         />
 
@@ -466,7 +765,10 @@ export function IMWorkbench(props: IMWorkbenchProps) {
           onSelectOutboxMessage={props.onSelectMessage}
           onRedeliver={props.onRedeliver}
           onClearHistory={handleClearHistory}
+          onRenameSession={handleRenameSession}
+          onOpenBotMarket={() => setBotMarketOpen(true)}
           apiServerAvailable={apiServerAvailable}
+          availableBots={availableBots}
         />
       </div>
 
@@ -497,6 +799,17 @@ export function IMWorkbench(props: IMWorkbenchProps) {
           />
         )}
       </Drawer>
+
+      {/* 4. 万神殿专职 Bot 模板市场抽屉 */}
+      <IMBotTemplateDrawer
+        open={botMarketOpen}
+        onClose={() => setBotMarketOpen(false)}
+        groupId={activeConversation?.type === "group" ? activeConversation.id : undefined}
+        currentMemberBotIds={activeConversation?.memberBotIds || ["butler", "inspector", "scout"]}
+        availableBots={availableBots}
+        onToggleGroupMember={handleToggleGroupMember}
+        onBotCreated={handleBotCreated}
+      />
     </Flex>
   );
 }

@@ -228,6 +228,61 @@ export async function registerGatewayRoutes(
     return reply.status(res.status).send(parsed);
   });
 
+  // Bot 名册与 Profile 代理
+  app.get("/api/bots", async (_request, reply) => {
+    const res = await fetchGateway("/api/bots", 5_000);
+    if (!res) {
+      return reply.status(502).send({ ok: false, error: "gateway-unreachable" });
+    }
+    return reply.status(res.status).send(await res.json().catch(() => ({ ok: false })));
+  });
+
+  // Bot 模板市场代理
+  app.get("/api/bots/templates", async (_request, reply) => {
+    const res = await fetchGateway("/api/bots/templates", 5_000);
+    if (!res) {
+      return reply.status(502).send({ ok: false, error: "gateway-unreachable" });
+    }
+    return reply.status(res.status).send(await res.json().catch(() => ({ ok: false })));
+  });
+
+  app.post("/api/bots/templates/:templateId/instantiate", async (request, reply) => {
+    const templateId = String((request.params as Record<string, string>)["templateId"] ?? "");
+    return proxyGatewayPost(`/api/bots/templates/${encodeURIComponent(templateId)}/instantiate`, request.body, reply);
+  });
+
+  app.post("/api/bots", async (request, reply) => {
+    return proxyGatewayPost("/api/bots", request.body, reply);
+  });
+
+  app.delete("/api/bots/:id", async (request, reply) => {
+    const rawId = String((request.params as Record<string, string>)["id"] ?? "");
+    let res: Response;
+    try {
+      res = await doFetch(`${gatewayUrl}/api/bots/${encodeURIComponent(rawId)}`, {
+        method: "DELETE",
+        headers: gatewayAuthHeaders(),
+        signal: AbortSignal.timeout(5_000),
+      });
+    } catch {
+      return reply.status(502).send({ error: "gateway-unreachable" });
+    }
+    return reply.status(res.status).send(await res.json().catch(() => ({})));
+  });
+
+  // Jev System One 辅助端点透传代理
+  app.post("/api/bots/dispatch", async (request, reply) => {
+    return proxyGatewayPost("/api/bots/dispatch", request.body, reply, 20_000);
+  });
+
+  app.post("/api/bots/handoff", async (request, reply) => {
+    return proxyGatewayPost("/api/bots/handoff", request.body, reply, 20_000);
+  });
+
+  app.post("/api/bots/compliance", async (request, reply) => {
+    return proxyGatewayPost("/api/bots/compliance", request.body, reply, 20_000);
+  });
+
   // 通道通用扫码登录代理
   app.post("/api/messages/channels/:channel/login/start", async (request, reply) => {
     const channel = (request.params as Record<string, unknown>)["channel"];

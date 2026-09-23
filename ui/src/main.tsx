@@ -48,6 +48,7 @@ const ProgressPage = lazy(() => import("./pages/progress/ProgressPage.js").then(
 const MemoryDiffPage = lazy(() => import("./pages/memory/MemoryDiffPage.js").then(({ MemoryDiffPage: Page }) => ({ default: Page })));
 const MemoryCenterPage = lazy(() => import("./pages/memory/MemoryCenterPage.js").then(({ MemoryCenterPage: Page }) => ({ default: Page })));
 const FederationPage = lazy(() => import("./pages/federation/FederationPage.js").then(({ FederationPage: Page }) => ({ default: Page })));
+const KnowledgePage = lazy(() => import("./pages/knowledge/KnowledgePage.js").then(({ KnowledgePage: Page }) => ({ default: Page })));
 
 function FirstRunRedirect() {
   const location = useLocation();
@@ -126,6 +127,7 @@ function ThemedApp({ locale }: { locale: React.ComponentProps<typeof ConfigProvi
               <Route path="/logs" element={<LogsPage />} />
               <Route path="/prompt" element={<Navigate to="/gateway" replace />} />
               <Route path="/skills" element={<SkillsPage />} />
+              <Route path="/knowledge" element={<KnowledgePage />} />
               <Route path="/tools" element={<ToolsPage />} />
               <Route path="/advanced" element={<Navigate to="/tools" replace />} />
               <Route path="/core-files" element={<CoreFilesPage />} />

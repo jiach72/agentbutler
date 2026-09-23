@@ -40,6 +40,25 @@ if ([string]::IsNullOrWhiteSpace($masterKey)) {
 }
 $env:BUTLER_SECRET_MASTER_KEY = $masterKey
 
+$fileInternalToken = ""
+$match = [regex]::Match($envContent, '(?m)^BUTLER_INTERNAL_TOKEN=(.*)$')
+if ($match.Success) { $fileInternalToken = $match.Groups[1].Value.Trim().Trim('"', "'") }
+$shellInternalToken = if ($null -eq $env:BUTLER_INTERNAL_TOKEN) { "" } else { $env:BUTLER_INTERNAL_TOKEN.Trim() }
+$internalToken = if ($fileInternalToken) { $fileInternalToken } else { $shellInternalToken }
+if ([string]::IsNullOrWhiteSpace($internalToken)) {
+  $bytes = New-Object byte[] 32
+  [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+  $internalToken = ([Convert]::ToHexString($bytes)).ToLowerInvariant()
+  if ([regex]::IsMatch($envContent, '(?m)^BUTLER_INTERNAL_TOKEN=')) {
+    $envContent = [regex]::Replace($envContent, '(?m)^BUTLER_INTERNAL_TOKEN=.*$', "BUTLER_INTERNAL_TOKEN=$internalToken")
+  } else {
+    $envContent = $envContent.TrimEnd("`r", "`n") + "`r`nBUTLER_INTERNAL_TOKEN=$internalToken`r`n"
+  }
+  [System.IO.File]::WriteAllText((Join-Path (Get-Location) ".env"), $envContent)
+  Write-Host "Generated and stored BUTLER_INTERNAL_TOKEN in .env."
+}
+$env:BUTLER_INTERNAL_TOKEN = $internalToken
+
 $deploySha = ""
 try {
   $deploySha = (git rev-parse HEAD 2>$null).Trim()

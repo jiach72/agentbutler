@@ -9,6 +9,7 @@ import {
   Avatar,
   Badge,
   Button,
+  Dropdown,
   Flex,
   Input,
   Popconfirm,
@@ -24,9 +25,11 @@ import {
   WechatOutlined,
   ApiOutlined,
   MessageOutlined,
+  TeamOutlined,
+  UserOutlined,
 } from "@ant-design/icons";
 import type { IMConversation } from "./imTypes.js";
-import { DEFAULT_DIRECT_CONVERSATION_ID } from "./imSessionStore.js";
+import { DEFAULT_DIRECT_CONVERSATION_ID, DEFAULT_GROUP_CONVERSATION_ID } from "./imSessionStore.js";
 
 const { Text } = Typography;
 
@@ -35,11 +38,58 @@ export interface IMConversationListProps {
   activeId: string;
   onSelectConversation: (id: string) => void;
   onCreateDirectSession: () => void;
+  onCreateGroupSession?: () => void;
   onDeleteDirectSession: (id: string) => void;
 }
 
-function getChannelAvatar(channel: string) {
-  if (channel === "hermes" || channel === "api-server") {
+function getConversationAvatar(conv: IMConversation) {
+  if (conv.type === "group") {
+    return (
+      <Avatar
+        size={36}
+        style={{
+          background: "linear-gradient(135deg, #f59e0b, #d97706)",
+          boxShadow: "0 2px 8px -1px rgba(245, 158, 11, 0.35)",
+          flexShrink: 0,
+        }}
+        icon={<TeamOutlined style={{ fontSize: 18, color: "#ffffff" }} />}
+      />
+    );
+  }
+
+  if (conv.botId === "inspector") {
+    return (
+      <Avatar
+        size={36}
+        style={{
+          background: "linear-gradient(135deg, #8b5cf6, #6366f1)",
+          boxShadow: "0 2px 8px -1px rgba(139, 92, 246, 0.35)",
+          flexShrink: 0,
+          fontSize: 16,
+        }}
+      >
+        🔍
+      </Avatar>
+    );
+  }
+
+  if (conv.botId === "scout") {
+    return (
+      <Avatar
+        size={36}
+        style={{
+          background: "linear-gradient(135deg, #06b6d4, #0d9488)",
+          boxShadow: "0 2px 8px -1px rgba(6, 182, 212, 0.35)",
+          flexShrink: 0,
+          fontSize: 16,
+        }}
+      >
+        🔭
+      </Avatar>
+    );
+  }
+
+  if (conv.channel === "hermes" || conv.channel === "api-server" || conv.botId === "butler") {
     return (
       <Avatar
         size={36}
@@ -52,7 +102,7 @@ function getChannelAvatar(channel: string) {
       />
     );
   }
-  if (channel === "weixin") {
+  if (conv.channel === "weixin") {
     return (
       <Avatar
         size={36}
@@ -65,7 +115,7 @@ function getChannelAvatar(channel: string) {
       />
     );
   }
-  if (channel === "a2a") {
+  if (conv.channel === "a2a") {
     return (
       <Avatar
         size={36}
@@ -92,13 +142,14 @@ function getChannelAvatar(channel: string) {
 }
 
 export function IMConversationList(props: IMConversationListProps) {
-  const [filterType, setFilterType] = useState<"all" | "direct" | "external">("all");
+  const [filterType, setFilterType] = useState<"all" | "group" | "bot" | "external">("all");
   const [searchKeyword, setSearchKeyword] = useState("");
 
   const filteredList = useMemo(() => {
     return props.conversations.filter((c) => {
-      if (filterType === "direct" && c.type !== "direct" && c.channel !== "api-server") return false;
-      if (filterType === "external" && (c.type !== "external" || c.channel === "api-server" || c.channel === "hermes")) return false;
+      if (filterType === "group" && c.type !== "group") return false;
+      if (filterType === "bot" && c.type !== "direct") return false;
+      if (filterType === "external" && c.type !== "external") return false;
 
       if (searchKeyword.trim() !== "") {
         const kw = searchKeyword.toLowerCase();
@@ -111,29 +162,43 @@ export function IMConversationList(props: IMConversationListProps) {
     });
   }, [props.conversations, filterType, searchKeyword]);
 
+  const newItems = [
+    {
+      key: "group",
+      label: "新建协同群聊",
+      icon: <TeamOutlined />,
+      onClick: () => props.onCreateGroupSession?.(),
+    },
+    {
+      key: "direct",
+      label: "新建 Bot 对话",
+      icon: <UserOutlined />,
+      onClick: () => props.onCreateDirectSession(),
+    },
+  ];
+
   return (
     <div className="im-sidebar">
       {/* 顶栏操作区：搜索 + 新建对话 */}
       <div className="im-sidebar-header">
         <Flex justify="space-between" align="center" gap={8}>
           <Text strong style={{ fontSize: 14 }}>
-            会话与通道
+            智能体与会话
           </Text>
-          <Tooltip title="新建直连对话 (像 Hermes Web UI 一样直连)">
+          <Dropdown menu={{ items: newItems }} placement="bottomRight">
             <Button
               type="primary"
               size="small"
               icon={<PlusOutlined />}
-              onClick={props.onCreateDirectSession}
             >
-              新对话
+              发起
             </Button>
-          </Tooltip>
+          </Dropdown>
         </Flex>
 
         <Input
           size="small"
-          placeholder="搜索会话或消息"
+          placeholder="搜索智能体、群聊或消息"
           prefix={<SearchOutlined style={{ color: "var(--ant-color-text-quaternary)" }} />}
           value={searchKeyword}
           onChange={(e) => setSearchKeyword(e.target.value)}
@@ -144,10 +209,11 @@ export function IMConversationList(props: IMConversationListProps) {
           size="small"
           block
           value={filterType}
-          onChange={(val) => setFilterType(val as "all" | "direct" | "external")}
+          onChange={(val) => setFilterType(val as "all" | "group" | "bot" | "external")}
           options={[
             { label: "全部", value: "all" },
-            { label: "Hermes直连", value: "direct" },
+            { label: "协同群", value: "group" },
+            { label: "专职Bot", value: "bot" },
             { label: "外部通道", value: "external" },
           ]}
         />
@@ -174,8 +240,8 @@ export function IMConversationList(props: IMConversationListProps) {
                 <Flex align="center" gap={10}>
                   {/* 头像与通道徽标 */}
                   <div style={{ position: "relative" }}>
-                    {getChannelAvatar(conv.channel)}
-                    {isDirect && (
+                    {getConversationAvatar(conv)}
+                    {(isDirect || conv.type === "group") && (
                       <span
                         className="im-pulse-dot"
                         style={{

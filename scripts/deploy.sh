@@ -72,6 +72,28 @@ if [[ -z "$master_key" ]]; then
 fi
 export BUTLER_SECRET_MASTER_KEY="$master_key"
 
+internal_token="${BUTLER_INTERNAL_TOKEN:-$(env_value BUTLER_INTERNAL_TOKEN)}"
+if [[ -z "$internal_token" ]]; then
+  if command -v openssl >/dev/null 2>&1; then
+    internal_token=$(openssl rand -hex 32)
+  elif command -v node >/dev/null 2>&1; then
+    internal_token=$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')
+  elif command -v python3 >/dev/null 2>&1; then
+    internal_token=$(python3 -c 'import secrets;print(secrets.token_hex(32))')
+  fi
+  if [[ -n "$internal_token" ]]; then
+    if grep -qE '^BUTLER_INTERNAL_TOKEN=' .env; then
+      env_tmp="$(mktemp .env.XXXXXX)"
+      awk -v value="$internal_token" 'BEGIN { done = 0 } /^BUTLER_INTERNAL_TOKEN=/ { print "BUTLER_INTERNAL_TOKEN=" value; done = 1; next } { print } END { if (!done) print "BUTLER_INTERNAL_TOKEN=" value }' .env > "$env_tmp"
+      mv "$env_tmp" .env
+    else
+      printf '\nBUTLER_INTERNAL_TOKEN=%s\n' "$internal_token" >> .env
+    fi
+    echo "Generated and stored BUTLER_INTERNAL_TOKEN in .env."
+  fi
+fi
+export BUTLER_INTERNAL_TOKEN="$internal_token"
+
 compose_args=()
 bridge_url="${BUTLER_HERMES_BRIDGE_URL:-$(env_value BUTLER_HERMES_BRIDGE_URL)}"
 if [[ "$bridge_url" == *":8755" ]]; then
@@ -95,6 +117,18 @@ if [[ -n "$hindsight_url" ]]; then
   else
     compose_args+=(--profile hindsight-forward)
   fi
+fi
+
+# 本地知识库 (AnythingLLM RAG) 服务按需拉起：
+# 若偏好设置中已开启、或 .env / 环境变量中配置了启用，自动装配 rag-anythingllm profile。
+anythingllm_enabled="${BUTLER_ANYTHINGLLM_ENABLED:-$(env_value BUTLER_ANYTHINGLLM_ENABLED)}"
+compose_profiles="${COMPOSE_PROFILES:-$(env_value COMPOSE_PROFILES)}"
+if [[ "$anythingllm_enabled" == "true" ]] || \
+   [[ "$compose_profiles" == *"rag-anythingllm"* ]] || \
+   grep -q '"enabled":true' "$ROOT_DIR/data/knowledge_prefs.json" 2>/dev/null || \
+   docker volume inspect agent-butler-data >/dev/null 2>&1 && docker run --rm -v agent-butler-data:/data:ro alpine grep -q '"enabled":true' /data/data/knowledge_prefs.json 2>/dev/null; then
+  echo "Enabling local knowledge base (AnythingLLM RAG) profile."
+  compose_args+=(--profile rag-anythingllm)
 fi
 
 # macOS 自带的 bash 3.2 在 set -u 下展开空数组（"${compose_args[@]}"）会报
@@ -366,12 +400,14 @@ for _ in {1..30}; do
         echo "         Gateway 会每秒自动重试，Bridge 就绪后自动接回；排查: bash scripts/bridge-healthcheck.sh" >&2
       fi
       host_bridge_py=""
-      for cand in "${hermes_probe_path:-}/../hermes-agent/gateway/butler_bridge/server.py" "${HOME:-}/.hermes/hermes-agent/gateway/butler_bridge/server.py"; do
+      for cand in "${hermes_host_path}/hermes-agent/gateway/butler_bridge/server.py" "${hermes_host_path}/../hermes-agent/gateway/butler_bridge/server.py" "${HOME:-}/.hermes/hermes-agent/gateway/butler_bridge/server.py"; do
         if [[ -f "$cand" ]]; then host_bridge_py="$cand"; break; fi
       done
-      if [[ -n "$host_bridge_py" ]] && ! grep -q "resolve_unknown" "$host_bridge_py" 2>/dev/null; then
-        echo "WARNING: 宿主 Hermes Bridge 副本缺少 resolve 权威结案端点。" >&2
-        echo "         建议同步更新：python -m agent_butler_bridge.installer update <hermes-agent-path> 并重启网关" >&2
+      if [[ -n "$host_bridge_py" ]]; then
+        if ! grep -q "resolve_unknown" "$host_bridge_py" 2>/dev/null; then
+          echo "WARNING: 宿主 Hermes Bridge 副本缺少 resolve 权威结案端点。" >&2
+          echo "         建议同步更新：python -m agent_butler_bridge.installer update <hermes-agent-path> 并重启网关" >&2
+        fi
       fi
     fi
     deploy_sha=$(git rev-parse HEAD 2>/dev/null || echo unknown)

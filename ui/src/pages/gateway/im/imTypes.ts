@@ -3,19 +3,35 @@
  */
 import type { MessageItemView } from "../helpers.js";
 
-export type ConversationType = "direct" | "external";
+export type ConversationType = "direct" | "external" | "group";
+
+export interface BotProfile {
+  id: string;
+  name: string;
+  role: string;
+  duties: string[];
+  systemPrompt: string;
+  avatar?: string;
+  isPreset?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
 
 export interface IMConversation {
-  id: string; // direct:<sessionId> 或 channel:<channel>:<chatId>
+  id: string; // direct:<botId>:<sessionId> | group:<groupId> | channel:<channel>:<chatId>
   type: ConversationType;
-  channel: string; // 'hermes' | 'weixin' | 'a2a' | 'api-server' 等
+  channel: string; // 'hermes' | 'bot' | 'group' | 'weixin' | 'a2a' | 'api-server' 等
   title: string;
   chatId?: string;
   sessionId?: string;
+  botId?: string;
+  memberBotIds?: string[];
   lastMessage?: {
     content: string;
     timestamp: string;
     sender: "ai" | "user";
+    botId?: string;
+    botName?: string;
     state?: string;
   };
   messageCount: number;
@@ -35,6 +51,30 @@ export interface IMChatMessage {
   channel?: string;
   chatId?: string;
   sessionId?: string;
+  botId?: string;
+  botName?: string;
+  botAvatar?: string;
+  // Jev 智能调度追踪
+  dispatchInfo?: {
+    selectedByJev: boolean;
+    confidence: number;
+    reason?: string;
+  };
+  // Jev Peer 接力链路追踪
+  peerHandoff?: {
+    fromBotId: string;
+    fromBotName?: string;
+    toBotId: string;
+    toBotName?: string;
+    probability: number;
+    reason?: string;
+  };
+  // Jev 合规度打分
+  compliance?: {
+    score: number; // 1-5
+    compliant: boolean;
+    explanation: string;
+  };
   // AI 出站状态 (Outbox)
   state?: string;
   lastError?: string | null;

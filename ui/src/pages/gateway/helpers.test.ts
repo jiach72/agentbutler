@@ -212,9 +212,9 @@ describe("resolveGatewayTab 标签解析与深链映射", () => {
     expect(resolveGatewayTab("", "#prompt-optimization-panel")).toBe("prompts");
   });
 
-  it("缺省或未知 tab 回退到 history（即时通讯工作台）", () => {
-    expect(resolveGatewayTab("")).toBe("history");
-    expect(resolveGatewayTab("?tab=unknown")).toBe("history");
+  it("缺省或未知 tab 回退到 messages（待处理消息工作台）", () => {
+    expect(resolveGatewayTab("")).toBe("messages");
+    expect(resolveGatewayTab("?tab=unknown")).toBe("messages");
   });
 });
 

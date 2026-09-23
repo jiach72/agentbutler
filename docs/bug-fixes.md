@@ -1,5 +1,34 @@
 # Bug Fixes
 
+## 2026-09-23 - Issues 治理：技能页记忆容错降级、Bridge 副本探测修复、Hermes 0.21.4 补丁适配与默认部署内部鉴权
+
+- **问题：**
+  1. #28：技能页（智能体与记忆）在遇到未知 `memory.backend.source`（如第三方扩展或新后端）时，`parseSkillsStatus` 返回 null，导致整个 `/api/skills` 判定为不可达而降级为离线。
+  2. #29：`deploy.sh` 引用了未定义的 `hermes_probe_path`，`bridge-healthcheck.sh` 使用了 `$hermes_host_path/../hermes-agent`，导致非默认 HOME 目录时宿主 Bridge 副本失检，且未找到副本时静默通过。
+  3. #30：Hermes 0.21.4 修改了 `a2a/adapter.py` 结尾代码（`}.get(outcome, default))`），原 `tail_suffix` 只支持单个字符串导致 installer 漂移检测报错 `PatchDriftError`。
+  4. #31 & #32：在默认未配置访问口令的 Docker Compose 本地部署下，`web -> watch` 容器间调用由于非 loopback IP 且未携带内部凭据，导致写操作被拒（403 `origin-not-allowed`）；Updater 同样因为无口令处于 fail-closed 锁定，导致面板升级按钮点击 401。
+- **风险/影响：** 健康实例因未知记忆元数据误报完全不可用；Bridge 副本失检导致线上版本不一致无法察觉；Hermes 升级后无法重装 Bridge；默认 Docker 部署下面板写操作和自升级全被锁定无法使用。
+- **修复范围：**
+  1. `apps/web/src/api-parsers.ts` & `api-views.ts`：对未知 `memory.backend.source` 进行优雅降级，保留其原始值并标记 `degraded: true` 与 `degradedReason`，技能列表正常展示。
+  2. `scripts/deploy.sh` & `scripts/bridge-healthcheck.sh`：修正宿主 Bridge 探测路径为 `$hermes_host_path/hermes-agent/...`，未找到副本时显式输出警告跳过。
+  3. `packages/adapters/hermes/bridge/agent_butler_bridge/patches.py`：扩展 `tail_suffix` 支持 `str | tuple[str, ...]`，适配 Hermes 0.21.4 的结尾写法。
+  4. `scripts/deploy.sh` & `scripts/deploy.ps1`：部署期自动生成强随机 `BUTLER_INTERNAL_TOKEN` 并持久化到 `.env`；透传到各 Compose 容器；`apps/updater/src/main.ts` 与 `apps/watch/src/self-upgrade.ts` 接入 `BUTLER_INTERNAL_TOKEN` 与 `x-butler-internal-token`；Watch 写门禁区分跨站攻击（403 `origin-not-allowed`）与无凭据写锁定（403 `write-locked`）；UI 面板在 Updater 锁定（401）时禁用按钮并清晰提示锁定原因与 CLI 升级命令。
+- **回归测试：**
+  - `apps/web/tests/skills.test.ts`：覆盖未知 memory backend source 优雅降级；
+  - `apps/watch/tests/http-security.test.ts`：覆盖 `BUTLER_INTERNAL_TOKEN` 内部调用鉴权与锁定；
+  - `packages/adapters/hermes/bridge/tests/test_installer.py`：覆盖 Hermes 0.21.4 及元组 `tail_suffix` 校验；
+  - `apps/updater/tests/main.test.ts`：覆盖 Updater 使用 `BUTLER_INTERNAL_TOKEN` 的认证。
+- **验证命令：** `corepack pnpm exec tsc -b --pretty false`（全量类型检查通过）；`pnpm test -- --testTimeout=15000`（212 个测试文件全部通过，1939 项测试通过）；Python `test_installer.py` 8 项测试全部通过；`git diff --check`。
+
+## 2026-09-23 - 桌面产品交互审计修复与知识库去重保护
+
+- **问题：** `/gateway` 默认落在即时通讯历史而不是未解决消息；`nav:false` 深链被错误呈现为当前「设置」页；IM 点名与快捷指令用不可键盘聚焦的 `Tag` 承载点击动作，发送/关闭图标操作缺少可访问名称；知识库技术参数常驻展开；文档去重 API 接受任意清单 ID，可能删除推荐主版本或扫描后已变化的文件，同名异内容也被错误计为可回收副本。
+- **风险/影响：** 用户打开消息页看不到优先待处理事项、无法从隐藏路由判断真实导航位置，键盘用户无法使用关键快捷操作；更严重的是，伪造/过期去重请求或同名异内容自动清理可能造成资料丢失。
+- **修复范围：** `/gateway` 缺省/非法标签改为待处理，IM 历史保留 `?tab=history` 深链；隐藏路由不再选中设置入口；IM 快捷项与 Bot 点名改为带焦点态和禁用态的按钮，图标按钮补充名称；设置页知识库技术规格改为原生默认折叠的键盘可操作详情。去重扫描签发短时、限量内存快照；服务端仅接受有明确确认、属于该快照且内容哈希仍匹配的非主副本，拒绝过期/伪造/变化候选；同名异内容保留为核对线索但不计为可清理项；UI 默认不勾选，逐项确认后使用统一危险操作确认弹窗。`PRODUCT.md` 同步明确仅桌面支持、默认消息入口和去重规则。
+- **回归测试：** 新增默认消息标签、隐藏导航选中态、IM 按钮语义/名称、知识库规格默认折叠，以及未确认清理、主副本拦截、过期候选拦截、同名异内容不可清理测试。
+- **验证命令：** `corepack pnpm exec vitest run ui/tests/gateway-ux.test.tsx ui/tests/shell-ux.test.tsx ui/tests/im-workbench.test.ts ui/tests/knowledge-ux.test.tsx apps/web/tests/knowledge-routes.test.ts --reporter=dot`（69 项通过）；`corepack pnpm exec tsc -b --pretty false`；相关 UI/API 文件 ESLint；`git diff --check`。完整 `corepack pnpm build` 结果记录于本次交付说明。
+- **部署/runtime：** Vite 临时桌面页在 `127.0.0.1:5173` 验证默认选中「待处理与监控」及 IM 快捷按钮。隔离浏览器的 API fixture 曾产生预期 503 控制台项，未用于判定产品运行错误。现有 `7531` 服务未被重启、重建或写入；未对真实文档执行清理。
+
 ## 2026-09-06 - 系统日志页：一键修复闭环与智能分析列表治理
 
 - **问题：** 用户反馈两点：① 智能分析列表 71 类问题全部平铺，页面无限往下拉；② 点「一键修复」后只看到模糊的「修复成功」，不知道是否真的修复，且修复完成后问题列表纹丝不动——分析器统计的是近 7 天历史日志行，修复本身不会抹掉旧日志，不做「修复后是否复发」的判定，列表永远原样。

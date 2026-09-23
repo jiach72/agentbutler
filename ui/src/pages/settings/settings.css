@@ -91,6 +91,31 @@
   outline-offset: 2px;
 }
 
+.knowledge-config-details {
+  border-top: 1px solid var(--ant-color-border-secondary);
+}
+
+.knowledge-config-details > summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.knowledge-config-details > summary:focus-visible {
+  outline: 2px solid var(--ab-primary);
+  outline-offset: 2px;
+}
+
+.knowledge-config-specs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  padding-bottom: 8px;
+}
+
 .settings-source-list {
   list-style: none;
   margin: 10px 0 0;

@@ -319,4 +319,29 @@ describe("butler-web 技能与记忆代理", () => {
       "http://127.0.0.1:7533/api/skills/local/demo-skill/remove",
     ]);
   });
+
+  it("当 memory.backend.source 为未知值时容错降级，不误判整个服务离线", async () => {
+    const customView = {
+      ...WATCH_VIEW,
+      memory: {
+        ...WATCH_VIEW.memory,
+        backend: {
+          backend: "custom-memory",
+          source: "unknown_future_source",
+          detail: "自定义未来记忆引擎",
+        },
+      },
+    };
+    const transport = makeFetch(customView);
+    const app = build(transport.fetch);
+
+    const res = await app.inject({ method: "GET", url: "/api/skills" });
+    expect(res.statusCode).toBe(200);
+    const json = JSON.parse(res.body);
+    expect(json.skills.total).toBe(1);
+    expect(json.skills.items).toHaveLength(1);
+    expect(json.memory.backend.id).toBe("custom-memory");
+    expect(json.memory.backend.degraded).toBe(true);
+    expect(json.memory.backend.degradedReason).toContain("未知记忆后端来源");
+  });
 });

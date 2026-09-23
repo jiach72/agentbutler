@@ -39,6 +39,7 @@ import { PreferencesPanel } from "../preferences/PreferencesPage.js";
 import { LlmProfileManager } from "./LlmProfileManager.js";
 import { UnifiedApiKeyManager } from "./UnifiedApiKeyManager.js";
 import { OllamaConfigCard } from "./OllamaConfigCard.js";
+import { KnowledgeConfigCard } from "./KnowledgeConfigCard.js";
 import { TaskDefaultsPanel } from "./TaskDefaultsPanel.js";
 import { VersionsPanel } from "../versions/VersionsPage.js";
 import "./settings.css";
@@ -276,9 +277,11 @@ export function SettingsPage() {
                   ? "channels"
                   : searchParams.get("section") === "ollama"
                     ? "ollama"
-                    : searchParams.get("section") === "models"
-                      ? "models"
-                      : "llm"
+                    : searchParams.get("section") === "knowledge"
+                      ? "knowledge"
+                      : searchParams.get("section") === "models"
+                        ? "models"
+                        : "llm"
             }
             onChange={(key) => {
               setSearchParams(
@@ -286,9 +289,11 @@ export function SettingsPage() {
                   ? { tab: "llm", section: "channels" }
                   : key === "ollama"
                     ? { tab: "llm", section: "ollama" }
-                    : key === "models"
-                      ? { tab: "llm", section: "models" }
-                      : { tab: key },
+                    : key === "knowledge"
+                      ? { tab: "llm", section: "knowledge" }
+                      : key === "models"
+                        ? { tab: "llm", section: "models" }
+                        : { tab: key },
                 { replace: true },
               );
             }}
@@ -297,6 +302,7 @@ export function SettingsPage() {
               { key: "llm", label: "API 密钥管理", children: <UnifiedApiKeyManager /> },
               { key: "models", label: "高级模型配置", children: <LlmProfileManager /> },
               { key: "ollama", label: "Ollama 本地模型", children: <OllamaConfigCard /> },
+              { key: "knowledge", label: "本地知识库 (RAG)", children: <KnowledgeConfigCard /> },
               { key: "preferences", label: "通知与偏好", children: <PreferencesPanel /> },
               {
                 key: "channels",

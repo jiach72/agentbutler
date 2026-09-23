@@ -431,19 +431,28 @@ export function parseSkillsStatus(value: unknown): Omit<SkillsApiView, "watchRea
       typeof memory["backend"]["backend"] === "string"
         ? memory["backend"]["backend"]
         : memory["backend"]["id"];
-    if (
-      !isMemoryBackendId(rawId) ||
-      !isMemoryBackendSource(memory["backend"]["source"]) ||
-      typeof memory["backend"]["detail"] !== "string"
-    ) {
-      return null;
+    const detail = memory["backend"]["detail"];
+    if (!isMemoryBackendId(rawId) || typeof detail !== "string") return null;
+
+    const source = memory["backend"]["source"];
+    if (!isMemoryBackendSource(source)) {
+      const safeSource = typeof source === "string" && source.trim() !== "" ? source.trim() : "unknown";
+      backend = {
+        id: rawId,
+        backend: rawId,
+        source: safeSource,
+        detail,
+        degraded: true,
+        degradedReason: `未知记忆后端来源: "${safeSource}"`,
+      };
+    } else {
+      backend = {
+        id: rawId,
+        backend: rawId,
+        source,
+        detail,
+      };
     }
-    backend = {
-      id: rawId,
-      backend: rawId,
-      source: memory["backend"]["source"],
-      detail: memory["backend"]["detail"],
-    };
   }
 
   return {

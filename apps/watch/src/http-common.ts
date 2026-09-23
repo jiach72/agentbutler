@@ -52,7 +52,7 @@ export type MemorySelfCheckOutcome =
 
 /** 请求体解析上限（字节）。 */
 export const HTTP_BODY_LIMIT_BYTES = 16 * 1024;
-export const WATCH_SERVICE_VERSION = `watch@0.1.0-beta.260918.1+${CONTRACT_VERSION}`;
+export const WATCH_SERVICE_VERSION = `watch@0.1.0-beta.260923.1+${CONTRACT_VERSION}`;
 
 /** runbook 执行结果（由接线层判定，HTTP 层只做状态码映射）。 */
 export type RunbookExecuteOutcome =
@@ -899,7 +899,13 @@ const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 function isLoopbackOrigin(origin: string): boolean {
   try {
     const host = new URL(origin).hostname.toLowerCase();
-    return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
+    return (
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host === "::1" ||
+      host === "[::1]" ||
+      host === "butler-web"
+    );
   } catch {
     return false;
   }
@@ -914,7 +920,7 @@ function isSameRequestOrigin(origin: string, hostHeader: string | undefined): bo
   }
 }
 
-/** 从请求头提取访问口令（Authorization: Bearer 或 x-butler-token）。不读 URL query。 */
+/** 从请求头提取访问口令（Authorization: Bearer、x-butler-token 或 x-butler-internal-token）。不读 URL query。 */
 function extractHeaderToken(req: IncomingMessage): string {
   const auth = req.headers["authorization"];
   if (typeof auth === "string" && auth.length > 0) {
@@ -923,6 +929,8 @@ function extractHeaderToken(req: IncomingMessage): string {
   }
   const header = req.headers["x-butler-token"];
   if (typeof header === "string" && header !== "") return header.trim();
+  const internal = req.headers["x-butler-internal-token"];
+  if (typeof internal === "string" && internal !== "") return internal.trim();
   return "";
 }
 
@@ -941,7 +949,17 @@ function tokensMatch(expected: string, presented: string): boolean {
 function isLoopbackConnection(req: IncomingMessage): boolean {
   const raw = req.socket?.remoteAddress ?? "";
   const host = raw.replace(/^::ffff:/i, "").toLowerCase();
-  return host === "127.0.0.1" || host === "::1" || host === "[::1]" || host === "localhost";
+  if (host === "127.0.0.1" || host === "::1" || host === "[::1]" || host === "localhost") {
+    return true;
+  }
+  // Docker Compose 内部网络桥接（Web 代理至 Watch）：当配置了 BUTLER_CREDENTIAL_WRITES_ALLOWED=true 时放行内网写操作
+  if (
+    process.env["BUTLER_CREDENTIAL_WRITES_ALLOWED"] === "true" &&
+    (host.startsWith("172.") || host.startsWith("10.") || host.startsWith("192.168.") || host === "butler-web")
+  ) {
+    return true;
+  }
+  return false;
 }
 
 /**

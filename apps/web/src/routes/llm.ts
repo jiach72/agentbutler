@@ -75,9 +75,16 @@ export async function registerLlmRoutes(
   app.delete("/api/llm/profiles/:id", async (request, reply) => {
     const id = encodeURIComponent((request.params as { id?: string }).id ?? "");
     let res: Response;
+    const accessToken = (process.env["BUTLER_ACCESS_TOKEN"] ?? "").trim();
+    const internalToken = (process.env["BUTLER_INTERNAL_TOKEN"] ?? "").trim();
     try {
       res = await doFetch(`${watchUrl}/api/llm/profiles/${id}`, {
         method: "DELETE",
+        headers: {
+          origin: "http://127.0.0.1:7531",
+          ...(accessToken === "" ? {} : { "x-butler-token": accessToken }),
+          ...(internalToken === "" ? {} : { "x-butler-internal-token": internalToken }),
+        },
         signal: AbortSignal.timeout(15_000),
       });
     } catch {

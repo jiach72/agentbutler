@@ -733,7 +733,8 @@ const LEGACY_PROMPT_TAB = "prompt-optimization";
  * 约定：history / prompts / messages / settings 直用；
  * channels / rules 兼容映射到 settings；
  * optimization / prompt-optimization（旧深链）或 #prompt-optimization-panel 直接映射为 prompts；
- * 缺省、非法或空值一律回落主工作台即时通讯（history）。
+ * 缺省或非法值回落待处理消息（messages），符合先处理未解决消息的默认任务；
+ * 即时通讯工作台仍通过 ?tab=history 明确访问。
  */
 export function resolveGatewayTab(
   search: URLSearchParams | string,
@@ -759,7 +760,7 @@ export function resolveGatewayTab(
   ) {
     return "prompts";
   }
-  return "history";
+  return "messages";
 }
 
 /* ---- 通道分区与三态展示 ---- */

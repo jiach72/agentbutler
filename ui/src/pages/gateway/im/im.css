@@ -53,6 +53,18 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08) !important;
 }
 
+.im-action-chip.ant-btn {
+  height: 30px;
+  padding-inline: 9px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.im-action-chip.ant-btn:focus-visible {
+  outline: 2px solid var(--ab-primary);
+  outline-offset: 2px;
+}
+
 .im-conversation-list {
   flex: 1;
   overflow-y: auto;
@@ -362,4 +374,3 @@
 .im-scroll-bottom-btn:active {
   transform: translateY(0);
 }
-

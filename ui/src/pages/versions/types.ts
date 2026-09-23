@@ -152,6 +152,10 @@ export interface ButlerSelfView {
   repoClean: boolean;
   remoteConfigured: boolean;
   upgradeSupported?: boolean;
+  updater?: {
+    locked: boolean;
+    reason?: string;
+  };
   prefs: ButlerSelfPrefs;
   snapshots: ButlerSelfSnapshot[];
   availableUpdates: ButlerAvailableUpdate[];
