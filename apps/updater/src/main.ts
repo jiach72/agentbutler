@@ -61,10 +61,15 @@ const healthUrls = (process.env["BUTLER_UPDATER_HEALTH_URLS"]
  */
 // 优先使用独立口令 BUTLER_UPDATER_ACCESS_TOKEN，实现与面板口令的分层与轮换隔离；
 // 其次回退内部调用口令 BUTLER_INTERNAL_TOKEN，最后回退共享的 BUTLER_ACCESS_TOKEN。
+//
+// 必须用 `||` 而不是 `??`：Compose 用 `${VAR:-}` 注入未配置的变量，容器里拿到的是
+// **空字符串**，而空字符串不是 nullish —— `??` 会在第一项就停下，使上面声明的回退链
+// 在默认部署下完全失效（updater 因而进入 fail-closed，面板「一键升级/回滚」全 401）。
+// 见 #32。
 const accessToken = (
-  process.env["BUTLER_UPDATER_ACCESS_TOKEN"] ??
-  process.env["BUTLER_INTERNAL_TOKEN"] ??
-  process.env["BUTLER_ACCESS_TOKEN"] ??
+  process.env["BUTLER_UPDATER_ACCESS_TOKEN"] ||
+  process.env["BUTLER_INTERNAL_TOKEN"] ||
+  process.env["BUTLER_ACCESS_TOKEN"] ||
   ""
 ).trim();
 
