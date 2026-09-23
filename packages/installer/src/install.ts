@@ -258,11 +258,22 @@ export async function runMaintenance(options: MaintenanceOptions): Promise<Maint
       detail: "原生 Windows 没有已注册的 Butler systemd 服务；如通过任务计划运行，请在任务计划程序中停止 Agent Butler 任务",
     });
   } else {
-    steps.push(await runExecStep(exec, "services-stop", "停止 Butler 用户服务", {
-      command: "systemctl",
-      args: ["--user", "disable", "--now", ...BUTLER_SERVICES.map((service) => `${service}.service`)],
-      timeoutMs: 30_000,
-    }, false));
+    // CI / Docker / 无 systemd 的 WSL 常没有用户级 systemd 总线；此时跳过
+    // 服务停止但继续文件清理，避免整条维护流程被 systemctl 失败阻断。
+    const systemdProbe = await exec("systemctl", ["--user", "show-environment"], { timeoutMs: 10_000 });
+    if (systemdProbe.code !== 0) {
+      steps.push({
+        id: "services-stop",
+        status: "skipped",
+        detail: "未检测到可用的 user-systemd（systemctl --user show-environment 退出码 " + systemdProbe.code + "），跳过服务停止并继续文件清理",
+      });
+    } else {
+      steps.push(await runExecStep(exec, "services-stop", "停止 Butler 用户服务", {
+        command: "systemctl",
+        args: ["--user", "disable", "--now", ...BUTLER_SERVICES.map((service) => `${service}.service`)],
+        timeoutMs: 30_000,
+      }, false));
+    }
   }
   // systemd 不存在时继续清理文件；删除动作本身仍被限制在明确的 Butler home。
   try {

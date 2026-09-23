@@ -248,7 +248,7 @@ describe("createSkillsManagerCli", () => {
       const hermes = join(tmp, "hermes-skills");
       mkdirSync(hermes, { recursive: true });
       const { exec, calls } = makeExec();
-      const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), hermesSkillsDir: hermes, execFile: exec });
+      const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), hermesSkillsDir: hermes, execFile: exec, autoDownload: false });
       await cli.deploy({ name: "demo" });
       expect(calls[0]!.args).toEqual(["skills", "deploy", "demo", "--agent", "claude_code", "--dry-run", "--json"]);
       expect(existsSync(join(tmp, "home", ".claude", "skills"))).toBe(true);

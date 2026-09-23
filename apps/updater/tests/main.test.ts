@@ -1,7 +1,7 @@
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { once } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import { delimiter, join, resolve } from "node:path";
 
@@ -25,6 +25,9 @@ let healthUrl = "";
 let composeArgsFile = "";
 let updater: RunningUpdater | undefined;
 let revisions: { from: string; target: string };
+let corepackBin = "";
+let composeBin = "";
+let dockerBin = "";
 
 function runGit(args: string[], cwd = sourceDir): string {
   return execFileSync("git", args, {
@@ -59,28 +62,60 @@ function makeRepository(): { from: string; target: string } {
 
 function writeCommandShims(): void {
   mkdirSync(binDir, { recursive: true });
-  writeFileSync(
-    join(binDir, "corepack.cmd"),
-    [
+  const isWin = process.platform === "win32";
+  const ext = isWin ? ".cmd" : "";
+  corepackBin = join(binDir, `corepack${ext}`);
+  composeBin = join(binDir, `docker-compose${ext}`);
+  dockerBin = join(binDir, `docker${ext}`);
+
+  if (isWin) {
+    writeFileSync(
+      corepackBin,
+      [
+        "@echo off",
+        "if /I \"%~2\"==\"build\" if not \"%BUTLER_UPDATER_TEST_BUILD_DELAY%\"==\"\" ping -n %BUTLER_UPDATER_TEST_BUILD_DELAY% 127.0.0.1 >nul",
+        "if /I \"%~2\"==\"build\" if not \"%BUTLER_UPDATER_TEST_BUILD_FAILURE_FILE%\"==\"\" if not exist \"%BUTLER_UPDATER_TEST_BUILD_FAILURE_FILE%\" (",
+        "  type nul > \"%BUTLER_UPDATER_TEST_BUILD_FAILURE_FILE%\"",
+        "  exit /b 1",
+        ")",
+        "exit /b 0",
+        "",
+      ].join("\r\n"),
+      "utf8",
+    );
+    const composeShim = [
       "@echo off",
-      "if /I \"%~2\"==\"build\" if not \"%BUTLER_UPDATER_TEST_BUILD_DELAY%\"==\"\" ping -n %BUTLER_UPDATER_TEST_BUILD_DELAY% 127.0.0.1 >nul",
-      "if /I \"%~2\"==\"build\" if not \"%BUTLER_UPDATER_TEST_BUILD_FAILURE_FILE%\"==\"\" if not exist \"%BUTLER_UPDATER_TEST_BUILD_FAILURE_FILE%\" (",
-      "  type nul > \"%BUTLER_UPDATER_TEST_BUILD_FAILURE_FILE%\"",
-      "  exit /b 1",
-      ")",
+      "if not \"%BUTLER_UPDATER_TEST_COMPOSE_ARGS_FILE%\"==\"\" echo %*>>\"%BUTLER_UPDATER_TEST_COMPOSE_ARGS_FILE%\"",
       "exit /b 0",
       "",
-    ].join("\r\n"),
-    "utf8",
-  );
-  const composeShim = [
-    "@echo off",
-    "if not \"%BUTLER_UPDATER_TEST_COMPOSE_ARGS_FILE%\"==\"\" echo %*>>\"%BUTLER_UPDATER_TEST_COMPOSE_ARGS_FILE%\"",
-    "exit /b 0",
+    ].join("\r\n");
+    writeFileSync(composeBin, composeShim, "utf8");
+    writeFileSync(dockerBin, composeShim, "utf8");
+    return;
+  }
+
+  const corepackShim = [
+    "#!/bin/sh",
+    "if [ \"$2\" = \"build\" ] && [ -n \"${BUTLER_UPDATER_TEST_BUILD_DELAY:-}\" ]; then sleep \"${BUTLER_UPDATER_TEST_BUILD_DELAY}\"; fi",
+    "if [ \"$2\" = \"build\" ] && [ -n \"${BUTLER_UPDATER_TEST_BUILD_FAILURE_FILE:-}\" ] && [ ! -e \"$BUTLER_UPDATER_TEST_BUILD_FAILURE_FILE\" ]; then",
+    "  : > \"$BUTLER_UPDATER_TEST_BUILD_FAILURE_FILE\"",
+    "  exit 1",
+    "fi",
+    "exit 0",
     "",
-  ].join("\r\n");
-  writeFileSync(join(binDir, "docker-compose.cmd"), composeShim, "utf8");
-  writeFileSync(join(binDir, "docker.cmd"), composeShim, "utf8");
+  ].join("\n");
+  writeFileSync(corepackBin, corepackShim, "utf8");
+  chmodSync(corepackBin, 0o755);
+  const composeShim = [
+    "#!/bin/sh",
+    "if [ -n \"${BUTLER_UPDATER_TEST_COMPOSE_ARGS_FILE:-}\" ]; then printf '%s\\n' \"$*\" >> \"$BUTLER_UPDATER_TEST_COMPOSE_ARGS_FILE\"; fi",
+    "exit 0",
+    "",
+  ].join("\n");
+  writeFileSync(composeBin, composeShim, "utf8");
+  chmodSync(composeBin, 0o755);
+  writeFileSync(dockerBin, composeShim, "utf8");
+  chmodSync(dockerBin, 0o755);
 }
 
 async function startHealthServer(): Promise<void> {
@@ -122,8 +157,8 @@ async function startUpdater(options: { failBuildOnce?: boolean; composeBinary?: 
       BUTLER_UPDATER_SOURCE: sourceDir,
       BUTLER_COMPOSE_PROJECT_DIR: sourceDir,
       BUTLER_COMPOSE_FILE: "docker-compose.yml",
-      BUTLER_COMPOSE_BIN: options.composeBinary ?? join(binDir, "docker-compose.cmd"),
-      BUTLER_UPDATER_COREPACK_BIN: join(binDir, "corepack.cmd"),
+      BUTLER_COMPOSE_BIN: options.composeBinary ?? composeBin,
+      BUTLER_UPDATER_COREPACK_BIN: corepackBin,
       BUTLER_UPDATER_SERVICES: "butler-web",
       BUTLER_UPDATER_HOST: "127.0.0.1",
       BUTLER_UPDATER_PORT: String(port),
@@ -240,7 +275,7 @@ describe("butler-updater security and rollback", () => {
   }, 15_000);
 
   it("uses the Docker Compose v2 subcommand when configured with docker", async () => {
-    updater = await startUpdater({ composeBinary: join(binDir, "docker.cmd") });
+    updater = await startUpdater({ composeBinary: dockerBin });
     const response = await request("/api/upgrade", {
       method: "POST",
       headers: { "content-type": "application/json", "x-butler-token": TOKEN },

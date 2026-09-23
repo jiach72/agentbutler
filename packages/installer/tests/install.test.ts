@@ -323,7 +323,8 @@ describe("runMaintenance reset/uninstall", () => {
       const home = path.join(root, "butler-home");
       fs.mkdirSync(path.join(home, "nested"), { recursive: true });
       fs.writeFileSync(path.join(home, "nested", "state.json"), "remove");
-      const result = await runMaintenance({ command: "reset", confirmed: true, homeDir: home, repoDir: path.join(root, "repo") });
+      const { exec } = fakeExec();
+      const result = await runMaintenance({ command: "reset", confirmed: true, homeDir: home, repoDir: path.join(root, "repo"), exec });
       expect(result.success).toBe(true);
       expect(fs.existsSync(home)).toBe(true);
       expect(fs.readdirSync(home)).toEqual([]);
@@ -338,7 +339,8 @@ describe("runMaintenance reset/uninstall", () => {
       const home = path.join(root, "butler-home");
       fs.mkdirSync(home, { recursive: true });
       fs.writeFileSync(path.join(home, "state.json"), "remove");
-      const result = await runMaintenance({ command: "uninstall", confirmed: true, homeDir: home, repoDir: path.join(root, "repo") });
+      const { exec } = fakeExec();
+      const result = await runMaintenance({ command: "uninstall", confirmed: true, homeDir: home, repoDir: path.join(root, "repo"), exec });
       expect(result.success).toBe(true);
       expect(fs.existsSync(home)).toBe(false);
     } finally {

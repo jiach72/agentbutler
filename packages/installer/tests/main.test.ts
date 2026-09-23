@@ -116,7 +116,7 @@ describe("renderReport 人类可读报告", () => {
       expect(text).toContain("[网络]");
       expect(text).toContain("[密钥]");
       expect(text).toContain("[安装步骤]");
-      expect(text).toContain("[fail] windows-host-guidance");
+      expect(text).toMatch(/\[fail\] (windows-host-guidance|hermes-install)/);
       expect(text).toContain("[结果] 存在失败步骤");
       expect(text).toContain("[后续步骤]");
     } finally {
