@@ -63,16 +63,17 @@ export type PageConclusionView = ConclusionBarProps;
 
 export function ConclusionBar({ tone, title, copy, action, extra }: ConclusionBarProps) {
   return (
-    <Flex vertical gap={12}>
+    <Flex vertical gap={12} className="mb-6">
       <Alert
+        className="ethereal-conclusion-alert rounded-2xl md:rounded-3xl p-4 md:p-6 border border-outline-variant/20 shadow-xs transition-all bento-card-hover"
         type={TONE_TO_ALERT_TYPE[tone]}
         showIcon
-        title={title}
-        description={copy}
-        action={action ? <Flex gap={8}>{action}</Flex> : undefined}
+        title={<span className="text-base md:text-lg font-semibold text-on-surface tracking-tight">{title}</span>}
+        description={copy ? <div className="text-sm md:text-base text-on-surface-variant mt-1.5 leading-relaxed">{copy}</div> : undefined}
+        action={action ? <Flex gap={10} align="center">{action}</Flex> : undefined}
       />
       {extra ? (
-        <Flex wrap="wrap" align="center" gap={8}>
+        <Flex wrap="wrap" align="center" gap={12} className="px-2 text-xs md:text-sm text-on-surface-variant font-mono">
           {extra}
         </Flex>
       ) : null}

@@ -1,6 +1,6 @@
 /**
  * 即时通讯工作台：底部拟真输入基座（IMMessageInput）。
- * - 紧随用户原型：内置「✨ 增强提示词」Sparkle 按钮（与参考截图红框 100% 对齐）；
+ * - 紧随用户原型：内置「增强提示词」Sparkle 按钮（与参考截图红框 100% 对齐）；
  * - 智能平滑回写与一键撤回（Undo Capsule）；
  * - 多行自适应高度输入框，Enter 快捷发送，Shift+Enter 换行；
  * - 快捷运维指令 Chips 与加载状态。
@@ -25,6 +25,7 @@ import {
 } from "@ant-design/icons";
 import { enhancePrompt } from "./promptEnhancer.js";
 import type { BotProfile } from "./imTypes.js";
+import { EtherealIcon } from "../../../components/EtherealIcon.js";
 
 const { TextArea } = Input;
 const { Text } = Typography;
@@ -64,7 +65,7 @@ export function IMMessageInput(props: IMMessageInputProps) {
     return () => clearTimeout(timer);
   }, [undoState]);
 
-  // 处理智能提示词增强（点击 ✨ 按钮）
+  // 处理智能提示词增强（点击 Sparkle 按钮）
   const handleEnhancePrompt = async () => {
     const raw = inputText.trim();
     if (!raw || isEnhancing) return;
@@ -152,8 +153,8 @@ export function IMMessageInput(props: IMMessageInputProps) {
       {/* 优化后一键撤回胶囊 (Undo Capsule) */}
       {undoState && (
         <div className="im-undo-capsule">
-          <span style={{ color: "var(--ant-color-primary)", fontWeight: 500 }}>
-            ✨ 已为您增强提示词
+          <span style={{ color: "var(--ant-color-primary)", fontWeight: 500, display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <EtherealIcon name="sparkle" size={14} /> 已为您增强提示词
           </span>
           <Button
             type="link"
@@ -229,7 +230,7 @@ export function IMMessageInput(props: IMMessageInputProps) {
         </Text>
 
         <Flex align="center" gap={10}>
-          {/* ✨ 提示词增强按钮（高保真还原参考图红框） */}
+          {/* 提示词增强按钮（高保真还原参考图红框） */}
           <Tooltip title="AI 智能增强提示词（去除口语客套，将草稿结构化规范为专业指令）">
             <button
               type="button"
@@ -238,7 +239,7 @@ export function IMMessageInput(props: IMMessageInputProps) {
               disabled={!hasText || isEnhancing || props.disabled}
               aria-label="增强提示词"
             >
-              ✨
+              <EtherealIcon name="sparkle" size={15} />
             </button>
           </Tooltip>
 
@@ -308,8 +309,8 @@ export function IMMessageInput(props: IMMessageInputProps) {
             </div>
 
             <div>
-              <Text strong style={{ fontSize: 13, color: "var(--ant-color-primary)" }}>
-                ✨ 增强后提示词：
+              <Text strong style={{ fontSize: 13, color: "var(--ant-color-primary)", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <EtherealIcon name="sparkle" size={14} /> 增强后提示词：
               </Text>
               <div
                 style={{

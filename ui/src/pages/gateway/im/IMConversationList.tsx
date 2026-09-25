@@ -22,6 +22,7 @@ import {
   PlusOutlined,
   RobotOutlined,
   SearchOutlined,
+  CompassOutlined,
   WechatOutlined,
   ApiOutlined,
   MessageOutlined,
@@ -29,7 +30,7 @@ import {
   UserOutlined,
 } from "@ant-design/icons";
 import type { IMConversation } from "./imTypes.js";
-import { DEFAULT_DIRECT_CONVERSATION_ID, DEFAULT_GROUP_CONVERSATION_ID } from "./imSessionStore.js";
+import { DEFAULT_DIRECT_CONVERSATION_ID } from "./imSessionStore.js";
 
 const { Text } = Typography;
 
@@ -67,9 +68,8 @@ function getConversationAvatar(conv: IMConversation) {
           flexShrink: 0,
           fontSize: 16,
         }}
-      >
-        🔍
-      </Avatar>
+        icon={<SearchOutlined />}
+      />
     );
   }
 
@@ -83,9 +83,8 @@ function getConversationAvatar(conv: IMConversation) {
           flexShrink: 0,
           fontSize: 16,
         }}
-      >
-        🔭
-      </Avatar>
+        icon={<CompassOutlined />}
+      />
     );
   }
 

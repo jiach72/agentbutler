@@ -7,7 +7,7 @@
  * 数据真相原则：Hermes 未提供成本列时显示「还没有金额字段」而非 0——不伪造。
  */
 import { money, USD_TO_CNY } from "../../lib/format.js";
-import { App, Button, Card, Flex, Form, InputNumber, Modal, Progress, Segmented, Select, Table, Tooltip, Typography } from "antd";
+import { App, Button, Card, Flex, Form, InputNumber, Modal, Progress, Segmented, Select, Table, Typography } from "antd";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { SettingOutlined, ThunderboltOutlined, WalletOutlined } from "@ant-design/icons";
@@ -20,6 +20,7 @@ import type { StatStripItem } from "../../components/StatStrip.js";
 import { useUrlState } from "../../hooks/useUrlState.js";
 import { usePolling } from "../../hooks/usePolling.js";
 import { loadJson, postJson } from "../../lib/api.js";
+import { DailyCostChart } from "./DailyCostChart.js";
 
 interface CostSummary {
   rangeDays: number;
@@ -156,7 +157,7 @@ export function CostPage() {
   const budgetFootNote =
     budgetEnabled && budget.threshold !== "ok"
       ? `触线动作：${budget.action === "alert" ? "仅告警" : budget.action} · 核算于 ${
-          budget.lastCheckedAt !== null ? new Date(budget.lastCheckedAt).toLocaleString() : "—"
+          budget.lastCheckedAt !== null ? new Date(budget.lastCheckedAt).toLocaleString() : "-"
         }`
       : null;
 
@@ -204,7 +205,7 @@ export function CostPage() {
                     tone: "ok",
                     title: budgetEnabled ? "花费在预算之内" : "还没有设置预算，只能看到已花金额",
                     copy: budgetEnabled
-                      ? `预算余量 ${money(budgetLeft)}（已用 ${budgetRatioPct ?? "—"}%），按当前速度不会触线。`
+                      ? `预算余量 ${money(budgetLeft)}（已用 ${budgetRatioPct ?? "-"}%），按当前速度不会触线。`
                       : "点右上「预算设置」，设一个数字就能看到余量和触线预测。",
                   };
 
@@ -213,7 +214,7 @@ export function CostPage() {
       key: "spent",
       icon: WalletOutlined,
       label: `${RANGES.find((r) => r.value === rangeDays)?.label ?? ""}已花`,
-      value: totalCost === null ? "—" : (totalCost * USD_TO_CNY).toFixed(2),
+      value: totalCost === null ? "-" : (totalCost * USD_TO_CNY).toFixed(2),
       unit: totalCost === null ? undefined : "元",
       sub:
         summary?.total.actualUsd !== null && summary?.total.actualUsd !== undefined
@@ -239,7 +240,7 @@ export function CostPage() {
       key: "daily-burn",
       icon: ThunderboltOutlined,
       label: "日均燃速",
-      value: dailyBurn === null ? "—" : (dailyBurn * USD_TO_CNY).toFixed(2),
+      value: dailyBurn === null ? "-" : (dailyBurn * USD_TO_CNY).toFixed(2),
       unit: dailyBurn === null ? undefined : "元/天",
       sub: projectedLabel === "" ? `按 ${dayCount} 天窗口计算` : projectedLabel,
     },
@@ -305,6 +306,7 @@ export function CostPage() {
                           from: "var(--ab-primary)",
                           to: "color-mix(in srgb, var(--ab-primary) 45%, var(--ab-surface))",
                         }}
+                        trailColor="var(--ab-surface-2)"
                         size="small"
                       />
                     ) : (
@@ -319,39 +321,15 @@ export function CostPage() {
           )}
         </Card>
 
-        <Card title="按日成本">
+        <Card title="按日成本趋势">
           {summary === null || summary.days.length === 0 ? (
             <Empty title="窗口内还没有按日数据" hint="管家按天汇总用量；有记录后这里会画出趋势。" mascotWidth={72} />
           ) : (
-            <>
-              {/* 键盘/触屏用户拿不到 hover Tooltip，所以把可读结论先写在卡头（评审 P2-5）。 */}
-              <Typography.Text type="secondary" style={{ display: "block", marginBottom: 8 }}>
-                峰值 {money(maxDayCost >= 0.000001 ? maxDayCost : 0)} · 合计 {money(totalCost)}
-              </Typography.Text>
-              <Flex gap={4} align="flex-end" style={{ height: 120 }}>
-                {summary.days.map((day) => {
-                  const cost = day.actualCostUsd ?? day.estimatedCostUsd ?? 0;
-                  const height = Math.max(2, Math.round((cost / maxDayCost) * 100));
-                  return (
-                    <Tooltip key={day.date} title={`${day.date}：${money(day.actualCostUsd ?? day.estimatedCostUsd)}`}>
-                      <div
-                        tabIndex={0}
-                        role="img"
-                        aria-label={`${day.date}：${money(day.actualCostUsd ?? day.estimatedCostUsd)}`}
-                        style={{
-                          flex: 1,
-                          height: `${height}%`,
-                          background:
-                            "linear-gradient(180deg, var(--ab-primary), color-mix(in srgb, var(--ab-primary) 45%, var(--ab-surface)))",
-                          borderRadius: 2,
-                          minWidth: 6,
-                        }}
-                      />
-                    </Tooltip>
-                  );
-                })}
-              </Flex>
-            </>
+            <DailyCostChart
+              days={summary.days}
+              maxDayCost={maxDayCost}
+              totalCost={totalCost}
+            />
           )}
         </Card>
 

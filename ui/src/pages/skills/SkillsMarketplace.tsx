@@ -877,7 +877,7 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
         statusTag={
           update?.status === "available"
             ? {
-                text: update.latestVersion ? `可更新 ➔ v${update.latestVersion}` : "有可用更新",
+                text: update.latestVersion ? `可更新 → v${update.latestVersion}` : "有可用更新",
                 color: "warning",
               }
             : undefined
@@ -888,7 +888,7 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
               item.version === null
                 ? "版本未知"
                 : update?.status === "available" && update.latestVersion
-                  ? `当前 v${item.version} ➔ 最新 v${update.latestVersion}`
+                  ? `当前 v${item.version} → 最新 v${update.latestVersion}`
                   : `v${item.version}`,
               item.installedAt === null ? null : `装于 ${formatTime(item.installedAt)}`,
               update?.status === "unknown" ? update.reason ?? "更新检查失败" : null,
@@ -1055,7 +1055,7 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
                 <span>
                   有可用更新
                   {availableUpdates.length > 0 && installedUpdateFilter !== "updates_only" && (
-                    <span style={{ fontSize: 11, marginLeft: 6, color: "#fa8c16" }}>点击筛选 ➔</span>
+                    <span style={{ fontSize: 11, marginLeft: 6, color: "#fa8c16" }}>点击筛选 →</span>
                   )}
                 </span>
               }
@@ -1084,7 +1084,7 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
                 当前仅展示 <strong>{availableUpdates.length} 个有可用更新</strong>的技能（本机共已安装 {localItems.length} 个）
               </span>
               <Button size="small" type="link" onClick={() => setInstalledUpdateFilter("all")}>
-                清除筛选，查看全部已安装技能 ➔
+                清除筛选，查看全部已安装技能 →
               </Button>
             </Flex>
           }
@@ -1199,7 +1199,7 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
                 }}
                 onClick={goToUpdatesOnly}
               >
-                待更新 {availableUpdates.length} 个 ➔
+                待更新 {availableUpdates.length} 个 →
               </Button>
             ) : (
               `待更新 ${availableUpdates.length} 个`

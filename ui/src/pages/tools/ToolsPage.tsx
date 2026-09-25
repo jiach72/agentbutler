@@ -40,6 +40,7 @@ import { ConclusionBar } from "../../components/ConclusionBar.js";
 import { AdvancedEvidence } from "../../components/AdvancedEvidence.js";
 import { DiagnosticsCenter } from "../settings/DiagnosticsCenter.js";
 import { MemoryProbeConfigCard } from "../settings/MemoryProbeConfigCard.js";
+import { HermesGuideCard } from "./HermesGuideCard.js";
 import { loadJson } from "../../lib/api.js";
 import { routeMetaFor } from "../../lib/routeMeta.js";
 import { settingsToolPaths } from "../settings/categories.js";
@@ -232,6 +233,9 @@ export function ToolsPage() {
             <Button size="small" href="/core-files">直达核心文件</Button>
           </Flex>
         </div>
+
+        {/* Hermes 引擎核心指引与常用运维命令 */}
+        <HermesGuideCard />
 
         {/* 专区 1：链路诊断与系统维护（包含自动化选择器匹配文本） */}
         <div className="tools-section">

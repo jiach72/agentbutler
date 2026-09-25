@@ -26,36 +26,35 @@
   inset: 0;
   pointer-events: none;
   background: radial-gradient(2200px 1200px at 50% -8%, var(--glow), transparent 60%);
-  animation: wall-glow-pulse 10s ease-in-out infinite;
   transform-origin: 50% 0;
 }
 
 .wall-root[data-wall-theme="dark"] {
-  --canvas: #081220;
-  --glow: #0d1f35;
-  --surface: #0f2136;
-  --surface-2: #122a45;
-  --bd: #1e3a55;
-  --bd-glow: rgba(77, 163, 255, 0.28);
-  --accent: #4da3ff;
-  --accent-soft: rgba(77, 163, 255, 0.14);
-  --cyan: #2ee6c8;
+  --canvas: #090d14;
+  --glow: #101622;
+  --surface: #0f1724;
+  --surface-2: #162032;
+  --bd: #1e2c44;
+  --bd-glow: rgba(56, 152, 236, 0.25);
+  --accent: #3898ec;
+  --accent-soft: rgba(56, 152, 236, 0.12);
+  --cyan: #22d3ee;
   --brass: #c8a15a;
   --brass-soft: rgba(200, 161, 90, 0.14);
-  --text: #e9f0f7;
-  --text-2: #afc0d1;
-  --text-3: #7e93a8;
-  --corner: #4da3ff;
-  --ok: #35d0ba;
-  --ok-soft: rgba(53, 208, 186, 0.12);
-  --warn: #ffc53d;
-  --warn-soft: rgba(255, 197, 61, 0.12);
-  --error: #ff7875;
-  --error-soft: rgba(255, 120, 117, 0.12);
-  --track: rgba(126, 147, 168, 0.16);
-  --card-grad: linear-gradient(165deg, #122a45 0%, #0c1e33 100%);
-  --panel-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
-  --num-glow: 0 0 18px rgba(77, 163, 255, 0.35);
+  --text: #f1f5f9;
+  --text-2: #94a3b8;
+  --text-3: #64748b;
+  --corner: #3898ec;
+  --ok: #2dd4bf;
+  --ok-soft: rgba(45, 212, 191, 0.12);
+  --warn: #fbbf24;
+  --warn-soft: rgba(251, 191, 36, 0.12);
+  --error: #f87171;
+  --error-soft: rgba(248, 113, 113, 0.12);
+  --track: rgba(148, 163, 184, 0.12);
+  --card-grad: linear-gradient(165deg, #131c2b 0%, #0d1522 100%);
+  --panel-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  --num-glow: none;
 }
 .wall-root[data-wall-theme="light"] {
   --canvas: #f2f5fa;
@@ -89,17 +88,13 @@
 .wall-root,
 .wall-root * {
   box-sizing: border-box;
-  font-family: "Inter", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  font-family: "Plus Jakarta Sans", "Inter", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
 }
 
-.wall-corner { position: absolute; width: 280px; height: 280px; pointer-events: none; z-index: 21; color: var(--corner); }
-.wall-corner.tl { left: 0; top: 0; }
-.wall-corner.tr { right: 0; top: 0; transform: scaleX(-1); }
-.wall-corner.bl { left: 0; bottom: 0; transform: scaleY(-1); }
-.wall-corner.br { right: 0; bottom: 0; transform: scale(-1); }
+.wall-corner { display: none; }
 
 .wall-stage {
   position: absolute;
@@ -203,16 +198,6 @@ button.wall-theme-toggle:hover { border-color: var(--accent); color: var(--text)
   min-width: 0;
   overflow: hidden;
 }
-.wall-kpi::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 4px;
-  background: linear-gradient(90deg, var(--accent), transparent 70%);
-  opacity: 0.55;
-}
 @keyframes wall-alert-pulse {
   0%, 100% {
     box-shadow: var(--panel-shadow);
@@ -228,10 +213,8 @@ button.wall-theme-toggle:hover { border-color: var(--accent); color: var(--text)
   border-color: var(--warn);
   animation: wall-alert-pulse 2.4s ease-in-out infinite;
 }
-.wall-kpi.tone-warn::before { background: var(--warn); }
 .wall-kpi.tone-warn .wall-kpi-value { color: var(--warn); text-shadow: 0 0 32px rgba(255, 197, 61, 0.3); }
 .wall-kpi.tone-error { border-color: var(--error); }
-.wall-kpi.tone-error::before { background: var(--error); }
 .wall-kpi.tone-error .wall-kpi-value { color: var(--error); }
 .wall-kpi.tone-brand .wall-kpi-value { color: var(--accent); }
 .wall-kpi.tone-cyan .wall-kpi-value { color: var(--cyan); }
@@ -273,20 +256,6 @@ button.wall-theme-toggle:hover { border-color: var(--accent); color: var(--text)
   min-height: 0;
   position: relative;
   overflow: hidden;
-}
-.wall-panel::before,
-.wall-panel::after { content: ""; position: absolute; width: 28px; height: 28px; pointer-events: none; }
-.wall-panel::before {
-  top: -1px; left: -1px;
-  border-top: 4px solid var(--bd-glow);
-  border-left: 4px solid var(--bd-glow);
-  border-top-left-radius: 28px;
-}
-.wall-panel::after {
-  bottom: -1px; right: -1px;
-  border-bottom: 4px solid var(--bd-glow);
-  border-right: 4px solid var(--bd-glow);
-  border-bottom-right-radius: 28px;
 }
 .wall-panel-title { font-size: 30px; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 18px; line-height: 1.4; }
 .wall-panel-title::before {

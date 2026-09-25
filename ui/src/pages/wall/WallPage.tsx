@@ -88,7 +88,7 @@ function formatClock(date: Date): string {
 }
 
 function relativeTime(iso: string | null): string {
-  if (iso === null) return "—";
+  if (iso === null) return "-";
   const delta = Date.now() - new Date(iso).getTime();
   if (Number.isNaN(delta) || delta < 0) return "刚刚";
   if (delta < 60_000) return `${Math.max(1, Math.floor(delta / 1000))}s 前`;
@@ -198,18 +198,18 @@ export function WallPage() {
   // 超采样 DPR：保底锁定至少 2x，杜绝位图模糊
   const chartDpr = Math.min(Math.max(window.devicePixelRatio, 2), 3);
 
-  const successRateText = view.successRate === null ? "—" : view.successRate.toFixed(1);
-  const p95Text = view.p95Ms === null ? "—" : view.p95Ms >= 1000 ? `${(view.p95Ms / 1000).toFixed(1)}s` : `${view.p95Ms}ms`;
+  const successRateText = view.successRate === null ? "-" : view.successRate.toFixed(1);
+  const p95Text = view.p95Ms === null ? "-" : view.p95Ms >= 1000 ? `${(view.p95Ms / 1000).toFixed(1)}s` : `${view.p95Ms}ms`;
   const relayText = view.relayEnabled === null
     ? "消息状态未知"
     : view.relayEnabled
       ? (view.relayPending === true ? "管线切换待生效" : "Butler 管线接管中")
       : "Hermes 通道直发";
-  const versionText = data.health?.services.gateway.serviceVersion ?? "—";
+  const versionText = data.health?.services.gateway.serviceVersion ?? "-";
   const updatedText = data.lastRefreshAt === null ? "--:--:--" : formatClock(data.lastRefreshAt).slice(11);
-  const cpuText = view.cpuPercent === null ? "—" : Math.round(view.cpuPercent).toString();
-  const memText = view.memPercent === null ? "—" : `${Math.round(view.memPercent)}%`;
-  const diskText = view.diskPercent === null ? "—" : `${Math.round(view.diskPercent)}%`;
+  const cpuText = view.cpuPercent === null ? "-" : Math.round(view.cpuPercent).toString();
+  const memText = view.memPercent === null ? "-" : `${Math.round(view.memPercent)}%`;
+  const diskText = view.diskPercent === null ? "-" : `${Math.round(view.diskPercent)}%`;
   const diskWarn = view.diskPercent !== null && view.diskPercent >= 75;
   const alertTone = view.openAlerts > 0 ? "warn" : undefined;
 
@@ -284,7 +284,7 @@ export function WallPage() {
   const bridgeConnected = bridge?.connected === true;
   const linkRows: Array<{ k: string; v: string; ok: boolean | null }> = [
     { k: "Bridge 连接", v: bridge === null ? "状态未知" : bridgeConnected ? "已连接" : "离线（自愈重试中）", ok: bridge === null ? null : bridgeConnected },
-    { k: "Bridge 进程", v: bridge?.running === undefined ? "—" : bridge.running ? "运行中" : "未运行", ok: bridge?.running ?? null },
+    { k: "Bridge 进程", v: bridge?.running === undefined ? "-" : bridge.running ? "运行中" : "未运行", ok: bridge?.running ?? null },
     { k: "消息管线", v: relayText, ok: view.relayEnabled === null ? null : view.relayEnabled },
     { k: "Outbox 积压", v: `${view.pendingMessages} 条`, ok: view.pendingMessages === 0 },
   ];
@@ -296,24 +296,6 @@ export function WallPage() {
 
   return (
     <div className="wall-root" data-wall-theme={theme}>
-      {/* 四角装饰：统一双 path + currentColor，颜色随主题切换（审计 P2-2）。 */}
-      <svg className="wall-corner tl" viewBox="0 0 140 140" aria-hidden="true">
-        <path d="M0 0 H84 V3 H3 V84 H0 Z" fill="currentColor" opacity=".5" />
-        <path d="M0 26 H26 V0 H29 V29 H0 Z" fill="currentColor" opacity=".25" />
-      </svg>
-      <svg className="wall-corner tr" viewBox="0 0 140 140" aria-hidden="true">
-        <path d="M0 0 H84 V3 H3 V84 H0 Z" fill="currentColor" opacity=".5" />
-        <path d="M0 26 H26 V0 H29 V29 H0 Z" fill="currentColor" opacity=".25" />
-      </svg>
-      <svg className="wall-corner bl" viewBox="0 0 140 140" aria-hidden="true">
-        <path d="M0 0 H84 V3 H3 V84 H0 Z" fill="currentColor" opacity=".5" />
-        <path d="M0 26 H26 V0 H29 V29 H0 Z" fill="currentColor" opacity=".25" />
-      </svg>
-      <svg className="wall-corner br" viewBox="0 0 140 140" aria-hidden="true">
-        <path d="M0 0 H84 V3 H3 V84 H0 Z" fill="currentColor" opacity=".5" />
-        <path d="M0 26 H26 V0 H29 V29 H0 Z" fill="currentColor" opacity=".25" />
-      </svg>
-
       <div className="wall-stage" ref={stageRef}>
         {/* A 标题区 */}
         <header className="wall-header">
@@ -379,7 +361,7 @@ export function WallPage() {
           />
           <KpiCard
             label="24h Token 消耗"
-            value={latestTokensWan === null ? "—" : latestTokensWan.toLocaleString()}
+            value={latestTokensWan === null ? "-" : latestTokensWan.toLocaleString()}
             unit={latestTokensWan === null ? undefined : "万"}
             foot={sevenDayTokensWan === null ? "7 日待接入" : `7 日累计 ${sevenDayTokensWan.toLocaleString()} 万`}
             footExtra="↑ 60s"
@@ -388,7 +370,7 @@ export function WallPage() {
           />
           <KpiCard
             label="30日 模型成本"
-            value={costReady && view.costTotalUsd !== null ? (view.costTotalUsd * USD_TO_CNY).toFixed(2) : "—"}
+            value={costReady && view.costTotalUsd !== null ? (view.costTotalUsd * USD_TO_CNY).toFixed(2) : "-"}
             unit={costReady && view.costTotalUsd !== null ? "元" : undefined}
             foot={data.costSummary === null ? "cost/summary 读取中" : costReady ? "实际账单优先" : "金额字段未接入"}
             footExtra="↑ 60s"
@@ -399,7 +381,7 @@ export function WallPage() {
           />
           <KpiCard
             label="月度预算执行"
-            value={view.budgetEnabled && view.budgetRatioPct !== null ? `${view.budgetRatioPct}` : "—"}
+            value={view.budgetEnabled && view.budgetRatioPct !== null ? `${view.budgetRatioPct}` : "-"}
             unit={view.budgetEnabled && view.budgetRatioPct !== null ? "%" : undefined}
             foot={data.budget === null ? "budget 读取中" : view.budgetEnabled ? `月度上限 ¥${((data.budget.budgetUsd) * USD_TO_CNY).toFixed(0)}` : "未设置预算"}
             footExtra="↑ 60s"
@@ -574,11 +556,11 @@ export function WallPage() {
               <div className="wall-panel-title">进化守门<span className="wall-psrc">fingerprints · proposals · 60s</span></div>
               <div className="wall-guard">
                 <div className="wall-gcell">
-                  <div className="wall-gv2">{view.fingerprints ?? "—"}</div>
+                  <div className="wall-gv2">{view.fingerprints ?? "-"}</div>
                   <div className="wall-gl">错误指纹</div>
                 </div>
                 <div className="wall-gcell">
-                  <div className="wall-gv2">{data.proposals?.proposals?.length ?? "—"}</div>
+                  <div className="wall-gv2">{data.proposals?.proposals?.length ?? "-"}</div>
                   <div className="wall-gl">待确认建议</div>
                 </div>
                 <div className="wall-gcell">
@@ -631,7 +613,7 @@ export function WallPage() {
                           <td>
                             <span style={{ display: "inline-flex", alignItems: "center", gap: "12px" }}>
                               <span className="wall-cost-bar"><i style={{ width: `${row.share ?? 0}%` }} /></span>
-                              <span className="num">{row.share === null ? "—" : `${row.share}%`}</span>
+                              <span className="num">{row.share === null ? "-" : `${row.share}%`}</span>
                             </span>
                           </td>
                         </tr>
@@ -655,11 +637,11 @@ export function WallPage() {
                   : (
                     <div className="wall-guard">
                       <div className="wall-gcell">
-                        <div className="wall-gv2">{view.budgetRatioPct ?? "—"}<small style={{ fontSize: 24 }}>%</small></div>
+                        <div className="wall-gv2">{view.budgetRatioPct ?? "-"}<small style={{ fontSize: 24 }}>%</small></div>
                         <div className="wall-gl">本月已执行</div>
                       </div>
                       <div className="wall-gcell">
-                        <div className="wall-gv2">{data.budget.spentUsd === null ? "—" : money(data.budget.spentUsd)}</div>
+                        <div className="wall-gv2">{data.budget.spentUsd === null ? "-" : money(data.budget.spentUsd)}</div>
                         <div className="wall-gl">本月已花</div>
                       </div>
                       <div className="wall-gcell">
@@ -688,8 +670,8 @@ export function WallPage() {
                     <td className={ch.failed > 0 ? "wall-num-error" : ""}>{ch.failed}</td>
                     <td>{ch.uncertain}</td>
                     <td>{(ch.successRate * 100).toFixed(1)}%</td>
-                    <td className="wall-mono">{ch.p50LatencyMs === null ? "—" : `${ch.p50LatencyMs}ms`}</td>
-                    <td className="wall-mono">{ch.p95LatencyMs === null ? "—" : `${ch.p95LatencyMs}ms`}</td>
+                    <td className="wall-mono">{ch.p50LatencyMs === null ? "-" : `${ch.p50LatencyMs}ms`}</td>
+                    <td className="wall-mono">{ch.p95LatencyMs === null ? "-" : `${ch.p95LatencyMs}ms`}</td>
                     <td>{ch.retries}</td>
                   </tr>
                 ))}

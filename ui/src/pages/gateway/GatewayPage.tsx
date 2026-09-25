@@ -560,6 +560,19 @@ export function GatewayPage() {
                     ? `另有 ${pendingAlerts} 条通知正在排队，暂时无需操作。`
                     : "已送达记录保留在发送历史中。"
           }
+          action={
+            recoveryState !== null ? (
+              <Button
+                type="primary"
+                loading={loading}
+                onClick={() =>
+                  recoveryState.action === "reconnect" ? void reconnectMessages() : void refresh()
+                }
+              >
+                {recoveryState.action === "reconnect" ? "重新连接" : "刷新"}
+              </Button>
+            ) : undefined
+          }
         />
 
         {/* 概览统计条：全部来自页面已有真实数据（接管状态 / 限流画像 / 告警队列计数）。 */}
@@ -617,43 +630,23 @@ export function GatewayPage() {
           ]}
         />
 
-        {recoveryState !== null && (
-          <>
-            <DegradedBanner
-              severity={recoveryState.severity}
-              message={recoveryState.title}
-              description={recoveryState.description}
-              action={
-                // §3.1 恢复路径是本区块的主操作，保留 primary；页头刷新降为 default。
-                <Button
-                  loading={loading}
-                  onClick={() =>
-                    recoveryState.action === "reconnect" ? void reconnectMessages() : void refresh()
-                  }
-                >
-                  {recoveryState.action === "reconnect" ? "重新连接" : "刷新"}
-                </Button>
-              }
-            />
-            {recoveryState.details.length > 0 && (
-              <AdvancedDetails
-                summary={
-                  <>
-                    <strong>另有 {recoveryState.details.length} 项受影响</strong>
-                    <small>不影响当前恢复操作</small>
-                  </>
-                }
-              >
-                <Flex vertical gap={8}>
-                  {recoveryState.details.map((detail) => (
-                    <Typography.Text key={detail.reason} type="secondary">
-                      <Typography.Text strong>{detail.title}</Typography.Text>：{detail.description}
-                    </Typography.Text>
-                  ))}
-                </Flex>
-              </AdvancedDetails>
-            )}
-          </>
+        {recoveryState !== null && recoveryState.details.length > 0 && (
+          <AdvancedDetails
+            summary={
+              <>
+                <strong>另有 {recoveryState.details.length} 项受影响</strong>
+                <small>不影响当前恢复操作</small>
+              </>
+            }
+          >
+            <Flex vertical gap={8}>
+              {recoveryState.details.map((detail) => (
+                <Typography.Text key={detail.reason} type="secondary">
+                  <Typography.Text strong>{detail.title}</Typography.Text>：{detail.description}
+                </Typography.Text>
+              ))}
+            </Flex>
+          </AdvancedDetails>
         )}
 
         <Tabs
@@ -661,34 +654,6 @@ export function GatewayPage() {
           onChange={handleTabChange}
           destroyOnHidden={false}
           items={[
-            {
-              key: "history",
-              label: GATEWAY_TAB_LABELS.history,
-              children: (
-                <WeChatHistoryView
-                  items={messageItems}
-                  counts={messageCounts}
-                  reachable={messagesReachable}
-                  selectedMessage={selectedMessage}
-                  onSelectMessage={setSelectedMessageId}
-                  taskData={taskData}
-                  taskLoading={taskLoading}
-                  onRedeliver={(messageId) => setConfirmRedeliverId(messageId)}
-                  redeliverBusy={redeliverBusy}
-                  onExpedite={(messageId) => void expediteMessage(messageId)}
-                  expediteBusy={expediteBusy}
-                />
-              ),
-            },
-            {
-              key: "prompts",
-              label: GATEWAY_TAB_LABELS.prompts,
-              children: (
-                <div id={PROMPT_OPTIMIZATION_ANCHOR}>
-                  <PromptOptimizationPanel />
-                </div>
-              ),
-            },
             {
               key: "messages",
               label: GATEWAY_TAB_LABELS.messages,
@@ -809,6 +774,34 @@ export function GatewayPage() {
                     </Flex>
                   </AdvancedDetails>
                 </Flex>
+              ),
+            },
+            {
+              key: "history",
+              label: GATEWAY_TAB_LABELS.history,
+              children: (
+                <WeChatHistoryView
+                  items={messageItems}
+                  counts={messageCounts}
+                  reachable={messagesReachable}
+                  selectedMessage={selectedMessage}
+                  onSelectMessage={setSelectedMessageId}
+                  taskData={taskData}
+                  taskLoading={taskLoading}
+                  onRedeliver={(messageId) => setConfirmRedeliverId(messageId)}
+                  redeliverBusy={redeliverBusy}
+                  onExpedite={(messageId) => void expediteMessage(messageId)}
+                  expediteBusy={expediteBusy}
+                />
+              ),
+            },
+            {
+              key: "prompts",
+              label: GATEWAY_TAB_LABELS.prompts,
+              children: (
+                <div id={PROMPT_OPTIMIZATION_ANCHOR}>
+                  <PromptOptimizationPanel />
+                </div>
               ),
             },
           ]}

@@ -21,6 +21,7 @@ import {
   CheckCircleFilled,
   PlusOutlined,
   ReloadOutlined,
+  RobotOutlined,
 } from "@ant-design/icons";
 import type { BotProfile } from "./imTypes.js";
 import { loadJson, postJson } from "../../../lib/api.js";
@@ -157,7 +158,7 @@ export function IMBotTemplateDrawer(props: IMBotTemplateDrawerProps) {
                         fontSize: 20,
                       }}
                     >
-                      {tpl.avatar || "🤖"}
+                      {tpl.avatar || <RobotOutlined style={{ fontSize: 20, color: "var(--ant-color-text-secondary)" }} />}
                     </div>
                     <div>
                       <Flex align="center" gap={8}>

@@ -25,7 +25,9 @@ Thumbs.db
 *.pid.lock
 
 # local agent/editor state
+.agents/
 .codex/
+.gemini/
 .loopx/
 .superpowers/
 .trae/

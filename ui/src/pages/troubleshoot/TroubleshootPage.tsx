@@ -18,6 +18,7 @@ import { EvidenceStep } from "./steps/EvidenceStep.js";
 import { ActionStep } from "./steps/ActionStep.js";
 import { ResultStep } from "./steps/ResultStep.js";
 import { TriageOverview } from "./steps/TriageOverview.js";
+import { TroubleshootFaq } from "./TroubleshootFaq.js";
 import { useTroubleshoot } from "./useTroubleshoot.js";
 import { isSymptomId } from "./symptoms.js";
 import "./troubleshoot.css";
@@ -72,20 +73,23 @@ export function TroubleshootPage() {
         />
 
         {wizard.stage === null && (
-          <TriageOverview
-            triage={wizard.triage}
-            triageBusy={wizard.triageBusy}
-            diagnosis={wizard.diagnosis}
-            recommended={wizard.recommended}
-            alternatives={wizard.ranked.filter((action) => action.available && action.id !== wizard.recommended?.id)}
-            jobRunning={jobRunning}
-            jobDetail={wizard.job?.detail ?? ""}
-            jobProgress={wizard.job?.progress ?? 0}
-            busy={wizard.busy}
-            onRerun={wizard.rerunTriage}
-            onRunAction={wizard.requestAction}
-            onOpenWizard={wizard.openWizard}
-          />
+          <>
+            <TriageOverview
+              triage={wizard.triage}
+              triageBusy={wizard.triageBusy}
+              diagnosis={wizard.diagnosis}
+              recommended={wizard.recommended}
+              alternatives={wizard.ranked.filter((action) => action.available && action.id !== wizard.recommended?.id)}
+              jobRunning={jobRunning}
+              jobDetail={wizard.job?.detail ?? ""}
+              jobProgress={wizard.job?.progress ?? 0}
+              busy={wizard.busy}
+              onRerun={wizard.rerunTriage}
+              onRunAction={wizard.requestAction}
+              onOpenWizard={wizard.openWizard}
+            />
+            <TroubleshootFaq onSelectSymptom={(symptomId) => wizard.chooseSymptom(symptomId)} />
+          </>
         )}
 
         {wizard.stage !== null && (

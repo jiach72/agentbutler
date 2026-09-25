@@ -233,13 +233,16 @@ html body .dense-descriptions .ant-descriptions-item-content {
 /* 数值默认 24px；页面可以在自己的作用域里收一档（如首页的证据层降到 20），
    不需要属性选择器，更不用 !important 对抗内联样式。 */
 .stat-strip-value {
-  font-size: var(--ab-text-size-xxl);
-  font-weight: 600;
+  font-size: 28px;
+  font-weight: 700;
+  font-family: var(--ab-mono);
   line-height: 1.2;
+  letter-spacing: -0.02em;
 }
 
 .stat-strip-meta {
-  font-size: var(--ab-text-size-xs);
+  font-size: var(--ab-text-size-sm);
+  font-weight: 500;
 }
 
 /* ---- 语义状态徽标（规范 03 §3.2：高 22 / 左右 padding 8 / 字号 12 / 字重 500 / 圆角 6）---- */
@@ -257,7 +260,7 @@ html body .dense-descriptions .ant-descriptions-item-content {
   white-space: nowrap;
 }
 .status-badge .anticon {
-  font-size: 11px;
+  font-size: 12px;
 }
 .status-badge-label {
   display: inline-block;
@@ -513,21 +516,11 @@ html body .dense-descriptions .ant-descriptions-item-content {
   position: relative;
   margin-top: var(--ab-space-3);
   padding: 10px 12px;
-  border: 1px solid var(--ab-border);
+  border: 1px solid color-mix(in srgb, var(--ab-warn) 35%, var(--ab-border));
   border-radius: var(--ab-r-ctl);
   background: color-mix(in srgb, var(--ab-warn) 6%, var(--ab-surface));
 }
 
-.danger-acknowledge::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 8px;
-  bottom: 8px;
-  width: 3px;
-  border-radius: 0 3px 3px 0;
-  background: var(--ab-warn);
-}
 .danger-acknowledge .ant-checkbox-wrapper {
   color: var(--ab-warn);
   font-size: var(--ab-text-size-sm);
@@ -546,4 +539,9 @@ html body .dense-descriptions .ant-descriptions-item-content {
   display: grid;
   gap: 4px;
   color: var(--ab-text-2);
+}
+
+/* ---- 进度条底轨平滑与柔和化（消除生硬灰块） ---- */
+.ant-progress .ant-progress-inner {
+  background-color: var(--ab-surface-2) !important;
 }

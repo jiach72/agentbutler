@@ -506,16 +506,16 @@ export function TasksPage() {
       onSaved={() => { setEditor(null); void refresh(); }} />}
     <TaskRunHistory task={history} onClose={() => setHistory(null)} timezone={timezone} />
     <TaskTestRunModal open={testRunningTask !== null} task={testRunningTask} onClose={() => { setTestRunningTask(null); void refresh(); }} />
-    <Modal open={deleting !== null} title="删除定时任务" okText="删除任务" cancelText="取消"
-      okButtonProps={{ danger: true, disabled: confirmName !== deleting?.name }}
+    <Modal open={deleting !== null} title="删除定时任务" okText="确认删除" cancelText="取消"
+      okButtonProps={{ danger: true }}
       confirmLoading={busy === `${deleting?.id}:delete`}
       onCancel={() => { if (busy === null) setDeleting(null); }}
       onOk={() => { if (deleting) void mutate(deleting, "delete"); }}>
-      {actionError && <Alert type="error" showIcon title={actionError} />}
-      <p>删除后不再按计划执行。请输入任务名称确认：</p>
-      <p><strong>{deleting?.name}</strong></p>
-      <Input aria-label="确认删除任务名称" value={confirmName} disabled={busy !== null}
-        onChange={(event) => setConfirmName(event.target.value)} />
+      {actionError && <Alert type="error" showIcon title={actionError} style={{ marginBottom: 12 }} />}
+      <p>确定要删除定时任务 <strong>「{deleting?.name}」</strong> 吗？</p>
+      <p style={{ color: "var(--ab-text-2, #666)", fontSize: 13, marginBottom: 0 }}>
+        删除后 Hermes 将停止对此任务的自动化调度。如需再次使用，可随时重新创建或从场景模版选用。
+      </p>
     </Modal>
   </div>;
 }

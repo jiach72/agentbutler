@@ -5,7 +5,7 @@
  */
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import { App, Button, Card, Flex, Select, Spin, Switch, Tooltip, Typography } from "antd";
-import { CheckCircleFilled, DownOutlined, UpOutlined } from "@ant-design/icons";
+import { CheckCircleFilled, DownOutlined, UpOutlined, RobotOutlined } from "@ant-design/icons";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { ConclusionBar } from "../../components/ConclusionBar.js";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
@@ -594,17 +594,16 @@ export function VersionsPanel() {
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                fontSize: 26,
               }}
             >
-              🤖
+              <RobotOutlined style={{ fontSize: 24, color: "var(--ant-color-primary)" }} />
             </div>
             <Flex vertical gap={2}>
               <Title level={4} style={{ marginBottom: 0 }}>
                 管家 Butler
               </Title>
               <Text type="secondary">
-                版本 {formatDisplayVersion(displayVersion) || "—"}
+                版本 {formatDisplayVersion(displayVersion) || "-"}
                 （{prefs.channel === "beta" ? "测试版" : "正式版"} 通道
                 {butlerSelf?.commit !== null && butlerSelf?.commit !== undefined
                   ? ` · commit ${butlerSelf.commit}`

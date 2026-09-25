@@ -14,7 +14,6 @@ import {
   Flex,
   Input,
   Radio,
-  Space,
   Tag,
   Tooltip,
   Typography,
@@ -22,8 +21,6 @@ import {
 import {
   AimOutlined,
   BookOutlined,
-  CompressOutlined,
-  ExpandOutlined,
   FileDoneOutlined,
   FileTextOutlined,
   FullscreenExitOutlined,
@@ -603,7 +600,9 @@ export function KnowledgeStarChart({
             cardRef.current as unknown as { webkitRequestFullscreen: () => Promise<void> }
           ).webkitRequestFullscreen();
         }
-      } catch {}
+      } catch {
+        /* 忽略全屏 API 异常 */
+      }
     } else {
       try {
         if (document.fullscreenElement) {
@@ -620,7 +619,9 @@ export function KnowledgeStarChart({
             document as unknown as { webkitExitFullscreen: () => Promise<void> }
           ).webkitExitFullscreen();
         }
-      } catch {}
+      } catch {
+        /* 忽略全屏 API 异常 */
+      }
     }
     setTimeout(() => resizeCanvas(), 120);
   };
@@ -786,7 +787,7 @@ export function KnowledgeStarChart({
           <Flex align="center" gap={12} wrap="wrap">
             <Flex align="center" gap={8}>
               <Title level={5} style={{ margin: 0, color: "#e6f4ff" }}>
-                🌌 知识星图 (Galaxy Graph)
+                知识星图 (Galaxy Graph)
               </Title>
               <Tag color="cyan">{stats.totalNodes} 星体</Tag>
               <Tag color="blue">{stats.totalLinks} 连线</Tag>
@@ -813,13 +814,13 @@ export function KnowledgeStarChart({
               onChange={(e) => setLabelMode(e.target.value)}
             >
               <Tooltip title="仅高亮焦点/悬停星辰与关键枢纽，消除文字重叠，还原纯净星系">
-                <Radio.Button value="smart">🏷️ 智能聚焦</Radio.Button>
+                <Radio.Button value="smart">智能聚焦</Radio.Button>
               </Tooltip>
               <Tooltip title="显示全部可见节点的名称标签">
-                <Radio.Button value="all">🪐 全部星名</Radio.Button>
+                <Radio.Button value="all">全部星名</Radio.Button>
               </Tooltip>
               <Tooltip title="隐藏所有标签文字，仅享受浩瀚星空">
-                <Radio.Button value="none">✨ 纯净星空</Radio.Button>
+                <Radio.Button value="none">纯净星空</Radio.Button>
               </Tooltip>
             </Radio.Group>
           </Flex>
@@ -836,7 +837,7 @@ export function KnowledgeStarChart({
                     color: "#fb923c",
                   }}
                 >
-                  🧹 笔记去重
+                  笔记去重
                 </Button>
               </Tooltip>
             )}

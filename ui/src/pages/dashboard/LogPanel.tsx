@@ -558,7 +558,7 @@ export function LogPanel({ open = true, onClose = () => undefined, embedded = fa
                       {postFix === "repairing" ? (
                         <Tooltip title="修复正在执行，完成后会自动恢复操作">
                           {/* 状态展示型按钮，不可点，不占 primary 名额（§3.1）。 */}
-                          <Button className="logs-issue-action" size="small" block disabled>
+                          <Button className="logs-issue-action" size="small" disabled>
                             修复执行中…
                           </Button>
                         </Tooltip>
@@ -567,7 +567,6 @@ export function LogPanel({ open = true, onClose = () => undefined, embedded = fa
                         <Button
                           className="logs-issue-action"
                           size="small"
-                          block
                           onClick={() => setConfirmFix(issue)}
                         >
                           一键修复

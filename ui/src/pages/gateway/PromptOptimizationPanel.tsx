@@ -447,7 +447,7 @@ export function PromptOptimizationPanel() {
 
       if (payload.candidate.latestEvaluation?.canPromote) {
         setPromotionNotice(
-          `🎉 智能改写完成！全场景 30 项测试全部通过，核心保护段 100% 完整留存，现可一键应用生效。`,
+          `智能改写完成！全场景 30 项测试全部通过，核心保护段 100% 完整留存，现可一键应用生效。`,
         );
       } else {
         setPromotionNotice(
@@ -548,7 +548,7 @@ export function PromptOptimizationPanel() {
       await refreshCandidates();
       if (resData.report?.canPromote) {
         setPromotionNotice(
-          "🎉 Promptfoo 门禁评测达标！已满足正式样本 (n>=30)、净胜率与零安全违规，现可直接采用。",
+          "Promptfoo 门禁评测达标！已满足正式样本 (n>=30)、净胜率与零安全违规，现可直接采用。",
         );
       } else {
         setPromotionNotice("评测已完成。测试结果未达到正式采用门禁，请查看断言明细。");
@@ -1472,7 +1472,7 @@ export function PromptOptimizationPanel() {
                           type="success"
                           showIcon
                           icon={<SafetyCertificateOutlined />}
-                          message="🎉 门禁评测全部通过！已达到正式采用门禁"
+                          message="门禁评测全部通过！已达到正式采用门禁"
                           description={
                             <span>
                               共通过 <strong>{promptfooEvalResult.suite?.totalTests ?? 30}</strong> 项标准测试，

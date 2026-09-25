@@ -11,6 +11,7 @@
  * 【急停唯一挂载】急停只保留在顶栏（KillSwitchButton），底部 Tab 不再重复挂载——
  * 同屏出现两个急停会让「唯一逃生口」变成两个需要分辨的按钮（shell-ux 测试守卫）。
  */
+import { MenuOutlined } from "@ant-design/icons";
 import { Link, useLocation } from "react-router-dom";
 import { MOBILE_TAB_PATHS, ROUTES, shortTitleOf } from "../lib/routeMeta.js";
 
@@ -25,10 +26,15 @@ function isActive(pathname: string, to: string): boolean {
   return pathname === to || pathname.startsWith(`${to}/`);
 }
 
-export function MobileTabBar() {
+export interface MobileTabBarProps {
+  onOpenMore?: () => void;
+}
+
+export function MobileTabBar({ onOpenMore }: MobileTabBarProps = {}) {
   const location = useLocation();
+  const colCount = onOpenMore ? 5 : 4;
   return (
-    <nav className="mobile-tabbar" aria-label="移动端主导航" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
+    <nav className="mobile-tabbar" aria-label="移动端主导航" style={{ gridTemplateColumns: `repeat(${colCount}, minmax(0, 1fr))` }}>
       {TABS.map((tab) => {
         const active = isActive(location.pathname, tab.to);
         const Icon = tab.icon;
@@ -46,6 +52,19 @@ export function MobileTabBar() {
           </Link>
         );
       })}
+      {onOpenMore && (
+        <button
+          type="button"
+          onClick={onOpenMore}
+          className="mobile-tab border-0 bg-transparent cursor-pointer text-inherit"
+          aria-label="打开全部菜单"
+        >
+          <span className="mobile-tab-icon" aria-hidden="true">
+            <MenuOutlined />
+          </span>
+          <span className="mobile-tab-label">全部</span>
+        </button>
+      )}
     </nav>
   );
 }

@@ -88,7 +88,7 @@ describe("路由元信息单一事实源", () => {
 
   it("主导航包含专家工具与设置，旧路由仍可解析", () => {
     expect(ROUTES.filter((route) => route.nav).map((route) => route.path)).toEqual([
-      "/dashboard", "/tasks", "/gateway", "/skills", "/knowledge", "/tools", "/settings",
+      "/dashboard", "/tasks", "/gateway", "/skills", "/knowledge", "/tools", "/learn", "/settings",
     ]);
     expect(navRoutesFor("trust")).toEqual([]);
     expect(navRoutesFor("maintain")).toEqual([]);

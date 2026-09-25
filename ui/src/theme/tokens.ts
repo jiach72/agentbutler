@@ -206,42 +206,41 @@ export interface SemanticPalette {
   focusRing: string;
 }
 
-/** 亮色：纯白卡片 + 管家蓝交互 + 黄铜记忆点 + 现代信号色；清爽 Slate 底色告别陈旧水泥灰。 */
+/** 亮色：纯白卡片 + 标志性苹果蓝交互 + 锌黑层级文字 + 现代信号色（对齐 DESIGN.md）。 */
 export const lightPalette: SemanticPalette = {
-  canvas: "#F8FAFC",
+  canvas: "#FAF8FE",
   surface: "#FFFFFF",
-  surface2: "#F1F5F9",
-  sunken: "#F1F5F9",
-  sider: "#F8FAFC",
-  border: "#E2E8F0",
-  borderStrong: "#CBD5E1",
-  borderControl: ink[300],
-  text: ink[900],
-  text2: ink[600],
-  text3: ink[400],
-  text4: ink[300],
-  primary: butlerBlue[500],
-  primaryHover: butlerBlue[400],
-  primaryPress: butlerBlue[600],
-  primarySoft: butlerBlue[50],
-  primarySoftBorder: butlerBlue[100],
+  surface2: "#F4F3F8",
+  sunken: "#EEEDF3",
+  sider: "#FAF8FE",
+  border: "#E9E7ED",
+  borderStrong: "#C1C6D6",
+  borderControl: "#A6ABB8",
+  text: "#1A1B1F",
+  text2: "#414753",
+  text3: "#5F5E60",
+  text4: "#717785",
+  primary: "#0071E3",
+  primaryHover: "#0077ED",
+  primaryPress: "#005BB5",
+  primarySoft: "#EFF6FF",
+  primarySoftBorder: "#BFDBFE",
   onPrimary: "#FFFFFF",
   onError: "#FFFFFF",
-  brand: brass[700],
-  brandSoft: brass[50],
-  brandLine: brass[100],
-  ok: signal.ok,
-  okSoft: signal.okSoft,
-  warn: signal.warn,
-  warnSoft: signal.warnSoft,
-  error: signal.error,
-  errorSoft: signal.errorSoft,
-  offline: signal.offline,
-  offlineSoft: signal.offlineSoft,
-  // 亮色阴影：层级轻盈微阴影，兼具深度与锐度
+  brand: "#826428",
+  brandSoft: "#F8F1E1",
+  brandLine: "#F2E4C6",
+  ok: "#34C759",
+  okSoft: "#E8F8ED",
+  warn: "#FF9500",
+  warnSoft: "#FFF5E6",
+  error: "#FF3B30",
+  errorSoft: "#FFEDED",
+  offline: "#8E8E93",
+  offlineSoft: "#F2F2F7",
   shadow1: "0 1px 3px 0 rgb(0 0 0 / 0.04), 0 1px 2px -1px rgb(0 0 0 / 0.02), 0 0 0 1px rgb(0 0 0 / 0.03)",
   shadow2: "0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.04), 0 12px 24px -4px rgb(0 0 0 / 0.06)",
-  focusRing: "0 0 0 3px rgb(27 79 122 / 20%)",
+  focusRing: "0 0 0 3px rgba(0, 113, 227, 0.25)",
 };
 
 /** 暗色：深邃 Slate 表面 + 管家蓝交互（提亮版）+ 黄铜记忆点 + 信号色状态。 */
@@ -287,13 +286,13 @@ export function paletteFor(mode: ThemeMode): SemanticPalette {
 
 /* ────────  3. 圆角 / 字体 / 字阶 / 间距 / 动效 / 布局（规范 02 §3/§5、03 §2）  ──────── */
 
-/** 圆角：卡片 16（macOS Big Sur 后 12–16 连续观感取中）/ 控件 8 / 徽标与小标签 6 / 浮层 20。 */
+/** 圆角：卡片 12（VisionOS 标准面板）/ 控件 8 / 徽标与小标签 6 / 浮层 16。 */
 export const radius = {
-  card: 16,
+  card: 12,
   control: 8,
   tag: 6,
   /** Modal / Popover / Drawer / Dropdown 等浮层档。 */
-  float: 20,
+  float: 16,
 } as const;
 
 /**
@@ -302,7 +301,7 @@ export const radius = {
  * 本机优先产品不依赖网络字体，不新增 @font-face。
  */
 const fontStack =
-  '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Segoe UI Variable Text", "Segoe UI", "Inter", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif';
+  '"Plus Jakarta Sans", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif';
 
 export const fontFamily = fontStack;
 

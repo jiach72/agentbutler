@@ -21,35 +21,35 @@ export interface TaskTemplate {
 export const TASK_TEMPLATES: TaskTemplate[] = [
   {
     key: "morning-report",
-    title: "📋 每日早报",
+    title: "每日早报",
     name: "每日早报与日程待办概览",
     prompt: "总结今日重要日程、未读邮件概要与重点待办事项，形成结构化晨报，并在 100 字内给出今日最优先关注的 3 件事。",
     schedule: (tz) => ({ kind: "daily", time: "08:30", timezone: tz }),
   },
   {
     key: "github-monitor",
-    title: "🐙 GitHub 监控",
+    title: "GitHub 监控",
     name: "GitHub 关注仓库动态巡检",
     prompt: "检查关注的核心代码仓库是否有新提交的 Issue、PR 或未解决的安全提醒，汇总关键变更并标注需人工介入的事项。",
     schedule: (tz) => ({ kind: "daily", time: "10:00", timezone: tz }),
   },
   {
     key: "sys-health",
-    title: "🖥️ 系统巡检",
+    title: "系统巡检",
     name: "主机服务与容器运行健康巡检",
     prompt: "巡检主机内存占用、磁盘剩余空间及关键后台服务状态，记录最近错误日志，并在资源超阈值或服务异常时输出预警。",
     schedule: () => ({ kind: "interval", everyMinutes: 120 }),
   },
   {
     key: "ai-radar",
-    title: "📡 资讯雷达",
+    title: "资讯雷达",
     name: "AI 领域开源进展与技术雷达",
     prompt: "检索过去 24 小时内 AI/LLM 领域的最新前沿开源项目、技术解读与产品动态，提炼 3 条深度摘要与落地价值建议。",
     schedule: (tz) => ({ kind: "daily", time: "18:00", timezone: tz }),
   },
   {
     key: "daily-retro",
-    title: "📝 工作复盘",
+    title: "工作复盘",
     name: "工作日结项复盘与明日备忘",
     prompt: "回顾今日各项开发与跟进任务的完成进度，盘点卡点阻塞及明日优先级，生成简洁的工作复盘笔记。",
     schedule: (tz) => ({ kind: "weekdays", time: "18:30", timezone: tz }),
@@ -158,7 +158,7 @@ export function TaskEditorDrawer({ open, taskId, initialDraft, timezone, onClose
         {!taskId && (
           <div className="task-templates-section" style={{ marginBottom: 8 }}>
             <Typography.Text type="secondary" style={{ fontSize: 13, display: "block", marginBottom: 6 }}>
-              ✨ 常用任务模板（点击快速填入）：
+              常用任务模板（点击快速填入）：
             </Typography.Text>
             <Space wrap size={[8, 8]}>
               {TASK_TEMPLATES.map((tmpl) => (

@@ -58,9 +58,9 @@ export function SkillMarketCard({
     <Card size="small" className="skill-card wb-card" hoverable>
       <Flex vertical gap={8} style={{ height: "100%" }}>
         <Flex justify="space-between" align="flex-start" gap={8}>
-          <Flex gap={10} style={{ minWidth: 0 }}>
+          <Flex gap={12} style={{ minWidth: 0 }}>
             <Avatar
-              size={38}
+              size={44}
               shape="square"
               src={avatarUrl ?? undefined}
               className="wb-card-avatar"
@@ -71,7 +71,7 @@ export function SkillMarketCard({
               </span>
             </Avatar>
             <Flex vertical gap={2} style={{ minWidth: 0 }}>
-              <Text strong ellipsis style={{ fontSize: 15 }} title={name}>
+              <Text strong ellipsis style={{ fontSize: 16 }} title={name}>
                 {name}
               </Text>
               {subtitle !== undefined && subtitle !== "" && (
@@ -85,7 +85,7 @@ export function SkillMarketCard({
           </Flex>
           {corner}
         </Flex>
-        <Text type="secondary" className="skill-card-desc" style={{ fontSize: 13 }}>
+        <Text type="secondary" className="skill-card-desc" style={{ fontSize: 14 }}>
           {description}
         </Text>
         {tags.length > 0 && (

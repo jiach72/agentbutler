@@ -9,7 +9,7 @@
  */
 import { Flex, Typography } from "antd";
 
-const { Paragraph, Text } = Typography;
+const { Text } = Typography;
 
 interface PageHeaderProps {
   /** 非路由面板显式标注业务上下文的小标签；路由页面不要传。 */
@@ -24,34 +24,31 @@ interface PageHeaderProps {
 
 export function PageHeader({ eyebrow, title, description, extra }: PageHeaderProps) {
   return (
-    <header>
-      <Flex wrap justify="space-between" align="flex-start" gap={16}>
+    <header className="mb-4">
+      <Flex wrap justify="space-between" align="flex-start" gap={12}>
         <div style={{ minWidth: 0 }}>
           {eyebrow !== undefined && (
             <Text
               type="secondary"
-              style={{ display: "block", fontSize: 12, fontWeight: 600, letterSpacing: "0.08em", marginBottom: 2 }}
+              style={{ display: "block", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", marginBottom: 2 }}
             >
               {eyebrow}
             </Text>
           )}
-          {/* 真实 h1（antd Title component 属性在 v6 不生效，实际渲染 h3——
-              全站会没有 h1 供读屏/浏览器跳转；这里用原生 h1 + 标题级样式）。 */}
+          {/* 真实 h1：字阶收敛至 20~22px (headline-md)，维持与内容卡片 1.4~1.6x 黄金视觉比 */}
           <h1
+            className="text-xl md:text-2xl font-bold tracking-tight text-on-surface"
             style={{
               margin: 0,
-              fontSize: "var(--ant-font-size-heading-3, 20px)",
-              fontWeight: 600,
-              lineHeight: 1.35,
-              color: "var(--ant-color-text-heading, inherit)",
+              lineHeight: 1.3,
             }}
           >
             {title}
           </h1>
           {description !== undefined && (
-            <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+            <div className="text-xs md:text-sm text-on-surface-variant mt-1 leading-relaxed">
               {description}
-            </Paragraph>
+            </div>
           )}
         </div>
         {extra !== undefined && <div style={{ flexShrink: 0 }}>{extra}</div>}

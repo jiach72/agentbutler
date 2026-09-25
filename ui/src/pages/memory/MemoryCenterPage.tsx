@@ -334,7 +334,7 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
                 <Flex vertical gap={8}>
                   <Flex justify="space-between" align="center">
                     <Text strong style={{ fontSize: 14, color: "#6366f1" }}>
-                      💡 推荐方案：{advisorResult.engine.toUpperCase()} ({advisorResult.mode})
+                      推荐方案：{advisorResult.engine.toUpperCase()} ({advisorResult.mode})
                     </Text>
                     <Tag color="purple">
                       置信度 {(advisorResult.confidence * 100).toFixed(0)}%
@@ -589,7 +589,7 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
                 }}
               >
                 <Text type="secondary" style={{ fontSize: 13 }}>
-                  📦 <b>本地 Docker 模式说明</b>：管家将在 `docker-compose.yml` 中启动受管的{" "}
+                  <b>本地 Docker 模式说明</b>：管家将在 `docker-compose.yml` 中启动受管的{" "}
                   <code>butler-memory-{selectedEngine}</code> 容器并绑定回环{" "}
                   <code>127.0.0.1:{selectedEngine === "hindsight" ? 9177 : 8888}</code>。数据持久化于命名卷中，重启与升级不会丢失。
                 </Text>

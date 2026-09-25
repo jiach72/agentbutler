@@ -16,7 +16,7 @@
 
 /* 左侧分类导航：粘性白卡容器。 */
 .settings-category-rail {
-  width: 200px;
+  width: 220px;
   flex-shrink: 0;
   position: sticky;
   top: 88px;
@@ -25,30 +25,32 @@
 .settings-rail-card {
   background: var(--ab-surface);
   border: 1px solid var(--ab-border);
-  border-radius: 8px; /* 规范仅 14/8/6 三档。 */
-  padding: 8px;
+  border-radius: 18px;
+  box-shadow: var(--ab-shadow-1);
+  padding: 10px;
 }
 
 .settings-rail-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
 }
 
 .settings-rail-item {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   width: 100%;
-  min-height: 44px;
+  min-height: 48px;
   border: none;
   background: transparent;
-  border-radius: 6px;
-  padding: 9px 12px;
+  border-radius: 12px;
+  padding: 10px 14px;
   cursor: pointer;
   color: var(--ab-text);
   font: inherit;
-  font-size: 14px;
+  font-size: 15px;
+  font-weight: 500;
   text-align: left;
   transition:
     background 0.2s cubic-bezier(0.2, 0, 0, 1),
@@ -62,7 +64,7 @@
 .settings-rail-item.active {
   background: var(--ab-primary-soft);
   color: var(--ab-primary);
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .settings-rail-item:focus-visible {
@@ -73,10 +75,11 @@
 /* 数据源诊断：默认折叠的 <details>，点开才列出各源状态。 */
 .settings-source-details {
   border: 1px solid var(--ab-border);
-  border-radius: 8px;
-  padding: 8px 12px;
+  border-radius: 16px;
+  box-shadow: var(--ab-shadow-1);
+  padding: 12px 16px;
   background: var(--ab-surface);
-  font-size: 13px;
+  font-size: 14px;
   color: var(--ab-text-2);
 }
 

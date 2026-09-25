@@ -9,7 +9,9 @@ export default tseslint.config(
       "**/build-tsc/**",
       "**/coverage/**",
       "**/node_modules/**",
+      ".agents/**",
       ".codex/**",
+      ".gemini/**",
       ".loopx/**",
       ".superpowers/**",
       ".trae/**",
@@ -17,6 +19,7 @@ export default tseslint.config(
       // 品牌迁移的分阶段验收脚本：Node 脚本里嵌 page.evaluate 的浏览器上下文回调，
       // 全局对象两边都有，静态 lint 无法分类，故整体排除（不影响产品代码）。
       ".phase-tests/**",
+      "app.js",
     ],
   },
   js.configs.recommended,

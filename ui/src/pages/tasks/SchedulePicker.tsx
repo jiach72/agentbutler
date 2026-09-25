@@ -1,4 +1,5 @@
 import { Checkbox, Input, InputNumber, Select, Typography } from "antd";
+import { ClockCircleOutlined } from "@ant-design/icons";
 import type { ScheduledTaskDraft } from "@butler/contract";
 
 type Schedule = ScheduledTaskDraft["schedule"];
@@ -136,8 +137,8 @@ export function SchedulePicker({ value, timezone, onChange, disabled = false }: 
           fontSize: 13,
         }}
       >
-        <div style={{ fontWeight: 600, color: "var(--ab-primary)", marginBottom: 4 }}>
-          🕒 已设定：{naturalText}
+        <div style={{ fontWeight: 600, color: "var(--ab-primary)", marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
+          <ClockCircleOutlined style={{ fontSize: 13 }} /> 已设定：{naturalText}
         </div>
         {upcomingTimes.length > 0 && (
           <div style={{ color: "var(--ab-text-2)", fontSize: 12 }}>

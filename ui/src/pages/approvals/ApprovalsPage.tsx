@@ -25,6 +25,7 @@ import {
 } from "@ant-design/icons";
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { AdvancedDetails } from "../../components/AdvancedDetails.js";
 import { ConclusionBar } from "../../components/ConclusionBar.js";
 import type { PageConclusionView } from "../../components/ConclusionBar.js";
 import { Empty } from "../../components/Empty.js";
@@ -109,7 +110,7 @@ const KIND_LABEL: Record<string, string> = {
 
 /** 剩余时限：仅对 pending 有意义（服务端已按状态归零）。 */
 const remainingText = (item: ApprovalItem): string => {
-  if (item.status !== "pending") return "—";
+  if (item.status !== "pending") return "-";
   if (item.remainingMs <= 0) return isAuditApproval(item) ? "已过窗口" : "即将拦截";
   const totalSec = Math.round(item.remainingMs / 1000);
   const min = Math.floor(totalSec / 60);
@@ -124,7 +125,7 @@ const detailTarget = (item: ApprovalItem): string => {
     const value = record["target"] ?? record["path"] ?? record["command"];
     if (typeof value === "string" && value !== "") return value;
   }
-  return item.fingerprint.split("|")[1] ?? "—";
+  return item.fingerprint.split("|")[1] ?? "-";
 };
 
 export function ApprovalsPage() {
@@ -256,11 +257,19 @@ export function ApprovalsPage() {
     );
     setBulkBusy(false);
     if (result.ok) {
-      message.success(
-        hasGateInPending
-          ? `已批量放行 ${pendingInView.length} 条动作`
-          : `已批量确认 ${pendingInView.length} 条异动为已知`,
-      );
+      if (decision === "approve") {
+        message.success(
+          hasGateInPending
+            ? `已批量放行 ${pendingInView.length} 条动作`
+            : `已批量确认 ${pendingInView.length} 条异动为已知`,
+        );
+      } else {
+        message.success(
+          hasGateInPending
+            ? `已批量拦截 ${pendingInView.length} 条高危动作`
+            : `已批量标记 ${pendingInView.length} 条异动存疑`,
+        );
+      }
       refresh();
     } else {
       message.error("批量处理失败，请重试");
@@ -283,11 +292,11 @@ export function ApprovalsPage() {
         const audit = isAuditApproval(row);
         return audit ? (
           <Tooltip title="事后核验：动作已由 Hermes 执行完毕，不阻塞后续流程。可确认已知或存疑拉黑。">
-            <Tag color="default">📋 事后核验</Tag>
+            <Tag color="default">事后核验</Tag>
           </Tooltip>
         ) : (
           <Tooltip title="事前放行：动作在落地前被管家拦截，等待您批准放行。超时将自动拒绝。">
-            <Tag color="processing">🛡️ 事前放行</Tag>
+            <Tag color="processing">事前放行</Tag>
           </Tooltip>
         );
       },
@@ -543,23 +552,23 @@ export function ApprovalsPage() {
         <StatStrip items={stats} />
 
         {scan !== undefined && (
-          <Alert
-            type="info"
-            showIcon
-            icon={<SafetyCertificateOutlined />}
-            message={`高危保护机制：15 分钟未应答自动结案，同一动作第 ${scan.escalationThreshold} 次触发强制面板确认`}
-            description={
-              <Flex vertical gap={4}>
-                <span>
-                  异动自动侦测：{scan.enabled ? "开启" : "关闭"}（侦测到高危动作即自动开单）
-                  {scan.lastScanAt !== null && ` · 上次扫描 ${new Date(scan.lastScanAt).toLocaleTimeString()}`}
-                </span>
-                <span>
-                  记录保留 {scan.retentionDays} 天；放行、拦截、核验与规则变动全部记入审计流与信任事件。
-                </span>
-              </Flex>
-            }
-          />
+          <AdvancedDetails
+            summary="高危保护机制与异动侦测规则"
+            storageKey="approvals.protection-policy"
+          >
+            <Flex vertical gap={6} className="text-xs md:text-sm text-on-surface-variant">
+              <div>
+                <strong>时限与升级：</strong>15 分钟未应答自动结案，同一动作第 {scan.escalationThreshold} 次触发强制面板确认。
+              </div>
+              <div>
+                <strong>异动自动侦测：</strong>{scan.enabled ? "开启" : "关闭"}（侦测到高危动作即自动开单）
+                {scan.lastScanAt !== null && ` · 上次扫描 ${new Date(scan.lastScanAt).toLocaleTimeString()}`}
+              </div>
+              <div>
+                <strong>审计留存：</strong>记录保留 {scan.retentionDays} 天；放行、拦截、核验与规则变动全部记入审计流与信任事件。
+              </div>
+            </Flex>
+          </AdvancedDetails>
         )}
 
         <Card
@@ -569,8 +578,8 @@ export function ApprovalsPage() {
               <Segmented
                 options={[
                   { label: "全部类别", value: "all" },
-                  { label: "🛡️ 待放行", value: "gate" },
-                  { label: "📋 异动核验", value: "audit" },
+                  { label: "待放行", value: "gate" },
+                  { label: "异动核验", value: "audit" },
                 ]}
                 value={category}
                 onChange={(value: unknown) => setCategory(String(value))}
@@ -594,25 +603,47 @@ export function ApprovalsPage() {
                 onChange={(value: unknown) => setTimeWindow(String(value))}
               />
               {pendingInView.length > 0 && (
-                <Popconfirm
-                  title={
-                    hasGateInPending
-                      ? `确认全部放行当前 ${pendingInView.length} 条动作？`
-                      : `确认将当前 ${pendingInView.length} 条异动全部标记为已知？`
-                  }
-                  description={
-                    hasGateInPending
-                      ? "列表中含有阻塞等待中的动作，批准后将通知执行器放行。"
-                      : "动作已由 Hermes 执行，点击全部已知将这些异动确认归档并记入审计。"
-                  }
-                  okText={hasGateInPending ? "全部放行" : "全部已知"}
-                  cancelText="取消"
-                  onConfirm={() => void handleBulkDecide("approve")}
-                >
-                  <Button size="small" type="primary" loading={bulkBusy}>
-                    {hasGateInPending ? `全部放行 (${pendingInView.length})` : `全部已知 (${pendingInView.length})`}
-                  </Button>
-                </Popconfirm>
+                <Space size={8}>
+                  <Popconfirm
+                    title={
+                      hasGateInPending
+                        ? `确认全部放行当前 ${pendingInView.length} 条动作？`
+                        : `确认将当前 ${pendingInView.length} 条异动全部标记为已知？`
+                    }
+                    description={
+                      hasGateInPending
+                        ? "列表中含有阻塞等待中的动作，批准后将通知执行器放行。"
+                        : "动作已由 Hermes 执行，点击全部已知将这些异动确认归档并记入审计。"
+                    }
+                    okText={hasGateInPending ? "全部放行" : "全部已知"}
+                    cancelText="取消"
+                    onConfirm={() => void handleBulkDecide("approve")}
+                  >
+                    <Button size="small" type="primary" loading={bulkBusy}>
+                      {hasGateInPending ? `全部放行 (${pendingInView.length})` : `全部已知 (${pendingInView.length})`}
+                    </Button>
+                  </Popconfirm>
+                  <Popconfirm
+                    title={
+                      hasGateInPending
+                        ? `确认全部拦截当前 ${pendingInView.length} 条动作？`
+                        : `确认将当前 ${pendingInView.length} 条异动全部标记为存疑？`
+                    }
+                    description={
+                      hasGateInPending
+                        ? "拦截后这些高危动作不会被执行，并将作为拦截事件记入审计流。"
+                        : "标记存疑后将保留警示记录，便于后续追溯与核查。"
+                    }
+                    okText={hasGateInPending ? "全部拦截" : "全部存疑"}
+                    cancelText="取消"
+                    okButtonProps={{ danger: true }}
+                    onConfirm={() => void handleBulkDecide("deny")}
+                  >
+                    <Button size="small" danger loading={bulkBusy}>
+                      {hasGateInPending ? `全部拦截 (${pendingInView.length})` : `全部存疑 (${pendingInView.length})`}
+                    </Button>
+                  </Popconfirm>
+                </Space>
               )}
             </Flex>
           }
@@ -688,9 +719,9 @@ export function ApprovalsPage() {
                   width: 120,
                   render: (r: string) =>
                     r === "block" ? (
-                      <Tag color="error">🛑 阻断拦截</Tag>
+                      <Tag color="error">阻断拦截</Tag>
                     ) : (
-                      <Tag color="success">✅ 信任免核验</Tag>
+                      <Tag color="success">信任免核验</Tag>
                     ),
                 },
                 {

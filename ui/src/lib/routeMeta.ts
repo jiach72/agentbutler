@@ -24,6 +24,7 @@ import {
   DashboardOutlined,
   DatabaseOutlined,
   DeploymentUnitOutlined,
+  DesktopOutlined,
   DiffOutlined,
   DollarOutlined,
   ExperimentOutlined,
@@ -34,6 +35,7 @@ import {
   FundProjectionScreenOutlined,
   HistoryOutlined,
   NotificationOutlined,
+  ReadOutlined,
   RocketOutlined,
   SettingOutlined,
   ToolOutlined,
@@ -99,6 +101,7 @@ export const ROUTES: RouteMeta[] = [
   { path: "/skills", group: "console", title: "智能体与记忆", note: "技能、插件与记忆", icon: ApiOutlined, nav: true },
   { path: "/knowledge", group: "console", title: "本地知识库", note: "文档资料收集与 RAG 检索", icon: BookOutlined, nav: true, short: "知识库" },
   { path: "/tools", group: "console", title: "专家工具", note: "体检、排障、日志与维护", icon: AppstoreOutlined, nav: true, short: "工具" },
+  { path: "/learn", group: "console", title: "智能体通识", note: "概念、原理与安全百科", icon: ReadOutlined, nav: true, short: "通识" },
 
   /* ---- 信任层 · 费用与记录 ---- */
   { path: "/cost", group: "trust", cluster: "费用与记录", title: "成本", note: "模型成本与预算", icon: DollarOutlined, nav: false, short: "成本" },
@@ -126,6 +129,7 @@ export const ROUTES: RouteMeta[] = [
 
   /* ---- 不进侧栏：入口在「设置 → 进阶工具」 ---- */
   { path: "/canary", group: "trust", cluster: "管得住吗", title: "升级策略", note: "影子环境验证后再切换", icon: RocketOutlined, nav: false },
+  { path: "/wall", group: "settings", title: "监控大屏", note: "全屏运行状态看板", icon: DesktopOutlined, nav: false, short: "大屏" },
 ];
 
 /** 侧栏底部的钉住项（不随导航滚动）。 */
@@ -184,4 +188,70 @@ export function collapsibleGroupKeys(pathname?: string): string[] {
   const meta = routeMetaFor(pathname);
   if (meta === null) return [];
   return all.filter((key) => key === meta.group);
+}
+
+export interface StitchNavItem {
+  path: string;
+  title: string;
+  materialIcon: string;
+  note?: string;
+  badgeKey?: "approvals" | "alerts";
+}
+
+export interface StitchNavGroup {
+  key: string;
+  label: string;
+  items: StitchNavItem[];
+}
+
+export const STITCH_SIDEBAR_NAV: StitchNavGroup[] = [
+  {
+    key: "console",
+    label: "日常使用",
+    items: [
+      { path: "/dashboard", title: "首页", materialIcon: "dashboard" },
+      { path: "/tasks", title: "定时任务", materialIcon: "schedule" },
+      { path: "/gateway", title: "消息通知", materialIcon: "chat" },
+      { path: "/skills", title: "智能体中心", materialIcon: "memory" },
+      { path: "/knowledge", title: "本地知识库", materialIcon: "menu_book" },
+    ],
+  },
+  {
+    key: "trust",
+    label: "记录与审批",
+    items: [
+      { path: "/cost", title: "成本分析", materialIcon: "payments" },
+      { path: "/approvals", title: "安全与审批", materialIcon: "verified_user", badgeKey: "approvals" },
+      { path: "/audit", title: "行为审计", materialIcon: "fact_check" },
+      { path: "/sessions", title: "会话追踪", materialIcon: "history" },
+      { path: "/events", title: "事件中心", materialIcon: "notifications_active" },
+      { path: "/report", title: "Agent 周报", materialIcon: "analytics" },
+    ],
+  },
+  {
+    key: "maintain",
+    label: "维护工具",
+    items: [
+      { path: "/troubleshoot", title: "排查向导", materialIcon: "healing" },
+      { path: "/logs", title: "系统日志", materialIcon: "subject" },
+      { path: "/tools", title: "专家工具箱", materialIcon: "build" },
+      { path: "/core-files", title: "核心文件", materialIcon: "description" },
+      { path: "/evolution", title: "自进化", materialIcon: "auto_awesome" },
+    ],
+  },
+  {
+    key: "settings",
+    label: "系统设置",
+    items: [
+      { path: "/settings", title: "设置", materialIcon: "settings" },
+      { path: "/wall", title: "监控大屏", materialIcon: "tv" },
+    ],
+  },
+];
+
+export function isStitchNavActive(itemPath: string, currentPath: string): boolean {
+  if (itemPath === "/dashboard") {
+    return currentPath === "/" || currentPath === "/dashboard";
+  }
+  return currentPath === itemPath || currentPath.startsWith(`${itemPath}/`);
 }

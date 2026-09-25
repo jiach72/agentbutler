@@ -151,17 +151,6 @@
   padding: 14px 16px;
 }
 
-.ts-result::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 10px;
-  bottom: 10px;
-  width: 3px;
-  border-radius: 0 3px 3px 0;
-  background: var(--ab-text-4);
-}
-
 .ts-result .ts-result-icon {
   font-size: 17px;
   margin-top: 2px;
@@ -169,27 +158,27 @@
 }
 
 .ts-result.is-ok {
-  background: color-mix(in srgb, var(--ab-ok) 5%, var(--ab-surface));
+  border-color: color-mix(in srgb, var(--ab-ok) 40%, var(--ab-border));
+  background: color-mix(in srgb, var(--ab-ok) 6%, var(--ab-surface));
 }
-.ts-result.is-ok::before { background: var(--ab-ok); }
 .ts-result.is-ok .ts-result-icon { color: var(--ab-ok); }
 
 .ts-result.is-warn {
+  border-color: color-mix(in srgb, var(--ab-warn) 40%, var(--ab-border));
   background: color-mix(in srgb, var(--ab-warn) 6%, var(--ab-surface));
 }
-.ts-result.is-warn::before { background: var(--ab-warn); }
 .ts-result.is-warn .ts-result-icon { color: var(--ab-warn); }
 
 .ts-result.is-fail {
-  background: color-mix(in srgb, var(--ab-error) 5%, var(--ab-surface));
+  border-color: color-mix(in srgb, var(--ab-error) 40%, var(--ab-border));
+  background: color-mix(in srgb, var(--ab-error) 6%, var(--ab-surface));
 }
-.ts-result.is-fail::before { background: var(--ab-error); }
 .ts-result.is-fail .ts-result-icon { color: var(--ab-error); }
 
 .ts-result.is-info {
-  background: color-mix(in srgb, var(--ab-primary) 5%, var(--ab-surface));
+  border-color: color-mix(in srgb, var(--ab-primary) 40%, var(--ab-border));
+  background: color-mix(in srgb, var(--ab-primary) 6%, var(--ab-surface));
 }
-.ts-result.is-info::before { background: var(--ab-primary); }
 .ts-result.is-info .ts-result-icon { color: var(--ab-primary); }
 
 /* 步骤底部导航按钮条。 */
@@ -202,9 +191,10 @@
 
 /* ── 体检总览（v2 新首屏） ─────────────────────────── */
 
-/* 推荐动作卡：左侧主色描边，从普通卡片里跳出来（但不抢结论块）。 */
+/* 推荐动作卡：采用柔和主色高亮与微阴影，替代伪元素侧边条 */
 .ts-reco-card {
-  border-left: 3px solid var(--ab-primary);
+  border-color: color-mix(in srgb, var(--ab-primary) 50%, var(--ab-border));
+  background: color-mix(in srgb, var(--ab-primary) 4%, var(--ab-surface));
 }
 
 /* 折叠面板标题：主标签 + 右侧通过率摘要。 */
@@ -229,3 +219,188 @@
   padding-top: 16px;
   border-top: 1px solid var(--ab-border);
 }
+
+/* ── 常见问题与避坑指南 FAQ ───────────────────────── */
+.ts-faq-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  border: 1px solid var(--ab-border);
+  border-radius: var(--ab-r-card);
+  background: var(--ab-surface);
+  padding: 20px;
+  box-shadow: var(--ab-shadow-1);
+}
+
+.ts-faq-header {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-bottom: 1px solid var(--ab-border);
+  padding-bottom: 16px;
+}
+
+.ts-faq-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ab-text-1);
+}
+
+.ts-faq-sub {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--ab-text-2);
+}
+
+.ts-faq-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.ts-faq-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--ab-r-ctl);
+  border: 1px solid var(--ab-border);
+  background: var(--ab-surface-soft);
+  color: var(--ab-text-2);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all var(--ab-dur-fast) var(--ab-ease);
+}
+
+.ts-faq-filter-btn:hover {
+  background: var(--ab-surface);
+  border-color: var(--ab-border-strong);
+  color: var(--ab-text-1);
+}
+
+.ts-faq-filter-btn.is-active {
+  background: var(--ab-primary-soft);
+  border-color: var(--ab-primary);
+  color: var(--ab-primary);
+  font-weight: 500;
+}
+
+.ts-faq-collapse.ant-collapse {
+  background: transparent;
+  border: none;
+}
+
+.ts-faq-collapse .ant-collapse-item {
+  border: 1px solid var(--ab-border);
+  border-radius: var(--ab-r-ctl) !important;
+  margin-bottom: 10px;
+  background: var(--ab-surface-soft);
+  transition: border-color var(--ab-dur-fast) var(--ab-ease), background var(--ab-dur-fast) var(--ab-ease);
+}
+
+.ts-faq-collapse .ant-collapse-item:hover {
+  border-color: var(--ab-border-strong);
+}
+
+.ts-faq-collapse .ant-collapse-item-active {
+  border-color: color-mix(in srgb, var(--ab-primary) 40%, var(--ab-border));
+  background: var(--ab-surface);
+}
+
+.ts-faq-collapse .ant-collapse-header {
+  padding: 14px 16px !important;
+  align-items: center !important;
+}
+
+.ts-faq-item-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ts-faq-cat-tag {
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 18px;
+  background: var(--ab-primary-soft);
+  border-color: color-mix(in srgb, var(--ab-primary) 30%, transparent);
+  color: var(--ab-primary);
+}
+
+.ts-faq-item-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ab-text-1);
+}
+
+.ts-faq-item-summary {
+  font-size: 12px;
+  color: var(--ab-text-2);
+  margin-top: 2px;
+}
+
+.ts-faq-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 8px 12px;
+}
+
+.ts-faq-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ts-faq-block-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ab-text-1);
+}
+
+.ts-faq-text {
+  margin: 0 !important;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ab-text-2);
+}
+
+.ts-faq-code-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--ab-surface-soft);
+  border: 1px solid var(--ab-border);
+  border-radius: var(--ab-r-ctl);
+  padding: 8px 12px;
+}
+
+.ts-faq-code-box code {
+  font-family: var(--ab-font-mono, monospace);
+  font-size: 12px;
+  color: var(--ab-text-1);
+  word-break: break-all;
+}
+
+.ts-faq-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+  color: var(--ab-text-3);
+  font-size: 13px;
+  gap: 8px;
+}
+
+.ts-faq-footer-action {
+  padding-top: 8px;
+  border-top: 1px dashed var(--ab-border);
+}
+

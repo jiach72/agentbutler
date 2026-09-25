@@ -1069,7 +1069,7 @@ export function KnowledgePage() {
                 label: (
                   <Space>
                     <FolderOpenOutlined />
-                    <span>📁 原生资料收集箱</span>
+                    <span>原生资料收集箱</span>
                     <Tag color="blue">{documents.length}</Tag>
                   </Space>
                 ),
@@ -1269,9 +1269,9 @@ export function KnowledgePage() {
                                 onClick={() => folderInputRef.current?.click()}
                                 disabled={vaultSync?.active}
                                 loading={vaultSync?.active}
-                                style={{ flex: 1 }}
+                                style={{ flex: 1, maxWidth: 360 }}
                               >
-                                {vaultSync?.active ? "正在同步笔记库..." : "📂 选择本地 Obsidian 笔记库文件夹 (Vault)"}
+                                {vaultSync?.active ? "正在同步笔记库..." : "选择本地 Obsidian 笔记库文件夹 (Vault)"}
                               </Button>
                               <Button
                                 type="default"
@@ -1320,9 +1320,9 @@ export function KnowledgePage() {
                                   inboxFiles.every((file) => file.ingested)
                                 }
                                 loading={inboxLoading || ingestingInbox}
-                                block
+                                style={{ maxWidth: 280 }}
                               >
-                                📥 一键全部纳入本地知识库
+                                一键全部纳入本地知识库
                               </Button>
                             </Flex>
 
@@ -1396,7 +1396,7 @@ export function KnowledgePage() {
                                 color: "#fa8c16",
                               }}
                             >
-                              🧹 智能去重
+                              智能去重
                             </Button>
                             <Button size="small" icon={<ReloadOutlined />} onClick={fetchDocuments} />
                           </Space>
@@ -1422,7 +1422,7 @@ export function KnowledgePage() {
                 label: (
                   <Space>
                     <CommentOutlined />
-                    <span>💬 知识问答检索</span>
+                    <span>知识问答检索</span>
                   </Space>
                 ),
                 children: (
@@ -1527,7 +1527,7 @@ export function KnowledgePage() {
                             {queryResult.citations && queryResult.citations.length > 0 && (
                               <Flex vertical gap={8} style={{ marginTop: 8 }}>
                                 <Text strong style={{ fontSize: 13, color: "var(--ant-color-text-secondary)" }}>
-                                  📑 参考来源与出处片段（Citations）：
+                                  参考来源与出处片段（Citations）：
                                 </Text>
                                 <Row gutter={[12, 12]}>
                                   {queryResult.citations.map((c, i) => (
@@ -1580,7 +1580,7 @@ export function KnowledgePage() {
                 label: (
                   <Space>
                     <AimOutlined />
-                    <span>🌌 知识图谱 (星图)</span>
+                    <span>知识图谱 (星图)</span>
                   </Space>
                 ),
                 children: (
@@ -2159,7 +2159,7 @@ export function KnowledgePage() {
                                       />
                                     ) : item.isPrimary ? (
                                       <Tag color="success" style={{ margin: 0 }}>
-                                        🌟 推荐保留
+                                        推荐保留
                                       </Tag>
                                     ) : (
                                       <Tag color="default" style={{ margin: 0 }}>

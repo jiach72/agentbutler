@@ -123,12 +123,12 @@ const POLICY_META: Record<Policy, { label: string; note: string }> = {
   conservative: { label: "保守", note: "跑金丝雀验证 + 48 小时观察窗；验证不可用则拦截升级" },
 };
 
-const fmtPct = (value: number | null): string => (value === null ? "—" : `${(value * 100).toFixed(1)}%`);
+const fmtPct = (value: number | null): string => (value === null ? "-" : `${(value * 100).toFixed(1)}%`);
 const fmtNum = (value: number | null, digits = 0): string =>
-  value === null ? "—" : value.toLocaleString(undefined, { maximumFractionDigits: digits });
+  value === null ? "-" : value.toLocaleString(undefined, { maximumFractionDigits: digits });
 
 const observationText = (run: CanaryRun): string => {
-  if (run.status !== "observing") return "—";
+  if (run.status !== "observing") return "-";
   if (run.observationRemainingMs <= 0) return "即将收敛";
   const hours = Math.floor(run.observationRemainingMs / 3_600_000);
   const minutes = Math.round((run.observationRemainingMs % 3_600_000) / 60_000);
@@ -227,7 +227,7 @@ export function CanaryPage() {
       width: 120,
       render: (_: unknown, row) =>
         row.sampleRegular + row.sampleFailed === 0 ? (
-          <Tooltip title="近 7 天没有可抽样的会话记录——先让会话索引跑一轮">
+          <Tooltip title="近 7 天没有可抽样的会话记录：先让会话索引跑一轮">
             <Typography.Text type="secondary">无样本</Typography.Text>
           </Tooltip>
         ) : (
@@ -248,7 +248,7 @@ export function CanaryPage() {
       width: 110,
       render: (_: unknown, row) =>
         row.verdict === null ? (
-          <Typography.Text type="secondary">—</Typography.Text>
+          <Typography.Text type="secondary">-</Typography.Text>
         ) : row.verdict.pass ? (
           <StatusBadge tone="ok" label="全部通过" />
         ) : (
@@ -302,7 +302,7 @@ export function CanaryPage() {
             ? {
                 tone: "warn",
                 title: `有 ${summary.rolledBack} 次升级自动回滚`,
-                copy: "观察窗内检出回归，管家已自动回滚——这正是金丝雀要拦的事。",
+                copy: "观察窗内检出回归，管家已自动回滚，这正是金丝雀要拦的事。",
               }
             : summary !== undefined && summary.unverified > 0
               ? {
@@ -414,7 +414,7 @@ export function CanaryPage() {
                 <Flex vertical gap={2}>
                   <span>① 成功率降幅 ≤ 5 个百分点；② 平均 token 增幅 ≤ 15%；③ 无新增 error 级指纹。</span>
                   <span>
-                    任一指标数据缺失时按「不通过」处理——宁可拦下，也不给「没验证却声称验证过」开口子。
+                    任一指标数据缺失时按「不通过」处理：宁可拦下，也不给「没验证却声称验证过」开口子。
                   </span>
                 </Flex>
               }
@@ -466,7 +466,7 @@ function CanaryRunDetail({ run }: { run: CanaryRun }) {
           <StatusBadge tone={STATUS_TONE[run.status] ?? "unknown"} label={STATUS_LABEL[run.status] ?? run.status} />
         </Descriptions.Item>
         <Descriptions.Item label="策略">{POLICY_META[run.policy]?.label ?? run.policy}</Descriptions.Item>
-        <Descriptions.Item label="实例">{run.instance === "" ? "—" : run.instance}</Descriptions.Item>
+        <Descriptions.Item label="实例">{run.instance === "" ? "-" : run.instance}</Descriptions.Item>
         <Descriptions.Item label="观察窗时长">
           {run.observationWindowMs === 0 ? "无（跳过金丝雀）" : `${Math.round(run.observationWindowMs / 3_600_000)} 小时`}
         </Descriptions.Item>

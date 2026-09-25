@@ -550,7 +550,7 @@ export function OllamaConfigCard() {
 
             <div>
               <Text style={{ fontSize: 12, color: "#8c8c8c", display: "block", marginBottom: 6 }}>
-                💡 根据当前机器客观硬件，推荐适用的轻量记忆与探针模型（点击标签可直接填入下载）：
+                根据当前机器客观硬件，推荐适用的轻量记忆与探针模型（点击标签可直接填入下载）：
               </Text>
               <Flex wrap="wrap" gap={8}>
                 {hwProfile.evaluation.recommendations.map((rec) => (
@@ -1146,11 +1146,11 @@ export function OllamaConfigCard() {
                       </Text>
                       {chatResult.usage && (
                         <Flex gap={8} wrap="wrap">
-                          <Tag color="blue">⚡ 输入: {chatResult.usage.promptTokens} tokens</Tag>
-                          <Tag color="green">💬 输出: {chatResult.usage.completionTokens} tokens</Tag>
-                          <Tag color="purple">📊 总计: {chatResult.usage.totalTokens} tokens</Tag>
-                          <Tag color="cyan">⏱️ 耗时: {chatResult.usage.durationMs} ms</Tag>
-                          <Tag color="orange">🚀 吞吐: {chatResult.usage.tokensPerSecond} tokens/s</Tag>
+                          <Tag color="blue">输入: {chatResult.usage.promptTokens} tokens</Tag>
+                          <Tag color="green">输出: {chatResult.usage.completionTokens} tokens</Tag>
+                          <Tag color="purple">总计: {chatResult.usage.totalTokens} tokens</Tag>
+                          <Tag color="cyan">耗时: {chatResult.usage.durationMs} ms</Tag>
+                          <Tag color="orange">吞吐: {chatResult.usage.tokensPerSecond} tokens/s</Tag>
                         </Flex>
                       )}
                     </Flex>

@@ -13,7 +13,7 @@ interface ThemeContextValue {
   toggleMode: () => void;
 }
 
-const ThemeContext = createContext<ThemeContextValue | null>(null);
+export const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 /**
  * 主题切换的交叉淡入（评审阶段 C · 动效体系）。
@@ -80,6 +80,11 @@ export function useTheme(): ThemeContextValue {
   const value = useContext(ThemeContext);
   if (!value) throw new Error("useTheme must be used inside ThemeProvider");
   return value;
+}
+
+export function useSafeTheme(): ThemeMode {
+  const value = useContext(ThemeContext);
+  return value?.mode ?? "light";
 }
 
 export function antdThemeFor(mode: ThemeMode) {

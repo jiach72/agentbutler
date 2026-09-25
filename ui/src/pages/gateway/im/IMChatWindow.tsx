@@ -3,7 +3,7 @@
  * - 顶栏：会话详情、渠道标识、直连在线指示灯、清空与排查操作；
  * - 聊天流：时间胶囊、AI 白色卡片气泡（含 Markdown 与死信重投）、用户绿气泡（含 Prompt 对照折叠）；
  * - 思考打字波浪动效（Thinking Wave）；
- * - 底部拟真输入基座（内置 ✨ 增强提示词按钮）。
+ * - 底部拟真输入基座（内置增强提示词按钮）。
  */
 import { useEffect, useRef, useState } from "react";
 import {
@@ -26,6 +26,10 @@ import {
   UserOutlined,
   TeamOutlined,
   AppstoreAddOutlined,
+  SearchOutlined,
+  CompassOutlined,
+  SyncOutlined,
+  ArrowRightOutlined,
 } from "@ant-design/icons";
 import { useTheme } from "../../../theme/ThemeProvider.js";
 import { Empty } from "../../../components/Empty.js";
@@ -248,7 +252,7 @@ export function IMChatWindow(props: IMChatWindowProps) {
               title={isDirect ? "直连通道已开启" : "暂无消息记录"}
               hint={
                 isDirect
-                  ? "像 Hermes Web UI 一样，在下方输入框直接向智能体发送指令（支持 ✨ 一键增强提示词）"
+                  ? "像 Hermes Web UI 一样，在下方输入框直接向智能体发送指令（支持一键增强提示词）"
                   : "外部通道收到或发出消息后将在此实时呈现"
               }
             />
@@ -301,11 +305,11 @@ export function IMChatWindow(props: IMChatWindowProps) {
 
                     if (msg.botId === "inspector") {
                       botBg = "#8b5cf6";
-                      botIcon = <span style={{ fontSize: 16 }}>🔍</span>;
+                      botIcon = <SearchOutlined style={{ fontSize: 16, color: "#ffffff" }} />;
                       botLabel = msg.botName || "审查员 (Inspector)";
                     } else if (msg.botId === "scout") {
                       botBg = "#06b6d4";
-                      botIcon = <span style={{ fontSize: 16 }}>🔭</span>;
+                      botIcon = <CompassOutlined style={{ fontSize: 16, color: "#ffffff" }} />;
                       botLabel = msg.botName || "侦察员 (Scout)";
                     } else if (msg.botId === "butler") {
                       botBg = "#1677ff";
@@ -334,7 +338,7 @@ export function IMChatWindow(props: IMChatWindowProps) {
                             {msg.dispatchInfo?.selectedByJev && (
                               <Tooltip title={msg.dispatchInfo.reason || "由 TypeSafe Jev 根据需求特征自动分流调度"}>
                                 <Tag color="cyan" style={{ fontSize: 10, borderRadius: 8, margin: 0, padding: "0 6px" }}>
-                                  🤖 Jev 调度
+                                  Jev 调度
                                 </Tag>
                               </Tooltip>
                             )}
@@ -405,7 +409,11 @@ export function IMChatWindow(props: IMChatWindowProps) {
                                 gap: 6,
                               }}
                             >
-                              <span>🔄 触发流水线接力 ➔</span>
+                              <span>
+                                <SyncOutlined style={{ marginRight: 4 }} />
+                                触发流水线接力
+                                <ArrowRightOutlined style={{ marginLeft: 4, fontSize: 10 }} />
+                              </span>
                               <span style={{ fontWeight: 600 }}>@{msg.peerHandoff.toBotName ?? msg.peerHandoff.toBotId}</span>
                               <span style={{ color: "var(--ant-color-text-secondary)" }}>
                                 ({msg.peerHandoff.reason || "专职协作"})
@@ -430,7 +438,7 @@ export function IMChatWindow(props: IMChatWindowProps) {
                                   style={{ cursor: "pointer", color: "var(--ant-color-primary)" }}
                                   onClick={() => props.onSelectOutboxMessage?.(msg.id)}
                                 >
-                                  链路排查 ➔
+                                  链路排查 <ArrowRightOutlined style={{ fontSize: 10 }} />
                                 </span>
                               </>
                             )}
@@ -562,7 +570,7 @@ export function IMChatWindow(props: IMChatWindowProps) {
         </button>
       )}
 
-      {/* 3. 底部拟真输入基座（内置 ✨ 增强提示词按钮与 @ 点名能力） */}
+      {/* 3. 底部拟真输入基座（内置增强提示词按钮与 @ 点名能力） */}
       <IMMessageInput
         onSend={props.onSend}
         sending={props.sending}
@@ -570,7 +578,7 @@ export function IMChatWindow(props: IMChatWindowProps) {
           props.conversation.type === "group"
             ? "在群聊中输入消息或指令... (可 @指定专家，未指定时由 Jev 智能调度)"
             : isDirect
-            ? "给 Hermes 智能体发送指令... (支持 ✨ 一键增强提示词，Enter 发送)"
+            ? "给 Hermes 智能体发送指令... (支持一键增强提示词，Enter 发送)"
             : `发送消息至 ${channelLabel(props.conversation.channel)}...`
         }
         isGroupChat={props.conversation.type === "group"}

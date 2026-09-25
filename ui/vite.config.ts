@@ -1,8 +1,9 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   build: {
     // 显式钉死：sourcemap 不随上游默认漂移（生产产物泄露源码的前科高危项），
     // 目标 es2022 对齐 Node≥22/现代浏览器的基线。

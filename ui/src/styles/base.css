@@ -34,6 +34,12 @@ textarea {
   font: inherit;
 }
 
+input,
+textarea,
+[contenteditable] {
+  caret-color: var(--ab-primary);
+}
+
 /* 裸 <small> 不再依赖浏览器相对缩小（会跌到 9.6-10.4px），统一锚定最小字号 token。 */
 small {
   font-size: var(--ab-text-size-xs);
@@ -49,6 +55,7 @@ small {
    所以在这里用品牌交互色显式接管。antd 组件内部的链接按钮走自己的类，不受影响。 */
 a {
   color: var(--ab-primary);
+  text-underline-offset: 3px;
 }
 a:hover {
   color: var(--ab-primary-hover);

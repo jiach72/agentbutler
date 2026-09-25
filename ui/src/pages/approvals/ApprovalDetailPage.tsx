@@ -259,15 +259,15 @@ export function ApprovalDetailPage() {
               <Descriptions.Item label="动作类型">{KIND_LABEL[item.kind] ?? item.kind}</Descriptions.Item>
               <Descriptions.Item label="目标">
                 <Typography.Text code>
-                  {String(detail["target"] ?? item.fingerprint.split("|")[1] ?? "—")}
+                  {String(detail["target"] ?? item.fingerprint.split("|")[1] ?? "-")}
                 </Typography.Text>
               </Descriptions.Item>
               <Descriptions.Item label="请求时间">{new Date(item.createdAt).toLocaleString()}</Descriptions.Item>
               <Descriptions.Item label="超时时刻">{new Date(item.expiresAt).toLocaleString()}</Descriptions.Item>
               <Descriptions.Item label="今日请求次数">{item.windowCount}</Descriptions.Item>
-              <Descriptions.Item label="应答者">{item.actor ?? "—"}</Descriptions.Item>
+              <Descriptions.Item label="应答者">{item.actor ?? "-"}</Descriptions.Item>
               <Descriptions.Item label="关联动作">{item.actionId}</Descriptions.Item>
-              <Descriptions.Item label="会话">{item.sessionId ?? "—"}</Descriptions.Item>
+              <Descriptions.Item label="会话">{item.sessionId ?? "-"}</Descriptions.Item>
             </Descriptions>
 
             {Object.keys(detail).length > 1 && (

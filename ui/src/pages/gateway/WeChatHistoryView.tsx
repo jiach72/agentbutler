@@ -1,7 +1,7 @@
 /**
  * 即时通讯工作台（WeChatHistoryView / IMWorkbench 集成层）：
  * 1. 今日消息整理吞吐与 30 天趋势卡片；
- * 2. 现代即时通讯工作台（IMWorkbench）：左侧会话列表、右侧对话视窗、Hermes 原生直连通道与 ✨ 提示词增强。
+ * 2. 现代即时通讯工作台（IMWorkbench）：左侧会话列表、右侧对话视窗、Hermes 原生直连通道与提示词增强。
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -244,7 +244,7 @@ export function WeChatHistoryView(props: WeChatHistoryViewProps) {
         </Flex>
       </Card>
 
-      {/* 1. 现代化即时通讯工作台（左侧对话列表 + 右侧对话窗口 + Hermes 直连 + ✨ 提示词增强） */}
+      {/* 1. 现代化即时通讯工作台（左侧对话列表 + 右侧对话窗口 + Hermes 直连 + 提示词增强） */}
       <IMWorkbench {...props} />
     </Flex>
   );

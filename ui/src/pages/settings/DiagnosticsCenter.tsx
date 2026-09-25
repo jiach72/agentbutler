@@ -483,7 +483,7 @@ export function DiagnosticsCenter({ actionBusy }: DiagnosticsCenterProps) {
                     {summaryData?.instances?.[0]?.state ?? "Serving"}
                   </div>
                   <div style={{ fontSize: 10, color: "var(--ant-color-text-tertiary)" }}>
-                    版本: {summaryData?.instances?.[0]?.version ? `v${summaryData.instances[0].version}` : "v0.21.2"}
+                    版本: {summaryData?.instances?.[0]?.version ? `v${summaryData.instances[0].version}` : "未知"}
                   </div>
                 </div>
               </div>

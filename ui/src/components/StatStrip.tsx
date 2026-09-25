@@ -57,13 +57,18 @@ export function StatStrip({ items }: { items: StatStripItem[] }) {
             /* stagger 序号交给 CSS（motion.css 里 36ms/项、第 9 项起封顶）。 */
             style={{ "--ab-stagger-i": index } as React.CSSProperties}
           >
-            <Card size="small" style={{ height: "100%" }}>
-              <Flex vertical gap={4} style={{ height: "100%" }}>
+            <Card
+              size="small"
+              className="ethereal-stat-card rounded-2xl md:rounded-3xl border border-outline-variant/15 shadow-xs bento-card-hover"
+              style={{ height: "100%" }}
+              styles={{ body: { padding: "18px 22px", height: "100%" } }}
+            >
+              <Flex vertical gap={6} style={{ height: "100%" }}>
                 <Text type="secondary" className="stat-strip-meta">
-                  {Icon !== undefined && <Icon style={{ marginInlineEnd: 6 }} aria-hidden="true" />}
+                  {Icon !== undefined && <Icon style={{ marginInlineEnd: 8 }} aria-hidden="true" />}
                   {item.label}
                 </Text>
-                <Flex align="baseline" gap={6} wrap="wrap">
+                <Flex align="baseline" gap={8} wrap="wrap">
                   {/* 字号/字重/行高走类而不是内联样式：页面（如首页的证据层）才能在不写
                       属性子串选择器的前提下把它收一档，也不用 !important 对抗内联。 */}
                   <span
@@ -89,7 +94,7 @@ export function StatStrip({ items }: { items: StatStripItem[] }) {
                   </Text>
                 )}
                 {item.action !== undefined && (
-                  <Flex style={{ marginTop: "auto", paddingTop: 4 }}>{item.action}</Flex>
+                  <Flex style={{ marginTop: "auto", paddingTop: 8 }}>{item.action}</Flex>
                 )}
               </Flex>
             </Card>

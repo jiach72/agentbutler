@@ -117,7 +117,7 @@
   gap: 8px;
 }
 
-/* 分层结果块：与 .setup-verdict 同一「信号边 + 极浅 tint」语言。 */
+/* 分层结果块：采用高密度专业底色与边框状态语言 */
 .setup-result {
   position: relative;
   border-radius: var(--ab-r-ctl);
@@ -126,32 +126,19 @@
   padding: 12px 14px;
 }
 
-.setup-result::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 8px;
-  bottom: 8px;
-  width: 3px;
-  border-radius: 0 3px 3px 0;
-  background: var(--ab-text-4);
-}
-
 .setup-result.is-ok {
-  background: color-mix(in srgb, var(--ab-ok) 5%, var(--ab-surface));
+  border-color: color-mix(in srgb, var(--ab-ok) 40%, var(--ab-border));
+  background: color-mix(in srgb, var(--ab-ok) 6%, var(--ab-surface));
 }
-
-.setup-result.is-ok::before { background: var(--ab-ok); }
 
 .setup-result.is-ok .setup-result-icon {
   color: var(--ab-ok);
 }
 
 .setup-result.is-fail {
-  background: color-mix(in srgb, var(--ab-error) 5%, var(--ab-surface));
+  border-color: color-mix(in srgb, var(--ab-error) 40%, var(--ab-border));
+  background: color-mix(in srgb, var(--ab-error) 6%, var(--ab-surface));
 }
-
-.setup-result.is-fail::before { background: var(--ab-error); }
 
 .setup-result.is-fail .setup-result-icon {
   color: var(--ab-error);
@@ -167,27 +154,16 @@
 
 /* ── v2 连接体检台 ─────────────────────────── */
 
-/* 总结论条：与 troubleshoot .ts-result 同一「信号边 + 极浅 tint」语言。 */
+/* 总结论条：采用统一的高密度边框与微底色 */
 .setup-verdict {
   position: relative;
   display: flex;
   align-items: flex-start;
   gap: 12px;
   border-radius: var(--ab-r-ctl);
-  border: 1px solid var(--ab-border);
-  background: var(--ab-surface);
+  border: 1px solid color-mix(in srgb, var(--ab-warn) 40%, var(--ab-border));
+  background: color-mix(in srgb, var(--ab-warn) 6%, var(--ab-surface));
   padding: 14px 16px;
-}
-
-.setup-verdict::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 10px;
-  bottom: 10px;
-  width: 3px;
-  border-radius: 0 3px 3px 0;
-  background: var(--ab-warn);
 }
 
 .setup-verdict .setup-verdict-icon {

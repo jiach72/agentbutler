@@ -14,6 +14,9 @@ import "@fontsource/inter/500.css";
 import "@fontsource/inter/600.css";
 import "@fontsource/inter/700.css";
 import "@fontsource/inter/800.css";
+import "@fontsource/plus-jakarta-sans/500.css";
+import "@fontsource/plus-jakarta-sans/600.css";
+import "@fontsource/plus-jakarta-sans/700.css";
 import "antd/dist/reset.css";
 import { AccessGate } from "./components/AccessGate.js";
 import { Layout } from "./components/Layout.js";
@@ -49,6 +52,7 @@ const MemoryDiffPage = lazy(() => import("./pages/memory/MemoryDiffPage.js").the
 const MemoryCenterPage = lazy(() => import("./pages/memory/MemoryCenterPage.js").then(({ MemoryCenterPage: Page }) => ({ default: Page })));
 const FederationPage = lazy(() => import("./pages/federation/FederationPage.js").then(({ FederationPage: Page }) => ({ default: Page })));
 const KnowledgePage = lazy(() => import("./pages/knowledge/KnowledgePage.js").then(({ KnowledgePage: Page }) => ({ default: Page })));
+const LearnPage = lazy(() => import("./pages/learn/LearnPage.js").then(({ LearnPage: Page }) => ({ default: Page })));
 
 function FirstRunRedirect() {
   const location = useLocation();
@@ -129,6 +133,7 @@ function ThemedApp({ locale }: { locale: React.ComponentProps<typeof ConfigProvi
               <Route path="/skills" element={<SkillsPage />} />
               <Route path="/knowledge" element={<KnowledgePage />} />
               <Route path="/tools" element={<ToolsPage />} />
+              <Route path="/learn" element={<LearnPage />} />
               <Route path="/advanced" element={<Navigate to="/tools" replace />} />
               <Route path="/core-files" element={<CoreFilesPage />} />
               {/* 信任层（Trust Layer）：成本 / 行为审计 / 事件中心 / Agent 周报 */}
