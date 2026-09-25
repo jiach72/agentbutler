@@ -147,22 +147,64 @@ if (bridgeDirect || bridgeForward) {
 
 const defaultHermesHome = join(process.env.HOME || homedir() || "", ".hermes");
 const bridgeServerPath = join(defaultHermesHome, "hermes-agent", "gateway", "butler_bridge", "server.py");
+// 本次部署自带的 Bridge 源码 = 版本基准。用它比对宿主副本，而不是只判断「文件在不在」：
+// 宿主 `hermes update` 的 autostash 会把未跟踪的托管包整体搬走（留下空目录/缺 server.py），
+// 而副本落后于当前版本时同样会让本机缺能力却毫无提示（#36 / #24）。
+const repoBridgeServerPath = join(
+  import.meta.dirname,
+  "..",
+  "packages",
+  "adapters",
+  "hermes",
+  "bridge",
+  "agent_butler_bridge",
+  "server.py",
+);
+const readBridgeVersion = (path) => {
+  try {
+    const match = /BRIDGE_VERSION\s*=\s*"([^"]+)"/.exec(readFileSync(path, "utf8"));
+    return match ? match[1] : "";
+  } catch {
+    return "";
+  }
+};
+const bridgeInstallFix =
+  "宿主执行：cd <repo>/packages/adapters/hermes/bridge && PYTHONPATH=. <宿主 Hermes venv 的 python> -m agent_butler_bridge.installer install ~/.hermes/hermes-agent，然后 hermes gateway restart（副本运行在网关进程内，必须重启才生效）";
+
 if (existsSync(bridgeServerPath)) {
   try {
     const installedContent = readFileSync(bridgeServerPath, "utf8");
     const hasResolve = installedContent.includes("resolve_unknown") && installedContent.includes("/resolve");
-    if (!hasResolve) {
+    const hostVersion = readBridgeVersion(bridgeServerPath);
+    const repoVersion = readBridgeVersion(repoBridgeServerPath);
+    const versionNote =
+      hostVersion === ""
+        ? ""
+        : `（宿主 ${hostVersion}${repoVersion === "" ? "" : ` / 本次部署 ${repoVersion}`}）`;
+    if (hostVersion !== "" && repoVersion !== "" && hostVersion !== repoVersion) {
       warn(
         "Hermes 消息桥副本版本",
-        "宿主已安装的 Bridge 副本缺少 resolve 权威结案端点（旧版本）",
+        `宿主 Bridge 副本与本次部署不同代${versionNote}${hasResolve ? "" : "，且缺少 resolve 权威结案端点"}`,
+        bridgeInstallFix.replace("installer install", "installer update"),
+      );
+    } else if (!hasResolve) {
+      warn(
+        "Hermes 消息桥副本版本",
+        `宿主已安装的 Bridge 副本缺少 resolve 权威结案端点（旧版本）${versionNote}`,
         "执行 python -m agent_butler_bridge.installer update ~/.hermes/hermes-agent 同步最新代码并重启 hermes-gateway",
       );
     } else {
-      pass("Hermes 消息桥副本版本", "宿主 Bridge 副本具备 resolve 结案能力");
+      pass("Hermes 消息桥副本版本", `宿主 Bridge 副本具备 resolve 结案能力${versionNote}`);
     }
   } catch (err) {
     warn("Hermes 消息桥副本版本", `读取检查失败：${err.message}`);
   }
+} else {
+  warn(
+    "Hermes 消息桥副本版本",
+    `未找到宿主 Bridge 副本（${bridgeServerPath}）—— 宿主消息面不可用；若面板仍显示正常，即为静默降级`,
+    bridgeInstallFix,
+  );
 }
 
 /* ------------------ 4b. Hermes Host Control Bridge ------------------ */
