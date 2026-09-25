@@ -177,6 +177,7 @@ services:
       BUTLER_WEB_PORT: 7531
       BUTLER_GATEWAY_URL: http://butler-gateway:7532
       BUTLER_WATCH_URL: http://butler-watch:7533
+      BUTLER_UPDATER_URL: ${BUTLER_UPDATER_URL:-http://butler-updater:7540}
       BUTLER_OLLAMA_URL: ${BUTLER_OLLAMA_URL:-http://ollama:11434}
       # 面板发布到非回环地址时必填；留空则只允许本机访问。
       BUTLER_ACCESS_TOKEN: ${BUTLER_ACCESS_TOKEN:-}

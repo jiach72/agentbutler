@@ -5,6 +5,7 @@ import {
   buildEnvChannels,
   degradedChannelLabels,
   NullChannel,
+  safeUpstreamExcerpt,
   ServerChanChannel,
   SmtpChannel,
   TelegramChannel,
@@ -62,6 +63,34 @@ describe("TelegramChannel", () => {
     await expect(
       unconfigured.send({ severity: "critical", title: "t", body: "b", source: "s" }),
     ).rejects.toThrow("missing credentials");
+  });
+
+  it("失败路径：上游错误响应超长或含控制字符时被安全摘录截断", async () => {
+    const rawError = "\x00\x1b[31m" + "A".repeat(250) + "\x7f";
+    const fetchImpl: FetchLike = async () => ({
+      ok: false,
+      status: 502,
+      text: async () => rawError,
+    });
+    const channel = new TelegramChannel({ env: TELEGRAM_ENV, fetchImpl });
+
+    let sendErr: Error | null = null;
+    try {
+      await channel.send({ severity: "critical", title: "t", body: "b", source: "s" });
+    } catch (err) {
+      sendErr = err as Error;
+    }
+    expect(sendErr?.message).toContain("telegram sendMessage failed: HTTP 502 [31m" + "A".repeat(196) + "…");
+    expect(sendErr?.message).not.toContain("\x00");
+    expect(sendErr?.message).not.toContain("\x1b");
+
+    let sendTextErr: Error | null = null;
+    try {
+      await channel.sendText("test-text");
+    } catch (err) {
+      sendTextErr = err as Error;
+    }
+    expect(sendTextErr?.message).toContain("telegram sendText failed: HTTP 502 [31m" + "A".repeat(196) + "…");
   });
 });
 
@@ -177,12 +206,13 @@ describe("BarkChannel", () => {
     expect(payload["group"]).toBe("butler");
   });
 
-  it("失败路径：HTTP 非 2xx 抛错", async () => {
-    const fetchImpl: FetchLike = async () => ({ ok: false, status: 400, text: async () => "bad" });
+  it("失败路径：HTTP 非 2xx 抛错且超长上游文本被截断", async () => {
+    const rawError = "B".repeat(250);
+    const fetchImpl: FetchLike = async () => ({ ok: false, status: 500, text: async () => rawError });
     const channel = new BarkChannel({ env: BARK_ENV, fetchImpl });
     await expect(
       channel.send({ severity: "critical", title: "t", body: "b", source: "s" }),
-    ).rejects.toThrow("HTTP 400");
+    ).rejects.toThrow(`bark push failed: HTTP 500 ${"B".repeat(200)}…`);
   });
 });
 
@@ -216,5 +246,28 @@ describe("buildEnvChannels", () => {
   it("默认候选序列：Telegram → Bark → Server酱 → SMTP", () => {
     const channels = buildEnvChannels({});
     expect(channels.map((channel) => channel.name)).toEqual(["telegram", "bark", "serverchan", "smtp"]);
+  });
+});
+
+describe("safeUpstreamExcerpt", () => {
+  it("剥离 ASCII 控制字符与 ANSI 控制码字符", () => {
+    const input = "\x00Hello\x1b[31m World\x7f\t\r\n";
+    expect(safeUpstreamExcerpt(input)).toBe("Hello [31m World");
+  });
+
+  it("短文本保持原样", () => {
+    expect(safeUpstreamExcerpt("Bad Gateway")).toBe("Bad Gateway");
+  });
+
+  it("超过 200 字符时截断并追加省略号", () => {
+    const input = "X".repeat(250);
+    const result = safeUpstreamExcerpt(input);
+    expect(result).toHaveLength(201); // 200 + '…'
+    expect(result).toBe("X".repeat(200) + "…");
+  });
+
+  it("全控制字符或空串返回空串", () => {
+    expect(safeUpstreamExcerpt("")).toBe("");
+    expect(safeUpstreamExcerpt("\x00\x01\x02\r\n\t ")).toBe("");
   });
 });

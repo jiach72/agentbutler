@@ -80,6 +80,8 @@ export interface KnowledgeRouteOptions {
   home: string;
   anythingllmUrl?: string;
   ollamaUrl?: string;
+  updaterUrl?: string;
+  updaterToken?: string;
   fetchImpl?: typeof fetch;
 }
 
@@ -1750,9 +1752,113 @@ ${query}`;
     startupState.error = undefined;
     startupState.startedAt = Date.now();
 
-    appendLog(">>> docker compose --profile rag-anythingllm up -d butler-rag-anythingllm");
-
     (async () => {
+      const updaterUrl = (
+        options.updaterUrl ||
+        process.env["BUTLER_UPDATER_URL"] ||
+        "http://butler-updater:7540"
+      )
+        .trim()
+        .replace(/\/+$/, "");
+
+      const updaterToken = (
+        options.updaterToken ||
+        process.env["BUTLER_UPDATER_ACCESS_TOKEN"] ||
+        process.env["BUTLER_INTERNAL_TOKEN"] ||
+        process.env["BUTLER_ACCESS_TOKEN"] ||
+        ""
+      ).trim();
+
+      // 1. 优先探测 Compose 内部网络的容器管理侧车 (butler-updater)
+      let hasUpdater = false;
+      try {
+        const probe = await fetchFn(`${updaterUrl}/healthz`, {
+          signal: AbortSignal.timeout(1500),
+        });
+        if (probe.ok) hasUpdater = true;
+      } catch {
+        hasUpdater = false;
+      }
+
+      if (hasUpdater) {
+        appendLog(`[调度] 检测到容器管理侧车 (${updaterUrl})，正在委派拉起任务...`);
+        appendLog(">>> docker compose --profile rag-anythingllm up -d butler-rag-anythingllm");
+        startupState.stage = "pulling";
+        startupState.stageLabel = "正在拉取镜像并启动 AnythingLLM 容器...";
+        startupState.percent = 35;
+
+        try {
+          const res = await fetchFn(`${updaterUrl}/api/service/start`, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              ...(updaterToken
+                ? {
+                    "x-butler-token": updaterToken,
+                    "x-butler-internal-token": updaterToken,
+                  }
+                : {}),
+            },
+            body: JSON.stringify({
+              service: "butler-rag-anythingllm",
+              profile: "rag-anythingllm",
+            }),
+            signal: AbortSignal.timeout(300_000), // 最多等待 5 分钟
+          });
+
+          const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+
+          if (res.ok && data["ok"] === true) {
+            appendLog("[调度] 守护侧车执行成功，容器已就绪并转入后台运行。");
+            if (typeof data["stdout"] === "string" && data["stdout"].trim()) {
+              for (const line of data["stdout"].split("\n")) {
+                const trimmed = line.trim();
+                if (trimmed) appendLog(`  ${trimmed}`);
+              }
+            }
+            startProbingLoop();
+            return;
+          }
+
+          const errDetail =
+            (typeof data["error"] === "string" && data["error"]) ||
+            (typeof data["reason"] === "string" && data["reason"]) ||
+            `HTTP ${res.status}`;
+          appendLog(`[错误] 调度侧车执行返回异常: ${errDetail}`);
+
+          if (/docker\.sock|Cannot connect|permission denied|ENOENT/i.test(errDetail)) {
+            appendLog("[说明] butler-updater 侧车未接入宿主 Docker Socket 或权限未开放。");
+            appendLog("[操作] 请在宿主终端直接执行以下命令拉起知识库：");
+            appendLog("       docker compose --profile rag-anythingllm up -d butler-rag-anythingllm");
+            appendLog("[提示] 外部拉起后，本地心跳雷达将自动感应到端口亮起并切入，无需刷新。");
+            startupState.stage = "failed";
+            startupState.stageLabel = "Docker 调度环境受限";
+            startupState.error = "未检测到 Docker Socket 权限，请在宿主终端执行命令拉起";
+            startupState.active = false;
+            return;
+          }
+
+          appendLog("[操作] 遇到未知调度错误，您可在宿主终端手动执行：");
+          appendLog("       docker compose --profile rag-anythingllm up -d butler-rag-anythingllm");
+          startupState.stage = "failed";
+          startupState.stageLabel = "容器启动异常";
+          startupState.error = errDetail;
+          startupState.active = false;
+          return;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          appendLog(`[异常] 调度通信异常: ${message}`);
+          appendLog("[操作] 请在宿主终端直接执行：docker compose --profile rag-anythingllm up -d butler-rag-anythingllm");
+          startupState.stage = "failed";
+          startupState.stageLabel = "调度通信异常";
+          startupState.error = message;
+          startupState.active = false;
+          return;
+        }
+      }
+
+      // 2. 无 updater 侧车（宿主机单机裸跑模式）：检测本机 docker CLI
+      appendLog(">>> docker compose --profile rag-anythingllm up -d butler-rag-anythingllm");
       try {
         const child = spawn(
           "docker",
@@ -1793,43 +1899,54 @@ ${query}`;
         });
 
         child.on("error", (err) => {
-          appendLog(`[Notice] Docker 进程调度提示: ${err.message}`);
-          appendLog(
-            "[Notice] 当前 Web 容器处于无特权安全沙箱 (未挂载 Docker Socket，严守主机安全)。",
-          );
-          appendLog("[Action] 若容器未在运行，可在宿主终端直接执行：");
-          appendLog("         docker compose --profile rag-anythingllm up -d");
-          appendLog("[Radar] 本地心跳雷达已开启（1.2秒/次），容器就绪后本界面将自动无缝切入！");
-          startProbingLoop();
+          appendLog(`[说明] 本机无 Docker 命令行或处于无特权安全沙箱: ${err.message}`);
+          appendLog("[操作] 请在宿主终端直接执行以下命令拉起知识库：");
+          appendLog("       docker compose --profile rag-anythingllm up -d butler-rag-anythingllm");
+          appendLog("[提示] 外部拉起后，本地心跳雷达将自动感应到端口亮起并切入，无需刷新。");
+          startupState.stage = "failed";
+          startupState.stageLabel = "未检测到 Docker 环境";
+          startupState.error = "当前环境无法直接调用 Docker，请在宿主终端手动运行启动命令";
+          startupState.active = false;
         });
 
         child.on("close", (code) => {
-          appendLog(`[Docker] 进程执行完毕 (退出码: ${code ?? 0})`);
-          startProbingLoop();
+          if (code === 0) {
+            appendLog(`[Docker] 进程执行完毕 (退出码: 0)`);
+            startProbingLoop();
+          } else {
+            appendLog(`[错误] 本地 Docker 进程异常退出 (退出码: ${code ?? 0})`);
+            startupState.stage = "failed";
+            startupState.stageLabel = "Docker 启动命令失败";
+            startupState.error = `本地 Docker 命令执行异常 (退出码: ${code})`;
+            startupState.active = false;
+          }
         });
       } catch (err) {
-        appendLog(`[Notice] 启动调度异常: ${err instanceof Error ? err.message : String(err)}`);
-        startProbingLoop();
+        appendLog(`[异常] 启动调度异常: ${err instanceof Error ? err.message : String(err)}`);
+        startupState.stage = "failed";
+        startupState.stageLabel = "启动调度异常";
+        startupState.error = String(err);
+        startupState.active = false;
       }
     })();
 
     function startProbingLoop() {
       startupState.stage = "probing";
-      startupState.stageLabel = "正在握手心跳探活 (http://127.0.0.1:3001)...";
-      startupState.percent = Math.max(startupState.percent, 80);
+      startupState.stageLabel = "容器已启动，正在探测 3001 端口连通态...";
+      startupState.percent = Math.max(startupState.percent, 75);
 
       let attempts = 0;
-      const maxAttempts = 35;
+      const maxAttempts = 40;
       const interval = setInterval(async () => {
         attempts += 1;
         appendLog(
-          `[Healthcheck] 正在探测 127.0.0.1:3001 连通态 (第 ${attempts}/${maxAttempts} 次)...`,
+          `[探活] 正在探测 AnythingLLM 端口连通态 (第 ${attempts}/${maxAttempts} 次)...`,
         );
 
         const { running } = await checkRunning();
         if (running) {
           clearInterval(interval);
-          appendLog("[Success] 探测到 AnythingLLM 响应 200 OK！本地知识库已就绪。");
+          appendLog("[成功] 探测到 AnythingLLM 响应 200 OK！本地知识库已就绪上线。");
           startupState.stage = "ready";
           startupState.stageLabel = "本地知识库正常运行中";
           startupState.percent = 100;
@@ -1840,10 +1957,11 @@ ${query}`;
 
         if (attempts >= maxAttempts) {
           clearInterval(interval);
-          appendLog("[Warn] 超过 35 秒未检测到 3001 端口响应，请检查 Docker Desktop 或控制台日志。");
+          appendLog("[超时] 超过 40 秒未检测到 3001 端口响应。");
+          appendLog("[提示] 请在宿主终端执行 docker compose logs butler-rag-anythingllm 查看容器内部日志。");
           startupState.stage = "failed";
           startupState.stageLabel = "启动探活超时";
-          startupState.error = "未在预期时间内检测到容器就绪，请在终端查看 docker compose logs";
+          startupState.error = "未在预期时间内检测到容器就绪，请在终端查看 docker compose logs butler-rag-anythingllm";
           startupState.active = false;
         }
       }, 1000);

@@ -55,6 +55,14 @@ const healthUrls = (process.env["BUTLER_UPDATER_HEALTH_URLS"]
   .map((value) => value.trim())
   .filter((value) => value !== "");
 
+/** 受控容器服务白名单（只允许拉起受管依赖组件，杜绝任意容器调度与命令注入）。 */
+const ALLOWED_MANAGED_SERVICES: Record<string, { defaultProfile?: string }> = {
+  "butler-rag-anythingllm": { defaultProfile: "rag-anythingllm" },
+  "butler-memory-mem0": { defaultProfile: "memory-mem0" },
+  "butler-memory-hindsight": { defaultProfile: "memory-hindsight" },
+  "ollama": {},
+};
+
 /**
  * 访问口令：updater 会执行 git checkout、重建镜像、重启服务，是这个项目里破坏性最强的组件。
  * 没有口令时必须拒绝一切请求，否则容器网络内任何人都能触发它。
@@ -548,6 +556,75 @@ const server = createServer(async (request, response) => {
     writeJson(statusFile, view);
     return send(response, 200, view);
   }
+  if (path === "/api/service/start") {
+    if (request.method !== "POST") return send(response, 405, { error: "method-not-allowed" });
+    let body: Record<string, unknown>;
+    try {
+      body = await readBody(request);
+    } catch (error) {
+      return send(response, 400, { error: error instanceof Error ? error.message : "invalid-json" });
+    }
+
+    const service = typeof body["service"] === "string" ? body["service"].trim() : "";
+    const profileParam = typeof body["profile"] === "string" ? body["profile"].trim() : undefined;
+
+    if (!service || !Object.prototype.hasOwnProperty.call(ALLOWED_MANAGED_SERVICES, service)) {
+      return send(response, 400, {
+        error: "invalid-service",
+        reason: `服务「${service}」不在受控管理白名单内`,
+        allowedServices: Object.keys(ALLOWED_MANAGED_SERVICES),
+      });
+    }
+
+    if (active) {
+      return send(response, 409, {
+        error: "upgrade-in-flight",
+        reason: "管家当前正在进行版本升级或维护，请稍候再试",
+      });
+    }
+
+    const matched = ALLOWED_MANAGED_SERVICES[service]!;
+    const profile = profileParam || matched.defaultProfile;
+    if (profile && !/^[A-Za-z0-9_-]+$/.test(profile)) {
+      return send(response, 400, { error: "invalid-profile", reason: "Profile 名称不合法" });
+    }
+
+    const composeArgs = ["docker-compose", "docker-compose.exe", "docker-compose.cmd", "docker-compose.bat"].includes(
+      basename(composeBinary).toLowerCase(),
+    )
+      ? []
+      : ["compose"];
+    const profileArgs = profile ? ["--profile", profile] : [];
+    const commandArgs = [
+      ...composeArgs,
+      "--project-directory",
+      composeProjectDir,
+      "-f",
+      join(composeProjectDir, composeFile),
+      ...profileArgs,
+      "up",
+      "-d",
+      service,
+    ];
+
+    const result = await run(composeBinary, commandArgs, sourceDir, 300_000);
+    if (!result.ok) {
+      return send(response, 500, {
+        ok: false,
+        service,
+        error: result.error,
+        stdout: result.stdout,
+      });
+    }
+
+    return send(response, 200, {
+      ok: true,
+      service,
+      stdout: result.stdout,
+      profile: profile ?? null,
+    });
+  }
+
   if (request.method !== "POST") return send(response, 405, { error: "method-not-allowed" });
   if (path !== "/api/upgrade" && path !== "/api/rollback") return send(response, 404, { error: "not-found" });
   let body: Record<string, unknown>;

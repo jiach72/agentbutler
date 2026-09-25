@@ -123,6 +123,73 @@ describe("本地知识库 (AnythingLLM RAG) API 路由", () => {
     expect(body.progress.logs.length).toBeGreaterThan(0);
   });
 
+  it("POST /api/knowledge/start 发现可用 updater 时成功委派其拉起容器", async () => {
+    let updaterServiceStarted = false;
+    let updaterTokenChecked = false;
+
+    const mockFetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      const urlStr = String(url);
+      if (urlStr.includes(":7540/healthz")) {
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }
+      if (urlStr.includes(":7540/api/service/start")) {
+        const headers = init?.headers as Record<string, string> | undefined;
+        if (headers?.["x-butler-token"] === "my-updater-token") {
+          updaterTokenChecked = true;
+        }
+        const parsedBody = JSON.parse(String(init?.body || "{}")) as { service?: string };
+        if (parsedBody.service === "butler-rag-anythingllm") {
+          updaterServiceStarted = true;
+        }
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            service: "butler-rag-anythingllm",
+            stdout: "Container butler-rag-anythingllm Started",
+          }),
+          { status: 200 },
+        );
+      }
+      if (urlStr.includes(":3001/api/ping") || urlStr.includes("butler-rag-anythingllm:3001")) {
+        if (!updaterServiceStarted) {
+          return new Response("offline", { status: 503 });
+        }
+        return new Response(JSON.stringify({ online: true }), { status: 200 });
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+
+    const app = createWebServer({
+      home,
+      uiDist,
+      updaterUrl: "http://127.0.0.1:7540",
+      updaterToken: "my-updater-token",
+      fetchImpl: mockFetch,
+    });
+    apps.push(app);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/knowledge/start",
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().ok).toBe(true);
+
+    // 等待异步委托完成
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    expect(updaterServiceStarted).toBe(true);
+    expect(updaterTokenChecked).toBe(true);
+
+    const progressRes = await app.inject({
+      method: "GET",
+      url: "/api/knowledge/start-progress",
+    });
+    const progress = progressRes.json();
+    expect(progress.logs.some((l: string) => l.includes("[调度]"))).toBe(true);
+  });
+
   it("GET /api/knowledge/embedding-status 返回嵌入模型状态与推荐模型", async () => {
     const app = createApp();
     const res = await app.inject({

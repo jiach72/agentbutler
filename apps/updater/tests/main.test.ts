@@ -402,4 +402,48 @@ describe("butler-updater security and rollback", () => {
     const status = await terminalStatus();
     expect(status["lastJob"]).toMatchObject({ status: "done", phase: "done" });
   }, 20_000);
+
+  it("handles /api/service/start for whitelisted services securely", async () => {
+    updater = await startUpdater();
+
+    // 1. 未鉴权请求被拒绝
+    const unauth = await request("/api/service/start", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ service: "butler-rag-anythingllm" }),
+    });
+    expect(unauth.status).toBe(401);
+
+    // 2. 非白名单服务被拦截
+    const invalidService = await request("/api/service/start", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-butler-token": TOKEN },
+      body: JSON.stringify({ service: "arbitrary-attacker-container" }),
+    });
+    expect(invalidService.status).toBe(400);
+    await expect(invalidService.json()).resolves.toMatchObject({ error: "invalid-service" });
+
+    // 3. 非法 profile 名称被拦截
+    const invalidProfile = await request("/api/service/start", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-butler-token": TOKEN },
+      body: JSON.stringify({ service: "butler-rag-anythingllm", profile: "invalid;whoami" }),
+    });
+    expect(invalidProfile.status).toBe(400);
+    await expect(invalidProfile.json()).resolves.toMatchObject({ error: "invalid-profile" });
+
+    // 4. 合法白名单服务拉起成功并带上默认 profile
+    const startRes = await request("/api/service/start", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-butler-token": TOKEN },
+      body: JSON.stringify({ service: "butler-rag-anythingllm" }),
+    });
+    expect(startRes.status).toBe(200);
+    const startData = (await startRes.json()) as Record<string, unknown>;
+    expect(startData).toMatchObject({ ok: true, service: "butler-rag-anythingllm", profile: "rag-anythingllm" });
+
+    // 验证调用参数已记录
+    const invocation = readFileSync(composeArgsFile, "utf8").replaceAll('"', "");
+    expect(invocation).toContain("--profile rag-anythingllm up -d butler-rag-anythingllm");
+  });
 });

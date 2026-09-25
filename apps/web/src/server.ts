@@ -115,6 +115,10 @@ export interface WebServerOptions {
   ollamaUrl?: string;
   /** Ollama 用量存储（测试显式注入用；生产缺省读 home/data/ollama_usage.db）。 */
   ollamaUsageStore?: OllamaUsageStore | null;
+  /** updater 控制通道基址；缺省 env BUTLER_UPDATER_URL 或 http://butler-updater:7540。 */
+  updaterUrl?: string;
+  /** updater 控制通道口令；缺省 BUTLER_UPDATER_ACCESS_TOKEN || BUTLER_INTERNAL_TOKEN || BUTLER_ACCESS_TOKEN。 */
+  updaterToken?: string;
 }
 
 /** 会改变状态的请求方法；只有它们需要校验来源。 */
@@ -136,6 +140,15 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   const gatewayUrl = options.gatewayUrl ?? process.env["BUTLER_GATEWAY_URL"] ?? DEFAULT_GATEWAY_URL;
   const watchUrl = options.watchUrl ?? process.env["BUTLER_WATCH_URL"] ?? DEFAULT_WATCH_URL;
   const ollamaUrl = options.ollamaUrl ?? process.env["BUTLER_OLLAMA_URL"] ?? DEFAULT_OLLAMA_URL;
+  const updaterUrl =
+    options.updaterUrl ?? (process.env["BUTLER_UPDATER_URL"]?.trim() || "http://butler-updater:7540");
+  const updaterToken = (
+    options.updaterToken ??
+    (process.env["BUTLER_UPDATER_ACCESS_TOKEN"] ||
+      process.env["BUTLER_INTERNAL_TOKEN"] ||
+      process.env["BUTLER_ACCESS_TOKEN"] ||
+      "")
+  ).trim();
   const doFetch = options.fetchImpl ?? fetch;
   const uiDist = path.resolve(options.uiDist ?? defaultUiDist());
   const bundleVersion = readBundleVersion(uiDist);
@@ -602,7 +615,13 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
 
   /* ------------------------------ Ollama 本地模型与知识库管理 ------------------------------ */
   void registerOllamaRoutes(app, { ollamaUrl, ollamaUsageStore });
-  void registerKnowledgeRoutes(app, { home, ollamaUrl, fetchImpl: options.fetchImpl });
+  void registerKnowledgeRoutes(app, {
+    home,
+    ollamaUrl,
+    updaterUrl,
+    updaterToken,
+    fetchImpl: options.fetchImpl,
+  });
 
   /* ------------------------------ WebSocket /ws ------------------------------ */
 

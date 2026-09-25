@@ -902,16 +902,28 @@ export function KnowledgePage() {
   const isEnabled = status?.enabled ?? false;
 
   // 步骤条进度映射
+  const isProbingFailure =
+    startupProgress?.stage === "failed" &&
+    (startupProgress.error?.includes("3001") ||
+      startupProgress.error?.includes("探活") ||
+      startupProgress.stageLabel?.includes("探活") ||
+      startupProgress.logs?.some((l) => l.includes("探测") || l.includes("探活") || l.includes("Healthcheck")));
+
+  const isPullingOrLaunchingFailure =
+    startupProgress?.stage === "failed" &&
+    !isProbingFailure &&
+    startupProgress.logs?.some((l) =>
+      l.includes("拉取") || l.includes("pull") || l.includes("创建") || l.includes("creating"),
+    );
+
   const currentStep =
-    startupProgress?.stage === "preparing"
-      ? 0
-      : startupProgress?.stage === "pulling" || startupProgress?.stage === "launching"
-        ? 1
-        : startupProgress?.stage === "probing"
-          ? 2
-          : startupProgress?.ready || isRunning
-            ? 3
-            : 0;
+    startupProgress?.ready || isRunning
+      ? 3
+      : startupProgress?.stage === "probing" || isProbingFailure
+        ? 2
+        : startupProgress?.stage === "pulling" || startupProgress?.stage === "launching" || isPullingOrLaunchingFailure
+          ? 1
+          : 0;
 
   return (
     <div className="knowledge-page">
@@ -1638,6 +1650,38 @@ export function KnowledgePage() {
                 </Space>
               </Flex>
 
+              {/* 异常状态智能诊断提示条 */}
+              {startupProgress?.stage === "failed" && (
+                <Alert
+                  type="error"
+                  showIcon
+                  message={startupProgress.stageLabel || "容器启动未就绪"}
+                  description={
+                    <Flex vertical gap={6}>
+                      <Text style={{ fontSize: 13 }}>
+                        {startupProgress.error || "未在预期时间内检测到容器就绪，请根据下方日志排查或在宿主终端手动启动。"}
+                      </Text>
+                      <Flex align="center" gap={8} wrap="wrap" style={{ marginTop: 2 }}>
+                        <Text strong style={{ fontSize: 12 }}>宿主终端拉起命令：</Text>
+                        <Text code style={{ fontSize: 12 }}>{START_COMMAND}</Text>
+                        <CopySnippetButton text={START_COMMAND} label="一键复制" />
+                      </Flex>
+                    </Flex>
+                  }
+                  action={
+                    <Button
+                      size="small"
+                      danger
+                      onClick={handleLaunchInWeb}
+                      loading={launchingInWeb}
+                    >
+                      重新尝试
+                    </Button>
+                  }
+                  style={{ borderRadius: 8 }}
+                />
+              )}
+
               {/* 四步流水线步骤条 */}
               <Card size="small" style={{ background: "var(--ant-color-fill-quaternary)" }}>
                 <Steps
@@ -1645,9 +1689,27 @@ export function KnowledgePage() {
                   status={startupProgress?.stage === "failed" ? "error" : undefined}
                   size="small"
                   items={[
-                    { title: "环境预检", description: "校验 Compose 配置" },
-                    { title: "拉取镜像", description: "mintplexlabs/anythingllm" },
-                    { title: "端口探活", description: "127.0.0.1:3001" },
+                    {
+                      title: "环境预检",
+                      description:
+                        startupProgress?.stage === "failed" && currentStep === 0
+                          ? (startupProgress.stageLabel || "环境受限")
+                          : "校验调度环境与权限",
+                    },
+                    {
+                      title: "拉取镜像",
+                      description:
+                        startupProgress?.stage === "failed" && currentStep === 1
+                          ? (startupProgress.stageLabel || "拉取失败")
+                          : "mintplexlabs/anythingllm",
+                    },
+                    {
+                      title: "端口探活",
+                      description:
+                        startupProgress?.stage === "failed" && currentStep === 2
+                          ? "探活响应超时"
+                          : "127.0.0.1:3001",
+                    },
                     { title: "就绪上线", description: "接入资料收集箱" },
                   ]}
                 />

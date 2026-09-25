@@ -30,7 +30,7 @@ export interface AlertChannel {
  * 该文本会被拼进 Error 并可能随告警正文转发到其他通道——上游内容不可信，
  * 收窄长度与控制字符，避免二次注入与无界膨胀。
  */
-function safeUpstreamExcerpt(text: string): string {
+export function safeUpstreamExcerpt(text: string): string {
   // 逐字符剥离控制字符（不用正则：控制字符字面类会触发 no-control-regex 规则）
   const cleaned = Array.from(text, (ch) => {
     const code = ch.charCodeAt(0);
@@ -103,7 +103,9 @@ export class TelegramChannel implements AlertChannel {
       signal: AbortSignal.timeout(this.timeoutMs),
     });
     if (!res.ok) {
-      throw new Error(`telegram sendMessage failed: HTTP ${res.status} ${await res.text()}`);
+      throw new Error(
+        `telegram sendMessage failed: HTTP ${res.status} ${safeUpstreamExcerpt(await res.text())}`,
+      );
     }
   }
 
@@ -118,7 +120,9 @@ export class TelegramChannel implements AlertChannel {
       signal: AbortSignal.timeout(this.timeoutMs),
     });
     if (!res.ok) {
-      throw new Error(`telegram sendText failed: HTTP ${res.status} ${await res.text()}`);
+      throw new Error(
+        `telegram sendText failed: HTTP ${res.status} ${safeUpstreamExcerpt(await res.text())}`,
+      );
     }
   }
 
@@ -258,7 +262,9 @@ export class BarkChannel implements AlertChannel {
       signal: AbortSignal.timeout(this.timeoutMs),
     });
     if (!res.ok) {
-      throw new Error(`bark push failed: HTTP ${res.status} ${await res.text()}`);
+      throw new Error(
+        `bark push failed: HTTP ${res.status} ${safeUpstreamExcerpt(await res.text())}`,
+      );
     }
   }
 }
