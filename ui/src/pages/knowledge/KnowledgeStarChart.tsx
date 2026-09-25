@@ -14,7 +14,6 @@ import {
   Flex,
   Input,
   Radio,
-  Space,
   Tag,
   Tooltip,
   Typography,
@@ -22,8 +21,6 @@ import {
 import {
   AimOutlined,
   BookOutlined,
-  CompressOutlined,
-  ExpandOutlined,
   FileDoneOutlined,
   FileTextOutlined,
   FullscreenExitOutlined,
@@ -603,7 +600,7 @@ export function KnowledgeStarChart({
             cardRef.current as unknown as { webkitRequestFullscreen: () => Promise<void> }
           ).webkitRequestFullscreen();
         }
-      } catch {}
+      } catch { /* 全屏 API 不可用时忽略（浏览器不支持或用户拒绝） */ }
     } else {
       try {
         if (document.fullscreenElement) {
@@ -620,7 +617,7 @@ export function KnowledgeStarChart({
             document as unknown as { webkitExitFullscreen: () => Promise<void> }
           ).webkitExitFullscreen();
         }
-      } catch {}
+      } catch { /* 全屏 API 不可用时忽略（浏览器不支持或用户拒绝） */ }
     }
     setTimeout(() => resizeCanvas(), 120);
   };

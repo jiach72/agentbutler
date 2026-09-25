@@ -246,7 +246,7 @@ export async function listBotProfiles(hermesRoot: string): Promise<BotProfile[]>
       let soulContent = `你是专职智能体 ${botId}。`;
       let name = botId;
       let role = "自定义专职智能体";
-      let duties: string[] = ["协助执行协同任务"];
+      const duties: string[] = ["协助执行协同任务"];
       let avatar = "🤖";
 
       try {
