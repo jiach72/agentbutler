@@ -55,7 +55,7 @@ function safeParseJson<T>(raw: string | null, fallback: T): T {
   }
 }
 
-/** 预设初始会话（包含 Hermes 直连会话、万神殿协同中心群聊与专职 Bot） */
+/** 预设初始会话（包含 Hermes 直连会话、智能体协同群与专职 Bot） */
 function buildDefaultSessions(): DirectSessionMeta[] {
   const now = new Date().toISOString();
   return [
@@ -71,7 +71,7 @@ function buildDefaultSessions(): DirectSessionMeta[] {
     {
       id: DEFAULT_GROUP_CONVERSATION_ID,
       sessionId: "pantheon-core",
-      title: "万神殿协同中心 (多 Bot 群聊)",
+      title: "智能体协同群 (多 Agent 协作)",
       type: "group",
       memberBotIds: ["butler", "inspector", "scout"],
       createdAt: now,
@@ -101,16 +101,34 @@ function buildDefaultSessions(): DirectSessionMeta[] {
 /** 获取全部直连与群聊会话列表 */
 export function getDirectSessions(): DirectSessionMeta[] {
   const storage = getStorage();
-  const list = safeParseJson<DirectSessionMeta[]>(
+  const rawList = safeParseJson<DirectSessionMeta[]>(
     storage.getItem(DIRECT_SESSIONS_STORAGE_KEY),
     []
   );
+
+  // 历史数据平滑迁移：自动将历史遗留的「万神殿」命名升级为专业、通俗的「智能体协同群」
+  let hasMigrated = false;
+  const list = rawList.map((s) => {
+    if (s.title && s.title.includes("万神殿")) {
+      hasMigrated = true;
+      return {
+        ...s,
+        title: s.title.replace(/万神殿协同中心|万神殿协同群|万神殿/g, "智能体协同群"),
+      };
+    }
+    return s;
+  });
+
   if (list.length === 0 || !list.some((s) => s.id === DEFAULT_GROUP_CONVERSATION_ID)) {
     const defaultSessions = buildDefaultSessions();
     // 合并已有会话，避免丢失用户历史
     const merged = [...defaultSessions, ...list.filter((s) => !defaultSessions.some((d) => d.id === s.id))];
     saveDirectSessions(merged);
     return merged;
+  }
+
+  if (hasMigrated) {
+    saveDirectSessions(list);
   }
   return list;
 }

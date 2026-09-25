@@ -1,6 +1,6 @@
 /**
- * 万神殿专职 Bot 模板市场抽屉 (Pantheon Bot Template Drawer)：
- * 1. 浏览预设专职 Bot 模板（代码架构师、行政秘书、数据分析师、专业翻译官、风控专员）；
+ * 专职 Agent 模板库抽屉 (Agent Template Drawer)：
+ * 1. 浏览预设专职 Agent 模板（代码架构师、行政秘书、数据分析师、专业翻译官、风控专员）；
  * 2. 一键从模板创建并落盘至 ~/.hermes/profiles/；
  * 3. 支持在群聊中一键勾选拉入或移出当前协同群聊。
  */
@@ -105,7 +105,7 @@ export function IMBotTemplateDrawer(props: IMBotTemplateDrawerProps) {
       title={
         <Flex align="center" gap={8}>
           <AppstoreAddOutlined style={{ color: "var(--ant-color-primary)" }} />
-          <span>万神殿专职 Bot 模板市场</span>
+          <span>专职 Agent 模板库</span>
         </Flex>
       }
       open={props.open}
@@ -119,7 +119,7 @@ export function IMBotTemplateDrawer(props: IMBotTemplateDrawerProps) {
     >
       <Flex vertical gap={16}>
         <Paragraph type="secondary" style={{ margin: 0, fontSize: 13 }}>
-          自由扩展您的智能体军团。点击启用即可自动同步落盘至 <Text code>~/.hermes/profiles/</Text>，并在群聊中支持 Jev 智能调度或 <Text code>@指定</Text> 接力。
+          自由扩展您的专家智能体。点击启用即可自动同步落盘至 <Text code>~/.hermes/profiles/</Text>，并在协同群聊中支持智能调度或 <Text code>@指定</Text> 接力。
         </Paragraph>
 
         {templates.length === 0 && !loading && (

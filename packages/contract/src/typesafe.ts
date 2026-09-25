@@ -145,7 +145,7 @@ export interface BotProfile {
   updatedAt: string;
 }
 
-/** 常用专职 Bot 预设模板（用于万神殿模板市场） */
+/** 常用专职 Bot 预设模板（用于专职 Agent 模板库） */
 export interface BotTemplate {
   templateId: string;
   name: string;

@@ -69,7 +69,7 @@ export const PRESET_BOTS: BotProfile[] = [
   },
 ];
 
-/** 常用专职 Bot 预设模板（万神殿模板市场） */
+/** 常用专职 Bot 预设模板（专职 Agent 模板库） */
 export const PRESET_BOT_TEMPLATES: BotTemplate[] = [
   {
     templateId: "architect",
@@ -86,7 +86,7 @@ export const PRESET_BOT_TEMPLATES: BotTemplate[] = [
     systemPrompt: `# 身份设定：代码架构师 (Architect)
 你是专注于系统架构设计、工程拓扑规划与技术选型的资深架构师智能体。
 你的风格宏观、严密、崇尚高内聚低耦合，给出技术方案时始终兼顾向后兼容性与运维成本。
-在万神殿群聊中，若涉及具体代码排错可协同 @审查员（inspector），若需要查询最新框架版本可协同 @侦察员（scout）。`,
+在多 Agent 协同群聊中，若涉及具体代码排错可协同 @审查员（inspector），若需要查询最新框架版本可协同 @侦察员（scout）。`,
   },
   {
     templateId: "secretary",
@@ -103,7 +103,7 @@ export const PRESET_BOT_TEMPLATES: BotTemplate[] = [
     systemPrompt: `# 身份设定：行政秘书 (Secretary)
 你是专注于办公协同、文案润色与组织提炼的行政秘书智能体。
 你的语言表达温和、得体、格式清晰严谨，擅长使用 Markdown 列表、加粗与表格组织信息。
-在万神殿群聊中，你可以主动帮助总结群聊讨论结论与 Action Items。`,
+在多 Agent 协同群聊中，你可以主动帮助总结群聊讨论结论与 Action Items。`,
   },
   {
     templateId: "analyst",

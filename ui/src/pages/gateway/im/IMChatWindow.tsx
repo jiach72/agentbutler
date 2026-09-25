@@ -168,7 +168,7 @@ export function IMChatWindow(props: IMChatWindowProps) {
               )}
               {props.conversation.type === "group" ? (
                 <Tag color="gold" icon={<TeamOutlined />} style={{ margin: 0 }}>
-                  万神殿协同群
+                  智能体协同群
                 </Tag>
               ) : isDirect ? (
                 <Tag color="blue" icon={<ThunderboltOutlined />} style={{ margin: 0 }}>

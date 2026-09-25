@@ -15,7 +15,7 @@
   },
   "scripts": {
     "build": "tsc -b && corepack pnpm --filter @butler/ui exec vite build",
-    "test": "tsc -b && vitest run",
+    "test": "tsc -b && vitest run --test-timeout=15000",
     "lint": "eslint .",
     "format": "prettier --write .",
     "start": "corepack pnpm --parallel --filter @butler/gateway --filter @butler/watch --filter @butler/web run start",

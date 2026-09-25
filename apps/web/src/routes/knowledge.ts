@@ -1581,7 +1581,7 @@ ${query}`;
         id: doc.id,
         name: doc.name.replace(/\.(md|canvas|txt|json|pdf|docx|xlsx)$/i, ""),
         type: doc.source === "obsidian" ? "obsidian" : doc.source === "inbox" ? "inbox" : "document",
-        val: Math.min(32, Math.max(12, Math.round(doc.size / 180) + 10)),
+        val: Math.min(24, Math.max(8, Math.round(Math.log2(Math.max(1, doc.size / 64))) * 2 + 8)),
         connections: 0,
         cluster: doc.source,
         details: {
@@ -1628,7 +1628,7 @@ ${query}`;
                 id: conceptId,
                 name: match[1].trim(),
                 type: "concept",
-                val: 10,
+                val: 12,
                 connections: 0,
                 cluster: "concept",
               };
@@ -1654,7 +1654,7 @@ ${query}`;
               id: tagId,
               name: `#${rawTag}`,
               type: "tag",
-              val: 14,
+              val: 10,
               connections: 0,
               cluster: "tag",
             };
@@ -1679,7 +1679,7 @@ ${query}`;
         id: "concept:管家核心知识枢纽",
         name: "Agent Butler 核心星系",
         type: "concept",
-        val: 28,
+        val: 22,
         connections: 0,
         cluster: "core",
       };

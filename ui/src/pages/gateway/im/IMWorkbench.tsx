@@ -365,7 +365,7 @@ export function IMWorkbench(props: IMWorkbenchProps) {
     message.success(`已创建 ${newSession.title}`);
   };
 
-  // 新建万神殿协同群聊
+  // 新建智能体协同群聊
   const handleCreateGroupSession = () => {
     const newSession = createGroupSession();
     setDirectSessions(getDirectSessions());
@@ -800,7 +800,7 @@ ${aiReplyText}
         )}
       </Drawer>
 
-      {/* 4. 万神殿专职 Bot 模板市场抽屉 */}
+      {/* 4. 专职 Agent 模板库抽屉 */}
       <IMBotTemplateDrawer
         open={botMarketOpen}
         onClose={() => setBotMarketOpen(false)}
