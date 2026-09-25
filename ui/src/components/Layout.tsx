@@ -66,8 +66,8 @@ function SidebarNav({ collapsed = false, onToggleCollapse, onNavigate }: Sidebar
     });
   }, []);
 
-  const [versionBadge, setVersionBadge] = useState<string>("Beta");
-  const [fullVersion, setFullVersion] = useState<string>("0.1.0-beta");
+  const [versionBadge, setVersionBadge] = useState<string>("v1.0.0");
+  const [fullVersion, setFullVersion] = useState<string>("1.0.0");
 
   const fetchVersion = useCallback(() => {
     void loadJson<{ version?: string | null }>("/api/butler/version", 8_000).then((res) => {

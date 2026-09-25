@@ -173,10 +173,11 @@ export function startWatchHttp(deps: WatchHttpDeps, options: WatchHttpOptions = 
         server.once("error", reject);
         server.listen(requestedPort, host, () => {
           const addr = server.address();
-          listening =
-            addr !== null && typeof addr === "object"
-              ? { host: addr.address, port: addr.port }
-              : { host, port: requestedPort };
+          if (addr !== null && typeof addr === "object" && typeof addr.port === "number" && addr.port > 0) {
+            listening = { host: addr.address, port: addr.port };
+          } else {
+            listening = { host, port: requestedPort };
+          }
           resolve(listening);
         });
       });
@@ -189,6 +190,11 @@ export function startWatchHttp(deps: WatchHttpDeps, options: WatchHttpOptions = 
       listening = null;
     },
     address(): { host: string; port: number } | null {
+      if (listening !== null && listening.port > 0) return listening;
+      const addr = server.address();
+      if (addr !== null && typeof addr === "object" && typeof addr.port === "number" && addr.port > 0) {
+        listening = { host: addr.address, port: addr.port };
+      }
       return listening;
     },
   };

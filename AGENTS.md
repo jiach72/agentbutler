@@ -117,7 +117,7 @@ curl -s http://127.0.0.1:7531/api/health | grep -o '"connected":[a-z]*'  # 消�
 
 ### 4.3 升级 / 回滚（交付后运维）
 
-- 更新：`bash scripts/deploy.sh`（滚动重建，升级前自动备份数据卷），或在 UI「设置 → 关于」一键升级（内部 updater sidecar 执行，失败自动回滚）。旧版 updater 若仍内置 `docker-compose` v1，先拉取本修复并在宿主机一次性执行 `docker compose up -d --build --force-recreate butler-updater`，再使用 UI 升级；
+- 更新：`bash scripts/deploy.sh`（滚动重建，升级前自动备份数据卷），或在 UI「设置 → 关于」一键升级（内部 updater sidecar 执行，`deploy.sh` 会自动探测宿主机 `/var/run/docker.sock` 并注入 `BUTLER_UPDATER_DOCKER_SOCKET` 开启自升级权限，失败自动回滚）。旧版 updater 若仍内置 `docker-compose` v1，先拉取本修复并在宿主机一次性执行 `docker compose up -d --build --force-recreate butler-updater`，再使用 UI 升级；
 - 回滚：`BUTLER_VERSION=<旧版本> docker compose up -d --no-build --force-recreate`。
 
 ## 5. 安全红线
@@ -127,7 +127,7 @@ curl -s http://127.0.0.1:7531/api/health | grep -o '"connected":[a-z]*'  # 消�
 3. 不要为「方便容器直连」把 Hermes Bridge 改为监听非 loopback（代码会拒绝启动并崩溃循环）。
 4. 不要同时启用 socat 转发器与 systemd 转发器（8755 端口冲突）。
 5. 未配置 `BUTLER_ACCESS_TOKEN` 时，不要把 Web 端口发布到回环以外。
-6. Docker Socket 默认关闭（挂载 `/dev/null`）；只有用户明确要求受管容器控制时才设置 `DOCKER_SOCKET_PATH`。
+6. 受管容器控制的 Docker Socket 默认关闭（挂载 `/dev/null`；仅在明确需要 Watch 控制宿主容器时配置 `DOCKER_SOCKET_PATH`）；用于管家自身 UI 升级的 `BUTLER_UPDATER_DOCKER_SOCKET` 由 `deploy.sh` 自动按需接入 `/var/run/docker.sock`。
 
 ## 6. 故障对照
 

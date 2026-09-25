@@ -89,7 +89,7 @@ function hasAllowedOrigin(origin: string): boolean {
     .filter((value) => value !== "")
     .includes(origin);
 }
-export const GATEWAY_SERVICE_VERSION = `gateway@0.1.0-beta.260923.1+${CONTRACT_VERSION}`;
+export const GATEWAY_SERVICE_VERSION = `gateway@1.0.0+${CONTRACT_VERSION}`;
 
 export type MessageDeliveryMode = "native" | "observe" | "disabled";
 

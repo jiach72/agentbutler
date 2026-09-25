@@ -250,6 +250,16 @@ if [[ -n "$host_cpu_model" ]]; then
   env_set BUTLER_HOST_CPU_MODEL "$host_cpu_model"
 fi
 
+# 自动检测 Docker Socket，为 updater sidecar 开启自升级能力（Mac / Linux / WSL）
+updater_socket="${BUTLER_UPDATER_DOCKER_SOCKET:-$(env_value BUTLER_UPDATER_DOCKER_SOCKET)}"
+updater_socket="${updater_socket:-/dev/null}"
+if [[ "$updater_socket" == "/dev/null" && -S "/var/run/docker.sock" ]]; then
+  updater_socket="/var/run/docker.sock"
+  export BUTLER_UPDATER_DOCKER_SOCKET="$updater_socket"
+  env_set BUTLER_UPDATER_DOCKER_SOCKET "$updater_socket"
+  echo "Detected host Docker socket at /var/run/docker.sock; enabled self-upgrade for butler-updater."
+fi
+
 # ---- 预检：提前暴露两类已知事故（见 docs/deployment-20260825.md 踩坑记录）----
 
 # 坑4：HERMES_BUTLER_HOST 改成非回环会让 Hermes gateway 崩溃循环（代码强制 loopback）。

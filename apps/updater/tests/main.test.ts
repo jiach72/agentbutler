@@ -130,7 +130,7 @@ async function startHealthServer(): Promise<void> {
   healthUrl = `http://127.0.0.1:${address.port}/healthz`;
 }
 
-async function waitFor(check: () => Promise<boolean>, timeoutMs = 8_000): Promise<void> {
+async function waitFor(check: () => Promise<boolean>, timeoutMs = 15_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await check()) return;
@@ -153,9 +153,11 @@ async function startUpdater(options: {
   await once(probe, "listening");
   const probeAddress = probe.address();
   probe.close();
+  await new Promise((resolve) => setTimeout(resolve, 50));
   if (probeAddress === null || typeof probeAddress === "string") throw new Error("updater probe did not bind a TCP port");
   const port = probeAddress.port;
   const failureFile = join(root, "fail-build-once");
+  let childExitedError: Error | null = null;
   const child = spawn(process.execPath, [updaterEntry], {
     cwd: repoRoot,
     env: {
@@ -183,8 +185,14 @@ async function startUpdater(options: {
     stdio: "ignore",
     windowsHide: true,
   });
+  child.once("exit", (code, signal) => {
+    if (code !== null && code !== 0) {
+      childExitedError = new Error(`Updater child process exited with code ${code} (${signal ?? "no signal"})`);
+    }
+  });
   const baseUrl = `http://127.0.0.1:${port}`;
   await waitFor(async () => {
+    if (childExitedError !== null) throw childExitedError;
     try {
       return (await fetch(`${baseUrl}/healthz`)).ok;
     } catch {

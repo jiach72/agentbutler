@@ -89,15 +89,24 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      - name: 解析 tag 版本并覆写构建号为流水线号
+      - name: 解析 tag 版本并更新版本
         run: |
-          # v0.1-beta.260911.13（显示形态）→ 0.1.0-beta.260911.<run_number>（存储形态 SemVer）
-          BASE="${TAG_VERSION#v}"                  # 0.1-beta.260911.13
-          PREFIX="${BASE%.*}"                      # 0.1-beta.260911
-          FULL="0.1.0-${PREFIX#0.1-}.${GITHUB_RUN_NUMBER}"
+          BASE="${TAG_VERSION#v}"
+          if [[ "$BASE" =~ ^0\.1-beta\. ]]; then
+            PREFIX="${BASE%.*}"
+            FULL="0.1.0-${PREFIX#0.1-}.${GITHUB_RUN_NUMBER}"
+            echo "IS_PRERELEASE=true" >> "$GITHUB_ENV"
+          else
+            FULL="$BASE"
+            if [[ "$BASE" == *"-"* ]]; then
+              echo "IS_PRERELEASE=true" >> "$GITHUB_ENV"
+            else
+              echo "IS_PRERELEASE=false" >> "$GITHUB_ENV"
+            fi
+          fi
           node scripts/version.mjs set "$FULL"
           echo "RELEASE_VERSION=$FULL" >> "$GITHUB_ENV"
-          echo "发布版本: $FULL（tag $TAG_VERSION，构建号=$GITHUB_RUN_NUMBER）"
+          echo "发布版本: $FULL（tag $TAG_VERSION）"
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - uses: softprops/action-gh-release@v2
@@ -106,12 +115,7 @@ jobs:
           body: |
             Agent Butler ${{ env.RELEASE_VERSION }}
 
-            版本规则：`0.1-beta.YYMMDD.构建号`
-            - `YYMMDD` — UTC 日期
-            - `构建号` — 本次 CI 流水线号（run #${{ github.run_number }}）
-            - tag 形态：`v0.1-beta.YYMMDD.x`（v 前缀仅用于触发发版）
-
             已通过质量门：lint / tsc / build / compose 校验 / bridge 单测。
             Docker 镜像由部署机 `docker compose build` 自行构建。
           draft: false
-          prerelease: true
+          prerelease: ${{ env.IS_PRERELEASE == 'true' }}

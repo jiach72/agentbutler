@@ -53,23 +53,20 @@ const sourceVersions = [
   },
   {
     file: "scripts/hermes-control-bridge.mjs",
-    pattern: /return "(?:0\.1\.0-beta|0\.1-beta)[0-9A-Za-z.]*";/,
+    pattern: /return "(?:0\.1\.0-beta|0\.1-beta|[0-9]+(?:\.[0-9]+)*)[0-9A-Za-z.+-]*";/,
     value: (version) => `return "${version}";`,
   },
   {
     file: "README.md",
-    // 接受显示形态（0.1-beta.x，规范）与存储形态（0.1.0-beta.x）任一写法。
-    pattern: /当前开发版本：`(?:0\.1\.0-beta|0\.1-beta)[0-9A-Za-z.]*`/,
-    value: (version) => `当前开发版本：\`${displayVersion(version)}\``,
+    pattern: /当前(?:开发)?版本：`(?:0\.1\.0-beta|0\.1-beta|[0-9]+(?:\.[0-9]+)*)[0-9A-Za-z.+-]*`/,
+    value: (version) => `当前版本：\`${displayVersion(version)}\``,
   },
 ];
 const semverPattern = /^(0|[1-9]\d*)$/;
 const releasePattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 /**
- * 日期构建版本：`0.1-beta.YYMMDD.HH`（SemVer 4 段在多数生态不合法， prerelease 部分段完全合法：
- * 0.1.0-beta.260911.13 —— 对外显示时去掉多余的 patch 0 写作 0.1-beta.YYMMDD.HH）。
- * 存储形态恒为合法 SemVer（npm/pnpm/compose tag 均可解析）；
- * `v` 前缀仅用于 git tag 与 CI 触发。
+ * 历史日期构建版本（0.1-beta 体系）：`0.1-beta.YYMMDD.HH`。
+ * 1.0.0 及以后采用标准 SemVer。
  */
 const dateBuildPattern = /^0\.1\.0-beta\.(\d{6})\.(\d{1,3})$/;
 
@@ -88,25 +85,37 @@ function assertVersion(version) {
   for (const part of version.split(/[.+-]/).slice(0, 3)) {
     if (!semverPattern.test(part)) throw new Error(`无效 SemVer 数字段: ${version}`);
   }
-  // 日期构建段约束：YYMMDD 必须是 6 位、构建号 ≤3 位（CI run.number 注入）。
+  // 日期构建段约束：0.1-beta 体系约束
   const dateBuild = dateBuildPattern.exec(version);
   if (version.startsWith("0.1") && dateBuild === null && version.startsWith("0.1.0-beta.")) {
     throw new Error(`日期构建版本格式: 0.1.0-beta.YYMMDD.构建号（得到 ${version}）`);
   }
 }
 
-/** 显示形态：0.1.0-beta.260911.13 → 0.1-beta.260911.13（对外统一口径）。 */
+/** 显示形态：0.1.0-beta.260911.13 → 0.1-beta.260911.13；1.0.0 保持 1.0.0。 */
 export function displayVersion(version) {
-  return version.replace(/^0\.1\.0-beta\./, "0.1-beta.");
+  if (version.startsWith("0.1.0-beta.")) {
+    return version.replace(/^0\.1\.0-beta\./, "0.1-beta.");
+  }
+  return version;
 }
 
-/** 由当前 UTC 时间 + 构建号生成日期构建版本（本地缺省取当前小时）。 */
+/** 由当前版本生成下一版本（1.xx 递增 patch；0.1 体系生成日期构建）。 */
 export function nextDateBuild(buildNumber) {
-  const now = new Date();
-  const yymmdd = `${String(now.getUTCFullYear()).slice(2)}${String(now.getUTCMonth() + 1).padStart(2, "0")}${String(now.getUTCDate()).padStart(2, "0")}`;
-  const hh = String(now.getUTCHours()).padStart(2, "0");
-  const build = buildNumber ?? Number(hh);
-  return `0.1.0-beta.${yymmdd}.${build}`;
+  const current = readJson("package.json").version;
+  if (current.startsWith("0.1")) {
+    const now = new Date();
+    const yymmdd = `${String(now.getUTCFullYear()).slice(2)}${String(now.getUTCMonth() + 1).padStart(2, "0")}${String(now.getUTCDate()).padStart(2, "0")}`;
+    const hh = String(now.getUTCHours()).padStart(2, "0");
+    const build = buildNumber ?? Number(hh);
+    return `0.1.0-beta.${yymmdd}.${build}`;
+  }
+  const parts = current.split("-")[0].split(".").map(Number);
+  if (parts.length === 3) {
+    const patch = buildNumber !== undefined ? buildNumber : (parts[2] + 1);
+    return `${parts[0]}.${parts[1]}.${patch}`;
+  }
+  return current;
 }
 
 function check() {
@@ -128,7 +137,13 @@ function check() {
   }
   for (const item of sourceVersions) {
     const content = readFileSync(resolve(root, item.file), "utf8");
-    if (!content.includes(item.value(version))) mismatches.push(`${item.file}: 运行时版本未同步`);
+    if (item.file === "README.md") {
+      const matchNew = content.includes(`当前版本：\`${displayVersion(version)}\``);
+      const matchOld = content.includes(`当前开发版本：\`${displayVersion(version)}\``);
+      if (!matchNew && !matchOld) mismatches.push(`${item.file}: 运行时版本未同步`);
+    } else if (!content.includes(item.value(version))) {
+      mismatches.push(`${item.file}: 运行时版本未同步`);
+    }
   }
   if (mismatches.length > 0) {
     throw new Error(`版本不一致，期望 ${version}:\n- ${mismatches.join("\n- ")}`);
@@ -172,7 +187,7 @@ if (command === "check") {
 } else {
   console.error("用法: node scripts/version.mjs check | set <semver> | next [buildNumber]");
   console.error("  check — 校验全仓版本一致");
-  console.error("  set   — 设定版本（日期构建形如 0.1.0-beta.260911.13，显示为 0.1-beta.260911.13）");
-  console.error("  next  — 按当前 UTC 时间生成下一版本号；CI 传构建号");
+  console.error("  set   — 设定版本（如 1.0.0 正式版，或 1.0.1 等 SemVer）");
+  console.error("  next  — 生成下一版本号（1.xx 递增补丁号，或传入构建号）");
   process.exitCode = 1;
 }

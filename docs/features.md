@@ -157,10 +157,10 @@
    - 开启局域网/公网跨设备访问时，强制要求设置高强度 `BUTLER_ACCESS_TOKEN`；
    - 访问口令仅存入浏览器的 `sessionStorage`，绝不写入 `localStorage`，地址栏 `?token=` 仅消费一次并立刻清理，杜绝 XSS 凭据常驻泄露；
    - WebSocket 采用一次性 Ticket 握手机制（`POST /api/ws-ticket`）；
-   - Docker Socket 默认关闭挂载（`/dev/null`），仅在受管容器明确需要时由管理员手动开放。
+   - Docker Socket 默认隔离（受管容器控制保持 `/dev/null`；UI 自升级由 `deploy.sh` 自动探测宿主 `/var/run/docker.sock` 并安全挂载至 updater sidecar）。
 2. **备份与一键平滑升级**：
    - **自动化数据保护**：每次系统升级或配置关键变更前，自动触发底层 SQLite 数据卷和关键配置的全量快照备份；
-   - **容器内 Updater Sidecar**：在面板「设置 $\rightarrow$ 关于」可直接点击一键升级，Sidecar 自动拉取 Git 标签、重新构建镜像、滚动重启容器并执行健康等待，检测到故障自动回滚上个版本。
+   - **容器内 Updater Sidecar**：在面板「设置 $\rightarrow$ 关于」可直接点击一键自升级（支持 macOS 与 Linux/WSL），Sidecar 自动拉取 Git 标签、重新构建镜像、滚动重启容器并执行健康等待，检测到故障自动回滚上个版本。
 3. **模型与渠道凭据管理**：
    - **模型配置中心**：支持增删 LLM 配置 Profile，提供连通性真实探针测试，支持模型启用/禁用；
    - **主密钥加密存储**：首次启动自动生成 `BUTLER_SECRET_MASTER_KEY`，本地加密存储模型 API Key 等凭证，保障静态安全。

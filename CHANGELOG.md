@@ -1,7 +1,31 @@
 # Changelog
 
-本项目遵循 [Semantic Versioning](https://semver.org/)；开发预览版本可能包含不兼容调整。
-版本规则：`0.1-beta.YYMMDD.构建号`（构建号=CI 流水线号；详见 README「版本规则」）。
+本项目遵循 [Semantic Versioning](https://semver.org/)。
+自 `1.0.0` 正式版起，版本严格遵循 SemVer 规范（`1.x.y`），后续版本按 `1.xx` 规则演进，构建号由 CI 流水线产生。
+
+## [1.0.0] - 2026-09-25 — 1.0.0 正式版全景审计与自升级就绪发布
+
+### Highlights & Milestones
+- **正式迈入 1.0 时代**：结束 0.1-beta 预览阶段，全仓统一升级至 `1.0.0` 正式版。后续更新遵循标准 SemVer（`1.xx`）。
+- **客户端自升级（Self-Upgrade）全面就绪**：
+  - 重点支持 macOS（含 Apple Silicon Metal 原生与 Docker Desktop 运行态）与 Linux/WSL 用户；
+  - `deploy.sh` 自动探测宿主机 Docker Socket（`/var/run/docker.sock`）并持久化至 `.env`，解决容器内通过 UI 一键升级时缺乏 Docker 通信权限的问题；
+  - CI 发版流水线与更新检查服务全面升级支持 SemVer 1.xx 系列，自动匹配最新稳定版镜像。
+
+### Fixed
+- **Watch 动态端口偶发异常**：修复 `apps/watch/src/http.ts` 中极端并发及系统分配探针端口时的校验，确保 `addr.port > 0`，杜绝请求 `port 0` 导致网络抛错。
+- **Updater 单元测试并发竞态**：修复 `apps/updater/tests/main.test.ts` 中端口探测 TOCTOU 竞态问题，增加进程生命周期退出监听与超时冗余，消除高并发下偶发断言失败。
+- **UI 初始版本展示闪烁**：移除 `ui/src/components/Layout.tsx` 中硬编码的 Beta 初始状态，避免页面加载瞬间闪烁测试版本标签。
+- **pnpm 配置废弃告警**：修复 `package.json` 中的 `pnpm.overrides` 字段，规范化为顶层 `overrides`。
+
+### Changed
+- **版本管理脚本与 CI 流水线升级**：
+  - `scripts/version.mjs` 解除旧有 `0.1-beta` 正则约束，支持 `1.0.0` 及后续 `1.xx` 递增；
+  - `.github/workflows/ci.yml` 对 `v1.` 系列 tag 启用标准正式版发布流程，解除旧 beta 构建号拼接。
+
+### Verification
+- **全量测试通过**：218 个测试套件，1964 项测试全部通过（1960 pass, 4 skip, 0 fail）；
+- **静态质量门禁**：`pnpm lint` 0 error 0 warning，`tsc -b` 0 error，全仓 11 个模块版本校验 100% 一致。
 
 ## [0.1-beta.260922.x] - 2026-09-22 — 全量审计修复（P0-P3）+ ENG-01 parse 层拆解
 
