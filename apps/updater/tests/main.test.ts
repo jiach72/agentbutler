@@ -139,7 +139,15 @@ async function waitFor(check: () => Promise<boolean>, timeoutMs = 8_000): Promis
   throw new Error("timed out waiting for updater state");
 }
 
-async function startUpdater(options: { failBuildOnce?: boolean; composeBinary?: string; slowBuild?: number } = {}): Promise<RunningUpdater> {
+async function startUpdater(options: {
+  failBuildOnce?: boolean;
+  composeBinary?: string;
+  slowBuild?: number;
+  noAccessToken?: boolean;
+  internalToken?: string;
+  /** 复现 Compose 默认形态：`${BUTLER_UPDATER_ACCESS_TOKEN:-}` 会注入空字符串（#32）。 */
+  emptyUpdaterToken?: boolean;
+} = {}): Promise<RunningUpdater> {
   const probe = createServer();
   probe.listen(0, "127.0.0.1");
   await once(probe, "listening");
@@ -164,6 +172,9 @@ async function startUpdater(options: { failBuildOnce?: boolean; composeBinary?: 
       BUTLER_UPDATER_PORT: String(port),
       BUTLER_UPDATER_HEALTH_URLS: healthUrl,
       BUTLER_ACCESS_TOKEN: options.noAccessToken ? "" : TOKEN,
+      // Compose 用 `${VAR:-}` 注入变量，未配置的口令在容器里是**空字符串**而不是 undefined；
+      // 只有复现该形态才能覆盖 #32（空字符串短路 ?? 回退链）。
+      ...(options.emptyUpdaterToken ? { BUTLER_UPDATER_ACCESS_TOKEN: "" } : {}),
       ...(options.internalToken ? { BUTLER_INTERNAL_TOKEN: options.internalToken } : {}),
       BUTLER_UPDATER_TEST_COMPOSE_ARGS_FILE: composeArgsFile,
       ...(options.failBuildOnce ? { BUTLER_UPDATER_TEST_BUILD_FAILURE_FILE: failureFile } : {}),
@@ -269,6 +280,38 @@ describe("butler-updater security and rollback", () => {
       headers: { "x-butler-internal-token": "test-internal-token-12345" },
     });
     expect(withInternal.status).toBe(200);
+  });
+
+  // #32 回归：默认部署（docker-compose.yml 未配置任何口令）下，容器里拿到的是空字符串，
+  // 而不是 undefined。空字符串会短路 `??` 回退链，使 updater 判定「无口令」并 fail-closed，
+  // 于是面板「一键升级 / 回滚」全部 401，而 watch 侧还把版本页显示为「可升级」。
+  it("BUTLER_UPDATER_ACCESS_TOKEN 为空字符串时仍回退到 BUTLER_INTERNAL_TOKEN（#32）", async () => {
+    updater = await startUpdater({
+      noAccessToken: true,
+      emptyUpdaterToken: true,
+      internalToken: "test-internal-token-12345",
+    });
+
+    const wrongToken = await request("/api/status", { headers: { "x-butler-internal-token": "not-the-token" } });
+    expect(wrongToken.status).toBe(401);
+    await expect(wrongToken.json()).resolves.toMatchObject({ error: "unauthorized" });
+
+    const withInternal = await request("/api/status", {
+      headers: { "x-butler-internal-token": "test-internal-token-12345" },
+    });
+    expect(withInternal.status).toBe(200);
+  });
+
+  it("三个口令都是空字符串（真正未配置）时仍保持 fail-closed 401", async () => {
+    updater = await startUpdater({ noAccessToken: true, emptyUpdaterToken: true });
+    const status = await request("/api/status", {
+      headers: { "x-butler-internal-token": "test-internal-token-12345" },
+    });
+    expect(status.status).toBe(401);
+    await expect(status.json()).resolves.toMatchObject({
+      error: "unauthorized",
+      reason: expect.stringContaining("安全锁定"),
+    });
   });
 
   it("checks out the requested version, rebuilds, restarts, and verifies health", async () => {
