@@ -158,6 +158,8 @@ export function KnowledgeStarChart({
   const [searchKeyword, setSearchKeyword] = useState<string>("");
   const [selectedNode, setSelectedNode] = useState<SimNode | null>(null);
   const [hoveredNode, setHoveredNode] = useState<SimNode | null>(null);
+  const [hoveredLink, setHoveredLink] = useState<SimLink | null>(null);
+  const [mouseScreenPos, setMouseScreenPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [isPhysicsPaused, setIsPhysicsPaused] = useState<boolean>(false);
 
@@ -210,6 +212,7 @@ export function KnowledgeStarChart({
     setFilterType(newType);
     setSelectedNode(null);
     setHoveredNode(null);
+    setHoveredLink(null);
     simAlphaRef.current = 0.8;
   };
 
@@ -359,6 +362,133 @@ export function KnowledgeStarChart({
     };
   }, [isNodeVisible]);
 
+  // 视口丝滑平移跃迁至指定星体 (Fly to Node with smooth ease-out)
+  const flyAnimRef = useRef<number | null>(null);
+  const flyToNode = useCallback((target: SimNode) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const width = canvas.width;
+    const height = canvas.height;
+    const targetScale = Math.max(1.35, Math.min(2.5, transformRef.current.scale));
+    const targetX = width / 2 - target.x * targetScale;
+    const targetY = height / 2 - target.y * targetScale;
+
+    const startX = transformRef.current.x;
+    const startY = transformRef.current.y;
+    const startScale = transformRef.current.scale;
+    const startTime = performance.now();
+    const duration = 420;
+
+    if (flyAnimRef.current) cancelAnimationFrame(flyAnimRef.current);
+
+    const animate = (now: number) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(1, elapsed / duration);
+      // easeOutCubic: 1 - Math.pow(1 - progress, 3)
+      const ease = 1 - Math.pow(1 - progress, 3);
+
+      transformRef.current.x = startX + (targetX - startX) * ease;
+      transformRef.current.y = startY + (targetY - startY) * ease;
+      transformRef.current.scale = startScale + (targetScale - startScale) * ease;
+
+      if (progress < 1) {
+        flyAnimRef.current = requestAnimationFrame(animate);
+      } else {
+        setSelectedNode(target);
+        flyAnimRef.current = null;
+      }
+    };
+    flyAnimRef.current = requestAnimationFrame(animate);
+  }, []);
+
+  // 当前处于焦点（悬停或选中）的直接相连邻居名录
+  const directNeighbors = useMemo(() => {
+    const active = hoveredNode || selectedNode;
+    if (!active) return [];
+    const links = simLinksRef.current;
+    const list: { node: SimNode; linkType: string; isOut: boolean }[] = [];
+    for (const l of links) {
+      if (!isNodeVisible(l.source) || !isNodeVisible(l.target)) continue;
+      if (l.source.id === active.id) {
+        list.push({ node: l.target, linkType: l.type, isOut: true });
+      } else if (l.target.id === active.id) {
+        list.push({ node: l.source, linkType: l.type, isOut: false });
+      }
+    }
+    return list;
+  }, [hoveredNode, selectedNode, isNodeVisible]);
+
+  // 视野外目标雷达导航信标（当关联星体延伸到当前视口外时，在边界呈现指引标）
+  const offscreenNeighbors = useMemo(() => {
+    const active = hoveredNode || selectedNode;
+    const canvas = canvasRef.current;
+    if (!active || !canvas || directNeighbors.length === 0) return [];
+
+    const canvasW = canvas.width || 900;
+    const canvasH = canvas.height || 600;
+    const { x: panX, y: panY, scale } = transformRef.current;
+    const padding = 45;
+
+    const sourceSx = Math.max(30, Math.min(canvasW - 30, active.x * scale + panX));
+    const sourceSy = Math.max(70, Math.min(canvasH - 70, active.y * scale + panY));
+
+    const result: {
+      node: SimNode;
+      edgeX: number;
+      edgeY: number;
+      arrowAngle: number;
+      distance: number;
+      linkType: string;
+    }[] = [];
+
+    const minX = padding;
+    const maxX = canvasW - padding;
+    const minY = padding + 25; // 避开顶部过滤器
+    const maxY = canvasH - padding - 25; // 避开底部 HUD
+
+    for (const nb of directNeighbors) {
+      const sx = nb.node.x * scale + panX;
+      const sy = nb.node.y * scale + panY;
+
+      // 如果目标在视口安全区域内，则无需雷达标
+      if (sx >= 20 && sx <= canvasW - 20 && sy >= 50 && sy <= canvasH - 50) {
+        continue;
+      }
+
+      const dx = sx - sourceSx;
+      const dy = sy - sourceSy;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 10) continue;
+
+      const angle = Math.atan2(dy, dx);
+
+      // 计算射线与屏幕边缘边框的交点
+      let tMin = Infinity;
+      if (dx > 0) tMin = Math.min(tMin, (maxX - sourceSx) / dx);
+      if (dx < 0) tMin = Math.min(tMin, (minX - sourceSx) / dx);
+      if (dy > 0) tMin = Math.min(tMin, (maxY - sourceSy) / dy);
+      if (dy < 0) tMin = Math.min(tMin, (minY - sourceSy) / dy);
+
+      let edgeX = sourceSx;
+      let edgeY = sourceSy;
+      if (isFinite(tMin) && tMin > 0) {
+        edgeX = sourceSx + dx * tMin;
+        edgeY = sourceSy + dy * tMin;
+      }
+
+      result.push({
+        node: nb.node,
+        edgeX,
+        edgeY,
+        arrowAngle: angle,
+        distance: Math.round(dist),
+        linkType: nb.linkType,
+      });
+    }
+
+    return result.slice(0, 5); // 最多 5 个，视觉精致清爽
+  }, [directNeighbors, hoveredNode, selectedNode]);
+
   // 力导向动力学每帧更新（含硬碰撞规避与模拟退火降温）
   const updatePhysics = useCallback(() => {
     const nodes = simNodesRef.current;
@@ -507,8 +637,9 @@ export function KnowledgeStarChart({
     const links = simLinksRef.current;
     const hovered = hoveredNode;
     const selected = selectedNode;
+    const hoveredL = hoveredLink;
 
-    // 找出与悬停/选中节点关联的邻居与连线
+    // 找出与悬停/选中节点或悬停连线关联的星体与连线
     const activeNodeId = hovered?.id || selected?.id;
     const connectedNodeIds = new Set<string>();
     if (activeNodeId) {
@@ -517,28 +648,39 @@ export function KnowledgeStarChart({
         if (l.source.id === activeNodeId) connectedNodeIds.add(l.target.id);
         if (l.target.id === activeNodeId) connectedNodeIds.add(l.source.id);
       }
+    } else if (hoveredL) {
+      connectedNodeIds.add(hoveredL.source.id);
+      connectedNodeIds.add(hoveredL.target.id);
     }
 
-    // 1. 绘制星际丝状连线 (Filaments)
+    // 1. 绘制星际丝状连线 (Filaments) 与动态光能脉冲 (Energy Pulses)
+    const now = Date.now();
     for (const link of links) {
       if (!isNodeVisible(link.source) || !isNodeVisible(link.target)) {
         continue;
       }
 
+      const isLinkHovered = hoveredL === link;
       const isConnected =
-        activeNodeId &&
-        (link.source.id === activeNodeId || link.target.id === activeNodeId);
-      const isDimmed = activeNodeId && !isConnected;
+        isLinkHovered ||
+        (activeNodeId &&
+          (link.source.id === activeNodeId || link.target.id === activeNodeId));
+      const isDimmed = (activeNodeId || hoveredL) && !isConnected;
 
       ctx.beginPath();
       ctx.moveTo(link.source.x, link.source.y);
       ctx.lineTo(link.target.x, link.target.y);
 
-      if (isConnected) {
+      if (isLinkHovered) {
+        ctx.strokeStyle = "rgba(255, 215, 0, 0.95)";
+        ctx.lineWidth = 2.4;
+        ctx.shadowColor = "#ffd700";
+        ctx.shadowBlur = 12;
+      } else if (isConnected) {
         ctx.strokeStyle = "rgba(0, 229, 255, 0.88)";
-        ctx.lineWidth = 1.8;
+        ctx.lineWidth = 2.0;
         ctx.shadowColor = "#00e5ff";
-        ctx.shadowBlur = 8;
+        ctx.shadowBlur = 9;
       } else if (isDimmed) {
         ctx.strokeStyle = "rgba(70, 130, 220, 0.04)";
         ctx.lineWidth = 0.5;
@@ -555,11 +697,60 @@ export function KnowledgeStarChart({
         ctx.shadowBlur = 0;
       }
       ctx.stroke();
+
+      // 若处于高亮连结状态：绘制流动光能彗星与端点定向指引（彻底解决“不知道连到哪去”的困扰）
+      if (isConnected) {
+        const dx = link.target.x - link.source.x;
+        const dy = link.target.y - link.source.y;
+        const len = Math.hypot(dx, dy);
+
+        if (len > 12) {
+          // 动态能量脉冲流光 (Energy Comet Particles)
+          const pulseSpeed = 0.0007;
+          const pulseCount = Math.max(1, Math.min(3, Math.floor(len / 90)));
+          for (let p = 0; p < pulseCount; p++) {
+            const offset = p / pulseCount;
+            const t = (now * pulseSpeed + offset) % 1;
+            const px = link.source.x + dx * t;
+            const py = link.source.y + dy * t;
+
+            ctx.beginPath();
+            ctx.arc(px, py, isLinkHovered ? 2.6 : 2.0, 0, Math.PI * 2);
+            ctx.fillStyle = isLinkHovered ? "#ffffff" : "#67e8f9";
+            ctx.shadowColor = isLinkHovered ? "#ffd700" : "#38bdf8";
+            ctx.shadowBlur = 7;
+            ctx.fill();
+          }
+
+          // 端点微型定向箭头 (Directed Arrowhead)，让视觉明确知道落脚点在哪
+          const angle = Math.atan2(dy, dx);
+          const arrowDist = Math.max(0, len - link.target.radius - 3.5);
+          const tipX = link.source.x + Math.cos(angle) * arrowDist;
+          const tipY = link.source.y + Math.sin(angle) * arrowDist;
+          const arrowLen = 6.5;
+          const arrowWidth = 3.5;
+
+          ctx.beginPath();
+          ctx.moveTo(tipX, tipY);
+          ctx.lineTo(
+            tipX - arrowLen * Math.cos(angle) + arrowWidth * Math.sin(angle),
+            tipY - arrowLen * Math.sin(angle) - arrowWidth * Math.cos(angle),
+          );
+          ctx.lineTo(
+            tipX - arrowLen * Math.cos(angle) - arrowWidth * Math.sin(angle),
+            tipY - arrowLen * Math.sin(angle) + arrowWidth * Math.cos(angle),
+          );
+          ctx.closePath();
+          ctx.fillStyle = isLinkHovered ? "#ffd700" : "#00e5ff";
+          ctx.shadowColor = isLinkHovered ? "#ffd700" : "#00e5ff";
+          ctx.shadowBlur = 6;
+          ctx.fill();
+        }
+      }
     }
     ctx.shadowBlur = 0;
 
     // 2. 绘制星辰节点 (Star Nodes)
-    const now = Date.now();
     for (const n of nodes) {
       if (!isNodeVisible(n)) {
         continue;
@@ -569,7 +760,7 @@ export function KnowledgeStarChart({
         !searchKeyword ||
         n.name.toLowerCase().includes(searchKeyword.toLowerCase());
       const isActive = connectedNodeIds.has(n.id);
-      const isDimmed = (activeNodeId && !isActive) || !isMatched;
+      const isDimmed = ((activeNodeId || hoveredL) && !isActive) || !isMatched;
 
       const r = n.radius;
       const cfg = TYPE_CONFIG[n.type] || TYPE_CONFIG["document"];
@@ -602,13 +793,24 @@ export function KnowledgeStarChart({
       ctx.fill();
       ctx.shadowBlur = 0;
 
-      // 选中国界环 (Selected Orbit Ring)
+      // 选中国界环与目标信标环
       if (selected?.id === n.id) {
         ctx.beginPath();
         ctx.arc(n.x, n.y, r + 4, 0, 2 * Math.PI);
         ctx.strokeStyle = "#ffffff";
         ctx.lineWidth = 1.5;
         ctx.stroke();
+      } else if (isActive && n.id !== activeNodeId) {
+        // 目标邻居节点：绘制醒目的动态信标光环！
+        const beaconPulse = r + 4 + Math.sin(now * 0.006 + n.x) * 1.5;
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, beaconPulse, 0, 2 * Math.PI);
+        ctx.strokeStyle = hoveredL ? "#ffd700" : "rgba(0, 229, 255, 0.85)";
+        ctx.lineWidth = 1.3;
+        ctx.shadowColor = hoveredL ? "#ffd700" : "#00e5ff";
+        ctx.shadowBlur = 8;
+        ctx.stroke();
+        ctx.shadowBlur = 0;
       }
     }
 
@@ -623,7 +825,7 @@ export function KnowledgeStarChart({
         .map((n) => n.id),
     );
 
-    // 收集所有候选标签，并按优先级从高到低排序：Active 焦点 > 搜索命中 > 顶级地标 > 其他
+    // 收集所有候选标签，并按优先级从高到低排序：Active 焦点与邻居 > 搜索命中 > 顶级地标 > 其他
     interface LabelCandidate {
       node: SimNode;
       priority: number;
@@ -631,6 +833,7 @@ export function KnowledgeStarChart({
       x: number;
       y: number;
       isActive: boolean;
+      isPrimaryFocus: boolean;
     }
 
     const candidates: LabelCandidate[] = [];
@@ -641,14 +844,15 @@ export function KnowledgeStarChart({
         Boolean(searchKeyword) &&
         n.name.toLowerCase().includes(searchKeyword.toLowerCase());
       const isActive = connectedNodeIds.has(n.id);
-      const isDimmed = (activeNodeId && !isActive) || (!isActive && Boolean(searchKeyword) && !isMatched);
+      const isPrimaryFocus = n.id === activeNodeId;
+      const isDimmed = ((activeNodeId || hoveredL) && !isActive) || (!isActive && Boolean(searchKeyword) && !isMatched);
 
       let eligible = false;
       let priority = 0;
 
       if (isActive) {
         eligible = true;
-        priority = 100;
+        priority = isPrimaryFocus ? 120 : 100;
       } else if (isMatched) {
         eligible = true;
         priority = 80;
@@ -684,6 +888,7 @@ export function KnowledgeStarChart({
           x: n.x,
           y: n.y + n.radius + 12,
           isActive,
+          isPrimaryFocus,
         });
       }
     }
@@ -703,7 +908,12 @@ export function KnowledgeStarChart({
     ctx.font = "11px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
 
     for (const c of candidates) {
-      const textMetrics = ctx.measureText(c.text);
+      let displayText = c.text;
+      if (c.isActive && !c.isPrimaryFocus) {
+        displayText = `➔ ${displayText}`;
+      }
+
+      const textMetrics = ctx.measureText(displayText);
       const textWidth = textMetrics.width;
       const textHeight = 12;
       const padX = 6;
@@ -712,14 +922,14 @@ export function KnowledgeStarChart({
       // 投影至屏幕像素坐标，计算精确重叠包围盒
       const screenTextX = c.x * scale + panX;
       const screenTextY = c.y * scale + panY;
-      const boxW = (textWidth + padX * 2) * (scale < 1 ? 1 : 1);
-      const boxH = (textHeight + padY * 2) * (scale < 1 ? 1 : 1);
+      const boxW = textWidth + padX * 2;
+      const boxH = textHeight + padY * 2;
       const bX1 = screenTextX - boxW / 2;
       const bY1 = screenTextY - boxH + 2;
       const bX2 = bX1 + boxW;
       const bY2 = bY1 + boxH;
 
-      // 若非直接 active 焦点，检测是否与已绘制标签发生重叠
+      // 若非直接 active 焦点或关联星体，检测是否与已绘制标签发生重叠
       if (!c.isActive && drawnBoxes.length > 0) {
         let collides = false;
         for (const prev of drawnBoxes) {
@@ -753,27 +963,33 @@ export function KnowledgeStarChart({
         ctx.rect(bgX, bgY, bgW, bgH);
       }
       ctx.fillStyle = c.isActive
-        ? "rgba(10, 18, 36, 0.95)"
+        ? c.isPrimaryFocus
+          ? "rgba(10, 18, 36, 0.95)"
+          : "rgba(8, 25, 48, 0.92)"
         : "rgba(7, 12, 22, 0.85)";
       ctx.strokeStyle = c.isActive
-        ? "rgba(0, 229, 255, 0.6)"
+        ? c.isPrimaryFocus
+          ? "rgba(255, 255, 255, 0.85)"
+          : "rgba(0, 229, 255, 0.75)"
         : "rgba(255, 255, 255, 0.12)";
-      ctx.lineWidth = 1;
+      ctx.lineWidth = c.isActive ? 1.2 : 1;
       ctx.fill();
       ctx.stroke();
 
       // 绘制标签文字
       ctx.fillStyle = c.isActive
-        ? "#ffffff"
+        ? c.isPrimaryFocus
+          ? "#ffffff"
+          : "#67e8f9"
         : c.node.type === "concept"
           ? "#90caf9"
           : "rgba(224, 238, 255, 0.92)";
       ctx.textAlign = "center";
-      ctx.fillText(c.text, c.x, c.y);
+      ctx.fillText(displayText, c.x, c.y);
     }
 
     ctx.restore();
-  }, [filterType, searchKeyword, hoveredNode, selectedNode, labelMode, isNodeVisible]);
+  }, [filterType, searchKeyword, hoveredNode, selectedNode, hoveredLink, labelMode, isNodeVisible]);
 
   // 动画主循环
   useEffect(() => {
@@ -905,6 +1121,42 @@ export function KnowledgeStarChart({
     [toWorldCoords, isNodeVisible],
   );
 
+  // 连线拾取判定（点到线段投影与垂线距离几何算法）
+  const pickLink = useCallback(
+    (screenX: number, screenY: number): SimLink | null => {
+      const { x, y } = toWorldCoords(screenX, screenY);
+      const links = simLinksRef.current;
+      const currentScale = transformRef.current.scale;
+      const maxHitDist = 8 / currentScale; // 容差为屏幕约 8px 宽度的拾取热区
+      let closestLink: SimLink | null = null;
+      let minHitDist = maxHitDist;
+
+      for (const link of links) {
+        if (!isNodeVisible(link.source) || !isNodeVisible(link.target)) continue;
+        const x1 = link.source.x;
+        const y1 = link.source.y;
+        const x2 = link.target.x;
+        const y2 = link.target.y;
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const lenSq = dx * dx + dy * dy;
+        if (lenSq === 0) continue;
+
+        const t = Math.max(0, Math.min(1, ((x - x1) * dx + (y - y1) * dy) / lenSq));
+        const projX = x1 + t * dx;
+        const projY = y1 + t * dy;
+        const dist = Math.hypot(x - projX, y - projY);
+
+        if (dist < minHitDist) {
+          minHitDist = dist;
+          closestLink = link;
+        }
+      }
+      return closestLink;
+    },
+    [toWorldCoords, isNodeVisible],
+  );
+
   // 交互事件绑定
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const node = pickNode(e.clientX, e.clientY);
@@ -922,6 +1174,12 @@ export function KnowledgeStarChart({
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (canvas) {
+      const rect = canvas.getBoundingClientRect();
+      setMouseScreenPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+    }
+
     if (isDraggingRef.current && draggedNodeRef.current) {
       const { x, y } = toWorldCoords(e.clientX, e.clientY);
       draggedNodeRef.current.x = x;
@@ -934,6 +1192,12 @@ export function KnowledgeStarChart({
     } else {
       const node = pickNode(e.clientX, e.clientY);
       setHoveredNode(node);
+      if (!node) {
+        const link = pickLink(e.clientX, e.clientY);
+        setHoveredLink(link);
+      } else {
+        setHoveredLink(null);
+      }
     }
   };
 
@@ -948,6 +1212,13 @@ export function KnowledgeStarChart({
     const node = pickNode(e.clientX, e.clientY);
     if (node) {
       setSelectedNode(node);
+      setHoveredLink(null);
+    } else {
+      const link = pickLink(e.clientX, e.clientY);
+      if (link) {
+        setHoveredLink(link);
+        setSelectedNode(link.source);
+      }
     }
   };
 
@@ -1170,9 +1441,11 @@ export function KnowledgeStarChart({
               ? "grabbing"
               : hoveredNode
                 ? "pointer"
-                : isPanningRef.current
-                  ? "move"
-                  : "default",
+                : hoveredLink
+                  ? "crosshair"
+                  : isPanningRef.current
+                    ? "move"
+                    : "default",
           }}
         >
           <canvas
@@ -1184,26 +1457,128 @@ export function KnowledgeStarChart({
             style={{ display: "block", width: "100%", height: "100%" }}
           />
 
-          {/* 悬停浮动卡片 (Hover Tooltip - 左下角优雅浮层) */}
+          {/* 视野外目标雷达导航信标 (Off-Screen Edge Radar Beacons，彻底解决连到屏幕外看不到的问题) */}
+          {offscreenNeighbors.map((beacon, bIdx) => (
+            <div
+              key={`beacon-${bIdx}`}
+              onClick={() => flyToNode(beacon.node)}
+              style={{
+                position: "absolute",
+                left: beacon.edgeX,
+                top: beacon.edgeY,
+                transform: "translate(-50%, -50%)",
+                zIndex: 40,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "4px 10px",
+                background: "rgba(10, 20, 38, 0.92)",
+                backdropFilter: "blur(12px)",
+                border: "1px solid rgba(0, 229, 255, 0.6)",
+                borderRadius: 16,
+                boxShadow: "0 0 12px rgba(0, 229, 255, 0.35)",
+                transition: "all 0.15s ease",
+                color: "#e2e8f0",
+                fontSize: 11,
+                userSelect: "none",
+                whiteSpace: "nowrap",
+              }}
+              title={`点击跃迁视角至 ${beacon.node.name} (视野外 ${beacon.distance}px)`}
+            >
+              <span
+                style={{
+                  display: "inline-block",
+                  transform: `rotate(${beacon.arrowAngle}rad)`,
+                  color: "#00e5ff",
+                  fontSize: 12,
+                  fontWeight: "bold",
+                }}
+              >
+                ➔
+              </span>
+              <span style={{ fontWeight: 600, color: "#fff" }}>
+                {beacon.node.name.length > 10 ? beacon.node.name.slice(0, 9) + "…" : beacon.node.name}
+              </span>
+              <span style={{ fontSize: 10, color: "#94a3b8" }}>
+                {beacon.distance}px
+              </span>
+            </div>
+          ))}
+
+          {/* 悬停连线微浮窗 (Hovered Link Tooltip - 鼠标靠近连线立即识别两端端点) */}
+          {hoveredLink && !hoveredNode && (
+            <div
+              style={{
+                position: "absolute",
+                left: Math.min(
+                  (containerRef.current?.clientWidth || 800) - 270,
+                  Math.max(16, mouseScreenPos.x + 16),
+                ),
+                top: Math.max(16, mouseScreenPos.y - 42),
+                padding: "8px 12px",
+                background: "rgba(10, 18, 36, 0.95)",
+                backdropFilter: "blur(14px)",
+                border: "1px solid rgba(255, 215, 0, 0.5)",
+                borderRadius: 10,
+                color: "#e2e8f0",
+                maxWidth: 280,
+                boxShadow: "0 8px 30px rgba(0,0,0,0.6)",
+                pointerEvents: "none",
+                zIndex: 50,
+                animation: "fadeIn 0.1s ease-out",
+              }}
+            >
+              <Flex align="center" gap={6} style={{ marginBottom: 4 }}>
+                <Tag
+                  color="gold"
+                  style={{ margin: 0, fontSize: 10, padding: "0 4px", lineHeight: "16px" }}
+                >
+                  {hoveredLink.type === "wikilink"
+                    ? "双向引用"
+                    : hoveredLink.type === "tag"
+                      ? "同属标签"
+                      : "拓扑通路"}
+                </Tag>
+                <Text style={{ color: "#ffd700", fontSize: 11, fontWeight: 600 }}>
+                  星际连结
+                </Text>
+              </Flex>
+              <div style={{ fontSize: 11, color: "#f8fafc", lineHeight: 1.4 }}>
+                <div style={{ color: "#93c5fd", fontWeight: 500 }}>
+                  {hoveredLink.source.name}
+                </div>
+                <div style={{ color: "#64748b", fontSize: 10, margin: "2px 0" }}>
+                  ↓ 关联至
+                </div>
+                <div style={{ color: "#93c5fd", fontWeight: 500 }}>
+                  {hoveredLink.target.name}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 悬停浮动卡片 (Hover Tooltip - 左下角优雅浮层，带关联星体清单) */}
           {hoveredNode && (
             <div
               style={{
                 position: "absolute",
                 bottom: 20,
                 left: 20,
-                padding: "10px 14px",
-                background: "rgba(11, 19, 36, 0.88)",
-                backdropFilter: "blur(12px)",
-                border: "1px solid rgba(56, 189, 248, 0.3)",
-                borderRadius: 10,
+                padding: "12px 16px",
+                background: "rgba(10, 18, 32, 0.92)",
+                backdropFilter: "blur(16px)",
+                border: "1px solid rgba(56, 189, 248, 0.35)",
+                borderRadius: 12,
                 color: "#e2e8f0",
-                maxWidth: 320,
-                boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
+                maxWidth: 360,
+                boxShadow: "0 12px 36px rgba(0,0,0,0.65)",
                 pointerEvents: "none",
                 animation: "fadeIn 0.15s ease-out",
+                zIndex: 30,
               }}
             >
-              <Flex align="center" gap={8} style={{ marginBottom: 4 }}>
+              <Flex align="center" gap={8} style={{ marginBottom: 6 }}>
                 <span
                   style={{
                     width: 8,
@@ -1218,16 +1593,82 @@ export function KnowledgeStarChart({
                   {hoveredNode.name}
                 </Text>
               </Flex>
-              <Flex gap={8} align="center">
+              <Flex gap={8} align="center" wrap="wrap" style={{ marginBottom: 6 }}>
                 <Tag color="cyan" style={{ margin: 0, fontSize: 11 }}>
                   {TYPE_CONFIG[hoveredNode.type]?.label || hoveredNode.type}
                 </Tag>
-                <Text type="secondary" style={{ fontSize: 12, color: "#94a3b8" }}>
+                <Tag color="blue" style={{ margin: 0, fontSize: 11 }}>
                   连结星轨: {hoveredNode.connections || 0}
-                </Text>
+                </Tag>
               </Flex>
+
+              {/* 直观展现相连的目标星体名录清单，彻底消灭“不知道连到哪” */}
+              {directNeighbors.length > 0 && (
+                <div
+                  style={{
+                    marginTop: 8,
+                    paddingTop: 8,
+                    borderTop: "1px solid rgba(255, 255, 255, 0.08)",
+                  }}
+                >
+                  <Flex justify="space-between" align="center" style={{ marginBottom: 4 }}>
+                    <Text style={{ fontSize: 11, color: "#38bdf8", fontWeight: 600 }}>
+                      ✦ 连向 {directNeighbors.length} 个关联星体：
+                    </Text>
+                  </Flex>
+                  <div
+                    style={{
+                      maxHeight: 120,
+                      overflowY: "auto",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 4,
+                    }}
+                  >
+                    {directNeighbors.slice(0, 6).map((nb, i) => (
+                      <div
+                        key={i}
+                        style={{
+                          fontSize: 11,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: 8,
+                          padding: "2px 4px",
+                          borderRadius: 4,
+                          background: "rgba(255, 255, 255, 0.03)",
+                        }}
+                      >
+                        <span
+                          style={{
+                            color: "#cbd5e1",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          • {nb.node.name}
+                        </span>
+                        <span style={{ color: "#94a3b8", fontSize: 10, flexShrink: 0 }}>
+                          {nb.linkType === "wikilink"
+                            ? "引用"
+                            : nb.linkType === "tag"
+                              ? "标签"
+                              : "概念"}
+                        </span>
+                      </div>
+                    ))}
+                    {directNeighbors.length > 6 && (
+                      <div style={{ fontSize: 10, color: "#64748b", textAlign: "right" }}>
+                        还有 {directNeighbors.length - 6} 个 (点击星体在抽屉展开)
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {hoveredNode.details?.path && (
-                <div style={{ marginTop: 4, fontSize: 11, color: "#64748b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                <div style={{ marginTop: 6, fontSize: 10, color: "#64748b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {hoveredNode.details.path}
                 </div>
               )}
@@ -1406,9 +1847,12 @@ export function KnowledgeStarChart({
                         key={idx}
                         color="blue"
                         style={{ cursor: "pointer", padding: "4px 8px" }}
-                        onClick={() => setSelectedNode(peer)}
+                        onClick={() => {
+                          setSelectedNode(peer);
+                          flyToNode(peer);
+                        }}
                       >
-                        {peer.name} ({l.type})
+                        ➔ {peer.name} ({l.type === "wikilink" ? "引用" : l.type === "tag" ? "标签" : l.type})
                       </Tag>
                     );
                   })}

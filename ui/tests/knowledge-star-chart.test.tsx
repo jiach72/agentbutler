@@ -105,4 +105,22 @@ describe("知识星图组件 (KnowledgeStarChart)", () => {
 
     expect(html).toContain("知识库暂无文档或笔记");
   });
+
+  it("正常渲染 HUD 沉浸控制工具条与物理仿真控制", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(
+        App,
+        null,
+        React.createElement(KnowledgeStarChart, {
+          data: mockGraphData,
+          loading: false,
+        }),
+      ),
+    );
+
+    // 检查 HUD 控制条结构存在
+    expect(html).toContain("ant-btn-circle");
+    expect(html).toContain("position:relative");
+  });
 });
+
