@@ -170,7 +170,7 @@ export class TelemetryRepository extends BaseRepository {
 
   listFingerprints(limit = 100, since?: string): FingerprintRow[] {
     const rows = this.prepare(
-      "SELECT * FROM fingerprints WHERE (? IS NULL OR last_seen >= ?) ORDER BY last_seen DESC LIMIT ?",
+      "SELECT * FROM fingerprints WHERE (? IS NULL OR last_seen >= ?) ORDER BY last_seen DESC, id DESC LIMIT ?",
     ).all(since ?? null, since ?? null, limit) as Record<string, unknown>[];
     return rows.map((r) => this.mapFingerprint(r));
   }
