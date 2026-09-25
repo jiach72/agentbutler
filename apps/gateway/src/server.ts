@@ -23,9 +23,8 @@ import type {
   PolicySnapshot,
   Result,
   BotProfile,
-  GroupChatDispatchRequest,
+  // PeerHandoffGateRequest 用于给下方 availablePeerBots 的元素类型做标注（替代原来的 `any`），故保留。
   PeerHandoffGateRequest,
-  BotComplianceScoreRequest,
 } from "@butler/contract";
 import { readHermesConfig } from "@butler/adapter-hermes";
 import {
@@ -988,7 +987,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
     const passedPeers = raw["availablePeerBots"] || raw["availableBots"];
     const availablePeerBots =
       Array.isArray(passedPeers) && passedPeers.length > 0
-        ? passedPeers.filter((b: any) => b?.id !== currentBotId)
+        ? (passedPeers as PeerHandoffGateRequest["availablePeerBots"]).filter((b) => b?.id !== currentBotId)
         : (await listBotProfiles(hermesRoot)).filter((b) => b.id !== currentBotId);
 
     const userGoal = typeof raw["userGoal"] === "string"
