@@ -9,7 +9,6 @@ import {
   listBotProfiles,
   saveBotProfile,
   deleteBotProfile,
-  sanitizeBotId,
 } from "../src/index.js";
 
 describe("Pantheon Bot Mode & TypeSafe Jev System One", () => {
@@ -103,7 +102,7 @@ describe("Pantheon Bot Mode & TypeSafe Jev System One", () => {
     });
 
     it("有 API Key 时优先走 Jev Choice 原语", async () => {
-      const fakeFetch = async (url: string, init?: RequestInit) => {
+      const fakeFetch = async (_url: string, _init?: RequestInit) => {
         return new Response(
           JSON.stringify({
             model: "jev-latest",
