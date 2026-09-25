@@ -486,12 +486,17 @@ export function createButlerSelfUpgradeService(
   const updaterStatusFile = join(stateDir, SELF_UPDATER_STATUS_FILE);
   const updaterUrl = deps.updaterUrl?.trim().replace(/\/+$/, "") || null;
   const updaterFetch = deps.fetchImpl ?? fetch;
+  // 环境变量回退链必须用 `||` 而不是 `??`：Compose 用 `${VAR:-}` 注入未配置的变量，
+  // 容器里拿到的是**空字符串**，而空字符串不是 nullish —— `??` 会在第一项就停下，
+  // 使回退到 BUTLER_INTERNAL_TOKEN 的声明失效，watch 便以空口令转发，updater 侧
+  // fail-closed 返回 401（#32）。deps.updaterToken 保留 `??` 语义：显式传入 ""（测试
+  // 注入）表示确实不附带口令，不应被环境变量覆盖。
   const updaterToken = (
     deps.updaterToken ??
-    process.env["BUTLER_UPDATER_ACCESS_TOKEN"] ??
-    process.env["BUTLER_INTERNAL_TOKEN"] ??
-    process.env["BUTLER_ACCESS_TOKEN"] ??
-    ""
+    (process.env["BUTLER_UPDATER_ACCESS_TOKEN"] ||
+      process.env["BUTLER_INTERNAL_TOKEN"] ||
+      process.env["BUTLER_ACCESS_TOKEN"] ||
+      "")
   ).trim();
   const updaterHeaders = (): Record<string, string> =>
     updaterToken === ""

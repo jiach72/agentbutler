@@ -601,7 +601,7 @@ export function KnowledgeStarChart({
           ).webkitRequestFullscreen();
         }
       } catch {
-        /* 忽略全屏 API 异常 */
+        /* 全屏 API 不可用时忽略（浏览器不支持或用户拒绝） */
       }
     } else {
       try {
@@ -620,7 +620,7 @@ export function KnowledgeStarChart({
           ).webkitExitFullscreen();
         }
       } catch {
-        /* 忽略全屏 API 异常 */
+        /* 全屏 API 不可用时忽略（浏览器不支持或用户拒绝） */
       }
     }
     setTimeout(() => resizeCanvas(), 120);

@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -10,7 +10,8 @@ describe("withSafeDbSnapshot", () => {
   let dbPath: string;
 
   beforeEach(() => {
-    tmp = mkdtempSync(join(tmpdir(), "butler-snap-test-"));
+    // macOS 等系统上 tmpdir() 可能包含符号链接（如 /var -> /private/var），通过 realpathSync 归一化以保持路径一致性
+    tmp = realpathSync(mkdtempSync(join(tmpdir(), "butler-snap-test-")));
     dbPath = join(tmp, "state.db");
     const db = new DatabaseSync(dbPath);
     db.exec("PRAGMA journal_mode = WAL;");
@@ -66,7 +67,7 @@ describe("withSafeDbSnapshot", () => {
     );
 
     expect(results).toBe(42);
-    expect(openedPath).toBe(dbPath);
+    expect(realpathSync(openedPath)).toBe(realpathSync(dbPath));
   });
 
   it("数据库文件不存在时抛出明确异常", () => {
