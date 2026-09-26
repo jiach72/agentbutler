@@ -163,8 +163,11 @@ export class AdapterExecutor {
   ): Promise<Result<T>> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
+      const promise = fn();
+      // 防范超时提前返回后，底层网络/IO 延迟报错引发未捕获的 unhandledRejection
+      promise.catch(() => {});
       const raced = await Promise.race([
-        fn(),
+        promise,
         new Promise<never>((_, reject) => {
           timer = setTimeout(() => reject(new TimeoutSignal(`timed out after ${ctx.timeoutMs}ms`)), ctx.timeoutMs);
         }),

@@ -263,4 +263,27 @@ describe("AdapterExecutor", () => {
     expect(spy).toHaveBeenCalledTimes(3);
     expect(audit.list({ action: "restart" })).toHaveLength(3);
   });
+
+  it("超时后适配器 Promise 延迟抛错不会引发 unhandledRejection", async () => {
+    let unhandled: unknown = null;
+    const handler = (reason: unknown) => {
+      unhandled = reason;
+    };
+    process.on("unhandledRejection", handler);
+    try {
+      const result = await executor.invokeAdapter(
+        async () => {
+          await delay(30);
+          throw new Error("delayed explosion after timeout");
+        },
+        { method: "detect", timeoutMs: 10 },
+      );
+      expect(result.ok).toBe(false);
+      expect(result.error?.code).toBe("E103");
+      await delay(50); // 等待延迟抛错执行完毕
+      expect(unhandled).toBeNull();
+    } finally {
+      process.off("unhandledRejection", handler);
+    }
+  });
 });
