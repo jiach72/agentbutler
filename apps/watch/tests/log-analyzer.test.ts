@@ -127,8 +127,49 @@ describe("createLogAnalyzer 日志错误指纹聚合", () => {
     });
     const view = await analyzer.analyze(undefined, "24h");
     expect(view.coverage?.rotatedLogs).toBe(true);
+    expect(view.coverage?.sampled).toBe(true);
+    expect(view.coverage?.sampledLines).toBe(1);
     expect(view.issues[0]?.count).toBe(1);
     expect(view.issues[0]?.examples[0]).not.toContain("secret-value");
     expect(view.issues[0]?.skill).toBe("productivity/demo");
   });
+
+  it("防御规则误报：hex 429、zoom 构建产物、配置超时、gateway-exit 与 Traceback 帧头不被误报 (Issue 44)", async () => {
+    const analyzer = createLogAnalyzer(
+      makeDeps({
+        "clean.log": [
+          "INFO hermes_plugins.wecom_platform.adapter: [Wecom] Unrouted websocket payload dropped: cmd='(empty)' req_id=ping-a74d91a429db421a9b7b89a88102fdb9 body_keys=None",
+          "dist/assets/zoomable-image-CSHEoycf.js 5.51 kB │ gzip: 2.74 kB",
+          "│  PostgreSQL pool created (min=5, max=100, cmd_timeout=60s, acquire_timeout=30s)",
+          "    event_list = self._selector.select(timeout)",
+          "    print(f\"[gateway-exit] {reason}\", file=sys.stderr, flush=True)",
+          "Traceback (most recent call last):",
+        ],
+      }),
+    );
+    const view = await analyzer.analyze();
+    expect(view.issues).toHaveLength(0);
+  });
+
+  it("真阳性错误正常匹配并归入正确分类 (Issue 44)", async () => {
+    const analyzer = createLogAnalyzer(
+      makeDeps({
+        "errors.log": [
+          "HTTP/1.1 429 Too Many Requests",
+          "kernel: Out of memory: Killed process 1234",
+          "Connection timed out after 10000ms",
+          "gateway crashed unexpectedly with status 1",
+          "ValueError: invalid literal for int()",
+        ],
+      }),
+    );
+    const view = await analyzer.analyze();
+    const kinds = view.issues.map((i) => i.kind);
+    expect(kinds).toContain("rate-limit");
+    expect(kinds).toContain("oom");
+    expect(kinds).toContain("network-timeout");
+    expect(kinds).toContain("gateway-crash");
+    expect(kinds).toContain("generic-error");
+  });
 });
+

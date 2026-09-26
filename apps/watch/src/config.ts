@@ -197,7 +197,7 @@ export const DEFAULT_GATEWAY_URL = "http://127.0.0.1:7532";
 export const DEFAULT_DASHBOARD_URL = "http://127.0.0.1:9119";
 /** 与 hermes 适配器 PROBE_TIMEOUT_MS 对齐。 */
 export const DEFAULT_PROBE_TIMEOUT_MS = 1500;
-export const DEFAULT_FETCH_TIMEOUT_MS = 5000;
+export const DEFAULT_FETCH_TIMEOUT_MS = 10000;
 export const DEFAULT_MEMORY_WARN_BYTES = 512 * 1024 * 1024;
 export const DEFAULT_CPU_WARN_PERCENT = 80;
 export const DEFAULT_FINGERPRINT_WINDOW_MS = 300_000;

@@ -77,4 +77,40 @@ describe("evolution analytics", () => {
     const reopened = await service.overview("hermes-main", "7d");
     expect(reopened.actionItems.find((item) => item.actionId === datasetAction!.actionId)?.status).toBe("open");
   });
+
+  it("多次分析不累加行动清单 occurrences 次数 (Issue 45)", async () => {
+    const service = makeService([
+      "2026-08-30T10:00:00Z tool call: search failed duration=20ms session_id=s1",
+      "2026-08-30T10:01:00Z tool call: search failed duration=20ms session_id=s1",
+    ]);
+    const firstView = await service.overview("hermes-main", "7d");
+    const firstAction = firstView.actionItems.find((item) => item.title.includes("search") || item.category === "runtime");
+    const initialOccurrences = firstAction?.occurrences ?? 0;
+    expect(initialOccurrences).toBeGreaterThan(0);
+
+    // 模拟多次调用分析，occurrences 不得膨胀
+    for (let i = 0; i < 5; i += 1) {
+      await service.overview("hermes-main", "7d");
+    }
+    const finalView = await service.overview("hermes-main", "7d");
+    const finalAction = finalView.actionItems.find((item) => item.actionId === firstAction?.actionId);
+    expect(finalAction?.occurrences).toBe(initialOccurrences);
+  });
+
+  it("过滤不相关的非工具/会话总线事件，避免污染观测表 (Issue 48)", async () => {
+    const service = makeService([]);
+    // 触发系统级无 tool/session 的杂散事件
+    core!.bus.emit("config-reloaded", { instanceId: "hermes-main", timestamp: "2026-08-30T11:00:00Z" });
+    core!.bus.emit("heartbeat-ping", { instanceId: "hermes-main", ok: true });
+    
+    const obs = core!.store.listEvolutionObservations({ instanceId: "hermes-main" });
+    expect(obs).toHaveLength(0);
+
+    // 真正的工具调用事件依然被正确捕获
+    core!.bus.emit("adapter-call-completed", { instanceId: "hermes-main", method: "search", success: true, durationMs: 18, sessionId: "session-1" });
+    const obsAfter = core!.store.listEvolutionObservations({ instanceId: "hermes-main" });
+    expect(obsAfter).toHaveLength(1);
+    expect(obsAfter[0]?.name).toBe("search");
+  });
 });
+

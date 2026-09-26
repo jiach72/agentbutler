@@ -53,6 +53,8 @@ function writeFixture(): string {
   writeFileSync(join(dir, "venv", "bin", "python"), "");
   writeFileSync(join(dir, "logs", "agent.log"), "agent line\n");
   writeFileSync(join(dir, "logs", "gateway.log"), "gateway line\n");
+  writeFileSync(join(dir, "logs", "gateway-exit-diag.log"), "diag line\n");
+  writeFileSync(join(dir, "logs", "tui_gateway_crash.log"), "crash traceback line\n");
   writeFileSync(join(dir, "logs", "agent.log.1"), "rotated\n");
   writeFileSync(join(dir, "logs", "errors.log.2"), "rotated\n");
   writeFileSync(join(dir, "logs", "gateway.log.3"), "rotated\n");
@@ -300,6 +302,8 @@ describe("logSources", () => {
     expect(sources.some((s) => s.path.includes("errors.log.2"))).toBe(false);
     expect(sources.some((s) => s.path.includes("gateway.log.3"))).toBe(false);
     expect(sources.some((s) => s.path.includes("curator"))).toBe(false);
+    expect(sources.some((s) => s.path.includes("gateway-exit-diag.log"))).toBe(false);
+    expect(sources.some((s) => s.path.includes("tui_gateway_crash.log"))).toBe(false);
   });
 
   it("logs 目录缺失返回空数组", () => {

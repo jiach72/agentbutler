@@ -217,9 +217,12 @@ export function createEvolutionAnalyticsService(deps: {
     // 巡检完成事件是一次有始有终的"检查会话"（overall 给出 success/failure），
     // 应归入 session 而非 tool，否则 completedSessions 恒 0，健康分永远 insufficient。
     const isInspection = event.type === "inspection-completed";
+    const isTool = Boolean(tool || /tool|function|skill/i.test(event.type));
+    const isSession = Boolean(isInspection || sessionId || /session/i.test(event.type));
+    if (!isTool && !isSession) return;
     const kind: EvolutionObservationRow["kind"] = isInspection
       ? "session"
-      : tool || /tool|function|skill/i.test(event.type) ? "tool" : sessionId ? "session" : "tool";
+      : isTool ? "tool" : "session";
     const outcome = outcomeOf(payload, event.type);
     const detail = stringValue(payload["detail"], payload["error"], payload["summary"]) ?? "";
     const key = `structured:${event.type}:${event.at}:${sessionId ?? ""}:${runId ?? ""}:${tool ?? ""}:${outcome}`;
@@ -328,7 +331,7 @@ export function createEvolutionAnalyticsService(deps: {
       const old = deps.core.store.getEvolutionActionItem(actionId);
       const item: EvolutionActionItemRow = {
         actionId, instanceId, category: failure.category, title: actionTitle(failure.category, failure.title), impact: failure.impact,
-        firstSeenAt: old?.firstSeenAt ?? failure.lastSeenAt ?? nowIso, lastSeenAt: failure.lastSeenAt ?? nowIso, occurrences: (old?.occurrences ?? 0) + failure.count,
+        firstSeenAt: old?.firstSeenAt ?? failure.lastSeenAt ?? nowIso, lastSeenAt: failure.lastSeenAt ?? nowIso, occurrences: failure.count,
         relatedRuns: old?.relatedRuns ?? [], evidence: failure.evidence, nextAction: failure.category === "environment-dependency" && /exa/i.test(failure.title) ? "配置 EXA_API_KEY 后点击重新检查；Butler 不会写外部配置" : failure.category === "environment-dependency" && /chrome|browser/i.test(failure.title) ? "启动 Chrome 后点击重新检查" : failure.category === "dataset" ? `当前真实样本 ${dataset.realSamples} 条，还缺 ${dataset.gap} 条` : "查看证据并完成处理后重新检查",
         status: old?.status ?? "open", resolvedAt: old?.resolvedAt ?? null, updatedAt: nowIso,
       };
@@ -337,7 +340,8 @@ export function createEvolutionAnalyticsService(deps: {
     if (dataset.realSamples < REQUIRED_SAMPLES) {
       const actionId = hash(`${instanceId}:dataset:sample-size`).slice(0, 16);
       const old = deps.core.store.getEvolutionActionItem(actionId);
-      items.push(deps.core.store.upsertEvolutionActionItem({ actionId, instanceId, category: "dataset", title: "补充真实评估样本", impact: "blocking", firstSeenAt: old?.firstSeenAt ?? nowIso, lastSeenAt: nowIso, occurrences: (old?.occurrences ?? 0) + 1, relatedRuns: old?.relatedRuns ?? [], evidence: `真实样本 ${dataset.realSamples}/${REQUIRED_SAMPLES}；holdout ${dataset.holdoutCount}/${REQUIRED_HOLDOUT}`, nextAction: `再收集 ${Math.max(0, REQUIRED_SAMPLES - dataset.realSamples)} 条明确结果，不使用环境失败或合成样本`, status: old?.status ?? "open", resolvedAt: old?.resolvedAt ?? null, updatedAt: nowIso }));
+      const missingCount = Math.max(1, REQUIRED_SAMPLES - dataset.realSamples);
+      items.push(deps.core.store.upsertEvolutionActionItem({ actionId, instanceId, category: "dataset", title: "补充真实评估样本", impact: "blocking", firstSeenAt: old?.firstSeenAt ?? nowIso, lastSeenAt: nowIso, occurrences: missingCount, relatedRuns: old?.relatedRuns ?? [], evidence: `真实样本 ${dataset.realSamples}/${REQUIRED_SAMPLES}；holdout ${dataset.holdoutCount}/${REQUIRED_HOLDOUT}`, nextAction: `再收集 ${Math.max(0, REQUIRED_SAMPLES - dataset.realSamples)} 条明确结果，不使用环境失败或合成样本`, status: old?.status ?? "open", resolvedAt: old?.resolvedAt ?? null, updatedAt: nowIso }));
     }
     return items;
   }
@@ -375,6 +379,7 @@ export function createEvolutionAnalyticsService(deps: {
     for (const observation of tools.filter((item) => item.outcome === "success" || item.outcome === "failure")) {
       const category = observation.failureCategory;
       if (observation.outcome === "failure" && category === "environment-dependency") continue;
+      if (!observation.name && (!observation.detail || typeof observation.detail !== "object")) continue;
       const contentHash = observation.contentHash;
       const sample: EvolutionSampleRow = { sampleId: hash(`${selected ?? "unknown"}:${contentHash}`).slice(0, 16), instanceId: selected ?? "unknown", dataset: DATASET, outcome: observation.outcome === "success" ? "positive" : "negative", label: observation.name ?? "tool-result", contentHash, datasetVersion: DATASET_VERSION, synthetic: false, source: observation.source, createdAt: observation.occurredAt };
       deps.core.store.saveEvolutionSample(sample);

@@ -85,16 +85,19 @@ export class EvolutionRepository extends BaseRepository {
   listEvolutionObservations(
     filter: { instanceId?: string; since?: string; limit?: number } = {},
   ): EvolutionObservationRow[] {
+    const limit = filter.limit ?? 50_000;
     const rows = this.prepare(
-      `SELECT * FROM evolution_observations
-       WHERE (? IS NULL OR instance_id = ?) AND (? IS NULL OR occurred_at >= ?)
-       ORDER BY occurred_at ASC LIMIT ?`,
+      `SELECT * FROM (
+         SELECT * FROM evolution_observations
+         WHERE (? IS NULL OR instance_id = ?) AND (? IS NULL OR occurred_at >= ?)
+         ORDER BY occurred_at DESC LIMIT ?
+       ) ORDER BY occurred_at ASC`,
     ).all(
       filter.instanceId ?? null,
       filter.instanceId ?? null,
       filter.since ?? null,
       filter.since ?? null,
-      filter.limit ?? 20_000,
+      limit,
     ) as Record<string, unknown>[];
     return rows.map((row) => ({
       observationId: String(row["observation_id"]),
@@ -151,9 +154,12 @@ export class EvolutionRepository extends BaseRepository {
 
   saveEvolutionSample(input: EvolutionSampleRow): void {
     this.prepare(
-      `INSERT OR IGNORE INTO evolution_samples
+      `INSERT INTO evolution_samples
        (sample_id, instance_id, dataset, outcome, label, content_hash, dataset_version, synthetic, source, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(content_hash) DO UPDATE SET
+         created_at = CASE WHEN excluded.created_at > evolution_samples.created_at THEN excluded.created_at ELSE evolution_samples.created_at END,
+         source = excluded.source`,
     ).run(
       input.sampleId,
       input.instanceId,

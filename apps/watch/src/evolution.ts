@@ -57,6 +57,7 @@ export type EvolutionEndpointCategory =
   | "rate-limit"
   | "upstream"
   | "network"
+  | "timeout"
   | "unknown";
 
 export interface EvolutionEndpointHealth {
@@ -617,6 +618,7 @@ function endpointAction(category: EvolutionEndpointCategory): string {
   if (category === "configuration") return "检查模型名、API Base URL 与 /chat/completions 路径";
   if (category === "rate-limit") return "等待限流窗口恢复或降低并发后重试";
   if (category === "upstream") return "上游服务异常，稍后重试并查看供应商状态";
+  if (category === "timeout") return "检查模型服务商响应延迟，或放宽预检超时阈值";
   if (category === "network") return "检查 DNS、代理、证书和网络连通性";
   return "检查模型端点配置后重试";
 }
@@ -630,7 +632,7 @@ function endpointDetail(host: string, status: number | null, category: Evolution
 export function createEvolutionService(deps: EvolutionServiceDeps): EvolutionService {
   const core = deps.core;
   const now = deps.now ?? Date.now;
-  const fetchTimeoutMs = deps.fetchTimeoutMs ?? 5000;
+  const fetchTimeoutMs = deps.fetchTimeoutMs ?? 10_000;
   const fetchFn = deps.fetchFn ?? ((url, init) => fetch(url, init));
   const runTimeoutMs = deps.runTimeoutMs ?? 45 * 60_000;
   const hermesRoot = deps.hermesRoot?.trim() || null;
@@ -935,44 +937,59 @@ export function createEvolutionService(deps: EvolutionServiceDeps): EvolutionSer
         action: endpointAction("credentials"),
       };
     }
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), fetchTimeoutMs);
-    try {
-      const response = await fetchFn(chatCompletionUrl(parsed.toString()), {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${hermesConfig.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: hermesConfig.model ?? "gpt-4.1-mini",
-          messages: [{ role: "user", content: "health check" }],
-          max_tokens: 1,
-        }),
-        signal: controller.signal,
-      });
-      const category = endpointCategory(response.status);
-      endpointHealth = {
-        status: category === "ok" ? "pass" : "fail",
-        category,
-        detail: endpointDetail(parsed.host, response.status, category),
-        checkedAt: new Date(now()).toISOString(),
-      };
-      return category === "ok"
-        ? { id: "endpoint", label: "模型端点", status: "pass", detail: endpointHealth.detail }
-        : {
-            id: "endpoint",
-            label: "模型端点",
-            status: "fail",
-            detail: endpointHealth.detail,
-            action: endpointAction(category),
+    const effectiveTimeoutMs = Math.max(fetchTimeoutMs, 10_000);
+    let lastError: unknown = null;
+    let lastResponseStatus: number | null = null;
+    let lastCategory: EvolutionEndpointCategory = "unknown";
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      if (attempt > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), effectiveTimeoutMs);
+      try {
+        const response = await fetchFn(chatCompletionUrl(parsed.toString()), {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${hermesConfig.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: hermesConfig.model ?? "gpt-4.1-mini",
+            messages: [{ role: "user", content: "health check" }],
+            max_tokens: 1,
+          }),
+          signal: controller.signal,
+        });
+        const category = endpointCategory(response.status);
+        if (category === "ok") {
+          endpointHealth = {
+            status: "pass",
+            category,
+            detail: endpointDetail(parsed.host, response.status, category),
+            checkedAt: new Date(now()).toISOString(),
           };
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
+          return { id: "endpoint", label: "模型端点", status: "pass", detail: endpointHealth.detail };
+        }
+        lastResponseStatus = response.status;
+        lastCategory = category;
+        // 确定性配置/凭据错误不进行无效重试
+        if (category === "credentials" || category === "configuration") {
+          break;
+        }
+      } catch (error) {
+        lastError = error;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    if (lastResponseStatus !== null) {
       endpointHealth = {
         status: "fail",
-        category: "network",
-        detail: `${parsed.host} 补全探针异常：${detail}`,
+        category: lastCategory,
+        detail: endpointDetail(parsed.host, lastResponseStatus, lastCategory),
         checkedAt: new Date(now()).toISOString(),
       };
       return {
@@ -980,11 +997,33 @@ export function createEvolutionService(deps: EvolutionServiceDeps): EvolutionSer
         label: "模型端点",
         status: "fail",
         detail: endpointHealth.detail,
-        action: endpointAction("network"),
+        action: endpointAction(lastCategory),
       };
-    } finally {
-      clearTimeout(timer);
     }
+
+    const detailMsg = lastError instanceof Error ? lastError.message : String(lastError);
+    const isTimeout =
+      lastError instanceof Error &&
+      (lastError.name === "AbortError" ||
+        lastError.name === "TimeoutError" ||
+        /abort|timed?\s*out/i.test(detailMsg));
+
+    const category: EvolutionEndpointCategory = isTimeout ? "timeout" : "network";
+    endpointHealth = {
+      status: "fail",
+      category,
+      detail: isTimeout
+        ? `${parsed.host} 补全探针超时（>${effectiveTimeoutMs / 1000}s）：${detailMsg}`
+        : `${parsed.host} 补全探针异常：${detailMsg}`,
+      checkedAt: new Date(now()).toISOString(),
+    };
+    return {
+      id: "endpoint",
+      label: "模型端点",
+      status: "fail",
+      detail: endpointHealth.detail,
+      action: endpointAction(category),
+    };
   }
 
   function checkDataset(holdoutCount: number): EvolutionCheck {

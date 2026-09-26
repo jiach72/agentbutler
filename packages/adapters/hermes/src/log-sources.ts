@@ -21,7 +21,8 @@ export function logSources(rootPath: string): LogSource[] {
         entry.name.endsWith(".log") &&
         // gateway-exit-diag.log 只记 start/exit 行，每次 systemd 重启追加一条，
         // 与 tui_gateway_crash.log 同类常驻假告警源，指纹引擎持续误报，直接排除。
-        !entry.name.endsWith("-diag.log")
+        !entry.name.endsWith("-diag.log") &&
+        entry.name !== "tui_gateway_crash.log"
     )
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((entry) => ({

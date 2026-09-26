@@ -280,6 +280,67 @@ describe("带鉴权模型探针分类", () => {
     expect(noKey.status().endpointHealth.category).toBe("credentials");
     expect(JSON.stringify(outcome)).not.toContain("test-key");
   });
+
+  it("补全探针超时/abort 映射为 timeout 类别并给出明确超时处置建议 (Issue 47)", async () => {
+    const timeoutService = createEvolutionService({
+      core,
+      control,
+      exec,
+      fetchFn: async () => {
+        const error = new Error("This operation was aborted");
+        error.name = "AbortError";
+        throw error;
+      },
+      llm: { apiKey: "test-key", model: "test-model" },
+      poster,
+      now: () => Date.parse("2026-08-21T03:00:00.000Z"),
+    });
+    const outcome = await timeoutService.preflight({
+      instanceId: "hermes-main",
+      dependencies: ["dspy"],
+      endpoint: "https://api.example.test/v1",
+      holdoutCount: 2,
+    });
+    const endpointCheck = outcome.checks.find((check) => check.id === "endpoint");
+    expect(endpointCheck).toMatchObject({
+      status: "fail",
+      action: "检查模型服务商响应延迟，或放宽预检超时阈值",
+    });
+    expect(endpointCheck?.detail).toContain("超时");
+    expect(timeoutService.status().endpointHealth.category).toBe("timeout");
+  });
+
+  it("探针初次偶发抖动 abort，第二次重试成功时应顺利通过预检 (Issue 47)", async () => {
+    let callCount = 0;
+    const retryService = createEvolutionService({
+      core,
+      control,
+      exec,
+      fetchFn: async () => {
+        callCount += 1;
+        if (callCount === 1) {
+          const error = new Error("This operation was aborted");
+          error.name = "AbortError";
+          throw error;
+        }
+        return { ok: true, status: 200, json: async () => ({}) };
+      },
+      llm: { apiKey: "test-key", model: "test-model" },
+      poster,
+      now: () => Date.parse("2026-08-21T03:00:00.000Z"),
+    });
+    const outcome = await retryService.preflight({
+      instanceId: "hermes-main",
+      dependencies: ["dspy"],
+      endpoint: "https://api.example.test/v1",
+      holdoutCount: 10,
+    });
+    expect(callCount).toBe(2);
+    expect(outcome.checks.find((check) => check.id === "endpoint")).toMatchObject({
+      status: "pass",
+    });
+    expect(retryService.status().endpointHealth.category).toBe("ok");
+  });
 });
 
 describe("最小扩集与自动重检", () => {

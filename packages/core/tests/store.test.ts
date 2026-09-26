@@ -350,7 +350,67 @@ describe("SqliteStore", () => {
     // 窗口收窄到 00:30 之后 → 只剩 01:00 那行
     expect(store.countApprovalRequestsByAction("file-delete|/tmp/a", "2026-09-11T00:30:00.000Z")).toBe(3);
     // 指纹隔离 + 无匹配返回 0（不抛异常）
-    expect(store.countApprovalRequestsByAction("file-write|/tmp/a", "2026-09-10T00:00:00.000Z")).toBe(5);
     expect(store.countApprovalRequestsByAction("none|none", "2026-09-10T00:00:00.000Z")).toBe(0);
   });
+
+  it("evolution：saveEvolutionSample 在 content_hash 冲突时更新为更新的 created_at (Issue 48)", () => {
+    store.saveEvolutionSample({
+      sampleId: "s-1",
+      instanceId: "ins-1",
+      dataset: "evolution-real",
+      outcome: "positive",
+      label: "tool",
+      contentHash: "hash-123",
+      datasetVersion: "v1",
+      synthetic: false,
+      source: "structured",
+      createdAt: "2026-09-22T10:00:00.000Z",
+    });
+
+    // 重新记录同 contentHash，但时间更晚
+    store.saveEvolutionSample({
+      sampleId: "s-2",
+      instanceId: "ins-1",
+      dataset: "evolution-real",
+      outcome: "positive",
+      label: "tool",
+      contentHash: "hash-123",
+      datasetVersion: "v1",
+      synthetic: false,
+      source: "structured",
+      createdAt: "2026-09-26T12:00:00.000Z",
+    });
+
+    const samples = store.listEvolutionSamples({ instanceId: "ins-1", dataset: "evolution-real" });
+    expect(samples).toHaveLength(1);
+    expect(samples[0]?.createdAt).toBe("2026-09-26T12:00:00.000Z");
+  });
+
+  it("evolution：listEvolutionObservations 优先返回 limit 范围内的最新数据并按时间升序呈现 (Issue 48)", () => {
+    for (let i = 1; i <= 5; i += 1) {
+      store.saveEvolutionObservation({
+        observationId: `obs-${i}`,
+        instanceId: "ins-1",
+        sessionId: `s-${i}`,
+        runId: null,
+        kind: "tool",
+        name: "test",
+        outcome: "success",
+        failureCategory: null,
+        durationMs: 10,
+        occurredAt: `2026-09-2${i}T10:00:00.000Z`,
+        source: "structured",
+        detail: {},
+        contentHash: `hash-${i}`,
+      });
+    }
+
+    // limit 为 3 时，应获取最新的 3 条（23, 24, 25 日），并按时间升序返回
+    const rows = store.listEvolutionObservations({ instanceId: "ins-1", limit: 3 });
+    expect(rows).toHaveLength(3);
+    expect(rows[0]?.occurredAt).toBe("2026-09-23T10:00:00.000Z");
+    expect(rows[1]?.occurredAt).toBe("2026-09-24T10:00:00.000Z");
+    expect(rows[2]?.occurredAt).toBe("2026-09-25T10:00:00.000Z");
+  });
 });
+

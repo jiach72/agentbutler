@@ -115,6 +115,8 @@ type Insights = {
     sources: number;
     lines: number;
     rotatedLogs: boolean;
+    sampled?: boolean;
+    sampledLines?: number;
   };
   directions: Direction[];
   analyzedAt: string;
@@ -546,7 +548,7 @@ export function EvolutionPage() {
                 : "尚未收录日志，先在「系统日志」跑一次分析"}
             </Descriptions.Item>
             <Descriptions.Item label="扫描文件 / 行数">
-              {data?.coverage ? `${data.coverage.sources} / ${data.coverage.lines}` : "-"}
+              {data?.coverage ? `${data.coverage.sources} / ${data.coverage.lines}${data.coverage.sampled ? "（尾部采样）" : ""}` : "-"}
             </Descriptions.Item>
             <Descriptions.Item label="包含轮转日志">
               {data?.coverage?.rotatedLogs ? "是" : "否"}

@@ -53,7 +53,16 @@ export interface LogAnalyzeView {
   scannedSources: number;
   scannedLines: number;
   analyzedAt: string;
-  coverage?: { from: string | null; to: string | null; sources: number; lines: number; rotatedLogs: boolean; range: "24h" | "7d" | "30d" };
+  coverage?: {
+    from: string | null;
+    to: string | null;
+    sources: number;
+    lines: number;
+    rotatedLogs: boolean;
+    range: "24h" | "7d" | "30d";
+    sampled?: boolean;
+    sampledLines?: number;
+  };
 }
 
 export interface LogAnalyzerDeps {
@@ -72,7 +81,7 @@ interface Rule {
 }
 
 /** 每个日志源最多扫描的尾部行数（足够覆盖常见故障窗口，避免大日志卡住管家）。 */
-const TAIL_LIMIT = 300;
+const TAIL_LIMIT = 2000;
 /** 全部日志源累计扫描行数上限。 */
 const MAX_SCANNED_LINES = 20_000;
 /** 每条问题最多保留的原始示例行数。 */
@@ -150,7 +159,7 @@ const RULES: Rule[] = [
     title: "消息限流",
     detail:
       "微信 / iLink 等消息通道被限流。重连通道可以恢复；若反复出现，建议检查节流补丁是否生效。",
-    match: /(rate\s?limit|限流|too\s+many\s+requests|429|flood|frequency\s+limit)/i,
+    match: /(?:rate\s?limit|限流|too\s+many\s+requests|(?:\b(?:status|code|http)\b\s*[:=]?\s*|\bHTTP\/\d(?:\.\d)?\s+)429\b|\b429\s+Too\s+Many\s+Requests|frequency\s+limit)/i,
     action: "rb-reconnect",
     actionLabel: "重连消息通道",
   },
@@ -159,7 +168,7 @@ const RULES: Rule[] = [
     severity: "warn",
     title: "网络超时",
     detail: "连接外部服务超时（长轮询 / API / 模型端点）。重连可恢复多数瞬时故障。",
-    match: /(timed?\s?out|timeout|ETIMEDOUT|连接超时|超时)/i,
+    match: /(?:timed?\s+out|timed-out|ETIMEDOUT|ESOCKETTIMEDOUT|\bTimeoutError\b|\b(?:connect|connection|read|socket|network|gateway|request|operation|call|response)[\s_-]*timeout\b|\btimeout\s+(?:after|expired|waiting)|连接超时|请求超时|响应超时|网络超时)/i,
     action: "rb-reconnect",
     actionLabel: "重连消息通道",
   },
@@ -186,7 +195,7 @@ const RULES: Rule[] = [
     severity: "error",
     title: "消息网关启动失败",
     detail: "网关多次拒绝启动或崩溃。管家会清理残留进程并重启，随后复验通道。",
-    match: /(拒绝启动|gateway.{0,24}(crash|exit|restart|fail)|startup.{0,16}fail|launch.{0,16}fail)/i,
+    match: /(?:拒绝启动|gateway\s+(?:crashed?|failed?|restart(?:ed)?|exited?\s+(?:with\s+code\s+[1-9]|unexpectedly))|gateway.{0,16}(?:crash|startup\s+fail)|startup.{0,16}fail|launch.{0,16}fail)/i,
     action: "rb-restart",
     actionLabel: "重启消息网关",
   },
@@ -195,7 +204,7 @@ const RULES: Rule[] = [
     severity: "error",
     title: "内存不足",
     detail: "进程被系统杀死或内存耗尽。重启可临时恢复，若反复出现建议检查模型端点的并发设置。",
-    match: /(out\s+of\s+memory|OOM|memory.{0,12}exhaust|内存不足|killed\s+process)/i,
+    match: /(?:out[\s_-]*of[\s_-]*memory|\bOOM(?:Killed|-killer|_killer)?\b|memory.{0,12}exhaust|内存不足|killed\s+process)/i,
     action: "rb-restart",
     actionLabel: "重启服务",
   },
@@ -222,7 +231,7 @@ const RULES: Rule[] = [
     severity: "error",
     title: "系统错误",
     detail: "日志中出现未归类的错误。管家可尝试重启服务；若问题仍在，请查看原始日志定位。",
-    match: /(^|\s)(ERROR|CRITICAL|FATAL|Traceback|Exception)(\s|:|\()/i,
+    match: /(?:^|\s)(?:ERROR|CRITICAL|FATAL)(?:\s|:|[\]\)])|(?:\b\w*Exception|\b\w*Error):\s+\S+/i,
     action: "rb-restart",
     actionLabel: "重启服务",
   },
@@ -373,7 +382,16 @@ export function createLogAnalyzer(deps: LogAnalyzerDeps): LogAnalyzer {
       scannedSources: sources.length,
       scannedLines,
       analyzedAt: new Date().toISOString(),
-      coverage: { from: minSeen === null ? from.toISOString() : new Date(minSeen).toISOString(), to: maxSeen === null ? new Date(now).toISOString() : new Date(maxSeen).toISOString(), sources: sources.length, lines: scannedLines, rotatedLogs, range },
+      coverage: {
+        from: minSeen === null ? from.toISOString() : new Date(minSeen).toISOString(),
+        to: maxSeen === null ? new Date(now).toISOString() : new Date(maxSeen).toISOString(),
+        sources: sources.length,
+        lines: scannedLines,
+        rotatedLogs,
+        range,
+        sampled: true,
+        sampledLines: scannedLines,
+      },
     };
   }
 
