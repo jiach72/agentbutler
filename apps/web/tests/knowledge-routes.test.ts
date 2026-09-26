@@ -2,6 +2,9 @@ import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { makeTempDir, makeUiDist, rmTempDir } from "./helpers.js";
 import { createWebServer } from "../src/server.js";
+import { extractDocumentText } from "../src/routes/knowledge.js";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 describe("本地知识库 (AnythingLLM RAG) API 路由", () => {
   let tempRoot: string;
@@ -515,5 +518,25 @@ describe("本地知识库 (AnythingLLM RAG) API 路由", () => {
     expect(graph).toHaveProperty("stats");
     expect(graph.nodes.length).toBeGreaterThanOrEqual(2);
     expect(graph.stats.totalNodes).toBeGreaterThanOrEqual(2);
+  });
+
+  describe("extractDocumentText 安全与格式解析", () => {
+    it("文件不存在时安全返回空字符串", () => {
+      expect(extractDocumentText(join(tempRoot, "non-existent.pdf"))).toBe("");
+    });
+
+    it("提取 Markdown/TXT/JSON 文档纯文本", () => {
+      const mdFile = join(tempRoot, "sample.md");
+      writeFileSync(mdFile, "# Title\nHello World", "utf8");
+      expect(extractDocumentText(mdFile)).toBe("# Title\nHello World");
+    });
+
+    it("PDF 文件名含分号、空格等特殊字符时不会发生 Shell 注入崩溃，安全降级", () => {
+      const evilPdf = join(tempRoot, "annual; echo evil.pdf");
+      writeFileSync(evilPdf, "%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF", "utf8");
+      const text = extractDocumentText(evilPdf);
+      expect(typeof text).toBe("string");
+      expect(text.length).toBeGreaterThan(0);
+    });
   });
 });

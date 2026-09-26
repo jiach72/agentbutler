@@ -11,7 +11,7 @@ import {
 } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { join, basename, extname, relative, resolve } from "node:path";
-import { spawn, execSync } from "node:child_process";
+import { spawn, execSync, execFileSync } from "node:child_process";
 import { atomicWriteJson } from "@butler/core";
 
 /**
@@ -38,7 +38,7 @@ export function extractDocumentText(filePath: string): string {
   const ext = extname(filePath).toLowerCase();
   if (ext === ".pdf") {
     try {
-      const out = execSync(`pdftotext "${filePath}" -`, {
+      const out = execFileSync("pdftotext", [filePath, "-"], {
         encoding: "utf8",
         maxBuffer: 10 * 1024 * 1024,
         timeout: 6000,
