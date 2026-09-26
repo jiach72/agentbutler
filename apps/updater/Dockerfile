@@ -32,8 +32,7 @@ COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins/docker-compose /usr
 WORKDIR /app
 COPY --from=build /app/apps/updater/dist ./apps/updater/dist
 COPY --from=build /app/apps/updater/package.json ./apps/updater/package.json
-RUN mkdir -p /home/butler && chown -R node:node /app /home/butler
-USER node
+RUN mkdir -p /home/butler
 EXPOSE 7540
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD node -e "fetch('http://127.0.0.1:7540/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["node", "apps/updater/dist/main.js"]

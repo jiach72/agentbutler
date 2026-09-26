@@ -430,6 +430,17 @@ export async function registerKnowledgeRoutes(
 
     const { running, endpoint } = await checkRunning();
 
+    if (running) {
+      if (startupState.stage === "failed" || startupState.error) {
+        startupState.stage = "ready";
+        startupState.stageLabel = "本地知识库运行中 (:3001)";
+        startupState.ready = true;
+        startupState.percent = 100;
+        startupState.active = false;
+        startupState.error = undefined;
+      }
+    }
+
     return {
       enabled: prefs.enabled || running,
       running,
@@ -1727,6 +1738,7 @@ ${query}`;
       startupState.stage = "ready";
       startupState.stageLabel = "本地知识库运行中 (:3001)";
       startupState.active = false;
+      startupState.error = undefined;
     }
     return { ...startupState };
   });
@@ -1738,6 +1750,8 @@ ${query}`;
       startupState.percent = 100;
       startupState.stage = "ready";
       startupState.stageLabel = "本地知识库已在线";
+      startupState.active = false;
+      startupState.error = undefined;
       return { ok: true, message: "服务已在线", progress: startupState };
     }
 
@@ -1952,6 +1966,7 @@ ${query}`;
           startupState.percent = 100;
           startupState.ready = true;
           startupState.active = false;
+          startupState.error = undefined;
           return;
         }
 

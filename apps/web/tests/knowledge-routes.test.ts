@@ -193,6 +193,78 @@ describe("本地知识库 (AnythingLLM RAG) API 路由", () => {
     expect(progress.logs.some((l: string) => l.includes("[调度]"))).toBe(true);
   });
 
+  it("探活成功时自动自愈历史 failed/error 状态，使 UI 无阻碍进入已就绪态", async () => {
+    let pingOk = false;
+    const mockFetch = (async (url: string | URL | Request) => {
+      const urlStr = String(url);
+      if (urlStr.includes(":7540/healthz")) {
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }
+      if (urlStr.includes(":7540/api/service/start")) {
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            error: "permission denied while trying to connect to the docker API at unix:///var/run/docker.sock",
+          }),
+          { status: 500 },
+        );
+      }
+      if (urlStr.includes(":3001/api/ping") || urlStr.includes("butler-rag-anythingllm:3001")) {
+        if (!pingOk) {
+          return new Response("offline", { status: 503 });
+        }
+        return new Response(JSON.stringify({ online: true }), { status: 200 });
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+
+    const app = createWebServer({
+      home,
+      uiDist,
+      updaterUrl: "http://127.0.0.1:7540",
+      fetchImpl: mockFetch,
+    });
+    apps.push(app);
+
+    // 1. 触发拉起，侧车返回 docker.sock permission denied，进入 failed 态
+    const startRes = await app.inject({
+      method: "POST",
+      url: "/api/knowledge/start",
+    });
+    expect(startRes.statusCode).toBe(200);
+
+    // 等待异步调用完成
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    const progressAfterFail = await app.inject({
+      method: "GET",
+      url: "/api/knowledge/start-progress",
+    });
+    const failedBody = progressAfterFail.json();
+    expect(failedBody.stage).toBe("failed");
+    expect(failedBody.error).toBeDefined();
+
+    // 2. 模拟宿主机或守护进程将容器启动成功（:3001 ping 返回 200）
+    pingOk = true;
+
+    // 3. 回调 GET /api/knowledge/status，应自愈为 ready 并清除 error
+    const statusRes = await app.inject({
+      method: "GET",
+      url: "/api/knowledge/status",
+    });
+    expect(statusRes.statusCode).toBe(200);
+    expect(statusRes.json().running).toBe(true);
+
+    const progressAfterRecover = await app.inject({
+      method: "GET",
+      url: "/api/knowledge/start-progress",
+    });
+    const recoveredBody = progressAfterRecover.json();
+    expect(recoveredBody.stage).toBe("ready");
+    expect(recoveredBody.ready).toBe(true);
+    expect(recoveredBody.error).toBeUndefined();
+  });
+
   it("GET /api/knowledge/embedding-status 返回嵌入模型状态与推荐模型", async () => {
     const app = createApp();
     const res = await app.inject({

@@ -126,7 +126,7 @@ compose_profiles="${COMPOSE_PROFILES:-$(env_value COMPOSE_PROFILES)}"
 if [[ "$anythingllm_enabled" == "true" ]] || \
    [[ "$compose_profiles" == *"rag-anythingllm"* ]] || \
    grep -q '"enabled":true' "$ROOT_DIR/data/knowledge_prefs.json" 2>/dev/null || \
-   docker volume inspect agent-butler-data >/dev/null 2>&1 && docker run --rm -v agent-butler-data:/data:ro alpine grep -q '"enabled":true' /data/data/knowledge_prefs.json 2>/dev/null; then
+   { docker volume inspect agent-butler-data >/dev/null 2>&1 && docker run --rm -v agent-butler-data:/data:ro alpine grep -q '"enabled":true' /data/data/knowledge_prefs.json 2>/dev/null; }; then
   echo "Enabling local knowledge base (AnythingLLM RAG) profile."
   compose_args+=(--profile rag-anythingllm)
 fi
@@ -258,6 +258,21 @@ if [[ "$updater_socket" == "/dev/null" && -S "/var/run/docker.sock" ]]; then
   export BUTLER_UPDATER_DOCKER_SOCKET="$updater_socket"
   env_set BUTLER_UPDATER_DOCKER_SOCKET "$updater_socket"
   echo "Detected host Docker socket at /var/run/docker.sock; enabled self-upgrade for butler-updater."
+fi
+
+# 自动探测 Docker Socket GID（WSL / Linux 上通常为 1001、998 等非 999 组）
+if [[ -S "/var/run/docker.sock" ]]; then
+  detected_docker_gid=""
+  if [[ "$host_os" == "Darwin" ]]; then
+    detected_docker_gid="$(stat -f '%g' /var/run/docker.sock 2>/dev/null || true)"
+  else
+    detected_docker_gid="$(stat -c '%g' /var/run/docker.sock 2>/dev/null || true)"
+  fi
+  if [[ -n "$detected_docker_gid" && "$detected_docker_gid" =~ ^[0-9]+$ ]]; then
+    export DOCKER_GID="$detected_docker_gid"
+    env_set DOCKER_GID "$detected_docker_gid"
+    echo "Detected host Docker socket GID $detected_docker_gid; persisted to .env for container group permissions."
+  fi
 fi
 
 # ---- 预检：提前暴露两类已知事故（见 docs/deployment-20260825.md 踩坑记录）----
