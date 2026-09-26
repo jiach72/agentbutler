@@ -23,17 +23,17 @@ export interface RetentionPrunerOptions {
   pruneEvents: (cutoff: string) => number;
   pruneAudit: (cutoff: string) => number;
   /** 行为审计流（Trust Layer M1.2）：保留期由采集器配置决定，此处只执行删除。 */
-  pruneActionEvents?: (cutoff: string) => number;
+  pruneActionEvents?: () => number;
   /** 事件中心（Trust Layer M2.2）：按 last_seen 清理。 */
   pruneTrustEvents?: (cutoff: string) => number;
   /** 会话索引（Trust Layer M2.3）：保留期由会话服务配置决定，此处只执行删除。 */
-  pruneSessionIndex?: (cutoff: string) => number;
+  pruneSessionIndex?: () => number;
   /** 操作审批单（Trust Layer M3.1）：保留期由审批服务配置决定，此处只执行删除。 */
-  pruneActionApprovals?: (cutoff: string) => number;
+  pruneActionApprovals?: () => number;
   /** 升级金丝雀运行记录（Trust Layer M3.2）：保留期由金丝雀服务配置决定。 */
-  pruneCanaryRuns?: (cutoff: string) => number;
+  pruneCanaryRuns?: () => number;
   /** 进度声明核实记录（Trust Layer M3.3）：保留期由进度检测服务配置决定。 */
-  pruneProgressClaims?: (cutoff: string) => number;
+  pruneProgressClaims?: () => number;
   /** evolution 遥测（观察/日聚合）：core.store.pruneEvolutionHistory 的直通接线。 */
   pruneEvolutionHistory?: (
     observationCutoff: string,
@@ -59,6 +59,8 @@ export interface RetentionPruner {
     actionApprovals: number;
     canaryRuns: number;
     progressClaims: number;
+    evolutionObservations: number;
+    evolutionDailyMetrics: number;
   };
 }
 
@@ -86,6 +88,8 @@ export function createRetentionPruner(options: RetentionPrunerOptions): Retentio
     actionApprovals: number;
     canaryRuns: number;
     progressClaims: number;
+    evolutionObservations: number;
+    evolutionDailyMetrics: number;
   } {
     let events = 0;
     let audit = 0;
@@ -95,6 +99,8 @@ export function createRetentionPruner(options: RetentionPrunerOptions): Retentio
     let actionApprovals = 0;
     let canaryRuns = 0;
     let progressClaims = 0;
+    let evolutionObservations = 0;
+    let evolutionDailyMetrics = 0;
     try {
       events = options.pruneEvents(cutoffIso(EVENT_RETENTION_DAYS));
     } catch (error) {
@@ -106,7 +112,7 @@ export function createRetentionPruner(options: RetentionPrunerOptions): Retentio
       onError(error);
     }
     try {
-      actionEvents = options.pruneActionEvents?.(cutoffIso(AUDIT_RETENTION_DAYS)) ?? 0;
+      actionEvents = options.pruneActionEvents?.() ?? 0;
     } catch (error) {
       onError(error);
     }
@@ -116,30 +122,34 @@ export function createRetentionPruner(options: RetentionPrunerOptions): Retentio
       onError(error);
     }
     try {
-      sessionIndex = options.pruneSessionIndex?.(cutoffIso(AUDIT_RETENTION_DAYS)) ?? 0;
+      sessionIndex = options.pruneSessionIndex?.() ?? 0;
     } catch (error) {
       onError(error);
     }
     try {
-      actionApprovals = options.pruneActionApprovals?.(cutoffIso(AUDIT_RETENTION_DAYS)) ?? 0;
+      actionApprovals = options.pruneActionApprovals?.() ?? 0;
     } catch (error) {
       onError(error);
     }
     try {
-      canaryRuns = options.pruneCanaryRuns?.(cutoffIso(AUDIT_RETENTION_DAYS)) ?? 0;
+      canaryRuns = options.pruneCanaryRuns?.() ?? 0;
     } catch (error) {
       onError(error);
     }
     try {
-      progressClaims = options.pruneProgressClaims?.(cutoffIso(AUDIT_RETENTION_DAYS)) ?? 0;
+      progressClaims = options.pruneProgressClaims?.() ?? 0;
     } catch (error) {
       onError(error);
     }
     try {
-      options.pruneEvolutionHistory?.(
+      const evo = options.pruneEvolutionHistory?.(
         cutoffIso(EVOLUTION_OBSERVATION_RETENTION_DAYS),
         cutoffIso(EVOLUTION_DAILY_METRIC_RETENTION_DAYS),
       );
+      if (evo) {
+        evolutionObservations = evo.observations;
+        evolutionDailyMetrics = evo.dailyMetrics;
+      }
     } catch (error) {
       onError(error);
     }
@@ -152,6 +162,8 @@ export function createRetentionPruner(options: RetentionPrunerOptions): Retentio
       actionApprovals,
       canaryRuns,
       progressClaims,
+      evolutionObservations,
+      evolutionDailyMetrics,
     };
   }
 
