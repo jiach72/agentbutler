@@ -65,4 +65,19 @@ describe("精准速率限制（SlidingWindowRateLimiter & registerRateLimiting�
 
     await app.close();
   });
+
+  it("清理测试：自定义长窗口（如 300s）记录在 cleanup 时不会被过早误删", () => {
+    const limiter = new SlidingWindowRateLimiter([
+      { prefix: "/api/long-window", max: 5, windowMs: 300_000 },
+    ]);
+
+    limiter.check("127.0.0.1", "/api/long-window");
+    limiter.cleanup();
+
+    const secondCheck = limiter.check("127.0.0.1", "/api/long-window");
+    expect(secondCheck?.remaining).toBe(3); // 5 - 2 requests
+
+    limiter.destroy();
+  });
 });
+

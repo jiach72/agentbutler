@@ -112,9 +112,9 @@ export class SlidingWindowRateLimiter {
     };
   }
 
-  private cleanup(): void {
+  public cleanup(): void {
     const now = Date.now();
-    const maxWindow = 60_000;
+    const maxWindow = Math.max(60_000, ...this.rules.map((r) => r.windowMs ?? 60_000));
     for (const [key, record] of this.clients.entries()) {
       record.timestamps = record.timestamps.filter((ts) => ts > now - maxWindow);
       if (record.timestamps.length === 0) {
