@@ -93,6 +93,37 @@ describe("TelegramChannel", () => {
     expect(sendTextErr?.message).toContain("telegram sendText failed: HTTP 502 [31m" + "A".repeat(196) + "…");
   });
 
+  it("失败路径：Telegram 返回 HTTP 200 但 ok 为 false 时抛错", async () => {
+    const fetchImpl: FetchLike = async () => ({
+      ok: true,
+      status: 200,
+      text: async () => '{"ok":false,"description":"Forbidden: bot was blocked by the user"}',
+    });
+    const channel = new TelegramChannel({ env: TELEGRAM_ENV, fetchImpl });
+    await expect(
+      channel.send({ severity: "critical", title: "t", body: "b", source: "s" }),
+    ).rejects.toThrow("telegram sendMessage failed: Forbidden: bot was blocked by the user");
+
+    await expect(channel.sendText("hello")).rejects.toThrow(
+      "telegram sendText failed: Forbidden: bot was blocked by the user",
+    );
+    await expect(channel.answerCallbackQuery("cb-1", "msg")).rejects.toThrow(
+      "telegram answerCallbackQuery failed: Forbidden: bot was blocked by the user",
+    );
+  });
+
+  it("失败路径：Telegram 返回 HTTP 200 但为非 JSON 响应时抛错", async () => {
+    const fetchImpl: FetchLike = async () => ({
+      ok: true,
+      status: 200,
+      text: async () => "<html><body>502 Bad Gateway</body></html>",
+    });
+    const channel = new TelegramChannel({ env: TELEGRAM_ENV, fetchImpl });
+    await expect(
+      channel.send({ severity: "critical", title: "t", body: "b", source: "s" }),
+    ).rejects.toThrow("telegram sendMessage failed: invalid JSON response <html><body>502 Bad Gateway</body></html>");
+  });
+
   it("文本超长截断：正文超过 4096 字符截断至 4096 字符；sendText 同样截断", async () => {
     let sentBody = "";
     const fetchImpl: FetchLike = async (_url, init) => {
@@ -299,6 +330,18 @@ describe("BarkChannel", () => {
       channel.send({ severity: "critical", title: "t", body: "b", source: "s" }),
     ).rejects.toThrow("bark push failed: code 400 device key not found");
   });
+
+  it("Bark 返回 HTTP 200 但为非 JSON 响应时抛错（防御假成功）", async () => {
+    const fetchImpl: FetchLike = async () => ({
+      ok: true,
+      status: 200,
+      text: async () => "<html><body>502 Bad Gateway</body></html>",
+    });
+    const channel = new BarkChannel({ env: BARK_ENV, fetchImpl });
+    await expect(
+      channel.send({ severity: "critical", title: "t", body: "b", source: "s" }),
+    ).rejects.toThrow("bark push failed: invalid JSON response <html><body>502 Bad Gateway</body></html>");
+  });
 });
 
 describe("ServerChanChannel", () => {
@@ -336,6 +379,18 @@ describe("ServerChanChannel", () => {
     await expect(
       channel.send({ severity: "critical", title: "t", body: "b", source: "s" }),
     ).rejects.toThrow("serverchan push failed: code 40001 [AUTH]sendkey 不存在");
+  });
+
+  it("Server酱返回 HTTP 200 但为非 JSON 响应时抛错（防御假成功）", async () => {
+    const fetchImpl: FetchLike = async () => ({
+      ok: true,
+      status: 200,
+      text: async () => "<html><body>504 Gateway Timeout</body></html>",
+    });
+    const channel = new ServerChanChannel({ env: SC_ENV, fetchImpl });
+    await expect(
+      channel.send({ severity: "critical", title: "t", body: "b", source: "s" }),
+    ).rejects.toThrow("serverchan push failed: invalid JSON response <html><body>504 Gateway Timeout</body></html>");
   });
 });
 

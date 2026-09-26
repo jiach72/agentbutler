@@ -118,10 +118,27 @@ export class TelegramChannel implements AlertChannel {
       body: form.toString(),
       signal: AbortSignal.timeout(this.timeoutMs),
     });
+    const text = await res.text();
     if (!res.ok) {
       throw new Error(
-        `telegram sendMessage failed: HTTP ${res.status} ${safeUpstreamExcerpt(await res.text())}`,
+        `telegram sendMessage failed: HTTP ${res.status} ${safeUpstreamExcerpt(text)}`,
       );
+    }
+    let parsed: { ok?: unknown; description?: unknown };
+    try {
+      parsed = JSON.parse(text) as { ok?: unknown; description?: unknown };
+    } catch {
+      throw new Error(
+        `telegram sendMessage failed: invalid JSON response ${safeUpstreamExcerpt(text)}`,
+      );
+    }
+    if (parsed === null || typeof parsed !== "object") {
+      throw new Error(`telegram sendMessage failed: invalid JSON response ${safeUpstreamExcerpt(text)}`);
+    }
+    if (parsed.ok === false) {
+      const detail =
+        typeof parsed.description === "string" ? parsed.description : text;
+      throw new Error(`telegram sendMessage failed: ${safeUpstreamExcerpt(detail)}`);
     }
   }
 
@@ -135,10 +152,27 @@ export class TelegramChannel implements AlertChannel {
       body: form.toString(),
       signal: AbortSignal.timeout(this.timeoutMs),
     });
+    const resText = await res.text();
     if (!res.ok) {
       throw new Error(
-        `telegram sendText failed: HTTP ${res.status} ${safeUpstreamExcerpt(await res.text())}`,
+        `telegram sendText failed: HTTP ${res.status} ${safeUpstreamExcerpt(resText)}`,
       );
+    }
+    let parsed: { ok?: unknown; description?: unknown };
+    try {
+      parsed = JSON.parse(resText) as { ok?: unknown; description?: unknown };
+    } catch {
+      throw new Error(
+        `telegram sendText failed: invalid JSON response ${safeUpstreamExcerpt(resText)}`,
+      );
+    }
+    if (parsed === null || typeof parsed !== "object") {
+      throw new Error(`telegram sendText failed: invalid JSON response ${safeUpstreamExcerpt(resText)}`);
+    }
+    if (parsed.ok === false) {
+      const detail =
+        typeof parsed.description === "string" ? parsed.description : resText;
+      throw new Error(`telegram sendText failed: ${safeUpstreamExcerpt(detail)}`);
     }
   }
 
@@ -155,10 +189,27 @@ export class TelegramChannel implements AlertChannel {
       body: form.toString(),
       signal: AbortSignal.timeout(this.timeoutMs),
     });
+    const resText = await res.text();
     if (!res.ok) {
       throw new Error(
-        `telegram answerCallbackQuery failed: HTTP ${res.status} ${safeUpstreamExcerpt(await res.text())}`,
+        `telegram answerCallbackQuery failed: HTTP ${res.status} ${safeUpstreamExcerpt(resText)}`,
       );
+    }
+    let parsed: { ok?: unknown; description?: unknown };
+    try {
+      parsed = JSON.parse(resText) as { ok?: unknown; description?: unknown };
+    } catch {
+      throw new Error(
+        `telegram answerCallbackQuery failed: invalid JSON response ${safeUpstreamExcerpt(resText)}`,
+      );
+    }
+    if (parsed === null || typeof parsed !== "object") {
+      throw new Error(`telegram answerCallbackQuery failed: invalid JSON response ${safeUpstreamExcerpt(resText)}`);
+    }
+    if (parsed.ok === false) {
+      const detail =
+        typeof parsed.description === "string" ? parsed.description : resText;
+      throw new Error(`telegram answerCallbackQuery failed: ${safeUpstreamExcerpt(detail)}`);
     }
   }
 }
@@ -294,15 +345,24 @@ export class BarkChannel implements AlertChannel {
         `bark push failed: HTTP ${res.status} ${safeUpstreamExcerpt(text)}`,
       );
     }
+    let parsed: { code?: unknown; message?: unknown };
     try {
-      const parsed = JSON.parse(text) as { code?: unknown; message?: unknown };
-      if (typeof parsed.code === "number" && parsed.code !== 200) {
-        throw new Error(
-          `bark push failed: code ${parsed.code} ${safeUpstreamExcerpt(String(parsed.message ?? text))}`,
-        );
-      }
-    } catch (err) {
-      if (err instanceof Error && err.message.startsWith("bark push failed:")) throw err;
+      parsed = JSON.parse(text) as { code?: unknown; message?: unknown };
+    } catch {
+      throw new Error(
+        `bark push failed: invalid JSON response ${safeUpstreamExcerpt(text)}`,
+      );
+    }
+    if (parsed === null || typeof parsed !== "object") {
+      throw new Error(`bark push failed: invalid JSON response ${safeUpstreamExcerpt(text)}`);
+    }
+    const codeNum = parsed.code !== undefined ? Number(parsed.code) : undefined;
+    if (codeNum !== undefined && (!Number.isFinite(codeNum) || codeNum !== 200)) {
+      const codeStr = `code ${String(parsed.code)} `;
+      const errorDetail = parsed.message ? String(parsed.message) : text;
+      throw new Error(
+        `bark push failed: ${codeStr}${safeUpstreamExcerpt(errorDetail)}`.trim(),
+      );
     }
   }
 }
@@ -352,16 +412,27 @@ export class ServerChanChannel implements AlertChannel {
         `serverchan push failed: HTTP ${res.status} ${safeUpstreamExcerpt(text)}`,
       );
     }
+    let parsed: { code?: unknown; message?: unknown; info?: unknown };
     try {
-      const parsed = JSON.parse(text) as { code?: unknown; message?: unknown; info?: unknown };
-      if (typeof parsed.code === "number" && parsed.code !== 0) {
-        const errorDetail = String(parsed.message ?? parsed.info ?? text);
-        throw new Error(
-          `serverchan push failed: code ${parsed.code} ${safeUpstreamExcerpt(errorDetail)}`,
-        );
-      }
-    } catch (err) {
-      if (err instanceof Error && err.message.startsWith("serverchan push failed:")) throw err;
+      parsed = JSON.parse(text) as { code?: unknown; message?: unknown; info?: unknown };
+    } catch {
+      throw new Error(
+        `serverchan push failed: invalid JSON response ${safeUpstreamExcerpt(text)}`,
+      );
+    }
+    if (parsed === null || typeof parsed !== "object") {
+      throw new Error(`serverchan push failed: invalid JSON response ${safeUpstreamExcerpt(text)}`);
+    }
+    const codeNum = parsed.code !== undefined ? Number(parsed.code) : undefined;
+    if (codeNum !== undefined && (!Number.isFinite(codeNum) || codeNum !== 0)) {
+      const codeStr = `code ${String(parsed.code)} `;
+      const errorDetail =
+        parsed && typeof parsed === "object"
+          ? String(parsed.message ?? parsed.info ?? text)
+          : text;
+      throw new Error(
+        `serverchan push failed: ${codeStr}${safeUpstreamExcerpt(errorDetail)}`.trim(),
+      );
     }
   }
 }
