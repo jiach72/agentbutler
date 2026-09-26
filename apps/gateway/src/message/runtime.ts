@@ -103,6 +103,7 @@ export function createHermesMessageRuntime(
 ): HermesMessageRuntime {
   const config = resolveConfig(options);
   const token = readPrivateToken(config.tokenFile);
+  const clock = options.clock ?? (() => new Date());
   const messagingFactory = options.messagingFactory ?? createHermesMessaging;
   const storeFactory = options.storeFactory ?? ((dbFile: string) => new MessagePolicyStore(dbFile));
   const adapter = messagingFactory({
@@ -131,7 +132,7 @@ export function createHermesMessageRuntime(
       store,
       config: options.policy ?? DEFAULT_MESSAGE_POLICY,
       intervalMs: config.pollIntervalMs,
-      clock: options.clock,
+      clock,
       scheduler: options.scheduler,
       randomUUID: options.randomUUID,
     });
@@ -260,7 +261,7 @@ export function createHermesMessageRuntime(
         [...message.transformTrace, "policy:manual-expedite"],
         "面板手动立即发送",
         undefined,
-        new Date().toISOString(),
+        clock().toISOString(),
       );
       const result = await adapter.decideOutbound(instance, decision);
       if (result.ok) {

@@ -491,4 +491,99 @@ describe("createHermesMessageRuntime", () => {
       await runtime.stop();
     }
   });
+
+  it("expediteMessage 尊重注入的 clock 时钟返回精确 availableAt", async () => {
+    const tmp = tempDir();
+    const adapter = new RuntimeAdapter();
+    const decisions: Array<{
+      messageId: string;
+      availableAt?: string;
+    }> = [];
+    const waiting = {
+      messageId: "exp-clock",
+      instanceId: "hermes-main",
+      adapterId: "hermes",
+      channel: "weixin",
+      chatId: "chat-1",
+      sessionId: "session-1",
+      messageKind: "final" as const,
+      transport: "queued-push" as const,
+      priority: "normal" as const,
+      content: "done",
+      contentSha256: "content-sha-1",
+      metadata: {},
+      capturedAt: NOW,
+      sequence: 1,
+      state: "held_pacing" as const,
+      availableAt: "2026-08-22T10:05:00.000Z" as string | null,
+      attemptCount: 0,
+      providerMessageId: null,
+      deliveredAt: null,
+      lastError: null,
+      transformTrace: [] as string[],
+    };
+    adapter.decideOutbound = async (_instance, decision) => {
+      decisions.push(decision);
+      return ok({ ...waiting, state: "ready", availableAt: decision.availableAt ?? null });
+    };
+    const mockTime = "2026-08-22T10:01:23.456Z";
+    const runtime = createHermesMessageRuntime(
+      runtimeOptions(tmp, adapter, {
+        pollIntervalMs: 60_000,
+        clock: () => new Date(mockTime),
+      }),
+    );
+    try {
+      runtime.store.ingestBatch({
+        afterSequence: 0,
+        nextSequence: 1,
+        items: [waiting],
+        taskEvents: [],
+        inbound: [],
+      });
+
+      const result = await runtime.expediteMessage("exp-clock");
+      expect(result.ok).toBe(true);
+      expect(decisions).toHaveLength(1);
+      expect(decisions[0]!.availableAt).toBe(mockTime);
+    } finally {
+      await runtime.stop();
+    }
+  });
+
+  it("MessageGatewayService 在上一轮执行在途中接收 wake 时不丢失信号并顺延执行下一轮", async () => {
+    const tmp = tempDir();
+    const adapter = new RuntimeAdapter();
+    let gateResolve: (() => void) | undefined;
+    adapter.changesGate = new Promise<void>((resolve) => {
+      gateResolve = resolve;
+    });
+
+    const runtime = createHermesMessageRuntime(
+      runtimeOptions(tmp, adapter, { pollIntervalMs: 60_000 }),
+    );
+    try {
+      // 启动并触发首轮 reconcile（此时阻塞在 changesGate）
+      const startPromise = runtime.start();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // 在首轮尚未结束时发出 wake 信号
+      runtime.service.wake();
+
+      // 放行首轮，后续无需再阻塞
+      adapter.changesGate = undefined;
+      gateResolve?.();
+      await startPromise;
+
+      // 等待由 wake 顺延触发的第二轮调用
+      await new Promise((resolve) => setTimeout(resolve, 60));
+
+      // 验证 listChanges 被至少调用了 2 次（首轮 + wake 顺延轮）
+      const changeCalls = adapter.calls.filter((c) => c === "changes");
+      expect(changeCalls.length).toBeGreaterThanOrEqual(2);
+    } finally {
+      gateResolve?.();
+      await runtime.stop();
+    }
+  });
 });

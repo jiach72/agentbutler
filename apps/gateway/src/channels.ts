@@ -484,6 +484,14 @@ export interface ServerChanChannelOptions {
   timeoutMs?: number;
 }
 
+/** Server酱官方限制：单条消息 title 建议 ≤32 字符，超长在各微信客户端与通道易被丢弃或报错。 */
+export const SERVERCHAN_MAX_TITLE_LENGTH = 32;
+
+export function truncateServerChanTitle(title: string, maxChars = SERVERCHAN_MAX_TITLE_LENGTH): string {
+  if (title.length <= maxChars) return title;
+  return `${title.slice(0, maxChars - 1)}…`;
+}
+
 /** Server酱（微信服务号推送）：title 为摘要，desp 为正文（Markdown）。 */
 export class ServerChanChannel implements AlertChannel {
   readonly name = "serverchan";
@@ -504,7 +512,8 @@ export class ServerChanChannel implements AlertChannel {
 
   async send(message: OutboundMessage): Promise<void> {
     if (!this.isConfigured()) throw new Error("serverchan: missing credentials");
-    const form = new URLSearchParams({ title: message.title, desp: formatText(message) });
+    const title = truncateServerChanTitle(message.title);
+    const form = new URLSearchParams({ title, desp: formatText(message) });
     let res: Awaited<ReturnType<FetchLike>>;
     try {
       res = await this.fetchImpl(`https://sctapi.ftqq.com/${encodeURIComponent(this.sendKey)}.send`, {

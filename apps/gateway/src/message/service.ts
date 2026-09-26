@@ -75,6 +75,7 @@ export class MessageGatewayService {
   private stopRequested = false;
   private running = false;
   private inFlight = false;
+  private wakeRequested = false;
   private bridgeConnected = false;
   /** Bridge 断线时仍保持服务运行，下一轮会重新安装策略并恢复同步。 */
   private policyInstalled = false;
@@ -123,6 +124,7 @@ export class MessageGatewayService {
     requireTimeout(timeoutMs);
     this.stopRequested = true;
     this.running = false;
+    this.wakeRequested = false;
     if (this.timer !== undefined) {
       this.scheduler.clearInterval(this.timer);
       this.timer = undefined;
@@ -133,6 +135,11 @@ export class MessageGatewayService {
   }
 
   wake(): void {
+    if (!this.running) return;
+    if (this.cyclePromise !== undefined) {
+      this.wakeRequested = true;
+      return;
+    }
     void this.runCycle();
   }
 
@@ -259,7 +266,7 @@ export class MessageGatewayService {
     if (!this.running) return Promise.resolve();
     if (this.cyclePromise !== undefined) return this.cyclePromise;
 
-    const operation = this.performCycle();
+    const operation = this.performCycleGuarded();
     this.cyclePromise = operation;
     operation.then(
       () => {
@@ -270,6 +277,13 @@ export class MessageGatewayService {
       },
     );
     return operation;
+  }
+
+  private async performCycleGuarded(): Promise<void> {
+    do {
+      this.wakeRequested = false;
+      await this.performCycle();
+    } while (this.running && !this.stopRequested && this.wakeRequested);
   }
 
   private async performCycle(): Promise<void> {

@@ -12,6 +12,8 @@ import {
   TelegramChannel,
   truncateButtonLabel,
   truncateCallbackData,
+  truncateServerChanTitle,
+  SERVERCHAN_MAX_TITLE_LENGTH,
   TELEGRAM_MAX_CALLBACK_DATA_BYTES,
   type FetchLike,
   type MailTransporter,
@@ -452,6 +454,41 @@ describe("ServerChanChannel", () => {
     await expect(
       channel.send({ severity: "critical", title: "t", body: "b", source: "s" }),
     ).rejects.toThrow("serverchan push failed: invalid JSON response <html><body>504 Gateway Timeout</body></html>");
+  });
+
+  it("truncateServerChanTitle 保持 32 字符以内原样，超过 32 字符安全截断", () => {
+    expect(SERVERCHAN_MAX_TITLE_LENGTH).toBe(32);
+    expect(truncateServerChanTitle("短标题")).toBe("短标题");
+    const exact32 = "12345678901234567890123456789012";
+    expect(truncateServerChanTitle(exact32)).toBe(exact32);
+    const long = "123456789012345678901234567890123456";
+    const truncated = truncateServerChanTitle(long);
+    expect(truncated).toHaveLength(32);
+    expect(truncated.endsWith("…")).toBe(true);
+    expect(truncated).toBe("1234567890123456789012345678901…");
+  });
+
+  it("Server酱外发时自动截断超长标题为 32 字符以内，防范通道丢弃或 40001 报错", async () => {
+    const calls: Array<{ url: string; init: { body: string } }> = [];
+    const fetchImpl: FetchLike = async (url, init) => {
+      calls.push({ url, init });
+      return { ok: true, status: 200, text: async () => '{"code":0,"message":""}' };
+    };
+    const channel = new ServerChanChannel({ env: SC_ENV, fetchImpl });
+    const superLongTitle = "【紧急警报】系统核心资源告警：WSL宿主机节点CPU使用率达到 99.8% 且内存耗尽";
+    await channel.send({
+      severity: "critical",
+      title: superLongTitle,
+      body: "请立即处置",
+      source: "watchdog",
+    });
+
+    expect(calls).toHaveLength(1);
+    const form = new URLSearchParams(calls[0]!.init.body);
+    const sentTitle = form.get("title");
+    expect(sentTitle).toBeDefined();
+    expect(sentTitle!.length).toBeLessThanOrEqual(32);
+    expect(sentTitle!.endsWith("…")).toBe(true);
   });
 });
 
