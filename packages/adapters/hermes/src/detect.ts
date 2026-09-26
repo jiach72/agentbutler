@@ -35,17 +35,31 @@ const VENV_PYTHON_CANDIDATES = [
 
 /** 默认端口探活：net.connect，带超时，任何失败路径都静默返回 false。 */
 export function defaultProber(host: string, port: number, timeoutMs: number): Promise<boolean> {
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+    return Promise.resolve(false);
+  }
   return new Promise((resolvePromise) => {
+    let done = false;
     const socket = new net.Socket();
     const finish = (result: boolean) => {
-      socket.destroy();
+      if (done) return;
+      done = true;
+      try {
+        socket.destroy();
+      } catch {
+        // ignore destroy failure
+      }
       resolvePromise(result);
     };
-    socket.setTimeout(timeoutMs);
+    socket.setTimeout(Math.max(1, timeoutMs));
     socket.once("connect", () => finish(true));
     socket.once("timeout", () => finish(false));
     socket.once("error", () => finish(false));
-    socket.connect(port, host);
+    try {
+      socket.connect(port, host);
+    } catch {
+      finish(false);
+    }
   });
 }
 

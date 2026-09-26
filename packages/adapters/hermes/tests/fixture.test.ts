@@ -198,8 +198,12 @@ describe("detect", () => {
     );
   });
 
-  it("默认探活器对未监听端口返回 false（不抛异常）", async () => {
+  it("默认探活器对未监听端口及非法端口均静默返回 false（契约不抛异常）", async () => {
     await expect(defaultProber("127.0.0.1", 1, 500)).resolves.toBe(false);
+    await expect(defaultProber("127.0.0.1", -1, 500)).resolves.toBe(false);
+    await expect(defaultProber("127.0.0.1", 0, 500)).resolves.toBe(false);
+    await expect(defaultProber("127.0.0.1", 70000, 500)).resolves.toBe(false);
+    await expect(defaultProber("127.0.0.1", Number.NaN, 500)).resolves.toBe(false);
   });
 });
 
