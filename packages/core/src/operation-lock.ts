@@ -13,9 +13,9 @@ export async function withManagedOperationLock<T>(
   const previous = tails.get(key) ?? Promise.resolve();
   let release!: () => void;
   const current = new Promise<void>((resolve) => { release = resolve; });
-  const queued = previous.then(() => current);
+  const queued = previous.then(() => current, () => current);
   tails.set(key, queued);
-  await previous;
+  await previous.catch(() => undefined);
   const timeoutMs = options.timeoutMs ?? 300_000;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
