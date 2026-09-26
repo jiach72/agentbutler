@@ -39,6 +39,8 @@ export function safeUpstreamExcerpt(text: string, secrets: string[] = []): strin
   }
   // 屏蔽 Telegram bot token 模式（形如 /bot123456:ABC-DEF.../）
   sanitized = sanitized.replace(/\/bot\d+:[a-zA-Z0-9_-]+/g, "/bot[REDACTED]");
+  // 屏蔽 URL 形式的用户密码凭据（形如 ://user:password@host）
+  sanitized = sanitized.replace(/(:\/\/)([^:\s/@]+):([^@\s/]+)@/g, "$1[REDACTED]:[REDACTED]@");
   // 逐字符剥离控制字符（不用正则：控制字符字面类会触发 no-control-regex 规则）
   const cleaned = Array.from(sanitized, (ch) => {
     const code = ch.charCodeAt(0);
@@ -57,6 +59,13 @@ export const TELEGRAM_MAX_CALLBACK_QUERY_TEXT = 200;
 export const TELEGRAM_MAX_CALLBACK_DATA_BYTES = 64;
 /** Telegram 官方建议：单按钮文案至多 64 字符。 */
 export const TELEGRAM_MAX_BUTTON_LABEL_LENGTH = 64;
+/** SMTP 官方与常见服务商建议：单封邮件 Subject 建议不超过 120 字符，防范服务商 554/501 报错。 */
+export const SMTP_MAX_SUBJECT_LENGTH = 120;
+
+export function truncateSmtpSubject(subject: string, maxChars = SMTP_MAX_SUBJECT_LENGTH): string {
+  if (subject.length <= maxChars) return subject;
+  return `${subject.slice(0, maxChars - 1)}…`;
+}
 
 export function truncateTelegramText(text: string): string {
   if (text.length <= TELEGRAM_MAX_TEXT_LENGTH) return text;
@@ -359,8 +368,8 @@ export class SmtpChannel implements AlertChannel {
 
   async send(message: OutboundMessage): Promise<void> {
     if (!this.isConfigured() || this.transporter === null) throw new Error("smtp: missing credentials");
-    // 清理邮件主题中的 CRLF 换行符，防范邮件头注入
-    const sanitizedTitle = message.title.replace(/[\r\n]+/g, " ").trim();
+    // 清理邮件主题中的 CRLF 换行符，防范邮件头注入；截断超长主题防范 554/501 拒信
+    const sanitizedTitle = truncateSmtpSubject(message.title.replace(/[\r\n]+/g, " ").trim());
     // HTML 正文让降级链接可点（审批卡片在邮件里的落地路径）；text 保底纯文本客户端。
     const sendPromise = this.transporter.sendMail({
       from: this.from,
@@ -381,7 +390,7 @@ export class SmtpChannel implements AlertChannel {
       await Promise.race([sendPromise, timeoutPromise]);
     } catch (err) {
       const rawMsg = err instanceof Error ? err.message : String(err);
-      throw new Error(`smtp sendMail failed: ${safeUpstreamExcerpt(rawMsg)}`);
+      throw new Error(`smtp sendMail failed: ${safeUpstreamExcerpt(rawMsg, [this.pass, this.user])}`);
     } finally {
       if (timer !== undefined) clearTimeout(timer);
     }
@@ -428,6 +437,11 @@ export class BarkChannel implements AlertChannel {
       body: formatText(message),
       group: "butler",
     };
+    if (message.severity === "critical") {
+      payload["level"] = "critical";
+    } else if (message.severity === "warn") {
+      payload["level"] = "timeSensitive";
+    }
     const firstUrl = message.actions?.find((action) => isExternallyOpenableUrl(action.url))?.url;
     if (firstUrl !== undefined) {
       payload["url"] = firstUrl;
@@ -572,8 +586,8 @@ function formatHtml(message: OutboundMessage): string {
     `<p style="white-space:pre-wrap">${esc(message.body)}</p>` +
     `<p style="color:#888">来源: ${esc(message.source)}</p>`;
   const links = (message.actions ?? [])
-    .filter((action) => isExternallyOpenableUrl(action.url))
-    .map((action) => `<a href="${esc(action.url!)}">${esc(action.label)}</a>`);
+    .filter((action) => isExternallyOpenableUrl(action.url) && typeof action.label === "string" && action.label.trim() !== "")
+    .map((action) => `<a href="${esc(action.url!)}">${esc(action.label.trim())}</a>`);
   return links.length === 0 ? base : `${base}<hr/><p>${links.join(" &nbsp;|&nbsp; ")}</p>`;
 }
 
@@ -586,8 +600,8 @@ function formatText(message: OutboundMessage, includeActionLinks = true): string
   const base = `[${message.severity}] ${message.title}\n${message.body}\n(来源: ${message.source})`;
   if (!includeActionLinks) return base;
   const links = (message.actions ?? [])
-    .filter((action) => isExternallyOpenableUrl(action.url))
-    .map((action) => `· ${action.label}：${action.url}`);
+    .filter((action) => isExternallyOpenableUrl(action.url) && typeof action.label === "string" && action.label.trim() !== "")
+    .map((action) => `· ${action.label.trim()}：${action.url}`);
   return links.length === 0 ? base : `${base}\n\n${links.join("\n")}`;
 }
 

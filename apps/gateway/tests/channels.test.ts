@@ -13,7 +13,9 @@ import {
   truncateButtonLabel,
   truncateCallbackData,
   truncateServerChanTitle,
+  truncateSmtpSubject,
   SERVERCHAN_MAX_TITLE_LENGTH,
+  SMTP_MAX_SUBJECT_LENGTH,
   TELEGRAM_MAX_CALLBACK_DATA_BYTES,
   type FetchLike,
   type MailTransporter,
@@ -632,4 +634,173 @@ describe("外发通道网络异常捕获与凭据脱敏防线", () => {
     expect(caughtErr?.message).not.toContain("SCT123456SecretKey");
     expect(caughtErr?.message).toContain("[REDACTED]");
   });
+
+  it("SmtpChannel 发送异常时自动剥离 pass 与 user 敏感凭据，防范密码外泄至 last_error", async () => {
+    const transporter: MailTransporter = {
+      async sendMail() {
+        throw new Error(
+          "535 5.7.8 Authentication credentials invalid for user: my_smtp_user, pass: super_secret_password_9988",
+        );
+      },
+    };
+    const channel = new SmtpChannel({
+      env: {
+        BUTLER_SMTP_HOST: "smtp.example.com",
+        BUTLER_SMTP_PORT: "465",
+        BUTLER_SMTP_USER: "my_smtp_user",
+        BUTLER_SMTP_PASS: "super_secret_password_9988",
+        BUTLER_SMTP_FROM: "from@example.com",
+        BUTLER_SMTP_TO: "to@example.com",
+      },
+      transporter,
+    });
+
+    let caughtErr: Error | null = null;
+    try {
+      await channel.send({ severity: "critical", title: "告警", body: "正文", source: "watch" });
+    } catch (e) {
+      caughtErr = e as Error;
+    }
+    expect(caughtErr?.message).toBeDefined();
+    expect(caughtErr?.message).not.toContain("super_secret_password_9988");
+    expect(caughtErr?.message).not.toContain("my_smtp_user");
+    expect(caughtErr?.message).toContain("[REDACTED]");
+  });
+
+  it("safeUpstreamExcerpt 自动遮罩 URL 中内嵌的账号密码凭据", () => {
+    const raw = "connect failed to smtps://ops_bot:super_secret_token_123@smtp.feishu.cn:465/mail";
+    const masked = safeUpstreamExcerpt(raw);
+    expect(masked).not.toContain("ops_bot");
+    expect(masked).not.toContain("super_secret_token_123");
+    expect(masked).toBe("connect failed to smtps://[REDACTED]:[REDACTED]@smtp.feishu.cn:465/mail");
+  });
 });
+
+describe("Smtp 主题截断与邮件格式化防线", () => {
+  it("truncateSmtpSubject 保持 120 字符以内原样，超过 120 字符安全截断", () => {
+    expect(SMTP_MAX_SUBJECT_LENGTH).toBe(120);
+    expect(truncateSmtpSubject("短主题")).toBe("短主题");
+    const exact120 = "A".repeat(120);
+    expect(truncateSmtpSubject(exact120)).toBe(exact120);
+    const long = "A".repeat(150);
+    const truncated = truncateSmtpSubject(long);
+    expect(truncated).toHaveLength(120);
+    expect(truncated.endsWith("…")).toBe(true);
+  });
+
+  it("SmtpChannel 发送时自动截断超长主题为 120 字符以内，防范邮件网关 554/501 报错", async () => {
+    let capturedSubject = "";
+    const transporter: MailTransporter = {
+      async sendMail(mail) {
+        capturedSubject = mail.subject;
+        return { accepted: true };
+      },
+    };
+    const channel = new SmtpChannel({
+      env: {
+        BUTLER_SMTP_HOST: "smtp.example.com",
+        BUTLER_SMTP_PORT: "465",
+        BUTLER_SMTP_FROM: "from@example.com",
+        BUTLER_SMTP_TO: "to@example.com",
+      },
+      transporter,
+    });
+    const superLongTitle = "【紧急警报】系统核心资源告警：" + "关键指标超限故障详情".repeat(20);
+    await channel.send({
+      severity: "critical",
+      title: superLongTitle,
+      body: "请立即处置",
+      source: "watchdog",
+    });
+    expect(capturedSubject.startsWith("[critical] ")).toBe(true);
+    const titlePart = capturedSubject.replace("[critical] ", "");
+    expect(titlePart.length).toBeLessThanOrEqual(120);
+    expect(titlePart.endsWith("…")).toBe(true);
+  });
+
+  it("formatHtml 与 formatText 自动过滤空标签或纯空白标签动作，防范不可点击死链接", async () => {
+    let sentMail: { text: string; html?: string } | undefined;
+    const transporter: MailTransporter = {
+      async sendMail(mail) {
+        sentMail = mail;
+        return { accepted: true };
+      },
+    };
+    const channel = new SmtpChannel({
+      env: {
+        BUTLER_SMTP_HOST: "smtp.example.com",
+        BUTLER_SMTP_PORT: "465",
+        BUTLER_SMTP_FROM: "from@example.com",
+        BUTLER_SMTP_TO: "to@example.com",
+      },
+      transporter,
+    });
+
+    await channel.send({
+      severity: "critical",
+      title: "审批卡片",
+      body: "请确认",
+      source: "watch",
+      actions: [
+        { label: "   ", url: "https://butler.local/empty-1" },
+        { label: "", url: "https://butler.local/empty-2" },
+        { label: "有效审批", url: "https://butler.local/approvals/1" },
+      ],
+    });
+
+    expect(sentMail).toBeDefined();
+    // 纯文本正文中不含空标签行
+    expect(sentMail!.text).not.toContain("https://butler.local/empty-1");
+    expect(sentMail!.text).not.toContain("https://butler.local/empty-2");
+    expect(sentMail!.text).toContain("· 有效审批：https://butler.local/approvals/1");
+    // HTML 正文中不含空 <a> 标签
+    expect(sentMail!.html).not.toContain("https://butler.local/empty-1");
+    expect(sentMail!.html).not.toContain("https://butler.local/empty-2");
+    expect(sentMail!.html).toContain('<a href="https://butler.local/approvals/1">有效审批</a>');
+  });
+});
+
+describe("BarkChannel 告警级别 payload 增强", () => {
+  it("critical 告警注入 level: critical 触发 iOS 关键警报", async () => {
+    let sentPayload: Record<string, string> = {};
+    const fetchImpl: FetchLike = async (_url, init) => {
+      sentPayload = JSON.parse(init.body) as Record<string, string>;
+      return { ok: true, status: 200, text: async () => '{"code":200}' };
+    };
+    const channel = new BarkChannel({
+      env: { BUTLER_BARK_DEVICE_KEY: "device-key" },
+      fetchImpl,
+    });
+
+    await channel.send({
+      severity: "critical",
+      title: "严重宕机",
+      body: "节点失联",
+      source: "watchdog",
+    });
+
+    expect(sentPayload["level"]).toBe("critical");
+  });
+
+  it("warn 告警注入 level: timeSensitive 触发时效性通知", async () => {
+    let sentPayload: Record<string, string> = {};
+    const fetchImpl: FetchLike = async (_url, init) => {
+      sentPayload = JSON.parse(init.body) as Record<string, string>;
+      return { ok: true, status: 200, text: async () => '{"code":200}' };
+    };
+    const channel = new BarkChannel({
+      env: { BUTLER_BARK_DEVICE_KEY: "device-key" },
+      fetchImpl,
+    });
+
+    await channel.send({
+      severity: "warn",
+      title: "磁盘快满",
+      body: "已达 85%",
+      source: "watchdog",
+    });
+
+    expect(sentPayload["level"]).toBe("timeSensitive");
+  });
+});
+
