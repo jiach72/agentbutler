@@ -464,6 +464,62 @@ describe("message policy", () => {
     expect(result.content).toContain("已进入清理队列");
   });
 
+  it("truncates no-run batch content when combined length exceeds maxChars", () => {
+    const result = buildProgressDigest({
+      holder: message({
+        messageId: "alert-1",
+        runId: null as never,
+        messageKind: "alert",
+        content: "A".repeat(50),
+        capturedAt: "2026-08-22T10:00:00.000Z",
+      }),
+      incoming: message({
+        messageId: "alert-2",
+        runId: null as never,
+        messageKind: "system",
+        content: "B".repeat(50),
+        sequence: 2,
+        capturedAt: "2026-08-22T10:01:00.000Z",
+      }),
+      events: [],
+      config: {
+        ...DEFAULT_MESSAGE_POLICY.digest,
+        maxChars: 60,
+      },
+    });
+
+    expect(result.absorbIncoming).toBe(true);
+    expect(result.content).toHaveLength(60);
+    expect(result.content?.endsWith("…")).toBe(true);
+    expect(result.transformTrace).toContain("digest:truncated");
+  });
+
+  it("safely ignores negative or non-finite etaSec in renderDigest", () => {
+    const result = buildProgressDigest({
+      incoming: message({
+        messageId: "progress-eta",
+        messageKind: "task-progress",
+        runId: "run-eta-1",
+      }),
+      events: [
+        {
+          runId: "run-eta-1",
+          sequence: 1,
+          sessionId: "sess-1",
+          kind: "progress",
+          summary: "处理任务",
+          etaSec: -10, // 异常负数值
+          occurredAt: "2026-08-22T10:00:00.000Z",
+        },
+      ],
+      config: DEFAULT_MESSAGE_POLICY.digest,
+    });
+
+    expect(result.accepted).toBe(true);
+    expect(result.content).toContain("进行中：处理任务");
+    expect(result.content).not.toContain("预计剩余");
+  });
+
   it("does not absorb or update a terminal progress holder", () => {
     const result = decideOutboundPolicy({
       message: message({ messageId: "final", messageKind: "final" }),

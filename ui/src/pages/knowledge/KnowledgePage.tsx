@@ -75,7 +75,7 @@ import {
 
 const { Paragraph, Text, Title } = Typography;
 
-const START_COMMAND = "docker compose --profile rag-anythingllm up -d";
+const START_COMMAND = "docker compose up -d butler-rag-anythingllm";
 
 export interface StartupProgress {
   active: boolean;

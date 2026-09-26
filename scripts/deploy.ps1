@@ -111,6 +111,12 @@ if ($env:BUTLER_HOST_CORES) { Set-EnvVar "BUTLER_HOST_CORES" $env:BUTLER_HOST_CO
 if ($env:BUTLER_HOST_LOGICAL_CORES) { Set-EnvVar "BUTLER_HOST_LOGICAL_CORES" $env:BUTLER_HOST_LOGICAL_CORES }
 if ($env:BUTLER_HOST_CPU_MODEL) { Set-EnvVar "BUTLER_HOST_CPU_MODEL" $env:BUTLER_HOST_CPU_MODEL }
 
+$anythingllmVal = Read-EnvValue "BUTLER_ANYTHINGLLM_ENABLED"
+if (-not $anythingllmVal) {
+  $env:BUTLER_ANYTHINGLLM_ENABLED = "true"
+  Set-EnvVar "BUTLER_ANYTHINGLLM_ENABLED" "true"
+}
+
 [System.IO.File]::WriteAllText((Join-Path (Get-Location) ".env"), $envContent)
 
 # ---- 升级前备份数据卷（失败默认阻断部署；与 deploy.sh 同一口径）----

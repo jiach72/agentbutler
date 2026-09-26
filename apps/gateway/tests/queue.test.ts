@@ -389,6 +389,24 @@ describe("AlertQueue", () => {
     expect(delivered?.status).toBe("resolved");
     expect(delivered?.channel).toBe("bark");
     expect(delivered?.deliveredAt).not.toBeNull();
+    expect(delivered?.nextAttemptAt).toBeNull();
+  });
+
+  it("markDelivered 清空历史 nextAttemptAt 退避时间戳", () => {
+    const item = queue.enqueue({
+      kind: "k",
+      severity: "warn",
+      title: "待重试告警",
+      body: "b",
+      source: "watch",
+    });
+    queue.claimNext();
+    queue.markFailed(item.id, "err");
+    expect(queue.get(item.id)?.nextAttemptAt).not.toBeNull();
+
+    const delivered = queue.markDelivered(item.id, "wecom");
+    expect(delivered?.status).toBe("delivered");
+    expect(delivered?.nextAttemptAt).toBeNull();
   });
 
   it("同一指纹从提醒升级为 critical 时提升未投递告警，而不是继续按普通提醒处理", () => {

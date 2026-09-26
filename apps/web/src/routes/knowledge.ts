@@ -441,8 +441,10 @@ export async function registerKnowledgeRoutes(
       }
     }
 
+    const enabled = prefs.enabled ?? running;
+
     return {
-      enabled: prefs.enabled || running,
+      enabled,
       running,
       endpoint,
       externalUrl,
@@ -1796,7 +1798,7 @@ ${query}`;
 
       if (hasUpdater) {
         appendLog(`[调度] 检测到容器管理侧车 (${updaterUrl})，正在委派拉起任务...`);
-        appendLog(">>> docker compose --profile rag-anythingllm up -d butler-rag-anythingllm");
+        appendLog(">>> docker compose up -d butler-rag-anythingllm");
         startupState.stage = "pulling";
         startupState.stageLabel = "正在拉取镜像并启动 AnythingLLM 容器...";
         startupState.percent = 35;
@@ -1843,7 +1845,7 @@ ${query}`;
           if (/docker\.sock|Cannot connect|permission denied|ENOENT/i.test(errDetail)) {
             appendLog("[说明] butler-updater 侧车未接入宿主 Docker Socket 或权限未开放。");
             appendLog("[操作] 请在宿主终端直接执行以下命令拉起知识库：");
-            appendLog("       docker compose --profile rag-anythingllm up -d butler-rag-anythingllm");
+            appendLog("       docker compose up -d butler-rag-anythingllm");
             appendLog("[提示] 外部拉起后，本地心跳雷达将自动感应到端口亮起并切入，无需刷新。");
             startupState.stage = "failed";
             startupState.stageLabel = "Docker 调度环境受限";
@@ -1853,7 +1855,7 @@ ${query}`;
           }
 
           appendLog("[操作] 遇到未知调度错误，您可在宿主终端手动执行：");
-          appendLog("       docker compose --profile rag-anythingllm up -d butler-rag-anythingllm");
+          appendLog("       docker compose up -d butler-rag-anythingllm");
           startupState.stage = "failed";
           startupState.stageLabel = "容器启动异常";
           startupState.error = errDetail;
@@ -1862,7 +1864,7 @@ ${query}`;
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           appendLog(`[异常] 调度通信异常: ${message}`);
-          appendLog("[操作] 请在宿主终端直接执行：docker compose --profile rag-anythingllm up -d butler-rag-anythingllm");
+          appendLog("[操作] 请在宿主终端直接执行：docker compose up -d butler-rag-anythingllm");
           startupState.stage = "failed";
           startupState.stageLabel = "调度通信异常";
           startupState.error = message;
@@ -1872,11 +1874,11 @@ ${query}`;
       }
 
       // 2. 无 updater 侧车（宿主机单机裸跑模式）：检测本机 docker CLI
-      appendLog(">>> docker compose --profile rag-anythingllm up -d butler-rag-anythingllm");
+      appendLog(">>> docker compose up -d butler-rag-anythingllm");
       try {
         const child = spawn(
           "docker",
-          ["compose", "--profile", "rag-anythingllm", "up", "-d", "butler-rag-anythingllm"],
+          ["compose", "up", "-d", "butler-rag-anythingllm"],
           { shell: true, cwd: process.cwd() },
         );
 

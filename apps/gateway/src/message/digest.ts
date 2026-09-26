@@ -58,18 +58,23 @@ export function buildProgressDigest(input: ProgressDigestInput): ProgressDigestR
     const trace = ["digest:batch-aggregated"];
     if (holder !== undefined && isEarlier(holder, incoming)) {
       trace.push("digest:batch-duplicate-absorbed");
+      const combined = `${holder.content}\n${incoming.content}`.trim();
+      const content = clampUtf16(combined, config.maxChars);
+      if (content !== combined) trace.push("digest:truncated");
       return {
         accepted: true,
-        content: `${holder.content}\n${incoming.content}`.trim(),
+        content,
         transformTrace: trace,
         absorbHolder: false,
         absorbIncoming: true,
         holderMessageId: holder.messageId,
       };
     }
+    const content = clampUtf16(incoming.content, config.maxChars);
+    if (content !== incoming.content) trace.push("digest:truncated");
     return {
       accepted: true,
-      content: incoming.content,
+      content,
       transformTrace: trace,
       absorbHolder: false,
       absorbIncoming: false,
@@ -221,7 +226,8 @@ function renderDigest(runId: string, events: TaskEvent[]): string {
   if (current?.summary !== undefined && current.summary !== "")
     lines.push(`进行中：${current.summary}`);
   if (failures.length > 0) lines.push(`失败：${failures.join("、")}`);
-  if (current?.etaSec !== undefined) lines.push(`预计剩余：${current.etaSec}秒`);
+  if (typeof current?.etaSec === "number" && Number.isFinite(current.etaSec) && current.etaSec > 0)
+    lines.push(`预计剩余：${Math.round(current.etaSec)}秒`);
   return lines.join("\n");
 }
 

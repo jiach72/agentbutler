@@ -44,8 +44,8 @@ export interface KnowledgeStatus {
   error?: string;
 }
 
-const START_COMMAND = "docker compose --profile rag-anythingllm up -d";
-const STOP_COMMAND = "docker compose --profile rag-anythingllm stop butler-rag-anythingllm";
+const START_COMMAND = "docker compose up -d butler-rag-anythingllm";
+const STOP_COMMAND = "docker compose stop butler-rag-anythingllm";
 
 export function KnowledgeConfigCard() {
   const { message, modal } = App.useApp();

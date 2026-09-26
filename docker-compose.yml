@@ -338,8 +338,7 @@ services:
     logging: *default-logging
 
   # AnythingLLM 本地知识库与文档收集 RAG 服务（支持 PDF/DOCX/TXT/MD/Web 全格式资料收集）
-  # 启用：docker compose --profile rag-anythingllm up -d
-  # 严格绑定宿主回环 127.0.0.1:3001，避免外部未鉴权暴露。
+  # 随 Compose 默认拉起；严格绑定宿主回环 127.0.0.1:3001，避免外部未鉴权暴露。
   # 容器内通过 http://ollama:11434 共享 Butler 已有的本地向量与推理模型。
   butler-rag-anythingllm:
     image: mintplexlabs/anythingllm:latest
@@ -360,8 +359,6 @@ services:
       - VECTOR_DB=lancedb
     volumes:
       - anythingllm-data:/app/server/storage
-    profiles:
-      - rag-anythingllm
     logging: *default-logging
 
 volumes:

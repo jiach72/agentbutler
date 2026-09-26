@@ -67,4 +67,45 @@ describe("message policy configuration", () => {
       DEFAULT_MESSAGE_POLICY.channels.weixin.initialRatePerMin,
     );
   });
+
+  it("rejects non-positive or non-integer maxAttempts", () => {
+    expect(() =>
+      validateMessagePolicy({
+        ...DEFAULT_MESSAGE_POLICY,
+        delivery: { ...DEFAULT_MESSAGE_POLICY.delivery, maxAttempts: 0 },
+      }),
+    ).toThrow(/delivery\.maxAttempts.*at least 1/);
+
+    expect(() =>
+      validateMessagePolicy({
+        ...DEFAULT_MESSAGE_POLICY,
+        delivery: { ...DEFAULT_MESSAGE_POLICY.delivery, maxAttempts: 2.5 },
+      }),
+    ).toThrow(/delivery\.maxAttempts.*integer/);
+  });
+
+  it("rejects retryMaxSec less than retryBaseSec", () => {
+    expect(() =>
+      validateMessagePolicy({
+        ...DEFAULT_MESSAGE_POLICY,
+        delivery: { ...DEFAULT_MESSAGE_POLICY.delivery, retryBaseSec: 30, retryMaxSec: 10 },
+      }),
+    ).toThrow(/delivery\.retryMaxSec.*greater than or equal to delivery\.retryBaseSec/);
+  });
+
+  it("rejects non-positive digest maxItems or maxChars", () => {
+    expect(() =>
+      validateMessagePolicy({
+        ...DEFAULT_MESSAGE_POLICY,
+        digest: { ...DEFAULT_MESSAGE_POLICY.digest, maxItems: 0 },
+      }),
+    ).toThrow(/digest\.maxItems.*at least 1/);
+
+    expect(() =>
+      validateMessagePolicy({
+        ...DEFAULT_MESSAGE_POLICY,
+        digest: { ...DEFAULT_MESSAGE_POLICY.digest, maxChars: 0 },
+      }),
+    ).toThrow(/digest\.maxChars.*at least 1/);
+  });
 });

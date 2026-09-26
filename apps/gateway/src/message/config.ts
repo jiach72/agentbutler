@@ -112,6 +112,22 @@ export function validateMessagePolicy(config: MessagePolicyConfig): void {
     }
   }
 
+  if (config.delivery.maxAttempts < 1 || !Number.isInteger(config.delivery.maxAttempts)) {
+    throw new Error("delivery.maxAttempts must be an integer at least 1");
+  }
+
+  if (config.delivery.retryMaxSec < config.delivery.retryBaseSec) {
+    throw new Error("delivery.retryMaxSec must be greater than or equal to delivery.retryBaseSec");
+  }
+
+  if (config.digest.maxItems < 1) {
+    throw new Error("digest.maxItems must be at least 1");
+  }
+
+  if (config.digest.maxChars < 1) {
+    throw new Error("digest.maxChars must be at least 1");
+  }
+
   for (const [channelId, policy] of Object.entries(config.channels)) {
     validateChannelPolicy(channelId, policy);
   }

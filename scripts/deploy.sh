@@ -119,15 +119,15 @@ if [[ -n "$hindsight_url" ]]; then
   fi
 fi
 
-# 本地知识库 (AnythingLLM RAG) 服务按需拉起：
-# 若偏好设置中已开启、或 .env / 环境变量中配置了启用，自动装配 rag-anythingllm profile。
+# 本地知识库 (AnythingLLM RAG) 服务状态：默认启用
 anythingllm_enabled="${BUTLER_ANYTHINGLLM_ENABLED:-$(env_value BUTLER_ANYTHINGLLM_ENABLED)}"
+if [[ -z "$anythingllm_enabled" ]]; then
+  anythingllm_enabled="true"
+fi
+export BUTLER_ANYTHINGLLM_ENABLED="$anythingllm_enabled"
+env_set BUTLER_ANYTHINGLLM_ENABLED "$anythingllm_enabled"
 compose_profiles="${COMPOSE_PROFILES:-$(env_value COMPOSE_PROFILES)}"
-if [[ "$anythingllm_enabled" == "true" ]] || \
-   [[ "$compose_profiles" == *"rag-anythingllm"* ]] || \
-   grep -q '"enabled":true' "$ROOT_DIR/data/knowledge_prefs.json" 2>/dev/null || \
-   { docker volume inspect agent-butler-data >/dev/null 2>&1 && docker run --rm -v agent-butler-data:/data:ro alpine grep -q '"enabled":true' /data/data/knowledge_prefs.json 2>/dev/null; }; then
-  echo "Enabling local knowledge base (AnythingLLM RAG) profile."
+if [[ "$compose_profiles" == *"rag-anythingllm"* ]]; then
   compose_args+=(--profile rag-anythingllm)
 fi
 

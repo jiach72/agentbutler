@@ -24,17 +24,17 @@ AnythingLLM 是 Agent Butler 推荐的轻量级开源（66k+ Stars）单容器�
 4. 系统将记录开启状态，并在面板中展示运行与连接详情。
 
 ### 方式 B：终端命令行管理
-在项目根目录下：
+知识库服务默认随 `docker compose up -d` 启动。如需单独启停：
 
 ```bash
 # 启动本地知识库容器
-docker compose --profile rag-anythingllm up -d
+docker compose up -d butler-rag-anythingllm
 
 # 查看运行状态
-docker compose --profile rag-anythingllm ps
+docker compose ps butler-rag-anythingllm
 
 # 停止知识库容器（数据持久化保留，不丢失）
-docker compose --profile rag-anythingllm stop butler-rag-anythingllm
+docker compose stop butler-rag-anythingllm
 ```
 
 ---
@@ -90,7 +90,7 @@ AnythingLLM 提供了与 OpenAI 完全兼容的端点，可直接作为 Hermes �
 
 | 现象 | 原因分析 | 解决步骤 |
 | :--- | :--- | :--- |
-| **页面显示“等待知识库容器响应”** | 选项已开启但 Docker 容器未启动 | 执行 `docker compose --profile rag-anythingllm up -d` 启动容器 |
+| **页面显示“等待知识库容器响应”** | 选项已开启但 Docker 容器未启动 | 执行 `docker compose up -d butler-rag-anythingllm` 启动容器 |
 | **3001 端口冲突** | 宿主机已有其他进程占用了 3001 | 在 `.env` 中修改 `BUTLER_ANYTHINGLLM_PORT=3002`，然后重新 `up -d` |
 | **文档向量化超时或失败** | 本地 Ollama 尚未下载 Embedding 模型 | 在 Butler「设置 → Ollama 本地模型」中拉取 `bge-m3` 或 `nomic-embed-text` |
 | **关闭知识库后数据还在吗？** | 数据保存在命名卷中 | 数据保存在 `anythingllm-data` 卷中，重启或升级均不会丢失 |

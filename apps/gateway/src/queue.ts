@@ -249,7 +249,7 @@ export class AlertQueue {
       .prepare(
         `UPDATE alerts
          SET status = CASE WHEN status = 'resolved' THEN 'resolved' ELSE 'delivered' END,
-             delivered_at = ?, updated_at = ?, channel = ?, last_error = NULL
+             delivered_at = ?, updated_at = ?, channel = ?, last_error = NULL, next_attempt_at = NULL
          WHERE id = ?`,
       )
       .run(now, now, channel, id);
