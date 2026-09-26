@@ -26,13 +26,21 @@ export interface AlertChannel {
 }
 
 /**
- * 上游错误响应体的安全摘录：截断到 200 字符并剥离控制字符。
+ * 上游错误响应体的安全摘录：屏蔽敏感凭据、截断到 200 字符并剥离控制字符。
  * 该文本会被拼进 Error 并可能随告警正文转发到其他通道——上游内容不可信，
  * 收窄长度与控制字符，避免二次注入与无界膨胀。
  */
-export function safeUpstreamExcerpt(text: string): string {
+export function safeUpstreamExcerpt(text: string, secrets: string[] = []): string {
+  let sanitized = text;
+  for (const secret of secrets) {
+    if (typeof secret === "string" && secret.trim().length >= 4) {
+      sanitized = sanitized.split(secret).join("[REDACTED]");
+    }
+  }
+  // 屏蔽 Telegram bot token 模式（形如 /bot123456:ABC-DEF.../）
+  sanitized = sanitized.replace(/\/bot\d+:[a-zA-Z0-9_-]+/g, "/bot[REDACTED]");
   // 逐字符剥离控制字符（不用正则：控制字符字面类会触发 no-control-regex 规则）
-  const cleaned = Array.from(text, (ch) => {
+  const cleaned = Array.from(sanitized, (ch) => {
     const code = ch.charCodeAt(0);
     return code < 0x20 || code === 0x7f ? " " : ch;
   })
@@ -45,6 +53,10 @@ export function safeUpstreamExcerpt(text: string): string {
 export const TELEGRAM_MAX_TEXT_LENGTH = 4096;
 /** Telegram 官方限制：callback query 弹窗/Toast 提示至多 200 字符。 */
 export const TELEGRAM_MAX_CALLBACK_QUERY_TEXT = 200;
+/** Telegram 官方限制：内联按钮 callback_data 至多 64 字节（UTF-8 编码）。 */
+export const TELEGRAM_MAX_CALLBACK_DATA_BYTES = 64;
+/** Telegram 官方建议：单按钮文案至多 64 字符。 */
+export const TELEGRAM_MAX_BUTTON_LABEL_LENGTH = 64;
 
 export function truncateTelegramText(text: string): string {
   if (text.length <= TELEGRAM_MAX_TEXT_LENGTH) return text;
@@ -54,6 +66,20 @@ export function truncateTelegramText(text: string): string {
 export function truncateCallbackQueryText(text: string): string {
   if (text.length <= TELEGRAM_MAX_CALLBACK_QUERY_TEXT) return text;
   return `${text.slice(0, TELEGRAM_MAX_CALLBACK_QUERY_TEXT - 1)}…`;
+}
+
+export function truncateCallbackData(data: string, maxBytes = TELEGRAM_MAX_CALLBACK_DATA_BYTES): string {
+  if (Buffer.byteLength(data, "utf8") <= maxBytes) return data;
+  let truncated = data;
+  while (Buffer.byteLength(truncated, "utf8") > maxBytes && truncated.length > 0) {
+    truncated = truncated.slice(0, -1);
+  }
+  return truncated;
+}
+
+export function truncateButtonLabel(label: string, maxChars = TELEGRAM_MAX_BUTTON_LABEL_LENGTH): string {
+  if (label.length <= maxChars) return label;
+  return `${label.slice(0, maxChars - 1)}…`;
 }
 
 /** 面板通道：入队即可被 butler-web 渲染，发送本身是无副作用的隐含基线。 */
@@ -112,16 +138,22 @@ export class TelegramChannel implements AlertChannel {
     // 内联键盘：只有具备 callback_data 的按钮才能就地回执；url 按钮为纯跳转。
     const keyboard = buildInlineKeyboard(message.actions);
     if (keyboard !== null) form.set("reply_markup", JSON.stringify(keyboard));
-    const res = await this.fetchImpl(`https://api.telegram.org/bot${this.token}/sendMessage`, {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: form.toString(),
-      signal: AbortSignal.timeout(this.timeoutMs),
-    });
+    let res: Awaited<ReturnType<FetchLike>>;
+    try {
+      res = await this.fetchImpl(`https://api.telegram.org/bot${this.token}/sendMessage`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : String(err);
+      throw new Error(`telegram sendMessage failed: ${safeUpstreamExcerpt(raw, [this.token, this.chatId])}`);
+    }
     const text = await res.text();
     if (!res.ok) {
       throw new Error(
-        `telegram sendMessage failed: HTTP ${res.status} ${safeUpstreamExcerpt(text)}`,
+        `telegram sendMessage failed: HTTP ${res.status} ${safeUpstreamExcerpt(text, [this.token, this.chatId])}`,
       );
     }
     let parsed: { ok?: unknown; description?: unknown };
@@ -129,16 +161,16 @@ export class TelegramChannel implements AlertChannel {
       parsed = JSON.parse(text) as { ok?: unknown; description?: unknown };
     } catch {
       throw new Error(
-        `telegram sendMessage failed: invalid JSON response ${safeUpstreamExcerpt(text)}`,
+        `telegram sendMessage failed: invalid JSON response ${safeUpstreamExcerpt(text, [this.token, this.chatId])}`,
       );
     }
     if (parsed === null || typeof parsed !== "object") {
-      throw new Error(`telegram sendMessage failed: invalid JSON response ${safeUpstreamExcerpt(text)}`);
+      throw new Error(`telegram sendMessage failed: invalid JSON response ${safeUpstreamExcerpt(text, [this.token, this.chatId])}`);
     }
     if (parsed.ok === false) {
       const detail =
         typeof parsed.description === "string" ? parsed.description : text;
-      throw new Error(`telegram sendMessage failed: ${safeUpstreamExcerpt(detail)}`);
+      throw new Error(`telegram sendMessage failed: ${safeUpstreamExcerpt(detail, [this.token, this.chatId])}`);
     }
   }
 
@@ -146,16 +178,22 @@ export class TelegramChannel implements AlertChannel {
   async sendText(text: string, chatId?: string): Promise<void> {
     if (!this.isConfigured()) throw new Error("telegram: missing credentials");
     const form = new URLSearchParams({ chat_id: chatId ?? this.chatId, text: truncateTelegramText(text) });
-    const res = await this.fetchImpl(`https://api.telegram.org/bot${this.token}/sendMessage`, {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: form.toString(),
-      signal: AbortSignal.timeout(this.timeoutMs),
-    });
+    let res: Awaited<ReturnType<FetchLike>>;
+    try {
+      res = await this.fetchImpl(`https://api.telegram.org/bot${this.token}/sendMessage`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : String(err);
+      throw new Error(`telegram sendText failed: ${safeUpstreamExcerpt(raw, [this.token, this.chatId])}`);
+    }
     const resText = await res.text();
     if (!res.ok) {
       throw new Error(
-        `telegram sendText failed: HTTP ${res.status} ${safeUpstreamExcerpt(resText)}`,
+        `telegram sendText failed: HTTP ${res.status} ${safeUpstreamExcerpt(resText, [this.token, this.chatId])}`,
       );
     }
     let parsed: { ok?: unknown; description?: unknown };
@@ -163,16 +201,16 @@ export class TelegramChannel implements AlertChannel {
       parsed = JSON.parse(resText) as { ok?: unknown; description?: unknown };
     } catch {
       throw new Error(
-        `telegram sendText failed: invalid JSON response ${safeUpstreamExcerpt(resText)}`,
+        `telegram sendText failed: invalid JSON response ${safeUpstreamExcerpt(resText, [this.token, this.chatId])}`,
       );
     }
     if (parsed === null || typeof parsed !== "object") {
-      throw new Error(`telegram sendText failed: invalid JSON response ${safeUpstreamExcerpt(resText)}`);
+      throw new Error(`telegram sendText failed: invalid JSON response ${safeUpstreamExcerpt(resText, [this.token, this.chatId])}`);
     }
     if (parsed.ok === false) {
       const detail =
         typeof parsed.description === "string" ? parsed.description : resText;
-      throw new Error(`telegram sendText failed: ${safeUpstreamExcerpt(detail)}`);
+      throw new Error(`telegram sendText failed: ${safeUpstreamExcerpt(detail, [this.token, this.chatId])}`);
     }
   }
 
@@ -183,16 +221,22 @@ export class TelegramChannel implements AlertChannel {
   async answerCallbackQuery(callbackQueryId: string, text: string): Promise<void> {
     if (!this.isConfigured()) throw new Error("telegram: missing credentials");
     const form = new URLSearchParams({ callback_query_id: callbackQueryId, text: truncateCallbackQueryText(text) });
-    const res = await this.fetchImpl(`https://api.telegram.org/bot${this.token}/answerCallbackQuery`, {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: form.toString(),
-      signal: AbortSignal.timeout(this.timeoutMs),
-    });
+    let res: Awaited<ReturnType<FetchLike>>;
+    try {
+      res = await this.fetchImpl(`https://api.telegram.org/bot${this.token}/answerCallbackQuery`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : String(err);
+      throw new Error(`telegram answerCallbackQuery failed: ${safeUpstreamExcerpt(raw, [this.token, this.chatId])}`);
+    }
     const resText = await res.text();
     if (!res.ok) {
       throw new Error(
-        `telegram answerCallbackQuery failed: HTTP ${res.status} ${safeUpstreamExcerpt(resText)}`,
+        `telegram answerCallbackQuery failed: HTTP ${res.status} ${safeUpstreamExcerpt(resText, [this.token, this.chatId])}`,
       );
     }
     let parsed: { ok?: unknown; description?: unknown };
@@ -200,16 +244,16 @@ export class TelegramChannel implements AlertChannel {
       parsed = JSON.parse(resText) as { ok?: unknown; description?: unknown };
     } catch {
       throw new Error(
-        `telegram answerCallbackQuery failed: invalid JSON response ${safeUpstreamExcerpt(resText)}`,
+        `telegram answerCallbackQuery failed: invalid JSON response ${safeUpstreamExcerpt(resText, [this.token, this.chatId])}`,
       );
     }
     if (parsed === null || typeof parsed !== "object") {
-      throw new Error(`telegram answerCallbackQuery failed: invalid JSON response ${safeUpstreamExcerpt(resText)}`);
+      throw new Error(`telegram answerCallbackQuery failed: invalid JSON response ${safeUpstreamExcerpt(resText, [this.token, this.chatId])}`);
     }
     if (parsed.ok === false) {
       const detail =
         typeof parsed.description === "string" ? parsed.description : resText;
-      throw new Error(`telegram answerCallbackQuery failed: ${safeUpstreamExcerpt(detail)}`);
+      throw new Error(`telegram answerCallbackQuery failed: ${safeUpstreamExcerpt(detail, [this.token, this.chatId])}`);
     }
   }
 }
@@ -388,16 +432,22 @@ export class BarkChannel implements AlertChannel {
     if (firstUrl !== undefined) {
       payload["url"] = firstUrl;
     }
-    const res = await this.fetchImpl(`${this.server}/${encodeURIComponent(this.deviceKey)}`, {
-      method: "POST",
-      headers: { "content-type": "application/json; charset=utf-8" },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(this.timeoutMs),
-    });
+    let res: Awaited<ReturnType<FetchLike>>;
+    try {
+      res = await this.fetchImpl(`${this.server}/${encodeURIComponent(this.deviceKey)}`, {
+        method: "POST",
+        headers: { "content-type": "application/json; charset=utf-8" },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : String(err);
+      throw new Error(`bark push failed: ${safeUpstreamExcerpt(raw, [this.deviceKey])}`);
+    }
     const text = await res.text();
     if (!res.ok) {
       throw new Error(
-        `bark push failed: HTTP ${res.status} ${safeUpstreamExcerpt(text)}`,
+        `bark push failed: HTTP ${res.status} ${safeUpstreamExcerpt(text, [this.deviceKey])}`,
       );
     }
     let parsed: { code?: unknown; message?: unknown };
@@ -405,18 +455,18 @@ export class BarkChannel implements AlertChannel {
       parsed = JSON.parse(text) as { code?: unknown; message?: unknown };
     } catch {
       throw new Error(
-        `bark push failed: invalid JSON response ${safeUpstreamExcerpt(text)}`,
+        `bark push failed: invalid JSON response ${safeUpstreamExcerpt(text, [this.deviceKey])}`,
       );
     }
     if (parsed === null || typeof parsed !== "object") {
-      throw new Error(`bark push failed: invalid JSON response ${safeUpstreamExcerpt(text)}`);
+      throw new Error(`bark push failed: invalid JSON response ${safeUpstreamExcerpt(text, [this.deviceKey])}`);
     }
     const codeNum = parsed.code !== undefined ? Number(parsed.code) : undefined;
     if (codeNum !== undefined && (!Number.isFinite(codeNum) || codeNum !== 200)) {
       const codeStr = `code ${String(parsed.code)} `;
       const errorDetail = parsed.message ? String(parsed.message) : text;
       throw new Error(
-        `bark push failed: ${codeStr}${safeUpstreamExcerpt(errorDetail)}`.trim(),
+        `bark push failed: ${codeStr}${safeUpstreamExcerpt(errorDetail, [this.deviceKey])}`.trim(),
       );
     }
   }
@@ -455,16 +505,22 @@ export class ServerChanChannel implements AlertChannel {
   async send(message: OutboundMessage): Promise<void> {
     if (!this.isConfigured()) throw new Error("serverchan: missing credentials");
     const form = new URLSearchParams({ title: message.title, desp: formatText(message) });
-    const res = await this.fetchImpl(`https://sctapi.ftqq.com/${encodeURIComponent(this.sendKey)}.send`, {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: form.toString(),
-      signal: AbortSignal.timeout(this.timeoutMs),
-    });
+    let res: Awaited<ReturnType<FetchLike>>;
+    try {
+      res = await this.fetchImpl(`https://sctapi.ftqq.com/${encodeURIComponent(this.sendKey)}.send`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : String(err);
+      throw new Error(`serverchan push failed: ${safeUpstreamExcerpt(raw, [this.sendKey])}`);
+    }
     const text = await res.text();
     if (!res.ok) {
       throw new Error(
-        `serverchan push failed: HTTP ${res.status} ${safeUpstreamExcerpt(text)}`,
+        `serverchan push failed: HTTP ${res.status} ${safeUpstreamExcerpt(text, [this.sendKey])}`,
       );
     }
     let parsed: { code?: unknown; message?: unknown; info?: unknown };
@@ -472,11 +528,11 @@ export class ServerChanChannel implements AlertChannel {
       parsed = JSON.parse(text) as { code?: unknown; message?: unknown; info?: unknown };
     } catch {
       throw new Error(
-        `serverchan push failed: invalid JSON response ${safeUpstreamExcerpt(text)}`,
+        `serverchan push failed: invalid JSON response ${safeUpstreamExcerpt(text, [this.sendKey])}`,
       );
     }
     if (parsed === null || typeof parsed !== "object") {
-      throw new Error(`serverchan push failed: invalid JSON response ${safeUpstreamExcerpt(text)}`);
+      throw new Error(`serverchan push failed: invalid JSON response ${safeUpstreamExcerpt(text, [this.sendKey])}`);
     }
     const codeNum = parsed.code !== undefined ? Number(parsed.code) : undefined;
     if (codeNum !== undefined && (!Number.isFinite(codeNum) || codeNum !== 0)) {
@@ -486,7 +542,7 @@ export class ServerChanChannel implements AlertChannel {
           ? String(parsed.message ?? parsed.info ?? text)
           : text;
       throw new Error(
-        `serverchan push failed: ${codeStr}${safeUpstreamExcerpt(errorDetail)}`.trim(),
+        `serverchan push failed: ${codeStr}${safeUpstreamExcerpt(errorDetail, [this.sendKey])}`.trim(),
       );
     }
   }
@@ -527,14 +583,28 @@ function formatText(message: OutboundMessage, includeActionLinks = true): string
 }
 
 /** Telegram 内联键盘：每行一个按钮（手机上不挤压；≤3 个按钮最多 3 行）。 */
-function buildInlineKeyboard(actions: AlertAction[] | undefined): { inline_keyboard: Array<Array<Record<string, string>>> } | null {
+export function buildInlineKeyboard(
+  actions: AlertAction[] | undefined,
+): { inline_keyboard: Array<Array<Record<string, string>>> } | null {
   if (actions === undefined || actions.length === 0) return null;
   const rows: Array<Array<Record<string, string>>> = [];
   for (const action of actions) {
-    if (typeof action.callbackData === "string" && action.callbackData !== "") {
-      rows.push([{ text: action.label, callback_data: action.callbackData }]);
-    } else if (isExternallyOpenableUrl(action.url)) {
-      rows.push([{ text: action.label, url: action.url }]);
+    const rawCallback = typeof action.callbackData === "string" ? action.callbackData.trim() : "";
+    const hasOpenableUrl = isExternallyOpenableUrl(action.url);
+    const label = truncateButtonLabel(action.label);
+    if (rawCallback !== "") {
+      const byteLen = Buffer.byteLength(rawCallback, "utf8");
+      if (byteLen <= TELEGRAM_MAX_CALLBACK_DATA_BYTES) {
+        rows.push([{ text: label, callback_data: rawCallback }]);
+      } else if (hasOpenableUrl) {
+        // callbackData 超过 64 字节官方限制但有有效外链时，智能降级为 url 跳转按钮，保障交互可达
+        rows.push([{ text: label, url: action.url! }]);
+      } else {
+        // 无可用外链时防御性截断至 64 字节以内，避免 Telegram API 抛出 BUTTON_DATA_INVALID (400)
+        rows.push([{ text: label, callback_data: truncateCallbackData(rawCallback) }]);
+      }
+    } else if (hasOpenableUrl) {
+      rows.push([{ text: label, url: action.url! }]);
     }
   }
   return rows.length === 0 ? null : { inline_keyboard: rows };

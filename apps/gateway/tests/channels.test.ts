@@ -3,12 +3,16 @@ import {
   availableOutbound,
   BarkChannel,
   buildEnvChannels,
+  buildInlineKeyboard,
   degradedChannelLabels,
   NullChannel,
   safeUpstreamExcerpt,
   ServerChanChannel,
   SmtpChannel,
   TelegramChannel,
+  truncateButtonLabel,
+  truncateCallbackData,
+  TELEGRAM_MAX_CALLBACK_DATA_BYTES,
   type FetchLike,
   type MailTransporter,
 } from "../src/channels";
@@ -478,5 +482,107 @@ describe("safeUpstreamExcerpt", () => {
   it("全控制字符或空串返回空串", () => {
     expect(safeUpstreamExcerpt("")).toBe("");
     expect(safeUpstreamExcerpt("\x00\x01\x02\r\n\t ")).toBe("");
+  });
+
+  it("自动遮罩传入的敏感密钥凭据与 Telegram bot token 格式", () => {
+    const raw = "Failed to connect to https://api.telegram.org/bot123456:ABC-DEF1234ghIkl/sendMessage with key secret-token-xyz";
+    const masked = safeUpstreamExcerpt(raw, ["secret-token-xyz"]);
+    expect(masked).not.toContain("123456:ABC-DEF1234ghIkl");
+    expect(masked).not.toContain("secret-token-xyz");
+    expect(masked).toContain("/bot[REDACTED]");
+    expect(masked).toContain("[REDACTED]");
+  });
+});
+
+describe("Telegram 内联键盘限制与智能降级", () => {
+  it("callbackData <= 64 字节时正常生成 callback_data 按钮", () => {
+    const actions = [{ label: "通过", callbackData: "apr:123:approve" }];
+    const markup = buildInlineKeyboard(actions);
+    expect(markup?.inline_keyboard[0]?.[0]).toEqual({ text: "通过", callback_data: "apr:123:approve" });
+  });
+
+  it("callbackData > 64 字节但带有效 URL 时智能降级为 url 按钮，保障交互可达", () => {
+    const longData = "apr:" + "a".repeat(70) + ":approve"; // 78 字节
+    const actions = [{ label: "确认审批", callbackData: longData, url: "https://butler.local/approvals/123" }];
+    const markup = buildInlineKeyboard(actions);
+    expect(markup?.inline_keyboard[0]?.[0]).toEqual({
+      text: "确认审批",
+      url: "https://butler.local/approvals/123",
+    });
+    expect(markup?.inline_keyboard[0]?.[0]).not.toHaveProperty("callback_data");
+  });
+
+  it("callbackData > 64 字节且无 URL 时防御性截断至 64 字节以内，避免 Telegram 报 BUTTON_DATA_INVALID", () => {
+    const longData = "apr:" + "b".repeat(80);
+    const markup = buildInlineKeyboard([{ label: "操作", callbackData: longData }]);
+    const btn = markup?.inline_keyboard[0]?.[0];
+    expect(btn?.callback_data).toBeDefined();
+    expect(Buffer.byteLength(btn!.callback_data!, "utf8")).toBeLessThanOrEqual(TELEGRAM_MAX_CALLBACK_DATA_BYTES);
+    expect(btn!.callback_data).toBe(truncateCallbackData(longData));
+  });
+
+  it("多字节 UTF-8 字符截断时不产生半个字符乱码", () => {
+    const chineseData = "测试中文审批单数据超长字符串测试中文审批单数据超长字符串"; // 每个中文 3 字节，共 84 字节
+    const truncated = truncateCallbackData(chineseData, 64);
+    expect(Buffer.byteLength(truncated, "utf8")).toBeLessThanOrEqual(64);
+    // 能够正常重新编码且不含乱码替换字符
+    expect(Buffer.from(truncated, "utf8").toString("utf8")).toBe(truncated);
+  });
+
+  it("按钮文本超过 64 字符时防御性截断", () => {
+    const longLabel = "超长按钮文本".repeat(20);
+    expect(truncateButtonLabel(longLabel).length).toBe(64);
+    expect(truncateButtonLabel(longLabel).endsWith("…")).toBe(true);
+  });
+});
+
+describe("外发通道网络异常捕获与凭据脱敏防线", () => {
+  it("TelegramChannel 网络异常抛出时剥离 token", async () => {
+    const fetchImpl: FetchLike = async () => {
+      throw new Error("getaddrinfo ENOTFOUND api.telegram.org/botbot-token-1/sendMessage");
+    };
+    const channel = new TelegramChannel({ env: TELEGRAM_ENV, fetchImpl });
+    await expect(
+      channel.send({ severity: "critical", title: "t", body: "b", source: "s" }),
+    ).rejects.toThrow("telegram sendMessage failed:");
+
+    let caughtErr: Error | null = null;
+    try {
+      await channel.send({ severity: "critical", title: "t", body: "b", source: "s" });
+    } catch (e) {
+      caughtErr = e as Error;
+    }
+    expect(caughtErr?.message).not.toContain("bot-token-1");
+    expect(caughtErr?.message).toContain("[REDACTED]");
+  });
+
+  it("BarkChannel 网络异常抛出时剥离 deviceKey", async () => {
+    const fetchImpl: FetchLike = async () => {
+      throw new Error("connect ECONNREFUSED https://api.day.app/device-key-secret-12345");
+    };
+    const channel = new BarkChannel({ env: { BUTLER_BARK_DEVICE_KEY: "device-key-secret-12345" }, fetchImpl });
+    let caughtErr: Error | null = null;
+    try {
+      await channel.send({ severity: "critical", title: "t", body: "b", source: "s" });
+    } catch (e) {
+      caughtErr = e as Error;
+    }
+    expect(caughtErr?.message).not.toContain("device-key-secret-12345");
+    expect(caughtErr?.message).toContain("[REDACTED]");
+  });
+
+  it("ServerChanChannel 网络异常抛出时剥离 sendKey", async () => {
+    const fetchImpl: FetchLike = async () => {
+      throw new Error("connect ETIMEDOUT https://sctapi.ftqq.com/SCT123456SecretKey.send");
+    };
+    const channel = new ServerChanChannel({ env: { BUTLER_SERVERCHAN_SENDKEY: "SCT123456SecretKey" }, fetchImpl });
+    let caughtErr: Error | null = null;
+    try {
+      await channel.send({ severity: "critical", title: "t", body: "b", source: "s" });
+    } catch (e) {
+      caughtErr = e as Error;
+    }
+    expect(caughtErr?.message).not.toContain("SCT123456SecretKey");
+    expect(caughtErr?.message).toContain("[REDACTED]");
   });
 });
