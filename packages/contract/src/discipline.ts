@@ -67,6 +67,7 @@ const METHOD_DISCIPLINE: Readonly<Record<string, CallCategory>> = {
   detect: "read-only",
   capabilityScan: "read-only",
   logSources: "read-only",
+  managedMarkdownFiles: "read-only",
   stats: "read-only",
   enumerate: "read-only",
   parse: "read-only",
@@ -74,6 +75,9 @@ const METHOD_DISCIPLINE: Readonly<Record<string, CallCategory>> = {
   validate: "read-only",
   invariants: "read-only",
   analyze: "read-only",
+  health: "read-only",
+  listChanges: "read-only",
+  inboundHistory: "read-only",
   // probe：受控副作用探针
   verifyIntegrity: "probe",
   prewarm: "probe",
@@ -85,6 +89,10 @@ const METHOD_DISCIPLINE: Readonly<Record<string, CallCategory>> = {
   validateConfig: "control",
   setEnabled: "control",
   attachOutbound: "control",
+  updatePolicy: "control",
+  decideOutbound: "control",
+  requeueOutbound: "control",
+  resolveOutbound: "control",
   subscribeTaskEvents: "control",
   restoreCold: "control",
   // long-op：长操作
@@ -95,8 +103,10 @@ const METHOD_DISCIPLINE: Readonly<Record<string, CallCategory>> = {
   archiveCold: "long-op",
   purge: "long-op",
   planMigration: "long-op",
+  rebuildIndex: "long-op",
   // messaging：消息转发
   forwardInbound: "messaging",
+  deliver: "messaging",
 };
 
 /**

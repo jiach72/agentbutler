@@ -28,7 +28,7 @@ describe("CALL_DISCIPLINE 纪律表", () => {
 
 describe("getDiscipline(methodName)", () => {
   it("只读探测：10s、最多 2 次自动重试、天然幂等", () => {
-    for (const m of ["detect", "stats", "enumerate", "capabilityScan", "logSources", "preview", "parse"]) {
+    for (const m of ["detect", "stats", "enumerate", "capabilityScan", "logSources", "managedMarkdownFiles", "preview", "parse", "health", "listChanges", "inboundHistory"]) {
       expect(getDiscipline(m).timeoutMs, m).toBe(10_000);
       expect(getDiscipline(m).maxAutoRetries, m).toBe(2);
       expect(getDiscipline(m).idempotent, m).toBe(true);
@@ -43,7 +43,7 @@ describe("getDiscipline(methodName)", () => {
   });
 
   it("常规控制：120s、不自动重试、必须幂等", () => {
-    for (const m of ["start", "stop", "restart", "validateConfig"]) {
+    for (const m of ["start", "stop", "restart", "validateConfig", "updatePolicy", "decideOutbound", "requeueOutbound", "resolveOutbound"]) {
       expect(getDiscipline(m).timeoutMs, m).toBe(120_000);
       expect(getDiscipline(m).maxAutoRetries, m).toBe(0);
       expect(getDiscipline(m).idempotent, m).toBe(true);
@@ -51,7 +51,7 @@ describe("getDiscipline(methodName)", () => {
   });
 
   it("长操作：1800s、不自动重试、幂等（idempotencyKey）", () => {
-    for (const m of ["upgrade", "rollback", "snapshot", "rollbackVersion", "archiveCold", "planMigration"]) {
+    for (const m of ["upgrade", "rollback", "snapshot", "rollbackVersion", "archiveCold", "planMigration", "rebuildIndex"]) {
       expect(getDiscipline(m).timeoutMs, m).toBe(1_800_000);
       expect(getDiscipline(m).maxAutoRetries, m).toBe(0);
       expect(getDiscipline(m).idempotent, m).toBe(true);
@@ -59,10 +59,12 @@ describe("getDiscipline(methodName)", () => {
   });
 
   it("消息转发：5s、最多 1 次自动重试", () => {
-    const d = getDiscipline("forwardInbound");
-    expect(d.timeoutMs).toBe(5_000);
-    expect(d.maxAutoRetries).toBe(1);
-    expect(d.idempotent).toBe(true);
+    for (const m of ["forwardInbound", "deliver"]) {
+      const d = getDiscipline(m);
+      expect(d.timeoutMs, m).toBe(5_000);
+      expect(d.maxAutoRetries, m).toBe(1);
+      expect(d.idempotent, m).toBe(true);
+    }
   });
 
   it("未知方法回落 read-only 纪律", () => {
