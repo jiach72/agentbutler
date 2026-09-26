@@ -11,7 +11,7 @@ import {
 } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { join, basename, extname, relative, resolve } from "node:path";
-import { spawn, execSync, execFileSync } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import { atomicWriteJson } from "@butler/core";
 
 /**

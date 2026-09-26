@@ -231,7 +231,7 @@ const RULES: Rule[] = [
     severity: "error",
     title: "系统错误",
     detail: "日志中出现未归类的错误。管家可尝试重启服务；若问题仍在，请查看原始日志定位。",
-    match: /(?:^|\s)(?:ERROR|CRITICAL|FATAL)(?:\s|:|[\]\)])|(?:\b\w*Exception|\b\w*Error):\s+\S+/i,
+    match: /(?:^|\s)(?:ERROR|CRITICAL|FATAL)(?:\s|:|[\])])|(?:\b\w*Exception|\b\w*Error):\s+\S+/i,
     action: "rb-restart",
     actionLabel: "重启服务",
   },

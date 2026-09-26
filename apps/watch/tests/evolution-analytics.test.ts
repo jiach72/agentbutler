@@ -98,7 +98,7 @@ describe("evolution analytics", () => {
   });
 
   it("过滤不相关的非工具/会话总线事件，避免污染观测表 (Issue 48)", async () => {
-    const service = makeService([]);
+    const _service = makeService([]);
     // 触发系统级无 tool/session 的杂散事件
     core!.bus.emit("config-reloaded", { instanceId: "hermes-main", timestamp: "2026-08-30T11:00:00Z" });
     core!.bus.emit("heartbeat-ping", { instanceId: "hermes-main", ok: true });
