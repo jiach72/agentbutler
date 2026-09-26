@@ -66,7 +66,7 @@ import { ConclusionBar } from "../../components/ConclusionBar.js";
 import { ConnectionChip } from "../../components/ConnectionChip.js";
 import { CopySnippetButton } from "../../components/CopySnippetButton.js";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
-import { loadJson, postJson } from "../../lib/api.js";
+import { deleteJson, loadJson, postJson } from "../../lib/api.js";
 import type { KnowledgeStatus } from "../settings/KnowledgeConfigCard.js";
 import {
   KnowledgeStarChart,
@@ -522,9 +522,7 @@ export function KnowledgePage() {
 
   // 文档删除处理
   const handleDeleteDocument = async (id: string) => {
-    const res = await fetch(`/api/knowledge/documents/${encodeURIComponent(id)}`, {
-      method: "DELETE",
-    });
+    const res = await deleteJson(`/api/knowledge/documents/${encodeURIComponent(id)}`);
     if (res.ok) {
       message.success("已从收集箱移除该文档");
       void fetchDocuments();
