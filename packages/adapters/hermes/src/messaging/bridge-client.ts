@@ -185,15 +185,22 @@ export class HermesBridgeClient {
     }
 
     const text = await response.text();
-    const parsed = parseJson(text);
     if (!response.ok) {
-      const errorBody = isRecord(parsed) ? parsed : {};
+      let errorBody: Record<string, unknown> = {};
+      try {
+        const parsed = JSON.parse(text) as unknown;
+        if (isRecord(parsed)) errorBody = parsed;
+      } catch {
+        // Non-JSON upstream error (e.g. plain-text 401 Unauthorized or HTML error page):
+        // preserve the true response.status instead of masquerading as 502 invalid_json.
+      }
       throw new BridgeHttpError(
         response.status,
         readString(errorBody["error"]) ?? "http_error",
         (readString(errorBody["detail"]) ?? text ?? response.statusText).slice(0, 2_048),
       );
     }
+    const parsed = parseJson(text);
     return parsed as T;
   }
 }

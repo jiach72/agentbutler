@@ -139,7 +139,44 @@ describe("createHermesMessaging", () => {
     expect(result.error?.code).toBe("E303");
   });
 
+  it("converts plain-text non-JSON 401/403 to E303 without collapsing to 502 invalid_json", async () => {
+    const messaging = createHermesMessaging({
+      baseUrl: "http://127.0.0.1:8754",
+      token: "wrong",
+      fetchImpl: async () =>
+        new Response("Unauthorized plain text", {
+          status: 401,
+          headers: { "content-type": "text/plain" },
+        }),
+    });
+
+    const result = await messaging.health({ instanceId: "hermes-main" });
+
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe("E303");
+    expect(result.error?.message).toContain("401");
+    expect(result.error?.message).toContain("Unauthorized plain text");
+  });
+
+  it("preserves upstream HTTP status when error body is HTML or arbitrary non-JSON text", async () => {
+    const client = new HermesBridgeClient({
+      baseUrl: "http://127.0.0.1:8754",
+      token: "secret",
+      fetchImpl: async () =>
+        new Response("<html><body>504 Gateway Timeout</body></html>", {
+          status: 504,
+          headers: { "content-type": "text/html" },
+        }),
+    });
+
+    await expect(client.health()).rejects.toMatchObject({
+      status: 504,
+      detail: expect.stringContaining("504 Gateway Timeout"),
+    });
+  });
+
   it("is not exposed by the production Hermes adapter", () => {
     expect(createHermesAdapter().messaging).toBeUndefined();
   });
 });
+
