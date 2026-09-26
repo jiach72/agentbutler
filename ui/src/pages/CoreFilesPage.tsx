@@ -35,6 +35,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { PageHeader } from "../components/PageHeader.js";
 import { ConclusionBar } from "../components/ConclusionBar.js";
 import { fetchBlob, loadJson, postJson } from "../lib/api.js";
+import { downloadBlob } from "../lib/download.js";
 import { formatBytes, formatTime } from "../lib/format.js";
 import "./core-files.css";
 import { Empty } from "../components/Empty.js";
@@ -71,7 +72,7 @@ const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const DRAFT_MAX_CHARS = 200_000;
 
 export function CoreFilesPage() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [instances, setInstances] = useState<Instance[]>([]);
   const [instanceId, setInstanceId] = useState<string>();
   const [files, setFiles] = useState<ManagedFile[]>([]);
@@ -200,11 +201,11 @@ export function CoreFilesPage() {
     if (selectedFile.sensitivity === "contains-secret-pattern" && !window.confirm("文件包含疑似密钥或令牌，仍要下载吗？")) return;
     const result = await fetchBlob(`/api/markdown/files/${encodeURIComponent(selectedFile.fileId)}/download`, 20_000);
     if (!result.ok) { message.error(result.reason); return; }
-    const url = URL.createObjectURL(result.blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = selectedFile.label; anchor.click(); URL.revokeObjectURL(url);
+    downloadBlob(result.blob, selectedFile.label);
   };
   const restore = (revision: Revision) => {
     if (!selectedFile || selectedFile.sha256 === null) return;
-    Modal.confirm({ title: "恢复这个版本？", content: "恢复前会自动保存当前内容，恢复后可以继续回滚。", okText: "确认恢复", okButtonProps: { danger: true }, onOk: async () => {
+    modal.confirm({ title: "恢复这个版本？", content: "恢复前会自动保存当前内容，恢复后可以继续回滚。", okText: "确认恢复", okButtonProps: { danger: true }, onOk: async () => {
       const result = await postJson(`/api/markdown/files/${encodeURIComponent(selectedFile.fileId)}/revisions/${encodeURIComponent(revision.revisionId)}/restore`, { confirmed: true, baseSha256: selectedFile.sha256 }, 30_000);
       if (!result.ok) { message.error((result.data as { detail?: string } | null)?.detail ?? "恢复失败"); return; }
       message.success("已恢复选定版本。"); setHistoryOpen(false); await loadFiles(); await loadDetail(selectedFile.fileId);
@@ -404,7 +405,7 @@ export function CoreFilesPage() {
                         <pre style={{ maxHeight: 320, margin: 0, overflow: "auto", whiteSpace: "pre-wrap", fontFamily: "var(--ant-font-family-code)", fontSize: 12, lineHeight: 1.6 }}>{preview.diff}</pre>
                                                 {/* §3.1 每屏 ≤1 primary：编辑器「预览修改」是主操作，确认保存走二次确认弹窗。 */}
                         <Tooltip title="当前预览已过期或不可直接保存，请重新生成预览">
-                          <Button onClick={() => Modal.confirm({ title: "确认保存修改？", content: "保存会先备份当前版本，再原子替换源文件。", okText: "确认保存", onOk: apply })} disabled={!preview.canApply}>确认保存</Button>
+                          <Button onClick={() => modal.confirm({ title: "确认保存修改？", content: "保存会先备份当前版本，再原子替换源文件。", okText: "确认保存", onOk: apply })} disabled={!preview.canApply}>确认保存</Button>
                         </Tooltip>
                       </Flex>
                     </Card>

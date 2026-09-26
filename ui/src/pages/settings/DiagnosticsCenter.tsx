@@ -31,6 +31,7 @@ import {
   ThunderboltOutlined,
 } from "@ant-design/icons";
 import { fetchBlob, fetchText, loadJson, type FetchState } from "../../lib/api.js";
+import { downloadBlob } from "../../lib/download.js";
 
 const { Paragraph, Text } = Typography;
 
@@ -196,12 +197,7 @@ export function DiagnosticsCenter({ actionBusy }: DiagnosticsCenterProps) {
 
   const downloadDiagnostic = (text: string) => {
     const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `agent-butler-diagnostic-${new Date().toISOString().slice(0, 10)}.md`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, `agent-butler-diagnostic-${new Date().toISOString().slice(0, 10)}.md`);
   };
 
   const downloadDiagnosticZip = async () => {
@@ -213,13 +209,7 @@ export function DiagnosticsCenter({ actionBusy }: DiagnosticsCenterProps) {
         message.error(`诊断包没有生成：${result.reason}`);
         return;
       }
-      const blob = result.blob;
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `agent-butler-diagnostic-${new Date().toISOString().slice(0, 10)}.zip`;
-      anchor.click();
-      URL.revokeObjectURL(url);
+      downloadBlob(result.blob, `agent-butler-diagnostic-${new Date().toISOString().slice(0, 10)}.zip`);
       message.success("脱敏诊断包已下载，可以直接附到 Issue。");
     } catch {
       message.error("下载诊断包失败，请稍后再试。");

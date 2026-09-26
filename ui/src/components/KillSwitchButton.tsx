@@ -6,7 +6,7 @@
  * - 状态每 10 秒轮询，watch 离线时按钮进入「不可用」态而非假装安全。
  */
 import { ExclamationCircleFilled, PauseCircleOutlined, PlayCircleOutlined } from "@ant-design/icons";
-import { App, Button, Modal, Tooltip, Typography } from "antd";
+import { App, Button, Tooltip, Typography } from "antd";
 import { useCallback, useEffect, useState } from "react";
 import { loadJson, postJson } from "../lib/api.js";
 import { usePolling } from "../hooks/usePolling.js";
@@ -53,7 +53,7 @@ export interface KillSwitchButtonProps {
 }
 
 export function KillSwitchButton({ variant = "default" }: KillSwitchButtonProps = {}) {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [state, setState] = useState<KillSwitchState | null>(null);
   const [reachable, setReachable] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -76,7 +76,7 @@ export function KillSwitchButton({ variant = "default" }: KillSwitchButtonProps 
 
   const engage = () => {
     if (busy) return;
-    Modal.confirm({
+    modal.confirm({
       title: "确认紧急暂停全部 agent？",
       icon: <ExclamationCircleFilled style={{ color: "var(--ab-error)" }} />,
       content: (
@@ -106,7 +106,7 @@ export function KillSwitchButton({ variant = "default" }: KillSwitchButtonProps 
 
   const release = () => {
     if (busy) return;
-    Modal.confirm({
+    modal.confirm({
       title: "恢复全部 agent？",
       content: (
         <Typography.Paragraph style={{ marginBottom: 0 }}>

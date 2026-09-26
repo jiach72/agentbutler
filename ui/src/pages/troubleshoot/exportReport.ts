@@ -6,6 +6,7 @@
  */
 import { App } from "antd";
 import { fetchText } from "../../lib/api.js";
+import { downloadBlob } from "../../lib/download.js";
 
 export function useExportReport() {
   const { message } = App.useApp();
@@ -17,12 +18,7 @@ export function useExportReport() {
       return;
     }
     const blob = new Blob([result.text], { type: "text/markdown;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `agent-butler-diagnostic-${new Date().toISOString().slice(0, 10)}.md`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, `agent-butler-diagnostic-${new Date().toISOString().slice(0, 10)}.md`);
     message.success("诊断报告已下载，可以把它贴到 Issue 里求助。");
   };
 

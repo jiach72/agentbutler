@@ -170,7 +170,7 @@ function CategoryChips(props: {
 
 export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
   const { onInstalled } = props;
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
 
   const [mode, setMode] = useState<MarketMode>("market");
   const [tab, setTab] = useState<ContentTab>("skillhub");
@@ -653,7 +653,7 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
   };
 
   const removeOne = (item: LocalSkillItem) => {
-    Modal.confirm({
+    modal.confirm({
       title: `删除「${item.displayName}」？`,
       content: "整个技能目录会先移入 Butler 备份区，不会直接销毁；需要时可以在备份目录手动恢复。",
       okText: "删除",
