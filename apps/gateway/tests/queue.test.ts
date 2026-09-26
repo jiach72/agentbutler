@@ -254,6 +254,57 @@ describe("AlertQueue", () => {
     expect(queue.get(item.id)?.status).toBe("resolved");
   });
 
+  it("markFailed 状态机防护：在途期间已被 resolve 的告警失败时不复活回 pending，不安排重试", () => {
+    const item = queue.enqueue({
+      kind: "k",
+      severity: "critical",
+      title: "网络瞬断故障",
+      body: "b",
+      source: "watch",
+      dedupeKey: "net-flake-1",
+    });
+
+    const claimed = queue.claimNext();
+    expect(claimed?.id).toBe(item.id);
+    expect(claimed?.status).toBe("delivering");
+
+    // 投递在途期间探针恢复，执行归档
+    queue.resolveByDedupeKey("net-flake-1");
+    expect(queue.get(item.id)?.status).toBe("resolved");
+
+    // 投递超时抛错，调用 markFailed
+    const failed = queue.markFailed(item.id, "telegram timeout: 504 Gateway Timeout");
+    expect(failed?.status).toBe("resolved");
+    expect(failed?.attempts).toBe(1);
+    expect(failed?.lastError).toBe("telegram timeout: 504 Gateway Timeout");
+    expect(failed?.nextAttemptAt).toBeNull();
+
+    // 确保队列不会重新认领该已恢复告警
+    expect(queue.claimNext()).toBeUndefined();
+  });
+
+  it("markDelivered 状态机防护：在途期间已被 resolve 的告警送达后保持 resolved 状态", () => {
+    const item = queue.enqueue({
+      kind: "k",
+      severity: "critical",
+      title: "临时抖动",
+      body: "b",
+      source: "watch",
+      dedupeKey: "jitter-1",
+    });
+
+    const claimed = queue.claimNext();
+    expect(claimed?.status).toBe("delivering");
+
+    queue.resolveByDedupeKey("jitter-1");
+    expect(queue.get(item.id)?.status).toBe("resolved");
+
+    const delivered = queue.markDelivered(item.id, "bark");
+    expect(delivered?.status).toBe("resolved");
+    expect(delivered?.channel).toBe("bark");
+    expect(delivered?.deliveredAt).not.toBeNull();
+  });
+
   it("同一指纹从提醒升级为 critical 时提升未投递告警，而不是继续按普通提醒处理", () => {
     const first = queue.enqueue({
       kind: "fingerprint",

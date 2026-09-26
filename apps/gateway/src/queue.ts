@@ -239,28 +239,33 @@ export class AlertQueue {
   markDelivered(id: number, channel: string, now: string = new Date().toISOString()): AlertRow | undefined {
     this.db
       .prepare(
-        `UPDATE alerts SET status = 'delivered', delivered_at = ?, updated_at = ?, channel = ?, last_error = NULL
+        `UPDATE alerts
+         SET status = CASE WHEN status = 'resolved' THEN 'resolved' ELSE 'delivered' END,
+             delivered_at = ?, updated_at = ?, channel = ?, last_error = NULL
          WHERE id = ?`,
       )
       .run(now, now, channel, id);
     return this.get(id);
   }
 
-  /** 外发失败：attempts+1；未达上限回 pending 并按指数退避安排 next_attempt_at，达上限置 failed。 */
+  /** 外发失败：attempts+1；未达上限回 pending 并按指数退避安排 next_attempt_at，达上限置 failed。若已被归档为 resolved 则绝不复活回 pending。 */
   markFailed(id: number, error: string, now: string = new Date().toISOString()): AlertRow | undefined {
     this.db
       .prepare("UPDATE alerts SET attempts = attempts + 1, last_error = ?, updated_at = ? WHERE id = ?")
       .run(error, now, id);
     const row = this.get(id);
     if (row === undefined) return undefined;
+    if (row.status === "resolved") {
+      return row;
+    }
     if (row.attempts >= MAX_ATTEMPTS) {
       this.db
-        .prepare("UPDATE alerts SET status = 'failed', next_attempt_at = NULL, updated_at = ? WHERE id = ?")
+        .prepare("UPDATE alerts SET status = 'failed', next_attempt_at = NULL, updated_at = ? WHERE id = ? AND status != 'resolved'")
         .run(now, id);
     } else {
       const next = new Date(new Date(now).getTime() + backoffSeconds(row.attempts) * 1000).toISOString();
       this.db
-        .prepare("UPDATE alerts SET status = 'pending', next_attempt_at = ?, updated_at = ? WHERE id = ?")
+        .prepare("UPDATE alerts SET status = 'pending', next_attempt_at = ?, updated_at = ? WHERE id = ? AND status != 'resolved'")
         .run(next, now, id);
     }
     return this.get(id);
