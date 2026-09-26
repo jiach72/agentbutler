@@ -313,6 +313,7 @@ services:
     restart: unless-stopped
     ports:
       - "${BUTLER_HINDSIGHT_BIND_HOST:-127.0.0.1}:${BUTLER_HINDSIGHT_PORT:-9177}:9177"
+      - "${BUTLER_HINDSIGHT_BIND_HOST:-127.0.0.1}:${BUTLER_HINDSIGHT_UI_PORT:-9999}:9999"
     environment:
       - HINDSIGHT_HOST=0.0.0.0
       - HINDSIGHT_PORT=9177

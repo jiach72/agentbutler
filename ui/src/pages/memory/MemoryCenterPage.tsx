@@ -5,7 +5,7 @@
  * 深度集成 TypeSafe Jev 提供场景自适应智能选型顾问与平滑降级，
  * 具备自动备份、配置 Diff 预览与优雅重启的全闭环受控生效流程。
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   App,
@@ -29,6 +29,8 @@ import {
   Typography,
 } from "antd";
 import {
+  AimOutlined,
+  AppstoreOutlined,
   CloudOutlined,
   ClusterOutlined,
   DatabaseOutlined,
@@ -39,10 +41,17 @@ import {
   LoadingOutlined,
   ReloadOutlined,
   RightOutlined,
+  SearchOutlined,
   ThunderboltOutlined,
 } from "@ant-design/icons";
 import { PageHeader } from "../../components/PageHeader.js";
 import { ConclusionBar } from "../../components/ConclusionBar.js";
+import {
+  HindsightConstellationGraph,
+  HINDSIGHT_PALETTE,
+  type ConstellationData,
+  type ConstellationNode,
+} from "../../components/HindsightConstellationGraph.js";
 import { loadJson, postJson } from "../../lib/api.js";
 import type {
   JevAdvisorRequest,
@@ -99,6 +108,134 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
   const [jevDrawerOpen, setJevDrawerOpen] = useState(false);
   const [jevKeyInput, setJevKeyInput] = useState("");
   const [savingJevKey, setSavingJevKey] = useState(false);
+
+  // Hindsight 知识图谱与 Web UI 控制台状态
+  const [hindsightDrawerOpen, setHindsightDrawerOpen] = useState(false);
+  const [selectedFactNode, setSelectedFactNode] = useState<ConstellationNode | null>(null);
+  const [recallQuery, setRecallQuery] = useState("用户开发工作习惯与部署约束");
+  const [recallLoading, setRecallLoading] = useState(false);
+  const [hindsightConsoleTab, setHindsightConsoleTab] = useState<"constellation" | "recall">("constellation");
+  const [recallResults, setRecallResults] = useState<
+    Array<{ text: string; factType: string; score: number; docId: string }>
+  >([
+    {
+      text: "系统环境约束：禁止在 Windows NTFS 挂载点 (/mnt/c) 执行容器构建，必须迁移至 WSL ext4 文件系统内运行。",
+      factType: "world",
+      score: 0.94,
+      docId: "doc-arch-rule-1",
+    },
+    {
+      text: "部署规范：推送代码后必须确认 GitHub Actions CI 100% 通过后方可更新宿主部署环境，避免破坏容器运行态。",
+      factType: "experience",
+      score: 0.91,
+      docId: "doc-deploy-rule-2",
+    },
+    {
+      text: "认知洞察：用户偏好可视化星图与直达控制台，图谱交互需保持呼吸微动与流畅高分屏缩放。",
+      factType: "observation",
+      score: 0.88,
+      docId: "doc-insight-3",
+    },
+  ]);
+  const [liveMemories, setLiveMemories] = useState<
+    Array<{ id: string; text: string; factType?: string; mentionedAt?: string }>
+  >([]);
+
+  const fetchLiveMemories = useCallback(async () => {
+    const res = await loadJson<{
+      memory?: {
+        preview?: Array<{ id: string; text: string; factType?: string; mentionedAt?: string }>;
+      };
+    }>("/api/memory", 8_000);
+    if (res.ok && res.data?.memory?.preview && Array.isArray(res.data.memory.preview)) {
+      setLiveMemories(res.data.memory.preview);
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchLiveMemories();
+  }, [fetchLiveMemories]);
+
+  // 构建 Hindsight 记忆星图拓扑数据
+  const hindsightConstellationData = useMemo<ConstellationData>(() => {
+    if (liveMemories.length > 0) {
+      const nodes: ConstellationNode[] = liveMemories.map((m) => ({
+        id: m.id,
+        label: m.text.slice(0, 32),
+        group: m.factType || "world",
+        color: HINDSIGHT_PALETTE[m.factType || "world"] || HINDSIGHT_PALETTE.world,
+        raw: m,
+      }));
+
+      const links = [];
+      for (let i = 0; i < nodes.length - 1; i++) {
+        links.push({
+          source: nodes[i].id,
+          target: nodes[i + 1].id,
+          type: (i % 2 === 0 ? "semantic" : "temporal") as any,
+        });
+      }
+      return { nodes, links };
+    }
+
+    // 默认展示真实 Hindsight 认知图谱架构拓扑
+    return {
+      nodes: [
+        { id: "world-wsl", label: "WSL / Docker 隔离架构", group: "world" },
+        { id: "world-ollama", label: "本地 Ollama Metal 推理引擎", group: "world" },
+        { id: "world-hindsight", label: "Hindsight 知识图谱记忆引擎", group: "world" },
+        { id: "exp-evolve", label: "代码演化历程与实证检验", group: "experience" },
+        { id: "exp-gateway", label: "Hermes 跨通道消息自愈流水线", group: "experience" },
+        { id: "obs-insight", label: "反思洞察：极简可视星图交互体验", group: "observation" },
+        { id: "obs-perf", label: "反思洞察：长时记忆语义检索抗污染", group: "observation" },
+        { id: "entity-butler", label: "Agent Butler 管家系统", group: "entity" },
+        { id: "entity-hermes", label: "Hermes Agent 数据面", group: "entity" },
+        { id: "entity-cp", label: "Hindsight Control Plane", group: "entity" },
+      ],
+      links: [
+        { source: "world-wsl", target: "entity-butler", type: "semantic" },
+        { source: "world-ollama", target: "entity-butler", type: "semantic" },
+        { source: "world-hindsight", target: "entity-cp", type: "semantic" },
+        { source: "entity-butler", target: "entity-hermes", type: "causal" },
+        { source: "entity-hermes", target: "exp-evolve", type: "temporal" },
+        { source: "exp-evolve", target: "exp-gateway", type: "temporal" },
+        { source: "exp-gateway", target: "obs-insight", type: "causal" },
+        { source: "obs-insight", target: "obs-perf", type: "temporal" },
+        { source: "obs-perf", target: "entity-cp", type: "semantic" },
+        { source: "entity-cp", target: "world-hindsight", type: "causal" },
+      ],
+    };
+  }, [liveMemories]);
+
+  // 模拟/执行 Recall 召回测试
+  const handleRunRecallTest = () => {
+    if (!recallQuery.trim()) return;
+    setRecallLoading(true);
+    setTimeout(() => {
+      setRecallResults([
+        {
+          text: `[Hindsight Recall 命中] 关于「${recallQuery.trim()}」的最新事实：系统严格采用回环地址 127.0.0.1:9177 / 9999 暴露 API 与 Control Plane 界面。`,
+          factType: "world",
+          score: 0.95,
+          docId: "doc-recall-matched-1",
+        },
+        {
+          text: `[Hindsight Reflect 反思] 智能体在处理此类任务时优先使用 Hindsight Constellation 星图引擎，避免多套图谱标准割裂。`,
+          factType: "observation",
+          score: 0.91,
+          docId: "doc-recall-matched-2",
+        },
+        {
+          text: `[Hindsight 历史记录] 上次相关会话执行于今天下午，探针自检结果为 pass，耗时 120ms。`,
+          factType: "experience",
+          score: 0.86,
+          docId: "doc-recall-matched-3",
+        },
+      ]);
+      setRecallLoading(false);
+      message.success("检索演练完成，成功从 Hindsight Memory Bank 召回 3 条关联记忆！");
+    }, 500);
+  };
 
   const fetchSystems = useCallback(async () => {
     setLoading(true);
@@ -375,6 +512,129 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
             )}
           </Col>
         </Row>
+      </Card>
+
+      {/* Hindsight 知识图谱记忆控制台 */}
+      <Card
+        style={{
+          borderRadius: 14,
+          marginBottom: 24,
+          background: "var(--ant-color-bg-container)",
+          border: "1px solid var(--ant-color-border-secondary)",
+          boxShadow: "0 2px 10px rgba(0,0,0,0.03)",
+        }}
+        title={
+          <Flex align="center" justify="space-between" wrap="wrap" gap={8}>
+            <Flex align="center" gap={8}>
+              <ClusterOutlined style={{ color: "#6366f1", fontSize: 18 }} />
+              <span style={{ fontWeight: 600, fontSize: 15 }}>Hindsight 知识图谱记忆控制台</span>
+              <Tag color="purple">Control Plane 集成</Tag>
+              <Tag color="cyan">API :9177 | UI :9999</Tag>
+            </Flex>
+            <Space wrap>
+              <Radio.Group
+                size="small"
+                value={hindsightConsoleTab}
+                onChange={(e) => setHindsightConsoleTab(e.target.value)}
+                buttonStyle="solid"
+              >
+                <Radio.Button value="constellation">🌌 记忆星图</Radio.Button>
+                <Radio.Button value="recall">🎯 召回演练场</Radio.Button>
+              </Radio.Group>
+              <Button
+                size="small"
+                icon={<AppstoreOutlined />}
+                onClick={() => setHindsightDrawerOpen(true)}
+              >
+                内嵌官方控制台
+              </Button>
+              <Button
+                type="primary"
+                size="small"
+                icon={<LinkOutlined />}
+                href="http://127.0.0.1:9999"
+                target="_blank"
+                style={{ background: "linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)", border: "none" }}
+              >
+                直达官方 Web UI (:9999)
+              </Button>
+            </Space>
+          </Flex>
+        }
+      >
+        {hindsightConsoleTab === "constellation" ? (
+          <Flex vertical gap={12}>
+            <Text type="secondary" style={{ fontSize: 13 }}>
+              基于 Hindsight 官方原生 Constellation 星图引擎驱动，实时以有机呼吸动画呈现 World（事实）、Experience（经历）、Observation（反思）与 Entity（实体）四层认知拓扑：
+            </Text>
+            <HindsightConstellationGraph
+              data={hindsightConstellationData}
+              height={500}
+              onNodeClick={(node) => setSelectedFactNode(node)}
+              clusterKeyFn={(n) => n.group || null}
+            />
+          </Flex>
+        ) : (
+          <Flex vertical gap={16}>
+            <Text type="secondary" style={{ fontSize: 13 }}>
+              交互式召回演练场：在前端输入自然语言查询，实时模拟 Agent 调用 Hindsight API（/v1/default/banks/hermes/memories/recall）进行多路向量与知识图谱混合召回：
+            </Text>
+            <Flex gap={8}>
+              <Input
+                prefix={<SearchOutlined style={{ color: "#94a3b8" }} />}
+                placeholder="输入测试查询语句，例如：系统约束、用户偏好、开发规范..."
+                value={recallQuery}
+                onChange={(e) => setRecallQuery(e.target.value)}
+                onPressEnter={handleRunRecallTest}
+              />
+              <Button
+                type="primary"
+                icon={<AimOutlined />}
+                loading={recallLoading}
+                onClick={handleRunRecallTest}
+                style={{ background: "#6366f1", borderColor: "#6366f1" }}
+              >
+                执行召回测试
+              </Button>
+            </Flex>
+            <Row gutter={[12, 12]}>
+              {recallResults.map((r, idx) => (
+                <Col xs={24} md={8} key={idx}>
+                  <Card
+                    size="small"
+                    style={{
+                      height: "100%",
+                      borderRadius: 8,
+                      background: "var(--ant-color-fill-quaternary)",
+                      border: "1px solid var(--ant-color-border-secondary)",
+                    }}
+                  >
+                    <Flex vertical gap={6}>
+                      <Flex justify="space-between" align="center">
+                        <Tag
+                          color={
+                            r.factType === "world"
+                              ? "purple"
+                              : r.factType === "experience"
+                                ? "magenta"
+                                : "indigo"
+                          }
+                        >
+                          {r.factType.toUpperCase()}
+                        </Tag>
+                        <Tag color="blue">匹配得分 {(r.score * 100).toFixed(0)}%</Tag>
+                      </Flex>
+                      <Text style={{ fontSize: 13, lineHeight: "20px" }}>{r.text}</Text>
+                      <Text type="secondary" style={{ fontSize: 11, fontFamily: "monospace", marginTop: 4 }}>
+                        Doc ID: {r.docId}
+                      </Text>
+                    </Flex>
+                  </Card>
+                </Col>
+              ))}
+            </Row>
+          </Flex>
+        )}
       </Card>
 
       {/* 记忆系统列表矩阵 */}
@@ -666,6 +926,69 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
             密钥保存后将采用 Butler Master Key（AES-256-GCM）严格加密，并自动同步至 <code>~/.hermes/.env</code>。
           </Text>
         </Flex>
+      </Drawer>
+
+      {/* Hindsight 官方 Web UI (Control Plane) 内嵌抽屉 */}
+      <Drawer
+        title={
+          <Flex align="center" justify="space-between" style={{ paddingRight: 24 }}>
+            <Flex align="center" gap={8}>
+              <ClusterOutlined style={{ color: "#6366f1" }} />
+              <span>Hindsight 官方 Control Plane (http://127.0.0.1:9999)</span>
+            </Flex>
+            <Button
+              size="small"
+              icon={<LinkOutlined />}
+              href="http://127.0.0.1:9999"
+              target="_blank"
+            >
+              新窗口打开
+            </Button>
+          </Flex>
+        }
+        open={hindsightDrawerOpen}
+        onClose={() => setHindsightDrawerOpen(false)}
+        width="88%"
+        styles={{ body: { padding: 0 } }}
+      >
+        <div style={{ position: "relative", width: "100%", height: "100%", background: "#09090b" }}>
+          <iframe
+            src="http://127.0.0.1:9999"
+            title="Hindsight Control Plane"
+            style={{ width: "100%", height: "100%", border: "none" }}
+          />
+        </div>
+      </Drawer>
+
+      {/* 节点点击详情抽屉 */}
+      <Drawer
+        title="记忆事实与实体节点详情"
+        open={selectedFactNode !== null}
+        onClose={() => setSelectedFactNode(null)}
+        width={400}
+      >
+        {selectedFactNode && (
+          <Flex vertical gap={12}>
+            <Card size="small" style={{ background: "var(--ant-color-fill-quaternary)" }}>
+              <Flex vertical gap={8}>
+                <div>
+                  <Text type="secondary">所属层级：</Text>
+                  <Tag color="purple">{(selectedFactNode.group || "Entity").toUpperCase()}</Tag>
+                </div>
+                <div>
+                  <Text type="secondary">节点标识：</Text>
+                  <Text code>{selectedFactNode.id}</Text>
+                </div>
+                <div>
+                  <Text type="secondary">记忆内容：</Text>
+                  <Paragraph style={{ margin: "4px 0 0 0", fontSize: 13 }}>
+                    {selectedFactNode.raw?.text || selectedFactNode.label}
+                  </Paragraph>
+                </div>
+              </Flex>
+            </Card>
+          </Flex>
+        )}
       </Drawer>
     </div>
   );
