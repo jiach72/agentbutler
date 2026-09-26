@@ -180,7 +180,10 @@ describe("本地知识库 (AnythingLLM RAG) API 路由", () => {
     expect(res.json().ok).toBe(true);
 
     // 等待异步委托完成
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    for (let i = 0; i < 30; i++) {
+      if (updaterServiceStarted) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
 
     expect(updaterServiceStarted).toBe(true);
     expect(updaterTokenChecked).toBe(true);
@@ -233,16 +236,24 @@ describe("本地知识库 (AnythingLLM RAG) API 路由", () => {
     });
     expect(startRes.statusCode).toBe(200);
 
-    // 等待异步调用完成
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    // 等待异步调用完成进入 failed 状态
+    let failedBody: { stage?: string; error?: string } | undefined;
+    for (let i = 0; i < 30; i++) {
+      const progressRes = await app.inject({
+        method: "GET",
+        url: "/api/knowledge/start-progress",
+      });
+      const body = progressRes.json() as { stage?: string; error?: string };
+      if (body.stage === "failed") {
+        failedBody = body;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
 
-    const progressAfterFail = await app.inject({
-      method: "GET",
-      url: "/api/knowledge/start-progress",
-    });
-    const failedBody = progressAfterFail.json();
-    expect(failedBody.stage).toBe("failed");
-    expect(failedBody.error).toBeDefined();
+    expect(failedBody).toBeDefined();
+    expect(failedBody!.stage).toBe("failed");
+    expect(failedBody!.error).toBeDefined();
 
     // 2. 模拟宿主机或守护进程将容器启动成功（:3001 ping 返回 200）
     pingOk = true;
