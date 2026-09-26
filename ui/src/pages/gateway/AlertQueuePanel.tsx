@@ -90,7 +90,7 @@ export function AlertQueuePanel({ alerts, history = false }: AlertQueuePanelProp
         <>
           {history && (
             <Flex wrap="wrap" gap={16} align="center" aria-label="告警队列计数">
-              {(["pending", "delivering", "delivered", "failed"] as const).map((status) => (
+              {(["pending", "delivering", "delivered", "failed", "resolved"] as const).map((status) => (
                 <Flex key={status} align="center" gap={6}>
                   <StatusBadge {...statusTone(status)} />
                   <Typography.Text strong>{alerts.counts[status] ?? 0}</Typography.Text>

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   channelActionError,
   channelKindLabel,
+  channelLabel,
   channelToggleAck,
   channelToggleWarnings,
   deriveRecoveryState,
@@ -12,6 +13,8 @@ import {
   loginStateCopy,
   relayModeCopy,
   resolveGatewayTab,
+  statusTone,
+  transformTraceLabel,
 } from "./helpers.js";
 import type { AlertsView, MessageBridgeView, MessageOverviewPayload, RecoveryStateInput } from "./helpers.js";
 
@@ -215,6 +218,45 @@ describe("resolveGatewayTab 标签解析与深链映射", () => {
   it("缺省或未知 tab 回退到 messages（待处理消息工作台）", () => {
     expect(resolveGatewayTab("")).toBe("messages");
     expect(resolveGatewayTab("?tab=unknown")).toBe("messages");
+  });
+});
+
+describe("statusTone, channelLabel and transformTraceLabel", () => {
+  it("statusTone: 识别 resolved 为 ok 状态并正确映射文案", () => {
+    expect(statusTone("resolved")).toEqual({ tone: "ok", label: "已恢复" });
+    expect(statusTone("delivered")).toEqual({ tone: "ok", label: "已送达" });
+    expect(statusTone("failed")).toEqual({ tone: "error", label: "发送失败" });
+    expect(statusTone("pending")).toEqual({ tone: "warn", label: "等待发送" });
+    expect(statusTone("cancelled")).toEqual({ tone: "unknown", label: "已取消" });
+    expect(statusTone("unknown_state")).toEqual({ tone: "unknown", label: "其他" });
+  });
+
+  it("channelLabel: 正确映射实装通道与未知回退", () => {
+    expect(channelLabel(null)).toBe("—");
+    expect(channelLabel("")).toBe("—");
+    expect(channelLabel("feishu")).toBe("飞书");
+    expect(channelLabel("qqbot")).toBe("QQ 机器人");
+    expect(channelLabel("dingtalk")).toBe("钉钉");
+    expect(channelLabel("bark")).toBe("Bark");
+    expect(channelLabel("serverchan")).toBe("Server酱");
+    expect(channelLabel("smtp")).toBe("邮件 (SMTP)");
+    expect(channelLabel("panel")).toBe("控制面板");
+    expect(channelLabel("wechat")).toBe("微信");
+    expect(channelLabel("custom-channel")).toBe("custom-channel");
+  });
+
+  it("transformTraceLabel: 正确映射加速、投递、任务等待与回填轨迹", () => {
+    expect(transformTraceLabel("policy:manual-expedite")).toBe("手动立即发送");
+    expect(transformTraceLabel("delivery:ok")).toBe("发送成功");
+    expect(transformTraceLabel("delivery:delivered")).toBe("发送成功");
+    expect(transformTraceLabel("delivery:dead_letter")).toBe("发送失败（转入死信）");
+    expect(transformTraceLabel("task:awaiting-result-stability")).toBe("等待结果稳定");
+    expect(transformTraceLabel("backfill:progress-background-only")).toBe("后台进度历史回填");
+    // 前缀动态回退
+    expect(transformTraceLabel("delivery:resolved")).toBe("投递：已恢复");
+    expect(transformTraceLabel("delivery:pending")).toBe("投递：等待发送");
+    // 未知原样返回
+    expect(transformTraceLabel("custom:step")).toBe("custom:step");
   });
 });
 

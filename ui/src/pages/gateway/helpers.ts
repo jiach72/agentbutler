@@ -362,6 +362,7 @@ export const MESSAGE_STATE_LABELS: Record<string, string> = {
   cancelled: "已取消",
   pending: "等待发送",
   failed: "发送失败",
+  resolved: "已恢复",
   critical: "紧急",
   warn: "需注意",
   info: "提示",
@@ -389,9 +390,16 @@ const CHANNEL_LABELS: Record<string, string> = {
   wechat: "微信",
   weixin: "微信",
   wecom: "企业微信",
+  feishu: "飞书",
+  qqbot: "QQ 机器人",
+  dingtalk: "钉钉",
+  bark: "Bark",
+  serverchan: "Server酱",
+  smtp: "邮件 (SMTP)",
+  email: "邮件",
+  panel: "控制面板",
   a2a: "A2A",
   "api-server": "服务接口",
-  email: "邮件",
   sms: "短信",
   desktop: "桌面通知",
   webhook: "网页通知",
@@ -414,6 +422,7 @@ const TRANSPORT_LABELS: Record<string, string> = {
 };
 const TRACE_LABELS: Record<string, string> = {
   "policy:queued-push": "进入待发送队列",
+  "policy:manual-expedite": "手动立即发送",
   "digest:events-deduped": "重复进度已合并",
   "digest:truncated": "内容过长已精简",
   "digest:final-absorbed": "最终回复已合并进度",
@@ -428,12 +437,18 @@ const TRACE_LABELS: Record<string, string> = {
   "aggregate-progress": "进度已合并",
   ready: "可以发送",
   "delivery:ok": "发送成功",
+  "delivery:delivered": "发送成功",
   "delivery:failed": "发送失败",
   "delivery:unknown": "发送结果未知",
+  "delivery:retry_wait": "等待下次重试",
+  "delivery:dead_letter": "发送失败（转入死信）",
+  "delivery:attempt-limit": "已达最大重试上限",
   "task:awaiting-terminal": "等待任务完成",
+  "task:awaiting-result-stability": "等待结果稳定",
   "digest:batch-aggregated": "按聊天批次汇总",
   "digest:batch-duplicate-absorbed": "重复通知已合并",
   "digest:terminal-duplicate-absorbed": "重复终态结果已合并",
+  "backfill:progress-background-only": "后台进度历史回填",
 };
 const TASK_EVENT_LABELS: Record<string, string> = {
   started: "已开始",
@@ -459,6 +474,10 @@ export function transportLabel(value: string): string {
 export function transformTraceLabel(step: string): string {
   if (TRACE_LABELS[step] !== undefined) return TRACE_LABELS[step];
   if (step.startsWith("dnd:")) return step.includes("held") ? "免打扰暂存" : "免打扰检查";
+  if (step.startsWith("delivery:")) {
+    const sub = step.slice("delivery:".length);
+    if (MESSAGE_STATE_LABELS[sub] !== undefined) return `投递：${MESSAGE_STATE_LABELS[sub]}`;
+  }
   return step;
 }
 
@@ -479,7 +498,7 @@ export function sourceLabel(source: string | null | undefined): string {
 /** 状态 → 语义徽标（tone + 文案），收编旧 badgeForStatus 的类名拼接。 */
 export function statusTone(status: string): { tone: SemanticTone; label: string } {
   const normalized = status.toLowerCase();
-  if (["ok", "healthy", "delivered", "applied", "done", "completed"].includes(normalized)) {
+  if (["ok", "healthy", "delivered", "applied", "done", "completed", "resolved"].includes(normalized)) {
     return { tone: "ok", label: MESSAGE_STATE_LABELS[status] ?? "其他" };
   }
   if (
