@@ -79,7 +79,7 @@ export {
   type RemoteServiceHealth,
 } from "./api-parsers.js";
 
-export const WEB_VERSION = `web@1.0.0+${CONTRACT_VERSION}`;
+export const WEB_VERSION = `web@1.0.1+${CONTRACT_VERSION}`;
 
 /** 告警网关默认基址（butler-gateway 的固定回环端口）。 */
 export const DEFAULT_GATEWAY_URL = "http://127.0.0.1:7532";
