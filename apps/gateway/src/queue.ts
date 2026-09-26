@@ -52,6 +52,7 @@ export interface AlertRow {
   createdAt: string;
   updatedAt: string;
   deliveredAt: string | null;
+  resolvedAt: string | null;
   lastError: string | null;
   /** 最终投递通道：panel | telegram | smtp | null（未投递）。 */
   channel: string | null;
@@ -106,6 +107,7 @@ CREATE TABLE IF NOT EXISTS alerts (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   delivered_at TEXT,
+  resolved_at TEXT,
   last_error TEXT,
   channel TEXT,
   read_at TEXT,
@@ -139,6 +141,10 @@ export class AlertQueue {
     // 兼容已存在的 gateway.db：交互式卡片按钮列（M3.1）。
     if (!columns.some((column) => column["name"] === "actions_json")) {
       this.db.exec("ALTER TABLE alerts ADD COLUMN actions_json TEXT;");
+    }
+    // 兼容已存在的 gateway.db：故障恢复解决时间戳列。
+    if (!columns.some((column) => column["name"] === "resolved_at")) {
+      this.db.exec("ALTER TABLE alerts ADD COLUMN resolved_at TEXT;");
     }
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_alerts_unread ON alerts(read_at, severity);");
     // 重启补发：进程刚启动时不存在真正投递中的行，delivering 一律回置 pending。
@@ -335,7 +341,7 @@ export class AlertQueue {
   /**
    * 故障恢复归档：按 dedupeKey 把该故障的告警移出活跃/未读视野。
    * 未投递行（pending/delivering）置 resolved（问题已恢复，不再投递也不计未读）；
-   * 已投递/已失败行只补已读（保留投递历史可见）。
+   * 已投递/已失败行补已读并打上 resolved_at（保留投递历史可见，并解除该故障的冷却抑制）。
    */
   resolveByDedupeKey(
     dedupeKey: string,
@@ -343,14 +349,20 @@ export class AlertQueue {
   ): { resolved: number; readMarked: number } {
     const first = this.db
       .prepare(
-        `UPDATE alerts SET status = 'resolved', read_at = COALESCE(read_at, ?), next_attempt_at = NULL, updated_at = ?
+        `UPDATE alerts SET status = 'resolved', resolved_at = COALESCE(resolved_at, ?), read_at = COALESCE(read_at, ?), next_attempt_at = NULL, updated_at = ?
          WHERE dedupe_key = ? AND status IN ('pending', 'delivering')`,
       )
-      .run(now, now, dedupeKey);
+      .run(now, now, now, dedupeKey);
     const second = this.db
       .prepare(
-        `UPDATE alerts SET read_at = COALESCE(read_at, ?), updated_at = ?
+        `UPDATE alerts SET resolved_at = COALESCE(resolved_at, ?), read_at = COALESCE(read_at, ?), updated_at = ?
          WHERE dedupe_key = ? AND status IN ('delivered', 'failed') AND read_at IS NULL`,
+      )
+      .run(now, now, now, dedupeKey);
+    this.db
+      .prepare(
+        `UPDATE alerts SET resolved_at = COALESCE(resolved_at, ?), updated_at = ?
+         WHERE dedupe_key = ? AND status IN ('delivered', 'failed') AND resolved_at IS NULL`,
       )
       .run(now, now, dedupeKey);
     return { resolved: Number(first.changes), readMarked: Number(second.changes) };
@@ -366,12 +378,18 @@ export class AlertQueue {
     return row === undefined ? undefined : this.mapRow(row);
   }
 
-  /** 冷却窗内最近一条已终结（delivered/failed）的同行告警：delivered 看 delivered_at，failed 看最后更新。 */
+  /**
+   * 冷却窗内最近一条未被归档解决（resolved_at IS NULL）的已终结（delivered/failed）同行告警：
+   * delivered 看 delivered_at，failed 看最后更新。
+   * 一旦故障被 resolveByDedupeKey 解决归档，resolved_at 被记录，不再作为后续复发故障的冷却抑制基准，
+   * 确保二次故障或自愈后再爆发的故障能立即触发全新告警并送达。
+   */
   private findRecentlyTerminatedByDedupeKey(dedupeKey: string, now: string): AlertRow | undefined {
     const cutoff = new Date(new Date(now).getTime() - this.cooldownMs).toISOString();
     const row = this.db
       .prepare(
         `SELECT * FROM alerts WHERE dedupe_key = ? AND status IN ('delivered', 'failed')
+         AND resolved_at IS NULL
          AND COALESCE(delivered_at, updated_at) >= ?
          ORDER BY id DESC LIMIT 1`,
       )
@@ -395,6 +413,7 @@ export class AlertQueue {
       createdAt: String(r["created_at"]),
       updatedAt: String(r["updated_at"]),
       deliveredAt: (r["delivered_at"] as string | null) ?? null,
+      resolvedAt: (r["resolved_at"] as string | null) ?? null,
       lastError: (r["last_error"] as string | null) ?? null,
       channel: (r["channel"] as string | null) ?? null,
       readAt: (r["read_at"] as string | null) ?? null,

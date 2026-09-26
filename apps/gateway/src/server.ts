@@ -1964,6 +1964,7 @@ function toApiItem(row: AlertRow): Record<string, unknown> {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     deliveredAt: row.deliveredAt,
+    resolvedAt: row.resolvedAt,
     lastError: row.lastError,
     channel: row.channel,
     readAt: row.readAt,

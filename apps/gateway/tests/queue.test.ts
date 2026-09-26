@@ -211,7 +211,93 @@ describe("AlertQueue", () => {
     const archived = queue.resolveByDedupeKey("ext-2");
     expect(archived).toEqual({ resolved: 0, readMarked: 1 });
     expect(queue.get(delivered.id)!.readAt).not.toBeNull();
+    expect(queue.get(delivered.id)!.resolvedAt).not.toBeNull();
     expect(queue.get(delivered.id)!.status).toBe("delivered");
+  });
+
+  it("故障恢复归档解除冷却抑制：delivered 行被 resolveByDedupeKey 后，冷却窗内同 key 同严重度复发照常新建行投递", () => {
+    const first = queue.enqueue({
+      kind: "service-probe",
+      severity: "critical",
+      title: "主服务故障",
+      body: "连接拒绝",
+      source: "watch",
+      dedupeKey: "svc-main-down",
+    });
+    queue.markDelivered(first.id, "telegram");
+    expect(queue.get(first.id)?.resolvedAt).toBeNull();
+
+    // 探针检测到系统恢复，调用 resolveByDedupeKey 归档
+    const archived = queue.resolveByDedupeKey("svc-main-down");
+    expect(archived.readMarked).toBe(1);
+    expect(queue.get(first.id)?.resolvedAt).not.toBeNull();
+
+    // 故障在 2 小时冷却窗内再次复发（相同 dedupeKey、相同 critical 严重度）
+    const recurrence = queue.enqueue({
+      kind: "service-probe",
+      severity: "critical",
+      title: "主服务故障（二次复发）",
+      body: "连接拒绝",
+      source: "watch",
+      dedupeKey: "svc-main-down",
+    });
+
+    // 确保二次复发不会被冷却窗静默合并吞噬，而是生成新行并可正常被 claimNext 认领外发
+    expect(recurrence.id).not.toBe(first.id);
+    expect(recurrence.status).toBe("pending");
+    expect(recurrence.title).toBe("主服务故障（二次复发）");
+    expect(queue.list()).toHaveLength(2);
+
+    const claimed = queue.claimNext();
+    expect(claimed?.id).toBe(recurrence.id);
+    expect(claimed?.status).toBe("delivering");
+  });
+
+  it("既有数据库缺少 resolved_at 列时自动增量迁移", () => {
+    const migrationDir = tmp + "-migration";
+    const dbFile = gatewayDbFile(migrationDir);
+    mkdirSync(dirname(dbFile), { recursive: true });
+    // 先用原生 sqlite 建一张不含 resolved_at 的旧表
+    const rawDb = new DatabaseSync(dbFile);
+    rawDb.exec(`
+      CREATE TABLE alerts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        kind TEXT NOT NULL,
+        severity TEXT NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        source TEXT NOT NULL,
+        dedupe_key TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        attempts INTEGER NOT NULL DEFAULT 0,
+        merged_count INTEGER NOT NULL DEFAULT 1,
+        next_attempt_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        delivered_at TEXT,
+        last_error TEXT,
+        channel TEXT,
+        read_at TEXT,
+        actions_json TEXT
+      );
+    `);
+    rawDb.close();
+
+    // 用 AlertQueue 打开，断言自动迁移补齐列且读写正常
+    const migratedQueue = new AlertQueue(dbFile);
+    const item = migratedQueue.enqueue({
+      kind: "migration-test",
+      severity: "warn",
+      title: "迁移测试",
+      body: "b",
+      source: "s",
+      dedupeKey: "mig-1",
+    });
+    expect(item.resolvedAt).toBeNull();
+    migratedQueue.resolveByDedupeKey("mig-1");
+    expect(migratedQueue.get(item.id)?.resolvedAt).not.toBeNull();
+    migratedQueue.close();
+    rmTempDir(migrationDir);
   });
 
   it("claimNext 按 created_at 升序认领（入队顺序）", () => {
