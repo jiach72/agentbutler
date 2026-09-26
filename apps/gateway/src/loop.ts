@@ -43,8 +43,8 @@ export class DeliveryLoop {
   private readonly scheduler: LoopScheduler;
   private readonly panel: AlertChannel = new NullChannel();
   private cancelTimer: (() => void) | null = null;
-  private inFlight: Promise<void> | null = null;
-  private wakeRequested = false;
+  private inFlight: Promise<boolean> | null = null;
+  private wakeCount = 0;
   private running = false;
 
   constructor(options: DeliveryLoopOptions) {
@@ -67,7 +67,7 @@ export class DeliveryLoop {
   /** 停止循环：取消定时器并等待在途投递完成（不丢已认领行）。 */
   async stop(): Promise<void> {
     this.running = false;
-    this.wakeRequested = false;
+    this.wakeCount = 0;
     if (this.cancelTimer !== null) {
       this.cancelTimer();
       this.cancelTimer = null;
@@ -77,21 +77,19 @@ export class DeliveryLoop {
 
   /**
    * 唤醒循环：立即触发一次投递尝试（例如新告警入队时及时响应，无需等待下一个 pace tick）。
-   * 若当前已有在途投递（inFlight !== null），记录 wakeRequested，在当前投递结束后立即继续，不丢信号。
+   * 累加唤醒计数；若当前已有在途投递（inFlight !== null），在当前投递结束后顺延消费，绝不丢弃任何新告警信号。
    */
   wake(): void {
     if (!this.running) return;
-    if (this.inFlight !== null) {
-      this.wakeRequested = true;
-      return;
-    }
+    this.wakeCount += 1;
+    if (this.inFlight !== null) return;
     void this.tickGuarded();
   }
 
-  /** 单个 tick：至多认领并处理 1 条到期告警（配速缓释的核心约束）。 */
-  async tick(): Promise<void> {
+  /** 单个 tick：至多认领并处理 1 条到期告警（配速缓释的核心约束）。返回是否成功认领并处理了告警。 */
+  async tick(): Promise<boolean> {
     const alert = this.queue.claimNext(this.clock().toISOString());
-    if (alert === undefined) return;
+    if (alert === undefined) return false;
     try {
       await this.deliver(alert);
     } catch (err) {
@@ -106,6 +104,7 @@ export class DeliveryLoop {
         console.error(`[gateway] failed to markFailed for alert ${alert.id}:`, markErr);
       }
     }
+    return true;
   }
 
   private async deliver(alert: AlertRow): Promise<void> {
@@ -153,20 +152,32 @@ export class DeliveryLoop {
     this.queue.markFailed(alert.id, errors.join("; "), this.clock().toISOString());
   }
 
-  /** 定时器与唤醒回调入口：串行化投递，同一时刻至多一条在投；若在途期间有新唤醒请求，循环续跑。 */
+  /** 定时器与唤醒回调入口：串行化投递，同一时刻至多一条在投；若有唤醒计数，循环顺延消费直至处理完毕或队列无就绪告警。 */
   private async tickGuarded(): Promise<void> {
     if (this.inFlight !== null) return;
     do {
-      this.wakeRequested = false;
-      this.inFlight = this.tick().catch((err) => {
-        console.error("[gateway] delivery tick failed:", err);
-      });
+      if (this.wakeCount > 0) this.wakeCount -= 1;
+      let claimed = false;
+      this.inFlight = this.tick()
+        .then((didClaim) => {
+          claimed = didClaim;
+          return didClaim;
+        })
+        .catch((err) => {
+          console.error("[gateway] delivery tick failed:", err);
+          return false;
+        });
       try {
         await this.inFlight;
       } finally {
         this.inFlight = null;
       }
-    } while (this.running && this.wakeRequested);
+      // 若当前已无到期或就绪告警可认领，重置唤醒计数并退出循环，避免空轮询
+      if (!claimed) {
+        this.wakeCount = 0;
+        break;
+      }
+    } while (this.running && this.wakeCount > 0);
   }
 }
 

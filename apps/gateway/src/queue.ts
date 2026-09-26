@@ -178,10 +178,12 @@ export class AlertQueue {
       if (open !== undefined) {
         if (open.status === "pending" && severityRank(input.severity) < severityRank(open.severity)) {
           // 未投递行升级：摘要与按钮一起替换（例如审批单从「可一键放行」升级为「需面板确认」）。
+          // 严重度升级属于紧急事件，重置 next_attempt_at = NULL 解除退避等待，确保可被立即认领投递。
           this.db
             .prepare(
               `UPDATE alerts
                SET severity = ?, title = ?, body = ?, source = ?, actions_json = ?,
+                   next_attempt_at = NULL,
                    merged_count = merged_count + 1, updated_at = ?
                WHERE id = ?`,
             )

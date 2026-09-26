@@ -601,6 +601,7 @@ export function buildInlineKeyboard(
     const rawCallback = typeof action.callbackData === "string" ? action.callbackData.trim() : "";
     const hasOpenableUrl = isExternallyOpenableUrl(action.url);
     const label = truncateButtonLabel(action.label);
+    if (label.trim() === "") continue;
     if (rawCallback !== "") {
       const byteLen = Buffer.byteLength(rawCallback, "utf8");
       if (byteLen <= TELEGRAM_MAX_CALLBACK_DATA_BYTES) {

@@ -421,6 +421,47 @@ describe("AlertQueue", () => {
     expect(queue.claimNext()?.id).toBe(first.id);
   });
 
+  it("同一指纹处于退避等待（next_attempt_at > now）时若升级为 critical，重置 next_attempt_at 为 NULL，解除退避并立即可认领投递", () => {
+    const now = "2026-01-01T00:00:00.000Z";
+    const first = queue.enqueue({
+      kind: "fingerprint",
+      severity: "warn",
+      title: "请求稍微频繁",
+      body: "b1",
+      source: "watch",
+      dedupeKey: "sig-backoff-test",
+    });
+
+    // 模拟一次投递失败，触发指数退避，nextAttemptAt 被推迟至 +120s
+    queue.markFailed(first.id, "connection timeout", now);
+    const inBackoff = queue.get(first.id)!;
+    expect(inBackoff.status).toBe("pending");
+    expect(inBackoff.nextAttemptAt).toBe("2026-01-01T00:02:00.000Z");
+
+    // 在退避期内（例如 30s 处），正常情况下不可认领
+    expect(queue.claimNext("2026-01-01T00:00:30.000Z")).toBeUndefined();
+
+    // 随后该指纹情况加剧，探针上报更高严重度（critical）
+    const escalated = queue.enqueue({
+      kind: "fingerprint",
+      severity: "critical",
+      title: "请求过于频繁（灾难性加剧）",
+      body: "b2",
+      source: "watch",
+      dedupeKey: "sig-backoff-test",
+    });
+
+    expect(escalated.id).toBe(first.id);
+    const afterEscalate = queue.get(first.id)!;
+    expect(afterEscalate.severity).toBe("critical");
+    expect(afterEscalate.status).toBe("pending");
+    // nextAttemptAt 必须被原子重置为 NULL，解开退避限制
+    expect(afterEscalate.nextAttemptAt).toBeNull();
+
+    // 在退避期内即可立即被 claimNext 认领！
+    expect(queue.claimNext("2026-01-01T00:00:30.000Z")?.id).toBe(first.id);
+  });
+
   it("markFailed：attempts 递增、指数退避 next_attempt_at、达到上限转 failed", () => {
     const now = "2026-01-01T00:00:00.000Z";
     const row = queue.enqueue({

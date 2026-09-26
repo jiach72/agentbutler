@@ -252,5 +252,59 @@ describe("DeliveryLoop", () => {
     expect(after.status).toBe("delivered");
     expect(after.channel).toBe("panel");
   });
+
+  it("wake：在途投递期间收到多个并发唤醒信号时，循环顺延消费所有告警，绝不丢弃任何告警", async () => {
+    let unblockFirstDelivery: (() => void) | undefined;
+    const firstDeliveryPromise = new Promise<void>((resolve) => {
+      unblockFirstDelivery = resolve;
+    });
+
+    let sendCount = 0;
+    const slowTelegram = new FakeChannel("telegram");
+    const originalSend = slowTelegram.send.bind(slowTelegram);
+    slowTelegram.send = async (msg) => {
+      sendCount += 1;
+      if (sendCount === 1) {
+        await firstDeliveryPromise;
+      }
+      return originalSend(msg);
+    };
+
+    const loop = new DeliveryLoop({
+      queue,
+      outbound: [slowTelegram],
+      scheduler: { every: () => () => {} }, // 挂起调度器，完全不依赖定时器
+    });
+
+    loop.start();
+    await new Promise((r) => setTimeout(r, 20));
+
+    // 1. 入队第一条 critical 告警并触发 wake，进入在途
+    const row1 = queue.enqueue({ kind: "k", severity: "critical", title: "第一条告警", body: "b1", source: "s" });
+    loop.wake();
+
+    // 等待第一条告警进入 send（inFlight 已被占用）
+    await new Promise((r) => setTimeout(r, 30));
+
+    // 2. 在第一条仍在途期间，连续入队第二条与第三条告警并分别调用 wake
+    const row2 = queue.enqueue({ kind: "k", severity: "critical", title: "第二条告警", body: "b2", source: "s" });
+    loop.wake();
+
+    const row3 = queue.enqueue({ kind: "k", severity: "critical", title: "第三条告警", body: "b3", source: "s" });
+    loop.wake();
+
+    // 3. 释放第一条告警的异步等待
+    unblockFirstDelivery!();
+
+    // 4. 等待循环顺延将全部 3 条告警消费完毕
+    await new Promise((r) => setTimeout(r, 50));
+    await loop.stop();
+
+    expect(queue.get(row1.id)?.status).toBe("delivered");
+    expect(queue.get(row2.id)?.status).toBe("delivered");
+    expect(queue.get(row3.id)?.status).toBe("delivered");
+    expect(queue.counts()).toMatchObject({ delivered: 3, pending: 0 });
+    expect(slowTelegram.sends).toHaveLength(3);
+  });
 });
 

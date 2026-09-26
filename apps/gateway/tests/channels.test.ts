@@ -571,6 +571,16 @@ describe("Telegram 内联键盘限制与智能降级", () => {
     expect(truncateButtonLabel(longLabel).length).toBe(64);
     expect(truncateButtonLabel(longLabel).endsWith("…")).toBe(true);
   });
+
+  it("按钮文本为空或纯空白字符时自动过滤，防止 Telegram API 报错 400 BUTTON_TEXT_INVALID", () => {
+    const markup = buildInlineKeyboard([
+      { label: "   ", callbackData: "apr:123:approve" },
+      { label: "", url: "https://butler.local/approvals/1" },
+      { label: "有效操作", callbackData: "apr:456:deny" },
+    ]);
+    expect(markup?.inline_keyboard).toHaveLength(1);
+    expect(markup?.inline_keyboard[0]?.[0]).toEqual({ text: "有效操作", callback_data: "apr:456:deny" });
+  });
 });
 
 describe("外发通道网络异常捕获与凭据脱敏防线", () => {
