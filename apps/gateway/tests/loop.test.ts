@@ -164,4 +164,58 @@ describe("DeliveryLoop", () => {
     await loop.tick(); // 手动 tick 仍可投递（调度器已不管）
     expect(queue.counts().delivered).toBe(2);
   });
+
+  it("deliver 遇到意外未捕获异常时自动 markFailed 退避，避免告警死锁在 delivering", async () => {
+    const loop = new DeliveryLoop({ queue, outbound: [] });
+    const row = queue.enqueue({
+      kind: "k",
+      severity: "warn",
+      title: "崩溃测试",
+      body: "b",
+      source: "s",
+    });
+
+    // 强行模拟 deliver 遇到运行时未知错误（例如序列化异常或内部未捕获故障）
+    const originalDeliver = (loop as unknown as { deliver: (alert: unknown) => Promise<void> }).deliver;
+    let crashCount = 0;
+    (loop as unknown as { deliver: (alert: unknown) => Promise<void> }).deliver = async (alert: unknown) => {
+      if (crashCount++ === 0) {
+        throw new Error("unexpected runtime crash");
+      }
+      return originalDeliver.call(loop, alert);
+    };
+
+    await loop.tick();
+
+    const after = queue.get(row.id)!;
+    expect(after.status).toBe("pending");
+    expect(after.attempts).toBe(1);
+    expect(after.lastError).toContain("unexpected runtime crash");
+  });
+
+  it("panel 通道发送偶发异常时安全容错，告警依然能成功完成 markDelivered", async () => {
+    const loop = new DeliveryLoop({ queue, outbound: [] });
+    (loop as unknown as { panel: { name: string; isConfigured: () => boolean; send: () => Promise<void> } }).panel = {
+      name: "panel",
+      isConfigured: () => true,
+      send: async () => {
+        throw new Error("panel storage transient error");
+      },
+    };
+
+    const row = queue.enqueue({
+      kind: "k",
+      severity: "warn",
+      title: "面板容错测试",
+      body: "b",
+      source: "s",
+    });
+
+    await loop.tick();
+
+    const after = queue.get(row.id)!;
+    expect(after.status).toBe("delivered");
+    expect(after.channel).toBe("panel");
+  });
 });
+

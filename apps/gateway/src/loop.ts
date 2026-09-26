@@ -77,7 +77,20 @@ export class DeliveryLoop {
   async tick(): Promise<void> {
     const alert = this.queue.claimNext(this.clock().toISOString());
     if (alert === undefined) return;
-    await this.deliver(alert);
+    try {
+      await this.deliver(alert);
+    } catch (err) {
+      console.error(`[gateway] delivery for alert ${alert.id} failed unexpectedly:`, err);
+      try {
+        this.queue.markFailed(
+          alert.id,
+          `delivery crashed unexpectedly: ${errorMessage(err)}`,
+          this.clock().toISOString(),
+        );
+      } catch (markErr) {
+        console.error(`[gateway] failed to markFailed for alert ${alert.id}:`, markErr);
+      }
+    }
   }
 
   private async deliver(alert: AlertRow): Promise<void> {
@@ -92,13 +105,21 @@ export class DeliveryLoop {
 
     // info/warn 无需外发；critical 但无可用外发通道时同样降级面板横幅。
     if (alert.severity !== "critical") {
-      await this.panel.send(message);
+      try {
+        await this.panel.send(message);
+      } catch (err) {
+        console.warn(`[gateway] panel delivery warning for alert ${alert.id}:`, err);
+      }
       this.queue.markDelivered(alert.id, this.panel.name, this.clock().toISOString());
       return;
     }
     const channels = availableOutbound(this.outbound);
     if (channels.length === 0) {
-      await this.panel.send(message);
+      try {
+        await this.panel.send(message);
+      } catch (err) {
+        console.warn(`[gateway] panel fallback delivery warning for alert ${alert.id}:`, err);
+      }
       this.queue.markDelivered(alert.id, this.panel.name, this.clock().toISOString());
       return;
     }
