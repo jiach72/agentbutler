@@ -230,5 +230,11 @@ function clampUtf16(value: string, maxChars: number): string {
   if (value.length <= maximum) return value;
   if (maximum === 0) return "";
   if (maximum === 1) return "…";
-  return `${value.slice(0, maximum - 1)}…`;
+  let cut = maximum - 1;
+  const lastCode = value.charCodeAt(cut - 1);
+  if (lastCode >= 0xd800 && lastCode <= 0xdbff) {
+    cut -= 1;
+  }
+  if (cut <= 0) return "…";
+  return `${value.slice(0, cut)}…`;
 }

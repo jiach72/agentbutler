@@ -236,6 +236,24 @@ describe("AlertQueue", () => {
     expect(queue.claimNext()?.title).toBe("普通提醒");
   });
 
+  it("claimNext 具备原子状态机防护：已被并发 resolve 的告警不会被误置为 delivering", () => {
+    const item = queue.enqueue({
+      kind: "k",
+      severity: "critical",
+      title: "瞬态告警",
+      body: "b",
+      source: "watch",
+      dedupeKey: "transient-1",
+    });
+
+    queue.resolveByDedupeKey("transient-1");
+    expect(queue.get(item.id)?.status).toBe("resolved");
+
+    const claimed = queue.claimNext();
+    expect(claimed).toBeUndefined();
+    expect(queue.get(item.id)?.status).toBe("resolved");
+  });
+
   it("同一指纹从提醒升级为 critical 时提升未投递告警，而不是继续按普通提醒处理", () => {
     const first = queue.enqueue({
       kind: "fingerprint",

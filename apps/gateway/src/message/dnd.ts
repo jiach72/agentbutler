@@ -70,9 +70,25 @@ function isActive(rule: DndRule, nowMs: number): boolean {
   return minute >= rule.startMinute || minute < rule.endMinute;
 }
 
+const formatterCache = new Map<string, Intl.DateTimeFormat>();
+
+function getDateTimeFormatter(timeZone: string): Intl.DateTimeFormat {
+  let formatter = formatterCache.get(timeZone);
+  if (formatter === undefined) {
+    formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    });
+    formatterCache.set(timeZone, formatter);
+  }
+  return formatter;
+}
+
 function localMinute(nowMs: number, timeZone: string): number {
   try {
-    const parts = new Intl.DateTimeFormat("en-US", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(nowMs);
+    const parts = getDateTimeFormatter(timeZone).formatToParts(nowMs);
     const hour = Number(parts.find((part) => part.type === "hour")?.value);
     const minute = Number(parts.find((part) => part.type === "minute")?.value);
     if (!Number.isInteger(hour) || !Number.isInteger(minute)) throw new Error("missing time parts");

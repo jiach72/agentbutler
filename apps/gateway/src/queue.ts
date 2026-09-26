@@ -225,9 +225,14 @@ export class AlertQueue {
       .get(now) as Record<string, unknown> | undefined;
     if (row === undefined) return undefined;
     const id = Number(row["id"]);
-    this.db
-      .prepare("UPDATE alerts SET status = 'delivering', updated_at = ? WHERE id = ?")
+    const result = this.db
+      .prepare(
+        "UPDATE alerts SET status = 'delivering', updated_at = ? WHERE id = ? AND status = 'pending'",
+      )
       .run(new Date().toISOString(), id);
+    if (Number(result.changes) === 0) {
+      return undefined;
+    }
     return this.get(id);
   }
 

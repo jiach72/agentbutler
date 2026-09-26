@@ -277,6 +277,58 @@ describe("message policy", () => {
     );
   });
 
+  it("safely bounds progress digest with surrogate pairs without splitting high/low surrogates", () => {
+    const emojiEvents: TaskEvent[] = [
+      {
+        runId: "run-emoji",
+        sequence: 1,
+        sessionId: "session-1",
+        kind: "progress",
+        summary: "处理火箭数据 🚀 启动",
+        occurredAt: NOW,
+      },
+    ];
+    for (let maxChars = 10; maxChars <= 35; maxChars += 1) {
+      const result = buildProgressDigest({
+        incoming: message({ runId: "run-emoji" }),
+        events: emojiEvents,
+        config: { ...DEFAULT_MESSAGE_POLICY.digest, maxChars },
+      });
+      expect(result.accepted).toBe(true);
+      if (result.content !== undefined) {
+        expect(result.content.length).toBeLessThanOrEqual(maxChars);
+        expect(() => encodeURIComponent(result.content!)).not.toThrow();
+        const lastCutChar = result.content.endsWith("…")
+          ? result.content.charCodeAt(result.content.length - 2)
+          : result.content.charCodeAt(result.content.length - 1);
+        expect(lastCutChar >= 0xd800 && lastCutChar <= 0xdbff).toBe(false);
+      }
+    }
+  });
+
+  it("reuses cached DateTimeFormat instances and handles invalid time zones gracefully", () => {
+    const shanghai = evaluateDnd({
+      message: message(),
+      rules: [rule({ timeZone: "Asia/Shanghai", startMinute: 17 * 60 + 30, endMinute: 19 * 60 })],
+      now: "2026-08-22T10:00:00.000Z",
+    });
+    const shanghaiAgain = evaluateDnd({
+      message: message(),
+      rules: [rule({ timeZone: "Asia/Shanghai", startMinute: 17 * 60 + 30, endMinute: 19 * 60 })],
+      now: "2026-08-22T10:00:00.000Z",
+    });
+    expect(shanghai.held).toBe(true);
+    expect(shanghaiAgain.held).toBe(true);
+
+    expect(() =>
+      evaluateDnd({
+        message: message(),
+        rules: [rule({ timeZone: "Invalid/Timezone", startMinute: 10, endMinute: 20 })],
+        now: "2026-08-22T10:00:00.000Z",
+      }),
+    ).toThrow(/invalid IANA time zone: Invalid\/Timezone/);
+  });
+
   it("absorbs pending progress for a final response but declines unrelated runs", () => {
     const final = buildProgressDigest({
       holder: message({ messageId: "progress-1", messageKind: "task-progress" }),
