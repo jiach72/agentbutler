@@ -72,7 +72,7 @@ export function createStallWriteStage(deps: StallWriteDeps = {}): InspectionStag
       if (alive === undefined) {
         return { id: STALL_WRITE_CHECK_ID, status: "skipped", detail: "缺少 process-alive 结论，停写检测不判定" };
       }
-      const silentMs = now() - latest;
+      const silentMs = Math.max(0, now() - latest);
       if (silentMs > thresholdMs) {
         const hours = Math.round(silentMs / 360_000) / 10;
         return {
@@ -81,7 +81,7 @@ export function createStallWriteStage(deps: StallWriteDeps = {}): InspectionStag
           detail: `${STALL_WRITE_WARN_PREFIX}：日志静默 ${hours}h 超阈值 ${Math.round(thresholdMs / 360_000) / 10}h`,
         };
       }
-      const minutes = Math.round(silentMs / 600_00);
+      const minutes = Math.round(silentMs / 60_000);
       return { id: STALL_WRITE_CHECK_ID, status: "pass", detail: `日志活跃（最新写入 ${minutes} 分钟前）` };
     },
   };

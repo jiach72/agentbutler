@@ -44,6 +44,15 @@ describe("stall-write（日志停写检测）", () => {
     expect(result.detail).toContain("日志活跃");
   });
 
+  it("未来时钟偏差（latest > now）→ 稳健保底 0 分钟前 pass", async () => {
+    const result = await createStallWriteStage({
+      sampler: () => NOW + 10 * 60 * 1000, // 未来 10 分钟偏差
+      now: () => NOW,
+    }).run(ctxOf({ processAlive: "pass" }));
+    expect(result.status).toBe("pass");
+    expect(result.detail).toContain("最新写入 0 分钟前");
+  });
+
   it("进程未运行（process-alive fail）→ 不报停写，skipped", async () => {
     const result = await createStallWriteStage({
       sampler: () => NOW - 7 * HOUR,
