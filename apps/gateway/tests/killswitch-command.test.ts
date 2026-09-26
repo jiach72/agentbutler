@@ -113,6 +113,23 @@ describe("M1.3 急停转发端口", () => {
     expect(result.ok).toBe(false);
     expect(result.message).toContain("未送达");
   });
+
+  it("透传 accessToken 与 internalToken 到 Watch 请求头", async () => {
+    let capturedHeaders: Record<string, string> | undefined;
+    const commander = createWatchKillswitchCommander({
+      watchUrl: "http://watch:7533",
+      accessToken: "my-access-token",
+      internalToken: "my-internal-token",
+      fetchFn: (async (_url: string, init: { headers?: Record<string, string> }) => {
+        capturedHeaders = init.headers;
+        return okJson({ engaged: true });
+      }) as never,
+    });
+    const result = await commander({ command: "engage", channel: "telegram" });
+    expect(result.ok).toBe(true);
+    expect(capturedHeaders?.["x-butler-token"]).toBe("my-access-token");
+    expect(capturedHeaders?.["x-butler-internal-token"]).toBe("my-internal-token");
+  });
 });
 
 describe("M3.1 审批回执端口", () => {
@@ -124,12 +141,18 @@ describe("M3.1 审批回执端口", () => {
     expect(parseApprovalCallback("")).toBeNull();
   });
 
-  it("决策转发带 source=channel（服务端据此拒绝放行升级单）", async () => {
-    let captured: { url: string; body: Record<string, unknown> } | null = null;
+  it("决策转发带 source=channel 与鉴权头（服务端据此拒绝放行升级单并验证身份）", async () => {
+    let captured: { url: string; body: Record<string, unknown>; headers?: Record<string, string> } | null = null;
     const decider = createWatchApprovalDecider({
       watchUrl: "http://watch:7533",
-      fetchFn: (async (url: string, init: { body?: string }) => {
-        captured = { url, body: JSON.parse(String(init.body)) as Record<string, unknown> };
+      accessToken: "decider-access-token",
+      internalToken: "decider-internal-token",
+      fetchFn: (async (url: string, init: { body?: string; headers?: Record<string, string> }) => {
+        captured = {
+          url,
+          body: JSON.parse(String(init.body)) as Record<string, unknown>,
+          headers: init.headers,
+        };
         return { ok: true, status: 200, json: async () => ({}), text: async () => "{}" };
       }) as never,
     });
@@ -138,6 +161,8 @@ describe("M3.1 审批回执端口", () => {
     expect(captured!.url).toBe("http://watch:7533/api/approvals/ap-1/decide");
     expect(captured!.body["source"]).toBe("channel");
     expect(captured!.body["decision"]).toBe("approve");
+    expect(captured!.headers?.["x-butler-token"]).toBe("decider-access-token");
+    expect(captured!.headers?.["x-butler-internal-token"]).toBe("decider-internal-token");
   });
 
   it("409 映射为「已被处理或已升级」而非系统错误", async () => {
@@ -462,5 +487,60 @@ describe("webhook：口令急停与审批回执", () => {
     expect(JSON.parse(res.body).error).toBe("webhook-secret-not-configured");
     expect(killed).not.toContain("release");
     await openApp.close();
+  });
+
+  it("Gateway 配置 accessToken 时：telegram webhook 豁免 accessToken 门禁并由 secret-token 守卫", async () => {
+    let capturedWatchHeaders: Record<string, string> | undefined;
+    const authApp = createGatewayServer({
+      queue,
+      channels: [],
+      startLoop: false,
+      accessToken: "gateway-master-token",
+      telegramWebhookSecret: "tg-secret-123",
+      killswitchPassphrase: PASSPHRASE,
+      // 验证默认 commander 正确绑定 gateway 的 accessToken
+      watchUrl: "http://watch:7533",
+      watchFetchFn: (async (_url: string, init?: { headers?: Record<string, string> }) => {
+        capturedWatchHeaders = init?.headers;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ engaged: true }),
+          text: async () => "{}",
+        };
+      }) as never,
+    });
+
+    // ① 普通受保护端点（如 POST /api/alerts）：无 Token 必被 401 拦截
+    const alertBlocked = await authApp.inject({
+      method: "POST",
+      url: "/api/alerts",
+      payload: { kind: "k", severity: "warn", title: "t", body: "b", source: "s" },
+    });
+    expect(alertBlocked.statusCode).toBe(401);
+    expect(JSON.parse(alertBlocked.body).reason).toBe("需要访问口令");
+
+    // ② Telegram Webhook（带错误密钥）：未被 accessToken 拦截，而是被 webhook 自身密钥拦截为 401 invalid-webhook-secret
+    const wrongSecret = await authApp.inject({
+      method: "POST",
+      url: "/api/channels/telegram/webhook",
+      headers: { "x-telegram-bot-api-secret-token": "wrong-secret" },
+      payload: { message: { text: `${PASSPHRASE} 急停`, chat: { id: 1 } } },
+    });
+    expect(wrongSecret.statusCode).toBe(401);
+    expect(JSON.parse(wrongSecret.body).error).toBe("invalid-webhook-secret");
+
+    // ③ Telegram Webhook（带正确密钥）：成功放行，并自动将 accessToken 透传至 Watch 内部调用头
+    const okHook = await authApp.inject({
+      method: "POST",
+      url: "/api/channels/telegram/webhook",
+      headers: { "x-telegram-bot-api-secret-token": "tg-secret-123" },
+      payload: { message: { text: `${PASSPHRASE} 急停`, chat: { id: 1 } } },
+    });
+    expect(okHook.statusCode).toBe(200);
+    expect(JSON.parse(okHook.body).command).toBe("engage");
+    expect(capturedWatchHeaders?.["x-butler-token"]).toBe("gateway-master-token");
+
+    await authApp.close();
   });
 });

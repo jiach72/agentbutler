@@ -241,6 +241,20 @@ describe("createAlertPoster.resolve（智能降级③）", () => {
     expect(headers["x-butler-token"]).toBe("secret-token");
   });
 
+  it("POST /api/alerts/resolve 携带 internalToken 时附加 x-butler-internal-token 头", async () => {
+    const poster = createAlertPoster({
+      gatewayUrl: "http://127.0.0.1:7532",
+      fetchFn: fetchImpl,
+      internalToken: "internal-secret",
+    });
+    await poster.resolve("ext-2");
+    await poster.flush();
+
+    expect(posts).toHaveLength(1);
+    const headers = posts[0]!.init?.headers as Record<string, string>;
+    expect(headers["x-butler-internal-token"]).toBe("internal-secret");
+  });
+
   it("归档失败只记 audit，不抛异常", async () => {
     failFetch = true;
     const poster = createAlertPoster({

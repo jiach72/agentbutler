@@ -169,12 +169,18 @@ export function parseKillswitchCommand(
   return null;
 }
 
-/** 默认实现：把口令急停转发到 Watch 的 killswitch 端点。 */
-export function createWatchKillswitchCommander(options: {
+export interface WatchKillswitchCommanderOptions {
   watchUrl?: string;
   fetchFn?: typeof fetch;
   timeoutMs?: number;
-} = {}): KillswitchCommander {
+  accessToken?: string;
+  internalToken?: string;
+}
+
+/** 默认实现：把口令急停转发到 Watch 的 killswitch 端点。 */
+export function createWatchKillswitchCommander(
+  options: WatchKillswitchCommanderOptions = {},
+): KillswitchCommander {
   const base = (
     options.watchUrl ??
     process.env["BUTLER_WATCH_URL"] ??
@@ -184,13 +190,20 @@ export function createWatchKillswitchCommander(options: {
   const doFetch = options.fetchFn ?? ((url, init) => fetch(url, init));
   // 急停是「尽快停掉」的路径，超时给得比审批短。
   const timeoutMs = options.timeoutMs ?? 8000;
+  const accessToken = (options.accessToken ?? process.env["BUTLER_ACCESS_TOKEN"] ?? "").trim();
+  const internalToken = (options.internalToken ?? process.env["BUTLER_INTERNAL_TOKEN"] ?? "").trim();
+  const authHeaders = (): Record<string, string> => ({
+    "content-type": "application/json",
+    ...(accessToken !== "" ? { "x-butler-token": accessToken } : {}),
+    ...(internalToken !== "" ? { "x-butler-internal-token": internalToken } : {}),
+  });
 
   return async (input) => {
     try {
       if (input.command === "status") {
         const response = await doFetch(`${base}/api/killswitch`, {
           method: "GET",
-          headers: { "content-type": "application/json" },
+          headers: authHeaders(),
           signal: AbortSignal.timeout(timeoutMs),
         });
         if (!response.ok) {
@@ -208,7 +221,7 @@ export function createWatchKillswitchCommander(options: {
       const endpoint = input.command === "engage" ? "engage" : "release";
       const response = await doFetch(`${base}/api/killswitch/${endpoint}`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: authHeaders(),
         body: JSON.stringify({
           trigger: "channel-command",
           ...(input.actor === undefined || input.actor === "" ? {} : { actor: input.actor }),
@@ -239,12 +252,18 @@ export function createWatchKillswitchCommander(options: {
   };
 }
 
-/** 默认实现：转发到 Watch 的决策端点（HTTP 401/404/409/410 原样映射为 reason）。 */
-export function createWatchApprovalDecider(options: {
+export interface WatchApprovalDeciderOptions {
   watchUrl?: string;
   fetchFn?: typeof fetch;
   timeoutMs?: number;
-} = {}): ApprovalDecider {
+  accessToken?: string;
+  internalToken?: string;
+}
+
+/** 默认实现：转发到 Watch 的决策端点（HTTP 401/404/409/410 原样映射为 reason）。 */
+export function createWatchApprovalDecider(
+  options: WatchApprovalDeciderOptions = {},
+): ApprovalDecider {
   // 变量名与 butler-web 的 BUTLER_WATCH_URL 保持一致（compose 内为 http://butler-watch:7533）。
   const base = (
     options.watchUrl ??
@@ -254,13 +273,21 @@ export function createWatchApprovalDecider(options: {
   ).replace(/\/+$/, "");
   const doFetch = options.fetchFn ?? ((url, init) => fetch(url, init));
   const timeoutMs = options.timeoutMs ?? 5000;
+  const accessToken = (options.accessToken ?? process.env["BUTLER_ACCESS_TOKEN"] ?? "").trim();
+  const internalToken = (options.internalToken ?? process.env["BUTLER_INTERNAL_TOKEN"] ?? "").trim();
+  const authHeaders = (): Record<string, string> => ({
+    "content-type": "application/json",
+    ...(accessToken !== "" ? { "x-butler-token": accessToken } : {}),
+    ...(internalToken !== "" ? { "x-butler-internal-token": internalToken } : {}),
+  });
+
   return async (input) => {
     try {
       const response = await doFetch(
         `${base}/api/approvals/${encodeURIComponent(input.approvalId)}/decide`,
         {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: authHeaders(),
           body: JSON.stringify({
             decision: input.decision,
             channel: input.channel,
@@ -369,6 +396,10 @@ export interface GatewayServerOptions {
   killswitchPassphrase?: string;
   /** M1.3 指令白名单会话（缺省读 BUTLER_TELEGRAM_CHAT_ID；空 = 不限）。 */
   killswitchAllowedChat?: string;
+  /** Watch 服务地址（默认读 BUTLER_WATCH_URL / BUTLER_WATCH_HTTP_URL 或 http://127.0.0.1:7533）。 */
+  watchUrl?: string;
+  /** Watch HTTP 请求函数（测试可注入）。 */
+  watchFetchFn?: typeof fetch;
   /** TypeSafe Jev 客户端（测试注入或缺省读 env TYPESAFE_API_KEY）。 */
   jevClient?: JevClient;
 }
@@ -425,11 +456,19 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
   /**
    * 访问口令（配置了 BUTLER_ACCESS_TOKEN 时启用）：网关能读全部消息正文、改策略与 DND，
    * 内网不等于可信。/healthz 与 /internal/hermes/* 豁免（后者仅触发 wake 且单独限速）。
+   * /api/channels/telegram/webhook 豁免（Telegram 官方回调入口，专享 X-Telegram-Bot-Api-Secret-Token fail-closed 校验）。
    */
   const accessToken = (options.accessToken ?? process.env["BUTLER_ACCESS_TOKEN"] ?? "").trim();
   if (accessToken !== "") {
     app.addHook("onRequest", async (request, reply) => {
-      if (request.url === "/healthz" || request.url.startsWith("/internal/hermes/")) return;
+      const pathname = (request.url.split("?")[0] ?? request.url).replace(/\/+$/, "") || "/";
+      if (
+        pathname === "/healthz" ||
+        pathname.startsWith("/internal/hermes/") ||
+        pathname === "/api/channels/telegram/webhook"
+      ) {
+        return;
+      }
       const auth = request.headers["authorization"];
       const match = typeof auth === "string" ? /^Bearer\s+(.+)$/i.exec(auth.trim()) : null;
       const header = request.headers["x-butler-token"];
@@ -442,7 +481,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
       ) {
         // Fastify 关闭了 logger；鉴权失败是安全事件，至少打到 stderr 留痕。
         process.stderr.write(
-          `[gateway] auth-failed method=${request.method} url=${request.url.split("?")[0] ?? request.url}\n`,
+          `[gateway] auth-failed method=${request.method} url=${pathname}\n`,
         );
         reply.code(401);
         return reply.send({ error: "unauthorized", reason: "需要访问口令" });
@@ -675,7 +714,14 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
         return await reply.code(200).send({ ok: true, ignored: "unrecognized-callback-data" });
       }
       const actor = describeTelegramActor(record["from"]);
-      const decider = options.approvalDecider ?? createWatchApprovalDecider();
+      const decider =
+        options.approvalDecider ??
+        createWatchApprovalDecider({
+          watchUrl: options.watchUrl,
+          fetchFn: options.watchFetchFn,
+          accessToken,
+          internalToken,
+        });
       const result = await decider({
         approvalId: parsed.approvalId,
         decision: parsed.decision,
@@ -707,7 +753,14 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
       }
 
       const actor = describeTelegramActor(record["from"]);
-      const commander = options.killswitchCommander ?? createWatchKillswitchCommander();
+      const commander =
+        options.killswitchCommander ??
+        createWatchKillswitchCommander({
+          watchUrl: options.watchUrl,
+          fetchFn: options.watchFetchFn,
+          accessToken,
+          internalToken,
+        });
       const result = await commander({
         command: parsed.command,
         channel: "telegram",

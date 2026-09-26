@@ -67,6 +67,8 @@ export interface AlertPosterDeps {
   audit?: AuditLog;
   /** gateway Bearer 鉴权令牌（缺省读 BUTLER_ACCESS_TOKEN 环境变量）。 */
   accessToken?: string;
+  /** 内部操作令牌（可选，缺省读 BUTLER_INTERNAL_TOKEN 环境变量）。 */
+  internalToken?: string;
 }
 
 export const ALERT_FORWARD_FAILED_ACTION = "alert-forward-failed";
@@ -123,9 +125,11 @@ export function createAlertPoster(deps: AlertPosterDeps): AlertPoster {
   const retryBaseDelayMs = Math.max(0, Math.min(30_000, Math.floor(deps.retryBaseDelayMs ?? 250)));
   const endpoint = `${deps.gatewayUrl.replace(/\/+$/, "")}/api/alerts`;
   const accessToken = (deps.accessToken ?? process.env["BUTLER_ACCESS_TOKEN"] ?? "").trim();
+  const internalToken = (deps.internalToken ?? process.env["BUTLER_INTERNAL_TOKEN"] ?? "").trim();
   const alertHeaders = (): Record<string, string> => ({
     "content-type": "application/json",
     ...(accessToken !== "" ? { "x-butler-token": accessToken } : {}),
+    ...(internalToken !== "" ? { "x-butler-internal-token": internalToken } : {}),
   });
   const inFlight = new Set<Promise<void>>();
 
@@ -236,6 +240,8 @@ export interface AlertForwarderDeps {
   timeoutMs?: number;
   /** gateway Bearer 鉴权令牌（缺省读 BUTLER_ACCESS_TOKEN 环境变量）。 */
   accessToken?: string;
+  /** 内部操作令牌（可选，缺省读 BUTLER_INTERNAL_TOKEN 环境变量）。 */
+  internalToken?: string;
 }
 
 /** 启动告警转发订阅，返回控制句柄。 */
@@ -246,6 +252,7 @@ export function startAlertForwarder(deps: AlertForwarderDeps): AlertForwarder {
     timeoutMs: deps.timeoutMs,
     audit: deps.audit,
     accessToken: deps.accessToken,
+    internalToken: deps.internalToken,
   });
 
   function dispatch(body: AlertForwardBody): void {
