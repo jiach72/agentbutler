@@ -409,10 +409,10 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
   });
 
   /** Read-only gateway fetch with transport failures collapsed to null for partitioned degradation. */
-  const fetchGateway = async (gatewayPath: string): Promise<Response | null> => {
+  const fetchGateway = async (gatewayPath: string, timeoutMs = 5_000): Promise<Response | null> => {
     try {
       return await doFetch(`${gatewayUrl}${gatewayPath}`, {
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(timeoutMs),
         headers: gatewayAuthHeaders(),
       });
     } catch {
@@ -424,6 +424,7 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     gatewayPath: string,
     body: unknown,
     reply: FastifyReply,
+    timeoutMs = 5_000,
   ): Promise<FastifyReply> => {
     let res: Response;
     try {
@@ -431,7 +432,7 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
         method: "POST",
         headers: { "content-type": "application/json", ...gatewayAuthHeaders() },
         body: JSON.stringify(body ?? {}),
-        signal: AbortSignal.timeout(5_000),
+        signal: AbortSignal.timeout(timeoutMs),
       });
     } catch {
       return reply.status(502).send({ error: "gateway-unreachable" });
@@ -452,6 +453,7 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     gatewayPath: string,
     body: unknown,
     reply: FastifyReply,
+    timeoutMs = 5_000,
   ): Promise<FastifyReply> => {
     let res: Response;
     try {
@@ -459,7 +461,7 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
         method: "PUT",
         headers: { "content-type": "application/json", ...gatewayAuthHeaders() },
         body: JSON.stringify(body ?? {}),
-        signal: AbortSignal.timeout(5_000),
+        signal: AbortSignal.timeout(timeoutMs),
       });
     } catch {
       return reply.status(502).send({ error: "gateway-unreachable" });

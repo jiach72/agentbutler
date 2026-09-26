@@ -111,22 +111,43 @@ export async function registerGatewayRoutes(
   );
 
   // 死信重投
-  app.post("/api/messages/:messageId/redeliver", async (request, reply) =>
-    proxyGatewayPost(
-      `/api/messages/${encodeURIComponent(String((request.params as Record<string, string>)["messageId"] ?? ""))}/redeliver`,
-      {},
+  app.post("/api/messages/:messageId/redeliver", async (request, reply) => {
+    const rawMessageId = (request.params as Record<string, unknown>)["messageId"];
+    if (typeof rawMessageId !== "string" || rawMessageId.trim() === "") {
+      return reply.status(400).send({ error: "messageId is required" });
+    }
+    return proxyGatewayPost(
+      `/api/messages/${encodeURIComponent(rawMessageId.trim())}/redeliver`,
+      request.body ?? {},
       reply,
-    ),
-  );
+    );
+  });
+
+  // 立即发送（跳过节奏与免打扰等待）
+  app.post("/api/messages/:messageId/expedite", async (request, reply) => {
+    const rawMessageId = (request.params as Record<string, unknown>)["messageId"];
+    if (typeof rawMessageId !== "string" || rawMessageId.trim() === "") {
+      return reply.status(400).send({ error: "messageId is required" });
+    }
+    return proxyGatewayPost(
+      `/api/messages/${encodeURIComponent(rawMessageId.trim())}/expedite`,
+      request.body ?? {},
+      reply,
+    );
+  });
 
   // 结果未知结案
-  app.post("/api/messages/:messageId/resolve", async (request, reply) =>
-    proxyGatewayPost(
-      `/api/messages/${encodeURIComponent(String((request.params as Record<string, string>)["messageId"] ?? ""))}/resolve`,
+  app.post("/api/messages/:messageId/resolve", async (request, reply) => {
+    const rawMessageId = (request.params as Record<string, unknown>)["messageId"];
+    if (typeof rawMessageId !== "string" || rawMessageId.trim() === "") {
+      return reply.status(400).send({ error: "messageId is required" });
+    }
+    return proxyGatewayPost(
+      `/api/messages/${encodeURIComponent(rawMessageId.trim())}/resolve`,
       request.body,
       reply,
-    ),
-  );
+    );
+  });
 
   // 免打扰规则代理
   app.get("/api/messages/dnd", async (_request, reply) => {
@@ -607,6 +628,17 @@ export async function registerGatewayRoutes(
     } catch {
       return { reachable: false, days, retentionDays: 365, items: [] };
     }
+  });
+
+  // 单条消息明细代理
+  app.get("/api/messages/:messageId", async (request, reply) => {
+    const rawMessageId = (request.params as Record<string, unknown>)["messageId"];
+    if (typeof rawMessageId !== "string" || rawMessageId.trim() === "") {
+      return reply.status(400).send({ error: "messageId is required" });
+    }
+    const res = await fetchGateway(`/api/messages/${encodeURIComponent(rawMessageId.trim())}`);
+    if (res === null) return reply.status(502).send({ error: "gateway-unreachable" });
+    return reply.status(res.status).send(await res.json().catch(() => ({ error: "gateway-invalid-response" })));
   });
 
   app.post("/api/gateway/patches/:id/apply", async (request, reply) => {

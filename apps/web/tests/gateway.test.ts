@@ -576,4 +576,133 @@ describe("butler-web 消息网关聚合与补丁代理（Task 15.2，fastify inj
     expect(res.statusCode).toBe(502);
     expect(res.json()).toEqual({ error: "watch-unreachable" });
   });
+
+  it("POST /api/messages/:messageId/expedite 透传网关响应并支持立即发送", async () => {
+    const transport = makeFetch({
+      [`POST ${GATEWAY_URL}/api/messages/m-held/expedite`]: {
+        status: 200,
+        body: {
+          message: { ...MESSAGE_ITEM, messageId: "m-held", state: "ready" },
+          nextStep: "已跳过剩余等待，将按当前队列顺序尽快投递。",
+        },
+      },
+    });
+    const app = build(transport.fetch);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/messages/m-held/expedite",
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      message: expect.objectContaining({ messageId: "m-held", state: "ready" }),
+      nextStep: "已跳过剩余等待，将按当前队列顺序尽快投递。",
+    });
+  });
+
+  it("POST /api/messages/:messageId/expedite 网关不可达时返回 502", async () => {
+    const transport = makeFetch({
+      [`POST ${GATEWAY_URL}/api/messages/m-held/expedite`]: "throw",
+    });
+    const app = build(transport.fetch);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/messages/m-held/expedite",
+    });
+
+    expect(res.statusCode).toBe(502);
+    expect(res.json()).toEqual({ error: "gateway-unreachable" });
+  });
+
+  it("消息动作在非法或空白 messageId 时统一返回 400", async () => {
+    const transport = makeFetch({});
+    const app = build(transport.fetch);
+
+    const [expediteRes, redeliverRes, resolveRes, getRes] = await Promise.all([
+      app.inject({ method: "POST", url: "/api/messages/%20/expedite" }),
+      app.inject({ method: "POST", url: "/api/messages/%20/redeliver" }),
+      app.inject({ method: "POST", url: "/api/messages/%20/resolve", payload: { outcome: "delivered" } }),
+      app.inject({ method: "GET", url: "/api/messages/%20" }),
+    ]);
+
+    expect(expediteRes.statusCode).toBe(400);
+    expect(expediteRes.json()).toEqual({ error: "messageId is required" });
+
+    expect(redeliverRes.statusCode).toBe(400);
+    expect(redeliverRes.json()).toEqual({ error: "messageId is required" });
+
+    expect(resolveRes.statusCode).toBe(400);
+    expect(resolveRes.json()).toEqual({ error: "messageId is required" });
+
+    expect(getRes.statusCode).toBe(400);
+    expect(getRes.json()).toEqual({ error: "messageId is required" });
+  });
+
+  it("POST redeliver 与 resolve 正确透传网关处理响应", async () => {
+    const transport = makeFetch({
+      [`POST ${GATEWAY_URL}/api/messages/m-dead/redeliver`]: {
+        status: 200,
+        body: {
+          message: { ...MESSAGE_ITEM, messageId: "m-dead", state: "policy_pending" },
+          nextStep: "已重新排队进入策略管线，稍后可在消息明细中查看投递结果。",
+        },
+      },
+      [`POST ${GATEWAY_URL}/api/messages/m-unknown/resolve`]: {
+        status: 200,
+        body: {
+          message: { ...MESSAGE_ITEM, messageId: "m-unknown", state: "delivered" },
+        },
+      },
+    });
+    const app = build(transport.fetch);
+
+    const redeliverRes = await app.inject({
+      method: "POST",
+      url: "/api/messages/m-dead/redeliver",
+    });
+    expect(redeliverRes.statusCode).toBe(200);
+    expect(redeliverRes.json()).toMatchObject({
+      message: { messageId: "m-dead", state: "policy_pending" },
+    });
+
+    const resolveRes = await app.inject({
+      method: "POST",
+      url: "/api/messages/m-unknown/resolve",
+      payload: { outcome: "delivered", reason: "人工核实已送达" },
+    });
+    expect(resolveRes.statusCode).toBe(200);
+    expect(resolveRes.json()).toMatchObject({
+      message: { messageId: "m-unknown", state: "delivered" },
+    });
+  });
+
+  it("GET /api/messages/:messageId 透传单条消息明细与 404 状态", async () => {
+    const transport = makeFetch({
+      [`GET ${GATEWAY_URL}/api/messages/m-single`]: {
+        status: 200,
+        body: { message: MESSAGE_ITEM },
+      },
+      [`GET ${GATEWAY_URL}/api/messages/m-missing`]: {
+        status: 404,
+        body: { error: "message not found" },
+      },
+    });
+    const app = build(transport.fetch);
+
+    const okRes = await app.inject({
+      method: "GET",
+      url: "/api/messages/m-single",
+    });
+    expect(okRes.statusCode).toBe(200);
+    expect(okRes.json()).toEqual({ message: MESSAGE_ITEM });
+
+    const notFoundRes = await app.inject({
+      method: "GET",
+      url: "/api/messages/m-missing",
+    });
+    expect(notFoundRes.statusCode).toBe(404);
+    expect(notFoundRes.json()).toEqual({ error: "message not found" });
+  });
 });
