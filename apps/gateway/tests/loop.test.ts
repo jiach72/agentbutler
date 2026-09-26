@@ -217,5 +217,40 @@ describe("DeliveryLoop", () => {
     expect(after.status).toBe("delivered");
     expect(after.channel).toBe("panel");
   });
+
+  it("wake：运行中的循环收到唤醒信号立即消化新入队告警；已停止时安全忽略", async () => {
+    // 使用挂起调度器（不主动触发定时回调），验证唯有 wake() 主动唤醒
+    const loop = new DeliveryLoop({
+      queue,
+      outbound: [],
+      scheduler: { every: () => () => {} },
+    });
+
+    // 未启动时 wake() 安全无副作用
+    loop.wake();
+    expect(queue.counts().delivered).toBe(0);
+
+    loop.start();
+    // 等待启动首个空 tick 结算
+    await new Promise((r) => setTimeout(r, 20));
+    expect(queue.counts().delivered).toBe(0);
+
+    const row = queue.enqueue({
+      kind: "k",
+      severity: "warn",
+      title: "立即唤醒",
+      body: "b",
+      source: "s",
+    });
+
+    // 触发 wake，等待投递结算
+    loop.wake();
+    await new Promise((r) => setTimeout(r, 20));
+    await loop.stop();
+
+    const after = queue.get(row.id)!;
+    expect(after.status).toBe("delivered");
+    expect(after.channel).toBe("panel");
+  });
 });
 

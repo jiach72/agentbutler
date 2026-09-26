@@ -595,6 +595,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
       dedupeKey: dedupeKey || undefined,
       ...(actions === undefined ? {} : { actions }),
     });
+    loop.wake();
     return await reply.code(202).send({ id: row.id });
   });
 

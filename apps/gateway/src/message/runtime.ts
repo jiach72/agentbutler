@@ -223,26 +223,34 @@ export function createHermesMessageRuntime(
     start,
     stop,
     inboundHistory: (limit?: number) => adapter.inboundHistory(instance, limit),
-    requeueMessage: (messageId: string) => adapter.requeueOutbound(instance, messageId),
-    resolveUnknownMessage: (
+    requeueMessage: async (messageId: string) => {
+      const result = await adapter.requeueOutbound(instance, messageId);
+      if (result.ok) {
+        service.wake();
+      }
+      return result;
+    },
+    resolveUnknownMessage: async (
       messageId: string,
       outcome: "delivered" | "cancelled",
       reason?: string,
     ) => {
       if (typeof adapter.resolveOutbound === "function") {
-        return adapter.resolveOutbound(instance, messageId, outcome, reason);
+        const result = await adapter.resolveOutbound(instance, messageId, outcome, reason);
+        if (result.ok) {
+          service.wake();
+        }
+        return result;
       }
-      return Promise.resolve(fail("E203", "adapter does not support resolving unknown messages"));
+      return fail("E203", "adapter does not support resolving unknown messages");
     },
-    expediteMessage: (messageId: string) => {
+    expediteMessage: async (messageId: string) => {
       const message = store.messageView(messageId);
       if (message === undefined) {
-        return Promise.resolve(fail("E203", "message not found"));
+        return fail("E203", "message not found");
       }
       if (!EXPEDITABLE_STATES.has(message.state)) {
-        return Promise.resolve(
-          fail("E203", `message is not waiting for send: ${message.state}`),
-        );
+        return fail("E203", `message is not waiting for send: ${message.state}`);
       }
       // 决策语义只改"何时发"：内容、处理轨迹保持不变，Bridge 按当前内容哈希校验。
       const decision = buildMessageDecision(
@@ -254,7 +262,11 @@ export function createHermesMessageRuntime(
         undefined,
         new Date().toISOString(),
       );
-      return adapter.decideOutbound(instance, decision);
+      const result = await adapter.decideOutbound(instance, decision);
+      if (result.ok) {
+        service.wake();
+      }
+      return result;
     },
   };
 }

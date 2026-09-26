@@ -452,8 +452,10 @@ describe("createHermesMessageRuntime", () => {
         inbound: [],
       });
 
+      const wakeSpy = vi.spyOn(runtime.service, "wake");
       const result = await runtime.expediteMessage("exp-ready");
       expect(result.ok).toBe(true);
+      expect(wakeSpy).toHaveBeenCalledTimes(1);
       expect(decisions).toHaveLength(1);
       const decision = decisions[0]!;
       expect(decision.messageId).toBe("exp-ready");

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createGatewayServer, type GatewayApp } from "../src/server";
 import { AlertQueue } from "../src/queue";
 import { FakeChannel, gatewayDbFile, makeTempDir, rmTempDir } from "./helpers";
@@ -28,7 +28,8 @@ describe("gateway HTTP API", () => {
     rmTempDir(tmp);
   });
 
-  it("POST /api/alerts：202 返回 id；非法 body 400", async () => {
+  it("POST /api/alerts：202 返回 id 且唤醒投递循环；非法 body 400", async () => {
+    const wakeSpy = vi.spyOn(app.gateway.loop, "wake");
     const okRes = await app.inject({
       method: "POST",
       url: "/api/alerts",
@@ -42,6 +43,7 @@ describe("gateway HTTP API", () => {
     });
     expect(okRes.statusCode).toBe(202);
     expect(okRes.json()).toEqual({ id: 1 });
+    expect(wakeSpy).toHaveBeenCalledTimes(1);
 
     const badSeverity = await app.inject({
       method: "POST",
