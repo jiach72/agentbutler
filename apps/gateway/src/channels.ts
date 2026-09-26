@@ -41,6 +41,21 @@ export function safeUpstreamExcerpt(text: string): string {
   return cleaned.length > 200 ? `${cleaned.slice(0, 200)}…` : cleaned;
 }
 
+/** Telegram 官方限制：单条消息文本至多 4096 字符。 */
+export const TELEGRAM_MAX_TEXT_LENGTH = 4096;
+/** Telegram 官方限制：callback query 弹窗/Toast 提示至多 200 字符。 */
+export const TELEGRAM_MAX_CALLBACK_QUERY_TEXT = 200;
+
+export function truncateTelegramText(text: string): string {
+  if (text.length <= TELEGRAM_MAX_TEXT_LENGTH) return text;
+  return `${text.slice(0, TELEGRAM_MAX_TEXT_LENGTH - 1)}…`;
+}
+
+export function truncateCallbackQueryText(text: string): string {
+  if (text.length <= TELEGRAM_MAX_CALLBACK_QUERY_TEXT) return text;
+  return `${text.slice(0, TELEGRAM_MAX_CALLBACK_QUERY_TEXT - 1)}…`;
+}
+
 /** 面板通道：入队即可被 butler-web 渲染，发送本身是无副作用的隐含基线。 */
 export class NullChannel implements AlertChannel {
   readonly name = "panel";
@@ -92,7 +107,8 @@ export class TelegramChannel implements AlertChannel {
 
   async send(message: OutboundMessage): Promise<void> {
     if (!this.isConfigured()) throw new Error("telegram: missing credentials");
-    const form = new URLSearchParams({ chat_id: this.chatId, text: formatText(message, false) });
+    const rawText = formatText(message, false);
+    const form = new URLSearchParams({ chat_id: this.chatId, text: truncateTelegramText(rawText) });
     // 内联键盘：只有具备 callback_data 的按钮才能就地回执；url 按钮为纯跳转。
     const keyboard = buildInlineKeyboard(message.actions);
     if (keyboard !== null) form.set("reply_markup", JSON.stringify(keyboard));
@@ -112,7 +128,7 @@ export class TelegramChannel implements AlertChannel {
   /** 向指定会话发纯文本（口令急停回执 / 指令确认）。chat_id 缺省用配置值。 */
   async sendText(text: string, chatId?: string): Promise<void> {
     if (!this.isConfigured()) throw new Error("telegram: missing credentials");
-    const form = new URLSearchParams({ chat_id: chatId ?? this.chatId, text });
+    const form = new URLSearchParams({ chat_id: chatId ?? this.chatId, text: truncateTelegramText(text) });
     const res = await this.fetchImpl(`https://api.telegram.org/bot${this.token}/sendMessage`, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -132,7 +148,7 @@ export class TelegramChannel implements AlertChannel {
    */
   async answerCallbackQuery(callbackQueryId: string, text: string): Promise<void> {
     if (!this.isConfigured()) throw new Error("telegram: missing credentials");
-    const form = new URLSearchParams({ callback_query_id: callbackQueryId, text });
+    const form = new URLSearchParams({ callback_query_id: callbackQueryId, text: truncateCallbackQueryText(text) });
     const res = await this.fetchImpl(`https://api.telegram.org/bot${this.token}/answerCallbackQuery`, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -209,11 +225,13 @@ export class SmtpChannel implements AlertChannel {
 
   async send(message: OutboundMessage): Promise<void> {
     if (!this.isConfigured() || this.transporter === null) throw new Error("smtp: missing credentials");
+    // 清理邮件主题中的 CRLF 换行符，防范邮件头注入
+    const sanitizedTitle = message.title.replace(/[\r\n]+/g, " ").trim();
     // HTML 正文让降级链接可点（审批卡片在邮件里的落地路径）；text 保底纯文本客户端。
     await this.transporter.sendMail({
       from: this.from,
       to: this.to,
-      subject: `[${message.severity}] ${message.title}`,
+      subject: `[${message.severity}] ${sanitizedTitle}`,
       text: formatText(message),
       html: formatHtml(message),
     } as never);
@@ -255,16 +273,36 @@ export class BarkChannel implements AlertChannel {
 
   async send(message: OutboundMessage): Promise<void> {
     if (!this.isConfigured()) throw new Error("bark: missing credentials");
+    const payload: Record<string, string> = {
+      title: message.title,
+      body: formatText(message),
+      group: "butler",
+    };
+    const firstUrl = message.actions?.find((action) => isExternallyOpenableUrl(action.url))?.url;
+    if (firstUrl !== undefined) {
+      payload["url"] = firstUrl;
+    }
     const res = await this.fetchImpl(`${this.server}/${encodeURIComponent(this.deviceKey)}`, {
       method: "POST",
       headers: { "content-type": "application/json; charset=utf-8" },
-      body: JSON.stringify({ title: message.title, body: formatText(message), group: "butler" }),
+      body: JSON.stringify(payload),
       signal: AbortSignal.timeout(this.timeoutMs),
     });
+    const text = await res.text();
     if (!res.ok) {
       throw new Error(
-        `bark push failed: HTTP ${res.status} ${safeUpstreamExcerpt(await res.text())}`,
+        `bark push failed: HTTP ${res.status} ${safeUpstreamExcerpt(text)}`,
       );
+    }
+    try {
+      const parsed = JSON.parse(text) as { code?: unknown; message?: unknown };
+      if (typeof parsed.code === "number" && parsed.code !== 200) {
+        throw new Error(
+          `bark push failed: code ${parsed.code} ${safeUpstreamExcerpt(String(parsed.message ?? text))}`,
+        );
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith("bark push failed:")) throw err;
     }
   }
 }
@@ -308,10 +346,22 @@ export class ServerChanChannel implements AlertChannel {
       body: form.toString(),
       signal: AbortSignal.timeout(this.timeoutMs),
     });
+    const text = await res.text();
     if (!res.ok) {
       throw new Error(
-        `serverchan push failed: HTTP ${res.status} ${safeUpstreamExcerpt(await res.text())}`,
+        `serverchan push failed: HTTP ${res.status} ${safeUpstreamExcerpt(text)}`,
       );
+    }
+    try {
+      const parsed = JSON.parse(text) as { code?: unknown; message?: unknown; info?: unknown };
+      if (typeof parsed.code === "number" && parsed.code !== 0) {
+        const errorDetail = String(parsed.message ?? parsed.info ?? text);
+        throw new Error(
+          `serverchan push failed: code ${parsed.code} ${safeUpstreamExcerpt(errorDetail)}`,
+        );
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith("serverchan push failed:")) throw err;
     }
   }
 }

@@ -92,6 +92,41 @@ describe("TelegramChannel", () => {
     }
     expect(sendTextErr?.message).toContain("telegram sendText failed: HTTP 502 [31m" + "A".repeat(196) + "…");
   });
+
+  it("文本超长截断：正文超过 4096 字符截断至 4096 字符；sendText 同样截断", async () => {
+    let sentBody = "";
+    const fetchImpl: FetchLike = async (_url, init) => {
+      sentBody = init.body;
+      return { ok: true, status: 200, text: async () => '{"ok":true}' };
+    };
+    const channel = new TelegramChannel({ env: TELEGRAM_ENV, fetchImpl });
+    const superLongBody = "X".repeat(5000);
+    await channel.send({ severity: "critical", title: "超长告警", body: superLongBody, source: "watch" });
+    const form = new URLSearchParams(sentBody);
+    const text = form.get("text") ?? "";
+    expect(text.length).toBe(4096);
+    expect(text.endsWith("…")).toBe(true);
+
+    await channel.sendText("Y".repeat(5000));
+    const formText = new URLSearchParams(sentBody);
+    const singleText = formText.get("text") ?? "";
+    expect(singleText.length).toBe(4096);
+    expect(singleText.endsWith("…")).toBe(true);
+  });
+
+  it("answerCallbackQuery 文本超长截断至 200 字符", async () => {
+    let sentBody = "";
+    const fetchImpl: FetchLike = async (_url, init) => {
+      sentBody = init.body;
+      return { ok: true, status: 200, text: async () => '{"ok":true}' };
+    };
+    const channel = new TelegramChannel({ env: TELEGRAM_ENV, fetchImpl });
+    await channel.answerCallbackQuery("cb-123", "Z".repeat(300));
+    const form = new URLSearchParams(sentBody);
+    const text = form.get("text") ?? "";
+    expect(text.length).toBe(200);
+    expect(text.endsWith("…")).toBe(true);
+  });
 });
 
 describe("SmtpChannel", () => {
@@ -129,6 +164,26 @@ describe("SmtpChannel", () => {
     expect(mails[0]!.to).toBe("owner@example.com");
     expect(mails[0]!.subject).toBe("[critical] 实例卡死");
     expect(mails[0]!.text).toContain("无响应");
+  });
+
+  it("邮件主题清理：消除换行符防范 CRLF 注入", async () => {
+    let capturedSubject = "";
+    const transporter: MailTransporter = {
+      async sendMail(mail) {
+        capturedSubject = mail.subject;
+        return { accepted: true };
+      },
+    };
+    const channel = new SmtpChannel({ env: SMTP_ENV, transporter });
+    await channel.send({
+      severity: "critical",
+      title: "Line 1\r\nBcc: evil@example.com\nLine 2",
+      body: "body",
+      source: "watch",
+    });
+    expect(capturedSubject).toBe("[critical] Line 1 Bcc: evil@example.com Line 2");
+    expect(capturedSubject).not.toContain("\r");
+    expect(capturedSubject).not.toContain("\n");
   });
 
   it("失败路径：transporter 抛错透传；未配置直接抛错", async () => {
@@ -214,6 +269,36 @@ describe("BarkChannel", () => {
       channel.send({ severity: "critical", title: "t", body: "b", source: "s" }),
     ).rejects.toThrow(`bark push failed: HTTP 500 ${"B".repeat(200)}…`);
   });
+
+  it("Bark 支持携带动作首个外部 URL", async () => {
+    let sentBody = "";
+    const fetchImpl: FetchLike = async (_url, init) => {
+      sentBody = init.body;
+      return { ok: true, status: 200, text: async () => '{"code":200}' };
+    };
+    const channel = new BarkChannel({ env: BARK_ENV, fetchImpl });
+    await channel.send({
+      severity: "critical",
+      title: "需审批",
+      body: "请确认",
+      source: "watch",
+      actions: [{ label: "跳转确认", url: "https://butler.local/approvals/1" }],
+    });
+    const parsed = JSON.parse(sentBody) as Record<string, string>;
+    expect(parsed["url"]).toBe("https://butler.local/approvals/1");
+  });
+
+  it("Bark 响应体 code 非 200 时抛错", async () => {
+    const fetchImpl: FetchLike = async () => ({
+      ok: true,
+      status: 200,
+      text: async () => '{"code":400,"message":"device key not found"}',
+    });
+    const channel = new BarkChannel({ env: BARK_ENV, fetchImpl });
+    await expect(
+      channel.send({ severity: "critical", title: "t", body: "b", source: "s" }),
+    ).rejects.toThrow("bark push failed: code 400 device key not found");
+  });
 });
 
 describe("ServerChanChannel", () => {
@@ -239,6 +324,18 @@ describe("ServerChanChannel", () => {
     const form = new URLSearchParams(calls[0]!.init.body);
     expect(form.get("title")).toBe("升级已回滚");
     expect(form.get("desp")).toContain("健康验收未通过");
+  });
+
+  it("Server酱返回 HTTP 200 但 code 非 0 时抛错并包含错误信息", async () => {
+    const fetchImpl: FetchLike = async () => ({
+      ok: true,
+      status: 200,
+      text: async () => '{"code":40001,"message":"[AUTH]sendkey 不存在"}',
+    });
+    const channel = new ServerChanChannel({ env: SC_ENV, fetchImpl });
+    await expect(
+      channel.send({ severity: "critical", title: "t", body: "b", source: "s" }),
+    ).rejects.toThrow("serverchan push failed: code 40001 [AUTH]sendkey 不存在");
   });
 });
 
