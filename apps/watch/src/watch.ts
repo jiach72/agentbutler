@@ -998,14 +998,17 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     now: options.now,
     driver,
     isHermesRunning: async () => {
-      if (isHermesProcessRunning(managedRoot)) return true;
-      try {
-        const status = await hermesControlBridge?.status();
-        if (status?.active === true) return true;
-      } catch {
-        // bridge 状态探测异常忽略
+      if (hermesControlBridge) {
+        try {
+          const status = await hermesControlBridge.status();
+          if (typeof status?.active === "boolean") {
+            return status.active;
+          }
+        } catch {
+          // bridge 状态探测异常忽略，降级到本地进程探测
+        }
       }
-      return false;
+      return isHermesProcessRunning(managedRoot);
     },
   });
   const backupGate = createBackupGate({ core, backup });

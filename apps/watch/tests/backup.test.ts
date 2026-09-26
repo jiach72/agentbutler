@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { createCore, type Core } from "@butler/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createBackupService, type BackupService } from "../src/backup.js";
+import { createBackupService, isHermesProcessRunning, type BackupService } from "../src/backup.js";
 
 let hermesRoot: string;
 let home: string;
@@ -91,6 +91,37 @@ describe("M7 备份服务", () => {
     if (!res.ok) {
       expect(res.error).toBe("hermes-running");
     }
+  });
+
+  it("还原时若 gateway.pid 对应的进程已死，允许安全执行还原（不被误杀）", async () => {
+    const row = await service.run("memory", "待还原备份");
+    // 使用通常不存在的大 PID 模拟残留的失效 gateway.pid
+    writeFileSync(join(hermesRoot, "gateway.pid"), JSON.stringify({ pid: 99999999 }), "utf8");
+    writeFileSync(join(hermesRoot, "memory_store.db"), "modified-after-crash", "utf8");
+
+    const res = await service.restore(row.id, true);
+    expect(res.ok).toBe(true);
+    expect(readFileSync(join(hermesRoot, "memory_store.db"), "utf8")).toBe("old-memory-content");
+  });
+
+  describe("isHermesProcessRunning 进程探测", () => {
+    it("文件不存在或内容非法时安全返回 false", () => {
+      expect(isHermesProcessRunning(hermesRoot)).toBe(false);
+      writeFileSync(join(hermesRoot, "gateway.pid"), "invalid json", "utf8");
+      expect(isHermesProcessRunning(hermesRoot)).toBe(false);
+      writeFileSync(join(hermesRoot, "gateway.pid"), JSON.stringify({ pid: -1 }), "utf8");
+      expect(isHermesProcessRunning(hermesRoot)).toBe(false);
+      writeFileSync(join(hermesRoot, "gateway.pid"), JSON.stringify({ pid: "abc" }), "utf8");
+      expect(isHermesProcessRunning(hermesRoot)).toBe(false);
+    });
+
+    it("存活进程返回 true，已死亡或不存在的 PID 返回 false", () => {
+      writeFileSync(join(hermesRoot, "gateway.pid"), JSON.stringify({ pid: process.pid }), "utf8");
+      expect(isHermesProcessRunning(hermesRoot)).toBe(true);
+
+      writeFileSync(join(hermesRoot, "gateway.pid"), JSON.stringify({ pid: 99999999 }), "utf8");
+      expect(isHermesProcessRunning(hermesRoot)).toBe(false);
+    });
   });
 
   it("state.db 存在 WAL 时使用安全临时快照完成一致性备份", async () => {

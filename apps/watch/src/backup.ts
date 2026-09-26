@@ -219,12 +219,7 @@ export function isHermesProcessRunning(hermesRoot: string): boolean {
     } catch (err: unknown) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code === "EPERM") return true;
-      if (code === "ESRCH") {
-        if (existsSync("/.dockerenv") || process.platform === "linux") {
-          return true;
-        }
-        return false;
-      }
+      if (code === "ESRCH") return false;
       return false;
     }
   } catch {
