@@ -247,6 +247,8 @@ describe("statusTone, channelLabel and transformTraceLabel", () => {
 
   it("transformTraceLabel: 正确映射加速、投递、任务等待与回填轨迹", () => {
     expect(transformTraceLabel("policy:manual-expedite")).toBe("手动立即发送");
+    expect(transformTraceLabel("dnd:bypass-manual-expedite")).toBe("手动立即发送，跳过免打扰");
+    expect(transformTraceLabel("pacing:bypass-manual-expedite")).toBe("手动立即发送，跳过发送频率控制");
     expect(transformTraceLabel("delivery:ok")).toBe("发送成功");
     expect(transformTraceLabel("delivery:delivered")).toBe("发送成功");
     expect(transformTraceLabel("delivery:dead_letter")).toBe("发送失败（转入死信）");

@@ -227,6 +227,10 @@ export function createHermesMessageRuntime(
     requeueMessage: async (messageId: string) => {
       const result = await adapter.requeueOutbound(instance, messageId);
       if (result.ok) {
+        if (result.data !== undefined) {
+          store.clearPendingDecision(messageId);
+          store.updateRemoteView(result.data);
+        }
         service.wake();
       }
       return result;
@@ -239,6 +243,10 @@ export function createHermesMessageRuntime(
       if (typeof adapter.resolveOutbound === "function") {
         const result = await adapter.resolveOutbound(instance, messageId, outcome, reason);
         if (result.ok) {
+          if (result.data !== undefined) {
+            store.clearPendingDecision(messageId);
+            store.updateRemoteView(result.data);
+          }
           service.wake();
         }
         return result;
@@ -254,6 +262,7 @@ export function createHermesMessageRuntime(
         return fail("E203", `message is not waiting for send: ${message.state}`);
       }
       // 决策语义只改"何时发"：内容、处理轨迹保持不变，Bridge 按当前内容哈希校验。
+      const now = clock().toISOString();
       const decision = buildMessageDecision(
         message,
         MANUAL_EXPEDITE_POLICY_VERSION,
@@ -261,10 +270,14 @@ export function createHermesMessageRuntime(
         [...message.transformTrace, "policy:manual-expedite"],
         "面板手动立即发送",
         undefined,
-        clock().toISOString(),
+        now,
       );
+      store.clearPendingDecision(messageId);
       const result = await adapter.decideOutbound(instance, decision);
       if (result.ok) {
+        if (result.data !== undefined) {
+          store.updateRemoteView(result.data, decision.decisionId);
+        }
         service.wake();
       }
       return result;

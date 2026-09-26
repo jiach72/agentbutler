@@ -745,7 +745,7 @@ export class MessagePolicyStore {
 
     this.prepare(
       `UPDATE message_projection
-       SET state = ?, payload_json = ?, updated_at = ?
+       SET state = ?, available_at = NULL, pending_decision_json = NULL, payload_json = ?, updated_at = ?
        WHERE message_id = ?`,
     ).run(outcome, JSON.stringify(payload), now, messageId);
 

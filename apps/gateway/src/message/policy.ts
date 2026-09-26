@@ -92,13 +92,18 @@ function scheduleDecision(
   if (channelPolicy === undefined) {
     return buildMessageDecision(message, input.config.version, "policy_error", [...baseTrace, "policy:unknown-channel"], "channel has no policy");
   }
-  if (message.metadata.solicitedReply === true) {
+  if (message.metadata.solicitedReply === true || message.transformTrace.includes("policy:manual-expedite")) {
+    const isManual = message.transformTrace.includes("policy:manual-expedite");
     return buildMessageDecision(
       message,
       input.config.version,
       "ready",
-      [...baseTrace, "dnd:bypass-solicited-reply", "pacing:bypass-solicited-reply"],
-      "solicited reply",
+      [
+        ...baseTrace,
+        isManual ? "dnd:bypass-manual-expedite" : "dnd:bypass-solicited-reply",
+        isManual ? "pacing:bypass-manual-expedite" : "pacing:bypass-solicited-reply",
+      ],
+      isManual ? "manual expedite bypass" : "solicited reply",
       optimizedContent,
     );
   }

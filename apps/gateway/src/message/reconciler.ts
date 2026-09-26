@@ -258,6 +258,7 @@ export class MessageReconciler {
     if (
       message.channel !== "weixin" ||
       message.metadata.taskReceipt === true ||
+      message.transformTrace.includes("policy:manual-expedite") ||
       (message.messageKind !== "final" && message.messageKind !== "failure") ||
       typeof message.runId !== "string" ||
       message.runId === ""

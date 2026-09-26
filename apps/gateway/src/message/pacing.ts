@@ -29,6 +29,9 @@ export interface PacingCongestionInput {
 export function evaluatePacing(input: PacingEvaluationInput): PacingEvaluation {
   const now = parseTimestamp(input.now, "now");
   validatePolicy(input.policy);
+  if (input.message.transformTrace.includes("policy:manual-expedite")) {
+    return { held: false, transformTrace: ["pacing:bypass-manual-expedite"] };
+  }
   const constraints = [laneConstraint(input.channelLane, input.message.channel, input.policy, now), laneConstraint(input.chatLane, input.message.channel, input.policy, now)];
   const dueAt = Math.max(now, ...constraints);
   if (dueAt <= now) return { held: false, transformTrace: ["pacing:ready"] };

@@ -19,6 +19,7 @@ export function evaluateDnd(input: DndEvaluationInput): DndEvaluation {
   const { message, now } = input;
   const nowMs = parseTimestamp(now, "now");
   if (message.metadata.solicitedReply === true) return { held: false, transformTrace: ["dnd:bypass-solicited-reply"] };
+  if (message.transformTrace.includes("policy:manual-expedite")) return { held: false, transformTrace: ["dnd:bypass-manual-expedite"] };
   if (message.messageKind === "failure") return { held: false, transformTrace: ["dnd:bypass-failure"] };
   if (message.priority === "urgent") return { held: false, transformTrace: ["dnd:bypass-urgent"] };
 

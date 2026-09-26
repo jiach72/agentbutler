@@ -18,6 +18,9 @@ import {
   createHermesMessageRuntime,
   type HermesMessageRuntimeOptions,
 } from "../src/message/runtime";
+import { DEFAULT_MESSAGE_POLICY } from "../src/message/config";
+import { decideOutboundPolicy } from "../src/message/policy";
+import { MessagePolicyStore } from "../src/message/store";
 import { createGatewayServer } from "../src/server";
 import { gatewayDbFile, makeTempDir, rmTempDir } from "./helpers";
 
@@ -72,6 +75,12 @@ class RuntimeAdapter implements MessagingAdapter {
   };
   decideOutbound = async () => fail("E002", "not used");
   requeueOutbound = async () => fail("E002", "not used");
+  resolveOutbound?: (
+    instance: InstanceRef,
+    messageId: string,
+    outcome: "delivered" | "cancelled",
+    reason?: string,
+  ) => Promise<Result<OutboxMessageView>>;
   deliver = async () => fail("E002", "not used");
   forwardInbound = async () => fail("E002", "not used");
   subscribeTaskEvents = () => () => undefined;
@@ -438,7 +447,12 @@ describe("createHermesMessageRuntime", () => {
     };
     adapter.decideOutbound = async (_instance, decision) => {
       decisions.push(decision);
-      return ok({ ...waiting, state: "ready", availableAt: decision.availableAt ?? null });
+      return ok({
+        ...waiting,
+        state: "ready",
+        availableAt: decision.availableAt ?? null,
+        transformTrace: decision.transformTrace,
+      });
     };
     const runtime = createHermesMessageRuntime(
       runtimeOptions(tmp, adapter, { pollIntervalMs: 60_000 }),
@@ -464,6 +478,9 @@ describe("createHermesMessageRuntime", () => {
       expect(decision.transformTrace).toContain("policy:manual-expedite");
       expect(decision.availableAt).toBeDefined();
       expect(Math.abs(Date.parse(decision.availableAt!) - Date.now())).toBeLessThan(10_000);
+      expect(runtime.store.messageView("exp-ready")?.state).toBe("ready");
+      expect(runtime.store.messageView("exp-ready")?.transformTrace).toContain("policy:manual-expedite");
+      expect(runtime.store.pendingDecision("exp-ready")).toBeUndefined();
 
       // 已终态/不存在的消息不能触发立即发送。
       runtime.store.ingestBatch({
@@ -584,6 +601,235 @@ describe("createHermesMessageRuntime", () => {
     } finally {
       gateResolve?.();
       await runtime.stop();
+    }
+  });
+
+  it("requeueMessage 成功时立即清除 pending_decision、原子对账 store 状态为 policy_pending 并唤醒 service", async () => {
+    const tmp = tempDir();
+    const adapter = new RuntimeAdapter();
+    const deadLetterMsg = {
+      messageId: "requeue-msg-1",
+      instanceId: "hermes-main",
+      adapterId: "hermes",
+      channel: "weixin",
+      chatId: "chat-1",
+      sessionId: "session-1",
+      messageKind: "final" as const,
+      transport: "queued-push" as const,
+      priority: "normal" as const,
+      content: "failed message",
+      contentSha256: "content-sha-requeue",
+      metadata: {},
+      capturedAt: NOW,
+      sequence: 10,
+      state: "dead_letter" as const,
+      availableAt: null,
+      attemptCount: 5,
+      providerMessageId: null,
+      deliveredAt: null,
+      lastError: "upstream timeout",
+      transformTrace: ["delivery:dead_letter"],
+    };
+    adapter.requeueOutbound = async (_instance, messageId) => {
+      expect(messageId).toBe("requeue-msg-1");
+      return ok({
+        ...deadLetterMsg,
+        state: "policy_pending",
+        lastError: null,
+        attemptCount: 0,
+        transformTrace: [...deadLetterMsg.transformTrace, "requeue:accepted"],
+      });
+    };
+    const runtime = createHermesMessageRuntime(
+      runtimeOptions(tmp, adapter, { pollIntervalMs: 60_000 }),
+    );
+    try {
+      runtime.store.ingestBatch({
+        afterSequence: 0,
+        nextSequence: 1,
+        items: [deadLetterMsg],
+        taskEvents: [],
+        inbound: [],
+      });
+      // 模拟历史残留的 pendingDecision
+      runtime.store.stageDecision("requeue-msg-1", {
+        decisionId: "stale-decision-1",
+        messageId: "requeue-msg-1",
+        expectedContentSha256: "content-sha-requeue",
+        state: "held_pacing",
+        transformTrace: ["policy:queued-push"],
+        policyVersion: "message-policy-v1",
+        reason: "stale hold",
+      });
+      expect(runtime.store.pendingDecision("requeue-msg-1")).toBeDefined();
+
+      const wakeSpy = vi.spyOn(runtime.service, "wake");
+      const result = await runtime.requeueMessage("requeue-msg-1");
+      expect(result.ok).toBe(true);
+      expect(wakeSpy).toHaveBeenCalledTimes(1);
+
+      // 验证本地 store 投影原子同步与 pending_decision 彻底清空
+      const local = runtime.store.messageView("requeue-msg-1");
+      expect(local?.state).toBe("policy_pending");
+      expect(local?.attemptCount).toBe(0);
+      expect(local?.lastError).toBeNull();
+      expect(runtime.store.pendingDecision("requeue-msg-1")).toBeUndefined();
+    } finally {
+      await runtime.stop();
+    }
+  });
+
+  it("resolveUnknownMessage 成功时立即清除 pending_decision、原子对账 store 状态并唤醒 service", async () => {
+    const tmp = tempDir();
+    const adapter = new RuntimeAdapter();
+    const unknownMsg = {
+      messageId: "unknown-msg-1",
+      instanceId: "hermes-main",
+      adapterId: "hermes",
+      channel: "weixin",
+      chatId: "chat-1",
+      sessionId: "session-1",
+      messageKind: "final" as const,
+      transport: "queued-push" as const,
+      priority: "normal" as const,
+      content: "uncertain message",
+      contentSha256: "content-sha-unknown",
+      metadata: {},
+      capturedAt: NOW,
+      sequence: 20,
+      state: "delivery_unknown" as const,
+      availableAt: null,
+      attemptCount: 1,
+      providerMessageId: null,
+      deliveredAt: null,
+      lastError: "transport disconnected",
+      transformTrace: ["delivery:delivery_unknown"],
+    };
+    adapter.resolveOutbound = async (_instance, messageId, outcome, reason) => {
+      expect(messageId).toBe("unknown-msg-1");
+      expect(outcome).toBe("delivered");
+      return ok({
+        ...unknownMsg,
+        state: outcome,
+        deliveredAt: NOW,
+        lastError: reason ?? null,
+        transformTrace: [...unknownMsg.transformTrace, `resolved:${outcome}`],
+      });
+    };
+    const runtime = createHermesMessageRuntime(
+      runtimeOptions(tmp, adapter, { pollIntervalMs: 60_000 }),
+    );
+    try {
+      runtime.store.ingestBatch({
+        afterSequence: 0,
+        nextSequence: 1,
+        items: [unknownMsg],
+        taskEvents: [],
+        inbound: [],
+      });
+      // 模拟历史残留的 pendingDecision
+      runtime.store.stageDecision("unknown-msg-1", {
+        decisionId: "stale-unknown-decision",
+        messageId: "unknown-msg-1",
+        expectedContentSha256: "content-sha-unknown",
+        state: "ready",
+        transformTrace: ["policy:queued-push"],
+        policyVersion: "message-policy-v1",
+        reason: "stale ready",
+      });
+
+      const wakeSpy = vi.spyOn(runtime.service, "wake");
+      const result = await runtime.resolveUnknownMessage("unknown-msg-1", "delivered", "人工确认已送达");
+      expect(result.ok).toBe(true);
+      expect(wakeSpy).toHaveBeenCalledTimes(1);
+
+      // 验证本地 store 投影原子同步与 pending_decision 彻底清空
+      const local = runtime.store.messageView("unknown-msg-1");
+      expect(local?.state).toBe("delivered");
+      expect(local?.deliveredAt).toBe(NOW);
+      expect(runtime.store.pendingDecision("unknown-msg-1")).toBeUndefined();
+    } finally {
+      await runtime.stop();
+    }
+  });
+
+  it("手动立即发送的消息即使处于免打扰 DND 时段与频率限制下依然绕过拦截并保持 ready", () => {
+    const tmp = tempDir();
+    const store = new MessagePolicyStore(path.join(tmp, "messages.sqlite"));
+    try {
+      // 设置全天 24 小时生效的免打扰规则 (startMinute 0, endMinute 0)
+      store.upsertDndRule({
+        ruleId: "dnd-all-day",
+        scope: "global",
+        scopeKey: null,
+        timeZone: "UTC",
+        startMinute: 0,
+        endMinute: 0,
+        pausedUntil: null,
+        enabled: true,
+        source: "admin",
+      });
+
+      const message = {
+        messageId: "expedited-bypass-msg",
+        instanceId: "hermes-main",
+        adapterId: "hermes",
+        channel: "weixin",
+        chatId: "chat-1",
+        sessionId: "session-1",
+        messageKind: "final" as const,
+        transport: "queued-push" as const,
+        priority: "normal" as const,
+        content: "expedited content",
+        contentSha256: "sha-expedited",
+        metadata: {},
+        capturedAt: NOW,
+        sequence: 1,
+        state: "ready" as const,
+        availableAt: NOW,
+        attemptCount: 0,
+        providerMessageId: null,
+        deliveredAt: null,
+        lastError: null,
+        transformTrace: ["policy:queued-push", "policy:manual-expedite"],
+      };
+
+      // 验证 policy.ts 对带 manual-expedite 的消息绕过 DND 与 Pacing
+      const policyResult = decideOutboundPolicy({
+        message,
+        taskEvents: [],
+        dndRules: store.resolveDndRules(),
+        channelLane: {
+          laneKey: "channel:weixin",
+          channel: "weixin",
+          chatId: null,
+          ratePerMin: 1,
+          successCount: 0,
+          cooldownUntil: "2099-01-01T00:00:00.000Z", // 强行处于拥塞冷却中
+          lastSentAt: NOW,
+          lastCongestionReason: "429",
+          updatedAt: NOW,
+        },
+        chatLane: {
+          laneKey: "chat:weixin:chat-1",
+          channel: "weixin",
+          chatId: "chat-1",
+          ratePerMin: 1,
+          successCount: 0,
+          cooldownUntil: "2099-01-01T00:00:00.000Z",
+          lastSentAt: NOW,
+          lastCongestionReason: "429",
+          updatedAt: NOW,
+        },
+        now: NOW,
+        config: DEFAULT_MESSAGE_POLICY,
+      });
+
+      expect(policyResult.decision.state).toBe("ready");
+      expect(policyResult.decision.transformTrace).toContain("dnd:bypass-manual-expedite");
+      expect(policyResult.decision.transformTrace).toContain("pacing:bypass-manual-expedite");
+    } finally {
+      store.close();
     }
   });
 });
