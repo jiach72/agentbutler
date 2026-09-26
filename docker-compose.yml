@@ -46,6 +46,8 @@ services:
       BUTLER_SMTP_PASS: ${BUTLER_SMTP_PASS:-}
       BUTLER_SMTP_FROM: ${BUTLER_SMTP_FROM:-}
       BUTLER_SMTP_TO: ${BUTLER_SMTP_TO:-}
+      BUTLER_SMTP_SECURE: ${BUTLER_SMTP_SECURE:-}
+      BUTLER_SMTP_TIMEOUT_MS: ${BUTLER_SMTP_TIMEOUT_MS:-}
       # 网关能读全部消息正文并改策略；配置口令后所有业务路由要求鉴权（/healthz 与
       # /internal/hermes/* 豁免，后者单独限速）。Web 代理会自动携带同一口令。
       BUTLER_ACCESS_TOKEN: ${BUTLER_ACCESS_TOKEN:-}

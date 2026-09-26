@@ -217,6 +217,63 @@ describe("SmtpChannel", () => {
     expect(capturedSubject).not.toContain("\n");
   });
 
+  it("端口范围防御：非法或越界端口判定为不可用", () => {
+    expect(new SmtpChannel({ env: { ...SMTP_ENV, BUTLER_SMTP_PORT: "0" } }).isConfigured()).toBe(false);
+    expect(new SmtpChannel({ env: { ...SMTP_ENV, BUTLER_SMTP_PORT: "-1" } }).isConfigured()).toBe(false);
+    expect(new SmtpChannel({ env: { ...SMTP_ENV, BUTLER_SMTP_PORT: "70000" } }).isConfigured()).toBe(false);
+    expect(new SmtpChannel({ env: { ...SMTP_ENV, BUTLER_SMTP_PORT: "abc" } }).isConfigured()).toBe(false);
+    expect(new SmtpChannel({ env: { ...SMTP_ENV, BUTLER_SMTP_PORT: "587" } }).isConfigured()).toBe(true);
+    expect(new SmtpChannel({ env: { ...SMTP_ENV, BUTLER_SMTP_PORT: "25" } }).isConfigured()).toBe(true);
+  });
+
+  it("TLS secure 判定：465 默认 SMTPS，587 默认 STARTTLS，支持环境变量与选项覆盖", () => {
+    const s465 = new SmtpChannel({ env: { ...SMTP_ENV, BUTLER_SMTP_PORT: "465" } });
+    expect(s465.secure).toBe(true);
+
+    const s587 = new SmtpChannel({ env: { ...SMTP_ENV, BUTLER_SMTP_PORT: "587" } });
+    expect(s587.secure).toBe(false);
+
+    const sOverrideEnv = new SmtpChannel({
+      env: { ...SMTP_ENV, BUTLER_SMTP_PORT: "587", BUTLER_SMTP_SECURE: "true" },
+    });
+    expect(sOverrideEnv.secure).toBe(true);
+
+    const sOverrideOpt = new SmtpChannel({
+      env: { ...SMTP_ENV, BUTLER_SMTP_PORT: "465" },
+      secure: false,
+    });
+    expect(sOverrideOpt.secure).toBe(false);
+  });
+
+  it("超时熔断：transporter 长时间挂起时按 timeoutMs 熔断抛错，防范死锁投递循环", async () => {
+    const hangingTransporter: MailTransporter = {
+      async sendMail() {
+        return new Promise(() => {}); // 永不结束的挂起
+      },
+    };
+    const channel = new SmtpChannel({
+      env: SMTP_ENV,
+      transporter: hangingTransporter,
+      timeoutMs: 50,
+    });
+
+    await expect(
+      channel.send({ severity: "critical", title: "紧急告警", body: "内容", source: "watch" }),
+    ).rejects.toThrow("smtp sendMail timed out after 50ms");
+  });
+
+  it("发件人与收件人清理：消除 from/to 换行符防范 CRLF 注入", async () => {
+    const channel = new SmtpChannel({
+      env: {
+        ...SMTP_ENV,
+        BUTLER_SMTP_FROM: "butler@example.com\r\nBcc: evil@example.com",
+        BUTLER_SMTP_TO: "ops@example.com\nCc: spy@example.com",
+      },
+    });
+    expect(channel.from).toBe("butler@example.comBcc: evil@example.com");
+    expect(channel.to).toBe("ops@example.comCc: spy@example.com");
+  });
+
   it("失败路径：transporter 抛错透传；未配置直接抛错", async () => {
     const transporter: MailTransporter = {
       async sendMail() {

@@ -218,7 +218,7 @@ export class TelegramChannel implements AlertChannel {
 
 /** 可注入的最小邮件 transporter 形状（测试用假实现避免触网）。 */
 export interface MailTransporter {
-  sendMail(mail: { from: string; to: string; subject: string; text: string }): Promise<unknown>;
+  sendMail(mail: { from: string; to: string; subject: string; text: string; html?: string }): Promise<unknown>;
 }
 
 export interface SmtpEnv {
@@ -228,21 +228,27 @@ export interface SmtpEnv {
   BUTLER_SMTP_PASS?: string;
   BUTLER_SMTP_FROM?: string;
   BUTLER_SMTP_TO?: string;
+  BUTLER_SMTP_SECURE?: string;
+  BUTLER_SMTP_TIMEOUT_MS?: string;
 }
 
 export interface SmtpChannelOptions {
   env?: SmtpEnv;
   transporter?: MailTransporter;
+  timeoutMs?: number;
+  secure?: boolean;
 }
 
 export class SmtpChannel implements AlertChannel {
   readonly name = "smtp";
-  private readonly host: string;
-  private readonly port: number;
-  private readonly user: string;
-  private readonly pass: string;
-  private readonly from: string;
-  private readonly to: string;
+  readonly host: string;
+  readonly port: number;
+  readonly user: string;
+  readonly pass: string;
+  readonly from: string;
+  readonly to: string;
+  readonly secure: boolean;
+  readonly timeoutMs: number;
   private readonly transporter: MailTransporter | null;
 
   constructor(options: SmtpChannelOptions = {}) {
@@ -251,14 +257,42 @@ export class SmtpChannel implements AlertChannel {
     this.port = Number((env.BUTLER_SMTP_PORT ?? "").trim());
     this.user = (env.BUTLER_SMTP_USER ?? "").trim();
     this.pass = env.BUTLER_SMTP_PASS ?? "";
-    this.from = (env.BUTLER_SMTP_FROM ?? "").trim();
-    this.to = (env.BUTLER_SMTP_TO ?? "").trim();
+    this.from = (env.BUTLER_SMTP_FROM ?? "").replace(/[\r\n]+/g, "").trim();
+    this.to = (env.BUTLER_SMTP_TO ?? "").replace(/[\r\n]+/g, "").trim();
+
+    // 判定 secure：显式 option > env > 465 端口默认 SMTPS
+    if (options.secure !== undefined) {
+      this.secure = options.secure;
+    } else if (env.BUTLER_SMTP_SECURE !== undefined && env.BUTLER_SMTP_SECURE.trim() !== "") {
+      this.secure = /^(true|1|yes)$/i.test(env.BUTLER_SMTP_SECURE.trim());
+    } else {
+      this.secure = this.port === 465;
+    }
+
+    // 超时时间：默认 10,000ms（留足 SMTP TLS 握手窗口并熔断，防止阻塞投递循环）
+    const envTimeout = env.BUTLER_SMTP_TIMEOUT_MS ? Number(env.BUTLER_SMTP_TIMEOUT_MS) : NaN;
+    this.timeoutMs = options.timeoutMs ?? (Number.isFinite(envTimeout) ? envTimeout : 10_000);
+
     if (options.transporter !== undefined) {
       this.transporter = options.transporter;
     } else if (this.isConfigured()) {
-      const transport: { host: string; port: number; auth?: { user: string; pass: string } } = {
+      const transport: {
+        host: string;
+        port: number;
+        secure: boolean;
+        auth?: { user: string; pass: string };
+        connectionTimeout: number;
+        greetingTimeout: number;
+        socketTimeout: number;
+        dnsTimeout: number;
+      } = {
         host: this.host,
         port: this.port,
+        secure: this.secure,
+        connectionTimeout: this.timeoutMs,
+        greetingTimeout: this.timeoutMs,
+        socketTimeout: this.timeoutMs,
+        dnsTimeout: Math.min(this.timeoutMs, 5000),
       };
       if (this.user !== "" && this.pass !== "") transport.auth = { user: this.user, pass: this.pass };
       this.transporter = nodemailer.createTransport(transport) as unknown as MailTransporter;
@@ -267,10 +301,15 @@ export class SmtpChannel implements AlertChannel {
     }
   }
 
-  /** HOST/PORT/FROM/TO 均存在才可用（USER/PASS 可选，仅用于认证）。 */
+  /** HOST/PORT/FROM/TO 均存在且有效（端口须为 1-65535 的合法 TCP 端口；USER/PASS 可选）。 */
   isConfigured(): boolean {
     return (
-      this.host !== "" && Number.isFinite(this.port) && this.port > 0 && this.from !== "" && this.to !== ""
+      this.host !== "" &&
+      Number.isInteger(this.port) &&
+      this.port >= 1 &&
+      this.port <= 65535 &&
+      this.from !== "" &&
+      this.to !== ""
     );
   }
 
@@ -279,13 +318,29 @@ export class SmtpChannel implements AlertChannel {
     // 清理邮件主题中的 CRLF 换行符，防范邮件头注入
     const sanitizedTitle = message.title.replace(/[\r\n]+/g, " ").trim();
     // HTML 正文让降级链接可点（审批卡片在邮件里的落地路径）；text 保底纯文本客户端。
-    await this.transporter.sendMail({
+    const sendPromise = this.transporter.sendMail({
       from: this.from,
       to: this.to,
       subject: `[${message.severity}] ${sanitizedTitle}`,
       text: formatText(message),
       html: formatHtml(message),
-    } as never);
+    });
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error(`smtp sendMail timed out after ${this.timeoutMs}ms`));
+      }, this.timeoutMs);
+    });
+
+    try {
+      await Promise.race([sendPromise, timeoutPromise]);
+    } catch (err) {
+      const rawMsg = err instanceof Error ? err.message : String(err);
+      throw new Error(`smtp sendMail failed: ${safeUpstreamExcerpt(rawMsg)}`);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
   }
 }
 
