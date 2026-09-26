@@ -1,6 +1,7 @@
 import type { OutboxMessageView } from "@butler/contract";
 
 import type { DndRule } from "./store.js";
+import { parseTimestamp } from "./time.js";
 
 export interface DndEvaluationInput {
   message: OutboxMessageView;
@@ -79,12 +80,4 @@ function localMinute(nowMs: number, timeZone: string): number {
   } catch {
     throw new Error(`invalid IANA time zone: ${timeZone}`);
   }
-}
-
-function parseTimestamp(value: string, field: string): number {
-  const parsed = Date.parse(value);
-  if (!Number.isFinite(parsed) || !value.endsWith("Z") || new Date(parsed).toISOString() !== value) {
-    throw new Error(`${field} must be a canonical UTC ISO timestamp`);
-  }
-  return parsed;
 }

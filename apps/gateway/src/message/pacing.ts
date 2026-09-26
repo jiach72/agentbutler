@@ -2,6 +2,7 @@ import type { OutboxMessageView } from "@butler/contract";
 
 import type { PacingLane } from "./store.js";
 import type { ChannelPolicy } from "./types.js";
+import { parseTimestamp } from "./time.js";
 
 export interface PacingEvaluationInput {
   message: OutboxMessageView;
@@ -99,12 +100,4 @@ function validatePolicy(policy: ChannelPolicy): void {
   if (policy.multiplicativeFactor <= 0 || policy.multiplicativeFactor >= 1 || policy.nativeMinIntervalSec < 0) {
     throw new Error("channel policy has an invalid pacing factor");
   }
-}
-
-function parseTimestamp(value: string, field: string): number {
-  const parsed = Date.parse(value);
-  if (!Number.isFinite(parsed) || !value.endsWith("Z") || new Date(parsed).toISOString() !== value) {
-    throw new Error(`${field} must be a canonical UTC ISO timestamp`);
-  }
-  return parsed;
 }

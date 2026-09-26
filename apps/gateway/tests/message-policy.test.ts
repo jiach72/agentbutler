@@ -7,6 +7,7 @@ import { evaluateDnd } from "../src/message/dnd";
 import { evaluatePacing, recordPacingCongestion, recordPacingSuccess } from "../src/message/pacing";
 import { decideOutboundPolicy } from "../src/message/policy";
 import type { DndRule, PacingLane } from "../src/message/store";
+import { parseTimestamp } from "../src/message/time";
 
 const NOW = "2026-08-22T10:00:00.000Z";
 
@@ -506,4 +507,40 @@ describe("message policy", () => {
     expect(first.decision.decisionId).toBe(reordered.decision.decisionId);
     expect(first.decision.decisionId).not.toBe(changed.decision.decisionId);
   });
+
+  describe("parseTimestamp UTC ISO 格式与宽容度校验", () => {
+    it("正确解析标准毫秒级与秒级 UTC ISO 时间戳", () => {
+      const msTimestamp = "2026-08-22T10:00:00.000Z";
+      const secTimestamp = "2026-08-22T10:00:00Z";
+      const microTimestamp = "2026-08-22T10:00:00.123456Z";
+
+      expect(parseTimestamp(msTimestamp, "now")).toBe(Date.parse(msTimestamp));
+      expect(parseTimestamp(secTimestamp, "now")).toBe(Date.parse(secTimestamp));
+      expect(parseTimestamp(microTimestamp, "now")).toBe(Date.parse(microTimestamp));
+    });
+
+    it("拒绝非法溢出日期与非 UTC 时区格式", () => {
+      // 2026-02-31 会被 Date.parse 自动溢出为 3 月，必须严格拦截
+      expect(() => parseTimestamp("2026-02-31T10:00:00Z", "now")).toThrow("canonical UTC ISO timestamp");
+      // 非 Z 结尾的偏移量时区
+      expect(() => parseTimestamp("2026-08-22T10:00:00+08:00", "now")).toThrow("canonical UTC ISO timestamp");
+      // 乱码与非 ISO 格式
+      expect(() => parseTimestamp("not-a-date", "now")).toThrow("canonical UTC ISO timestamp");
+    });
+
+    it("策略决策引擎兼容秒级时间戳 (无 .000Z 毫秒字段不崩溃)", () => {
+      const result = decideOutboundPolicy({
+        message: message({ messageKind: "task-response", capturedAt: "2026-08-22T10:00:00Z" }),
+        taskEvents: [],
+        dndRules: [],
+        channelLane: lane("weixin", null),
+        chatLane: lane("weixin", "chat-1"),
+        now: "2026-08-22T10:05:00Z",
+        config: DEFAULT_MESSAGE_POLICY,
+      });
+
+      expect(result.decision.state).toBe("ready");
+    });
+  });
 });
+

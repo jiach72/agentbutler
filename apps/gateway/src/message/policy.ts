@@ -8,6 +8,7 @@ import { evaluatePacing } from "./pacing.js";
 import type { DndRule, PacingLane } from "./store.js";
 import { validateMessagePolicy } from "./config.js";
 import type { MessagePolicyConfig } from "./types.js";
+import { parseTimestamp } from "./time.js";
 
 export interface OutboundPolicyInput {
   message: OutboxMessageView;
@@ -152,14 +153,6 @@ function isNoRunBatchable(message: OutboxMessageView): boolean {
 
 function isPolicyActiveHolder(message: OutboxMessageView): boolean {
   return ["captured", "policy_pending", "held_dnd", "held_pacing", "ready", "retry_wait"].includes(message.state);
-}
-
-function parseTimestamp(value: string, field: string): number {
-  const parsed = Date.parse(value);
-  if (!Number.isFinite(parsed) || !value.endsWith("Z") || new Date(parsed).toISOString() !== value) {
-    throw new Error(`${field} must be a canonical UTC ISO timestamp`);
-  }
-  return parsed;
 }
 
 /** Builds the crash-safe, semantic-only decision ID used by both policy and worker fallbacks. */
