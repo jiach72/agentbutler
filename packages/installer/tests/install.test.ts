@@ -1,7 +1,17 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildComposeOverride, buildHostServiceUnits, buildOpenClawComposeOverride, installDockerForm, installHostForm, resolveCorepackCommand, runInstaller, runMaintenance } from "../src/install.js";
+import {
+  buildComposeOverride,
+  buildHostServiceUnits,
+  buildOpenClawComposeOverride,
+  defaultPortProbe,
+  installDockerForm,
+  installHostForm,
+  resolveCorepackCommand,
+  runInstaller,
+  runMaintenance,
+} from "../src/install.js";
 import { fakeExec, fakePlan, fakeProbeFetch, makeTempDir, rmTempDir } from "./helpers.js";
 
 describe("installHostForm 宿主形态", () => {
@@ -741,3 +751,31 @@ describe("runInstaller 顶层编排", () => {
     expect(calls.every((c) => c.command === "docker")).toBe(true);
   });
 });
+
+describe("defaultPortProbe 端口探测", () => {
+  it("对非法端口（负数、0、越界、NaN、浮点数）静默返回 false，不抛出异常", async () => {
+    expect(await defaultPortProbe(-1)).toBe(false);
+    expect(await defaultPortProbe(0)).toBe(false);
+    expect(await defaultPortProbe(65536)).toBe(false);
+    expect(await defaultPortProbe(70000)).toBe(false);
+    expect(await defaultPortProbe(Number.NaN)).toBe(false);
+    expect(await defaultPortProbe(7531.5)).toBe(false);
+  });
+
+  it("对已被占用的端口返回 false，对已关闭的端口返回 true", async () => {
+    const net = await import("node:net");
+    const server = net.createServer();
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+    const address = server.address() as net.AddressInfo;
+    const occupiedPort = address.port;
+
+    try {
+      expect(await defaultPortProbe(occupiedPort, "127.0.0.1")).toBe(false);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+
+    expect(await defaultPortProbe(occupiedPort, "127.0.0.1")).toBe(true);
+  });
+});
+

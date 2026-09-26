@@ -304,17 +304,30 @@ export async function runMaintenance(options: MaintenanceOptions): Promise<Maint
   return { command: options.command, success: !steps.some((step) => step.status === "failed"), steps, preview };
 }
 
-/** 通过短暂绑定检测宿主端口是否可用，不发送网络请求。 */
+/** 通过短暂绑定检测宿主端口是否可用，不发送网络请求。非法端口或异常均静默返回 false。 */
 export function defaultPortProbe(port: number, host = "127.0.0.1"): Promise<boolean> {
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    return Promise.resolve(false);
+  }
   return new Promise((resolve) => {
     const server = createServer();
+    let settled = false;
     const finish = (available: boolean) => {
+      if (settled) return;
+      settled = true;
       server.removeAllListeners();
-      if (server.listening) server.close(() => resolve(available));
-      else resolve(available);
+      if (server.listening) {
+        server.close(() => resolve(available));
+      } else {
+        resolve(available);
+      }
     };
     server.once("error", () => finish(false));
-    server.listen({ port, host }, () => finish(true));
+    try {
+      server.listen({ port, host }, () => finish(true));
+    } catch {
+      finish(false);
+    }
   });
 }
 
