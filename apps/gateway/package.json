@@ -12,7 +12,8 @@
     }
   },
   "scripts": {
-    "start": "node dist/main.js"
+    "start": "node dist/main.js",
+    "test": "vitest run --project @butler/gateway --root ../.."
   },
   "dependencies": {
     "@butler/adapter-hermes": "workspace:*",
