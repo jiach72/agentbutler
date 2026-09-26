@@ -562,7 +562,7 @@ export function buildHostServiceUnits(
     "[Install]",
     "WantedBy=default.target",
     "",
-  ].join("\\n");
+  ].join("\n");
   return {
     "butler-gateway": unit("butler-gateway", "Agent Butler Gateway", [], [
       "BUTLER_GATEWAY_HOST=127.0.0.1",
@@ -635,7 +635,7 @@ async function installHostServices(
         "  - butler-watch:   " + shellCommand(corepackCommand, ["pnpm", "--filter", "@butler/watch", "start"]),
         "  - butler-web:     " + shellCommand(corepackCommand, ["pnpm", "--filter", "@butler/web", "start"]) + "（http://127.0.0.1:" + (opts.webHostPort ?? DEFAULT_WEB_HOST_PORT) + "）",
         "  - butler-gateway: " + shellCommand(corepackCommand, ["pnpm", "--filter", "@butler/gateway", "start"]),
-      ].join("\\n"),
+      ].join("\n"),
     });
     return steps;
   }
@@ -691,7 +691,7 @@ async function installHostServices(
     steps.push({
       id: "services-install",
       status: "dry-run",
-      detail: "将生成 " + filenames.join(", ") + "（dry-run 未写入）；unit 内容：\\n" + BUTLER_SERVICES.map((service) => "--- " + service + ".service\\n" + units[service]).join("\\n"),
+      detail: "将生成 " + filenames.join(", ") + "（dry-run 未写入）；unit 内容：\n" + BUTLER_SERVICES.map((service) => "--- " + service + ".service\n" + units[service]).join("\n"),
     });
   } else {
     try {

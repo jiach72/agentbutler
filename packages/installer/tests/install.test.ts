@@ -362,6 +362,15 @@ describe("buildHostServiceUnits", () => {
     expect(units["butler-gateway"]).toContain("BUTLER_HERMES_BRIDGE_TOKEN_FILE=%h/.hermes/agent-butler/bridge.token");
     expect(units["butler-gateway"]).toContain("BUTLER_MESSAGE_PROJECTION_DB=%h/.agent-butler/messages.sqlite");
     expect(units["butler-gateway"]).toContain("BUTLER_MESSAGE_REQUEST_TIMEOUT_MS=120000");
+
+    // 换行结构校验：systemd unit 必须包含真实的换行符（而非字面量 \\n 挤在单行导致 systemd 解析崩溃）
+    for (const service of ["butler-watch", "butler-web", "butler-gateway"] as const) {
+      const lines = units[service].split("\n");
+      expect(lines.length).toBeGreaterThan(15);
+      expect(lines).toContain("[Unit]");
+      expect(lines).toContain("[Service]");
+      expect(lines).toContain("[Install]");
+    }
   });
 });
 
