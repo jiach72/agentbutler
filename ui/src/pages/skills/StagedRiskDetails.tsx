@@ -14,8 +14,16 @@ function EvidenceGroup({ label, values, color }: { label: string; values: string
   return (
     <Flex vertical gap={4}>
       <Text strong>{label}</Text>
-      <Flex gap={4} wrap>
-        {values.map((value) => <Tag color={color} key={value}>{value}</Tag>)}
+      <Flex gap={6} wrap>
+        {values.map((value) => (
+          <Tag color={color} key={value} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <span>{value}</span>
+            <Typography.Text
+              copyable={{ text: value, tooltips: ["复制", "已复制"] }}
+              style={{ fontSize: 11, cursor: "pointer" }}
+            />
+          </Tag>
+        ))}
       </Flex>
     </Flex>
   );
@@ -79,8 +87,16 @@ export function StagedRiskDetails({ risk, installError }: StagedRiskDetailsProps
       {domainCount > 0 && (
         <Flex vertical gap={4}>
           <Text type="secondary">{`这个技能引用了 ${domainCount} 个外部网址，使用相关功能时会访问它们：`}</Text>
-          <Flex gap={4} wrap>
-            {risk.externalDomains.slice(0, 8).map((domain) => <Tag key={domain}>{domain}</Tag>)}
+          <Flex gap={6} wrap>
+            {risk.externalDomains.slice(0, 8).map((domain) => (
+              <Tag key={domain} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <span>{domain}</span>
+                <Typography.Text
+                  copyable={{ text: domain, tooltips: ["复制网址", "已复制"] }}
+                  style={{ fontSize: 11, cursor: "pointer" }}
+                />
+              </Tag>
+            ))}
             {domainCount > 8 && <Tag>{`还有 ${domainCount - 8} 个`}</Tag>}
           </Flex>
         </Flex>

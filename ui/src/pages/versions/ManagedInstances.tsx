@@ -49,12 +49,28 @@ export function ManagedInstances({ instances }: ManagedInstancesProps) {
                 size="small"
                 style={{ marginTop: 12 }}
                 items={[
-                  { key: "version", label: "当前版本", children: instance.version ?? "版本未知" },
+                  {
+                    key: "version",
+                    label: "当前版本",
+                    children: instance.version ? (
+                      <Text copyable={{ tooltips: ["复制版本号", "已复制"] }}>{instance.version}</Text>
+                    ) : (
+                      "版本未知"
+                    ),
+                  },
                   { key: "runtime", label: "运行位置", children: instanceRuntimeLabel(instance.runtime) },
                   {
                     key: "id",
                     label: "内部编号",
-                    children: <Text type="secondary" ellipsis>{instance.instanceId}</Text>,
+                    children: (
+                      <Text
+                        type="secondary"
+                        ellipsis
+                        copyable={{ text: instance.instanceId, tooltips: ["复制内部编号", "已复制"] }}
+                      >
+                        {instance.instanceId}
+                      </Text>
+                    ),
                   },
                   { key: "state", label: "当前状态", children: instanceStateLabel(instance.state) },
                 ]}
