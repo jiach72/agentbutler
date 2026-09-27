@@ -14,11 +14,13 @@ import {
   MailOutlined,
   PushpinOutlined,
   QuestionOutlined,
+  ReloadOutlined,
 } from "@ant-design/icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ConclusionBar } from "../../components/ConclusionBar.js";
 import type { PageConclusionView } from "../../components/ConclusionBar.js";
+import { CopySnippetButton } from "../../components/CopySnippetButton.js";
 import { Empty } from "../../components/Empty.js";
 import { PageHeader } from "../../components/PageHeader.js";
 import { StatStrip } from "../../components/StatStrip.js";
@@ -100,24 +102,32 @@ export function AuditPage() {
   const [data, setData] = useState<ActionsResponse | null>(null);
   const [summary, setSummary] = useState<AuditSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  const refresh = useCallback(() => {
-    const params = new URLSearchParams({ hours: String(windowHours), limit: "300" });
-    void loadJson<ActionsResponse>(`/api/audit/actions?${params.toString()}`, 8_000).then((result) => {
-      if (result.ok) {
-        setData(result.data);
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ hours: String(windowHours), limit: "300" });
+      const [resActions, resSummary] = await Promise.all([
+        loadJson<ActionsResponse>(`/api/audit/actions?${params.toString()}`, 8_000),
+        loadJson<AuditSummary>(`/api/audit/summary?hours=${windowHours}`, 6_000),
+      ]);
+      if (resActions.ok) {
+        setData(resActions.data);
         setError(null);
       } else {
-        setError(result.reason);
+        setError(resActions.reason);
       }
-    });
-    void loadJson<AuditSummary>(`/api/audit/summary?hours=${windowHours}`, 6_000).then((result) => {
-      if (result.ok) setSummary(result.data);
-    });
+      if (resSummary.ok) {
+        setSummary(resSummary.data);
+      }
+    } finally {
+      setLoading(false);
+    }
   }, [windowHours]);
 
   useEffect(() => {
-    refresh();
+    void refresh();
   }, [refresh]);
   usePolling(refresh, 20_000);
 
@@ -239,6 +249,15 @@ export function AuditPage() {
         <PageHeader
           title="行为审计"
           description={`agent 执行动作的时间线。默认保留 ${collector?.retentionDays ?? 14} 天，只记动作，不记对话内容。`}
+          extra={
+            <Button
+              size="small"
+              icon={<ReloadOutlined spin={loading} />}
+              onClick={() => void refresh()}
+            >
+              刷新审计
+            </Button>
+          }
         />
 
         {/* §2.3 ② 结论条：读不到 / 采集降级 / 高危概览都归到这里，不另立 Alert。 */}
@@ -330,6 +349,7 @@ export function AuditPage() {
                                 {meta.icon}
                                 <Typography.Text>{meta.label}</Typography.Text>
                               </span>
+                              <CopySnippetButton text={String(event.id)} label={`#${event.id}`} />
                               {high && <StatusBadge tone="error" label="高危" />}
                               <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                                 {new Date(event.ts).toLocaleTimeString()}
@@ -343,6 +363,9 @@ export function AuditPage() {
                                     <StatusBadge tone="brand" label={`会话 ${event.sessionId.slice(0, 10)}…`} />
                                   </Link>
                                 </Tooltip>
+                              )}
+                              {event.detailJson && event.detailJson !== "{}" && (
+                                <CopySnippetButton text={event.detailJson} label="复制详情 JSON" />
                               )}
                             </Flex>
                             <Flex align="center" gap={6} style={{ marginTop: 4 }}>
