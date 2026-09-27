@@ -157,9 +157,25 @@ export function TaskEditorDrawer({ open, taskId, initialDraft, timezone, onClose
         {error && <Alert type="error" showIcon title={error} />}
         {!taskId && (
           <div className="task-templates-section" style={{ marginBottom: 8 }}>
-            <Typography.Text type="secondary" style={{ fontSize: 13, display: "block", marginBottom: 6 }}>
-              常用任务模板（点击快速填入）：
-            </Typography.Text>
+            <Flex justify="space-between" align="center" style={{ marginBottom: 6 }}>
+              <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+                常用任务模板（点击快速填入）：
+              </Typography.Text>
+              {(draft.name.trim() !== "" || draft.prompt.trim() !== "") && (
+                <Button
+                  size="small"
+                  type="link"
+                  disabled={frozen}
+                  onClick={() => {
+                    setDraft(emptyTaskDraft(timezone));
+                    setError(null);
+                  }}
+                  style={{ padding: 0, fontSize: 12 }}
+                >
+                  清空重置
+                </Button>
+              )}
+            </Flex>
             <Space wrap size={[8, 8]}>
               {TASK_TEMPLATES.map((tmpl) => (
                 <Button
@@ -184,11 +200,27 @@ export function TaskEditorDrawer({ open, taskId, initialDraft, timezone, onClose
           </div>
         )}
         <label htmlFor="task-name">任务名称</label>
-        <Input id="task-name" autoFocus value={draft.name} maxLength={120} disabled={frozen}
-          onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
+        <Input
+          id="task-name"
+          autoFocus
+          value={draft.name}
+          maxLength={120}
+          disabled={frozen}
+          placeholder="例如：每日 9 点生成项目进度日报"
+          allowClear
+          onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+        />
         <label htmlFor="task-prompt">任务内容</label>
-        <Input.TextArea id="task-prompt" value={draft.prompt} rows={5} maxLength={16000} disabled={frozen}
-          onChange={(event) => setDraft({ ...draft, prompt: event.target.value })} />
+        <Input.TextArea
+          id="task-prompt"
+          value={draft.prompt}
+          rows={5}
+          maxLength={16000}
+          showCount
+          disabled={frozen}
+          placeholder="详细描述智能体在执行任务时要做的事，例如检索指定信息、生成总结并通过已连接的通讯工具发送..."
+          onChange={(event) => setDraft({ ...draft, prompt: event.target.value })}
+        />
         <SchedulePicker value={draft.schedule} timezone={timezone} disabled={frozen}
           onChange={(schedule) => setDraft({ ...draft, schedule })} />
         <div className="task-delivery-control">
@@ -237,14 +269,34 @@ export function TaskEditorDrawer({ open, taskId, initialDraft, timezone, onClose
         )}
         <Collapse items={[{ key: "advanced", label: "高级设置", children: <div className="task-editor-fields">
           <label htmlFor="task-model">模型</label>
-          <Input id="task-model" value={advanced.model ?? ""} maxLength={160} disabled={frozen}
-            onChange={(event) => setDraft({ ...draft, advanced: { ...advanced, model: event.target.value } })} />
+          <Input
+            id="task-model"
+            value={advanced.model ?? ""}
+            maxLength={160}
+            disabled={frozen}
+            placeholder="留空使用系统默认主模型，或指定模型 (如: deepseek-chat, qwen2.5:7b)"
+            allowClear
+            onChange={(event) => setDraft({ ...draft, advanced: { ...advanced, model: event.target.value } })}
+          />
           <label htmlFor="task-skills">技能</label>
-          <Select id="task-skills" mode="tags" value={advanced.skills ?? []} disabled={frozen}
-            onChange={(skills: string[]) => setDraft({ ...draft, advanced: { ...advanced, skills } })} />
+          <Select
+            id="task-skills"
+            mode="tags"
+            value={advanced.skills ?? []}
+            disabled={frozen}
+            placeholder="输入技能名称后按回车，或留空自动发现"
+            onChange={(skills: string[]) => setDraft({ ...draft, advanced: { ...advanced, skills } })}
+          />
           <label htmlFor="task-workdir">工作目录</label>
-          <Input id="task-workdir" value={advanced.workdir ?? ""} maxLength={512} disabled={frozen}
-            onChange={(event) => setDraft({ ...draft, advanced: { ...advanced, workdir: event.target.value } })} />
+          <Input
+            id="task-workdir"
+            value={advanced.workdir ?? ""}
+            maxLength={512}
+            disabled={frozen}
+            placeholder="留空使用智能体默认工作目录"
+            allowClear
+            onChange={(event) => setDraft({ ...draft, advanced: { ...advanced, workdir: event.target.value } })}
+          />
         </div> }]} />
         <div className="task-preview" aria-live="polite">
           <Typography.Text strong>执行时间确认</Typography.Text>
