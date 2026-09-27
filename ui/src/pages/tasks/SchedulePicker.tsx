@@ -85,6 +85,14 @@ function computeUpcomingTimes(schedule: Schedule, count = 3): string[] {
   return [];
 }
 
+const QUICK_PRESETS = [
+  { label: "☀️ 每天早 08:30", getSchedule: (tz: string): Schedule => ({ kind: "daily", time: "08:30", timezone: tz }) },
+  { label: "💼 工作日 09:00", getSchedule: (tz: string): Schedule => ({ kind: "weekdays", time: "09:00", timezone: tz }) },
+  { label: "📈 工作日 15:30", getSchedule: (tz: string): Schedule => ({ kind: "weekdays", time: "15:30", timezone: tz }) },
+  { label: "🌙 每天晚 21:00", getSchedule: (tz: string): Schedule => ({ kind: "daily", time: "21:00", timezone: tz }) },
+  { label: "⏱️ 每 2 小时", getSchedule: (): Schedule => ({ kind: "interval", everyMinutes: 120 }) },
+];
+
 export function SchedulePicker({ value, timezone, onChange, disabled = false }: {
   value: Schedule; timezone: string; onChange: (schedule: Schedule) => void; disabled?: boolean;
 }) {
@@ -101,6 +109,46 @@ export function SchedulePicker({ value, timezone, onChange, disabled = false }: 
 
   return (
     <div className="task-schedule-fields">
+      <div className="quick-presets" style={{ marginBottom: 10 }}>
+        <Typography.Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 6 }}>
+          常用时间快捷点选：
+        </Typography.Text>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {QUICK_PRESETS.map((p) => (
+            <button
+              key={p.label}
+              type="button"
+              disabled={disabled}
+              onClick={() => onChange(p.getSchedule(timezone))}
+              style={{
+                fontSize: 12,
+                padding: "3px 10px",
+                borderRadius: 14,
+                border: "1px solid var(--ab-border, #d9d9d9)",
+                background: "var(--ab-surface-2, rgba(0,0,0,0.02))",
+                color: "var(--ab-text, inherit)",
+                cursor: disabled ? "not-allowed" : "pointer",
+                transition: "all 0.15s ease",
+              }}
+              onMouseEnter={(e) => {
+                if (!disabled) {
+                  e.currentTarget.style.borderColor = "var(--ab-primary, #1890ff)";
+                  e.currentTarget.style.color = "var(--ab-primary, #1890ff)";
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!disabled) {
+                  e.currentTarget.style.borderColor = "var(--ab-border, #d9d9d9)";
+                  e.currentTarget.style.color = "var(--ab-text, inherit)";
+                }
+              }}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <label htmlFor="task-frequency">执行频率</label>
       <Select id="task-frequency" value={value.kind} onChange={setKind} disabled={disabled} options={[
         { label: "每天", value: "daily" }, { label: "工作日", value: "weekdays" },

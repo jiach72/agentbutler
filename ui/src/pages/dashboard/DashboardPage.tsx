@@ -134,9 +134,9 @@ export function DashboardPage() {
                     <span className="inline-block w-px h-3 bg-outline-variant/40" aria-hidden="true" />
                     <span>自动巡检: {inspectStatus?.intervalMin ?? 5} 分钟/次</span>
                     <span className="inline-block w-px h-3 bg-outline-variant/40" aria-hidden="true" />
-                    <span className="text-tertiary font-medium">探针 SLA: {probe?.overdue ? "需留意" : "正常 (99.98%)"}</span>
+                    <span className="text-tertiary font-medium">管家心跳: {probe?.overdue ? "需留意" : "正常在岗"}</span>
                     <span className="inline-block w-px h-3 bg-outline-variant/40" aria-hidden="true" />
-                    <span>出站规则: 回环受控</span>
+                    <span>本地安全: 仅回环保护</span>
                   </div>
                 </div>
 
@@ -160,16 +160,63 @@ export function DashboardPage() {
             </div>
           </section>
 
+          {/* Section B: Butler Quick Interaction Bar (管家随手吩咐与快捷导航) */}
+          <section className="animate-entrance rounded-2xl bg-surface-container-lowest/80 p-3.5 md:p-4 shadow-xs border border-outline-variant/15 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <div className="w-9 h-9 rounded-xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center shrink-0">
+                <EtherealIcon name="chat" size={18} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-xs md:text-sm font-semibold text-on-surface flex items-center gap-2">
+                  <span>随手吩咐管家</span>
+                  <span className="text-[11px] font-normal text-on-surface-variant/80">随时向智能体发送任务或指令</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                  <Link
+                    to="/tasks"
+                    className="text-xs px-2.5 py-1 rounded-lg bg-surface-container/60 hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-1.5 border border-outline-variant/15"
+                  >
+                    <span>📅</span>
+                    <span>新建自动化巡检</span>
+                  </Link>
+                  <Link
+                    to="/gateway"
+                    className="text-xs px-2.5 py-1 rounded-lg bg-surface-container/60 hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-1.5 border border-outline-variant/15"
+                  >
+                    <span>💬</span>
+                    <span>检查通知通道</span>
+                  </Link>
+                  <Link
+                    to="/skills"
+                    className="text-xs px-2.5 py-1 rounded-lg bg-surface-container/60 hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-1.5 border border-outline-variant/15"
+                  >
+                    <span>🧠</span>
+                    <span>查阅记忆便签</span>
+                  </Link>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
+              <Link
+                to="/tasks"
+                className="h-8 px-3 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary text-xs font-medium border border-primary/20 transition-all inline-flex items-center gap-1.5"
+              >
+                <EtherealIcon name="add" size={14} />
+                <span>添加任务</span>
+              </Link>
+            </div>
+          </section>
+
           {/* Section C: Core Guardian Matrix (4 栏水平紧凑指标条) */}
           <div className="space-y-2">
             <div className="flex items-center justify-between px-0.5">
               <div className="flex items-center gap-2">
-                <h3 className="vision-section-title">核心守护矩阵</h3>
+                <h3 className="vision-section-title">核心守护看板</h3>
                 <span className="text-xs px-2 py-0.5 rounded-full bg-surface-container text-on-surface-variant font-mono font-medium">
-                  TELEMETRY MATRIX
+                  实时巡检中
                 </span>
               </div>
-              <span className="text-xs text-on-surface-variant font-mono">15 秒轮询 · 本机沙盒回环</span>
+              <span className="text-xs text-on-surface-variant font-mono">15 秒轮询 · 本机安全沙盒</span>
             </div>
 
             <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
