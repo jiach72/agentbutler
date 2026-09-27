@@ -243,7 +243,7 @@ export function CoreFilesPage() {
             allowClear
             aria-label="搜索核心文件"
             prefix={<SearchOutlined style={{ color: "var(--ant-color-text-quaternary)" }} aria-hidden="true" />}
-            placeholder="搜索文件名或路径关键词"
+            placeholder="搜索核心文件 (如: SOPS, memory, config, prompt)..."
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}
           />
@@ -279,9 +279,25 @@ export function CoreFilesPage() {
                   <Spin />
                 </Flex>
               ) : files.length === 0 ? (
-                <Empty mascot={false} title="还没有可管理的核心文件" />
+                <Empty
+                  mascot={false}
+                  title="还没有可管理的核心文件"
+                  hint="请先确认实例配置或在设置中检查智能体工作目录。"
+                  action={
+                    <Button onClick={refresh} icon={<ReloadOutlined />}>重新扫描文件</Button>
+                  }
+                />
               ) : filteredFiles.length === 0 ? (
-                <Empty mascot={false} title="没有匹配的文件" />
+                <Empty
+                  mascot={false}
+                  title="没有匹配的文件"
+                  hint={keyword.trim() !== "" ? `未找到与「${keyword.trim()}」相关的文件。` : "当前实例下没有匹配的文件。"}
+                  action={
+                    keyword.trim() !== "" ? (
+                      <Button onClick={() => setKeyword("")}>清空搜索</Button>
+                    ) : undefined
+                  }
+                />
               ) : (
                 <div>
                   {fileGroups.map((group) => (
@@ -362,6 +378,17 @@ export function CoreFilesPage() {
                       }
                     />
                   )}
+                  <Flex justify="space-between" align="center" wrap="wrap" gap={8} style={{ fontSize: 12 }}>
+                    <Flex align="center" gap={6}>
+                      <Text type="secondary">文件路径：</Text>
+                      <Text copyable={{ text: selectedFile.pathDisplay, tooltips: ["复制文件路径", "已复制"] }} code style={{ fontSize: 12 }}>
+                        {selectedFile.pathDisplay}
+                      </Text>
+                    </Flex>
+                    <Text type="secondary">
+                      {selectedFile.modifiedAt ? `最后修改: ${formatTime(selectedFile.modifiedAt)}` : "尚未保存"} · {formatBytes(selectedFile.sizeBytes)}
+                    </Text>
+                  </Flex>
                   <Input.TextArea
                     aria-label="文件内容编辑器"
                     style={{ fontFamily: "var(--ant-font-family-code)" }}

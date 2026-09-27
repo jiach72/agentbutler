@@ -31,6 +31,7 @@ describe("核心文件与系统日志 (CoreFilesPage & LogsPage) UI/UX 与工效
     // 全键盘与操作按钮无障碍
     expect(html).toContain('aria-label="选择实例"');
     expect(html).toContain('aria-label="搜索核心文件"');
+    expect(html).toContain("搜索核心文件 (如: SOPS, memory, config, prompt)...");
     expect(html).toContain('aria-label="刷新核心文件列表"');
     expect(html).toContain('aria-label="立即备份当前文件"');
     expect(html).toContain('aria-label="下载当前文件"');
