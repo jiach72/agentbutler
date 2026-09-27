@@ -791,7 +791,9 @@ export function HindsightConstellationGraph({
 
     const onNativeWheel = (e: WheelEvent) => {
       if (!interactive) return;
-      e.preventDefault();
+      if (e.cancelable) {
+        e.preventDefault();
+      }
       const rect = canvas.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
       const mouseY = e.clientY - rect.top;

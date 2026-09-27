@@ -547,6 +547,14 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
         afterInstallChanged();
         return;
       }
+      setStaged((current) =>
+        current === null
+          ? null
+          : {
+              ...current,
+              installError: failure,
+            },
+      );
       message.error(failure);
       return;
     }
