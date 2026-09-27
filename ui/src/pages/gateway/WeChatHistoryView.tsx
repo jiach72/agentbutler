@@ -16,6 +16,7 @@ import {
 import {
   DownOutlined,
   LineChartOutlined,
+  ReloadOutlined,
   UpOutlined,
 } from "@ant-design/icons";
 import { useTheme } from "../../theme/ThemeProvider.js";
@@ -115,13 +116,19 @@ export function WeChatHistoryView(props: WeChatHistoryViewProps) {
   const todayStr = useMemo(() => toLocalDateString(new Date()), []);
 
   const [inboundItems, setInboundItems] = useState<InboundHistoryItem[]>([]);
+  const [loading, setLoading] = useState(false);
   const loadInboundHistory = useCallback(async () => {
-    const res = await loadJson<{ reachable: boolean; items: InboundHistoryItem[] }>(
-      "/api/messages/optimization-history?limit=100",
-      8_000
-    );
-    if (res.ok && Array.isArray(res.data?.items)) {
-      setInboundItems(res.data.items);
+    setLoading(true);
+    try {
+      const res = await loadJson<{ reachable: boolean; items: InboundHistoryItem[] }>(
+        "/api/messages/optimization-history?limit=100",
+        8_000
+      );
+      if (res.ok && Array.isArray(res.data?.items)) {
+        setInboundItems(res.data.items);
+      }
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -180,14 +187,24 @@ export function WeChatHistoryView(props: WeChatHistoryViewProps) {
                 近30天处理 {inboundItems.length} 条
               </Tag>
             </Flex>
-            <Button
-              type="text"
-              size="small"
-              icon={showTrend ? <UpOutlined /> : <DownOutlined />}
-              onClick={() => setShowTrend((prev) => !prev)}
-            >
-              {showTrend ? "收起 30 天整理趋势图" : "展开 30 天整理趋势图"}
-            </Button>
+            <Flex align="center" gap={8}>
+              <Button
+                type="text"
+                size="small"
+                icon={<ReloadOutlined spin={loading} />}
+                onClick={() => void loadInboundHistory()}
+              >
+                刷新
+              </Button>
+              <Button
+                type="text"
+                size="small"
+                icon={showTrend ? <UpOutlined /> : <DownOutlined />}
+                onClick={() => setShowTrend((prev) => !prev)}
+              >
+                {showTrend ? "收起 30 天整理趋势图" : "展开 30 天整理趋势图"}
+              </Button>
+            </Flex>
           </Flex>
 
           <Row gutter={[12, 8]}>

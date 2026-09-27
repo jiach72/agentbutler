@@ -28,6 +28,7 @@ import {
   AppstoreAddOutlined,
   SearchOutlined,
   CompassOutlined,
+  CopyOutlined,
   SyncOutlined,
   ArrowRightOutlined,
 } from "@ant-design/icons";
@@ -208,7 +209,31 @@ export function IMChatWindow(props: IMChatWindowProps) {
                 </Text>
               ) : (
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  外部通道双向审计与投递模式 · 目标 ID: {props.conversation.chatId || "默认"}
+                  外部通道双向审计与投递模式 · 目标 ID:{" "}
+                  <Tooltip title={props.conversation.chatId ? "点击复制目标 ID" : undefined}>
+                    <Tag
+                      bordered={false}
+                      style={{
+                        cursor: props.conversation.chatId ? "pointer" : "default",
+                        margin: 0,
+                        fontSize: 12,
+                        padding: "0 6px",
+                      }}
+                      onClick={() => {
+                        if (props.conversation?.chatId) {
+                          copyText("chatId", props.conversation.chatId);
+                        }
+                      }}
+                    >
+                      {props.conversation.chatId || "默认"}
+                      {props.conversation.chatId && (
+                        <CopyOutlined style={{ marginLeft: 4, fontSize: 10 }} />
+                      )}
+                    </Tag>
+                  </Tooltip>
+                  {copiedId === "chatId" && (
+                    <span style={{ color: "var(--ant-color-success)", marginLeft: 4 }}>已复制</span>
+                  )}
                 </Text>
               )}
             </Flex>
@@ -246,7 +271,7 @@ export function IMChatWindow(props: IMChatWindowProps) {
       {/* 2. 聊天流消息视窗 */}
       <div className="im-chat-stream" ref={streamContainerRef} onScroll={handleScroll}>
         {props.messages.length === 0 ? (
-          <div style={{ margin: "auto", textAlign: "center" }}>
+          <div style={{ margin: "auto", textAlign: "center", maxWidth: 440, padding: "20px 16px" }}>
             <Empty
               mascot={false}
               title={isDirect ? "直连通道已开启" : "暂无消息记录"}
@@ -256,6 +281,25 @@ export function IMChatWindow(props: IMChatWindowProps) {
                   : "外部通道收到或发出消息后将在此实时呈现"
               }
             />
+            {isDirect && (
+              <Flex wrap="wrap" gap={8} justify="center" style={{ marginTop: 16 }}>
+                {[
+                  "检查系统健康与网关状态",
+                  "汇总待处理告警与死信",
+                  "查看通道连接与运行时详情",
+                ].map((promptText) => (
+                  <Button
+                    key={promptText}
+                    size="small"
+                    style={{ borderRadius: 12, fontSize: 12 }}
+                    disabled={props.sending}
+                    onClick={() => void props.onSend(promptText)}
+                  >
+                    {promptText}
+                  </Button>
+                ))}
+              </Flex>
+            )}
           </div>
         ) : (
           props.messages.map((msg, idx) => {
@@ -425,11 +469,20 @@ export function IMChatWindow(props: IMChatWindowProps) {
                           <Flex align="center" gap={8} style={{ fontSize: 11, color: timeCapsuleColor, paddingLeft: 4 }}>
                             <span>{isDirect ? "Hermes 智能体" : "管家回复"}</span>
                             <span>·</span>
+                            <Tooltip title={`完整 ID: ${msg.id} (点击复制)`}>
+                              <span
+                                style={{ cursor: "pointer", fontFamily: "var(--ab-font-mono, monospace)" }}
+                                onClick={() => copyText(`id-${msg.id}`, msg.id)}
+                              >
+                                {copiedId === `id-${msg.id}` ? "已复制 ID" : `#${msg.id.slice(0, 8)}`}
+                              </span>
+                            </Tooltip>
+                            <span>·</span>
                             <span
                               style={{ cursor: "pointer" }}
                               onClick={() => copyText(msg.id, msg.content)}
                             >
-                              {copiedId === msg.id ? "已复制" : "复制"}
+                              {copiedId === msg.id ? "已复制内容" : "复制"}
                             </span>
                             {msg.rawOutbox && (
                               <>
@@ -518,11 +571,20 @@ export function IMChatWindow(props: IMChatWindowProps) {
                       <Flex align="center" gap={6} style={{ fontSize: 11, color: timeCapsuleColor, paddingRight: 4 }}>
                         <span>我</span>
                         <span>·</span>
+                        <Tooltip title={`完整 ID: ${msg.id} (点击复制)`}>
+                          <span
+                            style={{ cursor: "pointer", fontFamily: "var(--ab-font-mono, monospace)" }}
+                            onClick={() => copyText(`id-${msg.id}`, msg.id)}
+                          >
+                            {copiedId === `id-${msg.id}` ? "已复制 ID" : `#${msg.id.slice(0, 8)}`}
+                          </span>
+                        </Tooltip>
+                        <span>·</span>
                         <span
                           style={{ cursor: "pointer" }}
                           onClick={() => copyText(msg.id, msg.content)}
                         >
-                          {copiedId === msg.id ? "已复制" : "复制"}
+                          {copiedId === msg.id ? "已复制内容" : "复制"}
                         </span>
                       </Flex>
                     </Flex>
