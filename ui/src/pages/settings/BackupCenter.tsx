@@ -216,7 +216,17 @@ export function BackupCenter({
         <Empty
           mascot={false}
           title="还没有备份记录"
-          hint="点击「立即全量备份」开始第一次备份，之后管家每天自动备份。"
+          hint="管家会在每天凌晨以及系统升级前自动备份。您也可以立即创建首个全量备份。"
+          action={
+            <Button
+              type="primary"
+              loading={busy === "full"}
+              disabled={busy !== null}
+              onClick={() => onRunBackup("full")}
+            >
+              立即创建首个全量备份
+            </Button>
+          }
         />
       )}
     </Flex>

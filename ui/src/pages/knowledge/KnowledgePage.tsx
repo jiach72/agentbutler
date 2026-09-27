@@ -1455,7 +1455,7 @@ export function KnowledgePage() {
                       <Flex gap={8}>
                         <Input.Search
                           size="large"
-                          placeholder="例如：大湾区低空多维智算中心的核心建设内容和投产时间是什么？"
+                          placeholder="向知识库提问，例如：这份文档的核心结论是什么？有哪些待办事项？"
                           enterButton="检索问答"
                           value={queryInput}
                           onChange={(e) => setQueryInput(e.target.value)}
@@ -1467,37 +1467,40 @@ export function KnowledgePage() {
                       {/* 快捷提问推荐气泡 */}
                       <Flex align="center" gap={8} wrap="wrap">
                         <Text type="secondary" style={{ fontSize: 12 }}>
-                          快捷检索：
+                          快捷提问：
                         </Text>
                         <Button
                           size="small"
                           type="dashed"
                           onClick={() => {
-                            setQueryInput("大湾区低空多维智算中心的建设单位与编制单位分别是谁？");
-                            void handleRunQuery("大湾区低空多维智算中心的建设单位与编制单位分别是谁？");
+                            const q = "请梳理知识库中相关文档的核心要点与关键结论";
+                            setQueryInput(q);
+                            void handleRunQuery(q);
                           }}
                         >
-                          建设单位与编制单位？
+                          💡 核心要点与结论？
                         </Button>
                         <Button
                           size="small"
                           type="dashed"
                           onClick={() => {
-                            setQueryInput("低空多维智算中心的可行性研究主要建设内容是什么？");
-                            void handleRunQuery("低空多维智算中心的可行性研究主要建设内容是什么？");
+                            const q = "知识库中记录了哪些具体的行动项、任务或待办事项？";
+                            setQueryInput(q);
+                            void handleRunQuery(q);
                           }}
                         >
-                          主要建设内容？
+                          📋 待办与行动项？
                         </Button>
                         <Button
                           size="small"
                           type="dashed"
                           onClick={() => {
-                            setQueryInput("本项目计划何时投产？建设地点在什么位置？");
-                            void handleRunQuery("本项目计划何时投产？建设地点在什么位置？");
+                            const q = "请结合已有资料，总结背景信息、关键时间节点与注意事项";
+                            setQueryInput(q);
+                            void handleRunQuery(q);
                           }}
                         >
-                          计划投产时间与建设地点？
+                          🔍 背景与关键节点？
                         </Button>
                       </Flex>
 
@@ -2068,7 +2071,7 @@ export function KnowledgePage() {
             </div>
           </Flex>
         ) : (
-          <Empty description="暂无预览数据" />
+          <Empty description="该文件暂无文本预览内容或格式无法直接解析" />
         )}
       </Drawer>
 

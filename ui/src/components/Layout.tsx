@@ -4,8 +4,8 @@
  */
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Button, Drawer, Tooltip } from "antd";
-import { MoonOutlined, SunOutlined } from "@ant-design/icons";
+import { Button, Drawer, Input, Tooltip } from "antd";
+import { MoonOutlined, SearchOutlined, SunOutlined } from "@ant-design/icons";
 import { ErrorBoundary } from "./ErrorBoundary.js";
 import { EtherealIcon } from "./EtherealIcon.js";
 import { KillSwitchButton } from "./KillSwitchButton.js";
@@ -343,7 +343,22 @@ export function Layout() {
   const [commandText, setCommandText] = useState("");
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [geekDrawerOpen, setGeekDrawerOpen] = useState(false);
+  const [geekSearch, setGeekSearch] = useState("");
   const commandInputRef = useRef<HTMLInputElement>(null);
+
+  const filteredGeekNav = useMemo(() => {
+    const q = geekSearch.trim().toLowerCase();
+    if (!q) return GEEK_DRAWER_NAV;
+    return GEEK_DRAWER_NAV.map((group) => ({
+      ...group,
+      items: group.items.filter(
+        (item) =>
+          item.title.toLowerCase().includes(q) ||
+          item.path.toLowerCase().includes(q) ||
+          (item.note && item.note.toLowerCase().includes(q)),
+      ),
+    })).filter((group) => group.items.length > 0);
+  }, [geekSearch]);
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try {
@@ -787,46 +802,64 @@ export function Layout() {
             }
             styles={{ wrapper: { width: 360 }, body: { padding: "16px 18px" } }}
           >
-            <div className="space-y-6">
-              {GEEK_DRAWER_NAV.map((group) => (
-                <div key={group.key} className="space-y-2">
-                  <div className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant/80 px-1">
-                    {group.label}
-                  </div>
-                  <div className="grid grid-cols-1 gap-1.5">
-                    {group.items.map((item) => {
-                      const active = isStitchNavActive(item.path, location.pathname);
-                      return (
-                        <Link
-                          key={item.path}
-                          to={item.path}
-                          onClick={() => setGeekDrawerOpen(false)}
-                          className={`p-2.5 rounded-xl border transition-all duration-200 flex items-center gap-3 group ${
-                            active
-                              ? "bg-primary/10 border-primary/40 text-primary shadow-xs"
-                              : "bg-surface-container/50 hover:bg-surface-container-high border-outline-variant/15 hover:border-primary/30 text-on-surface"
-                          }`}
-                        >
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-transform group-hover:scale-105 ${
-                            active ? "bg-primary text-white" : "bg-surface-container-high text-on-surface-variant group-hover:text-primary"
-                          }`}>
-                            <EtherealIcon name={item.materialIcon} size={16} />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm font-medium leading-none">{item.title}</span>
-                              <span className="text-[10px] font-mono text-on-surface-variant/60">{item.path}</span>
-                            </div>
-                            {item.note && (
-                              <p className="text-xs text-on-surface-variant/70 mt-1 line-clamp-1 leading-none">{item.note}</p>
-                            )}
-                          </div>
-                        </Link>
-                      );
-                    })}
-                  </div>
+            <div className="space-y-4">
+              <Input
+                prefix={<SearchOutlined style={{ color: "var(--ab-text-secondary)" }} />}
+                placeholder="快速检索工具 (如: 日志, 审批, 成本...)"
+                allowClear
+                value={geekSearch}
+                onChange={(e) => setGeekSearch(e.target.value)}
+                style={{ borderRadius: 8 }}
+              />
+
+              {filteredGeekNav.length === 0 ? (
+                <div className="py-8 text-center text-xs text-on-surface-variant">
+                  未找到与“{geekSearch}”匹配的工具
                 </div>
-              ))}
+              ) : (
+                filteredGeekNav.map((group) => (
+                  <div key={group.key} className="space-y-2">
+                    <div className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant/80 px-1">
+                      {group.label}
+                    </div>
+                    <div className="grid grid-cols-1 gap-1.5">
+                      {group.items.map((item) => {
+                        const active = isStitchNavActive(item.path, location.pathname);
+                        return (
+                          <Link
+                            key={item.path}
+                            to={item.path}
+                            onClick={() => {
+                              setGeekDrawerOpen(false);
+                              setGeekSearch("");
+                            }}
+                            className={`p-2.5 rounded-xl border transition-all duration-200 flex items-center gap-3 group ${
+                              active
+                                ? "bg-primary/10 border-primary/40 text-primary shadow-xs"
+                                : "bg-surface-container/50 hover:bg-surface-container-high border-outline-variant/15 hover:border-primary/30 text-on-surface"
+                            }`}
+                          >
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-transform group-hover:scale-105 ${
+                              active ? "bg-primary text-white" : "bg-surface-container-high text-on-surface-variant group-hover:text-primary"
+                            }`}>
+                              <EtherealIcon name={item.materialIcon} size={16} />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center justify-between">
+                                <span className="text-sm font-medium leading-none">{item.title}</span>
+                                <span className="text-[10px] font-mono text-on-surface-variant/60">{item.path}</span>
+                              </div>
+                              {item.note && (
+                                <p className="text-xs text-on-surface-variant/70 mt-1 line-clamp-1 leading-none">{item.note}</p>
+                              )}
+                            </div>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </Drawer>
 
