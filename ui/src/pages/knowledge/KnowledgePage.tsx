@@ -1327,9 +1327,19 @@ export function KnowledgePage() {
                                 <MessageOutlined style={{ color: "var(--ab-ok)" }} />
                                 <span>微信传输与聊天附件归纳箱 (WeChat / IM)</span>
                               </Flex>
-                              <Tag color={inboxFiles.filter(f => !f.ingested).length > 0 ? "warning" : "green"}>
-                                {inboxFiles.filter(f => !f.ingested).length} 个待入库
-                              </Tag>
+                              <Flex align="center" gap={6}>
+                                <Tag color={inboxFiles.filter(f => !f.ingested).length > 0 ? "warning" : "green"}>
+                                  {inboxFiles.filter(f => !f.ingested).length} 个待入库
+                                </Tag>
+                                <Button
+                                  size="small"
+                                  type="text"
+                                  icon={<ReloadOutlined />}
+                                  loading={inboxLoading}
+                                  onClick={() => void fetchInbox()}
+                                  aria-label="刷新微信传输归纳箱"
+                                />
+                              </Flex>
                             </Flex>
                           }
                           style={{ height: "100%", borderRadius: 10 }}
@@ -1377,7 +1387,12 @@ export function KnowledgePage() {
                                       ) : (
                                         <FileTextOutlined style={{ color: "var(--ab-ok)" }} />
                                       )}
-                                      <Text ellipsis style={{ maxWidth: 220 }} title={f.filename}>
+                                      <Text
+                                        ellipsis
+                                        style={{ maxWidth: 220 }}
+                                        title={f.filename}
+                                        copyable={{ text: f.filename, tooltips: ["复制文件名", "已复制"] }}
+                                      >
                                         {f.filename}
                                       </Text>
                                     </Flex>

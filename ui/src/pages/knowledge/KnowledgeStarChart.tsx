@@ -359,7 +359,12 @@ export function KnowledgeStarChart({
                   boxShadow: "0 0 10px rgba(14, 165, 233, 0.6)",
                 }}
               />
-              <span>{selectedNode.name}</span>
+              <Text
+                copyable={{ text: selectedNode.name, tooltips: ["复制星体名称", "已复制"] }}
+                style={{ fontWeight: 600 }}
+              >
+                {selectedNode.name}
+              </Text>
             </Flex>
           ) : (
             "星体详情"
@@ -395,7 +400,15 @@ export function KnowledgeStarChart({
                 </div>
                 <div>
                   <Text type="secondary">相对路径：</Text>
-                  <Text code>{selectedNode.details?.path || selectedNode.name}</Text>
+                  <Text
+                    code
+                    copyable={{
+                      text: selectedNode.details?.path || selectedNode.name,
+                      tooltips: ["复制路径", "已复制"],
+                    }}
+                  >
+                    {selectedNode.details?.path || selectedNode.name}
+                  </Text>
                 </div>
                 {selectedNode.details?.size !== undefined && (
                   <div>
