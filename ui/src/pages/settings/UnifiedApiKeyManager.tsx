@@ -40,6 +40,7 @@ import {
 } from "@ant-design/icons";
 import { deleteJson, loadJson, postJson } from "../../lib/api.js";
 import { SectionHeader } from "../../components/SectionHeader.js";
+import { Empty as ButlerEmpty } from "../../components/Empty.js";
 
 const { Text } = Typography;
 
@@ -96,6 +97,7 @@ export function UnifiedApiKeyManager() {
   const [credentials, setCredentials] = useState<ApiCredentialView[]>([]);
   const [presets, setPresets] = useState<ApiCredentialPreset[]>([]);
   const [filterCategory, setFilterCategory] = useState<ApiKeyCategory>("all");
+  const [searchKeyword, setSearchKeyword] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<ApiCredentialView | null>(null);
   const [probingId, setProbingId] = useState<string | null>(null);
@@ -134,9 +136,23 @@ export function UnifiedApiKeyManager() {
 
   // 过滤后的列表
   const filteredList = useMemo(() => {
-    if (filterCategory === "all") return credentials;
-    return credentials.filter((c) => c.category === filterCategory);
-  }, [credentials, filterCategory]);
+    let list = credentials;
+    if (filterCategory !== "all") {
+      list = list.filter((c) => c.category === filterCategory);
+    }
+    const q = searchKeyword.trim().toLowerCase();
+    if (q) {
+      list = list.filter(
+        (c) =>
+          c.name.toLowerCase().includes(q) ||
+          c.envVar.toLowerCase().includes(q) ||
+          c.provider.toLowerCase().includes(q) ||
+          (c.endpoint && c.endpoint.toLowerCase().includes(q)) ||
+          (c.description && c.description.toLowerCase().includes(q)),
+      );
+    }
+    return list;
+  }, [credentials, filterCategory, searchKeyword]);
 
   // 统计概览
   const stats = useMemo(() => {
@@ -335,7 +351,12 @@ export function UnifiedApiKeyManager() {
       render: (_: unknown, record: ApiCredentialView) => (
         <Flex vertical gap={2}>
           <Space orientation="horizontal" size={6}>
-            <Text strong>{record.name}</Text>
+            <Text
+              strong
+              copyable={{ text: record.name, tooltips: ["复制服务名", "已复制"] }}
+            >
+              {record.name}
+            </Text>
             {record.docsUrl && (
               <Tooltip title="查看官方文档/控制台">
                 <a href={record.docsUrl} target="_blank" rel="noreferrer">
@@ -344,6 +365,11 @@ export function UnifiedApiKeyManager() {
               </Tooltip>
             )}
           </Space>
+          {record.endpoint && (
+            <Text type="secondary" style={{ fontSize: 11 }}>
+              端点：<Text copyable={{ text: record.endpoint, tooltips: ["复制端点", "已复制"] }} type="secondary" code>{record.endpoint}</Text>
+            </Text>
+          )}
           {record.description && (
             <Text type="secondary" style={{ fontSize: 12 }}>
               {record.description}
@@ -546,7 +572,7 @@ export function UnifiedApiKeyManager() {
           </Col>
         </Row>
 
-        {/* 分类切换 Radio.Group */}
+        {/* 分类切换与即时搜索 */}
         <Flex justify="space-between" align="center" wrap="wrap" gap={12}>
           <Radio.Group
             value={filterCategory}
@@ -573,6 +599,14 @@ export function UnifiedApiKeyManager() {
               自定义 ({credentials.filter((c) => c.category === "custom").length})
             </Radio.Button>
           </Radio.Group>
+          <Input.Search
+            placeholder="搜索服务名称 / 环境变量..."
+            allowClear
+            size="small"
+            value={searchKeyword}
+            onChange={(e) => setSearchKeyword(e.target.value)}
+            style={{ width: 220, maxWidth: "100%" }}
+          />
         </Flex>
 
         {/* 统一表格 */}
@@ -582,7 +616,40 @@ export function UnifiedApiKeyManager() {
           dataSource={filteredList}
           loading={loading}
           pagination={filteredList.length > 10 ? { pageSize: 10 } : false}
-          locale={{ emptyText: "当前分类下暂无已配置的 API 密钥，点击右上角「添加 API Key」开始配置。" }}
+          locale={{
+            emptyText: (
+              <ButlerEmpty
+                mascot={false}
+                title={
+                  searchKeyword.trim()
+                    ? `未找到与 “${searchKeyword.trim()}” 相关的 API 密钥`
+                    : filterCategory !== "all"
+                      ? "该分类下暂无已配置的 API 密钥"
+                      : "尚未配置任何 API 密钥"
+                }
+                hint={
+                  searchKeyword.trim()
+                    ? "请检查关键字拼写，或切换分类筛选。"
+                    : "配置 API 密钥后，智能体将具备联网搜索、视觉理解、高阶大模型等扩展能力。"
+                }
+                action={
+                  searchKeyword.trim() ? (
+                    <Button size="small" onClick={() => setSearchKeyword("")}>
+                      清空搜索
+                    </Button>
+                  ) : filterCategory !== "all" ? (
+                    <Button size="small" onClick={() => setFilterCategory("all")}>
+                      查看全部密钥
+                    </Button>
+                  ) : (
+                    <Button type="primary" size="small" icon={<PlusOutlined />} onClick={handleOpenAdd}>
+                      添加第一个 API Key
+                    </Button>
+                  )
+                }
+              />
+            ),
+          }}
         />
       </Flex>
 
