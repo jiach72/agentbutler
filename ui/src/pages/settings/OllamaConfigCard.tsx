@@ -50,6 +50,7 @@ import {
   ThunderboltOutlined,
 } from "@ant-design/icons";
 import type { MemoryProbeConfig, PrimaryModelConfig } from "@butler/contract";
+import { CopySnippetButton } from "../../components/CopySnippetButton.js";
 import { deleteJson, loadJson, postJson } from "../../lib/api.js";
 import {
   ChartEmpty,
@@ -607,14 +608,19 @@ export function OllamaConfigCard() {
             本地 Ollama 服务的 API 地址，由系统自动检测。如需修改，请在 .env 配置文件中设置
           </Text>
           <Input
-            disabled
+            readOnly
             value={status?.endpoint || "http://ollama:11434"}
+            addonAfter={
+              <CopySnippetButton
+                text={status?.endpoint || "http://ollama:11434"}
+                label="复制"
+              />
+            }
             style={{
-              maxWidth: 460,
+              maxWidth: 480,
               backgroundColor: "var(--ab-surface-2)",
               color: "var(--ab-text-1)",
               borderColor: "var(--ab-border)",
-              cursor: "default",
             }}
           />
         </div>
@@ -692,10 +698,24 @@ export function OllamaConfigCard() {
               下载新模型
             </Text>
           </Flex>
-          <Flex align="center" gap={8} style={{ marginBottom: 10 }}>
-            <Text type="secondary">输入模型名称下载，</Text>
+          <Flex align="center" gap={8} wrap="wrap" style={{ marginBottom: 10 }}>
+            <Text type="secondary">输入模型名称下载，或点选常用模型：</Text>
+            {[
+              { label: "qwen2.5:0.5b (极速)", val: "qwen2.5:0.5b" },
+              { label: "qwen2.5:1.5b", val: "qwen2.5:1.5b" },
+              { label: "llama3.2:1b", val: "llama3.2:1b" },
+              { label: "nomic-embed-text (向量)", val: "nomic-embed-text" },
+            ].map((p) => (
+              <Tag
+                key={p.val}
+                style={{ cursor: "pointer", userSelect: "none" }}
+                onClick={() => setDownloadInput(p.val)}
+              >
+                {p.label}
+              </Tag>
+            ))}
             <Link href="https://ollama.com/library" target="_blank" rel="noopener noreferrer">
-              浏览 Ollama 模型库 <LinkOutlined />
+              更多 Ollama 模型库 <LinkOutlined />
             </Link>
           </Flex>
 

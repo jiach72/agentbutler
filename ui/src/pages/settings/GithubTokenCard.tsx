@@ -5,7 +5,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { App, Button, Card, Flex, Input, Popconfirm, Tooltip, Typography } from "antd";
-import { ReloadOutlined } from "@ant-design/icons";
+import { LinkOutlined, ReloadOutlined } from "@ant-design/icons";
 import { loadJson, postJson } from "../../lib/api.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 
@@ -32,11 +32,17 @@ export function GithubTokenCard() {
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [token, setToken] = useState("");
   const [busy, setBusy] = useState(false);
+  const [loadingStatus, setLoadingStatus] = useState(false);
 
   /** 查询配置状态；失败不弹错误（卡片内徽标降级为「状态未知」）。 */
   const loadStatus = useCallback(async () => {
-    const result = await loadJson<{ configured: boolean }>("/api/github-token", 10_000);
-    setConfigured(result.ok ? result.data.configured : null);
+    setLoadingStatus(true);
+    try {
+      const result = await loadJson<{ configured: boolean }>("/api/github-token", 10_000);
+      setConfigured(result.ok ? result.data.configured : null);
+    } finally {
+      setLoadingStatus(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -92,7 +98,7 @@ export function GithubTokenCard() {
           <Button
             size="small"
             type="text"
-            icon={<ReloadOutlined />}
+            icon={<ReloadOutlined spin={loadingStatus} />}
             onClick={() => void loadStatus()}
             aria-label="刷新 GitHub 令牌状态"
           />
@@ -100,9 +106,19 @@ export function GithubTokenCard() {
       }
     >
       <Flex vertical gap={12}>
-        <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-          用于查询 GitHub 版本与技能市场，避免匿名 API 限流（仅需读取公开仓库，无需勾选任何私有仓库权限）。保存后立即生效，不需要重启。
-        </Paragraph>
+        <Flex justify="space-between" align="center" wrap="wrap" gap={8}>
+          <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+            用于查询 GitHub 版本与技能市场，避免匿名 API 限流（仅需读取公开仓库，无需勾选任何私有仓库权限）。保存后立即生效，不需要重启。
+          </Paragraph>
+          <Typography.Link
+            href="https://github.com/settings/tokens/new?description=AgentButler&scopes=public_repo"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ fontSize: 13, display: "inline-flex", alignItems: "center", gap: 4 }}
+          >
+            获取新令牌 (GitHub Settings) <LinkOutlined style={{ fontSize: 11 }} />
+          </Typography.Link>
+        </Flex>
         <Flex gap={8} wrap="wrap">
           <Input.Password
             style={{ flex: "1 1 280px", minWidth: 240, maxWidth: 480 }}
