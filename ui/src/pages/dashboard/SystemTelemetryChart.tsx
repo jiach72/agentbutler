@@ -320,21 +320,21 @@ export function SystemTelemetryChart({
               <defs>
                 {/* Area Gradient */}
                 <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#2dd4bf" stopOpacity="0.22" />
-                  <stop offset="70%" stopColor="#2dd4bf" stopOpacity="0.04" />
-                  <stop offset="100%" stopColor="#2dd4bf" stopOpacity="0.0" />
+                  <stop offset="0%" stopColor="var(--ab-ok, #0a7667)" stopOpacity="0.22" />
+                  <stop offset="70%" stopColor="var(--ab-ok, #0a7667)" stopOpacity="0.04" />
+                  <stop offset="100%" stopColor="var(--ab-ok, #0a7667)" stopOpacity="0.0" />
                 </linearGradient>
 
                 {/* Successful Capsule Gradient */}
                 <linearGradient id={barGradId} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#2dd4bf" />
-                  <stop offset="100%" stopColor="#0d9488" stopOpacity="0.85" />
+                  <stop offset="0%" stopColor="var(--ab-ok)" />
+                  <stop offset="100%" stopColor="color-mix(in srgb, var(--ab-ok) 80%, black)" stopOpacity="0.85" />
                 </linearGradient>
 
                 {/* Failed Capsule Gradient */}
                 <linearGradient id={failGradId} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#f43f5e" />
-                  <stop offset="100%" stopColor="#be123c" />
+                  <stop offset="0%" stopColor="var(--ab-error)" />
+                  <stop offset="100%" stopColor="color-mix(in srgb, var(--ab-error) 80%, black)" />
                 </linearGradient>
               </defs>
 
@@ -385,9 +385,9 @@ export function SystemTelemetryChart({
                       rx={3}
                       fill={
                         isHovered
-                          ? "#2dd4bf"
+                          ? "var(--ab-ok, #0a7667)"
                           : isCurrentHour
-                            ? "#0071e3"
+                            ? "var(--ab-primary, #1b4f7a)"
                             : "currentColor"
                       }
                       fillOpacity={isHovered ? 0.22 : isCurrentHour ? 0.12 : 0.04}
@@ -403,7 +403,7 @@ export function SystemTelemetryChart({
                         height={layout.barH}
                         rx={3}
                         fill={layout.slot.failedCount > 0 ? `url(#${failGradId})` : `url(#${barGradId})`}
-                        filter={isHovered ? "drop-shadow(0 2px 6px rgba(45, 212, 191, 0.45))" : undefined}
+                        filter={isHovered ? "drop-shadow(0 2px 6px rgba(10, 118, 103, 0.45))" : undefined}
                         className="transition-all duration-200"
                       />
                     )}
@@ -421,7 +421,7 @@ export function SystemTelemetryChart({
                 <path
                   d={splinePath}
                   fill="none"
-                  stroke="#2dd4bf"
+                  stroke="var(--ab-ok, #0a7667)"
                   strokeWidth="2.2"
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -439,14 +439,14 @@ export function SystemTelemetryChart({
                       cx={layout.xCenter}
                       cy={paddingTop + 5}
                       r={3}
-                      fill="#0071e3"
+                      fill="var(--ab-primary, #1b4f7a)"
                       className="animate-pulse"
                     />
                     <circle
                       cx={layout.xCenter}
                       cy={paddingTop + 5}
                       r={1.2}
-                      fill="#ffffff"
+                      fill="var(--ab-surface, #ffffff)"
                     />
                   </g>
                 );
@@ -460,7 +460,7 @@ export function SystemTelemetryChart({
                     y1={paddingTop}
                     x2={slotLayouts[currentHour].xCenter}
                     y2={paddingTop + plotHeight}
-                    stroke="#0071e3"
+                    stroke="var(--ab-primary, #1b4f7a)"
                     strokeWidth="1.6"
                     strokeDasharray="3 3"
                     vectorEffect="non-scaling-stroke"
@@ -469,7 +469,7 @@ export function SystemTelemetryChart({
                     cx={slotLayouts[currentHour].xCenter}
                     cy={paddingTop + 4}
                     r={6}
-                    fill="#0071e3"
+                    fill="var(--ab-primary, #1b4f7a)"
                     opacity={0.35}
                     className="animate-ping motion-reduce:animate-none"
                     style={{
@@ -480,8 +480,8 @@ export function SystemTelemetryChart({
                     cx={slotLayouts[currentHour].xCenter}
                     cy={paddingTop + 4}
                     r={3}
-                    fill="#0071e3"
-                    stroke="#ffffff"
+                    fill="var(--ab-primary, #1b4f7a)"
+                    stroke="var(--ab-surface, #ffffff)"
                     strokeWidth="1.5"
                   />
                 </g>
@@ -495,7 +495,7 @@ export function SystemTelemetryChart({
                     y1={paddingTop}
                     x2={activeSlotLayout.xCenter}
                     y2={paddingTop + plotHeight}
-                    stroke="#2dd4bf"
+                    stroke="var(--ab-ok, #0a7667)"
                     strokeWidth="1.4"
                     strokeDasharray="2 2"
                     opacity="0.9"
@@ -505,10 +505,10 @@ export function SystemTelemetryChart({
                     cx={activeSlotLayout.xCenter}
                     cy={activeSlotLayout.splineY}
                     r={4.5}
-                    fill="#ffffff"
-                    stroke="#2dd4bf"
+                    fill="var(--ab-surface, #ffffff)"
+                    stroke="var(--ab-ok, #0a7667)"
                     strokeWidth="2"
-                    className="filter drop-shadow(0 2px 4px rgba(45, 212, 191, 0.45))"
+                    className="filter drop-shadow(0 2px 4px rgba(10, 118, 103, 0.45))"
                   />
                 </g>
               )}

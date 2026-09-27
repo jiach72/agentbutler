@@ -11,6 +11,7 @@
  */
 import { CaretRightOutlined, ReloadOutlined } from "@ant-design/icons";
 import { Button, Card, Flex, Progress, Skeleton, Space, Typography } from "antd";
+import { useNavigate } from "react-router-dom";
 import { IssueCard } from "../../../components/IssueCard.js";
 import { AdvancedEvidence } from "../../../components/AdvancedEvidence.js";
 import { StatusBadge } from "../../../components/StatusBadge.js";
@@ -67,11 +68,12 @@ export function TriageOverview({
   onRunAction,
   onOpenWizard,
 }: TriageOverviewProps) {
+  const navigate = useNavigate();
   const { exportReport } = useExportReport();
 
   if (triage === null) {
     return (
-      <Card size="small">
+      <Card size="small" style={{ borderRadius: 12 }}>
         <Flex vertical gap={12} align="flex-start">
           {triageBusy ? (
             <>
@@ -83,11 +85,16 @@ export function TriageOverview({
           ) : (
             <>
               <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                刚才这轮体检没有读到结果，可能是管家服务暂时不可用。
+                刚才这轮体检没有读到结果，可能是管家服务暂时不可用或处于启动自愈阶段。
               </Paragraph>
-              <Button type="primary" icon={<ReloadOutlined />} onClick={onRerun}>
-                再试一次
-              </Button>
+              <Space wrap>
+                <Button type="primary" icon={<ReloadOutlined />} onClick={onRerun}>
+                  再试一次
+                </Button>
+                <Button onClick={() => navigate("/logs")}>
+                  查看系统日志
+                </Button>
+              </Space>
             </>
           )}
         </Flex>
@@ -188,7 +195,7 @@ export function TriageOverview({
           按现象仔细查（完整向导）
         </Button>
         {tone !== "ok" && (
-          <Button onClick={() => window.location.assign(guidance.to)}>{guidance.label}</Button>
+          <Button onClick={() => navigate(guidance.to)}>{guidance.label}</Button>
         )}
         <Button type="text" onClick={() => void exportReport()}>
           下载诊断报告

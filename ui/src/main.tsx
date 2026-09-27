@@ -2,7 +2,7 @@
  * 面板入口：挂载路由表（6 页面 + Layout 布局）并引入全局样式。
  * 主题真源见 theme/tokens.ts；AntdApp 提供主题内联的 message/modal 通道。
  */
-import React, { lazy, StrictMode, useEffect } from "react";
+import React, { lazy, StrictMode, Suspense, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { App as AntdApp, ConfigProvider } from "antd";
@@ -19,7 +19,9 @@ import "@fontsource/plus-jakarta-sans/600.css";
 import "@fontsource/plus-jakarta-sans/700.css";
 import "antd/dist/reset.css";
 import { AccessGate } from "./components/AccessGate.js";
+import { ErrorBoundary } from "./components/ErrorBoundary.js";
 import { Layout } from "./components/Layout.js";
+import { PageProgress } from "./components/PageProgress.js";
 import { isSetupCompleted } from "./pages/setup/state.js";
 import { loadJson } from "./lib/api.js";
 import { ThemeProvider, antdThemeFor, useTheme } from "./theme/ThemeProvider.js";
@@ -109,54 +111,66 @@ function ThemedApp({ locale }: { locale: React.ComponentProps<typeof ConfigProvi
   return (
     <ConfigProvider locale={locale} theme={antdThemeFor(mode)}>
       <AntdApp>
-        <AccessGate />
-        <BrowserRouter>
-          <FirstRunRedirect />
-          {/* Suspense 由 Layout 在 <Outlet /> 处接管：懒加载页首载只换内容区，
-              不再整树卸载 Layout（其 Drawer/Popover 等 Portal 容器保持稳定，
-              避免 React 19 提交删除阶段与 rc-motion 动画的 removeChild 竞态）。 */}
-          <Routes>
-            {/* /wall 大屏：全屏只读结论层，不进 Layout（无侧栏顶栏），画布自身等比缩放。 */}
-            <Route path="/wall" element={<WallPage />} />
-            <Route element={<Layout />}>
-              <Route index element={<Navigate to="/dashboard" replace />} />
-              <Route path="/dashboard" element={<DashboardPage />} />
-              <Route path="/tasks" element={<TasksPage />} />
-              <Route path="/versions" element={<Navigate to="/settings?tab=about" replace />} />
-              <Route path="/gateway" element={<GatewayPage />} />
-              <Route path="/evolution" element={<EvolutionPage />} />
-              <Route path="/recovery" element={<Navigate to="/troubleshoot" replace />} />
-              <Route path="/assets" element={<Navigate to="/skills" replace />} />
-              <Route path="/troubleshoot" element={<TroubleshootPage />} />              <Route path="/setup" element={<SetupPage />} />
-              <Route path="/logs" element={<LogsPage />} />
-              <Route path="/prompt" element={<Navigate to="/gateway" replace />} />
-              <Route path="/skills" element={<SkillsPage />} />
-              <Route path="/knowledge" element={<KnowledgePage />} />
-              <Route path="/tools" element={<ToolsPage />} />
-              <Route path="/learn" element={<LearnPage />} />
-              <Route path="/advanced" element={<Navigate to="/tools" replace />} />
-              <Route path="/core-files" element={<CoreFilesPage />} />
-              {/* 信任层（Trust Layer）：成本 / 行为审计 / 事件中心 / Agent 周报 */}
-              <Route path="/cost" element={<CostPage />} />
-              <Route path="/audit" element={<AuditPage />} />
-              <Route path="/events" element={<EventsPage />} />
-              <Route path="/report" element={<ReportPage />} />
-              <Route path="/sessions" element={<SessionsPage />} />
-              <Route path="/sessions/:id" element={<SessionDetailPage />} />
-              <Route path="/approvals" element={<ApprovalsPage />} />
-              <Route path="/approvals/:id" element={<ApprovalDetailPage />} />
-              <Route path="/canary" element={<CanaryPage />} />
-              <Route path="/progress" element={<ProgressPage />} />
-              <Route path="/memory-diff" element={<MemoryDiffPage />} />
-              <Route path="/memory" element={<MemoryCenterPage />} />
-              <Route path="/memory-center" element={<Navigate to="/memory" replace />} />
-              <Route path="/federation" element={<FederationPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/preferences" element={<Navigate to="/settings" replace />} />
-              <Route path="*" element={<Navigate to="/dashboard" replace />} />
-            </Route>
-          </Routes>
-        </BrowserRouter>
+        <ErrorBoundary fallbackTitle="应用核心视图异常" fallbackSubtitle="系统捕获到未处理的根视图渲染异常，请尝试重试或返回控制台。">
+          <AccessGate />
+          <BrowserRouter>
+            <FirstRunRedirect />
+            {/* Suspense 由 Layout 在 <Outlet /> 处接管：懒加载页首载只换内容区，
+                不再整树卸载 Layout（其 Drawer/Popover 等 Portal 容器保持稳定，
+                避免 React 19 提交删除阶段与 rc-motion 动画的 removeChild 竞态）。 */}
+            <Routes>
+              {/* /wall 大屏：全屏只读结论层，不进 Layout（无侧栏顶栏），画布自身等比缩放。 */}
+              <Route
+                path="/wall"
+                element={
+                  <Suspense fallback={<PageProgress title="正在加载大屏总览" detail="4K 画布与图表引擎初始化中..." indeterminate />}>
+                    <ErrorBoundary fallbackTitle="大屏模式加载异常">
+                      <WallPage />
+                    </ErrorBoundary>
+                  </Suspense>
+                }
+              />
+              <Route element={<Layout />}>
+                <Route index element={<Navigate to="/dashboard" replace />} />
+                <Route path="/dashboard" element={<DashboardPage />} />
+                <Route path="/tasks" element={<TasksPage />} />
+                <Route path="/versions" element={<Navigate to="/settings?tab=about" replace />} />
+                <Route path="/gateway" element={<GatewayPage />} />
+                <Route path="/evolution" element={<EvolutionPage />} />
+                <Route path="/recovery" element={<Navigate to="/troubleshoot" replace />} />
+                <Route path="/assets" element={<Navigate to="/skills" replace />} />
+                <Route path="/troubleshoot" element={<TroubleshootPage />} />
+                <Route path="/setup" element={<SetupPage />} />
+                <Route path="/logs" element={<LogsPage />} />
+                <Route path="/prompt" element={<Navigate to="/gateway" replace />} />
+                <Route path="/skills" element={<SkillsPage />} />
+                <Route path="/knowledge" element={<KnowledgePage />} />
+                <Route path="/tools" element={<ToolsPage />} />
+                <Route path="/learn" element={<LearnPage />} />
+                <Route path="/advanced" element={<Navigate to="/tools" replace />} />
+                <Route path="/core-files" element={<CoreFilesPage />} />
+                {/* 信任层（Trust Layer）：成本 / 行为审计 / 事件中心 / Agent 周报 */}
+                <Route path="/cost" element={<CostPage />} />
+                <Route path="/audit" element={<AuditPage />} />
+                <Route path="/events" element={<EventsPage />} />
+                <Route path="/report" element={<ReportPage />} />
+                <Route path="/sessions" element={<SessionsPage />} />
+                <Route path="/sessions/:id" element={<SessionDetailPage />} />
+                <Route path="/approvals" element={<ApprovalsPage />} />
+                <Route path="/approvals/:id" element={<ApprovalDetailPage />} />
+                <Route path="/canary" element={<CanaryPage />} />
+                <Route path="/progress" element={<ProgressPage />} />
+                <Route path="/memory-diff" element={<MemoryDiffPage />} />
+                <Route path="/memory" element={<MemoryCenterPage />} />
+                <Route path="/memory-center" element={<Navigate to="/memory" replace />} />
+                <Route path="/federation" element={<FederationPage />} />
+                <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/preferences" element={<Navigate to="/settings" replace />} />
+                <Route path="*" element={<Navigate to="/dashboard" replace />} />
+              </Route>
+            </Routes>
+          </BrowserRouter>
+        </ErrorBoundary>
       </AntdApp>
     </ConfigProvider>
   );

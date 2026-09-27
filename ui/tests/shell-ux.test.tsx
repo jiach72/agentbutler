@@ -38,6 +38,15 @@ describe("公共界面的任务入口", () => {
     expect(nested).toMatch(/href="\/tasks"[^>]*aria-current="page"|aria-current="page"[^>]*href="\/tasks"/);
     const unknown = renderAt("/tasks-other", <MobileTabBar />);
     expect(unknown).not.toContain('aria-current="page"');
+
+    const root = renderAt("/", <MobileTabBar />);
+    expect(root).toMatch(/href="\/dashboard"[^>]*aria-current="page"|aria-current="page"[^>]*href="\/dashboard"/);
+  });
+
+  it("移动端抽屉唤起按钮具备可达性与触控热区扩展", () => {
+    const html = renderAt("/dashboard", <Layout />);
+    expect(html).toContain('aria-label="打开主导航抽屉"');
+    expect(html).toContain("before:absolute before:-inset-2");
   });
 
   it("页标题不自动重复已经在导航里的分组名", () => {

@@ -3,7 +3,7 @@
  * useTheme / usePreferences 逻辑原样；展示层迁到 antd Card + Segmented + List。
  */
 import { CheckOutlined, MoonOutlined, SunOutlined } from "@ant-design/icons";
-import { Button, Card, Col, Flex, List, Row, Segmented, Space, Switch, Typography } from "antd";
+import { Button, Card, Col, Flex, Row, Segmented, Space, Switch, Typography } from "antd";
 import { PageHeader } from "../../components/PageHeader.js";
 import { ConclusionBar } from "../../components/ConclusionBar.js";
 import { useTheme } from "../../theme/ThemeProvider.js";
@@ -26,6 +26,7 @@ export function PreferencesPanel() {
           <Flex vertical gap={12}>
             <Segmented
               block
+              aria-label="界面主题切换"
               value={mode}
               onChange={(value) => setMode(value === "dark" ? "dark" : "light")}
               options={[
@@ -59,53 +60,60 @@ export function PreferencesPanel() {
           title="通知 · 重要通知"
           extra={<Text type="secondary">默认显示提醒和紧急通知</Text>}
         >
-          <List size="small">
-            <List.Item
-              actions={[
-                <Switch
-                  key="badge"
-                  checked={preferences.notificationBadgeEnabled}
-                  onChange={(checked) =>
-                    setPreferences({ ...preferences, notificationBadgeEnabled: checked })
-                  }
-                  checkedChildren={<CheckOutlined />}
-                />,
-              ]}
-            >
-              <List.Item.Meta
-                title="右上角未读徽标"
-                description="有未读重要通知时，在铃铛上显示数量。"
-              />
-            </List.Item>
-            <List.Item
-              actions={[
-                <Segmented
-                  key="scope"
-                  size="small"
-                  value={preferences.notificationMinSeverity}
-                  onChange={(value) =>
-                    setPreferences({
-                      ...preferences,
-                      notificationMinSeverity: value === "critical" ? "critical" : "warn",
-                    })
-                  }
-                  options={[
-                    { value: "warn", label: "提醒 + 紧急" },
-                    { value: "critical", label: "仅紧急" },
-                  ]}
-                />,
-              ]}
-            >
-              <List.Item.Meta
-                title="通知范围"
-                description={
-                  preferences.notificationMinSeverity === "critical"
-                    ? "只显示紧急通知"
-                    : "显示提醒和紧急通知"
+          <Flex vertical gap={14} style={{ padding: "8px 0" }}>
+            <Flex justify="space-between" align="center" gap={16}>
+              <Flex vertical gap={2}>
+                <Text strong>右上角未读徽标</Text>
+                <Text type="secondary" style={{ fontSize: 13 }}>
+                  有未读重要通知时，在铃铛上显示数量。
+                </Text>
+              </Flex>
+              <Switch
+                key="badge"
+                aria-label="右上角未读徽标开关"
+                checked={preferences.notificationBadgeEnabled}
+                onChange={(checked) =>
+                  setPreferences({ ...preferences, notificationBadgeEnabled: checked })
                 }
+                checkedChildren={<CheckOutlined />}
               />
-            </List.Item>
-          </List>
+            </Flex>
+
+            <Flex
+              justify="space-between"
+              align="center"
+              gap={16}
+              style={{
+                borderTop: "1px solid var(--ant-color-border-secondary, rgba(0, 0, 0, 0.06))",
+                paddingTop: 14,
+              }}
+            >
+              <Flex vertical gap={2}>
+                <Text strong>通知范围</Text>
+                <Text type="secondary" style={{ fontSize: 13 }}>
+                  {preferences.notificationMinSeverity === "critical"
+                    ? "只显示紧急通知"
+                    : "显示提醒和紧急通知"}
+                </Text>
+              </Flex>
+              <Segmented
+                key="scope"
+                size="small"
+                aria-label="通知范围分级筛选"
+                value={preferences.notificationMinSeverity}
+                onChange={(value) =>
+                  setPreferences({
+                    ...preferences,
+                    notificationMinSeverity: value === "critical" ? "critical" : "warn",
+                  })
+                }
+                options={[
+                  { value: "warn", label: "提醒 + 紧急" },
+                  { value: "critical", label: "仅紧急" },
+                ]}
+              />
+            </Flex>
+          </Flex>
           <Text type="secondary">
             未送达的紧急通知仍会继续显示在页面横幅中，标记已读不会隐藏故障。
           </Text>
@@ -120,7 +128,7 @@ export function PreferencesPage() {
     <section className="preferences-page">
       <Flex vertical gap={24}>
         <PageHeader
-          title="设置"
+          title="偏好设置"
         />
         <ConclusionBar
           tone="ok"

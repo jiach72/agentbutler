@@ -714,7 +714,7 @@ export function PromptOptimizationPanel() {
           showIcon
           closable
           onClose={() => setPromotionNotice(null)}
-          message={promotionNotice}
+          title={promotionNotice}
         />
       )}
 
@@ -846,7 +846,7 @@ export function PromptOptimizationPanel() {
                 type="success"
                 showIcon
                 icon={<SafetyCertificateOutlined />}
-                message={
+                title={
                   <Flex justify="space-between" align="center" wrap="wrap" gap={8}>
                     <Text strong style={{ fontSize: 15 }}>
                       基准门禁评测通过（30/30 项测试用例全部达标）
@@ -878,7 +878,7 @@ export function PromptOptimizationPanel() {
               <Alert
                 type="warning"
                 showIcon
-                message="候选版本已生成，未完全达到基准门禁标准"
+                title="候选版本已生成，未完全达到基准门禁标准"
                 description={
                   latestSeamlessReport?.report?.metrics.reasons?.join("；") ||
                   "部分测试用例未达到正式采用门禁标准，请查看下方明细后微调重试。"
@@ -1054,7 +1054,7 @@ export function PromptOptimizationPanel() {
                               ellipsis
                             >
                               <ExclamationCircleOutlined
-                                style={{ color: "var(--ant-color-warning, #faad14)", marginRight: 4 }}
+                                style={{ color: "var(--ant-color-warning)", marginRight: 4 }}
                               />
                               {candidate.gateErrors[0]}
                             </Text>
@@ -1459,7 +1459,7 @@ export function PromptOptimizationPanel() {
                     <Alert
                       type="info"
                       showIcon
-                      message="该候选版本尚未执行基准体检"
+                      title="该候选版本尚未执行基准体检"
                       description="点击上方“开始执行门禁测试”按钮，系统将使用标准基准用例执行全场景断言测试与安全审查。"
                     />
                   )}
@@ -1472,7 +1472,7 @@ export function PromptOptimizationPanel() {
                           type="success"
                           showIcon
                           icon={<SafetyCertificateOutlined />}
-                          message="门禁评测全部通过！已达到正式采用门禁"
+                          title="门禁评测全部通过！已达到正式采用门禁"
                           description={
                             <span>
                               共通过 <strong>{promptfooEvalResult.suite?.totalTests ?? 30}</strong> 项标准测试，
@@ -1497,7 +1497,7 @@ export function PromptOptimizationPanel() {
                         <Alert
                           type="warning"
                           showIcon
-                          message="尚未达到正式采用门禁"
+                          title="尚未达到正式采用门禁"
                           description={
                             promptfooEvalResult.report.metrics.reasons?.join("；") ||
                             "未完全满足正式门禁要求，建议优化提示词后重新测试。"

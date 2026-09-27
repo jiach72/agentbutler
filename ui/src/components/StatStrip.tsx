@@ -2,7 +2,7 @@
  * 统计条：全站统一的「市场风」概览统计卡（图标 + 数值 + 单位 + 状态标签 + 副注 + 动作）。
  * 替代各页手写的 Statistic/Flex 统计横排；Col 弹性换行，窄屏自动降列。
  */
-import { Card, Col, Flex, Row, Tag, Typography } from "antd";
+import { Card, Col, Flex, Row, Skeleton, Tag, Typography } from "antd";
 import type { ComponentType, ReactNode } from "react";
 import type { SemanticTone } from "./StatusBadge.js";
 
@@ -34,6 +34,14 @@ export interface StatStripItem {
   className?: string;
 }
 
+export interface StatStripProps {
+  items: StatStripItem[];
+  /** 异步加载态：当 items 为空且 loading 为真时，渲染骨架屏占位卡片，避免布局突变抖动 (CLS)。 */
+  loading?: boolean;
+  /** 骨架卡片渲染数量，默认 4 张。 */
+  skeletonCount?: number;
+}
+
 /** 数值取色一律走品牌语义变量，不出现硬编码色值与 antd 预设兜底（规范 02 §6 验收第 1 条）。 */
 const TONE_COLOR: Record<SemanticTone, string> = {
   ok: "var(--ab-ok)",
@@ -44,7 +52,34 @@ const TONE_COLOR: Record<SemanticTone, string> = {
   brand: "var(--ab-brand)",
 };
 
-export function StatStrip({ items }: { items: StatStripItem[] }) {
+export function StatStrip({ items, loading = false, skeletonCount = 4 }: StatStripProps) {
+  if (loading && items.length === 0) {
+    return (
+      <Row gutter={[16, 16]} aria-label="概览统计加载中" className="ab-stagger">
+        {Array.from({ length: skeletonCount }).map((_, index) => (
+          <Col
+            flex="1 1 220px"
+            key={`stat-skeleton-${index}`}
+            style={{ "--ab-stagger-i": index } as React.CSSProperties}
+          >
+            <Card
+              size="small"
+              className="ethereal-stat-card rounded-2xl md:rounded-3xl border border-outline-variant/15 shadow-xs"
+              style={{ height: "100%" }}
+              styles={{ body: { padding: "18px 22px", height: "100%" } }}
+            >
+              <Flex vertical gap={10} style={{ height: "100%" }}>
+                <Skeleton.Button active size="small" style={{ width: 80, height: 16 }} />
+                <Skeleton.Button active style={{ width: 120, height: 28 }} />
+                <Skeleton.Button active size="small" style={{ width: 100, height: 14 }} />
+              </Flex>
+            </Card>
+          </Col>
+        ))}
+      </Row>
+    );
+  }
+
   return (
     <Row gutter={[16, 16]} aria-label="概览统计" className="ab-stagger">
       {items.map((item, index) => {

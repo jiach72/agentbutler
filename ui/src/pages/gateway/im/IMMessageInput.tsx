@@ -247,15 +247,22 @@ export function IMMessageInput(props: IMMessageInputProps) {
           <Button
             type="primary"
             shape="circle"
-            icon={<ArrowUpOutlined />}
+            icon={<ArrowUpOutlined style={{ fontSize: 16 }} />}
             aria-label="发送消息"
             title="发送消息"
             loading={props.sending}
             disabled={!hasText || props.disabled || props.sending}
             onClick={handleSend}
             style={{
+              width: 34,
+              height: 34,
+              minWidth: 34,
+              minHeight: 34,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
               backgroundColor: hasText ? "var(--ant-color-primary)" : undefined,
-              boxShadow: hasText ? "0 2px 6px rgba(22, 119, 255, 0.3)" : undefined,
+              boxShadow: hasText ? "0 2px 8px rgba(0, 89, 181, 0.25)" : undefined,
             }}
           />
         </Flex>

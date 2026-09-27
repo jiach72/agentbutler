@@ -9,14 +9,13 @@
  * 4. 智能空间哈希网格避障，杜绝文本遮挡重叠；
  * 5. 联动知识库原生筛选（Obsidian、收集箱、标签）、搜索定位与节点侧边抽屉详情。
  */
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   Button,
   Card,
   Drawer,
   Empty,
   Flex,
-  Input,
   Radio,
   Space,
   Tag,
@@ -25,19 +24,8 @@ import {
 } from "antd";
 import {
   AimOutlined,
-  BookOutlined,
   CompressOutlined,
-  FileDoneOutlined,
-  FileTextOutlined,
-  InboxOutlined,
-  MessageOutlined,
-  PauseOutlined,
-  PlayCircleOutlined,
   ReloadOutlined,
-  SearchOutlined,
-  TagOutlined,
-  ZoomInOutlined,
-  ZoomOutOutlined,
 } from "@ant-design/icons";
 import {
   HindsightConstellationGraph,
@@ -98,7 +86,6 @@ export function KnowledgeStarChart({
 }: KnowledgeStarChartProps) {
   const [filterType, setFilterType] = useState<string>("all");
   const [labelMode, setLabelMode] = useState<"smart" | "all" | "none">("smart");
-  const [searchKeyword, setSearchKeyword] = useState<string>("");
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -299,7 +286,7 @@ export function KnowledgeStarChart({
               >
                 <Empty
                   description={
-                    <Text style={{ color: "#94a3b8" }}>
+                    <Text type="secondary" style={{ color: "var(--ant-color-text-secondary, #414753)" }}>
                       知识库暂无文档或笔记，请先在资料收集箱上传文件或同步 Obsidian 笔记库。
                     </Text>
                   }
@@ -314,12 +301,14 @@ export function KnowledgeStarChart({
                 bottom: 16,
                 left: 16,
                 display: "flex",
+                alignItems: "center",
                 gap: 6,
-                background: "rgba(18, 18, 24, 0.75)",
-                backdropFilter: "blur(8px)",
+                background: "color-mix(in srgb, var(--ab-surface) 88%, transparent)",
+                backdropFilter: "blur(20px) saturate(180%)",
                 padding: "4px 8px",
-                borderRadius: 20,
-                border: "1px solid rgba(255,255,255,0.08)",
+                borderRadius: 9999,
+                border: "1px solid var(--ab-border)",
+                boxShadow: "var(--ab-shadow-md)",
                 zIndex: 10,
               }}
             >
@@ -329,7 +318,7 @@ export function KnowledgeStarChart({
                   type="text"
                   size="small"
                   shape="circle"
-                  icon={<CompressOutlined style={{ color: "#38bdf8" }} />}
+                  icon={<CompressOutlined style={{ color: "var(--ant-color-primary, #0059b5)" }} />}
                   onClick={handleFitView}
                 />
               </Tooltip>
@@ -339,7 +328,7 @@ export function KnowledgeStarChart({
                   type="text"
                   size="small"
                   shape="circle"
-                  icon={<AimOutlined style={{ color: "#94a3b8" }} />}
+                  icon={<AimOutlined style={{ color: "var(--ant-color-text-secondary, #717785)" }} />}
                   onClick={handleFitView}
                 />
               </Tooltip>
@@ -378,12 +367,19 @@ export function KnowledgeStarChart({
         }
         open={selectedNode !== null}
         onClose={() => setSelectedNode(null)}
-        width={420}
+        styles={{ wrapper: { maxWidth: "100%", width: 420 } }}
         destroyOnHidden
       >
         {selectedNode && (
           <Flex vertical gap={16}>
-            <Card size="small" style={{ background: "var(--ant-color-fill-quaternary)" }}>
+            <Card
+              size="small"
+              style={{
+                background: "var(--ant-color-fill-quaternary)",
+                borderRadius: 12,
+                border: "1px solid var(--ant-color-border-secondary)",
+              }}
+            >
               <Flex vertical gap={8}>
                 <div>
                   <Text type="secondary">语义层级：</Text>

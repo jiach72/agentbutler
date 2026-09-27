@@ -11,6 +11,7 @@ import {
   ExclamationCircleOutlined,
 } from "@ant-design/icons";
 import { Button, Card, Flex, Space, Typography } from "antd";
+import { useNavigate } from "react-router-dom";
 import { formatRelative } from "../../../lib/format.js";
 import { SectionHeader } from "../../../components/SectionHeader.js";
 import { StatusBadge } from "../../../components/StatusBadge.js";
@@ -48,6 +49,7 @@ interface EvidenceStepProps {
 }
 
 export function EvidenceStep({ diagnosis, symptom, onBack, onNext }: EvidenceStepProps) {
+  const navigate = useNavigate();
   const primary = diagnosis.primaryFinding;
   const historical = diagnosis.historicalFindingCount;
   const needsReview = diagnosis.rootCause !== null || primary !== null;
@@ -170,7 +172,7 @@ export function EvidenceStep({ diagnosis, symptom, onBack, onNext }: EvidenceSte
       </AdvancedEvidence>
       <WizardNav onBack={onBack} onNext={onNext} nextLabel="看看能怎么处理" />
       <Space wrap>
-        <Button type="link" href="/logs">
+        <Button type="link" onClick={() => navigate("/logs")}>
           想看原始日志
         </Button>
       </Space>

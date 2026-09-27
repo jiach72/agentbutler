@@ -6,6 +6,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Button, Drawer, Tooltip } from "antd";
 import { MoonOutlined, SunOutlined } from "@ant-design/icons";
+import { ErrorBoundary } from "./ErrorBoundary.js";
 import { EtherealIcon } from "./EtherealIcon.js";
 import { KillSwitchButton } from "./KillSwitchButton.js";
 import { MobileTabBar } from "./MobileTabBar.js";
@@ -357,6 +358,7 @@ export function Layout() {
   usePolling(pingBridge, 20_000);
 
   const [commandOpen, setCommandOpen] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(0);
 
   const filteredRoutes = useMemo(() => {
     const q = commandText.trim().toLowerCase();
@@ -387,17 +389,21 @@ export function Layout() {
 
   const openCommandPalette = () => {
     setCommandOpen(true);
+    setSelectedIndex(0);
     setTimeout(() => {
       commandInputRef.current?.focus();
       commandInputRef.current?.select();
     }, 50);
   };
 
-  const handleCommandSubmit = () => {
-    if (filteredRoutes.length > 0) {
-      navigate(filteredRoutes[0].path);
+  const handleCommandSubmit = (indexToUse?: number) => {
+    const idx = indexToUse ?? selectedIndex;
+    const target = filteredRoutes[idx] ?? filteredRoutes[0];
+    if (target) {
+      navigate(target.path);
       setCommandOpen(false);
       setCommandText("");
+      setSelectedIndex(0);
     }
   };
 
@@ -423,7 +429,10 @@ export function Layout() {
         跳到主内容
       </a>
 
-      <div className="min-h-screen bg-surface font-body-md text-body-md text-on-surface antialiased selection:bg-primary-container selection:text-on-primary-container flex">
+      <div
+        className="min-h-screen bg-surface font-body-md text-body-md text-on-surface antialiased selection:bg-primary-container selection:text-on-primary-container flex"
+        style={{ backgroundColor: "var(--ab-canvas)", color: "var(--ab-text)" }}
+      >
         {/* Desktop Fixed Sidebar */}
         <div
           className={`hidden lg:block fixed left-0 top-0 h-full ${
@@ -456,7 +465,7 @@ export function Layout() {
               <button
                 type="button"
                 onClick={() => setMobileDrawerOpen(true)}
-                className="lg:hidden flex w-8 h-8 rounded-full items-center justify-center text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-all duration-200 active:scale-95 cursor-pointer"
+                className="lg:hidden relative flex w-8 h-8 rounded-full items-center justify-center text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-all duration-200 active:scale-95 cursor-pointer before:absolute before:-inset-2 before:content-['']"
                 title="打开主导航抽屉"
                 aria-label="打开主导航抽屉"
               >
@@ -565,12 +574,18 @@ export function Layout() {
           </header>
 
           {/* Main Scrollable Canvas (Clean pb-12 without bottom obstruction, unified 1440px rhythm) */}
-          <main className="relative pt-14 w-full px-4 sm:px-8 lg:px-10 pb-12 min-h-screen bg-surface" id="main-content">
+          <main
+            className="relative pt-14 w-full px-4 sm:px-8 lg:px-10 pb-12 min-h-screen bg-surface"
+            id="main-content"
+            style={{ backgroundColor: "var(--ab-canvas)", color: "var(--ab-text)" }}
+          >
             <div className="max-w-[1440px] mx-auto w-full">
               <PendingApprovalsBanner />
               <Suspense fallback={<PageProgress title="正在打开页面" detail="本机资源正在加载。" compact indeterminate />}>
                 <div key={location.pathname} className="animate-page-entrance">
-                  <Outlet />
+                  <ErrorBoundary fallbackTitle="页面视图加载异常">
+                    <Outlet />
+                  </ErrorBoundary>
                 </div>
               </Suspense>
             </div>
@@ -593,10 +608,23 @@ export function Layout() {
                   <input
                     ref={commandInputRef}
                     value={commandText}
-                    onChange={(e) => setCommandText(e.target.value)}
+                    onChange={(e) => {
+                      setCommandText(e.target.value);
+                      setSelectedIndex(0);
+                    }}
                     onKeyDown={(e) => {
-                      if (e.key === "Enter") handleCommandSubmit();
-                      else if (e.key === "Escape") setCommandOpen(false);
+                      if (e.key === "ArrowDown") {
+                        e.preventDefault();
+                        setSelectedIndex((prev) => (filteredRoutes.length > 0 ? (prev + 1) % filteredRoutes.length : 0));
+                      } else if (e.key === "ArrowUp") {
+                        e.preventDefault();
+                        setSelectedIndex((prev) => (filteredRoutes.length > 0 ? (prev - 1 + filteredRoutes.length) % filteredRoutes.length : 0));
+                      } else if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleCommandSubmit(selectedIndex);
+                      } else if (e.key === "Escape") {
+                        setCommandOpen(false);
+                      }
                     }}
                     className="bg-transparent border-0 outline-none p-0 text-sm text-on-surface placeholder:text-on-surface-variant w-full font-body"
                     id="command-input"
@@ -612,7 +640,7 @@ export function Layout() {
                 </div>
 
                 {/* Filtered Route Items */}
-                <div className="p-2 space-y-0.5 text-xs max-h-80 overflow-y-auto">
+                <div className="p-2 space-y-0.5 text-xs max-h-80 overflow-y-auto" role="listbox" aria-label="页面跳转选项">
                   <div className="px-2.5 py-1 text-xs font-semibold uppercase text-on-surface-variant tracking-wider">
                     {commandText ? "搜索结果" : "常用页面"}
                   </div>
@@ -621,34 +649,46 @@ export function Layout() {
                       未找到与 "{commandText}" 相关的控制台页面
                     </div>
                   ) : (
-                    filteredRoutes.map((item) => (
-                      <div
-                        key={item.path}
-                        onClick={() => {
-                          navigate(item.path);
-                          setCommandOpen(false);
-                          setCommandText("");
-                        }}
-                        className="flex items-center justify-between px-3 py-2 rounded-xl hover:bg-surface-container cursor-pointer transition-colors text-on-surface group"
-                      >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <EtherealIcon name={item.icon} size={16} className="text-on-surface-variant group-hover:text-primary transition-colors shrink-0" />
-                          <div className="truncate">
-                            <span className="font-medium text-sm block">{item.title}</span>
-                            {item.description && (
-                              <span className="text-xs text-on-surface-variant truncate block">{item.description}</span>
-                            )}
+                    filteredRoutes.map((item, index) => {
+                      const isSelected = index === selectedIndex;
+                      return (
+                        <div
+                          key={item.path}
+                          role="option"
+                          aria-selected={isSelected}
+                          onClick={() => handleCommandSubmit(index)}
+                          onMouseEnter={() => setSelectedIndex(index)}
+                          className={`flex items-center justify-between px-3 py-2 rounded-xl cursor-pointer transition-colors text-on-surface group ${
+                            isSelected ? "bg-surface-container-high ring-1 ring-primary/30" : "hover:bg-surface-container"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <EtherealIcon
+                              name={item.icon}
+                              size={16}
+                              className={`transition-colors shrink-0 ${
+                                isSelected ? "text-primary" : "text-on-surface-variant group-hover:text-primary"
+                              }`}
+                            />
+                            <div className="truncate">
+                              <span className={`text-sm block ${isSelected ? "font-semibold text-primary" : "font-medium"}`}>
+                                {item.title}
+                              </span>
+                              {item.description && (
+                                <span className="text-xs text-on-surface-variant truncate block">{item.description}</span>
+                              )}
+                            </div>
                           </div>
+                          <span className="font-mono text-xs text-on-surface-variant/70 shrink-0 ml-2">{item.path}</span>
                         </div>
-                        <span className="font-mono text-xs text-on-surface-variant/70 shrink-0 ml-2">{item.path}</span>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
 
                 {/* Footer hints */}
                 <div className="px-4 py-2 bg-surface-container/40 border-t border-surface-container text-xs text-on-surface-variant flex items-center justify-between font-mono">
-                  <span>↵ 进入页面</span>
+                  <span>↑↓ 选择 · ↵ 进入页面</span>
                   <span>ESC 关闭 · ⌘K 随时唤起</span>
                 </div>
               </div>

@@ -10,7 +10,6 @@ import {
   Col,
   Flex,
   Input,
-  List,
   Popconfirm,
   Row,
   Statistic,
@@ -153,11 +152,7 @@ export function MemoryPanel({
           <Button
             type="primary"
             icon={<ThunderboltOutlined />}
-            onClick={() => (onGoToSystems ? onGoToSystems() : (window.location.href = "/memory"))}
-            style={{
-              background: "linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)",
-              border: "none",
-            }}
+            onClick={() => (onGoToSystems ? onGoToSystems() : (window.location.href = "/skills?tab=systems"))}
           >
             记忆系统中心
           </Button>
@@ -170,13 +165,11 @@ export function MemoryPanel({
       <Alert
         type="info"
         showIcon
-        icon={<ThunderboltOutlined style={{ color: "#6366f1" }} />}
+        icon={<ThunderboltOutlined />}
         style={{
           borderRadius: 8,
-          background: "linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, rgba(168, 85, 247, 0.05) 100%)",
-          border: "1px solid rgba(99, 102, 241, 0.2)",
         }}
-        message={
+        title={
           <Flex justify="space-between" align="center" wrap="wrap" gap={8}>
             <span>
               <strong>多记忆引擎数据已联动生效：</strong>
@@ -186,8 +179,7 @@ export function MemoryPanel({
             <Button
               size="small"
               type="primary"
-              onClick={() => (onGoToSystems ? onGoToSystems() : (window.location.href = "/memory"))}
-              style={{ background: "#6366f1", borderColor: "#6366f1" }}
+              onClick={() => (onGoToSystems ? onGoToSystems() : (window.location.href = "/skills?tab=systems"))}
             >
               打开选型与配置中心 →
             </Button>
@@ -249,7 +241,7 @@ export function MemoryPanel({
       <Alert
         type={activityAlertType(activityStatus)}
         showIcon
-        message={ACTIVITY_LABEL[activityStatus] ?? "状态未知"}
+        title={ACTIVITY_LABEL[activityStatus] ?? "状态未知"}
         description={data?.memory.writeActivity.detail ?? "等待管家返回最近写入时间"}
       />
 
@@ -343,44 +335,15 @@ export function MemoryPanel({
             />
           ) : null
         ) : (
-          <List
-            dataSource={previewEntries}
-            renderItem={(entry) => (
-              <List.Item
-                actions={
-                  onForget
-                    ? [
-                        <Popconfirm
-                          key="forget"
-                          title="遗忘此条记忆？"
-                          description="遗忘后此条记忆将被永久删除且无法召回。"
-                          okText="确认遗忘"
-                          cancelText="取消"
-                          okButtonProps={{ danger: true }}
-                          disabled={forgettingId === entry.entryId || data?.memory.mode !== "driver"}
-                          onConfirm={async () => {
-                            setForgettingId(entry.entryId);
-                            try {
-                              await onForget(entry.entryId);
-                            } finally {
-                              setForgettingId(null);
-                            }
-                          }}
-                        >
-                          <Button
-                            type="link"
-                            size="small"
-                            danger
-                            icon={<DeleteOutlined />}
-                            loading={forgettingId === entry.entryId}
-                            disabled={data?.memory.mode !== "driver"}
-                          >
-                            遗忘
-                          </Button>
-                        </Popconfirm>,
-                      ]
-                    : undefined
-                }
+          <Flex vertical gap={10} className="divide-y divide-outline-variant/10">
+            {previewEntries.map((entry, idx) => (
+              <Flex
+                key={entry.entryId}
+                justify="space-between"
+                align="flex-start"
+                gap={12}
+                className={idx > 0 ? "pt-3" : undefined}
+                style={{ width: "100%" }}
               >
                 <Flex vertical gap={4} style={{ width: "100%" }}>
                   <Flex gap={8} align="center" wrap="wrap">
@@ -390,16 +353,45 @@ export function MemoryPanel({
                   </Flex>
                   <div style={{ wordBreak: "break-word", whiteSpace: "pre-wrap" }}>{entry.content}</div>
                 </Flex>
-              </List.Item>
-            )}
-          />
+                {onForget && (
+                  <Popconfirm
+                    title="遗忘此条记忆？"
+                    description="遗忘后此条记忆将被永久删除且无法召回。"
+                    okText="确认遗忘"
+                    cancelText="取消"
+                    okButtonProps={{ danger: true }}
+                    disabled={forgettingId === entry.entryId || data?.memory.mode !== "driver"}
+                    onConfirm={async () => {
+                      setForgettingId(entry.entryId);
+                      try {
+                        await onForget(entry.entryId);
+                      } finally {
+                        setForgettingId(null);
+                      }
+                    }}
+                  >
+                    <Button
+                      type="link"
+                      size="small"
+                      danger
+                      icon={<DeleteOutlined />}
+                      loading={forgettingId === entry.entryId}
+                      disabled={data?.memory.mode !== "driver"}
+                    >
+                      遗忘
+                    </Button>
+                  </Popconfirm>
+                )}
+              </Flex>
+            ))}
+          </Flex>
         )}
       </div>
 
       <Alert
         type="info"
         showIcon={false}
-        message="记忆页边界"
+        title="记忆页边界"
         description="这里可以查看技能、插件、记忆与健康状态，也可以运行临时自检、一键遗忘特定记忆和创建本地备份；不会批量清空未确认的全部记忆。"
       />
     </Flex>

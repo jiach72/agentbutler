@@ -4,7 +4,7 @@
  * 视觉全部走 antd List / Badge / Collapse 原语，不依赖旧页面 CSS。
  */
 import { useMemo } from "react";
-import { Button, Flex, List, Tooltip, Typography } from "antd";
+import { Button, Flex, Tooltip, Typography } from "antd";
 import { AdvancedDetails } from "../../components/AdvancedDetails.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { SectionHeader } from "../../components/SectionHeader.js";
@@ -237,45 +237,34 @@ export function SecurityBaseline({
       {baseline.status === "failed" && retryBanner("baseline", baseline.reason, onRetry)}
       {security.status === "failed" && retryBanner("security", security.reason, onRetry)}
 
-      <List
-        size="small"
-        dataSource={baselineItems}
-        renderItem={(item) => (
-          <List.Item
-            actions={[
-              <StatusBadge key="state" tone={statusToTone(item.status)} label={stateLabel(item.status)} />,
-            ]}
-          >
-            <List.Item.Meta
-              title={item.title}
-              description={item.detail}
-            />
-          </List.Item>
-        )}
-      />
+      <Flex vertical gap={8} className="divide-y divide-outline-variant/10">
+        {baselineItems.map((item, idx) => (
+          <Flex key={item.title || idx} justify="space-between" align="center" className={idx > 0 ? "pt-2" : undefined}>
+            <Flex vertical gap={2}>
+              <Text strong>{item.title}</Text>
+              <Text type="secondary" style={{ fontSize: 13 }}>{item.detail}</Text>
+            </Flex>
+            <StatusBadge tone={statusToTone(item.status)} label={stateLabel(item.status)} />
+          </Flex>
+        ))}
+      </Flex>
 
       {security.status === "ready" && security.data.invariants.length > 0 && (
         <AdvancedDetails summary="查看配置规则详情">
-          <List
-            size="small"
-            dataSource={security.data.invariants}
-            renderItem={(item) => (
-              <List.Item
-                actions={[
-                  <StatusBadge
-                    key="label"
-                    tone={statusToTone(item.status)}
-                    label={invariantStatusLabel(item.status)}
-                  />,
-                ]}
-              >
-                <List.Item.Meta
-                  title={item.title}
-                  description={item.detail}
+          <Flex vertical gap={8} className="divide-y divide-outline-variant/10">
+            {security.data.invariants.map((item, idx) => (
+              <Flex key={item.title || idx} justify="space-between" align="center" className={idx > 0 ? "pt-2" : undefined}>
+                <Flex vertical gap={2}>
+                  <Text strong>{item.title}</Text>
+                  <Text type="secondary" style={{ fontSize: 13 }}>{item.detail}</Text>
+                </Flex>
+                <StatusBadge
+                  tone={statusToTone(item.status)}
+                  label={invariantStatusLabel(item.status)}
                 />
-              </List.Item>
-            )}
-          />
+              </Flex>
+            ))}
+          </Flex>
         </AdvancedDetails>
       )}
 
@@ -285,18 +274,16 @@ export function SecurityBaseline({
         >
           <Flex vertical gap={8}>
             <Text type="secondary">{security.data.message}</Text>
-            <List
-              size="small"
-              dataSource={security.data.secrets}
-              renderItem={(secret) => (
-                <List.Item>
-                  <List.Item.Meta
-                    title={<Text code>{secret.rel}</Text>}
-                    description={`${secret.secure ? "权限正常" : "权限过宽"} · ${secret.mode}`}
-                  />
-                </List.Item>
-              )}
-            />
+            <Flex vertical gap={6} className="divide-y divide-outline-variant/10">
+              {security.data.secrets.map((secret, idx) => (
+                <Flex key={secret.rel || idx} vertical gap={2} className={idx > 0 ? "pt-2" : undefined}>
+                  <Text code>{secret.rel}</Text>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    {`${secret.secure ? "权限正常" : "权限过宽"} · ${secret.mode}`}
+                  </Text>
+                </Flex>
+              ))}
+            </Flex>
           </Flex>
         </AdvancedDetails>
       )}
@@ -341,13 +328,17 @@ export function SecurityBaseline({
           <Text type="secondary">管家服务暂时连不上，无法读取或解除自动修复保护。</Text>
         )}
         {runbooks.status === "ready" && runbooks.data.reachable && trippedRunbooks.length > 0 && (
-          <List
-            size="small"
-            dataSource={trippedRunbooks}
-            renderItem={(runbook) => (
-              <List.Item
-                actions={[
-                  <Tooltip key="reset" title="有基线操作正在执行">
+          <Flex vertical gap={8} className="divide-y divide-outline-variant/10">
+            {trippedRunbooks.map((runbook, idx) => (
+              <Flex key={runbook.id || idx} justify="space-between" align="center" className={idx > 0 ? "pt-2" : undefined}>
+                <Flex align="center" gap={12}>
+                  <StatusBadge tone="warn" label="已暂停" />
+                  <Flex vertical gap={2}>
+                    <Text strong>{runbook.label}</Text>
+                    <Text type="secondary" style={{ fontSize: 13 }}>{runbook.description || "连续失败后等待人工确认"}</Text>
+                  </Flex>
+                </Flex>
+                <Tooltip title="有基线操作正在执行">
                   <Button
                     disabled={busy !== null}
                     loading={busy === `reset-${runbook.id}`}
@@ -355,47 +346,40 @@ export function SecurityBaseline({
                   >
                     确认后解除
                   </Button>
-                  </Tooltip>,
-                ]}
-              >
-                <List.Item.Meta
-                  avatar={<StatusBadge tone="warn" label="已暂停" />}
-                  title={runbook.label}
-                  description={runbook.description || "连续失败后等待人工确认"}
-                />
-              </List.Item>
-            )}
-          />
+                </Tooltip>
+              </Flex>
+            ))}
+          </Flex>
         )}
       </Flex>
 
       <Flex vertical gap={12}>
         <SectionHeader compact kicker="通知方式" title="消息送达与保留" />
         {alerts.status === "failed" && retryBanner("alerts", alerts.reason, onRetry)}
-        <List size="small">
-          <List.Item>
-            <List.Item.Meta
-              avatar={<StatusBadge tone="unknown" label="规则" />}
-              title="按当前消息通道发送"
-              description="系统只使用当前通道，不设置备用通知链路"
-            />
-          </List.Item>
-          <List.Item>
-            <List.Item.Meta
-              avatar={<StatusBadge tone="unknown" label="当前" />}
-              title={
-                alerts.status === "ready" && alerts.data.reachable
+        <Flex vertical gap={8} className="divide-y divide-outline-variant/10">
+          <Flex align="center" gap={12}>
+            <StatusBadge tone="unknown" label="规则" />
+            <Flex vertical gap={2}>
+              <Text strong>按当前消息通道发送</Text>
+              <Text type="secondary" style={{ fontSize: 13 }}>系统只使用当前通道，不设置备用通知链路</Text>
+            </Flex>
+          </Flex>
+          <Flex align="center" gap={12} className="pt-2">
+            <StatusBadge tone="unknown" label="当前" />
+            <Flex vertical gap={2}>
+              <Text strong>
+                {alerts.status === "ready" && alerts.data.reachable
                   ? "通知服务在线"
-                  : "通知服务暂时连不上"
-              }
-              description={
-                alerts.status === "ready" && alerts.data.reachable
+                  : "通知服务暂时连不上"}
+              </Text>
+              <Text type="secondary" style={{ fontSize: 13 }}>
+                {alerts.status === "ready" && alerts.data.reachable
                   ? "当前消息通道可用"
-                  : "真实发送失败仍会保留记录"
-              }
-            />
-          </List.Item>
-        </List>
+                  : "真实发送失败仍会保留记录"}
+              </Text>
+            </Flex>
+          </Flex>
+        </Flex>
       </Flex>
     </Flex>
   );

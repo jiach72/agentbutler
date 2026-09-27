@@ -15,6 +15,7 @@ import { Alert, Button, Card, Flex, Segmented, Table, Tag, Tooltip, Typography }
 import type { ColumnsType } from "antd/es/table";
 import { ReloadOutlined, InfoCircleOutlined } from "@ant-design/icons";
 import { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { ConclusionBar } from "../../components/ConclusionBar.js";
 import type { PageConclusionView } from "../../components/ConclusionBar.js";
 import { Empty } from "../../components/Empty.js";
@@ -76,6 +77,7 @@ const shortPath = (path: string): string => {
 };
 
 export function MemoryDiffPage() {
+  const navigate = useNavigate();
   const [data, setData] = useState<MemoryDiffPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   // 筛选同步到 URL（规范 03 §3.12）：刷新/分享能还原同一视图（评审 P1-7）。
@@ -262,7 +264,7 @@ export function MemoryDiffPage() {
               <Button
                 type="link"
                 size="small"
-                onClick={() => (window.location.href = "/memory")}
+                onClick={() => navigate("/memory")}
               >
                 切换主记忆系统 →
               </Button>
@@ -337,7 +339,7 @@ export function MemoryDiffPage() {
             type="info"
             showIcon
             icon={<InfoCircleOutlined />}
-            message="这份数据是什么、不是什么"
+            title="这份数据是什么、不是什么"
             description={
               <Flex vertical gap={4}>
                 <span>口径：{data.basis}。</span>

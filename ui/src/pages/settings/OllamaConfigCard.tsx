@@ -188,7 +188,6 @@ export function OllamaConfigCard() {
   const [bindingModel, setBindingModel] = useState<string | null>(null);
 
   const { mode } = useTheme();
-  const isDark = mode === "dark";
   const [usageViewMode, setUsageViewMode] = useState<"tokens" | "calls" | "table">("tokens");
 
   const chartTheme = useMemo(() => chartThemeFor(mode), [mode]);
@@ -447,11 +446,11 @@ export function OllamaConfigCard() {
                 </Tag>
               ) : status?.available ? (
                 <Tag
-                  icon={<CheckCircleFilled style={{ color: "#52c41a" }} />}
+                  icon={<CheckCircleFilled style={{ color: "var(--ab-ok)" }} />}
                   style={{
-                    backgroundColor: "#f6ffed",
-                    borderColor: "#b7eb8f",
-                    color: "#389e0d",
+                    backgroundColor: "var(--ab-ok-soft)",
+                    borderColor: "var(--ab-ok)",
+                    color: "var(--ab-ok)",
                     fontWeight: 500,
                     padding: "2px 8px",
                   }}
@@ -460,11 +459,11 @@ export function OllamaConfigCard() {
                 </Tag>
               ) : (
                 <Tag
-                  icon={<CloseCircleFilled style={{ color: "#ff4d4f" }} />}
+                  icon={<CloseCircleFilled style={{ color: "var(--ab-error)" }} />}
                   style={{
-                    backgroundColor: "#fff2f0",
-                    borderColor: "#ffccc7",
-                    color: "#cf1322",
+                    backgroundColor: "var(--ab-error-soft)",
+                    borderColor: "var(--ab-error)",
+                    color: "var(--ab-error)",
                     fontWeight: 500,
                     padding: "2px 8px",
                   }}
@@ -491,7 +490,7 @@ export function OllamaConfigCard() {
               style={{ marginTop: 8 }}
               type="warning"
               showIcon
-              message="未检测到运行中的 Ollama 服务"
+              title="未检测到运行中的 Ollama 服务"
               description={`请确保在 docker-compose.yml 中已启动 ollama 容器，或宿主机已开启 Ollama 引擎（默认地址：${status.endpoint}）。`}
             />
           )}
@@ -527,15 +526,15 @@ export function OllamaConfigCard() {
         {hwProfile && (
           <div
             style={{
-              backgroundColor: "#fafafa",
-              border: "1px solid #f0f0f0",
+              backgroundColor: "var(--ab-surface-2)",
+              border: "1px solid var(--ab-border)",
               borderRadius: 8,
               padding: 16,
             }}
           >
             <Flex justify="space-between" align="center" wrap="wrap" gap={8} style={{ marginBottom: 8 }}>
               <Space>
-                <ThunderboltOutlined style={{ color: "#fa8c16", fontSize: 16 }} />
+                <ThunderboltOutlined style={{ color: "var(--ab-warn)", fontSize: 16 }} />
                 <Text strong style={{ fontSize: 14 }}>
                   当前设备算力体检：{hwProfile.evaluation.tierLabel}
                 </Text>
@@ -549,7 +548,7 @@ export function OllamaConfigCard() {
             </Text>
 
             <div>
-              <Text style={{ fontSize: 12, color: "#8c8c8c", display: "block", marginBottom: 6 }}>
+              <Text style={{ fontSize: 12, color: "var(--ab-text-3)", display: "block", marginBottom: 6 }}>
                 根据当前机器客观硬件，推荐适用的轻量记忆与探针模型（点击标签可直接填入下载）：
               </Text>
               <Flex wrap="wrap" gap={8}>
@@ -577,7 +576,7 @@ export function OllamaConfigCard() {
                           {rec.categoryLabel}
                         </Tag>
                         <span>{rec.fullName}</span>
-                        <span style={{ color: "#8c8c8c", fontSize: 11 }}>({rec.sizeDisplay})</span>
+                        <span style={{ color: "var(--ab-text-3)", fontSize: 11 }}>({rec.sizeDisplay})</span>
                       </Space>
                     </Tag>
                   </Tooltip>
@@ -743,11 +742,11 @@ export function OllamaConfigCard() {
                         size="small"
                         style={{
                           marginTop: 2,
-                          borderColor: "#52c41a",
-                          color: "#52c41a",
-                          backgroundColor: isDark ? "rgba(82, 196, 26, 0.1)" : "rgba(82, 196, 26, 0.05)",
+                          borderColor: "var(--ab-ok)",
+                          color: "var(--ab-ok)",
+                          backgroundColor: "var(--ab-ok-soft)",
                         }}
-                        icon={<CheckCircleFilled style={{ color: "#52c41a" }} />}
+                        icon={<CheckCircleFilled style={{ color: "var(--ab-ok)" }} />}
                         disabled
                       >
                         已设为 Butler 模型
@@ -775,7 +774,7 @@ export function OllamaConfigCard() {
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             <Flex justify="space-between" align="center" wrap="wrap" gap={8}>
               <Flex align="center" gap={8}>
-                <BarChartOutlined style={{ fontSize: 16, color: "#1677ff" }} />
+                <BarChartOutlined style={{ fontSize: 16, color: "var(--ab-primary)" }} />
                 <Text strong style={{ fontSize: 15 }}>
                   调用量与 Token 消耗监控
                 </Text>
@@ -797,17 +796,17 @@ export function OllamaConfigCard() {
                   flex: "1 1 180px",
                   minWidth: 160,
                   padding: "12px 14px",
-                  background: "#fafafa",
+                  background: "var(--ab-surface-2)",
                   borderRadius: 8,
-                  border: "1px solid #f0f0f0",
+                  border: "1px solid var(--ab-border)",
                 }}
               >
                 <Text type="secondary" style={{ fontSize: 12 }}>
                   今日调用量
                 </Text>
-                <div style={{ fontSize: 22, fontWeight: 700, color: "#1677ff", marginTop: 4 }}>
+                <div style={{ fontSize: 22, fontWeight: 700, color: "var(--ab-primary)", marginTop: 4 }}>
                   {usageSummary?.todayCalls ?? 0}{" "}
-                  <span style={{ fontSize: 13, fontWeight: "normal", color: "#8c8c8c" }}>次</span>
+                  <span style={{ fontSize: 13, fontWeight: "normal", color: "var(--ab-text-3)" }}>次</span>
                 </div>
                 <Text type="secondary" style={{ fontSize: 11 }}>
                   今日发起的本地推理请求
@@ -819,17 +818,17 @@ export function OllamaConfigCard() {
                   flex: "1 1 180px",
                   minWidth: 160,
                   padding: "12px 14px",
-                  background: "#fafafa",
+                  background: "var(--ab-surface-2)",
                   borderRadius: 8,
-                  border: "1px solid #f0f0f0",
+                  border: "1px solid var(--ab-border)",
                 }}
               >
                 <Text type="secondary" style={{ fontSize: 12 }}>
                   今日 Token 消耗
                 </Text>
-                <div style={{ fontSize: 22, fontWeight: 700, color: "#52c41a", marginTop: 4 }}>
+                <div style={{ fontSize: 22, fontWeight: 700, color: "var(--ab-ok)", marginTop: 4 }}>
                   {(usageSummary?.todayTokens ?? 0).toLocaleString()}{" "}
-                  <span style={{ fontSize: 13, fontWeight: "normal", color: "#8c8c8c" }}>Tokens</span>
+                  <span style={{ fontSize: 13, fontWeight: "normal", color: "var(--ab-text-3)" }}>Tokens</span>
                 </div>
                 <Text type="secondary" style={{ fontSize: 11 }}>
                   输入 {(usageSummary?.todayPromptTokens ?? 0).toLocaleString()} · 输出{" "}
@@ -842,17 +841,17 @@ export function OllamaConfigCard() {
                   flex: "1 1 180px",
                   minWidth: 160,
                   padding: "12px 14px",
-                  background: "#fafafa",
+                  background: "var(--ab-surface-2)",
                   borderRadius: 8,
-                  border: "1px solid #f0f0f0",
+                  border: "1px solid var(--ab-border)",
                 }}
               >
                 <Text type="secondary" style={{ fontSize: 12 }}>
                   累计调用总数
                 </Text>
-                <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>
+                <div style={{ fontSize: 22, fontWeight: 700, color: "var(--ab-text)", marginTop: 4 }}>
                   {usageSummary?.totalCalls ?? 0}{" "}
-                  <span style={{ fontSize: 13, fontWeight: "normal", color: "#8c8c8c" }}>次</span>
+                  <span style={{ fontSize: 13, fontWeight: "normal", color: "var(--ab-text-3)" }}>次</span>
                 </div>
                 <Text type="secondary" style={{ fontSize: 11 }}>
                   历史调用次数总计
@@ -864,17 +863,17 @@ export function OllamaConfigCard() {
                   flex: "1 1 180px",
                   minWidth: 160,
                   padding: "12px 14px",
-                  background: "#fafafa",
+                  background: "var(--ab-surface-2)",
                   borderRadius: 8,
-                  border: "1px solid #f0f0f0",
+                  border: "1px solid var(--ab-border)",
                 }}
               >
                 <Text type="secondary" style={{ fontSize: 12 }}>
                   累计总 Token 消耗
                 </Text>
-                <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>
+                <div style={{ fontSize: 22, fontWeight: 700, color: "var(--ab-text)", marginTop: 4 }}>
                   {(usageSummary?.totalTokens ?? 0).toLocaleString()}{" "}
-                  <span style={{ fontSize: 13, fontWeight: "normal", color: "#8c8c8c" }}>Tokens</span>
+                  <span style={{ fontSize: 13, fontWeight: "normal", color: "var(--ab-text-3)" }}>Tokens</span>
                 </div>
                 <Text type="secondary" style={{ fontSize: 11 }}>
                   输入 {(usageSummary?.totalPromptTokens ?? 0).toLocaleString()} · 输出{" "}
@@ -887,17 +886,17 @@ export function OllamaConfigCard() {
                   flex: "1 1 180px",
                   minWidth: 160,
                   padding: "12px 14px",
-                  background: "#fafafa",
+                  background: "var(--ab-surface-2)",
                   borderRadius: 8,
-                  border: "1px solid #f0f0f0",
+                  border: "1px solid var(--ab-border)",
                 }}
               >
                 <Text type="secondary" style={{ fontSize: 12 }}>
                   平均生成速率
                 </Text>
-                <div style={{ fontSize: 22, fontWeight: 700, color: "#fa8c16", marginTop: 4 }}>
+                <div style={{ fontSize: 22, fontWeight: 700, color: "var(--ab-warn)", marginTop: 4 }}>
                   {usageSummary?.avgTokensPerSecond ?? 0}{" "}
-                  <span style={{ fontSize: 13, fontWeight: "normal", color: "#8c8c8c" }}>tokens/s</span>
+                  <span style={{ fontSize: 13, fontWeight: "normal", color: "var(--ab-text-3)" }}>tokens/s</span>
                 </div>
                 <Text type="secondary" style={{ fontSize: 11 }}>
                   本地模型生成吞吐
@@ -969,7 +968,7 @@ export function OllamaConfigCard() {
                       theme={chartTheme.g2Theme}
                       autoFit
                       height={220}
-                      scale={{ color: { range: [chartTheme.seriesColors[0] || "#1677ff"] } }}
+                      scale={{ color: { range: [chartTheme.seriesColors[0] || "var(--ab-primary)"] } }}
                       axis={quietAxes(chartTheme, { integerY: true })}
                       style={{ maxWidth: 24, radiusTopLeft: 3, radiusTopRight: 3 }}
                       tooltip={{
@@ -1037,7 +1036,7 @@ export function OllamaConfigCard() {
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <Flex justify="space-between" align="center" wrap="wrap" gap={8}>
               <Flex align="center" gap={8}>
-                <ThunderboltOutlined style={{ fontSize: 16, color: "#fa8c16" }} />
+                <ThunderboltOutlined style={{ fontSize: 16, color: "var(--ab-warn)" }} />
                 <Text strong style={{ fontSize: 15 }}>
                   本地模型在线测试与 Token 探测
                 </Text>
@@ -1053,15 +1052,15 @@ export function OllamaConfigCard() {
               <Alert
                 type="info"
                 showIcon
-                message="暂无可用模型"
+                title="暂无可用模型"
                 description="请先在上方模型推荐列表中下载任意模型（例如 qwen2.5:0.5b），下载完成后即可在此处发起对话测试与 Token 探测。"
               />
             ) : (
               <div
                 style={{
                   padding: "16px",
-                  background: "#fafafa",
-                  border: "1px solid #f0f0f0",
+                  background: "var(--ab-surface-2)",
+                  border: "1px solid var(--ab-border)",
                   borderRadius: 8,
                   display: "flex",
                   flexDirection: "column",
@@ -1132,8 +1131,8 @@ export function OllamaConfigCard() {
                     style={{
                       marginTop: 8,
                       padding: "14px 16px",
-                      background: "#fff",
-                      border: "1px solid #d9d9d9",
+                      background: "var(--ab-surface)",
+                      border: "1px solid var(--ab-border-control)",
                       borderRadius: 6,
                       display: "flex",
                       flexDirection: "column",
@@ -1141,7 +1140,7 @@ export function OllamaConfigCard() {
                     }}
                   >
                     <Flex justify="space-between" align="center" wrap="wrap" gap={8}>
-                      <Text strong style={{ color: chatResult.ok ? "#52c41a" : "#f5222d" }}>
+                      <Text strong style={{ color: chatResult.ok ? "var(--ab-ok)" : "var(--ab-error)" }}>
                         {chatResult.ok ? "✓ 模型回复成功" : "✕ 调用出错"}
                       </Text>
                       {chatResult.usage && (
@@ -1158,7 +1157,7 @@ export function OllamaConfigCard() {
                     <div
                       style={{
                         padding: "10px 12px",
-                        background: "#f9f9f9",
+                        background: "var(--ab-sunken)",
                         borderRadius: 4,
                         fontSize: 13,
                         lineHeight: 1.6,

@@ -21,7 +21,6 @@ import {
   Empty,
   Flex,
   Input,
-  List,
   Modal,
   Popconfirm,
   Progress,
@@ -812,13 +811,13 @@ export function KnowledgePage() {
       render: (name: string, record) => (
         <Flex align="center" gap={8}>
           {record.ext === ".pdf" ? (
-            <FilePdfOutlined style={{ color: "#e65100", fontSize: 16 }} />
+            <FilePdfOutlined style={{ color: "var(--ab-error)", fontSize: 16 }} />
           ) : record.source === "obsidian" ? (
-            <BookOutlined style={{ color: "#00e5ff", fontSize: 16 }} />
+            <BookOutlined style={{ color: "var(--ab-primary)", fontSize: 16 }} />
           ) : record.source === "inbox" ? (
-            <MessageOutlined style={{ color: "#00e676", fontSize: 16 }} />
+            <MessageOutlined style={{ color: "var(--ab-ok)", fontSize: 16 }} />
           ) : (
-            <FileTextOutlined style={{ color: "#1890ff", fontSize: 16 }} />
+            <FileTextOutlined style={{ color: "var(--ab-primary)", fontSize: 16 }} />
           )}
           <Text strong>{name}</Text>
         </Flex>
@@ -959,7 +958,7 @@ export function KnowledgePage() {
           <Alert
             type="success"
             showIcon
-            message={
+            title={
               <Flex justify="space-between" align="center" wrap="wrap" gap={8}>
                 <Text strong style={{ fontSize: 13, color: "var(--ant-color-success)" }}>
                   本地 Embedding 向量模型已就绪：{embeddingStatus.activeModel || "nomic-embed-text:latest"}
@@ -979,7 +978,7 @@ export function KnowledgePage() {
             <Alert
               type="info"
               showIcon
-              message={
+              title={
                 <Flex justify="space-between" align="center" wrap="wrap" gap={8}>
                   <Text strong style={{ fontSize: 14 }}>
                     正在后台高速下载向量模型：{embeddingStatus.pullProgress?.model || "nomic-embed-text"}
@@ -990,7 +989,7 @@ export function KnowledgePage() {
                 </Flex>
               }
               description={
-                <Space direction="vertical" style={{ width: "100%", marginTop: 8 }}>
+                <Flex vertical gap={8} style={{ width: "100%", marginTop: 8 }}>
                   <Progress
                     percent={embeddingStatus.pullProgress?.percent ?? 0}
                     status="active"
@@ -999,7 +998,7 @@ export function KnowledgePage() {
                   <Text type="secondary" style={{ fontSize: 12 }}>
                     当前阶段：{embeddingStatus.pullProgress?.status || "正在建立流式数据连接..."}
                   </Text>
-                </Space>
+                </Flex>
               }
               style={{ borderRadius: 8 }}
             />
@@ -1007,8 +1006,8 @@ export function KnowledgePage() {
             <Alert
               type="warning"
               showIcon
-              icon={<WarningFilled style={{ color: "#faad14", fontSize: 18 }} />}
-              message={
+              icon={<WarningFilled style={{ color: "var(--ant-color-warning)", fontSize: 18 }} />}
+              title={
                 <Flex justify="space-between" align="center" wrap="wrap" gap={8}>
                   <Text strong style={{ fontSize: 14 }}>
                     未检测到本地 Embedding 向量模型
@@ -1020,7 +1019,6 @@ export function KnowledgePage() {
                       icon={<CloudDownloadOutlined />}
                       onClick={handlePullEmbedding}
                       loading={pullingEmbedding}
-                      style={{ background: "#faad14", borderColor: "#faad14", color: "#000" }}
                     >
                       一键下载 nomic-embed-text
                     </Button>
@@ -1037,7 +1035,7 @@ export function KnowledgePage() {
                   <Text code>nomic-embed-text</Text>（约 274MB），点击右侧按钮即可由管家自动触发下载并挂载生效。
                 </Text>
               }
-              style={{ borderRadius: 8, border: "1px solid #ffe58f" }}
+              style={{ borderRadius: 8 }}
             />
           )
         ) : null}
@@ -1157,7 +1155,7 @@ export function KnowledgePage() {
                           title={
                             <Flex justify="space-between" align="center">
                               <Flex align="center" gap={8}>
-                                <BookOutlined style={{ color: "#00e5ff" }} />
+                                <BookOutlined style={{ color: "var(--ab-primary)" }} />
                                 <span>Obsidian 笔记库同步 (跨平台本地 Vault)</span>
                               </Flex>
                               <Button
@@ -1214,13 +1212,13 @@ export function KnowledgePage() {
                                 style={{
                                   padding: "10px 12px",
                                   borderRadius: 8,
-                                  background: "rgba(0, 229, 255, 0.05)",
-                                  border: "1px solid rgba(0, 229, 255, 0.25)",
+                                  background: "var(--ab-primary-soft)",
+                                  border: "1px solid var(--ab-primary-soft-border)",
                                 }}
                               >
                                 <Flex justify="space-between" align="center" style={{ marginBottom: 6 }}>
                                   <Flex align="center" gap={6}>
-                                    <SyncOutlined spin style={{ color: "#00e5ff" }} />
+                                    <SyncOutlined spin style={{ color: "var(--ab-primary)" }} />
                                     <Text strong style={{ fontSize: 13 }}>
                                       {vaultSync.phase === "reading"
                                         ? "正在读取本地笔记并解析"
@@ -1253,7 +1251,7 @@ export function KnowledgePage() {
                               <Alert
                                 type="success"
                                 showIcon
-                                message={vaultSync.phaseLabel}
+                                title={vaultSync.phaseLabel}
                                 closable
                                 onClose={() => setVaultSync(null)}
                                 style={{ padding: "6px 10px", fontSize: 12 }}
@@ -1304,7 +1302,7 @@ export function KnowledgePage() {
                           title={
                             <Flex justify="space-between" align="center">
                               <Flex align="center" gap={8}>
-                                <MessageOutlined style={{ color: "#00e676" }} />
+                                <MessageOutlined style={{ color: "var(--ab-ok)" }} />
                                 <span>微信传输与聊天附件归纳箱 (WeChat / IM)</span>
                               </Flex>
                               <Tag color={inboxFiles.filter(f => !f.ingested).length > 0 ? "warning" : "green"}>
@@ -1353,9 +1351,9 @@ export function KnowledgePage() {
                                   <Flex key={f.id} justify="space-between" align="center" style={{ marginBottom: 4 }}>
                                     <Flex align="center" gap={6} style={{ maxWidth: 260 }}>
                                       {f.filename.endsWith(".pdf") ? (
-                                        <FilePdfOutlined style={{ color: "#e65100" }} />
+                                        <FilePdfOutlined style={{ color: "var(--ab-error)" }} />
                                       ) : (
-                                        <FileTextOutlined style={{ color: "#00e676" }} />
+                                        <FileTextOutlined style={{ color: "var(--ab-ok)" }} />
                                       )}
                                       <Text ellipsis style={{ maxWidth: 220 }} title={f.filename}>
                                         {f.filename}
@@ -1401,9 +1399,9 @@ export function KnowledgePage() {
                               icon={<ClearOutlined />}
                               onClick={handleOpenDedupModal}
                               style={{
-                                background: "rgba(250, 140, 22, 0.1)",
-                                borderColor: "rgba(250, 140, 22, 0.4)",
-                                color: "#fa8c16",
+                                background: "var(--ab-warn-soft)",
+                                borderColor: "color-mix(in srgb, var(--ab-warn) 40%, transparent)",
+                                color: "var(--ab-warn)",
                               }}
                             >
                               智能去重
@@ -1527,7 +1525,7 @@ export function KnowledgePage() {
                                 lineHeight: "1.7",
                                 fontSize: 14,
                                 padding: "10px 14px",
-                                background: "rgba(0,0,0,0.15)",
+                                background: "var(--ant-color-fill-quaternary)",
                                 borderRadius: 8,
                               }}
                             >
@@ -1653,7 +1651,7 @@ export function KnowledgePage() {
                 <Alert
                   type="error"
                   showIcon
-                  message={startupProgress.stageLabel || "容器启动未就绪"}
+                  title={startupProgress.stageLabel || "容器启动未就绪"}
                   description={
                     <Flex vertical gap={6}>
                       <Text style={{ fontSize: 13 }}>
@@ -1742,9 +1740,9 @@ export function KnowledgePage() {
                 style={{
                   borderRadius: 8,
                   overflow: "hidden",
-                  border: "1px solid #303030",
-                  background: "#141414",
-                  boxShadow: "inset 0 1px 4px rgba(0,0,0,0.5)",
+                  border: "1px solid var(--ab-border)",
+                  background: "var(--ab-sunken)",
+                  boxShadow: "inset 0 1px 4px rgba(0,0,0,0.25)",
                 }}
               >
                 {/* 仿终端顶栏 */}
@@ -1753,8 +1751,8 @@ export function KnowledgePage() {
                   align="center"
                   style={{
                     padding: "6px 12px",
-                    background: "#202020",
-                    borderBottom: "1px solid #303030",
+                    background: "var(--ab-surface-2)",
+                    borderBottom: "1px solid var(--ab-border)",
                   }}
                 >
                   <Flex align="center" gap={6}>
@@ -1763,7 +1761,7 @@ export function KnowledgePage() {
                         width: 10,
                         height: 10,
                         borderRadius: "50%",
-                        background: "#ff5f56",
+                        background: "var(--ab-error)",
                         display: "inline-block",
                       }}
                     />
@@ -1772,7 +1770,7 @@ export function KnowledgePage() {
                         width: 10,
                         height: 10,
                         borderRadius: "50%",
-                        background: "#ffbd2e",
+                        background: "var(--ab-warn)",
                         display: "inline-block",
                       }}
                     />
@@ -1781,16 +1779,16 @@ export function KnowledgePage() {
                         width: 10,
                         height: 10,
                         borderRadius: "50%",
-                        background: "#27c93f",
+                        background: "var(--ab-ok)",
                         display: "inline-block",
                       }}
                     />
                     <Text
                       style={{
-                        color: "#a0a0a0",
+                        color: "var(--ab-text-3)",
                         fontSize: 12,
                         marginLeft: 8,
-                        fontFamily: "monospace",
+                        fontFamily: "var(--ab-mono)",
                       }}
                     >
                       AnythingLLM 实时终端输出 (Docker Compose)
@@ -1811,10 +1809,10 @@ export function KnowledgePage() {
                     minHeight: 180,
                     maxHeight: 280,
                     overflowY: "auto",
-                    fontFamily: "'Fira Code', 'Consolas', monospace",
+                    fontFamily: "var(--ab-mono)",
                     fontSize: 12,
                     lineHeight: "1.6",
-                    color: "#4af626",
+                    color: "var(--ab-ok)",
                   }}
                 >
                   {startupProgress?.logs && startupProgress.logs.length > 0 ? (
@@ -1823,14 +1821,14 @@ export function KnowledgePage() {
                         key={idx}
                         style={{
                           color: log.includes("[Success]")
-                            ? "#52c41a"
+                            ? "var(--ab-ok)"
                             : log.includes("[Warn]") || log.includes("[Notice]")
-                              ? "#faad14"
+                              ? "var(--ab-warn)"
                               : log.includes("[Error]")
-                                ? "#ff4d4f"
+                                ? "var(--ab-error)"
                                 : log.startsWith(">>>")
-                                  ? "#1890ff"
-                                  : "#d4d4d4",
+                                  ? "var(--ab-primary)"
+                                  : "var(--ab-text-2)",
                           whiteSpace: "pre-wrap",
                           wordBreak: "break-all",
                         }}
@@ -1839,7 +1837,7 @@ export function KnowledgePage() {
                       </div>
                     ))
                   ) : (
-                    <div style={{ color: "#777777", fontStyle: "italic" }}>
+                    <div style={{ color: "var(--ab-text-3)", fontStyle: "italic" }}>
                       &gt; 等待指令。点击上方「立即在网页中拉起容器」可直接在网页中启动，或复制下方命令在外部终端运行。
                     </div>
                   )}
@@ -1880,7 +1878,7 @@ export function KnowledgePage() {
                     width: 48,
                     height: 48,
                     borderRadius: 10,
-                    background: "rgba(22, 119, 255, 0.1)",
+                    background: "var(--ab-primary-soft)",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
@@ -1919,7 +1917,7 @@ export function KnowledgePage() {
                   <Card size="small" style={{ background: "var(--ant-color-fill-quaternary)", height: "100%" }}>
                     <Flex vertical gap={6}>
                       <Text strong>
-                        <BookOutlined style={{ marginRight: 6, color: "#00e5ff" }} />
+                        <BookOutlined style={{ marginRight: 6, color: "var(--ab-primary)" }} />
                         Obsidian 与聊天归纳
                       </Text>
                       <Text type="secondary" style={{ fontSize: 13 }}>
@@ -1933,7 +1931,7 @@ export function KnowledgePage() {
                   <Card size="small" style={{ background: "var(--ant-color-fill-quaternary)", height: "100%" }}>
                     <Flex vertical gap={6}>
                       <Text strong>
-                        <AimOutlined style={{ marginRight: 6, color: "#722ed1" }} />
+                        <AimOutlined style={{ marginRight: 6, color: "var(--ab-brand)" }} />
                         知识星图拓扑
                       </Text>
                       <Text type="secondary" style={{ fontSize: 13 }}>
@@ -1997,7 +1995,7 @@ export function KnowledgePage() {
             <Alert
               type={testPathResult.exists ? "success" : "warning"}
               showIcon
-              message={testPathResult.message}
+              title={testPathResult.message}
               description={
                 testPathResult.exists ? (
                   <Text style={{ fontSize: 12 }}>
@@ -2023,7 +2021,8 @@ export function KnowledgePage() {
           </Flex>
         }
         placement="right"
-        width={680}
+        size={680}
+        styles={{ wrapper: { maxWidth: "100%" } }}
         open={previewDrawerOpen}
         onClose={() => setPreviewDrawerOpen(false)}
       >
@@ -2046,7 +2045,7 @@ export function KnowledgePage() {
               <Alert
                 type="info"
                 showIcon
-                message="文档内容较长，已展示前 16,000 字符预览，全部内容已建立切片索引。"
+                title="文档内容较长，已展示前 16,000 字符预览，全部内容已建立切片索引。"
               />
             )}
 
@@ -2077,7 +2076,7 @@ export function KnowledgePage() {
       <Modal
         title={
           <Flex align="center" gap={8}>
-            <ClearOutlined style={{ color: "#fa8c16" }} />
+            <ClearOutlined style={{ color: "var(--ant-color-warning)" }} />
             <span>笔记与文档智能查重与清理</span>
           </Flex>
         }
@@ -2105,7 +2104,7 @@ export function KnowledgePage() {
       >
         {dedupScanning ? (
           <Flex justify="center" align="center" style={{ padding: "40px 0" }} vertical gap={12}>
-            <LoadingOutlined style={{ fontSize: 36, color: "#fa8c16" }} spin />
+            <LoadingOutlined style={{ fontSize: 36, color: "var(--ant-color-warning)" }} spin />
             <Text type="secondary">正在全面比对文档 SHA-256 哈希与同名异径副本...</Text>
           </Flex>
         ) : dedupResult ? (
@@ -2131,7 +2130,7 @@ export function KnowledgePage() {
                       strong
                       style={{
                         fontSize: 18,
-                        color: dedupResult.duplicateCount > 0 ? "#fa8c16" : "var(--ant-color-success)",
+                        color: dedupResult.duplicateCount > 0 ? "var(--ant-color-warning)" : "var(--ant-color-success)",
                       }}
                     >
                       {dedupResult.duplicateCount} 篇
@@ -2181,79 +2180,78 @@ export function KnowledgePage() {
                         }
                         style={{ borderRadius: 8 }}
                       >
-                        <List
-                          size="small"
-                          dataSource={group.items}
-                          renderItem={(item) => {
+                        <Flex vertical gap={4} className="divide-y divide-outline-variant/10">
+                          {group.items.map((item) => {
                             const isSelected = selectedRemoveIds.includes(item.id);
                             return (
-                              <List.Item
+                              <Flex
+                                key={item.id}
+                                justify="space-between"
+                                align="center"
                                 style={{
                                   padding: "8px 12px",
                                   background: item.isPrimary
-                                    ? "rgba(82, 196, 26, 0.06)"
+                                    ? "color-mix(in srgb, var(--ab-ok) 8%, transparent)"
                                     : isSelected
-                                      ? "rgba(250, 140, 22, 0.05)"
+                                      ? "color-mix(in srgb, var(--ab-warn) 8%, transparent)"
                                       : "transparent",
                                   borderRadius: 6,
-                                  marginBottom: 4,
+                                  width: "100%",
                                 }}
                               >
-                                <Flex justify="space-between" align="center" style={{ width: "100%" }}>
-                                  <Flex align="center" gap={10} style={{ overflow: "hidden" }}>
-                                    {group.reason === "exact_content" && !item.isPrimary ? (
-                                      <Checkbox
-                                        aria-label={`选择清理副本 ${item.path}`}
-                                        checked={isSelected}
-                                        onChange={(e) => {
-                                          if (e.target.checked) {
-                                            setSelectedRemoveIds((prev) =>
-                                              prev.includes(item.id) ? prev : [...prev, item.id],
-                                            );
-                                          } else {
-                                            setSelectedRemoveIds((prev) =>
-                                              prev.filter((id) => id !== item.id),
-                                            );
-                                          }
-                                        }}
-                                      />
-                                    ) : item.isPrimary ? (
-                                      <Tag color="success" style={{ margin: 0 }}>
-                                        推荐保留
-                                      </Tag>
-                                    ) : (
-                                      <Tag color="default" style={{ margin: 0 }}>
-                                        同名待核对
-                                      </Tag>
-                                    )}
-                                    <Flex vertical style={{ minWidth: 0 }}>
-                                      <Text ellipsis style={{ maxWidth: 360, fontSize: 13 }} code>
-                                        {item.path}
-                                      </Text>
-                                      <Text type="secondary" style={{ fontSize: 11 }}>
-                                        {item.source === "obsidian"
-                                          ? "Obsidian 笔记库"
-                                          : item.source === "inbox"
-                                            ? "微信归纳"
-                                            : "收集箱直传"}{" "}
-                                        · {Math.max(1, Math.round(item.size / 1024))} KB · 更新于{" "}
-                                        {new Date(item.updatedAt).toLocaleString("zh-CN", {
-                                          hour12: false,
-                                        })}
-                                      </Text>
-                                    </Flex>
-                                  </Flex>
-
-                                  {group.reason === "exact_content" && !item.isPrimary && (
-                                    <Tag color="volcano" style={{ margin: 0 }}>
-                                      待清理副本
+                                <Flex align="center" gap={10} style={{ overflow: "hidden" }}>
+                                  {group.reason === "exact_content" && !item.isPrimary ? (
+                                    <Checkbox
+                                      aria-label={`选择清理副本 ${item.path}`}
+                                      checked={isSelected}
+                                      onChange={(e) => {
+                                        if (e.target.checked) {
+                                          setSelectedRemoveIds((prev) =>
+                                            prev.includes(item.id) ? prev : [...prev, item.id],
+                                          );
+                                        } else {
+                                          setSelectedRemoveIds((prev) =>
+                                            prev.filter((id) => id !== item.id),
+                                          );
+                                        }
+                                      }}
+                                    />
+                                  ) : item.isPrimary ? (
+                                    <Tag color="success" style={{ margin: 0 }}>
+                                      推荐保留
+                                    </Tag>
+                                  ) : (
+                                    <Tag color="default" style={{ margin: 0 }}>
+                                      同名待核对
                                     </Tag>
                                   )}
+                                  <Flex vertical style={{ minWidth: 0 }}>
+                                    <Text ellipsis style={{ maxWidth: 360, fontSize: 13 }} code>
+                                      {item.path}
+                                    </Text>
+                                    <Text type="secondary" style={{ fontSize: 11 }}>
+                                      {item.source === "obsidian"
+                                        ? "Obsidian 笔记库"
+                                        : item.source === "inbox"
+                                          ? "微信归纳"
+                                          : "收集箱直传"}{" "}
+                                      · {Math.max(1, Math.round(item.size / 1024))} KB · 更新于{" "}
+                                      {new Date(item.updatedAt).toLocaleString("zh-CN", {
+                                        hour12: false,
+                                      })}
+                                    </Text>
+                                  </Flex>
                                 </Flex>
-                              </List.Item>
+
+                                {group.reason === "exact_content" && !item.isPrimary && (
+                                  <Tag color="volcano" style={{ margin: 0 }}>
+                                    待清理副本
+                                  </Tag>
+                                )}
+                              </Flex>
                             );
-                          }}
-                        />
+                          })}
+                        </Flex>
                       </Card>
                     ))}
                   </Flex>

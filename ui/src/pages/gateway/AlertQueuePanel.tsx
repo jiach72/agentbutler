@@ -3,6 +3,7 @@
  */
 import { Button, Drawer, Flex, Table, Typography } from "antd";
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { AdvancedEvidence } from "../../components/AdvancedEvidence.js";
 import type { TableColumnsType } from "antd";
 import { Empty } from "../../components/Empty.js";
@@ -14,6 +15,7 @@ import type { AlertItem, AlertsView } from "./helpers.js";
 interface AlertQueuePanelProps {
   alerts: AlertsView | null;
   history?: boolean;
+  onNavigate?: (path: string) => void;
 }
 
 const QUEUE_COLUMNS: TableColumnsType<AlertItem> = [
@@ -63,8 +65,25 @@ const QUEUE_COLUMNS: TableColumnsType<AlertItem> = [
   },
 ];
 
-export function AlertQueuePanel({ alerts, history = false }: AlertQueuePanelProps) {
+export function AlertQueuePanel({ alerts, history = false, onNavigate }: AlertQueuePanelProps) {
   const [selected, setSelected] = useState<AlertItem | null>(null);
+  let routerNavigate: ((to: string) => void) | null = null;
+  try {
+    routerNavigate = useNavigate();
+  } catch {
+    // Graceful fallback when rendered outside Router context (e.g. isolated SSR / unit tests)
+  }
+
+  const handleNavigate = (path: string) => {
+    if (onNavigate) {
+      onNavigate(path);
+    } else if (routerNavigate) {
+      routerNavigate(path);
+    } else if (typeof window !== "undefined") {
+      window.location.href = path;
+    }
+  };
+
   const items = (alerts?.items ?? []).filter((item) => history || item.status === "failed");
   const columns: TableColumnsType<AlertItem> = [
     ...QUEUE_COLUMNS,
@@ -120,7 +139,7 @@ export function AlertQueuePanel({ alerts, history = false }: AlertQueuePanelProp
             />
           )}
           {!history && (alerts.counts.failed ?? 0) > 0 && (
-            <Button href="/gateway?tab=channels">检查消息通道</Button>
+            <Button onClick={() => handleNavigate("/gateway?tab=channels")}>检查消息通道</Button>
           )}
         </>
       )}
@@ -128,8 +147,8 @@ export function AlertQueuePanel({ alerts, history = false }: AlertQueuePanelProp
         title="通知详情"
         open={selected !== null}
         onClose={() => setSelected(null)}
-        width={640}
-        styles={{ wrapper: { maxWidth: "100vw" } }}
+        size={640}
+        styles={{ wrapper: { maxWidth: "100%" } }}
       >
         {selected !== null && (
           <Flex vertical gap={16} style={{ overflowWrap: "anywhere" }}>
@@ -138,7 +157,7 @@ export function AlertQueuePanel({ alerts, history = false }: AlertQueuePanelProp
               {selected.body}
             </Typography.Paragraph>
             {selected.status === "failed" && (
-              <Button href="/gateway?tab=channels">检查消息通道</Button>
+              <Button onClick={() => handleNavigate("/gateway?tab=channels")}>检查消息通道</Button>
             )}
             <AdvancedEvidence>
               <Typography.Paragraph>{selected.lastError}</Typography.Paragraph>

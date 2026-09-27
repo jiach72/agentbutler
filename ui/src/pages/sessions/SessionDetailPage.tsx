@@ -167,7 +167,7 @@ export function SessionDetailPage() {
           title="会话追踪"
           description={`会话 ${sessionId} 的完整动作记录，每一步都能展开看详情。`}
           extra={
-            <Button icon={<ArrowLeftOutlined />} onClick={() => navigate("/sessions")}>
+            <Button icon={<ArrowLeftOutlined />} aria-label="返回会话追踪列表" onClick={() => navigate("/sessions")}>
               返回列表
             </Button>
           }
@@ -220,7 +220,7 @@ export function SessionDetailPage() {
         <Alert
           type="info"
           showIcon
-          message="隐私边界"
+          title="隐私边界"
           description="本页只展示结构化动作（脱敏片段）与元数据，不包含对话正文；完整回放需要采集正文，目前未实现。"
         />
 

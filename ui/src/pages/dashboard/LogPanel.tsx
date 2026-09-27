@@ -599,7 +599,7 @@ export function LogPanel({ open = true, onClose = () => undefined, embedded = fa
         embedded ? (
           <Flex vertical gap={16}>{body}</Flex>
         ) : (
-          <Drawer width={920} title="系统日志" open onClose={onClose}>
+          <Drawer size={920} styles={{ wrapper: { maxWidth: "100%" } }} title="系统日志" open onClose={onClose}>
             {body}
           </Drawer>
         )

@@ -34,7 +34,7 @@ export function GuardianPostureChart({
   const gradientId = useId();
   const contextMode = useSafeTheme();
   const mode = themeMode ?? contextMode;
-  const chartAccent = mode === "dark" ? "#38bdf8" : "#0071e3";
+  const chartAccent = mode === "dark" ? "var(--ab-primary-hover, #5b9bd1)" : "var(--ab-primary, #1b4f7a)";
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
   const { containerRef, width: dynamicWidth } = useContainerDimensions(800, 160);
@@ -253,7 +253,7 @@ export function GuardianPostureChart({
               y1={slaBaselineY}
               x2={actualWidth - paddingRight}
               y2={slaBaselineY}
-              stroke="#ef4444"
+              stroke="var(--ab-error, #b4342a)"
               strokeWidth="1.2"
               strokeDasharray="4 4"
               opacity="0.6"
@@ -263,7 +263,7 @@ export function GuardianPostureChart({
               x={actualWidth - paddingRight - 4}
               y={slaBaselineY - 4}
               textAnchor="end"
-              className="text-[9px] font-mono fill-error font-medium opacity-80"
+              className="text-[11px] font-mono fill-error font-medium opacity-80"
             >
               50ms SLA
             </text>
@@ -329,7 +329,7 @@ export function GuardianPostureChart({
                   cx={points[points.length - 1].x}
                   cy={points[points.length - 1].y}
                   r={3}
-                  fill="#ffffff"
+                  fill="var(--ab-surface, #ffffff)"
                   stroke={chartAccent}
                   strokeWidth="2"
                 />
@@ -354,7 +354,7 @@ export function GuardianPostureChart({
                   cx={activePoint.x}
                   cy={activePoint.y}
                   r={4.5}
-                  fill="#ffffff"
+                  fill="var(--ab-surface, #ffffff)"
                   stroke={chartAccent}
                   strokeWidth="2"
                   className="filter drop-shadow(0 2px 4px rgba(0, 113, 227, 0.45))"

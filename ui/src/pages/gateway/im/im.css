@@ -40,7 +40,7 @@
 }
 
 .im-sidebar-header .ant-segmented-item {
-  border-radius: 6px;
+  border-radius: var(--ab-r-base, 8px);
   font-size: 12px;
   color: var(--ab-text-2);
   transition: all 0.2s ease;
@@ -50,13 +50,13 @@
   background: var(--ab-surface) !important;
   color: var(--ab-primary) !important;
   font-weight: 600;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08) !important;
+  box-shadow: var(--ab-shadow-1) !important;
 }
 
 .im-action-chip.ant-btn {
   height: 30px;
   padding-inline: 9px;
-  border-radius: 6px;
+  border-radius: var(--ab-r-base, 8px);
   font-size: 12px;
 }
 
@@ -76,26 +76,26 @@
 
 .im-conversation-item {
   padding: 11px 12px;
-  border-radius: 10px;
+  border-radius: var(--ab-r-card, 12px);
   cursor: pointer;
   transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
   position: relative;
   background: var(--ab-surface);
   border: 1px solid var(--ab-border);
-  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.02);
+  box-shadow: var(--ab-shadow-1);
 }
 
 .im-conversation-item:hover {
   background: var(--ab-surface);
   border-color: var(--ab-primary-soft-border);
-  box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--ab-shadow-2);
   transform: translateY(-1px);
 }
 
 .im-conversation-item.active {
   background: var(--ab-surface);
   border-color: var(--ab-primary);
-  box-shadow: 0 4px 14px -3px rgba(37, 99, 235, 0.16), 0 1px 3px 0 rgba(0, 0, 0, 0.04);
+  box-shadow: 0 4px 14px -3px var(--ab-primary-soft-border), 0 1px 3px 0 rgba(0, 0, 0, 0.04);
 }
 
 .im-conversation-item.active::before {
@@ -106,8 +106,8 @@
   bottom: 8px;
   width: 4px;
   border-radius: 0 4px 4px 0;
-  background: linear-gradient(180deg, #3b82f6, #1d4ed8);
-  box-shadow: 0 0 8px rgba(37, 99, 235, 0.4);
+  background: linear-gradient(180deg, var(--ab-primary), var(--ab-primary-press));
+  box-shadow: 0 0 8px var(--ab-primary-soft-border);
 }
 
 /* 在线脉冲指示器 */
@@ -116,7 +116,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #52c41a;
+  background: var(--ab-ok);
   position: relative;
 }
 
@@ -128,7 +128,7 @@
   right: -2px;
   bottom: -2px;
   border-radius: 50%;
-  border: 1.5px solid #52c41a;
+  border: 1.5px solid var(--ab-ok);
   animation: imPulse 2s infinite ease-out;
   opacity: 0.8;
 }
@@ -212,7 +212,7 @@
 .im-markdown-content pre {
   background: var(--ab-surface-2);
   padding: 8px 12px;
-  border-radius: 6px;
+  border-radius: var(--ab-r-base, 8px);
   font-size: 12px;
   font-family: monospace;
   overflow-x: auto;
@@ -279,8 +279,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   border: 1px solid var(--ab-primary-soft-border);
   background: var(--ab-primary-soft);
@@ -294,7 +294,7 @@
   transform: scale(1.08);
   background: var(--ab-primary);
   color: #ffffff;
-  box-shadow: 0 2px 10px rgba(37, 99, 235, 0.35);
+  box-shadow: var(--ab-shadow-md);
 }
 
 .im-sparkle-btn.loading {
@@ -319,8 +319,8 @@
   right: 16px;
   background: var(--ab-surface);
   border: 1px solid var(--ab-primary-soft-border);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-  border-radius: 16px;
+  box-shadow: var(--ab-shadow-sm);
+  border-radius: 9999px;
   padding: 4px 12px;
   font-size: 12px;
   display: flex;
@@ -351,14 +351,14 @@
   align-items: center;
   gap: 6px;
   padding: 6px 14px;
-  border-radius: 20px;
+  border-radius: 9999px;
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
   border: 1px solid var(--ab-border);
   background: var(--ab-surface);
   color: var(--ab-text);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.05);
+  box-shadow: var(--ab-shadow-md);
   backdrop-filter: blur(8px);
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   animation: imFadeSlideIn 0.25s ease-out;
@@ -366,7 +366,7 @@
 
 .im-scroll-bottom-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18), 0 2px 4px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--ab-shadow-lg);
   border-color: var(--ab-primary);
   color: var(--ab-primary);
 }

@@ -33,6 +33,7 @@ import {
   AppstoreOutlined,
   CloudOutlined,
   ClusterOutlined,
+  CopyOutlined,
   DatabaseOutlined,
   DiffOutlined,
   ExperimentOutlined,
@@ -144,11 +145,26 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
   const fetchLiveMemories = useCallback(async () => {
     const res = await loadJson<{
       memory?: {
-        preview?: Array<{ id: string; text: string; factType?: string; mentionedAt?: string }>;
+        preview?: Array<{
+          entryId?: string;
+          id?: string;
+          content?: string;
+          text?: string;
+          factType?: string;
+          mentionedAt?: string;
+          writtenAt?: string;
+        }>;
       };
     }>("/api/memory", 8_000);
     if (res.ok && res.data?.memory?.preview && Array.isArray(res.data.memory.preview)) {
-      setLiveMemories(res.data.memory.preview);
+      setLiveMemories(
+        res.data.memory.preview.map((m, idx) => ({
+          id: m.id || m.entryId || `memory-${idx}`,
+          text: m.text || m.content || "",
+          factType: m.factType || "world",
+          mentionedAt: m.mentionedAt || m.writtenAt,
+        })),
+      );
     }
   }, []);
 
@@ -159,21 +175,31 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
   // 构建 Hindsight 记忆星图拓扑数据
   const hindsightConstellationData = useMemo<ConstellationData>(() => {
     if (liveMemories.length > 0) {
-      const nodes: ConstellationNode[] = liveMemories.map((m) => ({
-        id: m.id,
-        label: m.text.slice(0, 32),
-        group: m.factType || "world",
-        color: HINDSIGHT_PALETTE[m.factType || "world"] || HINDSIGHT_PALETTE.world,
-        raw: m,
-      }));
+      const nodes: ConstellationNode[] = liveMemories.map((m, idx) => {
+        const id = m.id || `node-${idx}`;
+        const text = typeof m.text === "string" ? m.text : "";
+        const label = text.slice(0, 32) || id;
+        const group = m.factType || "world";
+        return {
+          id,
+          label,
+          group,
+          color: HINDSIGHT_PALETTE[group] || HINDSIGHT_PALETTE.world,
+          raw: m,
+        };
+      });
 
-      const links = [];
+      const links: ConstellationData["links"] = [];
       for (let i = 0; i < nodes.length - 1; i++) {
-        links.push({
-          source: nodes[i].id,
-          target: nodes[i + 1].id,
-          type: (i % 2 === 0 ? "semantic" : "temporal") as any,
-        });
+        const s = nodes[i]?.id;
+        const t = nodes[i + 1]?.id;
+        if (s && t) {
+          links.push({
+            source: s,
+            target: t,
+            type: i % 2 === 0 ? "semantic" : "temporal",
+          });
+        }
       }
       return { nodes, links };
     }
@@ -396,16 +422,17 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
         style={{
           borderRadius: 14,
           marginBottom: 24,
-          background: "linear-gradient(135deg, rgba(99, 102, 241, 0.04) 0%, rgba(168, 85, 247, 0.04) 100%)",
-          border: "1px solid rgba(99, 102, 241, 0.2)",
+          background: "var(--ant-color-bg-container)",
+          border: "1px solid var(--ant-color-border-secondary)",
+          boxShadow: "0 2px 12px rgba(0, 0, 0, 0.03)",
         }}
         title={
           <Flex align="center" justify="space-between">
             <Flex align="center" gap={8}>
-              <ThunderboltOutlined style={{ color: "#6366f1", fontSize: 18 }} />
+              <ThunderboltOutlined style={{ color: "var(--ant-color-primary)", fontSize: 18 }} />
               <span style={{ fontWeight: 600 }}>TypeSafe Jev 智能选型与决策中枢</span>
-              <Tag color={systemsData?.jevStatus.configured ? "processing" : "default"}>
-                {systemsData?.jevStatus.configured ? "Jev System One 已就绪" : "未配置 Key（启发式规则兜底）"}
+              <Tag color={systemsData?.jevStatus?.configured ? "processing" : "default"}>
+                {systemsData?.jevStatus?.configured ? "Jev System One 已就绪" : "未配置 Key（启发式规则兜底）"}
               </Tag>
             </Flex>
             <Button
@@ -414,7 +441,7 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
               onClick={() => setJevDrawerOpen(true)}
               style={{ borderRadius: 6 }}
             >
-              {systemsData?.jevStatus.configured ? "管理 Jev 密钥" : "快速配置 Jev Key"}
+              {systemsData?.jevStatus?.configured ? "管理 Jev 密钥" : "快速配置 Jev Key"}
             </Button>
           </Flex>
         }
@@ -447,10 +474,6 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
                   icon={<ExperimentOutlined />}
                   loading={advisorLoading}
                   onClick={() => void handleRunAdvisor()}
-                  style={{
-                    background: "linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)",
-                    border: "none",
-                  }}
                 >
                   运行 Jev 智能评估
                 </Button>
@@ -470,7 +493,7 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
               >
                 <Flex vertical gap={8}>
                   <Flex justify="space-between" align="center">
-                    <Text strong style={{ fontSize: 14, color: "#6366f1" }}>
+                    <Text strong style={{ fontSize: 14, color: "var(--ant-color-primary)" }}>
                       推荐方案：{advisorResult.engine.toUpperCase()} ({advisorResult.mode})
                     </Text>
                     <Tag color="purple">
@@ -526,7 +549,7 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
         title={
           <Flex align="center" justify="space-between" wrap="wrap" gap={8}>
             <Flex align="center" gap={8}>
-              <ClusterOutlined style={{ color: "#6366f1", fontSize: 18 }} />
+              <ClusterOutlined style={{ color: "var(--ant-color-primary)", fontSize: 18 }} />
               <span style={{ fontWeight: 600, fontSize: 15 }}>Hindsight 知识图谱记忆控制台</span>
               <Tag color="purple">Control Plane 集成</Tag>
               <Tag color="cyan">API :9177 | UI :9999</Tag>
@@ -548,16 +571,17 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
               >
                 内嵌官方控制台
               </Button>
-              <Button
-                type="primary"
-                size="small"
-                icon={<LinkOutlined />}
-                href="http://127.0.0.1:9999"
-                target="_blank"
-                style={{ background: "linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)", border: "none" }}
-              >
-                直达官方 Web UI (:9999)
-              </Button>
+              <Tooltip title="需确保本地 Docker 已启动 Hindsight 容器并在 127.0.0.1:9999 监听">
+                <Button
+                  type="primary"
+                  size="small"
+                  icon={<LinkOutlined />}
+                  href="http://127.0.0.1:9999"
+                  target="_blank"
+                >
+                  直达官方 Web UI (:9999)
+                </Button>
+              </Tooltip>
             </Space>
           </Flex>
         }
@@ -581,7 +605,7 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
             </Text>
             <Flex gap={8}>
               <Input
-                prefix={<SearchOutlined style={{ color: "#94a3b8" }} />}
+                prefix={<SearchOutlined style={{ color: "var(--ant-color-text-tertiary)" }} />}
                 placeholder="输入测试查询语句，例如：系统约束、用户偏好、开发规范..."
                 value={recallQuery}
                 onChange={(e) => setRecallQuery(e.target.value)}
@@ -592,7 +616,6 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
                 icon={<AimOutlined />}
                 loading={recallLoading}
                 onClick={handleRunRecallTest}
-                style={{ background: "#6366f1", borderColor: "#6366f1" }}
               >
                 执行召回测试
               </Button>
@@ -604,7 +627,7 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
                     size="small"
                     style={{
                       height: "100%",
-                      borderRadius: 8,
+                      borderRadius: 10,
                       background: "var(--ant-color-fill-quaternary)",
                       border: "1px solid var(--ant-color-border-secondary)",
                     }}
@@ -622,7 +645,21 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
                         >
                           {r.factType.toUpperCase()}
                         </Tag>
-                        <Tag color="blue">匹配得分 {(r.score * 100).toFixed(0)}%</Tag>
+                        <Space size={4}>
+                          <Tag color={r.score >= 0.8 ? "success" : "blue"}>匹配得分 {(r.score * 100).toFixed(0)}%</Tag>
+                          <Tooltip title="复制记忆片段">
+                            <Button
+                              type="text"
+                              size="small"
+                              icon={<CopyOutlined style={{ fontSize: 12 }} />}
+                              style={{ width: 22, height: 22, padding: 0 }}
+                              onClick={() => {
+                                void navigator.clipboard.writeText(r.text);
+                                message.success("已复制记忆片段");
+                              }}
+                            />
+                          </Tooltip>
+                        </Space>
                       </Flex>
                       <Text style={{ fontSize: 13, lineHeight: "20px" }}>{r.text}</Text>
                       <Text type="secondary" style={{ fontSize: 11, fontFamily: "monospace", marginTop: 4 }}>
@@ -648,7 +685,7 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
         </Flex>
       ) : (
         <Row gutter={[12, 12]}>
-          {systemsData?.systems.map((system) => {
+          {systemsData?.systems?.map((system) => {
             const isHindsight = system.id === "hindsight";
             const isMem0 = system.id === "mem0";
             const isNative = system.id === "hermes";
@@ -678,14 +715,18 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
                             height: 28,
                             borderRadius: 6,
                             background: isHindsight
-                              ? "rgba(99, 102, 241, 0.12)"
+                              ? "var(--ant-color-primary-bg, rgba(0, 113, 227, 0.15))"
                               : isMem0
-                                ? "rgba(16, 185, 129, 0.12)"
-                                : "rgba(100, 116, 139, 0.12)",
+                                ? "var(--ant-color-success-bg, rgba(52, 199, 89, 0.15))"
+                                : "var(--ant-color-fill-tertiary)",
                             display: "flex",
                             alignItems: "center",
                             justifyContent: "center",
-                            color: isHindsight ? "#6366f1" : isMem0 ? "#10b981" : "#64748b",
+                            color: isHindsight
+                              ? "var(--ant-color-primary)"
+                              : isMem0
+                                ? "var(--ant-color-success)"
+                                : "var(--ant-color-text-tertiary)",
                             fontSize: 15,
                             flexShrink: 0,
                           }}
@@ -730,6 +771,7 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
                         padding: "6px 8px",
                         borderRadius: 6,
                         background: "var(--ant-color-fill-quaternary)",
+                        border: "1px solid var(--ant-color-border-secondary)",
                         fontSize: 11,
                         lineHeight: "15px",
                       }}
@@ -793,7 +835,7 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
             <Alert
               type="info"
               showIcon
-              message="安全受控机制保证"
+              title="安全受控机制保证"
               description="点击应用前，系统会自动在 Hermes 根目录下为所有涉及的配置文件创建带时间戳的完整备份（.bak-butler-*）。数据互不覆盖，随时可无损切回。"
             />
 
@@ -899,7 +941,7 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
         title="配置 TypeSafe Jev 密钥"
         open={jevDrawerOpen}
         onClose={() => setJevDrawerOpen(false)}
-        width={400}
+        styles={{ wrapper: { width: 440, maxWidth: "100%" } }}
         extra={
           <Button type="primary" onClick={() => void handleSaveJevKey()} loading={savingJevKey}>
             保存并同步
@@ -910,7 +952,7 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
           <Alert
             type="info"
             showIcon
-            message="Jev 决策原语模型"
+            title="Jev 决策原语模型"
             description="TypeSafe Jev 是 System One 快速类型化判断模型。配置密钥后，选型顾问将由纯规则升级为全场景自适应推荐，并解锁记忆抗污染语义雷达。"
           />
           <Form layout="vertical">
@@ -933,7 +975,7 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
         title={
           <Flex align="center" justify="space-between" style={{ paddingRight: 24 }}>
             <Flex align="center" gap={8}>
-              <ClusterOutlined style={{ color: "#6366f1" }} />
+              <ClusterOutlined style={{ color: "var(--ant-color-primary, #0059b5)" }} />
               <span>Hindsight 官方 Control Plane (http://127.0.0.1:9999)</span>
             </Flex>
             <Button
@@ -948,10 +990,9 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
         }
         open={hindsightDrawerOpen}
         onClose={() => setHindsightDrawerOpen(false)}
-        width="88%"
-        styles={{ body: { padding: 0 } }}
+        styles={{ wrapper: { width: "88%", maxWidth: "100%" }, body: { padding: 0 } }}
       >
-        <div style={{ position: "relative", width: "100%", height: "100%", background: "#09090b" }}>
+        <div style={{ position: "relative", width: "100%", height: "100%", background: "var(--ant-color-bg-container)" }}>
           <iframe
             src="http://127.0.0.1:9999"
             title="Hindsight Control Plane"
@@ -965,7 +1006,7 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
         title="记忆事实与实体节点详情"
         open={selectedFactNode !== null}
         onClose={() => setSelectedFactNode(null)}
-        width={400}
+        styles={{ wrapper: { width: 440, maxWidth: "100%" } }}
       >
         {selectedFactNode && (
           <Flex vertical gap={12}>
@@ -982,7 +1023,7 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
                 <div>
                   <Text type="secondary">记忆内容：</Text>
                   <Paragraph style={{ margin: "4px 0 0 0", fontSize: 13 }}>
-                    {selectedFactNode.raw?.text || selectedFactNode.label}
+                    {(selectedFactNode.raw as { text?: string } | null | undefined)?.text || selectedFactNode.label}
                   </Paragraph>
                 </div>
               </Flex>

@@ -8,7 +8,7 @@
  * 4. 深度追踪与实验：行为审计、会话上下文回放、记忆变更比对、实例联邦与自进化。
  */
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   App,
   Button,
@@ -68,14 +68,29 @@ function ToolCard({ to, icon, title, tag, tagColor = "blue", tone = "blue", desc
           <div className={`tool-card-icon tone-${tone}`}>{icon}</div>
           <div>
             <div className="tool-card-title">{title}</div>
-            {tag && <Tag color={tagColor} style={{ marginTop: 4, borderRadius: 10 }}>{tag}</Tag>}
+            {tag && <Tag color={tagColor} style={{ marginTop: 4, borderRadius: "var(--ab-r-ctl, 8px)" }}>{tag}</Tag>}
           </div>
         </div>
       </div>
       <p className="tool-card-desc">{description}</p>
       <div className="tool-card-action">
-        <Link to={to} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontWeight: 500, fontSize: 13 }}>
-          <span>{title}</span>
+        <Link
+          to={to}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+            fontWeight: 500,
+            fontSize: 13,
+            minHeight: 32,
+            padding: "4px 12px",
+            borderRadius: "var(--ab-r-ctl, 8px)",
+            background: "var(--ab-primary-soft)",
+            color: "var(--ab-primary)",
+            transition: "all 0.15s ease",
+          }}
+        >
+          <span>进入{title}</span>
           <RightOutlined style={{ fontSize: 11 }} />
         </Link>
       </div>
@@ -85,6 +100,7 @@ function ToolCard({ to, icon, title, tag, tagColor = "blue", tone = "blue", desc
 
 export function ToolsPage() {
   const { message } = App.useApp();
+  const navigate = useNavigate();
   const [experiments, setExperiments] = useState(false);
   const [instanceCount, setInstanceCount] = useState<number | null>(null);
   const [gatewayOnline, setGatewayOnline] = useState<boolean | null>(null);
@@ -195,7 +211,7 @@ export function ToolsPage() {
               : "提供链路体检、现象排障、容器日志过滤、核心资产管理与脱敏诊断生成。"
           }
           action={
-            <Button type="primary" href="/troubleshoot">
+            <Button type="primary" onClick={() => navigate("/troubleshoot")}>
               排查当前问题
             </Button>
           }
@@ -227,10 +243,10 @@ export function ToolsPage() {
             </Flex>
           </div>
           <Flex gap={8} wrap="wrap">
-            <Button size="small" href="/setup">直达链路体检</Button>
-            <Button size="small" href="/troubleshoot">直达排障助手</Button>
-            <Button size="small" href="/logs">直达系统日志</Button>
-            <Button size="small" href="/core-files">直达核心文件</Button>
+            <Button size="small" onClick={() => navigate("/setup")}>直达链路体检</Button>
+            <Button size="small" onClick={() => navigate("/troubleshoot")}>直达排障助手</Button>
+            <Button size="small" onClick={() => navigate("/logs")}>直达系统日志</Button>
+            <Button size="small" onClick={() => navigate("/core-files")}>直达核心文件</Button>
           </Flex>
         </div>
 

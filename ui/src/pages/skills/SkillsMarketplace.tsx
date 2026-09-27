@@ -945,7 +945,7 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
           type="warning"
           showIcon
           style={{ marginBottom: 12 }}
-          message="SkillHub 分类暂时读不到"
+          title="SkillHub 分类暂时读不到"
           description={hubCategories.detail ?? hubCategories.error}
           action={<Button size="small" onClick={() => void loadHubCategories()}>重试</Button>}
         />
@@ -967,7 +967,7 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
           type="warning"
           showIcon
           style={{ marginBottom: 12 }}
-          message="SkillHub 目录暂时读不到"
+          title="SkillHub 目录暂时读不到"
           description={[hub.detail, hub.fix].filter((item) => item !== undefined).join(" ") || hub.error}
           action={<Button size="small" onClick={() => void loadHubList({ page: 1, reset: true })}>重试</Button>}
         />
@@ -1041,8 +1041,8 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
             type="button"
             onClick={() => setInstalledUpdateFilter(installedUpdateFilter === "updates_only" ? "all" : "updates_only")}
             style={{
-              background: installedUpdateFilter === "updates_only" ? "rgba(250, 140, 22, 0.1)" : "transparent",
-              border: `1px solid ${installedUpdateFilter === "updates_only" ? "#fa8c16" : "transparent"}`,
+              background: installedUpdateFilter === "updates_only" ? "var(--ant-color-warning-bg)" : "transparent",
+              border: `1px solid ${installedUpdateFilter === "updates_only" ? "var(--ant-color-warning)" : "transparent"}`,
               borderRadius: 8,
               padding: "4px 10px",
               cursor: "pointer",
@@ -1055,12 +1055,12 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
                 <span>
                   有可用更新
                   {availableUpdates.length > 0 && installedUpdateFilter !== "updates_only" && (
-                    <span style={{ fontSize: 11, marginLeft: 6, color: "#fa8c16" }}>点击筛选 →</span>
+                    <span style={{ fontSize: 11, marginLeft: 6, color: "var(--ant-color-warning)" }}>点击筛选 →</span>
                   )}
                 </span>
               }
               value={availableUpdates.length}
-              valueStyle={{ color: availableUpdates.length > 0 ? "#fa8c16" : undefined }}
+              valueStyle={{ color: availableUpdates.length > 0 ? "var(--ant-color-warning)" : undefined }}
             />
           </button>
         </Flex>
@@ -1078,7 +1078,7 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
           type="warning"
           showIcon
           style={{ marginBottom: 12, borderRadius: 8 }}
-          message={
+          title={
             <Flex justify="space-between" align="center" wrap="wrap" gap={8}>
               <span>
                 当前仅展示 <strong>{availableUpdates.length} 个有可用更新</strong>的技能（本机共已安装 {localItems.length} 个）
@@ -1095,7 +1095,7 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
           type="warning"
           showIcon
           style={{ marginBottom: 12 }}
-          message="本机技能清单暂时读不到"
+          title="本机技能清单暂时读不到"
           description={localError}
           action={<Button size="small" onClick={() => void loadLocal()}>重试</Button>}
         />
@@ -1194,7 +1194,7 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
                   height: "auto",
                   fontSize: 12,
                   fontWeight: 600,
-                  color: "#fa8c16",
+                  color: "var(--ant-color-warning)",
                   textDecoration: "underline",
                 }}
                 onClick={goToUpdatesOnly}
@@ -1280,8 +1280,8 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
                   padding: "1px 6px",
                   borderRadius: 10,
                   fontSize: 11,
-                  background: "#fa8c16",
-                  color: "#fff",
+                  background: "var(--ant-color-warning)",
+                  color: "var(--ant-color-text-light-solid, #ffffff)",
                 }}
                 title={`有 ${availableUpdates.length} 个可用更新`}
               >
@@ -1418,7 +1418,7 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
       {/* 已安装技能详情 */}
       <Drawer
         title={detailItem !== null ? `技能详情：${detailItem.displayName}` : "技能详情"}
-        width={520}
+        styles={{ wrapper: { width: 520, maxWidth: "100%" } }}
         open={detailItem !== null}
         onClose={() => setDetailItem(null)}
       >

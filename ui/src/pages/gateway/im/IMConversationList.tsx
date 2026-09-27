@@ -49,11 +49,11 @@ function getConversationAvatar(conv: IMConversation) {
       <Avatar
         size={36}
         style={{
-          background: "linear-gradient(135deg, #f59e0b, #d97706)",
-          boxShadow: "0 2px 8px -1px rgba(245, 158, 11, 0.35)",
+          background: "linear-gradient(135deg, var(--ab-brand), var(--ab-warn))",
+          boxShadow: "0 2px 8px -1px color-mix(in srgb, var(--ab-warn) 25%, transparent)",
           flexShrink: 0,
         }}
-        icon={<TeamOutlined style={{ fontSize: 18, color: "#ffffff" }} />}
+        icon={<TeamOutlined style={{ fontSize: 18, color: "var(--ab-on-primary, #ffffff)" }} />}
       />
     );
   }
@@ -63,8 +63,8 @@ function getConversationAvatar(conv: IMConversation) {
       <Avatar
         size={36}
         style={{
-          background: "linear-gradient(135deg, #8b5cf6, #6366f1)",
-          boxShadow: "0 2px 8px -1px rgba(139, 92, 246, 0.35)",
+          background: "linear-gradient(135deg, var(--ab-primary-press), var(--ab-primary))",
+          boxShadow: "0 2px 8px -1px color-mix(in srgb, var(--ab-primary) 25%, transparent)",
           flexShrink: 0,
           fontSize: 16,
         }}
@@ -78,8 +78,8 @@ function getConversationAvatar(conv: IMConversation) {
       <Avatar
         size={36}
         style={{
-          background: "linear-gradient(135deg, #06b6d4, #0d9488)",
-          boxShadow: "0 2px 8px -1px rgba(6, 182, 212, 0.35)",
+          background: "linear-gradient(135deg, var(--ab-primary-press), var(--ab-primary))",
+          boxShadow: "0 2px 8px -1px color-mix(in srgb, var(--ab-primary) 25%, transparent)",
           flexShrink: 0,
           fontSize: 16,
         }}
@@ -93,11 +93,11 @@ function getConversationAvatar(conv: IMConversation) {
       <Avatar
         size={36}
         style={{
-          background: "linear-gradient(135deg, #3b82f6, #1d4ed8)",
-          boxShadow: "0 2px 8px -1px rgba(37, 99, 235, 0.35)",
+          background: "linear-gradient(135deg, var(--ab-primary-press), var(--ab-primary))",
+          boxShadow: "0 2px 8px -1px color-mix(in srgb, var(--ab-primary) 25%, transparent)",
           flexShrink: 0,
         }}
-        icon={<RobotOutlined style={{ fontSize: 18, color: "#ffffff" }} />}
+        icon={<RobotOutlined style={{ fontSize: 18, color: "var(--ab-on-primary, #ffffff)" }} />}
       />
     );
   }
@@ -106,11 +106,11 @@ function getConversationAvatar(conv: IMConversation) {
       <Avatar
         size={36}
         style={{
-          background: "linear-gradient(135deg, #10b981, #059669)",
-          boxShadow: "0 2px 8px -1px rgba(16, 185, 129, 0.35)",
+          background: "linear-gradient(135deg, var(--ab-ok), color-mix(in srgb, var(--ab-ok) 75%, black))",
+          boxShadow: "0 2px 8px -1px color-mix(in srgb, var(--ab-ok) 25%, transparent)",
           flexShrink: 0,
         }}
-        icon={<WechatOutlined style={{ fontSize: 18, color: "#ffffff" }} />}
+        icon={<WechatOutlined style={{ fontSize: 18, color: "var(--ab-on-primary, #ffffff)" }} />}
       />
     );
   }
@@ -119,11 +119,11 @@ function getConversationAvatar(conv: IMConversation) {
       <Avatar
         size={36}
         style={{
-          background: "linear-gradient(135deg, #8b5cf6, #6d28d9)",
-          boxShadow: "0 2px 8px -1px rgba(139, 92, 246, 0.35)",
+          background: "linear-gradient(135deg, var(--ab-primary), var(--ab-brand))",
+          boxShadow: "0 2px 8px -1px color-mix(in srgb, var(--ab-primary) 25%, transparent)",
           flexShrink: 0,
         }}
-        icon={<ApiOutlined style={{ fontSize: 18, color: "#ffffff" }} />}
+        icon={<ApiOutlined style={{ fontSize: 18, color: "var(--ab-on-primary, #ffffff)" }} />}
       />
     );
   }
@@ -131,8 +131,8 @@ function getConversationAvatar(conv: IMConversation) {
     <Avatar
       size={36}
       style={{
-        background: "linear-gradient(135deg, #64748b, #475569)",
-        boxShadow: "0 2px 8px -1px rgba(100, 116, 139, 0.25)",
+        background: "linear-gradient(135deg, var(--ab-text-3), var(--ab-text-2))",
+        boxShadow: "0 2px 8px -1px color-mix(in srgb, var(--ab-text-2) 20%, transparent)",
         flexShrink: 0,
       }}
       icon={<MessageOutlined style={{ fontSize: 18, color: "#ffffff" }} />}
@@ -285,7 +285,7 @@ export function IMConversationList(props: IMConversationListProps) {
                       <Flex align="center" gap={4}>
                         {conv.errorCount > 0 && (
                           <Tooltip title={`${conv.errorCount} 条消息投递异常/死信`}>
-                            <Badge count={conv.errorCount} size="small" style={{ backgroundColor: "#ff4d4f" }} />
+                            <Badge count={conv.errorCount} size="small" />
                           </Tooltip>
                         )}
                         {isDirect && conv.id !== DEFAULT_DIRECT_CONVERSATION_ID && (
@@ -302,8 +302,8 @@ export function IMConversationList(props: IMConversationListProps) {
                             <Button
                               type="text"
                               size="small"
-                              icon={<DeleteOutlined />}
-                              style={{ width: 20, height: 20, padding: 0 }}
+                              icon={<DeleteOutlined style={{ fontSize: 13 }} />}
+                              style={{ width: 24, height: 24, padding: 0, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 6 }}
                               onClick={(e) => e.stopPropagation()}
                             />
                           </Popconfirm>

@@ -154,7 +154,7 @@ export function TaskTestRunModal({
           </div>
         )}
 
-        {error && <Alert type="error" showIcon message={error} />}
+        {error && <Alert type="error" showIcon title={error} />}
 
         {result && (
           <div
@@ -167,7 +167,7 @@ export function TaskTestRunModal({
                 ? "color-mix(in srgb, var(--ab-ok) 10%, var(--ab-surface))"
                 : "color-mix(in srgb, var(--ab-error) 10%, var(--ab-surface))",
               borderRadius: 8,
-              border: `1px solid ${isSuccess ? "var(--ab-ok)" : "var(--ab-error)"}`,
+              border: `1px solid ${isSuccess ? "color-mix(in srgb, var(--ab-ok) 30%, transparent)" : "color-mix(in srgb, var(--ab-error) 30%, transparent)"}`,
             }}
           >
             <Space size={8}>
@@ -193,12 +193,13 @@ export function TaskTestRunModal({
               style={{
                 margin: 0,
                 padding: 12,
-                background: "var(--ab-canvas, #1e1e1e)",
-                color: "var(--ab-text, #f0f0f0)",
-                borderRadius: 6,
+                background: "var(--ab-surface-2)",
+                color: "var(--ab-text-1)",
+                border: "1px solid var(--ab-border)",
+                borderRadius: 8,
                 maxHeight: 280,
                 overflowY: "auto",
-                fontFamily: "var(--ab-font-mono, monospace)",
+                fontFamily: "var(--font-mono, monospace)",
                 fontSize: 12,
                 lineHeight: 1.5,
                 whiteSpace: "pre-wrap",
@@ -211,7 +212,7 @@ export function TaskTestRunModal({
         )}
 
         {result && !result.outputSnippet && !result.errorSnippet && !error && (
-          <Alert type="info" message="任务执行完成，未捕获到额外标准输出。" />
+          <Alert type="info" title="任务执行完成，未捕获到额外标准输出。" />
         )}
       </div>
     </Modal>

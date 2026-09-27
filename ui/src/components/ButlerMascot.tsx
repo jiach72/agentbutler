@@ -22,12 +22,12 @@ const SIZE_MAP = {
 };
 
 const VISOR_COLORS: Record<ButlerMascotStatus, { fill: string; border: string; label: string }> = {
-  normal: { fill: "#BFE8C4", border: "#22C55E", label: "就绪待命 · 运行平稳" },
-  idle: { fill: "#BFE8C4", border: "#22C55E", label: "就绪待命" },
-  alert: { fill: "#FED7AA", border: "#F59E0B", label: "需留意 · 存在提醒事项" },
-  blocked: { fill: "#FECACA", border: "#EF4444", label: "异常阻断 · 需要检查" },
-  offline: { fill: "#E2E8F0", border: "#94A3B8", label: "管家离线 · 连接未就绪" },
-  inspecting: { fill: "#BAE6FD", border: "#0EA5E9", label: "正在巡检诊断中…" },
+  normal: { fill: "var(--ab-ok-soft)", border: "var(--ab-ok)", label: "就绪待命 · 运行平稳" },
+  idle: { fill: "var(--ab-ok-soft)", border: "var(--ab-ok)", label: "就绪待命" },
+  alert: { fill: "var(--ab-warn-soft)", border: "var(--ab-warn)", label: "需留意 · 存在提醒事项" },
+  blocked: { fill: "var(--ab-error-soft)", border: "var(--ab-error)", label: "异常阻断 · 需要检查" },
+  offline: { fill: "var(--ab-offline-soft)", border: "var(--ab-offline)", label: "管家离线 · 连接未就绪" },
+  inspecting: { fill: "var(--ab-primary-soft)", border: "var(--ab-primary)", label: "正在巡检诊断中…" },
 };
 
 export const ButlerMascot: FC<ButlerMascotProps> = ({

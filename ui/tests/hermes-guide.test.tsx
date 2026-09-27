@@ -27,6 +27,9 @@ describe("Hermes 使用指引与常用命令卡片（HermesGuideCard）", () => 
     expect(html).toContain("网关与 Bridge 诊断");
     expect(html).toContain("配置修改与预检");
     expect(html).toContain("任务与常用 CLI");
+    expect(html).toContain('role="tablist"');
+    expect(html).toContain('role="tab"');
+    expect(html).toContain('aria-selected="true"');
   });
 
   it("包含核心运维命令与复制按钮", () => {

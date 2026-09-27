@@ -623,8 +623,15 @@ export function VersionsPanel() {
             <div
               key={row.key}
               role="button"
+              tabIndex={0}
               aria-expanded={isExpanded}
               onClick={() => toggleRow(row.key)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  toggleRow(row.key);
+                }
+              }}
               style={{
                 cursor: "pointer",
                 padding: "14px 16px",

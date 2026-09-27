@@ -104,13 +104,14 @@ export function IMBotTemplateDrawer(props: IMBotTemplateDrawerProps) {
     <Drawer
       title={
         <Flex align="center" gap={8}>
-          <AppstoreAddOutlined style={{ color: "var(--ant-color-primary)" }} />
+          <AppstoreAddOutlined style={{ color: "var(--ab-brand)" }} />
           <span>专职 Agent 模板库</span>
         </Flex>
       }
       open={props.open}
       onClose={props.onClose}
       width={520}
+      styles={{ wrapper: { width: 520, maxWidth: "100%" } }}
       extra={
         <Button size="small" icon={<ReloadOutlined spin={loading} />} onClick={() => void fetchTemplates()}>
           刷新模板
@@ -138,9 +139,9 @@ export function IMBotTemplateDrawer(props: IMBotTemplateDrawerProps) {
               style={{
                 borderRadius: 10,
                 border: isInstalled
-                  ? "1px solid var(--ant-color-primary-border)"
-                  : "1px solid var(--ant-color-border-secondary)",
-                boxShadow: isInstalled ? "0 2px 8px rgba(22, 119, 255, 0.06)" : undefined,
+                  ? "1px solid color-mix(in srgb, var(--ab-brand) 30%, var(--ab-border))"
+                  : "1px solid var(--ab-border)",
+                boxShadow: isInstalled ? "0 2px 8px color-mix(in srgb, var(--ab-brand) 8%, transparent)" : undefined,
               }}
             >
               <Flex vertical gap={12}>
@@ -151,14 +152,15 @@ export function IMBotTemplateDrawer(props: IMBotTemplateDrawerProps) {
                         width: 38,
                         height: 38,
                         borderRadius: 8,
-                        background: "var(--ant-color-fill-secondary)",
+                        background: "var(--ab-surface-2)",
+                        border: "1px solid var(--ab-border)",
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
                         fontSize: 20,
                       }}
                     >
-                      {tpl.avatar || <RobotOutlined style={{ fontSize: 20, color: "var(--ant-color-text-secondary)" }} />}
+                      {tpl.avatar || <RobotOutlined style={{ fontSize: 20, color: "var(--ab-text-2)" }} />}
                     </div>
                     <div>
                       <Flex align="center" gap={8}>
@@ -209,7 +211,8 @@ export function IMBotTemplateDrawer(props: IMBotTemplateDrawerProps) {
 
                 <div
                   style={{
-                    background: "var(--ant-color-fill-quaternary)",
+                    background: "var(--ab-surface-2)",
+                    border: "1px solid var(--ab-border)",
                     padding: "8px 10px",
                     borderRadius: 6,
                     fontSize: 12,
@@ -218,7 +221,7 @@ export function IMBotTemplateDrawer(props: IMBotTemplateDrawerProps) {
                   <Text type="secondary" style={{ fontSize: 11, display: "block", marginBottom: 4 }}>
                     专职职责：
                   </Text>
-                  <ul style={{ margin: 0, paddingLeft: 16, color: "var(--ant-color-text-secondary)" }}>
+                  <ul style={{ margin: 0, paddingLeft: 16, color: "var(--ab-text-2)" }}>
                     {tpl.duties.map((duty, idx) => (
                       <li key={idx}>{duty}</li>
                     ))}

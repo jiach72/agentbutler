@@ -120,7 +120,7 @@ const tooltip = (c: WallPalette) => ({
   backgroundColor: c.tipBg,
   borderColor: c.tipBd,
   textStyle: { color: c.text, fontSize: 24, fontFamily: c.font },
-  extraCssText: "box-shadow:0 8px 24px rgba(0,0,0,.25);border-radius:8px;",
+  extraCssText: "box-shadow:var(--ab-shadow-2);border-radius:8px;",
 });
 
 export interface TrendPoint {

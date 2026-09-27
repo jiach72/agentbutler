@@ -201,7 +201,7 @@ export function DashboardPage() {
                   <div className="my-1 h-[32px] w-full">
                     <MatrixSparkline
                       data={[98, 99, 99, 100, 99, 100, 100, 99, 100, 100, 100, 100]}
-                      color="#2dd4bf"
+                      color="var(--ab-ok, #0a7667)"
                       height={32}
                       baselineValue={0}
                       ariaLabel="智能体引擎心跳活跃度"
@@ -256,7 +256,7 @@ export function DashboardPage() {
                   <div className="my-1 h-[32px] w-full">
                     <MatrixSparkline
                       data={[4, 6, 8, 3, 12, 10, 8, 14, 16, 9, 13, isBridgeConnected ? 15 : 2]}
-                      color={!isBridgeConnected || failedMessagesCount > 0 ? "#ef4444" : "#0071e3"}
+                      color={!isBridgeConnected || failedMessagesCount > 0 ? "var(--ab-error, #b4342a)" : "var(--ab-primary, #0071e3)"}
                       height={32}
                       baselineValue={0}
                       ariaLabel="消息网关流转趋势"
@@ -303,7 +303,7 @@ export function DashboardPage() {
                   <div className="my-1 h-[32px] w-full">
                     <MatrixSparkline
                       data={[1, 0, 2, 1, 3, 2, 1, 4, 2, 3, 2, Math.max(1, Math.min(data.tasks.todayRunCount ?? 1, 5))]}
-                      color={data.tasks.failedTaskCount > 0 ? "#f59e0b" : "#818cf8"}
+                      color={data.tasks.failedTaskCount > 0 ? "var(--ab-warn, #8f630a)" : "var(--ab-primary, #0071e3)"}
                       height={32}
                       baselineValue={0}
                       ariaLabel="定时任务触发节奏"
@@ -346,7 +346,7 @@ export function DashboardPage() {
                   <div className="my-1 h-[32px] w-full">
                     <MatrixSparkline
                       data={[16, 15, 14, 17, 15, 14, 15, 16, 14, 15, 14, 13]}
-                      color="#c8a15a"
+                      color="var(--ab-brand, #c8a15a)"
                       height={32}
                       baselineValue={0}
                       ariaLabel="SQLite-VSS 向量库沙盒与查询耗时"

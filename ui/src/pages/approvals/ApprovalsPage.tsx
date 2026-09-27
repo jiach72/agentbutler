@@ -549,7 +549,7 @@ export function ApprovalsPage() {
         {/* 结论条 */}
         <ConclusionBar tone={conclusion.tone} title={conclusion.title} copy={conclusion.copy} action={conclusion.action} />
 
-        <StatStrip items={stats} />
+        <StatStrip items={stats} loading={data === null && error === null} skeletonCount={5} />
 
         {scan !== undefined && (
           <AdvancedDetails
@@ -652,7 +652,7 @@ export function ApprovalsPage() {
             <Alert
               type="info"
               showIcon
-              message={
+              title={
                 <span>
                   当前视图已折叠近 {timeWindow === "24h" ? "24 小时" : "3 天"} 之前的 <strong>{hiddenByTimeCount}</strong> 条历史记录。{" "}
                   <Button type="link" size="small" style={{ padding: 0 }} onClick={() => setTimeWindow("all")}>
@@ -690,7 +690,7 @@ export function ApprovalsPage() {
         <Drawer
           title="动作指纹规则库"
           placement="right"
-          width={700}
+          styles={{ wrapper: { width: 700, maxWidth: "100%" } }}
           open={rulesOpen}
           onClose={() => setRulesOpen(false)}
           extra={
@@ -703,7 +703,7 @@ export function ApprovalsPage() {
             <Alert
               type="info"
               showIcon
-              message="指纹规则闭环"
+              title="指纹规则闭环"
               description="在审批详情中选择「存疑并拉黑」或「信任免核验」时，动作指纹将自动沉淀为规则。被阻断的指纹未来触发时直接拦截；被信任的指纹事后自动放行归档，不再产生待核验卡片打扰。"
             />
             <Table<ActionFingerprintRule>

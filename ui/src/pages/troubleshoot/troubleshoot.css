@@ -9,7 +9,7 @@
   width: 40px;
   height: 40px;
   border-radius: var(--ab-r-ctl);
-  font-size: 20px;
+  font-size: 18px;
   flex-shrink: 0;
 }
 
@@ -32,9 +32,11 @@
   flex-direction: column;
   gap: 10px;
   border: 1px solid var(--ab-border);
-  border-radius: var(--ab-r-card);
+  border-radius: var(--ab-r-card, 12px);
   background: var(--ab-surface);
   padding: 16px;
+  min-height: 110px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02), 0 3px 8px rgba(0, 0, 0, 0.01);
   transition:
     transform var(--ab-dur-fast) var(--ab-ease),
     box-shadow var(--ab-dur-fast) var(--ab-ease),
@@ -45,7 +47,7 @@
 .ts-symptom-card:hover {
   transform: translateY(-2px);
   border-color: var(--ab-border-strong);
-  box-shadow: var(--ab-shadow-1);
+  box-shadow: var(--ab-shadow-2);
 }
 
 .ts-symptom-card:focus-visible {
@@ -152,7 +154,7 @@
 }
 
 .ts-result .ts-result-icon {
-  font-size: 17px;
+  font-size: 18px;
   margin-top: 2px;
   color: var(--ab-text-3);
 }
@@ -225,11 +227,11 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
-  border: 1px solid var(--ab-border);
-  border-radius: var(--ab-r-card);
-  background: var(--ab-surface);
+  border: 1px solid var(--ab-border, var(--ant-color-border-secondary));
+  border-radius: var(--ab-r-card, 12px);
+  background: var(--ab-surface, var(--ant-color-bg-container));
   padding: 20px;
-  box-shadow: var(--ab-shadow-1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03), 0 4px 12px rgba(0, 0, 0, 0.015);
 }
 
 .ts-faq-header {
@@ -244,7 +246,7 @@
   margin: 0;
   font-size: 16px;
   font-weight: 600;
-  color: var(--ab-text-1);
+  color: var(--ab-text);
 }
 
 .ts-faq-sub {
@@ -264,10 +266,11 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
-  border-radius: var(--ab-r-ctl);
+  min-height: 32px;
+  padding: 6px 14px;
+  border-radius: 8px;
   border: 1px solid var(--ab-border);
-  background: var(--ab-surface-soft);
+  background: var(--ab-surface-2, var(--ant-color-fill-quaternary));
   color: var(--ab-text-2);
   font-size: 13px;
   cursor: pointer;
@@ -277,7 +280,7 @@
 .ts-faq-filter-btn:hover {
   background: var(--ab-surface);
   border-color: var(--ab-border-strong);
-  color: var(--ab-text-1);
+  color: var(--ab-text);
 }
 
 .ts-faq-filter-btn.is-active {
@@ -285,6 +288,7 @@
   border-color: var(--ab-primary);
   color: var(--ab-primary);
   font-weight: 500;
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--ab-primary) 15%, transparent);
 }
 
 .ts-faq-collapse.ant-collapse {
@@ -294,9 +298,9 @@
 
 .ts-faq-collapse .ant-collapse-item {
   border: 1px solid var(--ab-border);
-  border-radius: var(--ab-r-ctl) !important;
+  border-radius: var(--ab-r-card, 12px) !important;
   margin-bottom: 10px;
-  background: var(--ab-surface-soft);
+  background: var(--ab-surface-2, var(--ant-color-fill-quaternary));
   transition: border-color var(--ab-dur-fast) var(--ab-ease), background var(--ab-dur-fast) var(--ab-ease);
 }
 
@@ -306,7 +310,7 @@
 
 .ts-faq-collapse .ant-collapse-item-active {
   border-color: color-mix(in srgb, var(--ab-primary) 40%, var(--ab-border));
-  background: var(--ab-surface);
+  background: var(--ab-surface, var(--ant-color-bg-container));
 }
 
 .ts-faq-collapse .ant-collapse-header {
@@ -332,7 +336,7 @@
 .ts-faq-item-title {
   font-size: 14px;
   font-weight: 500;
-  color: var(--ab-text-1);
+  color: var(--ab-text);
 }
 
 .ts-faq-item-summary {
@@ -360,7 +364,7 @@
   gap: 6px;
   font-size: 13px;
   font-weight: 600;
-  color: var(--ab-text-1);
+  color: var(--ab-text);
 }
 
 .ts-faq-text {
@@ -375,16 +379,16 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  background: var(--ab-surface-soft);
+  background: var(--ab-surface-2, var(--ant-color-fill-tertiary));
   border: 1px solid var(--ab-border);
-  border-radius: var(--ab-r-ctl);
+  border-radius: var(--ab-r-base, 8px);
   padding: 8px 12px;
 }
 
 .ts-faq-code-box code {
   font-family: var(--ab-font-mono, monospace);
   font-size: 12px;
-  color: var(--ab-text-1);
+  color: var(--ab-text);
   word-break: break-all;
 }
 

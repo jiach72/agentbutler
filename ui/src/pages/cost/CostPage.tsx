@@ -7,7 +7,7 @@
  * 数据真相原则：Hermes 未提供成本列时显示「还没有金额字段」而非 0——不伪造。
  */
 import { money, USD_TO_CNY } from "../../lib/format.js";
-import { App, Button, Card, Flex, Form, InputNumber, Modal, Progress, Segmented, Select, Table, Typography } from "antd";
+import { App, Button, Card, Flex, Form, InputNumber, Modal, Progress, Segmented, Select, Skeleton, Table, Typography } from "antd";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { SettingOutlined, ThunderboltOutlined, WalletOutlined } from "@ant-design/icons";
@@ -17,6 +17,7 @@ import { Empty } from "../../components/Empty.js";
 import { PageHeader } from "../../components/PageHeader.js";
 import { StatStrip } from "../../components/StatStrip.js";
 import type { StatStripItem } from "../../components/StatStrip.js";
+import { ChartSkeleton } from "../../components/charts/index.js";
 import { useUrlState } from "../../hooks/useUrlState.js";
 import { usePolling } from "../../hooks/usePolling.js";
 import { loadJson, postJson } from "../../lib/api.js";
@@ -133,7 +134,11 @@ export function CostPage() {
       ellipsis: true,
       width: 260,
       // M2.3 深链：成本页最贵会话一键进入会话时间线。
-      render: (sessionId: string) => <Link to={`/sessions/${encodeURIComponent(sessionId)}`}>{sessionId}</Link>,
+      render: (sessionId: string) => (
+        <Link to={`/sessions/${encodeURIComponent(sessionId)}`} className="font-mono text-xs hover:underline">
+          {sessionId}
+        </Link>
+      ),
     },
     { title: "模型", dataIndex: "model", key: "model", ellipsis: true },
     {
@@ -192,7 +197,7 @@ export function CostPage() {
                   tone: "error",
                   title: budget.threshold === "over" ? "本月成本已超出预算" : "本月成本已达预算上限",
                   copy: `本月已花 ${money(budget.spentUsd)}，预算 ${money(budget.budgetUsd)}。`,
-                  action: <Button onClick={() => navigate("/gateway")}>查看消息通知</Button>,
+                  action: <Button type="primary" danger onClick={() => navigate("/gateway")}>查看消息通知</Button>,
                 }
               : budgetEnabled && budget.threshold === "80%"
                 ? {
@@ -271,7 +276,7 @@ export function CostPage() {
           }
         />
 
-        <StatStrip items={costStats} />
+        <StatStrip items={costStats} loading={summary === null && summaryError === null} skeletonCount={3} />
 
         <Card
           title="按模型成本"
@@ -281,10 +286,13 @@ export function CostPage() {
               options={RANGES}
               value={rangeDays}
               onChange={(value) => setRangeDays(value as number)}
+              aria-label="按时间区间筛选成本"
             />
           }
         >
-          {summary === null || summary.models.length === 0 ? (
+          {summary === null && summaryError === null ? (
+            <Skeleton active paragraph={{ rows: 3 }} />
+          ) : summary === null || summary.models.length === 0 ? (
             <Empty title="窗口内还没有用量" hint="换个时间区间看看，或等管家记录到新的调用。" mascotWidth={72} />
           ) : (
             <Flex vertical gap={12}>
@@ -322,7 +330,9 @@ export function CostPage() {
         </Card>
 
         <Card title="按日成本趋势">
-          {summary === null || summary.days.length === 0 ? (
+          {summary === null && summaryError === null ? (
+            <ChartSkeleton height={140} />
+          ) : summary === null || summary.days.length === 0 ? (
             <Empty title="窗口内还没有按日数据" hint="管家按天汇总用量；有记录后这里会画出趋势。" mascotWidth={72} />
           ) : (
             <DailyCostChart
@@ -339,6 +349,7 @@ export function CostPage() {
             rowKey={(record) => `${record.sessionId}-${record.model}`}
             columns={columns}
             dataSource={summary?.sessions ?? []}
+            loading={summary === null && summaryError === null}
             pagination={false}
             locale={{ emptyText: <Empty title="还没有会话成本记录" hint="管家会按会话归集用量；有调用后这里会列出最贵的几条。" mascot={false} /> }}
           />
@@ -351,7 +362,7 @@ export function CostPage() {
           onOk={() => void saveBudget()}
           okText="保存"
           confirmLoading={budgetSaving}
-          destroyOnHidden
+          destroyOnClose
         >
           <Flex vertical gap={8} style={{ marginBottom: 12 }}>
             <Typography.Text type="secondary">

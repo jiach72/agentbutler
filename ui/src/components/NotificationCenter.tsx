@@ -378,7 +378,15 @@ export function NotificationCenter() {
       content={<NotificationContent onClose={() => setOpen(false)} />}
     >
       <Badge className="notification-badge" count={count} overflowCount={999} size="small" offset={[-2, 2]}>
-        <Button type="text" className="notification-trigger" icon={<BellOutlined />} aria-label={label} title={label} />
+        <Button
+          type="text"
+          className="notification-trigger"
+          icon={<BellOutlined />}
+          aria-label={label}
+          title={label}
+          aria-expanded={open}
+          aria-haspopup="dialog"
+        />
       </Badge>
     </Popover>
   );

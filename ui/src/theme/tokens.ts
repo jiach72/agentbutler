@@ -250,7 +250,7 @@ export const darkPalette: SemanticPalette = {
   surface2: "#1A2234",
   sunken: "#080C14",
   sider: "#0B0F17",
-  border: "#232F42",
+  border: ink[700],
   borderStrong: "#2E3D56",
   borderControl: "#475569",
   text: "#F1F5F9",
@@ -496,6 +496,14 @@ const AB_COLOR_VARS: Array<[name: string, pick: (p: SemanticPalette) => string]>
   ["--ab-shadow-1", (p) => p.shadow1],
   ["--ab-shadow-2", (p) => p.shadow2],
   ["--ab-focus", (p) => p.focusRing],
+  // 健壮性与兼容别名（巡检 R18：防御暗色模式与历史 CSS 样式引用）
+  ["--ab-text-1", (p) => p.text],
+  ["--ab-surface-soft", (p) => p.surface2],
+  ["--ab-success", (p) => p.ok],
+  ["--ab-success-soft", (p) => p.okSoft],
+  ["--ab-warning", (p) => p.warn],
+  ["--ab-warning-soft", (p) => p.warnSoft],
+  ["--ab-brass", (p) => p.brand],
 ];
 
 /**
@@ -525,8 +533,14 @@ export function applyThemeCssBridge(mode: ThemeMode): void {
 
   vars["--ab-r-card"] = r(radius.card);
   vars["--ab-r-ctl"] = r(radius.control);
+  vars["--ab-r-base"] = r(radius.control);
   vars["--ab-r-tag"] = r(radius.tag);
   vars["--ab-r-float"] = r(radius.float);
+
+  vars["--ab-radius-sm"] = r(radius.tag);
+  vars["--ab-radius-md"] = r(radius.control);
+  vars["--ab-radius-lg"] = r(radius.card);
+  vars["--ab-radius-full"] = "9999px";
 
   vars["--ab-dur-fast"] = ms(motion.fast);
   vars["--ab-dur-base"] = ms(motion.base);
@@ -535,6 +549,9 @@ export function applyThemeCssBridge(mode: ThemeMode): void {
 
   vars["--ab-font"] = fontFamily;
   vars["--ab-mono"] = monoFontFamily;
+  vars["--ab-font-mono"] = monoFontFamily;
+  vars["--ab-shadow-sm"] = p.shadow1;
+  vars["--ab-shadow-md"] = p.shadow2;
 
   // 阶段 5B 补齐的 --ab-* 镜像（吸收 taste.css :root 里的局部变量）。
   // 旧 taste.css 在 :root 块里定义 --butler-content-max / --butler-focus-offset / --butler-stat-accent，
@@ -549,7 +566,64 @@ export function applyThemeCssBridge(mode: ThemeMode): void {
   vars["--ab-content-max"] = r(layout.contentMax);
   vars["--ab-content-pad"] = r(layout.contentPadding);
 
+  // Tailwind v4 --color-* 语义令牌直接写入 root.style，杜绝类名 fallback 导致的偏色
+  vars["--color-surface"] = p.canvas;
+  vars["--color-surface-dim"] = p.sunken;
+  vars["--color-surface-bright"] = p.canvas;
+  vars["--color-surface-variant"] = p.surface2;
+  vars["--color-on-surface"] = p.text;
+  vars["--color-on-surface-variant"] = p.text2;
+  vars["--color-surface-container-lowest"] = p.surface;
+  vars["--color-surface-container-low"] = p.surface2;
+  vars["--color-surface-container"] = p.surface2;
+  vars["--color-surface-container-high"] = p.border;
+  vars["--color-surface-container-highest"] = p.borderStrong;
+  vars["--color-inverse-surface"] = p.text;
+  vars["--color-inverse-on-surface"] = p.surface;
+  vars["--color-inverse-primary"] = p.primarySoft;
+  vars["--color-background"] = p.canvas;
+  vars["--color-on-background"] = p.text;
+  vars["--color-primary"] = p.primary;
+  vars["--color-primary-container"] = p.primary;
+  vars["--color-on-primary"] = p.onPrimary;
+  vars["--color-on-primary-container"] = p.onPrimary;
+  vars["--color-primary-fixed"] = p.primarySoft;
+  vars["--color-primary-fixed-dim"] = p.primarySoftBorder;
+  vars["--color-on-primary-fixed"] = p.primary;
+  vars["--color-on-primary-fixed-variant"] = p.primaryPress;
+  vars["--color-secondary"] = p.text2;
+  vars["--color-secondary-container"] = p.surface2;
+  vars["--color-on-secondary"] = p.surface;
+  vars["--color-on-secondary-container"] = p.text2;
+  vars["--color-secondary-fixed"] = p.surface2;
+  vars["--color-secondary-fixed-dim"] = p.border;
+  vars["--color-on-secondary-fixed"] = p.text;
+  vars["--color-on-secondary-fixed-variant"] = p.text2;
+  vars["--color-tertiary"] = p.ok;
+  vars["--color-tertiary-container"] = p.okSoft;
+  vars["--color-on-tertiary"] = p.onPrimary;
+  vars["--color-on-tertiary-container"] = p.ok;
+  vars["--color-tertiary-fixed"] = p.okSoft;
+  vars["--color-tertiary-fixed-dim"] = p.ok;
+  vars["--color-on-tertiary-fixed"] = p.ok;
+  vars["--color-on-tertiary-fixed-variant"] = p.ok;
+  vars["--color-error"] = p.error;
+  vars["--color-error-container"] = p.errorSoft;
+  vars["--color-on-error"] = p.onError;
+  vars["--color-on-error-container"] = p.error;
+  vars["--color-outline"] = p.text4;
+  vars["--color-outline-variant"] = p.border;
+  vars["--color-surface-tint"] = p.primary;
+
   for (const [name, value] of Object.entries(vars)) {
     root.style.setProperty(name, value);
+  }
+
+  // 显式锁住文档根与 body 底色/字色，防止任何默认白底外露
+  root.style.backgroundColor = p.canvas;
+  root.style.color = p.text;
+  if (typeof document !== "undefined" && document.body) {
+    document.body.style.backgroundColor = p.canvas;
+    document.body.style.color = p.text;
   }
 }

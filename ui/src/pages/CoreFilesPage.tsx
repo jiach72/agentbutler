@@ -249,17 +249,17 @@ export function CoreFilesPage() {
           />
           <div className="core-files-toolbar-actions">
             <Tooltip title={loading ? "正在加载文件列表" : "请先在设置中选择要管理的实例"}>
-              <Button icon={<ReloadOutlined />} disabled={loading || instanceId === undefined} onClick={refresh}>
+              <Button icon={<ReloadOutlined />} aria-label="刷新核心文件列表" disabled={loading || instanceId === undefined} onClick={refresh}>
                 刷新
               </Button>
             </Tooltip>
             <Tooltip title="先在左侧选择一个已存在的文件">
-              <Button icon={<SafetyCertificateOutlined />} disabled={!selectedFile || !selectedFile.exists} onClick={() => void backup()}>
+              <Button icon={<SafetyCertificateOutlined />} aria-label="立即备份当前文件" disabled={!selectedFile || !selectedFile.exists} onClick={() => void backup()}>
                 立即备份
               </Button>
             </Tooltip>
             <Tooltip title="先在左侧选择一个已存在的文件">
-              <Button icon={<DownloadOutlined />} disabled={!selectedFile || !selectedFile.exists} onClick={() => void download()}>
+              <Button icon={<DownloadOutlined />} aria-label="下载当前文件" disabled={!selectedFile || !selectedFile.exists} onClick={() => void download()}>
                 下载
               </Button>
             </Tooltip>
@@ -332,7 +332,7 @@ export function CoreFilesPage() {
               size="small"
               title={selectedFile?.label ?? "文件详情"}
               extra={selectedFile && (
-                <Button icon={<HistoryOutlined />} onClick={() => void openHistory()} disabled={!selectedFile.exists}>历史</Button>
+                <Button icon={<HistoryOutlined />} aria-label="查看文件版本历史" onClick={() => void openHistory()} disabled={!selectedFile.exists}>历史</Button>
               )}
             >
               {detailLoading ? (
@@ -347,7 +347,7 @@ export function CoreFilesPage() {
                     <Alert
                       type={selectedFile.sensitivity === "contains-secret-pattern" ? "warning" : "info"}
                       showIcon
-                      message={
+                      title={
                         selectedFile.sensitivity === "contains-secret-pattern"
                           ? "检测到文件中含有疑似密钥内容，已自动打码；保存前请确认。"
                           : selectedFile.readOnlyReason ?? "该文件只读"
@@ -363,6 +363,7 @@ export function CoreFilesPage() {
                     />
                   )}
                   <Input.TextArea
+                    aria-label="文件内容编辑器"
                     style={{ fontFamily: "var(--ant-font-family-code)" }}
                     value={draft}
                     onChange={(event) => setDraft(event.target.value)}
@@ -382,7 +383,7 @@ export function CoreFilesPage() {
                           <Alert
                             type="warning"
                             showIcon
-                            message="保存前需要确认"
+                            title="保存前需要确认"
                             description={
                               <Flex vertical gap={4}>
                                 {preview.warnings.map((warning) => <span key={warning}>{warning}</span>)}
@@ -394,7 +395,7 @@ export function CoreFilesPage() {
                           <Alert
                             type="error"
                             showIcon
-                            message="本次修改被阻止，暂不能保存"
+                            title="本次修改被阻止，暂不能保存"
                             description={
                               <Flex vertical gap={4}>
                                 {preview.blockedReasons.map((reason) => <span key={reason}>{reason}</span>)}

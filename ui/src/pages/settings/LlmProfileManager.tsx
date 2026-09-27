@@ -267,7 +267,7 @@ export function LlmProfileManager({ seed }: LlmProfileManagerProps = {}) {
           <Alert
             type="error"
             showIcon
-            message="凭据库未启用"
+            title="凭据库未启用"
             description="部署环境缺少有效的 BUTLER_SECRET_MASTER_KEY。Butler 会拒绝保存、注入或明文回退 API Key。"
           />
         )}
@@ -294,7 +294,7 @@ export function LlmProfileManager({ seed }: LlmProfileManagerProps = {}) {
           <Alert
             type="info"
             showIcon
-            message="还差最后一步：把已通过连接测试的模型绑定到实例或框架"
+            title="还差最后一步：把已通过连接测试的模型绑定到实例或框架"
             description="保存 API Key 不会自动让任务使用它。建立绑定后，Butler 才会把对应模型安全地注入受管任务。"
           />
         )}

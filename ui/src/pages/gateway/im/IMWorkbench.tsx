@@ -782,7 +782,8 @@ ${aiReplyText}
         }
         open={props.selectedMessage !== null}
         onClose={() => props.onSelectMessage(null)}
-        width={640}
+        size={640}
+        styles={{ wrapper: { maxWidth: "100%" } }}
         destroyOnHidden
       >
         {props.selectedMessage !== null && (

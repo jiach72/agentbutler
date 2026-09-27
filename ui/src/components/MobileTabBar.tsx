@@ -21,8 +21,9 @@ const TABS = MOBILE_TAB_PATHS.map((path) => {
   return { to: meta.path, icon: meta.icon, label: shortTitleOf(meta) };
 });
 
-/** 活跃判定按路径段匹配：/skills/details 选中 /skills；/skills-other 不误选。 */
+/** 活跃判定按路径段匹配：/skills/details 选中 /skills；/skills-other 不误选；/ 映射至 /dashboard。 */
 function isActive(pathname: string, to: string): boolean {
+  if (to === "/dashboard" && pathname === "/") return true;
   return pathname === to || pathname.startsWith(`${to}/`);
 }
 
@@ -56,7 +57,7 @@ export function MobileTabBar({ onOpenMore }: MobileTabBarProps = {}) {
         <button
           type="button"
           onClick={onOpenMore}
-          className="mobile-tab border-0 bg-transparent cursor-pointer text-inherit"
+          className="mobile-tab"
           aria-label="打开全部菜单"
         >
           <span className="mobile-tab-icon" aria-hidden="true">

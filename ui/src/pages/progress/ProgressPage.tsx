@@ -144,7 +144,13 @@ export function ProgressPage() {
         sessionId === "(unattributed)" ? (
           <Typography.Text type="secondary">（未归属）</Typography.Text>
         ) : (
-          <Link to={`/sessions/${encodeURIComponent(sessionId)}`}>{sessionId}</Link>
+          <Link
+            to={`/sessions/${encodeURIComponent(sessionId)}`}
+            aria-label={`查看会话 ${sessionId} 详情`}
+            className="font-mono text-xs hover:underline"
+          >
+            {sessionId}
+          </Link>
         ),
     },
     {
@@ -285,11 +291,17 @@ export function ProgressPage() {
           title="进度可信度"
           extra={
             <Space>
-              <Button icon={<ReloadOutlined />} onClick={refresh}>
+              <Button icon={<ReloadOutlined />} aria-label="刷新进度核实数据" onClick={refresh}>
                 刷新
               </Button>
               <Tooltip title="立即增量采集日志中的进度声明并与实际动作对账">
-                <Button type="primary" icon={<SyncOutlined />} loading={busy} onClick={() => void scan()}>
+                <Button
+                  type="primary"
+                  icon={<SyncOutlined />}
+                  aria-label="立即增量核实进度声明"
+                  loading={busy}
+                  onClick={() => void scan()}
+                >
                   立即核实
                 </Button>
               </Tooltip>
@@ -305,7 +317,7 @@ export function ProgressPage() {
           action={conclusion.action}
         />
 
-        <StatStrip items={progressStats} />
+        <StatStrip items={progressStats} loading={summary === undefined && error === null} skeletonCount={4} />
 
 
         {summary !== undefined && summary.suspectSessions.length > 0 && (
@@ -323,6 +335,7 @@ export function ProgressPage() {
                 <Link
                   key={row.sessionId}
                   to={`/sessions/${encodeURIComponent(row.sessionId)}`}
+                  aria-label={`查看可疑会话 ${row.sessionId} 详情`}
                   style={{ textDecoration: "none" }}
                 >
                   <StatusBadge
@@ -339,6 +352,7 @@ export function ProgressPage() {
           title="进度声明核实明细"
           extra={
             <Segmented
+              aria-label="按可信度筛选进度声明"
               options={[
                 { label: "全部", value: "all" },
                 { label: "可疑", value: "suspect" },
@@ -376,7 +390,7 @@ export function ProgressPage() {
           <Alert
             type="info"
             showIcon
-            message="判定口径（可自行复核）"
+            title="判定口径（可自行复核）"
             description={
               <Flex vertical gap={2}>
                 <span>✓ 可信：声明与上一条声明之间，该会话产生了写文件/删文件/执行命令/调接口/发消息/抓页面之一。</span>

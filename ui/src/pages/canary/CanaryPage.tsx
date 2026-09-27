@@ -195,14 +195,14 @@ export function CanaryPage() {
       key: "targetVersion",
       width: 190,
       render: (version: string, row) => (
-        <Space direction="vertical" size={0}>
+        <Flex vertical gap={0}>
           <Typography.Text strong>{version}</Typography.Text>
           {row.fromVersion !== null && (
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
               来自 {row.fromVersion}
             </Typography.Text>
           )}
-        </Space>
+        </Flex>
       ),
     },
     {
@@ -268,7 +268,12 @@ export function CanaryPage() {
       key: "action",
       width: 80,
       render: (_: unknown, row) => (
-        <Button size="small" type="link" onClick={() => setDetail(row)}>
+        <Button
+          size="small"
+          type="link"
+          aria-label={`查看版本 ${row.targetVersion} 升级验证详情`}
+          onClick={() => setDetail(row)}
+        >
           详情
         </Button>
       ),
@@ -372,11 +377,17 @@ export function CanaryPage() {
           title="升级策略"
           extra={
             <Space>
-              <Button icon={<ReloadOutlined />} onClick={refresh}>
+              <Button icon={<ReloadOutlined />} aria-label="刷新升级验证记录" onClick={refresh}>
                 刷新
               </Button>
               <Tooltip title="立即执行观察窗巡检：检出回归自动回滚，窗口到期则确认升级">
-                <Button type="primary" icon={<ThunderboltOutlined />} loading={busy} onClick={() => void tick()}>
+                <Button
+                  type="primary"
+                  icon={<ThunderboltOutlined />}
+                  aria-label="立即巡检观察窗"
+                  loading={busy}
+                  onClick={() => void tick()}
+                >
                   巡检观察窗
                 </Button>
               </Tooltip>
@@ -395,12 +406,12 @@ export function CanaryPage() {
               <Flex gap={16} wrap="wrap">
                 {(Object.keys(POLICY_META) as Policy[]).map((key) => (
                   <Radio key={key} value={key}>
-                    <Space direction="vertical" size={0}>
+                    <Flex vertical gap={0}>
                       <span>{POLICY_META[key].label}</span>
                       <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                         {POLICY_META[key].note}
                       </Typography.Text>
-                    </Space>
+                    </Flex>
                   </Radio>
                 ))}
               </Flex>
@@ -409,7 +420,7 @@ export function CanaryPage() {
               type="info"
               showIcon
               icon={<ExperimentOutlined />}
-              message="准入判据（三条全过才自动切换）"
+              title="准入判据（三条全过才自动切换）"
               description={
                 <Flex vertical gap={2}>
                   <span>① 成功率降幅 ≤ 5 个百分点；② 平均 token 增幅 ≤ 15%；③ 无新增 error 级指纹。</span>
@@ -422,7 +433,7 @@ export function CanaryPage() {
           </Flex>
         </Card>
 
-        <StatStrip items={canaryStats} />
+        <StatStrip items={canaryStats} loading={summary === null && error === null} skeletonCount={4} />
 
         <Card title="金丝雀验证记录">
           {data !== null && data.items.length === 0 ? (
@@ -486,7 +497,7 @@ function CanaryRunDetail({ run }: { run: CanaryRun }) {
         <Alert
           type={run.status === "blocked" ? "error" : run.status === "unverified" ? "warning" : "info"}
           showIcon
-          message="处置说明"
+          title="处置说明"
           description={run.reason}
         />
       )}
@@ -531,7 +542,7 @@ function CanaryRunDetail({ run }: { run: CanaryRun }) {
         <Alert
           type="warning"
           showIcon
-          message="没有影子侧指标"
+          title="没有影子侧指标"
           description="影子执行器未配置或没有产出指标，本次验证不算通过；标准策略会记为「未验证」放行，保守策略直接拦截升级。"
         />
       )}

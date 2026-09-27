@@ -119,13 +119,15 @@ export function HermesGuideCard() {
       </div>
 
       {/* 分类选项卡 */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+      <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none" role="tablist" aria-label="Hermes 指南分类">
         {CATEGORIES.map((cat) => (
           <button
             key={cat.key}
             type="button"
+            role="tab"
+            aria-selected={activeCategory === cat.key}
             onClick={() => setActiveCategory(cat.key)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+            className={`px-3 py-1.5 min-h-[34px] rounded-lg text-xs font-medium transition-all inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
               activeCategory === cat.key
                 ? "bg-primary text-white shadow-xs"
                 : "bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface"

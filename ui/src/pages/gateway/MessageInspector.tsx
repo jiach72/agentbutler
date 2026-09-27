@@ -499,8 +499,7 @@ export function MessageInspector(props: MessageInspectorProps) {
         title="消息详情"
         open={selectedMessage !== null}
         onClose={() => props.onSelectMessage(null)}
-        width={640}
-        styles={{ wrapper: { maxWidth: "100vw" }, body: { overflowWrap: "anywhere" } }}
+        styles={{ wrapper: { width: 640, maxWidth: "100vw" }, body: { overflowWrap: "anywhere" } }}
       >
         {selectedMessage !== null && (
           <MessageDetail {...props} message={selectedMessage} onDismiss={handleDismissOne} />

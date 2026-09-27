@@ -233,7 +233,7 @@ html body .dense-descriptions .ant-descriptions-item-content {
 /* 数值默认 24px；页面可以在自己的作用域里收一档（如首页的证据层降到 20），
    不需要属性选择器，更不用 !important 对抗内联样式。 */
 .stat-strip-value {
-  font-size: 28px;
+  font-size: 26px;
   font-weight: 700;
   font-family: var(--ab-mono);
   line-height: 1.2;
@@ -253,7 +253,7 @@ html body .dense-descriptions .ant-descriptions-item-content {
   gap: 5px;
   height: 22px;
   padding: 0 8px;
-  border-radius: var(--ab-r-tag);
+  border-radius: var(--ab-r-tag, 4px);
   font-size: var(--ab-text-size-xs);
   font-weight: 500;
   line-height: 1;
@@ -295,7 +295,7 @@ html body .dense-descriptions .ant-descriptions-item-content {
 
 /* ---- Ant Design 标签美化与轻透质感（统一收敛，告别灰浊生硬） ---- */
 .ant-tag {
-  border-radius: var(--ab-r-tag, 6px);
+  border-radius: var(--ab-r-tag, 4px);
   font-size: var(--ab-text-size-xs, 12px);
   font-weight: 500;
   line-height: 20px;
@@ -343,6 +343,26 @@ html body .dense-descriptions .ant-descriptions-item-content {
   background: var(--ab-error);
   color: var(--ab-on-primary);
   box-shadow: 0 0 0 1px var(--ab-surface);
+}
+
+.notification-trigger {
+  width: 32px !important;
+  height: 32px !important;
+  border-radius: 9999px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 !important;
+  border: 0 !important;
+  color: var(--ab-text-muted) !important;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+.notification-trigger:hover {
+  background-color: var(--ab-surface-2) !important;
+  color: var(--ab-text) !important;
+}
+.notification-trigger:active {
+  transform: scale(0.9) !important;
 }
 
 .notification-popover .ant-popover-inner {

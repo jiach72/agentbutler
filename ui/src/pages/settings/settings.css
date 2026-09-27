@@ -25,7 +25,7 @@
 .settings-rail-card {
   background: var(--ab-surface);
   border: 1px solid var(--ab-border);
-  border-radius: 18px;
+  border-radius: var(--ab-r-card, 12px);
   box-shadow: var(--ab-shadow-1);
   padding: 10px;
 }
@@ -44,12 +44,12 @@
   min-height: 48px;
   border: none;
   background: transparent;
-  border-radius: 12px;
+  border-radius: 8px;
   padding: 10px 14px;
   cursor: pointer;
   color: var(--ab-text);
   font: inherit;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 500;
   text-align: left;
   transition:
@@ -75,7 +75,7 @@
 /* 数据源诊断：默认折叠的 <details>，点开才列出各源状态。 */
 .settings-source-details {
   border: 1px solid var(--ab-border);
-  border-radius: 16px;
+  border-radius: var(--ab-r-card, 12px);
   box-shadow: var(--ab-shadow-1);
   padding: 12px 16px;
   background: var(--ab-surface);
@@ -156,8 +156,8 @@
 .settings-source-retry {
   border: 1px solid var(--ab-border);
   background: var(--ab-surface);
-  border-radius: 6px;
-  padding: 1px 8px;
+  border-radius: 8px;
+  padding: 2px 10px;
   cursor: pointer;
   font: inherit;
   font-size: 12px;

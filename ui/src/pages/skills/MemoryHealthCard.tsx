@@ -2,7 +2,7 @@
  * 记忆健康卡片：健康分、信号明细、管家建议与自检/备份操作。
  * 建议项携带 action（如 rebuild-index）时渲染一键修复按钮。
  */
-import { Alert, Button, Card, Flex, List, Progress, Typography } from "antd";
+import { Alert, Button, Card, Flex, Progress, Typography } from "antd";
 import { theme } from "antd";
 import type { MemoryHealthView, MemorySelfCheckView } from "./helpers.js";
 import { healthTone, signalLabel } from "./helpers.js";
@@ -83,32 +83,31 @@ export function MemoryHealthCard({
         {health.suggestions.length > 0 && (
           <Flex vertical gap={4}>
             <Typography.Text strong>管家建议</Typography.Text>
-            <List
-              size="small"
-              dataSource={health.suggestions}
-              renderItem={(suggestion) => (
-                <List.Item
-                  style={{ padding: "6px 0" }}
-                  actions={
-                    suggestion.action === "rebuild-index" && onRebuildIndex !== undefined
-                      ? [
-                          <Button
-                            key="fix"
-                            size="small"
-                            type="primary"
-                            disabled={rebuildBusy}
-                            onClick={onRebuildIndex}
-                          >
-                            {rebuildBusy ? "修复中…" : "一键修复"}
-                          </Button>,
-                        ]
-                      : undefined
-                  }
+            <Flex vertical gap={6} className="divide-y divide-outline-variant/10">
+              {health.suggestions.map((suggestion, idx) => (
+                <Flex
+                  key={suggestion.title || idx}
+                  justify="space-between"
+                  align="center"
+                  className={idx > 0 ? "pt-2" : undefined}
                 >
-                  <List.Item.Meta title={suggestion.title} description={suggestion.detail} />
-                </List.Item>
-              )}
-            />
+                  <Flex vertical gap={2}>
+                    <Typography.Text strong style={{ fontSize: 13 }}>{suggestion.title}</Typography.Text>
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>{suggestion.detail}</Typography.Text>
+                  </Flex>
+                  {suggestion.action === "rebuild-index" && onRebuildIndex !== undefined && (
+                    <Button
+                      size="small"
+                      type="primary"
+                      disabled={rebuildBusy}
+                      onClick={onRebuildIndex}
+                    >
+                      {rebuildBusy ? "修复中…" : "一键修复"}
+                    </Button>
+                  )}
+                </Flex>
+              ))}
+            </Flex>
           </Flex>
         )}
 
@@ -132,7 +131,7 @@ export function MemoryHealthCard({
         <Alert
           type={memoryWritesEnabled === null ? "warning" : memoryWritesEnabled ? "warning" : "info"}
           showIcon
-          message={
+          title={
             memoryWritesEnabled === null
               ? "记忆写操作状态暂不可知"
               : memoryWritesEnabled
@@ -148,32 +147,34 @@ export function MemoryHealthCard({
           }
         />
 
-        <List
-          size="small"
-          dataSource={health.signals}
-          renderItem={(signal) => (
-            <List.Item style={{ padding: "6px 0" }}>
-              <List.Item.Meta
-                avatar={undefined}
-                title={
-                  <Flex align="center" gap={8}>
-                    <span
-                      style={{
-                        width: 7,
-                        height: 7,
-                        borderRadius: "50%",
-                        flexShrink: 0,
-                        background: signalColor(signal.status, token),
-                      }}
-                    />
-                    {signalLabel(signal.id, signal.label)}
-                  </Flex>
-                }
-                description={signal.detail}
-              />
-            </List.Item>
-          )}
-        />
+        <Flex vertical gap={6} className="divide-y divide-outline-variant/10">
+          {health.signals.map((signal, idx) => (
+            <Flex
+              key={signal.id || idx}
+              vertical
+              gap={2}
+              className={idx > 0 ? "pt-2" : undefined}
+            >
+              <Flex align="center" gap={8}>
+                <span
+                  style={{
+                    width: 7,
+                    height: 7,
+                    borderRadius: "50%",
+                    flexShrink: 0,
+                    background: signalColor(signal.status, token),
+                  }}
+                />
+                <Typography.Text strong style={{ fontSize: 13 }}>
+                  {signalLabel(signal.id, signal.label)}
+                </Typography.Text>
+              </Flex>
+              <Typography.Text type="secondary" style={{ fontSize: 12, paddingLeft: 15 }}>
+                {signal.detail}
+              </Typography.Text>
+            </Flex>
+          ))}
+        </Flex>
 
         {selfCheck.result !== null && (
           <Alert
@@ -188,7 +189,7 @@ export function MemoryHealthCard({
                     : "error"
             }
             showIcon
-            message={
+            title={
               selfCheck.result.status === "pass"
                 ? "记忆读写正常"
                 : selfCheck.result.status === "warn"

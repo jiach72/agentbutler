@@ -339,7 +339,7 @@ export function UnifiedApiKeyManager() {
             {record.docsUrl && (
               <Tooltip title="查看官方文档/控制台">
                 <a href={record.docsUrl} target="_blank" rel="noreferrer">
-                  <LinkOutlined style={{ color: "#1677ff", fontSize: 12 }} />
+                  <LinkOutlined style={{ color: "var(--ant-color-primary)", fontSize: 12 }} />
                 </a>
               </Tooltip>
             )}
@@ -384,7 +384,7 @@ export function UnifiedApiKeyManager() {
         <Space orientation="horizontal" size={4}>
           <Text style={{ fontFamily: "monospace", letterSpacing: "1px" }}>{maskedKey}</Text>
           <Tooltip title="密钥受 AES-256-GCM 安全加密保护，明文仅在后端执行与安全同步时使用">
-            <SafetyCertificateOutlined style={{ color: "#52c41a", fontSize: 13 }} />
+            <SafetyCertificateOutlined style={{ color: "var(--ant-color-success)", fontSize: 13 }} />
           </Tooltip>
         </Space>
       ),
@@ -490,7 +490,7 @@ export function UnifiedApiKeyManager() {
         {/* 顶部统计摘要 */}
         <Row gutter={16}>
           <Col xs={12} sm={6}>
-            <Card size="small" style={{ background: "rgba(22, 119, 255, 0.04)" }}>
+            <Card size="small" style={{ background: "color-mix(in srgb, var(--ab-brand) 5%, var(--ab-surface))", border: "1px solid var(--ab-border)", borderRadius: "var(--ab-r-card, 12px)" }}>
               <Descriptions
                 column={1}
                 size="small"
@@ -499,35 +499,35 @@ export function UnifiedApiKeyManager() {
             </Card>
           </Col>
           <Col xs={12} sm={6}>
-            <Card size="small" style={{ background: "rgba(82, 196, 26, 0.04)" }}>
+            <Card size="small" style={{ background: "color-mix(in srgb, var(--ab-ok) 5%, var(--ab-surface))", border: "1px solid var(--ab-border)", borderRadius: "var(--ab-r-card, 12px)" }}>
               <Descriptions
                 column={1}
                 size="small"
                 items={[
                   {
                     label: "网络搜索服务",
-                    children: <Text strong style={{ color: "#52c41a" }}>{stats.searchCount}</Text>,
+                    children: <Text strong style={{ color: "var(--ab-ok)" }}>{stats.searchCount}</Text>,
                   },
                 ]}
               />
             </Card>
           </Col>
           <Col xs={12} sm={6}>
-            <Card size="small" style={{ background: "rgba(114, 46, 209, 0.04)" }}>
+            <Card size="small" style={{ background: "color-mix(in srgb, var(--ab-brand) 5%, var(--ab-surface))", border: "1px solid var(--ab-border)", borderRadius: "var(--ab-r-card, 12px)" }}>
               <Descriptions
                 column={1}
                 size="small"
                 items={[
                   {
                     label: "视觉多模态能力",
-                    children: <Text strong style={{ color: "#722ed1" }}>{stats.visionCount}</Text>,
+                    children: <Text strong style={{ color: "var(--ab-brand)" }}>{stats.visionCount}</Text>,
                   },
                 ]}
               />
             </Card>
           </Col>
           <Col xs={12} sm={6}>
-            <Card size="small" style={{ background: "rgba(250, 140, 22, 0.04)" }}>
+            <Card size="small" style={{ background: "color-mix(in srgb, var(--ab-warn) 5%, var(--ab-surface))", border: "1px solid var(--ab-border)", borderRadius: "var(--ab-r-card, 12px)" }}>
               <Descriptions
                 column={1}
                 size="small"
@@ -535,7 +535,7 @@ export function UnifiedApiKeyManager() {
                   {
                     label: "探针正常率",
                     children: (
-                      <Text strong style={{ color: "#fa8c16" }}>
+                      <Text strong style={{ color: "var(--ab-warn)" }}>
                         {stats.total > 0 ? `${Math.round((stats.passCount / stats.total) * 100)}%` : "100%"}
                       </Text>
                     ),
@@ -612,22 +612,22 @@ export function UnifiedApiKeyManager() {
         <Flex vertical gap={16} style={{ marginTop: 8 }}>
           {/* 新增时展示常用预设快速选择卡片 */}
           {!editingItem && (
-            <Card size="small" title="快捷选择官方推荐预设服务" style={{ background: "#fafafa" }}>
+            <Card size="small" title="快捷选择官方推荐预设服务" style={{ background: "var(--ab-surface-2)", border: "1px solid var(--ab-border)", borderRadius: "var(--ab-r-card, 12px)" }}>
               <Row gutter={[8, 8]}>
                 {presets.slice(0, 8).map((preset) => (
-                  <Col span={6} key={preset.id}>
+                  <Col xs={12} sm={8} md={6} key={preset.id}>
                     <Card
                       hoverable
                       size="small"
-                      style={{ textAlign: "center", cursor: "pointer" }}
+                      style={{ textAlign: "center", cursor: "pointer", borderRadius: 8, border: "1px solid var(--ab-border)" }}
                       onClick={() => handleSelectPreset(preset)}
                     >
                       <Text strong style={{ fontSize: 13 }}>
                         {preset.name}
                       </Text>
-                      <div style={{ fontSize: 11, color: "#8c8c8c", marginTop: 2 }}>
+                      <div style={{ fontSize: 11, color: "var(--ab-text-2)", marginTop: 2 }}>
                         {preset.category === "search"
-                          ? "搜索引擎"
+                           ? "搜索引擎"
                           : preset.category === "vision"
                             ? "视觉模型"
                             : "大模型"}
@@ -722,7 +722,7 @@ export function UnifiedApiKeyManager() {
             <Alert
               type={testProbeResult.status === "pass" ? "success" : "warning"}
               showIcon
-              message={
+              title={
                 testProbeResult.status === "pass"
                   ? "连通性测试通过"
                   : "连通性测试未通过（可强制保存）"

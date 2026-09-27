@@ -113,14 +113,14 @@ export function WizardNav({
   return (
     <Space wrap className="ts-nav">
       {onBack !== undefined && (
-        <Tooltip title="正在执行操作，请稍候">
+        <Tooltip title={busy ? "正在执行操作，请稍候" : undefined}>
           <Button onClick={onBack} disabled={busy}>
             上一步
           </Button>
         </Tooltip>
       )}
       {onNext !== undefined && (
-        <Tooltip title="请先完成本步的必选项">
+        <Tooltip title={nextDisabled ? "请先完成当前步骤的选择" : undefined}>
           <Button type="primary" onClick={onNext} disabled={nextDisabled} loading={busy}>
             {nextLabel}
           </Button>

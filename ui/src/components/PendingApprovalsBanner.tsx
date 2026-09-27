@@ -49,7 +49,7 @@ export function PendingApprovalsBanner() {
       className="pending-approvals-banner"
       type="warning"
       showIcon
-      message={
+      title={
         <span>
           {hasGate ? (
             <>

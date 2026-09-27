@@ -528,6 +528,7 @@ export function EvolutionPage() {
               <Select
                 value={instanceId || undefined}
                 placeholder="选择实例"
+                aria-label="选择实例范围"
                 style={{ minWidth: 190 }}
                 options={instances.map((item) => ({
                   value: item.instanceId,
@@ -535,7 +536,7 @@ export function EvolutionPage() {
                 }))}
                 onChange={selectInstance}
               />
-              <Button icon={<ReloadOutlined />} onClick={() => void refresh()}>
+              <Button icon={<ReloadOutlined />} aria-label="重新分析日志改进方向" onClick={() => void refresh()}>
                 重新分析
               </Button>
             </Space>
@@ -681,6 +682,7 @@ export function EvolutionPage() {
                         showSearch
                         style={{ width: "100%" }}
                         placeholder="选择关联技能"
+                        aria-label="选择关联技能"
                         value={selectedSkill || undefined}
                         options={selected.candidateSkills.map((name) => ({ value: name, label: name }))}
                         onChange={setSelectedSkill}

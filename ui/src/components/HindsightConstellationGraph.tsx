@@ -12,14 +12,13 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Tooltip, Typography, theme as antTheme } from "antd";
+import { useSafeTheme } from "../theme/ThemeProvider.js";
 import {
   AimOutlined,
-  CompressOutlined,
   FullscreenExitOutlined,
   FullscreenOutlined,
   PauseOutlined,
   PlayCircleOutlined,
-  ReloadOutlined,
   ZoomInOutlined,
   ZoomOutOutlined,
 } from "@ant-design/icons";
@@ -34,7 +33,7 @@ export interface ConstellationNode {
   size?: number;
   val?: number;
   linkCount?: number;
-  raw?: any;
+  raw?: unknown;
 }
 
 export interface ConstellationLink {
@@ -170,7 +169,8 @@ export function HindsightConstellationGraph({
 
   // 检测暗黑模式
   const { token } = antTheme.useToken();
-  const isDark = Boolean(token.colorBgContainer && (token.colorBgContainer.startsWith("#1") || token.colorBgContainer.startsWith("#0") || token.colorBgContainer.includes("dark")));
+  const safeTheme = useSafeTheme();
+  const isDark = safeTheme === "dark" || Boolean(token.colorBgContainer && (token.colorBgContainer.startsWith("#1") || token.colorBgContainer.startsWith("#0") || token.colorBgContainer.includes("dark")));
 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -621,7 +621,6 @@ export function HindsightConstellationGraph({
     };
 
     // 4. 绘制星体节点
-    let renderedLabelsCount = 0;
     for (let i = 0; i < preparedNodes.length; i++) {
       if (!isVisible[i]) continue;
       const node = preparedNodes[i];
@@ -682,7 +681,6 @@ export function HindsightConstellationGraph({
           ctx.textAlign = "left";
           ctx.textBaseline = "middle";
           ctx.fillText(labelText, labelX + 3, labelY - 4);
-          renderedLabelsCount++;
         } else if (zoom > 0.75 || isNeighbor) {
           if (canPlaceLabel(labelX, labelY - 10, textWidth, 16)) {
             markOccupied(labelX, labelY - 10, textWidth, 16);
@@ -690,7 +688,6 @@ export function HindsightConstellationGraph({
             ctx.textAlign = "left";
             ctx.textBaseline = "middle";
             ctx.fillText(labelText, labelX, labelY);
-            renderedLabelsCount++;
           }
         }
       }
@@ -846,8 +843,8 @@ export function HindsightConstellationGraph({
         height: typeof height === "number" ? `${height}px` : height,
         borderRadius: 12,
         overflow: "hidden",
-        border: `1px solid ${isDark ? "#27272a" : "#e2e8f0"}`,
-        background: isDark ? "#09090b" : "#ffffff",
+        border: `1px solid ${token.colorBorderSecondary}`,
+        background: isDark ? token.colorBgLayout : token.colorBgContainer,
       }}
     >
       <canvas
@@ -879,8 +876,8 @@ export function HindsightConstellationGraph({
             pointerEvents: "none",
           }}
         >
-          <AimOutlined style={{ fontSize: 36, color: "#71717a", marginBottom: 12, opacity: 0.5 }} />
-          <Text style={{ color: "#71717a", fontSize: 13 }}>{emptyMessage}</Text>
+          <AimOutlined style={{ fontSize: 36, color: token.colorTextTertiary, marginBottom: 12, opacity: 0.6 }} />
+          <Text style={{ color: token.colorTextSecondary, fontSize: 13 }}>{emptyMessage}</Text>
         </div>
       )}
 
@@ -894,14 +891,15 @@ export function HindsightConstellationGraph({
             display: "flex",
             alignItems: "center",
             gap: 12,
-            background: isDark ? "rgba(18, 18, 24, 0.75)" : "rgba(255, 255, 255, 0.8)",
-            backdropFilter: "blur(8px)",
-            padding: "4px 10px",
-            borderRadius: 8,
-            border: `1px solid ${isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)"}`,
-            fontSize: 11,
-            fontFamily: "monospace",
-            color: isDark ? "#a1a1aa" : "#64748b",
+            background: isDark ? "var(--ant-color-bg-elevated)" : "rgba(255, 255, 255, 0.88)",
+            backdropFilter: "blur(20px) saturate(180%)",
+            padding: "5px 12px",
+            borderRadius: 9999,
+            border: `1px solid ${isDark ? "var(--ant-color-border-secondary)" : "var(--ant-color-border-secondary)"}`,
+            boxShadow: isDark ? "0 4px 16px -2px rgba(0, 0, 0, 0.3)" : "0 4px 16px -2px rgba(0, 0, 0, 0.05)",
+            fontSize: 12,
+            fontFamily: "Inter, -apple-system, sans-serif",
+            color: isDark ? "var(--ant-color-text)" : "var(--ant-color-text-secondary, #414753)",
             pointerEvents: "none",
           }}
         >
@@ -920,53 +918,113 @@ export function HindsightConstellationGraph({
             right: 12,
             display: "flex",
             flexDirection: "column",
-            gap: 6,
+            gap: 8,
             zIndex: 10,
           }}
         >
           <Tooltip title="自适应居中全览" placement="left">
             <Button
-              size="small"
               shape="circle"
-              icon={<AimOutlined />}
+              icon={<AimOutlined style={{ fontSize: 15 }} />}
               onClick={fitView}
-              style={{ background: isDark ? "rgba(24, 24, 27, 0.85)" : "#ffffff" }}
+              style={{
+                width: 34,
+                height: 34,
+                minWidth: 34,
+                minHeight: 34,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: isDark ? "var(--ant-color-bg-elevated)" : "rgba(255, 255, 255, 0.92)",
+                backdropFilter: "blur(20px) saturate(180%)",
+                border: `1px solid var(--ant-color-border-secondary)`,
+                boxShadow: isDark ? "0 2px 10px rgba(0, 0, 0, 0.3)" : "0 2px 10px rgba(0, 0, 0, 0.06)",
+                color: isDark ? "var(--ant-color-text)" : "inherit",
+              }}
             />
           </Tooltip>
           <Tooltip title="放大" placement="left">
             <Button
-              size="small"
               shape="circle"
-              icon={<ZoomInOutlined />}
+              icon={<ZoomInOutlined style={{ fontSize: 15 }} />}
               onClick={zoomIn}
-              style={{ background: isDark ? "rgba(24, 24, 27, 0.85)" : "#ffffff" }}
+              style={{
+                width: 34,
+                height: 34,
+                minWidth: 34,
+                minHeight: 34,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: isDark ? "var(--ant-color-bg-elevated)" : "rgba(255, 255, 255, 0.92)",
+                backdropFilter: "blur(20px) saturate(180%)",
+                border: `1px solid var(--ant-color-border-secondary)`,
+                boxShadow: isDark ? "0 2px 10px rgba(0, 0, 0, 0.3)" : "0 2px 10px rgba(0, 0, 0, 0.06)",
+                color: isDark ? "var(--ant-color-text)" : "inherit",
+              }}
             />
           </Tooltip>
           <Tooltip title="缩小" placement="left">
             <Button
-              size="small"
               shape="circle"
-              icon={<ZoomOutOutlined />}
+              icon={<ZoomOutOutlined style={{ fontSize: 15 }} />}
               onClick={zoomOut}
-              style={{ background: isDark ? "rgba(24, 24, 27, 0.85)" : "#ffffff" }}
+              style={{
+                width: 34,
+                height: 34,
+                minWidth: 34,
+                minHeight: 34,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: isDark ? "var(--ant-color-bg-elevated)" : "rgba(255, 255, 255, 0.92)",
+                backdropFilter: "blur(20px) saturate(180%)",
+                border: `1px solid var(--ant-color-border-secondary)`,
+                boxShadow: isDark ? "0 2px 10px rgba(0, 0, 0, 0.3)" : "0 2px 10px rgba(0, 0, 0, 0.06)",
+                color: isDark ? "var(--ant-color-text)" : "inherit",
+              }}
             />
           </Tooltip>
           <Tooltip title={isPaused ? "恢复有机呼吸" : "暂停微动"} placement="left">
             <Button
-              size="small"
               shape="circle"
-              icon={isPaused ? <PlayCircleOutlined /> : <PauseOutlined />}
+              icon={isPaused ? <PlayCircleOutlined style={{ fontSize: 15 }} /> : <PauseOutlined style={{ fontSize: 15 }} />}
               onClick={togglePause}
-              style={{ background: isDark ? "rgba(24, 24, 27, 0.85)" : "#ffffff" }}
+              style={{
+                width: 34,
+                height: 34,
+                minWidth: 34,
+                minHeight: 34,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: isDark ? "var(--ant-color-bg-elevated)" : "rgba(255, 255, 255, 0.92)",
+                backdropFilter: "blur(20px) saturate(180%)",
+                border: `1px solid var(--ant-color-border-secondary)`,
+                boxShadow: isDark ? "0 2px 10px rgba(0, 0, 0, 0.3)" : "0 2px 10px rgba(0, 0, 0, 0.06)",
+                color: isDark ? "var(--ant-color-text)" : "inherit",
+              }}
             />
           </Tooltip>
           <Tooltip title={isFullscreen ? "退出全屏" : "全屏沉浸"} placement="left">
             <Button
-              size="small"
               shape="circle"
-              icon={isFullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+              icon={isFullscreen ? <FullscreenExitOutlined style={{ fontSize: 15 }} /> : <FullscreenOutlined style={{ fontSize: 15 }} />}
               onClick={toggleFullscreen}
-              style={{ background: isDark ? "rgba(24, 24, 27, 0.85)" : "#ffffff" }}
+              style={{
+                width: 34,
+                height: 34,
+                minWidth: 34,
+                minHeight: 34,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: isDark ? "var(--ant-color-bg-elevated)" : "rgba(255, 255, 255, 0.92)",
+                backdropFilter: "blur(20px) saturate(180%)",
+                border: `1px solid var(--ant-color-border-secondary)`,
+                boxShadow: isDark ? "0 2px 10px rgba(0, 0, 0, 0.3)" : "0 2px 10px rgba(0, 0, 0, 0.06)",
+                color: isDark ? "var(--ant-color-text)" : "inherit",
+              }}
             />
           </Tooltip>
         </div>
@@ -982,29 +1040,30 @@ export function HindsightConstellationGraph({
             display: "flex",
             alignItems: "center",
             gap: 12,
-            background: isDark ? "rgba(18, 18, 24, 0.75)" : "rgba(255, 255, 255, 0.8)",
-            backdropFilter: "blur(8px)",
-            padding: "4px 10px",
-            borderRadius: 8,
-            border: `1px solid ${isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)"}`,
-            fontSize: 11,
-            color: isDark ? "#a1a1aa" : "#64748b",
+            background: isDark ? "var(--ant-color-bg-elevated)" : "rgba(255, 255, 255, 0.88)",
+            backdropFilter: "blur(20px) saturate(180%)",
+            padding: "5px 14px",
+            borderRadius: 9999,
+            border: `1px solid ${isDark ? "var(--ant-color-border-secondary)" : "var(--ant-color-border-secondary)"}`,
+            boxShadow: isDark ? "0 4px 16px -2px rgba(0, 0, 0, 0.3)" : "0 4px 16px -2px rgba(0, 0, 0, 0.05)",
+            fontSize: 12,
+            color: isDark ? "var(--ant-color-text)" : "var(--ant-color-text-secondary, #414753)",
             pointerEvents: "none",
           }}
         >
-          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
             <span style={{ width: 8, height: 8, borderRadius: "50%", background: HINDSIGHT_PALETTE.world }} />
             World
           </span>
-          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
             <span style={{ width: 8, height: 8, borderRadius: "50%", background: HINDSIGHT_PALETTE.experience }} />
             Experience
           </span>
-          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
             <span style={{ width: 8, height: 8, borderRadius: "50%", background: HINDSIGHT_PALETTE.observation }} />
             Observation
           </span>
-          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
             <span style={{ width: 8, height: 8, borderRadius: "50%", background: HINDSIGHT_PALETTE.entity }} />
             Entity
           </span>

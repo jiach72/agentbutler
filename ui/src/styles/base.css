@@ -6,10 +6,14 @@
 
 html {
   height: 100%;
+  background-color: var(--ab-canvas);
+  color: var(--ab-text);
 }
 
 html[data-theme="dark"] {
   color-scheme: dark;
+  background-color: var(--ab-canvas);
+  color: var(--ab-text);
 }
 
 body {
@@ -25,6 +29,12 @@ body {
   font-feature-settings: "tnum" 1;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+
+#root {
+  min-height: 100%;
+  background-color: var(--ab-canvas);
+  color: var(--ab-text);
 }
 
 button,
@@ -194,6 +204,6 @@ p {
 }
 
 .mono-digits {
-  font-family: var(--ab-font-mono, "JetBrains Mono", monospace);
+  font-family: var(--ab-mono, var(--ab-font-mono, monospace));
   font-variant-numeric: tabular-nums;
 }

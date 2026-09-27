@@ -29,7 +29,7 @@
   display: block;
   width: 20%;
   min-height: 14px;
-  border-radius: 6px 6px 0 0; /* 规范仅 14/8/6 三档。 */
+  border-radius: var(--ab-r-sm, 4px) var(--ab-r-sm, 4px) 0 0;
   background: linear-gradient(
     90deg,
     color-mix(in srgb, var(--ab-primary-soft) 60%, var(--ab-surface)) 0%,
@@ -306,7 +306,7 @@
 
 /* 在线状态：实心绿点 + 舒缓雷达扩散波纹 */
 .ab-beacon-dot.is-online {
-  background-color: var(--ab-success);
+  background-color: var(--ab-ok);
 }
 
 .ab-beacon-dot.is-online::after {
@@ -314,7 +314,7 @@
   position: absolute;
   inset: -1px;
   border-radius: 50%;
-  border: 1.5px solid var(--ab-success);
+  border: 1.5px solid var(--ab-ok);
   pointer-events: none;
   animation: ab-ping-ring 2.6s var(--ab-ease) infinite;
 }
@@ -378,7 +378,7 @@
     transparent 0deg,
     transparent 280deg,
     color-mix(in srgb, var(--ab-primary) 50%, transparent) 320deg,
-    color-mix(in srgb, var(--ab-brass, #c8a15a) 70%, transparent) 345deg,
+    color-mix(in srgb, var(--ab-brand) 70%, transparent) 345deg,
     transparent 360deg
   );
   animation: ab-beam-spin 4.8s linear infinite;
@@ -405,7 +405,7 @@
   display: inline-block;
   width: 2.5px;
   height: 100%;
-  border-radius: 1px;
+  border-radius: 9999px;
   background-color: var(--ab-primary);
   transform-origin: bottom;
   animation: ab-wave-pulse 1.1s var(--ab-ease) infinite;
@@ -457,7 +457,7 @@
   position: relative;
   background: var(--ab-surface);
   border: 1px solid var(--ab-border);
-  border-radius: var(--ab-radius-md, 10px);
+  border-radius: var(--ab-r-card, 12px);
   padding: 16px 18px;
   cursor: pointer;
   transition: all var(--ab-dur-fast) var(--ab-ease);
@@ -483,14 +483,14 @@
   position: relative !important;
   background: var(--ab-surface) !important;
   border: 1px solid var(--ab-border) !important;
-  border-left: 3.5px solid var(--ab-warning) !important;
-  border-radius: var(--ab-radius-md, 10px) !important;
+  border-left: 3.5px solid var(--ab-warn) !important;
+  border-radius: var(--ab-radius-md, 8px) !important;
   background-image: repeating-linear-gradient(
     45deg,
     transparent,
     transparent 10px,
-    color-mix(in srgb, var(--ab-warning) 3.5%, transparent) 10px,
-    color-mix(in srgb, var(--ab-warning) 3.5%, transparent) 20px
+    color-mix(in srgb, var(--ab-warn) 3.5%, transparent) 10px,
+    color-mix(in srgb, var(--ab-warn) 3.5%, transparent) 20px
   ) !important;
   transition: border-color var(--ab-dur-fast) var(--ab-ease),
               box-shadow var(--ab-dur-fast) var(--ab-ease);
@@ -529,7 +529,7 @@
   padding: 8px 12px;
   font-family: var(--font-mono, monospace);
   font-size: 12.5px;
-  color: var(--ab-text-1);
+  color: var(--ab-text);
 }
 
 /* 6. 精选按钮模式 (Buttons) */
@@ -566,7 +566,7 @@
 
 .ab-btn-primary:active {
   transform: scale(0.985);
-  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.2);
+  box-shadow: inset 0 1px 3px color-mix(in srgb, var(--ab-text) 25%, transparent);
 }
 
 /* 6.2 形态流转复制按钮 */
@@ -577,7 +577,7 @@
   gap: 5px;
   height: 26px;
   padding: 0 9px;
-  border-radius: var(--ab-radius-sm, 6px);
+  border-radius: var(--ab-r-base, 8px);
   background: var(--ab-surface);
   border: 1px solid var(--ab-border);
   color: var(--ab-text-2);
@@ -590,14 +590,14 @@
 
 .ab-btn-copy:hover {
   border-color: var(--ab-border-strong);
-  color: var(--ab-text-1);
+  color: var(--ab-text);
   background: var(--ab-surface-2);
 }
 
 .ab-btn-copy.is-copied {
-  border-color: color-mix(in srgb, var(--ab-success) 45%, var(--ab-border));
-  background-color: color-mix(in srgb, var(--ab-success) 8%, var(--ab-surface));
-  color: var(--ab-success);
+  border-color: color-mix(in srgb, var(--ab-ok) 45%, var(--ab-border));
+  background-color: color-mix(in srgb, var(--ab-ok) 8%, var(--ab-surface));
+  color: var(--ab-ok);
 }
 
 /* 6.3 触觉分段切换按钮 */
@@ -606,7 +606,7 @@
   align-items: center;
   background: var(--ab-surface-2);
   padding: 2.5px;
-  border-radius: var(--ab-radius-sm, 8px);
+  border-radius: var(--ab-r-base, 8px);
   border: 1px solid var(--ab-border);
   gap: 2px;
 }
@@ -614,7 +614,7 @@
 .ab-segmented-item {
   padding: 3px 10px;
   font-size: 12px;
-  border-radius: 6px;
+  border-radius: var(--ab-r-sm, 4px);
   color: var(--ab-text-2);
   cursor: pointer;
   user-select: none;
@@ -622,14 +622,14 @@
 }
 
 .ab-segmented-item:hover:not(.is-active) {
-  color: var(--ab-text-1);
+  color: var(--ab-text);
 }
 
 .ab-segmented-item.is-active {
   background: var(--ab-surface);
-  color: var(--ab-text-1);
+  color: var(--ab-text);
   font-weight: 500;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--ab-shadow-1);
 }
 
 /* 6.4 警示/销毁动作按钮 */
@@ -639,10 +639,10 @@
   gap: 5px;
   height: 28px;
   padding: 0 10px;
-  border-radius: var(--ab-radius-sm, 6px);
+  border-radius: var(--ab-r-base, 8px);
   background: transparent;
   border: 1px solid color-mix(in srgb, var(--ab-error) 28%, var(--ab-border));
-  color: color-mix(in srgb, var(--ab-error) 82%, var(--ab-text-1));
+  color: color-mix(in srgb, var(--ab-error) 82%, var(--ab-text));
   font-size: 12px;
   cursor: pointer;
   user-select: none;

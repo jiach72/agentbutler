@@ -199,11 +199,11 @@ export function IMChatWindow(props: IMChatWindowProps) {
               ) : isDirect ? (
                 <Text type="secondary" style={{ fontSize: 12 }}>
                   {props.apiServerAvailable ? (
-                    <span style={{ color: "#52c41a", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    <span style={{ color: "var(--ab-ok)", display: "inline-flex", alignItems: "center", gap: 4 }}>
                       <span className="im-pulse-dot" /> 直连就绪 (已连通 Hermes api_server)
                     </span>
                   ) : (
-                    <span style={{ color: "#faad14" }}>● 直连服务连接中 (支持本地规则与双向交互)</span>
+                    <span style={{ color: "var(--ab-warn)" }}>● 直连服务连接中 (支持本地规则与双向交互)</span>
                   )}
                 </Text>
               ) : (
@@ -372,7 +372,7 @@ export function IMChatWindow(props: IMChatWindowProps) {
                             {/* 状态指示与死信重发 */}
                             {msg.state === "delivering" && (
                               <Tooltip title="正在投递中…">
-                                <LoadingOutlined style={{ color: "#8c8c8c", fontSize: 16 }} />
+                                <LoadingOutlined style={{ color: "var(--ab-text-3)", fontSize: 16 }} />
                               </Tooltip>
                             )}
                             {(msg.state === "dead_letter" || msg.state === "policy_error") && (
@@ -383,13 +383,13 @@ export function IMChatWindow(props: IMChatWindowProps) {
                                   okText="重投"
                                   cancelText="取消"
                                 >
-                                  <CloseCircleFilled style={{ color: "#ff4d4f", fontSize: 18, cursor: "pointer" }} />
+                                  <CloseCircleFilled style={{ color: "var(--ant-color-error)", fontSize: 18, cursor: "pointer" }} />
                                 </Popconfirm>
                               </Tooltip>
                             )}
                             {msg.state === "delivered" && (
                               <Tooltip title="已成功送达">
-                                <CheckCircleFilled style={{ color: "#52c41a", fontSize: 14, opacity: 0.7 }} />
+                                <CheckCircleFilled style={{ color: "var(--ant-color-success)", fontSize: 14, opacity: 0.8 }} />
                               </Tooltip>
                             )}
                           </Flex>
@@ -398,7 +398,7 @@ export function IMChatWindow(props: IMChatWindowProps) {
                           {msg.peerHandoff && (
                             <div
                               style={{
-                                background: isDark ? "rgba(22, 119, 255, 0.12)" : "rgba(22, 119, 255, 0.06)",
+                                background: isDark ? "rgba(0, 89, 181, 0.12)" : "rgba(0, 89, 181, 0.06)",
                                 border: "1px dashed var(--ant-color-primary-border)",
                                 borderRadius: 6,
                                 padding: "4px 8px",
@@ -472,12 +472,12 @@ export function IMChatWindow(props: IMChatWindowProps) {
                             style={{
                               padding: "2px 8px",
                               height: "auto",
-                              background: isDark ? "rgba(255,255,255,0.06)" : "#f0f0f0",
+                              background: isDark ? "rgba(255,255,255,0.06)" : "var(--ant-color-fill-quaternary)",
                               fontSize: 11,
                               borderRadius: 4,
                             }}
                           >
-                            <ThunderboltOutlined style={{ color: "#fa8c16" }} />
+                            <ThunderboltOutlined style={{ color: "var(--ant-color-warning)" }} />
                             <span>
                               {isExpanded ? "收起 Prompt 对照" : "查看 Prompt 优化对照"}
                             </span>
@@ -489,7 +489,7 @@ export function IMChatWindow(props: IMChatWindowProps) {
                                 marginTop: 6,
                                 padding: "8px 12px",
                                 borderRadius: 6,
-                                background: isDark ? "#1f1f1f" : "#fafafa",
+                                background: "var(--ant-color-fill-quaternary)",
                                 border: "1px solid var(--ant-color-border-secondary)",
                                 fontSize: 12,
                               }}
@@ -498,7 +498,7 @@ export function IMChatWindow(props: IMChatWindowProps) {
                                 <Text type="secondary" style={{ fontSize: 11 }}>整理后实际执行 Prompt：</Text>
                                 <div
                                   style={{
-                                    background: isDark ? "#141414" : "#ffffff",
+                                    background: "var(--ant-color-bg-container)",
                                     padding: "4px 8px",
                                     borderRadius: 4,
                                     border: "1px solid var(--ant-color-border-secondary)",

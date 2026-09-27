@@ -36,6 +36,7 @@ export function EvolutionOverview({ overview, range, onRangeChange, onRefresh, o
           />
           <Segmented
             value={range}
+            aria-label="选择自进化观测时间范围"
             onChange={(value) => onRangeChange(value as "24h" | "7d" | "30d")}
             options={[
               { value: "24h", label: "24 小时" },
@@ -43,8 +44,8 @@ export function EvolutionOverview({ overview, range, onRangeChange, onRefresh, o
               { value: "30d", label: "30 天" },
             ]}
           />
-          <Button icon={<ReloadOutlined />} onClick={onRefresh}>刷新</Button>
-          <Button type="primary" onClick={onAnalyze} loading={busy === "analyze"}>重新分析</Button>
+          <Button icon={<ReloadOutlined />} aria-label="刷新自进化运行状态" onClick={onRefresh}>刷新</Button>
+          <Button type="primary" aria-label="重新分析自进化运行状态" onClick={onAnalyze} loading={busy === "analyze"}>重新分析</Button>
         </Space>
       </Flex>
       <Flex wrap="wrap" gap={16}>

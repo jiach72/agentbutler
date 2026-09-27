@@ -5,7 +5,7 @@
  * 关键呈现：「统一急停覆盖 x / y」——覆盖不全时用户必须看得见，而不是默认没事。
  */
 import { money } from "../../lib/format.js";
-import { Alert, Button, Card, Flex, Select, Space, Table, Typography } from "antd";
+import { Alert, Button, Card, Flex, Select, Table, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { ReloadOutlined } from "@ant-design/icons";
 import { useCallback, useEffect, useState } from "react";
@@ -86,12 +86,12 @@ export function FederationPage() {
       dataIndex: "instanceId",
       key: "instanceId",
       render: (id: string, row) => (
-        <Space direction="vertical" size={0}>
-          <Typography.Text strong>{id}</Typography.Text>
+        <Flex vertical gap={0}>
+          <Typography.Text strong className="font-mono">{id}</Typography.Text>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             {row.frameworkId} · {row.state}
           </Typography.Text>
-        </Space>
+        </Flex>
       ),
     },
     {
@@ -105,6 +105,7 @@ export function FederationPage() {
           value={group}
           loading={busyId === row.instanceId}
           style={{ width: 110 }}
+          aria-label={`实例 ${row.instanceId} 分组设置`}
           onChange={(value) => void setGroup(row.instanceId, value as Group)}
           options={[
             { value: "work", label: "工作" },
@@ -223,7 +224,7 @@ export function FederationPage() {
         <PageHeader
           title="实例联邦"
           extra={
-            <Button icon={<ReloadOutlined />} onClick={refresh}>
+            <Button icon={<ReloadOutlined />} aria-label="刷新实例联邦数据" onClick={refresh}>
               刷新
             </Button>
           }
@@ -232,13 +233,13 @@ export function FederationPage() {
         {/* §2.3 ② 结论条。 */}
         <ConclusionBar tone={conclusion.tone} title={conclusion.title} copy={conclusion.copy} action={conclusion.action} />
 
-        <StatStrip items={fedStats} />
+        <StatStrip items={fedStats} loading={data === null && error === null} skeletonCount={5} />
 
         {data !== null && data.orphanSessions > 0 && (
           <Alert
             type="info"
             showIcon
-            message={`${data.orphanSessions} 个会话未归属到任何实例`}
+            title={`${data.orphanSessions} 个会话未归属到任何实例`}
             description="这些会话在采集时缺少实例信息（例如手工导入的历史数据），没有计入任何实例的成本。"
           />
         )}

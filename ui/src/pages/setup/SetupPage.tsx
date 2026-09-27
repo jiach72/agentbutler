@@ -267,7 +267,7 @@ export function SetupPage() {
           /* P0-6：首跑指引保留（独有指引）；非首跑分支与侧栏 note 重复，删。 */
           description={firstRun ? "第一次连接：确认下面三环都变绿，管家就准备就绪。" : undefined}
           extra={
-            <Button onClick={() => void loadStatus()} loading={loading}>重新体检</Button>
+            <Button aria-label="重新执行连接体检" onClick={() => void loadStatus()} loading={loading}>重新体检</Button>
           }
         />
 
@@ -321,7 +321,7 @@ export function SetupPage() {
                 }
               >
                 {controlTone !== "ok" && (
-                  <Button size="small" onClick={() => void loadStatus()}>重试读取</Button>
+                  <Button size="small" aria-label="重试读取控制通道状态" onClick={() => void loadStatus()}>重试读取</Button>
                 )}
               </LinkRow>
             </Card>
@@ -345,15 +345,15 @@ export function SetupPage() {
               >
                 {connections.length === 0 ? (
                   <Space wrap>
-                    <Button size="small" onClick={() => navigate("/settings")}>去设置补充路径</Button>
+                    <Button size="small" aria-label="前往设置页面补充路径" onClick={() => navigate("/settings")}>去设置补充路径</Button>
                   </Space>
                 ) : (
                   <Space wrap>
-                    <Button size="small" loading={checking} onClick={() => void runCheck()}>
+                    <Button size="small" aria-label="执行实例连接检查" loading={checking} onClick={() => void runCheck()}>
                       {checking ? "检查中…" : connectedCount > 0 ? "再检查一次" : "立即连接检查"}
                     </Button>
                     {connectedCount === 0 && (
-                      <Button size="small" onClick={() => navigate("/dashboard")}>在首页手动连接</Button>
+                      <Button size="small" aria-label="在首页手动连接" onClick={() => navigate("/dashboard")}>在首页手动连接</Button>
                     )}
                   </Space>
                 )}
@@ -399,11 +399,12 @@ export function SetupPage() {
                         size="small"
                         style={{ minWidth: 260 }}
                         placeholder="选择已验证的模型"
+                        aria-label="选择已验证的模型"
                         value={selectedExistingProfile ?? undefined}
                         onChange={setSelectedExistingProfile}
                         options={activeProfiles.map((p) => ({ value: p.profileId, label: `${p.provider} · ${p.model}` }))}
                       />
-                      <Button size="small" loading={savingModel} disabled={selectedExistingProfile === null} onClick={() => void bindExistingProfile()}>
+                      <Button size="small" aria-label="将已选模型绑定到当前实例" loading={savingModel} disabled={selectedExistingProfile === null} onClick={() => void bindExistingProfile()}>
                         绑定到当前实例
                       </Button>
                     </Space>

@@ -230,29 +230,29 @@ export function AuditPage() {
         {/* §2.3 ② 结论条：读不到 / 采集降级 / 高危概览都归到这里，不另立 Alert。 */}
         <ConclusionBar tone={conclusion.tone} title={conclusion.title} copy={conclusion.copy} action={conclusion.action} />
 
-        <StatStrip items={auditStats} />
+        <StatStrip items={auditStats} loading={summary === null && error === null} skeletonCount={2} />
 
         <Card
           title="动作时间线"
           extra={
             <Flex gap={8} wrap="wrap">
               <Segmented
-                size="small"
+                aria-label="选择审计时间范围"
                 options={WINDOWS}
                 value={windowHours}
                 onChange={(value) => setWindowHours(value as number)}
               />
               <Select
-                size="small"
                 style={{ minWidth: 120 }}
                 value={kindFilter}
+                aria-label="筛选动作类型"
                 onChange={setKindFilter}
                 options={kindOptions}
               />
               <Select
-                size="small"
                 style={{ minWidth: 110 }}
                 value={severityFilter}
+                aria-label="筛选严重级别"
                 onChange={setSeverityFilter}
                 options={[
                   { value: "all", label: "全部级别" },
@@ -303,7 +303,10 @@ export function AuditPage() {
                               </Typography.Text>
                               {event.sessionId !== null && (
                                 <Tooltip title={`打开会话时间线：${event.sessionId}`}>
-                                  <Link to={`/sessions/${encodeURIComponent(event.sessionId)}`}>
+                                  <Link
+                                    to={`/sessions/${encodeURIComponent(event.sessionId)}`}
+                                    aria-label={`打开会话时间线：${event.sessionId}`}
+                                  >
                                     <StatusBadge tone="brand" label={`会话 ${event.sessionId.slice(0, 10)}…`} />
                                   </Link>
                                 </Tooltip>

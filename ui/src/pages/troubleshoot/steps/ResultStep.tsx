@@ -7,6 +7,7 @@
  */
 import { CheckCircleOutlined, CloseCircleOutlined, InfoCircleOutlined } from "@ant-design/icons";
 import { Button, Card, Flex, Progress, Space, Typography } from "antd";
+import { useNavigate } from "react-router-dom";
 import { SectionHeader } from "../../../components/SectionHeader.js";
 import type { RecoveryDiagnosisView, RecoveryJobView } from "../../dashboard/types.js";
 import type { WizardOutcome } from "../useTroubleshoot.js";
@@ -26,6 +27,7 @@ interface ResultStepProps {
 }
 
 export function ResultStep({ job, outcome, diagnosis, busy, onBack, onRestart }: ResultStepProps) {
+  const navigate = useNavigate();
   const { exportReport } = useExportReport();
   const running = job !== null && job.status === "running";
   const guidance = guidanceForDiagnosis(diagnosis);
@@ -87,7 +89,7 @@ export function ResultStep({ job, outcome, diagnosis, busy, onBack, onRestart }:
                     <Button type="primary" onClick={onBack}>
                       换个办法再试
                     </Button>
-                    <Button href={guidance.to}>{guidance.label}</Button>
+                    <Button onClick={() => navigate(guidance.to)}>{guidance.label}</Button>
                   </>
                 )}
                 <Button onClick={() => void exportReport()} loading={busy}>

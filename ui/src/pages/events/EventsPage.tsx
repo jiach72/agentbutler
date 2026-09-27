@@ -326,6 +326,7 @@ export function EventsPage() {
 
         <Flex gap={8} wrap="wrap">
           <Segmented
+            aria-label="按事件处理状态筛选"
             value={statusFilter}
             onChange={(value) => setStatusFilter(value as string)}
             options={[
@@ -405,17 +406,17 @@ export function EventsPage() {
                   ? (
                     <Flex gap={8}>
                       <Button
-                        size="small"
                         icon={<FlagOutlined />}
+                        aria-label="将当前事件标记为已确认"
                         onClick={() => void setStatus(selected.id, "acknowledged")}
                       >
                         标记已确认
                       </Button>
                       <Button
-                        size="small"
                         type="primary"
                         ghost
                         icon={<CheckOutlined />}
+                        aria-label="将当前事件标记为已解决"
                         onClick={() => void setStatus(selected.id, "resolved")}
                       >
                         标记已解决
@@ -424,7 +425,10 @@ export function EventsPage() {
                   )
                   : selected !== null && selected.status !== "active"
                     ? (
-                      <Button size="small" onClick={() => void setStatus(selected.id, "active")}>
+                      <Button
+                        aria-label="重新打开当前事件"
+                        onClick={() => void setStatus(selected.id, "active")}
+                      >
                         重新打开
                       </Button>
                     )
@@ -444,7 +448,7 @@ export function EventsPage() {
                         style={{
                           padding: "8px 12px",
                           borderRadius: 8,
-                          background: "var(--ab-surface-2, rgba(127,127,127,0.08))",
+                          background: "var(--ab-surface-2, var(--ant-color-fill-quaternary))",
                         }}
                       >
                         <Typography.Text strong style={{ fontSize: 13 }}>{kindCopy.label}</Typography.Text>

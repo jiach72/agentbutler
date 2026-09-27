@@ -37,7 +37,7 @@
   background: var(--ab-surface);
   color: var(--ab-text);
   font-weight: 600;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--ab-text) 10%, transparent);
 }
 
 /* 「我安装的」胶囊按钮：文字 + 计数徽标。 */
@@ -45,16 +45,17 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-height: 32px;
   border: 1px solid var(--ab-border);
   background: var(--ab-surface);
-  border-radius: 6px; /* 规范 §3: tag 用 6。 */
+  border-radius: 8px;
   padding: 5px 14px;
   font: inherit;
   font-size: 13px;
   color: var(--ab-text);
   cursor: pointer;
   white-space: nowrap;
-  transition: border-color 0.2s, color 0.2s, background 0.2s;
+  transition: border-color 0.2s, color 0.2s, background 0.2s, box-shadow 0.2s;
 }
 
 .wb-installed-chip:hover {
@@ -66,13 +67,14 @@
   border-color: var(--ab-primary);
   color: var(--ab-primary);
   background: var(--ab-primary-soft);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--ab-primary) 15%, transparent);
 }
 
 .wb-installed-chip .count {
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
-  border-radius: 6px; /* 规范 §3: tag 用 6。 */
+  border-radius: 9999px;
   background: var(--ab-sunken);
   color: var(--ab-text-2);
   /* 12 是全站最小字阶（规范 03 §3.2）；11px 在密集卡片里已经读不清（评审 P2-1）。 */
@@ -124,23 +126,28 @@
 .wb-chip {
   border: 1px solid transparent;
   background: var(--ab-sunken);
-  border-radius: 6px; /* 规范 §3: tag 用 6。 */
-  padding: 3px 14px;
+  border-radius: 8px;
+  min-height: 30px;
+  padding: 4px 14px;
   font: inherit;
   font-size: 13px;
   color: var(--ab-text-2);
   cursor: pointer;
   white-space: nowrap;
-  transition: color 0.2s, background 0.2s;
+  transition: color 0.2s, background 0.2s, border-color 0.2s, box-shadow 0.2s;
 }
 
-.wb-chip:hover { color: var(--ab-text); }
+.wb-chip:hover {
+  color: var(--ab-text);
+  background: var(--ab-surface);
+}
 
 .wb-chip.active {
   background: var(--ab-primary-soft);
   border-color: var(--ab-primary);
   color: var(--ab-primary);
   font-weight: 600;
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--ab-primary) 15%, transparent);
 }
 
 .wb-chip .count {
@@ -161,7 +168,7 @@
 }
 
 .wb-card {
-  border-radius: 18px;
+  border-radius: var(--ab-r-modal, 16px);
   height: 100%;
   border: 1px solid var(--ab-border);
   background: var(--ab-surface);
@@ -171,8 +178,8 @@
 
 .wb-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 10px 24px -4px rgba(26, 27, 31, 0.06), 0 2px 6px -1px rgba(26, 27, 31, 0.04);
-  border-color: rgba(0, 113, 227, 0.28);
+  box-shadow: 0 10px 24px -4px color-mix(in srgb, var(--ab-text) 8%, transparent), 0 2px 6px -1px color-mix(in srgb, var(--ab-text) 4%, transparent);
+  border-color: color-mix(in srgb, var(--ab-primary) 35%, transparent);
 }
 
 .wb-card .ant-card-body { padding: 18px 20px; }
@@ -195,31 +202,49 @@
 
 /* 卡片头像：方形圆角，失败回退分类色块。 */
 .wb-card-avatar {
-  border-radius: 10px;
+  border-radius: var(--ab-r-base, 8px);
   flex-shrink: 0;
   background: var(--ant-color-fill-quaternary, var(--ab-sunken));
 }
 
 /* ---- 安装「+」圆钮（市场卡右上角） ---- */
 .wb-plus {
-  width: 30px;
-  height: 30px;
+  position: relative;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   border: 1px solid var(--ab-border);
   background: var(--ab-surface);
   color: var(--ab-text-2);
-  font-size: 15px;
+  font-size: 16px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
-  transition: color 0.2s, border-color 0.2s, background 0.2s;
+  transition: color 0.2s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.2s cubic-bezier(0.16, 1, 0.3, 1), background 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.15s ease;
 }
 
-.wb-plus:hover {
+.wb-plus::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+}
+
+.wb-plus:hover:not(:disabled) {
   border-color: var(--ab-primary);
   color: var(--ab-primary);
+  background: var(--ab-primary-soft);
+  transform: scale(1.06);
+}
+
+.wb-plus:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.wb-plus:focus-visible {
+  outline: 2px solid var(--ab-primary);
+  outline-offset: 2px;
 }
 
 .wb-plus.installed {
@@ -227,6 +252,10 @@
   background: var(--ab-ok-soft);
   color: var(--ab-ok);
   cursor: default;
+}
+
+.wb-plus.installed:hover {
+  transform: none;
 }
 
 /* 加载更多行 */
@@ -243,7 +272,7 @@
   justify-content: center;
   width: 44px;
   height: 44px;
-  border-radius: 10px;
+  border-radius: var(--ab-r-card, 12px);
   flex-shrink: 0;
   font-size: 22px;
 }

@@ -65,6 +65,11 @@
   border-color: var(--ant-color-border, var(--ab-border-strong));
 }
 
+.core-file-card:focus-visible {
+  outline: 2px solid var(--ab-primary);
+  outline-offset: 1px;
+}
+
 .core-file-card.active {
   background: var(--ab-primary-soft);
   border-color: var(--ab-primary);
@@ -101,7 +106,7 @@
 }
 
 .core-file-card-icon {
-  font-size: 20px;
+  font-size: 18px;
   color: var(--ab-text-4);
   flex-shrink: 0;
 }

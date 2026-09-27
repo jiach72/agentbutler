@@ -21,6 +21,7 @@ import { AdvancedEvidence } from "../../components/AdvancedEvidence.js";
 import { ConclusionBar } from "../../components/ConclusionBar.js";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
+import { ErrorBoundary } from "../../components/ErrorBoundary.js";
 import { PageHeader } from "../../components/PageHeader.js";
 import { StatStrip } from "../../components/StatStrip.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
@@ -800,7 +801,9 @@ export function GatewayPage() {
               label: GATEWAY_TAB_LABELS.prompts,
               children: (
                 <div id={PROMPT_OPTIMIZATION_ANCHOR}>
-                  <PromptOptimizationPanel />
+                  <ErrorBoundary fallbackTitle="提示词优化器视图异常">
+                    <PromptOptimizationPanel />
+                  </ErrorBoundary>
                 </div>
               ),
             },

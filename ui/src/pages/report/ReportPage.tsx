@@ -6,7 +6,7 @@
  * 数据真相原则：成本未接入显示「待接入」；审计未启用显式标注，不伪造 0。
  */
 import { money, USD_TO_CNY } from "../../lib/format.js";
-import { Button, Card, Flex, Space, Table, Tooltip, Typography } from "antd";
+import { Button, Card, Flex, Skeleton, Space, Table, Tooltip, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { ReloadOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import { useCallback, useEffect, useState } from "react";
@@ -67,6 +67,7 @@ export function ReportPage() {
   const [current, setCurrent] = useState<{ data: ReportData; markdown: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<ReportRow[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
   const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(() => {
@@ -79,6 +80,7 @@ export function ReportPage() {
       }
     });
     void loadJson<{ reports: ReportRow[] }>("/api/trust/report/history?limit=12", 8_000).then((result) => {
+      setHistoryLoading(false);
       if (result.ok) setHistory(result.data.reports);
     });
   }, []);
@@ -234,7 +236,13 @@ export function ReportPage() {
                 刷新
               </Button>
               <Tooltip title="生成本周快照（不推送）">
-                <Button type="primary" icon={<ThunderboltOutlined />} loading={busy} onClick={() => void runNow()}>
+                <Button
+                  type="primary"
+                  icon={<ThunderboltOutlined />}
+                  loading={busy}
+                  aria-label="立即生成本周周报快照"
+                  onClick={() => void runNow()}
+                >
                   立即生成
                 </Button>
               </Tooltip>
@@ -245,21 +253,36 @@ export function ReportPage() {
         {/* §2.3 ② 结论条。 */}
         <ConclusionBar tone={conclusion.tone} title={conclusion.title} copy={conclusion.copy} action={conclusion.action} />
 
-        <StatStrip items={reportStats} />
+        <StatStrip items={reportStats} loading={data === null && error === null} skeletonCount={6} />
 
-        {data !== null && (
+        {data !== null ? (
           <Card
             title={`周报正文（${data.weekStart} ~ ${data.weekEnd}）`}
             extra={<Typography.Text type="secondary">实时快照，未落库</Typography.Text>}
           >
-            <Typography.Paragraph style={{ whiteSpace: "pre-wrap", marginBottom: 0, fontFamily: "inherit" }}>
+            <div className="p-4 rounded-xl bg-surface-container-low border border-outline-variant/15 font-mono text-xs leading-relaxed whitespace-pre-wrap select-text overflow-x-auto text-on-surface">
               {current?.markdown}
-            </Typography.Paragraph>
+            </div>
           </Card>
-        )}
+        ) : error === null ? (
+          <Card
+            title="周报正文"
+            extra={<Typography.Text type="secondary">正在生成实时快照…</Typography.Text>}
+          >
+            <Skeleton active paragraph={{ rows: 6 }} />
+          </Card>
+        ) : null}
 
         <Card title="历史存档（近 12 周）">
-          {history.length === 0 ? (
+          {historyLoading ? (
+            <Table<ReportRow>
+              rowKey="id"
+              columns={columns}
+              dataSource={[]}
+              loading={true}
+              pagination={false}
+            />
+          ) : history.length === 0 ? (
             <Empty
               title="还没有周报存档"
               hint="等本周一 08:00 自动生成，或点上方「立即生成」试试。"
@@ -273,9 +296,9 @@ export function ReportPage() {
               pagination={false}
               expandable={{
                 expandedRowRender: (row) => (
-                  <Typography.Paragraph style={{ whiteSpace: "pre-wrap", marginBottom: 0 }}>
+                  <div className="p-3 my-1 rounded-lg bg-surface-container-low border border-outline-variant/15 font-mono text-xs leading-relaxed whitespace-pre-wrap select-text text-on-surface">
                     {row.markdown}
-                  </Typography.Paragraph>
+                  </div>
                 ),
               }}
             />

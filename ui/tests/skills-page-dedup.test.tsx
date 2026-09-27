@@ -50,4 +50,19 @@ describe("技能页首屏去重", () => {
     // 旧的「插件只读盘点」折叠卡已移除，不再有第二处库存汇总。
     expect(html).not.toContain("只读盘点");
   });
+
+  it("当 URL 携带未知 tab 时防御性降级激活技能库 (manager)", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(
+        App,
+        null,
+        React.createElement(
+          MemoryRouter,
+          { initialEntries: ["/skills?tab=unknown-tab-value"] },
+          React.createElement(SkillsPage),
+        ),
+      ),
+    );
+    expect(html).toContain('id="skills-marketplace"');
+  });
 });

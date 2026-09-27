@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Alert, App, Button, Collapse, Drawer, Input, Select, Space, Switch, Tag, Typography } from "antd";
+import { Alert, App, Button, Collapse, Drawer, Flex, Input, Select, Space, Switch, Tag, Typography } from "antd";
 import { CheckCircleOutlined, ExclamationCircleOutlined, SaveOutlined } from "@ant-design/icons";
 import type { ScheduledTaskDraft } from "@butler/contract";
 import { fetchJson, mutateJson, postJson } from "../../lib/api.js";
@@ -149,7 +149,7 @@ export function TaskEditorDrawer({ open, taskId, initialDraft, timezone, onClose
   const advanced = draft.advanced ?? {};
   return (
     <Drawer title={taskId ? "编辑定时任务" : "新建定时任务"} open={open} onClose={close}
-      width={560} className="task-editor" maskClosable={!busy}
+      styles={{ wrapper: { width: 560, maxWidth: "100%" } }} className="task-editor" maskClosable={!busy}
       footer={<Space wrap><Button onClick={close} disabled={busy}>取消</Button>
         <Button type="primary" icon={<SaveOutlined />} loading={busy} disabled={!preview}
           onClick={() => void save()}>{uncertain ? "核对并重试保存" : "保存任务"}</Button></Space>}>
@@ -197,15 +197,15 @@ export function TaskEditorDrawer({ open, taskId, initialDraft, timezone, onClose
             onChange={(enabled) => setDraft({ ...draft, delivery: { enabled } })} />
         </div>
         {draft.delivery.enabled && (
-          <div className="task-delivery-status" style={{ marginTop: 6, marginBottom: 12, padding: "8px 12px", borderRadius: 8, background: "var(--ab-surface-muted, #f8fafc)", border: "1px solid var(--ab-border, #e2e8f0)" }}>
+          <div className="task-delivery-status" style={{ marginTop: 6, marginBottom: 12, padding: "8px 12px", borderRadius: 8, background: "var(--ab-surface-2)", border: "1px solid var(--ab-border)" }}>
             {channelsLoading && channels === null ? (
               <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                 正在检查已连接的通讯工具…
               </Typography.Text>
             ) : activeChannels.length > 0 ? (
-              <Space direction="vertical" size={4} style={{ width: "100%" }}>
+              <Flex vertical gap={4} style={{ width: "100%" }}>
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  <CheckCircleOutlined style={{ color: "var(--ab-ok, #16a34a)", marginRight: 6 }} />
+                  <CheckCircleOutlined style={{ color: "var(--ab-ok)", marginRight: 6 }} />
                   任务执行完成后，结果将通过以下已连接的通讯工具推送：
                 </Typography.Text>
                 <Space wrap size={[6, 6]}>
@@ -215,7 +215,7 @@ export function TaskEditorDrawer({ open, taskId, initialDraft, timezone, onClose
                     </Tag>
                   ))}
                 </Space>
-              </Space>
+              </Flex>
             ) : (
               <Alert
                 type="warning"

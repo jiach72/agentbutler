@@ -15,7 +15,13 @@
           : "light";
     document.documentElement.dataset.theme = mode;
     document.documentElement.style.colorScheme = mode;
+    const bg = mode === "dark" ? "#0B0F17" : "#FAF8FE";
+    const text = mode === "dark" ? "#F1F5F9" : "#1A1B1F";
+    document.documentElement.style.backgroundColor = bg;
+    document.documentElement.style.color = text;
   } catch {
     document.documentElement.dataset.theme = "light";
+    document.documentElement.style.backgroundColor = "#FAF8FE";
+    document.documentElement.style.color = "#1A1B1F";
   }
 })();

@@ -52,7 +52,7 @@
   --error: #f87171;
   --error-soft: rgba(248, 113, 113, 0.12);
   --track: rgba(148, 163, 184, 0.12);
-  --card-grad: linear-gradient(165deg, #131c2b 0%, #0d1522 100%);
+  --card-grad: linear-gradient(165deg, var(--surface-2) 0%, var(--surface) 100%);
   --panel-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
   --num-glow: none;
 }
@@ -88,7 +88,7 @@
 .wall-root,
 .wall-root * {
   box-sizing: border-box;
-  font-family: "Plus Jakarta Sans", "Inter", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  font-family: var(--font-display, var(--ab-font));
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
@@ -123,10 +123,10 @@
   gap: 28px;
   background: linear-gradient(180deg, var(--surface-2), transparent);
   border: 1px solid var(--bd);
-  border-radius: 28px;
+  border-radius: 24px;
   overflow: hidden;
 }
-.wall-root[data-wall-theme="dark"] .wall-header { box-shadow: inset 0 0 80px rgba(77, 163, 255, 0.06); }
+.wall-root[data-wall-theme="dark"] .wall-header { box-shadow: inset 0 0 80px color-mix(in srgb, var(--accent) 6%, transparent); }
 .wall-header::after {
   content: "";
   position: absolute;
@@ -140,23 +140,23 @@
 .wall-logo { height: 80px; }
 .wall-logo-dark { display: none; align-items: center; gap: 24px; }
 .wall-logo-dark img { height: 76px; }
-.wall-logo-text { font-size: 40px; font-weight: 800; color: var(--text); letter-spacing: 0.4px; }
+.wall-logo-text { font-size: 36px; font-weight: 800; color: var(--text); letter-spacing: 0.4px; }
 .wall-logo-text i { font-style: normal; color: var(--brass); }
 .wall-root[data-wall-theme="dark"] .wall-logo-light { display: none; }
 .wall-root[data-wall-theme="dark"] .wall-logo-dark { display: flex; }
 .wall-hdiv { width: 2px; height: 76px; background: var(--bd); }
 .wall-title {
-  font-size: 52px;
+  font-size: 56px;
   font-weight: 800;
   color: var(--text);
   letter-spacing: 12px;
   line-height: 1.2;
 }
-.wall-root[data-wall-theme="dark"] .wall-title { text-shadow: 0 0 48px rgba(77, 163, 255, 0.45); }
-.wall-subtitle { font-size: 24px; color: var(--text-3); margin-top: 6px; letter-spacing: 2px; }
+.wall-root[data-wall-theme="dark"] .wall-title { text-shadow: 0 0 48px color-mix(in srgb, var(--accent) 45%, transparent); }
+.wall-subtitle { font-size: 22px; color: var(--text-3); margin-top: 6px; letter-spacing: 2px; }
 .wall-hspacer { flex: 1; }
 .wall-chip {
-  font-size: 25px;
+  font-size: 26px;
   color: var(--text-2);
   background: var(--accent-soft);
   border: 1px solid var(--bd);
@@ -166,7 +166,7 @@
   font-variant-numeric: tabular-nums;
 }
 .wall-chip b { color: var(--text); font-weight: 600; }
-.wall-mono { font-family: "Cascadia Mono", Consolas, monospace; font-size: 24px; }
+.wall-mono { font-family: var(--ant-font-family-code, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace); font-size: 22px; }
 .wall-relay-on { background: var(--ok-soft); border-color: var(--ok); color: var(--ok); font-weight: 600; }
 .wall-pulse {
   display: inline-block;
@@ -188,7 +188,7 @@ button.wall-theme-toggle:hover { border-color: var(--accent); color: var(--text)
 .wall-kpi {
   background: var(--card-grad);
   border: 1px solid var(--bd);
-  border-radius: 28px;
+  border-radius: 24px;
   padding: 28px 32px 24px;
   box-shadow: var(--panel-shadow);
   display: flex;
@@ -204,7 +204,7 @@ button.wall-theme-toggle:hover { border-color: var(--accent); color: var(--text)
     border-color: var(--warn);
   }
   50% {
-    box-shadow: 0 0 32px rgba(255, 197, 61, 0.4);
+    box-shadow: 0 0 32px color-mix(in srgb, var(--warn) 40%, transparent);
     border-color: color-mix(in srgb, var(--warn) 75%, #fff);
   }
 }
@@ -213,28 +213,28 @@ button.wall-theme-toggle:hover { border-color: var(--accent); color: var(--text)
   border-color: var(--warn);
   animation: wall-alert-pulse 2.4s ease-in-out infinite;
 }
-.wall-kpi.tone-warn .wall-kpi-value { color: var(--warn); text-shadow: 0 0 32px rgba(255, 197, 61, 0.3); }
+.wall-kpi.tone-warn .wall-kpi-value { color: var(--warn); text-shadow: 0 0 32px color-mix(in srgb, var(--warn) 30%, transparent); }
 .wall-kpi.tone-error { border-color: var(--error); }
 .wall-kpi.tone-error .wall-kpi-value { color: var(--error); }
 .wall-kpi.tone-brand .wall-kpi-value { color: var(--accent); }
 .wall-kpi.tone-cyan .wall-kpi-value { color: var(--cyan); }
 .wall-kpi.tone-brass .wall-kpi-value { color: var(--brass); }
-.wall-kpi-label { font-size: 25px; color: var(--text-3); display: flex; align-items: center; gap: 14px; white-space: nowrap; }
+.wall-kpi-label { font-size: 26px; color: var(--text-3); display: flex; align-items: center; gap: 14px; white-space: nowrap; }
 .wall-kpi-value {
-  font-size: 70px;
+  font-size: 56px;
   font-weight: 800;
   color: var(--text);
   line-height: 1;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
   text-shadow: var(--num-glow);
-  font-family: "Cascadia Mono", Consolas, "Inter", sans-serif;
+  font-family: var(--ant-font-family-code, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
 }
-.wall-kpi-value small { font-size: 28px; color: var(--text-3); font-weight: 500; margin-left: 4px; }
-.wall-kpi-foot { font-size: 24px; color: var(--text-3); display: flex; justify-content: space-between; align-items: flex-end; white-space: nowrap; }
+.wall-kpi-value small { font-size: 26px; color: var(--text-3); font-weight: 500; margin-left: 4px; }
+.wall-kpi-foot { font-size: 22px; color: var(--text-3); display: flex; justify-content: space-between; align-items: flex-end; white-space: nowrap; }
 .wall-spark { width: 164px; height: 56px; }
 
-.wall-badge { font-size: 24px; font-weight: 600; border-radius: 12px; padding: 4px 16px; white-space: nowrap; }
+.wall-badge { font-size: 22px; font-weight: 600; border-radius: 12px; padding: 4px 16px; white-space: nowrap; }
 .b-ok { background: var(--ok-soft); color: var(--ok); }
 .b-warn { background: var(--warn-soft); color: var(--warn); }
 .b-err { background: var(--error-soft); color: var(--error); }
@@ -248,7 +248,7 @@ button.wall-theme-toggle:hover { border-color: var(--accent); color: var(--text)
 .wall-panel {
   background: var(--card-grad);
   border: 1px solid var(--bd);
-  border-radius: 28px;
+  border-radius: 24px;
   box-shadow: var(--panel-shadow);
   padding: 26px 34px;
   display: flex;
@@ -257,7 +257,7 @@ button.wall-theme-toggle:hover { border-color: var(--accent); color: var(--text)
   position: relative;
   overflow: hidden;
 }
-.wall-panel-title { font-size: 30px; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 18px; line-height: 1.4; }
+.wall-panel-title { font-size: 32px; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 18px; line-height: 1.4; }
 .wall-panel-title::before {
   content: "";
   width: 8px;
@@ -266,13 +266,13 @@ button.wall-theme-toggle:hover { border-color: var(--accent); color: var(--text)
   border-radius: 4px;
   box-shadow: 0 0 16px var(--accent);
 }
-.wall-psrc { margin-left: auto; font-size: 24px; color: var(--text-3); font-weight: 400; white-space: nowrap; }
+.wall-psrc { margin-left: auto; font-size: 22px; color: var(--text-3); font-weight: 400; white-space: nowrap; }
 .wall-todo {
   color: var(--brass);
   background: var(--brass-soft);
   border-radius: 8px;
   padding: 2px 12px;
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 600;
   margin-left: 10px;
 }
@@ -284,8 +284,8 @@ button.wall-theme-toggle:hover { border-color: var(--accent); color: var(--text)
 .wall-inst { display: flex; align-items: center; gap: 24px; padding: 22px 8px; border-bottom: 1px dashed var(--bd); }
 .wall-inst:last-child { border-bottom: none; }
 .wall-idot { width: 20px; height: 20px; border-radius: 50%; flex: none; }
-.wall-inst-name { font-size: 29px; font-weight: 600; color: var(--text); }
-.wall-inst-meta { font-size: 24px; color: var(--text-3); margin-top: 4px; font-variant-numeric: tabular-nums; }
+.wall-inst-name { font-size: 26px; font-weight: 600; color: var(--text); }
+.wall-inst-meta { font-size: 22px; color: var(--text-3); margin-top: 4px; font-variant-numeric: tabular-nums; }
 .wall-inst-right { margin-left: auto; }
 /* 实例健康摘要：钉在面板底部,填充单实例时的留白(审计 P1-1)。 */
 .wall-inst-summary {
@@ -295,7 +295,7 @@ button.wall-theme-toggle:hover { border-color: var(--accent); color: var(--text)
   gap: 8px 36px;
   border-top: 1px dashed var(--bd);
   padding-top: 20px;
-  font-size: 24px;
+  font-size: 22px;
   color: var(--text-2);
   font-variant-numeric: tabular-nums;
 }
@@ -305,9 +305,9 @@ button.wall-theme-toggle:hover { border-color: var(--accent); color: var(--text)
 .wall-gauges { flex: 1; display: flex; align-items: center; justify-content: space-around; min-height: 0; }
 .wall-gauge { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .wall-gauge-chart { width: 212px; height: 212px; }
-.wall-gauge-label { font-size: 25px; color: var(--text-2); font-weight: 500; }
+.wall-gauge-label { font-size: 26px; color: var(--text-2); font-weight: 500; }
 .wall-gauge-label.w { color: var(--warn); font-weight: 600; }
-.wall-agents { font-size: 24px; color: var(--text-3); border-top: 1px dashed var(--bd); padding-top: 16px; font-variant-numeric: tabular-nums; }
+.wall-agents { font-size: 22px; color: var(--text-3); border-top: 1px dashed var(--bd); padding-top: 16px; font-variant-numeric: tabular-nums; }
 
 /* 通道 */
 .wall-lane { display: flex; align-items: center; gap: 20px; padding: 13px 0; border-bottom: 1px dashed var(--bd); font-size: 26px; }
@@ -316,7 +316,7 @@ button.wall-theme-toggle:hover { border-color: var(--accent); color: var(--text)
 .wall-lane-rate { color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; }
 
 /* 事件 */
-.wall-evt { display: flex; gap: 20px; padding: 16px 0; border-bottom: 1px dashed var(--bd); font-size: 25px; line-height: 1.5; }
+.wall-evt { display: flex; gap: 20px; padding: 16px 0; border-bottom: 1px dashed var(--bd); font-size: 26px; line-height: 1.5; }
 .wall-evt:last-child { border-bottom: none; }
 .wall-dot { width: 14px; height: 14px; border-radius: 50%; margin-top: 12px; flex: none; }
 .dot-error { background: var(--error); box-shadow: 0 0 12px var(--error); }
@@ -324,7 +324,7 @@ button.wall-theme-toggle:hover { border-color: var(--accent); color: var(--text)
 .dot-info { background: var(--accent); }
 .dot-idle { background: var(--text-3); }
 .wall-evt-text { color: var(--text-2); }
-.wall-evt-time { margin-left: auto; color: var(--text-3); font-size: 24px; white-space: nowrap; }
+.wall-evt-time { margin-left: auto; color: var(--text-3); font-size: 22px; white-space: nowrap; }
 
 /* 守门 / 技能统计 */
 .wall-guard { display: flex; gap: 20px; flex: 1; align-items: stretch; margin-top: 20px; }
@@ -337,16 +337,16 @@ button.wall-theme-toggle:hover { border-color: var(--accent); color: var(--text)
   min-width: 0;
 }
 .wall-gv2 {
-  font-size: 44px;
+  font-size: 36px;
   font-weight: 700;
   color: var(--accent);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
   text-shadow: var(--num-glow);
-  font-family: "Cascadia Mono", Consolas, "Inter", sans-serif;
+  font-family: var(--ant-font-family-code, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
 }
-.wall-gv2.sm { font-size: 36px; }
-.wall-gl { font-size: 24px; color: var(--text-3); margin-top: 2px; white-space: nowrap; }
+.wall-gv2.sm { font-size: 32px; }
+.wall-gl { font-size: 22px; color: var(--text-3); margin-top: 2px; white-space: nowrap; }
 
 .wall-skillwrap { flex: 1; display: flex; gap: 28px; margin-top: 16px; min-height: 0; }
 .wall-skgrid { width: 316px; flex: none; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 16px; }
@@ -355,15 +355,15 @@ button.wall-theme-toggle:hover { border-color: var(--accent); color: var(--text)
 /* 待接入占位面板 */
 .wall-panel-pending { border-style: dashed; }
 .wall-pending-body { flex: 1; display: flex; align-items: center; gap: 28px; }
-.wall-pending-mark { font-size: 68px; color: var(--brass); opacity: 0.8; }
-.wall-pending-title { font-size: 28px; font-weight: 600; color: var(--text-2); }
-.wall-pending-sub { font-size: 24px; color: var(--text-3); margin-top: 6px; max-width: 840px; }
+.wall-pending-mark { font-size: 56px; color: var(--brass); opacity: 0.8; }
+.wall-pending-title { font-size: 26px; font-weight: 600; color: var(--text-2); }
+.wall-pending-sub { font-size: 22px; color: var(--text-3); margin-top: 6px; max-width: 840px; }
 
 /* ── 底部记录行：通道投递汇总 / 消息网关链路 / 升级与备份 ── */
 .wall-bottom { height: 400px; flex: none; display: grid; grid-template-columns: 4.4fr 2.8fr 3.4fr; gap: 26px; min-height: 0; }
 
 /* 模型成本分解表（第 4 列） */
-.wall-costtable { width: 100%; border-collapse: collapse; font-size: 25px; margin-top: 12px; font-variant-numeric: tabular-nums; }
+.wall-costtable { width: 100%; border-collapse: collapse; font-size: 26px; margin-top: 12px; font-variant-numeric: tabular-nums; }
 .wall-costtable th {
   text-align: left;
   font-size: 22px;
@@ -375,11 +375,11 @@ button.wall-theme-toggle:hover { border-color: var(--accent); color: var(--text)
 }
 .wall-costtable td { padding: 11px 12px; border-bottom: 1px dashed var(--bd); color: var(--text-2); white-space: nowrap; }
 .wall-costtable tr:last-child td { border-bottom: none; }
-.wall-costtable .num { font-family: "Cascadia Mono", Consolas, monospace; }
+.wall-costtable .num { font-family: var(--ant-font-family-code, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace); }
 .wall-cost-rank { display: inline-block; width: 30px; color: var(--text-3); font-size: 22px; }
 .wall-cost-model { color: var(--text); font-weight: 500; max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
-.wall-cost-bar { position: relative; height: 14px; background: var(--track); border-radius: 7px; overflow: hidden; min-width: 90px; }
-.wall-cost-bar > i { position: absolute; inset: 0 auto 0 0; border-radius: 7px; background: linear-gradient(90deg, var(--brass), var(--accent)); }
+.wall-cost-bar { position: relative; height: 14px; background: var(--track); border-radius: 8px; overflow: hidden; min-width: 90px; }
+.wall-cost-bar > i { position: absolute; inset: 0 auto 0 0; border-radius: 8px; background: linear-gradient(90deg, var(--brass), var(--accent)); }
 
 /* 消息网关链路（底行中） */
 .wall-link { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; flex: 1; min-height: 0; }
@@ -391,21 +391,21 @@ button.wall-theme-toggle:hover { border-color: var(--accent); color: var(--text)
   border: 1px solid var(--bd);
   border-radius: 16px;
   padding: 10px 24px;
-  font-size: 24px;
+  font-size: 22px;
 }
 .wall-link-row .k { color: var(--text-3); min-width: 170px; }
 .wall-link-row .v { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
-.wall-link-foot { margin-top: auto; font-size: 23px; color: var(--text-3); border-top: 1px dashed var(--bd); padding-top: 12px; line-height: 1.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wall-link-foot { margin-top: auto; font-size: 22px; color: var(--text-3); border-top: 1px dashed var(--bd); padding-top: 12px; line-height: 1.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* 升级与备份（底行右） */
 .wall-upgrid { flex: 1; display: grid; grid-template-columns: 1.25fr 1fr; gap: 24px; margin-top: 14px; min-height: 0; }
 .wall-upcol { display: flex; flex-direction: column; min-height: 0; }
-.wall-uphead { font-size: 23px; color: var(--text-3); font-weight: 600; padding: 6px 4px; border-bottom: 1px solid var(--bd); display: flex; gap: 14px; }
+.wall-uphead { font-size: 22px; color: var(--text-3); font-weight: 600; padding: 6px 4px; border-bottom: 1px solid var(--bd); display: flex; gap: 14px; }
 .wall-uprow {
   display: flex;
   gap: 14px;
   align-items: center;
-  font-size: 24px;
+  font-size: 22px;
   color: var(--text-2);
   padding: 12px 4px;
   border-bottom: 1px dashed var(--bd);
@@ -413,15 +413,15 @@ button.wall-theme-toggle:hover { border-color: var(--accent); color: var(--text)
   min-height: 0;
 }
 .wall-uprow:last-child { border-bottom: none; }
-.wall-uprow .t { font-family: "Cascadia Mono", Consolas, monospace; font-size: 22px; color: var(--text-3); white-space: nowrap; }
+.wall-uprow .t { font-family: var(--ant-font-family-code, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace); font-size: 22px; color: var(--text-3); white-space: nowrap; }
 .wall-uprow .m { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
-.wall-upfoot { margin-top: auto; font-size: 23px; color: var(--text-3); border-top: 1px dashed var(--bd); padding-top: 14px; line-height: 1.55; }
+.wall-upfoot { margin-top: auto; font-size: 22px; color: var(--text-3); border-top: 1px dashed var(--bd); padding-top: 14px; line-height: 1.55; }
 
 /* 表格（底行左：通道投递汇总） */
 .wall-table { width: 100%; border-collapse: collapse; font-size: 26px; margin-top: 16px; }
 .wall-table th {
   text-align: left;
-  font-size: 24px;
+  font-size: 22px;
   color: var(--text-3);
   font-weight: 600;
   padding: 12px 20px;

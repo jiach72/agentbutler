@@ -191,10 +191,10 @@ export function TasksPage() {
         </div>
         <div className="summary-card">
           <div className="summary-card-header">
-            <CheckCircleOutlined className="summary-icon" style={{ color: attentionCount > 0 ? "var(--ab-warning)" : "var(--ab-success)" }} />
+            <CheckCircleOutlined className="summary-icon" style={{ color: attentionCount > 0 ? "var(--ab-warn)" : "var(--ab-ok)" }} />
             <span>运行健康</span>
           </div>
-          <strong style={{ color: attentionCount > 0 ? "var(--ab-warning)" : undefined }}>
+          <strong style={{ color: attentionCount > 0 ? "var(--ab-warn)" : undefined }}>
             {attentionCount === 0 ? "全部健康" : `${attentionCount} 个需关注`}
           </strong>
           <span className="summary-subtext">{attentionCount === 0 ? "全部任务运行健康无阻塞" : "存在执行失败或投递中断"}</span>

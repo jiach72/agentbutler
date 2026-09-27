@@ -24,6 +24,7 @@ import { PluginLibrary } from "./PluginLibrary.js";
 import { SkillsMarketplace } from "./SkillsMarketplace.js";
 import { buildSkillsConclusion, buildSkillsOverview } from "./summary.js";
 import { MemoryCenterPage } from "../memory/MemoryCenterPage.js";
+import { ErrorBoundary } from "../../components/ErrorBoundary.js";
 
 const { Text } = Typography;
 
@@ -240,7 +241,7 @@ export function SkillsPage() {
       {/* 管理标签页提前暴露：用户第一屏即可进管理操作，而不是先看汇总。
           技能库（含「我安装的」管理入口）/ 插件 / 记忆。 */}
       <Tabs
-        activeKey={activeTab}
+        activeKey={["manager", "plugins", "memory", "systems"].includes(activeTab) ? activeTab : "manager"}
         onChange={setActiveTab}
         aria-busy={mainState.status === "loading"}
         items={[
@@ -249,7 +250,9 @@ export function SkillsPage() {
             label: "技能库",
             children: (
               <div id="skills-marketplace">
-                <SkillsMarketplace onInstalled={() => void loadLibrary({ silent: true })} />
+                <ErrorBoundary fallbackTitle="技能市场视图异常">
+                  <SkillsMarketplace onInstalled={() => void loadLibrary({ silent: true })} />
+                </ErrorBoundary>
               </div>
             ),
           },
@@ -259,16 +262,18 @@ export function SkillsPage() {
             forceRender: true,
             children: (
               <div id="plugins-panel">
-                {libraryData !== null ? (
-                  <PluginLibrary plugins={libraryData.plugins} />
-                ) : mainState.status === "failed" ? (
-                  <Empty description="插件清单暂时读不到；管家服务恢复后可重试。" />
-                ) : (
-                  <Flex justify="center" align="center" gap={8} style={{ padding: "48px 0" }}>
-                    <Spin />
-                    <Text type="secondary">正在读取插件清单…</Text>
-                  </Flex>
-                )}
+                <ErrorBoundary fallbackTitle="插件清单视图异常">
+                  {libraryData !== null ? (
+                    <PluginLibrary plugins={libraryData.plugins} />
+                  ) : mainState.status === "failed" ? (
+                    <Empty description="插件清单暂时读不到；管家服务恢复后可重试。" />
+                  ) : (
+                    <Flex justify="center" align="center" gap={8} style={{ padding: "48px 0" }}>
+                      <Spin />
+                      <Text type="secondary">正在读取插件清单…</Text>
+                    </Flex>
+                  )}
+                </ErrorBoundary>
               </div>
             ),
           },
@@ -303,7 +308,9 @@ export function SkillsPage() {
             label: "记忆系统中心",
             children: (
               <div id="memory-systems-panel" style={{ paddingTop: 8 }}>
-                <MemoryCenterPage isTab />
+                <ErrorBoundary fallbackTitle="记忆系统中心视图异常">
+                  <MemoryCenterPage isTab />
+                </ErrorBoundary>
               </div>
             ),
           },
@@ -311,7 +318,7 @@ export function SkillsPage() {
       />
 
       {/* 单一紧凑计数摘要：库存计数只在这里说一次。 */}
-      <StatStrip items={overview} />
+      <StatStrip items={overview} loading={refreshing} skeletonCount={3} />
     </section>
   );
 }

@@ -50,6 +50,7 @@ docs/superpowers/
 docs/*.draft.md
 docs/scratch*.md
 tmp/
+scratch/
 .tmp*/
 .cache/
 

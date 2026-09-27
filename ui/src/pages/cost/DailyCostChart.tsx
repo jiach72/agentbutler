@@ -152,8 +152,10 @@ export function DailyCostChart({ days, maxDayCost, totalCost }: DailyCostChartPr
             return (
               <div
                 key={day.date}
-                className="relative flex-1 h-full flex items-end justify-center group cursor-pointer"
+                className="relative flex-1 h-full flex items-end justify-center group cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 rounded-[4px]"
                 onMouseEnter={() => setHoveredIdx(idx)}
+                onFocus={() => setHoveredIdx(idx)}
+                onBlur={() => setHoveredIdx(null)}
                 tabIndex={0}
                 role="img"
                 aria-label={`${day.date}：${money(cost)}`}
@@ -170,12 +172,12 @@ export function DailyCostChart({ days, maxDayCost, totalCost }: DailyCostChartPr
                   className="absolute bottom-0 w-full transition-all duration-200"
                   style={{
                     height: `${pct}%`,
-                    borderRadius: "4px 4px 1.5px 1.5px",
+                    borderRadius: "4px 4px 0 0",
                     background: isHovered
-                      ? "linear-gradient(180deg, #0071e3 0%, #2997ff 100%)"
-                      : "linear-gradient(180deg, #0071e3 0%, rgba(0, 113, 227, 0.45) 100%)",
+                      ? "linear-gradient(180deg, var(--ab-primary) 0%, color-mix(in srgb, var(--ab-primary) 80%, #ffffff) 100%)"
+                      : "linear-gradient(180deg, var(--ab-primary) 0%, color-mix(in srgb, var(--ab-primary) 45%, transparent) 100%)",
                     boxShadow: isHovered
-                      ? "0 0 12px rgba(0, 113, 227, 0.45), 0 2px 4px rgba(0, 0, 0, 0.1)"
+                      ? "0 0 12px var(--ab-primary-soft-border), 0 2px 4px rgba(0, 0, 0, 0.1)"
                       : "none",
                     opacity: isAnyHovered && !isHovered ? 0.45 : 1,
                     transform: isHovered ? "translateY(-1.5px)" : "none",
@@ -203,9 +205,9 @@ export function DailyCostChart({ days, maxDayCost, totalCost }: DailyCostChartPr
           >
             <defs>
               <linearGradient id="costAreaGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#0071e3" stopOpacity="0.25" />
-                <stop offset="70%" stopColor="#0071e3" stopOpacity="0.04" />
-                <stop offset="100%" stopColor="#0071e3" stopOpacity="0.0" />
+                <stop offset="0%" stopColor="var(--ab-primary)" stopOpacity="0.25" />
+                <stop offset="70%" stopColor="var(--ab-primary)" stopOpacity="0.04" />
+                <stop offset="100%" stopColor="var(--ab-primary)" stopOpacity="0.0" />
               </linearGradient>
             </defs>
 
@@ -219,7 +221,7 @@ export function DailyCostChart({ days, maxDayCost, totalCost }: DailyCostChartPr
               <path
                 d={splinePath}
                 fill="none"
-                stroke="#0071e3"
+                stroke="var(--ab-primary)"
                 strokeWidth="2.5"
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -235,7 +237,7 @@ export function DailyCostChart({ days, maxDayCost, totalCost }: DailyCostChartPr
                   y1={paddingTop}
                   x2={points[hoveredIdx].x}
                   y2={paddingTop + plotHeight}
-                  stroke="#0071e3"
+                  stroke="var(--ab-primary)"
                   strokeWidth="1.5"
                   strokeDasharray="3 3"
                   opacity="0.6"
@@ -244,10 +246,10 @@ export function DailyCostChart({ days, maxDayCost, totalCost }: DailyCostChartPr
                   cx={points[hoveredIdx].x}
                   cy={points[hoveredIdx].y}
                   r="5"
-                  fill="#ffffff"
-                  stroke="#0071e3"
+                  fill="var(--ab-surface)"
+                  stroke="var(--ab-primary)"
                   strokeWidth="2.5"
-                  className="filter drop-shadow(0 2px 4px rgba(0, 113, 227, 0.4))"
+                  className="filter drop-shadow(0 2px 4px var(--ab-primary-soft-border))"
                 />
               </g>
             )}
@@ -255,11 +257,16 @@ export function DailyCostChart({ days, maxDayCost, totalCost }: DailyCostChartPr
 
           {/* Transparent interactive trigger overlays for mouse hover across entire curve */}
           <div className="absolute inset-0 flex items-stretch">
-            {days.map((_, idx) => (
+            {days.map((day, idx) => (
               <div
                 key={idx}
-                className="flex-1 h-full cursor-pointer"
+                className="flex-1 h-full cursor-pointer focus:outline-none focus-visible:bg-primary/5"
+                tabIndex={0}
+                role="img"
+                aria-label={`${day.date}：${money(day.actualCostUsd ?? day.estimatedCostUsd)}`}
                 onMouseEnter={() => setHoveredIdx(idx)}
+                onFocus={() => setHoveredIdx(idx)}
+                onBlur={() => setHoveredIdx(null)}
               />
             ))}
           </div>

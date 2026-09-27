@@ -49,7 +49,7 @@ export function CopySnippetButton({
       aria-label={copied ? copiedLabel : label}
     >
       {copied ? (
-        <CheckOutlined style={{ color: "var(--ab-success)", fontSize: 12 }} />
+        <CheckOutlined style={{ color: "var(--ab-ok)", fontSize: 12 }} />
       ) : (
         <CopyOutlined style={{ fontSize: 12 }} />
       )}

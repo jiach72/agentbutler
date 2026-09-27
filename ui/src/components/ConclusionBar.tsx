@@ -68,8 +68,8 @@ export function ConclusionBar({ tone, title, copy, action, extra }: ConclusionBa
         className="ethereal-conclusion-alert rounded-2xl md:rounded-3xl p-4 md:p-6 border border-outline-variant/20 shadow-xs transition-all bento-card-hover"
         type={TONE_TO_ALERT_TYPE[tone]}
         showIcon
-        title={<span className="text-base md:text-lg font-semibold text-on-surface tracking-tight">{title}</span>}
-        description={copy ? <div className="text-sm md:text-base text-on-surface-variant mt-1.5 leading-relaxed">{copy}</div> : undefined}
+        title={<span className="text-base md:text-lg font-semibold text-on-surface tracking-tight" style={{ color: "var(--ab-text)" }}>{title}</span>}
+        description={copy ? <div className="text-sm md:text-base text-on-surface-variant mt-1.5 leading-relaxed" style={{ color: "var(--ab-text-2)" }}>{copy}</div> : undefined}
         action={action ? <Flex gap={10} align="center">{action}</Flex> : undefined}
       />
       {extra ? (

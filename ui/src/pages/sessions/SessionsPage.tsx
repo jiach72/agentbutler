@@ -148,7 +148,11 @@ export function SessionsPage() {
       key: "sessionId",
       ellipsis: true,
       width: 220,
-      render: (sessionId: string) => <Link to={`/sessions/${encodeURIComponent(sessionId)}`}>{sessionId}</Link>,
+      render: (sessionId: string) => (
+        <Link to={`/sessions/${encodeURIComponent(sessionId)}`} className="font-mono text-xs hover:underline">
+          {sessionId}
+        </Link>
+      ),
     },
     {
       title: "开始时间",
@@ -292,11 +296,11 @@ export function SessionsPage() {
           title="会话追踪"
           extra={
             <Space>
-              <Button icon={<ReloadOutlined />} onClick={refresh}>
+              <Button icon={<ReloadOutlined />} aria-label="刷新会话列表" onClick={refresh}>
                 刷新
               </Button>
               <Tooltip title="立即重建索引（读 Hermes state.db + 动作流）">
-                <Button type="primary" icon={<SyncOutlined />} loading={busy} onClick={() => void reindex()}>
+                <Button type="primary" icon={<SyncOutlined />} loading={busy} aria-label="立即重建会话索引" onClick={() => void reindex()}>
                   重建索引
                 </Button>
               </Tooltip>
@@ -307,13 +311,13 @@ export function SessionsPage() {
         {/* §2.3 ② 结论条。原「会话索引不可用」Alert 与离线结论同一件事，已并入此条。 */}
         <ConclusionBar tone={conclusion.tone} title={conclusion.title} copy={conclusion.copy} action={conclusion.action} />
 
-        <StatStrip items={stats} />
+        <StatStrip items={stats} loading={summary === undefined && error === null} skeletonCount={6} />
 
         {summary !== undefined && (
           <Alert
             type="info"
             showIcon
-            message="首版覆盖范围与隐私边界"
+            title="首版覆盖范围与隐私边界"
             description={
               <Flex vertical gap={4}>
                 <span>{summary.replay.note}</span>
@@ -343,6 +347,7 @@ export function SessionsPage() {
               <Select
                 value={outcome}
                 style={{ width: 130 }}
+                aria-label="按会话终态筛选"
                 onChange={setOutcome}
                 options={[
                   { value: "all", label: "全部终态" },

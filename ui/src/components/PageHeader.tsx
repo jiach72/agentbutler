@@ -41,12 +41,16 @@ export function PageHeader({ eyebrow, title, description, extra }: PageHeaderPro
             style={{
               margin: 0,
               lineHeight: 1.3,
+              color: "var(--ab-text)",
             }}
           >
             {title}
           </h1>
           {description !== undefined && (
-            <div className="text-xs md:text-sm text-on-surface-variant mt-1 leading-relaxed">
+            <div
+              className="text-xs md:text-sm text-on-surface-variant mt-1 leading-relaxed"
+              style={{ color: "var(--ab-text-2)" }}
+            >
               {description}
             </div>
           )}

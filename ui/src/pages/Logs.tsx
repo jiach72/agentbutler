@@ -1,4 +1,5 @@
 import { Button, Flex } from "antd";
+import { useNavigate } from "react-router-dom";
 import { AdvancedEvidence } from "../components/AdvancedEvidence.js";
 import { PageHeader } from "../components/PageHeader.js";
 import { ConclusionBar } from "../components/ConclusionBar.js";
@@ -6,6 +7,8 @@ import { LogPanel } from "./dashboard/LogPanel.js";
 import "./logs.css";
 
 export function LogsPage() {
+  const navigate = useNavigate();
+
   return (
     <section className="logs-page">
       <Flex vertical gap={16}>
@@ -16,7 +19,15 @@ export function LogsPage() {
           tone="info"
           title="日志记录不等于当前故障"
           copy="先检查当前影响与修复建议；历史日志只用于核实原因。"
-          action={<Button href="/troubleshoot">排查当前问题</Button>}
+          action={
+            <Button
+              type="primary"
+              aria-label="前往排查当前问题"
+              onClick={() => navigate("/troubleshoot")}
+            >
+              排查当前问题
+            </Button>
+          }
         />
         <AdvancedEvidence title="原始日志与分析记录"><LogPanel embedded /></AdvancedEvidence>
       </Flex>

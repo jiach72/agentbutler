@@ -195,7 +195,7 @@ export function KnowledgeConfigCard() {
           <Alert
             type="success"
             showIcon
-            message="本地知识库服务正常在线"
+            title="本地知识库服务正常在线"
             description={
               <Flex vertical gap={8} style={{ marginTop: 4 }}>
                 <Text>
@@ -224,7 +224,7 @@ export function KnowledgeConfigCard() {
           <Alert
             type="info"
             showIcon
-            message="知识库选项已开启，请启动 Docker 容器"
+            title="知识库选项已开启，请启动 Docker 容器"
             description={
               <Flex vertical gap={8} style={{ marginTop: 4 }}>
                 <Text>
@@ -250,7 +250,7 @@ export function KnowledgeConfigCard() {
           <Alert
             type="info"
             showIcon
-            message="功能未开启"
+            title="功能未开启"
             description="开启后即可直接拖拽上传 PDF、Word、TXT、Markdown 等资料，智能体将能够精准检索相关文档知识。"
           />
         )}

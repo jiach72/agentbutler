@@ -225,7 +225,7 @@ export function ApprovalDetailPage() {
           <Alert
             type="warning"
             showIcon
-            message={`该动作今日已被请求 ${item.windowCount} 次，已升级为需在面板确认`}
+            title={`该动作今日已被请求 ${item.windowCount} 次，已升级为需在面板确认`}
             description="同一动作被反复请求时，一键放行会失效。请在本页核对目标后再决定。"
           />
         )}
@@ -364,7 +364,7 @@ export function ApprovalDetailPage() {
               <Alert
                 type="info"
                 showIcon
-                message={audit ? "事后核验与闭环规则说明" : "事前放行与阻断规则说明"}
+                title={audit ? "事后核验与闭环规则说明" : "事前放行与阻断规则说明"}
                 description={
                   audit
                     ? "动作已由 Hermes 执行，核验是对其进行审阅。您可以点击「确认已知」将其归档；若这是安全日常操作，可选择「设为信任免核验」，后续同类操作自动信任不打扰；若动作异常，请选择「存疑并阻断」，管家将拉黑指纹并在未来自动拦截阻断。"

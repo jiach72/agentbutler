@@ -54,7 +54,7 @@ export function AccessGate() {
         <Alert
           type="info"
           showIcon
-          message="当前部署需要访问口令"
+          title="当前部署需要访问口令"
           description="口令在部署时设置（BUTLER_ACCESS_TOKEN）。输入后即可进入系统控制台。"
         />
         <form
