@@ -83,7 +83,19 @@ export function IssuesSection({ issues, attentionCount, onInspect }: IssuesSecti
           /* 数量已经在页面结论条里说过一次，这里不再复述 —— 否则「有 1 件」出现两遍，
              而且结论条说「留意」、这里说「处理」，措辞不一致会让人以为是两件事。 */
           title={attentionCount > 0 ? "待处理清单" : "当前没有待处理事项"}
-          extra={<Text type="secondary">详细信息请查看诊断与修复</Text>}
+          extra={
+            <Flex gap={8} align="center">
+              <Text type="secondary">详细信息请查看诊断与修复</Text>
+              <Button
+                type="link"
+                size="small"
+                style={{ padding: 0 }}
+                onClick={() => navigate("/troubleshoot")}
+              >
+                去排查 →
+              </Button>
+            </Flex>
+          }
         />
         <Flex vertical gap={8}>
           {issues.length === 0 ? (

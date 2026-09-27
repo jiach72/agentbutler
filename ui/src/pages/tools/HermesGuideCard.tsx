@@ -174,7 +174,12 @@ export function HermesGuideCard({ keyword = "" }: HermesGuideCardProps) {
 
       {/* 命令列表 */}
       <div className="space-y-3">
-        {displayItems.map((item) => (
+        {displayItems.length === 0 ? (
+          <div className="py-8 text-center rounded-xl bg-surface-container-low border border-outline-variant/10 text-xs text-on-surface-variant">
+            未找到与 “{keyword}” 相关的 Hermes 指令，试着切换分类或换个关键词。
+          </div>
+        ) : (
+          displayItems.map((item) => (
           <div
             key={item.cmd}
             className="p-3 rounded-xl bg-surface-container-low border border-outline-variant/10 space-y-2 hover:border-outline-variant/25 transition-colors"
@@ -208,7 +213,7 @@ export function HermesGuideCard({ keyword = "" }: HermesGuideCardProps) {
               </div>
             )}
           </div>
-        ))}
+        )))}
       </div>
     </div>
   );
