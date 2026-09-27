@@ -10,7 +10,7 @@ import { money, USD_TO_CNY } from "../../lib/format.js";
 import { App, Button, Card, Flex, Form, InputNumber, Modal, Progress, Segmented, Select, Skeleton, Table, Typography } from "antd";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { SettingOutlined, ThunderboltOutlined, WalletOutlined } from "@ant-design/icons";
+import { ReloadOutlined, SettingOutlined, ThunderboltOutlined, WalletOutlined } from "@ant-design/icons";
 import { ConclusionBar } from "../../components/ConclusionBar.js";
 import type { PageConclusionView } from "../../components/ConclusionBar.js";
 import { Empty } from "../../components/Empty.js";
@@ -146,7 +146,21 @@ export function CostPage() {
         </Flex>
       ),
     },
-    { title: "模型", dataIndex: "model", key: "model", ellipsis: true },
+    {
+      title: "模型",
+      dataIndex: "model",
+      key: "model",
+      ellipsis: true,
+      render: (model: string) => (
+        <Typography.Text
+          copyable={{ text: model, tooltips: ["复制模型名", "已复制"] }}
+          className="font-mono"
+          style={{ fontSize: 13 }}
+        >
+          {model}
+        </Typography.Text>
+      ),
+    },
     {
       title: "成本",
       key: "cost",
@@ -263,9 +277,14 @@ export function CostPage() {
         <PageHeader
           title="成本"
           extra={
-            <Button icon={<SettingOutlined />} onClick={openBudgetModal}>
-              预算设置
-            </Button>
+            <Flex align="center" gap={8} wrap="wrap">
+              <Button icon={<ReloadOutlined />} onClick={refresh}>
+                刷新
+              </Button>
+              <Button icon={<SettingOutlined />} onClick={openBudgetModal}>
+                预算设置
+              </Button>
+            </Flex>
           }
         />
 

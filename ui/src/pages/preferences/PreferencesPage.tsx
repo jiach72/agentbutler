@@ -229,7 +229,11 @@ export function PreferencesPage() {
         />
         <PreferencesPanel />
         <Flex justify="flex-end">
-          <Button type="link" href="#top" icon={<ThunderboltOutlined />}>
+          <Button
+            type="link"
+            icon={<ThunderboltOutlined />}
+            onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+          >
             偏好已即改即存
           </Button>
         </Flex>
