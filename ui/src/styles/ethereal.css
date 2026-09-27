@@ -364,6 +364,12 @@ button:not(:disabled):active,
   border-color: rgba(0, 113, 227, 0.22);
 }
 
+[data-theme="dark"] .bento-card-hover:hover,
+html.dark .bento-card-hover:hover {
+  box-shadow: 0 12px 28px -4px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  border-color: rgba(94, 168, 255, 0.35);
+}
+
 .ping-ring {
   animation: microPulseRing 2.2s cubic-bezier(0.2, 0, 0.3, 1) infinite;
 }
