@@ -30,6 +30,7 @@ import { AiGeneratedNotice } from "../../components/AiGeneratedNotice.js";
 import { Empty } from "../../components/Empty.js";
 import {
   AlertOutlined,
+  CopyOutlined,
   FileTextOutlined,
   FolderOpenOutlined,
   ReloadOutlined,
@@ -280,9 +281,22 @@ export function LogPanel({ open = true, onClose = () => undefined, embedded = fa
 
   const streamExtra =
     activeLog === null ? undefined : (
-      <Text type="secondary" style={{ fontSize: 12 }}>
-        {filteredLines.length} / {activeLog.lines.length} 行
-      </Text>
+      <Space size={8} align="center">
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          {filteredLines.length} / {activeLog.lines.length} 行
+        </Text>
+        <Button
+          size="small"
+          icon={<CopyOutlined />}
+          disabled={filteredLines.length === 0}
+          onClick={() => {
+            void navigator.clipboard.writeText(filteredLines.join("\n"));
+            message.success(`已复制 ${filteredLines.length} 行日志到剪贴板`);
+          }}
+        >
+          复制日志
+        </Button>
+      </Space>
     );
 
   const repairingActionId =
@@ -370,11 +384,11 @@ export function LogPanel({ open = true, onClose = () => undefined, embedded = fa
           <Input
             allowClear
             prefix={<SearchOutlined aria-hidden="true" />}
-            placeholder="搜索日志内容…"
+            placeholder="搜索日志 (如: 401, error, timeout...)"
             aria-label="搜索日志内容"
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}
-            style={{ width: 240 }}
+            style={{ width: 260 }}
           />
           <Segmented
             aria-label="日志级别筛选"
@@ -481,9 +495,23 @@ export function LogPanel({ open = true, onClose = () => undefined, embedded = fa
                       />
                     ) : (
                       <pre className="logs-stream-pre">
-                        {filteredLines.map((line, index) => (
-                          <code key={index}>{line}</code>
-                        ))}
+                        {filteredLines.map((line, index) => {
+                          const lvl = lineLevel(line);
+                          return (
+                            <code
+                              key={index}
+                              className={
+                                lvl === "error"
+                                  ? "logs-line-error"
+                                  : lvl === "warn"
+                                    ? "logs-line-warn"
+                                    : undefined
+                              }
+                            >
+                              {line}
+                            </code>
+                          );
+                        })}
                       </pre>
                     )}
                   </>

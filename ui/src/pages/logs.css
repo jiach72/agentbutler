@@ -17,6 +17,19 @@
 .logs-stream-pre code {
   display: block;
   white-space: pre-wrap;
+  padding: 1px 4px;
+  border-radius: 2px;
+}
+
+.logs-stream-pre code.logs-line-error {
+  color: var(--ab-error, #cf1322);
+  background: rgba(255, 77, 79, 0.08);
+  font-weight: 500;
+}
+
+.logs-stream-pre code.logs-line-warn {
+  color: var(--ab-warning, #d48806);
+  background: rgba(250, 173, 20, 0.08);
 }
 
 /* 智能分析的问题块：标题 + 计数标签 + 示例 + 修复动作。 */
