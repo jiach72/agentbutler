@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
-import { App, Button, Card, Flex, Form, InputNumber, Select, Switch, Table, Typography } from "antd";
+import { DeleteOutlined, PlusOutlined, ReloadOutlined } from "@ant-design/icons";
+import { App, Button, Card, Flex, Form, Input, InputNumber, Select, Switch, Table, Tag, Typography } from "antd";
 
 import { Empty } from "../../components/Empty.js";
 import { deleteJson, fetchJson, postJson } from "../../lib/api.js";
@@ -22,6 +22,12 @@ const SCOPE_OPTIONS = [
   { value: "global", label: "全局" },
   { value: "channel", label: "按通道" },
   { value: "session", label: "按会话" },
+];
+
+const PRESET_WINDOWS = [
+  { label: "夜间 23:00–08:00", start: 1380, end: 480 },
+  { label: "非工作时段 19:00–09:00", start: 1140, end: 540 },
+  { label: "午休 12:00–14:00", start: 720, end: 840 },
 ];
 
 function minutesToLabel(minutes: number | null): string {
@@ -125,7 +131,22 @@ export function DndRulesCard() {
   );
 
   const columns = [
-    { title: "范围", key: "scope", render: (_: unknown, r: DndRuleRow) => (r.scope === "global" ? "全局" : `${r.scope}:${r.scopeKey ?? ""}`) },
+    {
+      title: "范围",
+      key: "scope",
+      render: (_: unknown, r: DndRuleRow) => (
+        <Flex gap={6} align="center" wrap="wrap">
+          <span>{r.scope === "global" ? "全局" : `${r.scope}:${r.scopeKey ?? ""}`}</span>
+          <Typography.Text
+            type="secondary"
+            style={{ fontSize: 11 }}
+            copyable={{ text: r.ruleId, tooltips: ["复制规则 ID", "已复制"] }}
+          >
+            #{r.ruleId.slice(0, 6)}
+          </Typography.Text>
+        </Flex>
+      ),
+    },
     { title: "时段", key: "window", render: (_: unknown, r: DndRuleRow) => `${minutesToLabel(r.startMinute)} – ${minutesToLabel(r.endMinute)}` },
     { title: "时区", key: "tz", render: (_: unknown, r: DndRuleRow) => r.timeZone },
     {
@@ -143,8 +164,40 @@ export function DndRulesCard() {
   ];
 
   return (
-    <Card title={<Typography.Text strong>免打扰规则</Typography.Text>} extra={<Typography.Text type="secondary">{reachable ? "" : "gateway 不可达"}</Typography.Text>}>
+    <Card
+      title={<Typography.Text strong>免打扰规则</Typography.Text>}
+      extra={
+        <Flex gap={8} align="center">
+          {!reachable && <Typography.Text type="secondary">gateway 不可达</Typography.Text>}
+          <Button
+            size="small"
+            icon={<ReloadOutlined />}
+            onClick={() => void refresh()}
+            aria-label="刷新免打扰规则"
+          >
+            刷新
+          </Button>
+        </Flex>
+      }
+    >
       <Flex vertical gap={12}>
+        <Flex gap={6} align="center" wrap="wrap">
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>常用预设：</Typography.Text>
+          {PRESET_WINDOWS.map((preset) => (
+            <Tag
+              key={preset.label}
+              style={{ cursor: "pointer" }}
+              onClick={() => {
+                form.setFieldsValue({
+                  startMinute: preset.start,
+                  endMinute: preset.end,
+                });
+              }}
+            >
+              {preset.label}
+            </Tag>
+          ))}
+        </Flex>
         <Form form={form} layout="inline" onFinish={onSubmit} initialValues={{ scope: "global", timeZone: "Asia/Shanghai" }}>
           <Form.Item name="scope" rules={[{ required: true }]}>
             <Select options={SCOPE_OPTIONS} style={{ width: 100 }} />
@@ -155,7 +208,7 @@ export function DndRulesCard() {
             {({ getFieldValue }) =>
               getFieldValue("scope") !== "global" ? (
                 <Form.Item name="scopeKey" rules={[{ required: true, message: "请填写标识" }]}>
-                  <InputNumber placeholder="通道或会话标识" style={{ width: 160 }} />
+                  <Input placeholder="通道或会话标识 (如: telegram)" style={{ width: 180 }} allowClear />
                 </Form.Item>
               ) : null
             }
@@ -166,8 +219,8 @@ export function DndRulesCard() {
           <Form.Item name="endMinute" rules={[{ required: true, message: "结束" }]}>
             <InputNumber min={0} max={1439} placeholder="结束（分钟）" style={{ width: 120 }} />
           </Form.Item>
-          <Form.Item name="timeZone" rules={[{ required: true }]}>
-            <InputNumber placeholder="Asia/Shanghai" style={{ width: 140 }} hidden />
+          <Form.Item name="timeZone" rules={[{ required: true }]} style={{ display: "none" }}>
+            <Input />
           </Form.Item>
           <Button htmlType="submit" icon={<PlusOutlined />} loading={submitting}>
             添加规则

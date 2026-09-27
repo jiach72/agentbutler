@@ -20,7 +20,12 @@ const MATCHED_COLUMNS: TableColumnsType<RateLimitMatch> = [
     width: 320,
     dataIndex: "template",
     render: (_, match) => (
-      <Typography.Text code ellipsis={{ tooltip: match.template }} style={{ maxWidth: 280 }}>
+      <Typography.Text
+        code
+        ellipsis={{ tooltip: match.template }}
+        copyable={{ text: match.template, tooltips: ["复制错误模板", "已复制"] }}
+        style={{ maxWidth: 280 }}
+      >
         {match.template}
       </Typography.Text>
     ),
