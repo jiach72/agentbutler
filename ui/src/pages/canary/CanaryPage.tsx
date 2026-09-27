@@ -12,6 +12,7 @@ import {
   Card,
   Descriptions,
   Flex,
+  Input,
   Modal,
   Radio,
   Space,
@@ -21,7 +22,7 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { ExperimentOutlined, ReloadOutlined, ThunderboltOutlined } from "@ant-design/icons";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ConclusionBar } from "../../components/ConclusionBar.js";
 import type { PageConclusionView } from "../../components/ConclusionBar.js";
 import { Empty } from "../../components/Empty.js";
@@ -142,6 +143,7 @@ export function CanaryPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [detail, setDetail] = useState<CanaryRun | null>(null);
   const [busy, setBusy] = useState(false);
+  const [searchKeyword, setSearchKeyword] = useState("");
 
   const refresh = useCallback(() => {
     void loadJson<CanaryPayload>("/api/canary?limit=50", 20_000).then((result) => {
@@ -196,7 +198,9 @@ export function CanaryPage() {
       width: 190,
       render: (version: string, row) => (
         <Flex vertical gap={0}>
-          <Typography.Text strong>{version}</Typography.Text>
+          <Typography.Text strong copyable={{ text: version }}>
+            {version}
+          </Typography.Text>
           {row.fromVersion !== null && (
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
               来自 {row.fromVersion}
@@ -370,6 +374,20 @@ export function CanaryPage() {
           { key: "completed", label: "已验证完成", value: summary.completed ?? 0, unit: "次" },
         ];
 
+  const filteredItems = useMemo(() => {
+    const items = data?.items ?? [];
+    const query = searchKeyword.trim().toLowerCase();
+    if (!query) return items;
+    return items.filter(
+      (item) =>
+        item.targetVersion.toLowerCase().includes(query) ||
+        (item.fromVersion && item.fromVersion.toLowerCase().includes(query)) ||
+        (STATUS_LABEL[item.status] && STATUS_LABEL[item.status].toLowerCase().includes(query)) ||
+        item.status.toLowerCase().includes(query) ||
+        item.policy.toLowerCase().includes(query)
+    );
+  }, [data?.items, searchKeyword]);
+
   return (
     <section className="canary-page">
       <Flex vertical gap={16}>
@@ -435,18 +453,39 @@ export function CanaryPage() {
 
         <StatStrip items={canaryStats} loading={summary === null && error === null} skeletonCount={4} />
 
-        <Card title="金丝雀验证记录">
+        <Card
+          title="金丝雀验证记录"
+          extra={
+            (data?.items?.length ?? 0) > 0 ? (
+              <Input.Search
+                placeholder="搜索版本号 (如: v0.5, 0.4.1)..."
+                allowClear
+                size="small"
+                value={searchKeyword}
+                onChange={(e) => setSearchKeyword(e.target.value)}
+                style={{ width: 240 }}
+              />
+            ) : null
+          }
+        >
           {data !== null && data.items.length === 0 ? (
             <Empty
               title="还没有升级验证记录"
               hint="发起一次升级时，管家会自动按当前策略执行金丝雀验证。"
               mascot={false}
             />
+          ) : filteredItems.length === 0 ? (
+            <Empty
+              title="未找到匹配的验证记录"
+              hint={`未找到与 "${searchKeyword}" 相关的记录，请尝试其他关键词。`}
+              action={<Button size="small" onClick={() => setSearchKeyword("")}>清空筛选</Button>}
+              mascot={false}
+            />
           ) : (
             <Table<CanaryRun>
               rowKey="id"
               columns={columns}
-              dataSource={data?.items ?? []}
+              dataSource={filteredItems}
               loading={data === null}
               pagination={{ pageSize: 10, showSizeChanger: false }}
               scroll={{ x: 1050 }}
@@ -477,7 +516,13 @@ function CanaryRunDetail({ run }: { run: CanaryRun }) {
           <StatusBadge tone={STATUS_TONE[run.status] ?? "unknown"} label={STATUS_LABEL[run.status] ?? run.status} />
         </Descriptions.Item>
         <Descriptions.Item label="策略">{POLICY_META[run.policy]?.label ?? run.policy}</Descriptions.Item>
-        <Descriptions.Item label="实例">{run.instance === "" ? "-" : run.instance}</Descriptions.Item>
+        <Descriptions.Item label="实例">
+          {run.instance === "" ? (
+            "-"
+          ) : (
+            <Typography.Text copyable={{ text: run.instance }}>{run.instance}</Typography.Text>
+          )}
+        </Descriptions.Item>
         <Descriptions.Item label="观察窗时长">
           {run.observationWindowMs === 0 ? "无（跳过金丝雀）" : `${Math.round(run.observationWindowMs / 3_600_000)} 小时`}
         </Descriptions.Item>
@@ -549,21 +594,18 @@ function CanaryRunDetail({ run }: { run: CanaryRun }) {
 
       {run.tasks.length > 0 && (
         <Card size="small" title={`抽样任务（${run.tasks.length}）`}>
-          <Flex gap={4} wrap="wrap">
-            {run.tasks.slice(0, 60).map((task) =>
-              task.bucket === "failed" ? (
-                <StatusBadge key={`${task.bucket}:${task.sessionId}`} tone="error" label={task.sessionId} />
-              ) : (
-                <Typography.Text
-                  key={`${task.bucket}:${task.sessionId}`}
-                  className="is-mono"
-                  type="secondary"
-                  style={{ fontSize: 12 }}
-                >
-                  {task.sessionId}
-                </Typography.Text>
-              ),
-            )}
+          <Flex gap={8} wrap="wrap">
+            {run.tasks.slice(0, 60).map((task) => (
+              <Typography.Text
+                key={`${task.bucket}:${task.sessionId}`}
+                className="is-mono"
+                type={task.bucket === "failed" ? "danger" : "secondary"}
+                copyable={{ text: task.sessionId }}
+                style={{ fontSize: 12 }}
+              >
+                {task.sessionId}
+              </Typography.Text>
+            ))}
             {run.tasks.length > 60 && <Typography.Text type="secondary">等 {run.tasks.length} 条</Typography.Text>}
           </Flex>
         </Card>
