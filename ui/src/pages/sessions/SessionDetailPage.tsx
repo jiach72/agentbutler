@@ -7,12 +7,13 @@
  * - 隐私边界显式提示：不展示对话正文。
  */
 import { money } from "../../lib/format.js";
-import { Alert, Button, Card, Descriptions, Flex, Tag, Timeline, Typography } from "antd";
+import { Alert, Button, Card, Descriptions, Flex, Input, Tag, Timeline, Typography } from "antd";
 import { ArrowLeftOutlined } from "@ant-design/icons";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ConclusionBar } from "../../components/ConclusionBar.js";
 import type { PageConclusionView } from "../../components/ConclusionBar.js";
+import { CopySnippetButton } from "../../components/CopySnippetButton.js";
 import { Empty } from "../../components/Empty.js";
 import { PageHeader } from "../../components/PageHeader.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
@@ -100,6 +101,7 @@ export function SessionDetailPage() {
   const sessionId = params.id ?? "";
   const [detail, setDetail] = useState<DetailPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [timelineKeyword, setTimelineKeyword] = useState("");
 
   const refresh = useCallback(() => {
     if (sessionId === "") return;
@@ -112,6 +114,19 @@ export function SessionDetailPage() {
       }
     });
   }, [sessionId]);
+
+  const filteredTimeline = useMemo(() => {
+    const list = detail?.timeline ?? [];
+    const q = timelineKeyword.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter(
+      (node) =>
+        node.label.toLowerCase().includes(q) ||
+        node.kind.toLowerCase().includes(q) ||
+        (node.detail && node.detail.toLowerCase().includes(q)) ||
+        (node.payload && JSON.stringify(node.payload).toLowerCase().includes(q)),
+    );
+  }, [detail?.timeline, timelineKeyword]);
 
   useEffect(() => {
     refresh();
@@ -232,11 +247,23 @@ export function SessionDetailPage() {
         <Card
           title="动作时间线"
           extra={
-            detail !== null && Object.keys(detail.kinds).length > 0 ? (
-              <Flex gap={4} wrap="wrap">
-                {Object.entries(detail.kinds).map(([kind, count]) => (
-                  <Tag key={kind}>{kind} × {count}</Tag>
-                ))}
+            detail !== null && detail.timeline.length > 0 ? (
+              <Flex gap={8} wrap="wrap" align="center">
+                <Input.Search
+                  placeholder="搜索动作 / 异常 / 载荷..."
+                  allowClear
+                  size="small"
+                  value={timelineKeyword}
+                  onChange={(e) => setTimelineKeyword(e.target.value)}
+                  style={{ width: 200 }}
+                />
+                {Object.keys(detail.kinds).length > 0 && (
+                  <Flex gap={4} wrap="wrap">
+                    {Object.entries(detail.kinds).map(([kind, count]) => (
+                      <Tag key={kind}>{kind} × {count}</Tag>
+                    ))}
+                  </Flex>
+                )}
               </Flex>
             ) : undefined
           }
@@ -247,9 +274,16 @@ export function SessionDetailPage() {
               hint="动作流为空，或索引尚未覆盖这次会话。"
               mascotWidth={72}
             />
+          ) : filteredTimeline.length === 0 ? (
+            <Empty
+              title="未找到匹配的时间线节点"
+              hint={`未找到与 "${timelineKeyword}" 相关的动作或异常`}
+              action={<Button size="small" onClick={() => setTimelineKeyword("")}>清空筛选</Button>}
+              mascotWidth={72}
+            />
           ) : (
             <Timeline
-              items={detail.timeline.map((node, index) => {
+              items={filteredTimeline.map((node, index) => {
                 const tone = NODE_TONE[node.severity];
                 const anomaly = node.kind === "anomaly";
                 return {
@@ -281,14 +315,26 @@ export function SessionDetailPage() {
                         </Typography.Paragraph>
                       )}
                       {node.payload !== undefined && (
-                        <Typography.Paragraph
-                          type="secondary"
-                          className="is-mono"
-                          style={{ marginBottom: 0, marginTop: 4, fontSize: "var(--ab-text-size-xs)" }}
-                          ellipsis={{ rows: 3, expandable: true, symbol: "查看载荷" }}
-                        >
-                          {JSON.stringify(node.payload)}
-                        </Typography.Paragraph>
+                        <Flex vertical gap={4} style={{ marginTop: 4 }}>
+                          <Flex justify="space-between" align="center">
+                            <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                              载荷数据
+                            </Typography.Text>
+                            <CopySnippetButton
+                              text={typeof node.payload === "string" ? node.payload : JSON.stringify(node.payload, null, 2)}
+                              label="复制载荷"
+                              copiedLabel="已复制"
+                            />
+                          </Flex>
+                          <Typography.Paragraph
+                            type="secondary"
+                            className="is-mono"
+                            style={{ marginBottom: 0, fontSize: "var(--ab-text-size-xs)" }}
+                            ellipsis={{ rows: 3, expandable: true, symbol: "展开载荷" }}
+                          >
+                            {JSON.stringify(node.payload)}
+                          </Typography.Paragraph>
+                        </Flex>
                       )}
                     </div>
                   ),
