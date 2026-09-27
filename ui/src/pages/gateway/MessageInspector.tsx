@@ -5,6 +5,7 @@ import {
   Descriptions,
   Drawer,
   Flex,
+  Input,
   Pagination,
   Popconfirm,
   Segmented,
@@ -16,6 +17,7 @@ import {
 } from "antd";
 import { AdvancedEvidence } from "../../components/AdvancedEvidence.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
+import { CopySnippetButton } from "../../components/CopySnippetButton.js";
 import { Empty } from "../../components/Empty.js";
 import { formatRelative } from "../../lib/format.js";
 import {
@@ -112,7 +114,16 @@ export function MessageDetail({
 }: DetailProps) {
   return (
     <Flex vertical gap={16} style={{ minWidth: 0, overflowWrap: "anywhere" }}>
-      <StatusBadge {...statusTone(message.state)} />
+      <Flex justify="space-between" align="center" gap={8} wrap="wrap">
+        <StatusBadge {...statusTone(message.state)} />
+        {message.content && (
+          <CopySnippetButton
+            text={message.content}
+            label="复制消息"
+            copiedLabel="已复制"
+          />
+        )}
+      </Flex>
       <Typography.Paragraph style={{ whiteSpace: "pre-wrap", margin: 0 }}>
         {message.content || "（空消息内容）"}
       </Typography.Paragraph>
@@ -227,18 +238,56 @@ export function MessageDetail({
           size="small"
           column={1}
           items={[
-            { key: "message", label: "消息编号", children: message.messageId },
-            { key: "session", label: "会话编号", children: message.sessionId },
-            { key: "run", label: "任务编号", children: message.runId ?? "未关联" },
+            {
+              key: "message",
+              label: "消息编号",
+              children: (
+                <Typography.Text copyable={{ text: message.messageId }} className="is-mono">
+                  {message.messageId}
+                </Typography.Text>
+              ),
+            },
+            {
+              key: "session",
+              label: "会话编号",
+              children: (
+                <Typography.Text copyable={{ text: message.sessionId }} className="is-mono">
+                  {message.sessionId}
+                </Typography.Text>
+              ),
+            },
+            {
+              key: "run",
+              label: "任务编号",
+              children: message.runId ? (
+                <Typography.Text copyable={{ text: message.runId }} className="is-mono">
+                  {message.runId}
+                </Typography.Text>
+              ) : (
+                "未关联"
+              ),
+            },
             {
               key: "inbound",
               label: "相关消息编号",
-              children: message.inboundMessageId ?? "未关联",
+              children: message.inboundMessageId ? (
+                <Typography.Text copyable={{ text: message.inboundMessageId }} className="is-mono">
+                  {message.inboundMessageId}
+                </Typography.Text>
+              ) : (
+                "未关联"
+              ),
             },
             {
               key: "provider",
               label: "平台消息编号",
-              children: message.providerMessageId ?? "未返回",
+              children: message.providerMessageId ? (
+                <Typography.Text copyable={{ text: message.providerMessageId }} className="is-mono">
+                  {message.providerMessageId}
+                </Typography.Text>
+              ) : (
+                "未返回"
+              ),
             },
             { key: "state", label: "原始状态", children: message.state },
             {
@@ -339,8 +388,23 @@ export function MessageInspector(props: MessageInspectorProps) {
     props.onSelectMessage(null);
   };
 
+  const [keyword, setKeyword] = useState("");
+
+  const searchedItems = useMemo(() => {
+    const q = keyword.trim().toLowerCase();
+    if (!q) return messageItems;
+    return messageItems.filter(
+      (m) =>
+        m.messageId.toLowerCase().includes(q) ||
+        m.sessionId.toLowerCase().includes(q) ||
+        m.content.toLowerCase().includes(q) ||
+        channelLabel(m.channel).toLowerCase().includes(q) ||
+        m.channel.toLowerCase().includes(q),
+    );
+  }, [messageItems, keyword]);
+
   const [page, setPage] = useState(1);
-  const currentPage = Math.min(page, Math.max(1, Math.ceil(messageItems.length / 8)));
+  const currentPage = Math.min(page, Math.max(1, Math.ceil(searchedItems.length / 8)));
   const states = pendingOnly ? ACTIONABLE_MESSAGE_STATES : MESSAGE_CHIP_STATES;
   return (
     <Flex vertical gap={16}>
@@ -363,47 +427,62 @@ export function MessageInspector(props: MessageInspectorProps) {
             </Tooltip>
           )}
         </Flex>
-        {pendingOnly ? (
-          <Flex align="center" gap={8} wrap>
-            <Segmented
+        <Flex align="center" gap={8} wrap>
+          {messageItems.length > 0 && (
+            <Input.Search
+              placeholder="搜索内容 / 会话 / 通道..."
+              allowClear
               size="small"
-              value={timeFilter}
-              onChange={(val) => {
+              value={keyword}
+              onChange={(e) => {
                 setPage(1);
-                setTimeFilter(val as ActionableTimeFilter);
+                setKeyword(e.target.value);
               }}
-              options={ACTIONABLE_TIME_OPTIONS.map((opt) => ({
-                label: opt.label,
-                value: opt.value,
-              }))}
+              style={{ width: 190 }}
             />
-            {messageItems.length > 0 && (
-              <Popconfirm
-                title="确认全部忽略？"
-                description="将当前列表中的待处理记录标记为已核实，不再在待处理列表中提醒。"
-                okText="全部忽略"
-                cancelText="取消"
-                onConfirm={handleDismissAll}
-              >
-                <Button size="small">全部忽略</Button>
-              </Popconfirm>
-            )}
-          </Flex>
-        ) : (
-          <Select<MessageStateFilter>
-            aria-label="消息状态"
-            value={activeStateFilter}
-            onChange={onStateFilterChange}
-            style={{ width: 200, maxWidth: "100%" }}
-            options={[
-              { value: "all", label: "全部记录" },
-              ...states.map((state) => ({
-                value: state,
-                label: `${MESSAGE_STATE_LABELS[state]} (${props.messageCounts[state] ?? 0})`,
-              })),
-            ]}
-          />
-        )}
+          )}
+          {pendingOnly ? (
+            <>
+              <Segmented
+                size="small"
+                value={timeFilter}
+                onChange={(val) => {
+                  setPage(1);
+                  setTimeFilter(val as ActionableTimeFilter);
+                }}
+                options={ACTIONABLE_TIME_OPTIONS.map((opt) => ({
+                  label: opt.label,
+                  value: opt.value,
+                }))}
+              />
+              {messageItems.length > 0 && (
+                <Popconfirm
+                  title="确认全部忽略？"
+                  description="将当前列表中的待处理记录标记为已核实，不再在待处理列表中提醒。"
+                  okText="全部忽略"
+                  cancelText="取消"
+                  onConfirm={handleDismissAll}
+                >
+                  <Button size="small">全部忽略</Button>
+                </Popconfirm>
+              )}
+            </>
+          ) : (
+            <Select<MessageStateFilter>
+              aria-label="消息状态"
+              value={activeStateFilter}
+              onChange={onStateFilterChange}
+              style={{ width: 200, maxWidth: "100%" }}
+              options={[
+                { value: "all", label: "全部记录" },
+                ...states.map((state) => ({
+                  value: state,
+                  label: `${MESSAGE_STATE_LABELS[state]} (${props.messageCounts[state] ?? 0})`,
+                })),
+              ]}
+            />
+          )}
+        </Flex>
       </Flex>
       {!props.messagesReachable ? (
         <Empty
@@ -427,9 +506,16 @@ export function MessageInspector(props: MessageInspectorProps) {
               : undefined
           }
         />
+      ) : searchedItems.length === 0 ? (
+        <Empty
+          mascot={false}
+          title="未找到匹配的消息记录"
+          hint={`未找到与 "${keyword}" 相关的消息`}
+          action={<Button size="small" onClick={() => setKeyword("")}>清空筛选</Button>}
+        />
       ) : (
         <Flex vertical gap={8} aria-label="消息列表">
-          {messageItems.slice((currentPage - 1) * 8, currentPage * 8).map((message) => (
+          {searchedItems.slice((currentPage - 1) * 8, currentPage * 8).map((message) => (
             <Button
               key={message.messageId}
               type="text"
@@ -457,18 +543,20 @@ export function MessageInspector(props: MessageInspectorProps) {
           ))}
         </Flex>
       )}
-      {messageItems.length > 8 && (
+      {searchedItems.length > 8 && (
         <Pagination
           size="small"
           current={currentPage}
           pageSize={8}
-          total={messageItems.length}
+          total={searchedItems.length}
           onChange={setPage}
           showSizeChanger={false}
         />
       )}
-      {messageItems.length > 0 && (
-        <Typography.Text type="secondary">已载入最近 {messageItems.length} 条记录</Typography.Text>
+      {searchedItems.length > 0 && (
+        <Typography.Text type="secondary">
+          {keyword ? `匹配 ${searchedItems.length} / ` : ""}已载入最近 {messageItems.length} 条记录
+        </Typography.Text>
       )}
       {!pendingOnly && (
         <AdvancedEvidence title="消息链路与覆盖">
