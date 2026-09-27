@@ -5,7 +5,7 @@
 import { useState } from "react";
 import { App } from "antd";
 import { ArrowRightOutlined, RobotOutlined } from "@ant-design/icons";
-import { Button, Card, Flex, Typography } from "antd";
+import { Button, Card, Flex, Tag, Typography } from "antd";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import type { SemanticTone } from "../../components/StatusBadge.js";
 import { useNavigate } from "react-router-dom";
@@ -86,58 +86,91 @@ export function IssuesSection({ issues, attentionCount, onInspect }: IssuesSecti
           extra={<Text type="secondary">详细信息请查看诊断与修复</Text>}
         />
         <Flex vertical gap={8}>
-          {visibleIssues.map((issue) => {
-            const action = issue.action;
-            return (
-              <Card
-                size="small"
-                key={issue.id}
-                className={`ab-guard-card is-${issue.tone === "error" ? "error" : "warn"}`}
-              >
-                <Flex align="flex-start" gap={12}>
-                  <StatusBadge
-                    tone={ISSUE_TONE[issue.tone]}
-                    label={ISSUE_TONE_LABEL[issue.tone]}
-                  />
-                  <Flex vertical gap={4} style={{ minWidth: 0 }}>
-                    <Text strong>{issue.title}</Text>
-                    <Text type="secondary">{issue.detail}</Text>
-                    {action !== undefined && (
-                      <Button
-                        type="link"
-                        icon={<ArrowRightOutlined />}
-                        style={{ paddingInline: 0, alignSelf: "flex-start" }}
-                        onClick={() => action.to === undefined ? onInspect() : navigate(action.to)}
-                      >
-                        {action.label}
-                      </Button>
-                    )}
-                    {issue.fingerprint !== undefined && (
-                      <Flex wrap gap={8}>
-                        <CopySnippetButton
-                          text={buildAgentHelpPrompt(issue.fingerprint)}
-                          label="复制求助提示词"
-                          copiedLabel="提示词已复制"
-                        />
-                        {(issue.fingerprint.instance ?? "").startsWith("hermes") && (
-                          <Button
-                            size="small"
-                            type="primary"
-                            ghost
-                            icon={<RobotOutlined />}
-                            loading={forwardingId === issue.id}
-                            onClick={() => void forwardToAgent(issue)}
-                          >
-                            转发给智能体
-                          </Button>
-                        )}
-                      </Flex>
-                    )}
-                  </Flex>
+          {issues.length === 0 ? (
+            <Card size="small" className="ab-guard-card is-ok">
+              <Flex align="center" gap={12}>
+                <StatusBadge tone="ok" label="正常" />
+                <Flex vertical gap={2}>
+                  <Text strong>当前所有受管服务运行良好</Text>
+                  <Text type="secondary">
+                    后台巡检与指标未发现任何待处理异常或阻塞项，智能体在后台静默守护。
+                  </Text>
                 </Flex>
-              </Card>
-            );
-          })}
+              </Flex>
+            </Card>
+          ) : (
+            visibleIssues.map((issue) => {
+              const action = issue.action;
+              return (
+                <Card
+                  size="small"
+                  key={issue.id}
+                  className={`ab-guard-card is-${issue.tone === "error" ? "error" : "warn"}`}
+                >
+                  <Flex align="flex-start" gap={12}>
+                    <StatusBadge
+                      tone={ISSUE_TONE[issue.tone]}
+                      label={ISSUE_TONE_LABEL[issue.tone]}
+                    />
+                    <Flex vertical gap={4} style={{ minWidth: 0 }}>
+                      <Text strong>{issue.title}</Text>
+                      <Text type="secondary">{issue.detail}</Text>
+                      {action !== undefined && (
+                        <Button
+                          type="link"
+                          icon={<ArrowRightOutlined />}
+                          style={{ paddingInline: 0, alignSelf: "flex-start" }}
+                          onClick={() => action.to === undefined ? onInspect() : navigate(action.to)}
+                        >
+                          {action.label}
+                        </Button>
+                      )}
+                      {issue.fingerprint !== undefined && (
+                        <Flex wrap gap={8} align="center">
+                          <Tag
+                            style={{
+                              fontFamily: "monospace",
+                              fontSize: 11,
+                              marginInlineEnd: 0,
+                            }}
+                          >
+                            <Typography.Text
+                              copyable={{
+                                text: issue.fingerprint.signature,
+                                tooltips: ["复制指纹特征", "已复制"],
+                              }}
+                              type="secondary"
+                            >
+                              {issue.fingerprint.signature.length > 20
+                                ? `${issue.fingerprint.signature.slice(0, 8)}...${issue.fingerprint.signature.slice(-8)}`
+                                : issue.fingerprint.signature}
+                            </Typography.Text>
+                          </Tag>
+                          <CopySnippetButton
+                            text={buildAgentHelpPrompt(issue.fingerprint)}
+                            label="复制求助提示词"
+                            copiedLabel="提示词已复制"
+                          />
+                          {(issue.fingerprint.instance ?? "").startsWith("hermes") && (
+                            <Button
+                              size="small"
+                              type="primary"
+                              ghost
+                              icon={<RobotOutlined />}
+                              loading={forwardingId === issue.id}
+                              onClick={() => void forwardToAgent(issue)}
+                            >
+                              转发给智能体
+                            </Button>
+                          )}
+                        </Flex>
+                      )}
+                    </Flex>
+                  </Flex>
+                </Card>
+              );
+            })
+          )}
         </Flex>
         {issues.length > 5 && (
           <Button
