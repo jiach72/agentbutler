@@ -25,7 +25,8 @@ describe("行为审计与事件中心 (AuditPage & EventsPage) UI/UX 与工效�
     expect(html).toContain("行为审计");
     expect(html).toContain("动作时间线");
 
-    // 全量工效无障碍筛选器
+    // 全量工效无障碍筛选器与即时搜索
+    expect(html).toContain('aria-label="搜索审计动作"');
     expect(html).toContain('aria-label="选择审计时间范围"');
     expect(html).toContain('aria-label="筛选动作类型"');
     expect(html).toContain('aria-label="筛选严重级别"');

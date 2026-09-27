@@ -5,7 +5,7 @@
  * - 顶部过滤 chips（类型 / 严重度 / 时间窗）；
  * - 采集器降级态（no-sources / no-matches）显式展示，不假装一切正常。
  */
-import { Button, Card, Flex, Segmented, Select, Timeline, Tooltip, Typography } from "antd";
+import { Button, Card, Flex, Input, Segmented, Select, Timeline, Tooltip, Typography } from "antd";
 import {
   CodeOutlined,
   DeleteOutlined,
@@ -96,6 +96,7 @@ export function AuditPage() {
   const [windowHours, setWindowHours] = useUrlState<number>("range", 24);
   const [kindFilter, setKindFilter] = useUrlState<string>("kind", "all");
   const [severityFilter, setSeverityFilter] = useUrlState<string>("sev", "all");
+  const [keyword, setKeyword] = useState("");
   const [data, setData] = useState<ActionsResponse | null>(null);
   const [summary, setSummary] = useState<AuditSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -124,8 +125,21 @@ export function AuditPage() {
     let actions = data?.actions ?? [];
     if (kindFilter !== "all") actions = actions.filter((item) => item.kind === kindFilter);
     if (severityFilter !== "all") actions = actions.filter((item) => item.severity === severityFilter);
-    return actions;
-  }, [data, kindFilter, severityFilter]);
+    const kw = keyword.trim().toLowerCase();
+    if (!kw) return actions;
+    return actions.filter((item) => {
+      const matchTarget = item.target.toLowerCase().includes(kw);
+      const matchSnippet = snippetOf(item).toLowerCase().includes(kw);
+      const matchSession = item.sessionId?.toLowerCase().includes(kw) ?? false;
+      return matchTarget || matchSnippet || matchSession;
+    });
+  }, [data, kindFilter, severityFilter, keyword]);
+
+  const resetFilters = useCallback(() => {
+    setKindFilter("all");
+    setSeverityFilter("all");
+    setKeyword("");
+  }, [setKindFilter, setSeverityFilter]);
 
   const grouped = useMemo(() => {
     const groups = new Map<string, ActionEvent[]>();
@@ -235,7 +249,15 @@ export function AuditPage() {
         <Card
           title="动作时间线"
           extra={
-            <Flex gap={8} wrap="wrap">
+            <Flex gap={8} wrap="wrap" align="center">
+              <Input
+                placeholder="搜索动作目标 / 命令 / 路径..."
+                allowClear
+                value={keyword}
+                onChange={(e) => setKeyword(e.target.value)}
+                style={{ width: 220 }}
+                aria-label="搜索审计动作"
+              />
               <Segmented
                 aria-label="选择审计时间范围"
                 options={WINDOWS}
@@ -243,14 +265,14 @@ export function AuditPage() {
                 onChange={(value) => setWindowHours(value as number)}
               />
               <Select
-                style={{ minWidth: 120 }}
+                style={{ minWidth: 110 }}
                 value={kindFilter}
                 aria-label="筛选动作类型"
                 onChange={setKindFilter}
                 options={kindOptions}
               />
               <Select
-                style={{ minWidth: 110 }}
+                style={{ minWidth: 105 }}
                 value={severityFilter}
                 aria-label="筛选严重级别"
                 onChange={setSeverityFilter}
@@ -265,8 +287,19 @@ export function AuditPage() {
         >
           {filtered.length === 0 ? (
             <Empty
-              title="窗口内还没有匹配的动作记录"
-              hint="换一个时间窗或筛选条件看看；有动作后这里会按天列出时间线。"
+              title={keyword.trim() !== "" ? "未找到匹配的动作记录" : "窗口内还没有匹配的动作记录"}
+              hint={
+                keyword.trim() !== ""
+                  ? `未找到与「${keyword.trim()}」相关的动作记录。`
+                  : "换一个时间窗或筛选条件看看；有动作后这里会按天列出时间线。"
+              }
+              action={
+                (data?.actions?.length ?? 0) > 0 || keyword.trim() !== "" || kindFilter !== "all" || severityFilter !== "all" ? (
+                  <Button onClick={resetFilters}>重置筛选条件</Button>
+                ) : (
+                  <Button onClick={refresh}>刷新重试</Button>
+                )
+              }
               mascotWidth={72}
             />
           ) : (
@@ -312,13 +345,19 @@ export function AuditPage() {
                                 </Tooltip>
                               )}
                             </Flex>
-                            <Typography.Paragraph
-                              className="is-mono"
-                              style={{ marginBottom: snippet === "" ? 0 : 4, marginTop: 4, fontSize: 12 }}
-                              ellipsis={{ rows: 2, expandable: true, symbol: "展开" }}
-                            >
-                              {event.target}
-                            </Typography.Paragraph>
+                            <Flex align="center" gap={6} style={{ marginTop: 4 }}>
+                              <Typography.Paragraph
+                                className="is-mono"
+                                style={{ marginBottom: snippet === "" ? 0 : 4, fontSize: 12, flex: 1 }}
+                                ellipsis={{ rows: 2, expandable: true, symbol: "展开" }}
+                              >
+                                {event.target}
+                              </Typography.Paragraph>
+                              <Typography.Text
+                                copyable={{ text: event.target, tooltips: ["复制动作目标", "已复制"] }}
+                                aria-label={`复制动作目标 ${event.target}`}
+                              />
+                            </Flex>
                             {snippet !== "" && snippet !== event.target && (
                               <Typography.Paragraph
                                 type="secondary"
