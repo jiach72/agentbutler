@@ -44,6 +44,10 @@ describe("常见问题与避坑指南（TroubleshootFaq）", () => {
     // 6. 通道应用中
     expect(html).toContain("在面板修改消息通道后，状态一直卡在「应用中」？");
     expect(html).toContain("journalctl");
+
+    // 7. 定时任务未按时执行 / 时区
+    expect(html).toContain("定时任务未按时执行，或者时间与本地相差 8 小时？");
+    expect(html).toContain("docker compose exec butler-watch date");
   });
 
   it("渲染分类筛选过滤器与搜索框", () => {

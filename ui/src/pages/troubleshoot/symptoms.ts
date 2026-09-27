@@ -8,7 +8,14 @@
  *   所有证据和动作始终完整呈现——向导是帮他找重点，不是替他做决定。
  */
 
-export type SymptomId = "no-reply" | "slow" | "error" | "after-update" | "not-sure";
+export type SymptomId =
+  | "no-reply"
+  | "slow"
+  | "error"
+  | "after-update"
+  | "model-unreachable"
+  | "cron-issue"
+  | "not-sure";
 
 export interface Symptom {
   id: SymptomId;
@@ -26,6 +33,18 @@ export const SYMPTOMS: readonly Symptom[] = [
     label: "它不回我消息了",
     hint: "重点查消息通道是否断连、网关是否卡住。",
     preferredActions: ["reconnect-channel", "cleanup-gateway", "refresh-probe", "restart-instance"],
+  },
+  {
+    id: "model-unreachable",
+    label: "模型连不上或报 401 密钥失效",
+    hint: "重点查主模型 API Key、中转端点地址与本地 Ollama 连通性。",
+    preferredActions: ["refresh-probe", "restart-instance"],
+  },
+  {
+    id: "cron-issue",
+    label: "定时任务没有跑或执行报错",
+    hint: "重点查定时任务排程历史、时区偏差与环境运行日志。",
+    preferredActions: ["refresh-probe", "restart-instance"],
   },
   {
     id: "slow",

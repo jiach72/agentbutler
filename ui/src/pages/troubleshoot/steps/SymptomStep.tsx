@@ -6,7 +6,16 @@
  * 展示层为统一卡规格网格：图标 + 现象名 + 一句话描述，点击后短暂高亮选中态。
  */
 import { useState } from "react";
-import { LoadingOutlined, MessageOutlined, ClockCircleOutlined, AlertOutlined, SyncOutlined, SearchOutlined } from "@ant-design/icons";
+import {
+  LoadingOutlined,
+  MessageOutlined,
+  ClockCircleOutlined,
+  AlertOutlined,
+  SyncOutlined,
+  SearchOutlined,
+  ApiOutlined,
+  ScheduleOutlined,
+} from "@ant-design/icons";
 import { Button, Flex, Space, Steps, Tooltip, Typography } from "antd";
 import { SectionHeader } from "../../../components/SectionHeader.js";
 import { SYMPTOMS, type SymptomId } from "../symptoms.js";
@@ -17,6 +26,8 @@ const { Text, Paragraph } = Typography;
 /** 现象卡图标与色调（色调随类别）。 */
 const SYMPTOM_META: Record<SymptomId, { icon: ComponentType; tone: string }> = {
   "no-reply": { icon: MessageOutlined, tone: "tone-error" },
+  "model-unreachable": { icon: ApiOutlined, tone: "tone-warn" },
+  "cron-issue": { icon: ScheduleOutlined, tone: "tone-info" },
   slow: { icon: ClockCircleOutlined, tone: "tone-warn" },
   error: { icon: AlertOutlined, tone: "tone-cinnabar" },
   "after-update": { icon: SyncOutlined, tone: "tone-info" },

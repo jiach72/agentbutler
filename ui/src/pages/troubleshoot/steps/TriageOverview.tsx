@@ -9,7 +9,17 @@
  * 产品原则：用户带着焦虑来，第一屏必须是答案而不是选择题。
  * 现象选择不删除——降级为「按我的感受重新聚焦」，只影响排序不隐藏信息。
  */
-import { CaretRightOutlined, CopyOutlined, DownloadOutlined, ReloadOutlined } from "@ant-design/icons";
+import {
+  CaretRightOutlined,
+  CopyOutlined,
+  DownloadOutlined,
+  ReloadOutlined,
+  ApiOutlined,
+  MessageOutlined,
+  ScheduleOutlined,
+  FileTextOutlined,
+  RightOutlined,
+} from "@ant-design/icons";
 import { Button, Card, Flex, Progress, Skeleton, Space, Typography } from "antd";
 import { useNavigate } from "react-router-dom";
 import { IssueCard } from "../../../components/IssueCard.js";
@@ -189,6 +199,74 @@ export function TriageOverview({
         </Card>
       )}
 
+      {/* 高频功能自愈与验证直通车 */}
+      <Card size="small" style={{ borderRadius: 12 }}>
+        <Flex vertical gap={10}>
+          <Flex justify="space-between" align="center">
+            <Text strong style={{ fontSize: 13 }}>
+              高频功能自愈与验证直通
+            </Text>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              快速定位具体模块状态
+            </Text>
+          </Flex>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <Button
+              size="middle"
+              icon={<ApiOutlined style={{ color: "var(--ab-primary)" }} />}
+              onClick={() => navigate("/settings")}
+              className="flex items-center justify-between text-left"
+              style={{ padding: "8px 12px", height: "auto" }}
+            >
+              <div>
+                <div style={{ fontWeight: 500, fontSize: 13 }}>测试模型连通</div>
+                <div style={{ fontSize: 11, color: "var(--ab-text-3)" }}>验证 API Key / Ollama</div>
+              </div>
+              <RightOutlined style={{ fontSize: 10, color: "var(--ab-text-4)" }} />
+            </Button>
+            <Button
+              size="middle"
+              icon={<MessageOutlined style={{ color: "#52c41a" }} />}
+              onClick={() => navigate("/gateway")}
+              className="flex items-center justify-between text-left"
+              style={{ padding: "8px 12px", height: "auto" }}
+            >
+              <div>
+                <div style={{ fontWeight: 500, fontSize: 13 }}>测试通道发信</div>
+                <div style={{ fontSize: 11, color: "var(--ab-text-3)" }}>IM 渠道冒烟连通</div>
+              </div>
+              <RightOutlined style={{ fontSize: 10, color: "var(--ab-text-4)" }} />
+            </Button>
+            <Button
+              size="middle"
+              icon={<ScheduleOutlined style={{ color: "#1890ff" }} />}
+              onClick={() => navigate("/tasks")}
+              className="flex items-center justify-between text-left"
+              style={{ padding: "8px 12px", height: "auto" }}
+            >
+              <div>
+                <div style={{ fontWeight: 500, fontSize: 13 }}>排查定时任务</div>
+                <div style={{ fontSize: 11, color: "var(--ab-text-3)" }}>查看执行记录与报错</div>
+              </div>
+              <RightOutlined style={{ fontSize: 10, color: "var(--ab-text-4)" }} />
+            </Button>
+            <Button
+              size="middle"
+              icon={<FileTextOutlined style={{ color: "#faad14" }} />}
+              onClick={() => navigate("/logs")}
+              className="flex items-center justify-between text-left"
+              style={{ padding: "8px 12px", height: "auto" }}
+            >
+              <div>
+                <div style={{ fontWeight: 500, fontSize: 13 }}>查阅系统日志</div>
+                <div style={{ fontSize: 11, color: "var(--ab-text-3)" }}>过滤 Warning 与 Error</div>
+              </div>
+              <RightOutlined style={{ fontSize: 10, color: "var(--ab-text-4)" }} />
+            </Button>
+          </div>
+        </Flex>
+      </Card>
+
       {/* 底部出口：主次分明，向导入口弱化为文字链 */}
       <div className="ts-footer-links flex flex-wrap items-center gap-2">
         <Button type="primary" ghost onClick={onOpenWizard}>
@@ -211,7 +289,7 @@ export function TriageOverview({
           onClick={() => void exportReport()}
           loading={downloading}
         >
-          {downloading ? "正在下载…" : "下载完整报告 (.md)"}
+          {downloading ? "正在下载…" : "下载诊断报告 (.md)"}
         </Button>
       </div>
     </Flex>

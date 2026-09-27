@@ -81,8 +81,8 @@ const FAQ_ITEMS: readonly FaqItem[] = [
     category: "model",
     categoryLabel: "模型服务",
     title: "模型探针与记忆写入整片失败，后台大量 401 报错？",
-    symptomTag: "它报错了",
-    symptomId: "error",
+    symptomTag: "模型连不上",
+    symptomId: "model-unreachable",
     summary: "调用大模型时频繁超时或报错 401 Unauthorized，无法生成回复与摘要。",
     rootCause:
       ".env 中的模型 API Key 填写有误、包含了多余首尾空格、或者中转端点地址协议格式不对。为保障凭证安全，系统不会在日志中打印真实 Key，若未经预检启动会导致管家持续带坏 Key 重试。",
@@ -138,6 +138,22 @@ const FAQ_ITEMS: readonly FaqItem[] = [
       "使用 journalctl 查阅宿主网关日志确认加载报错。排查并修复 YAML 格式或 Token 授权后，手动重启一次宿主 hermes-gateway，网关检测到配置同步后会自动恢复「已生效」状态。",
     tags: ["channel", "通道", "应用中", "pending", "hermes-gateway", "yaml"],
   },
+  {
+    id: "cron-timezone",
+    category: "env",
+    categoryLabel: "定时任务",
+    title: "定时任务未按时执行，或者时间与本地相差 8 小时？",
+    symptomTag: "定时任务没跑",
+    symptomId: "cron-issue",
+    summary: "定时任务配置后未在预期时刻触发，或者执行记录中的触发时间比当前时间相差 8 小时。",
+    rootCause:
+      "容器镜像内默认使用 UTC 标准时间，若未配置 TZ 环境变量，Cron 表达式将按照 UTC 时间匹配执行。此外，Windows/macOS 宿主机休眠可能导致定时器中断挂起。",
+    verificationSnippet: "docker compose exec butler-watch date",
+    fixSnippet: "docker compose exec butler-watch env | grep TZ",
+    solution:
+      "确保 .env 或 compose 文件中注入了 TZ=Asia/Shanghai 等本地时区变量；在「定时任务」页面点击任务卡片的「测试运行」按钮，可立即手动触发一次执行以验证逻辑是否正常。",
+    tags: ["cron", "时区", "定时任务", "utc", "8小时", "测试运行", "watch"],
+  },
 ];
 
 interface TroubleshootFaqProps {
@@ -186,7 +202,7 @@ export function TroubleshootFaq({ onSelectSymptom }: TroubleshootFaqProps) {
               </h2>
             </Flex>
             <p className="ts-faq-sub">
-              源自生产实战的 6 大常见暗礁，包含根因本质、预检诊断命令与自愈机制。
+              源自生产实战的 7 大高频暗礁，包含根因本质、预检诊断命令与自愈机制。
             </p>
           </div>
 
