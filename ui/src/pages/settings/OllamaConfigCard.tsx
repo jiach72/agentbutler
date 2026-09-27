@@ -32,7 +32,6 @@ import {
   BarChartOutlined,
   CheckCircleFilled,
   CloseCircleFilled,
-  CloudDownloadOutlined,
   DeleteOutlined,
   DownloadOutlined,
   LineChartOutlined,
@@ -192,8 +191,6 @@ export function OllamaConfigCard() {
   const [testingChat, setTestingChat] = useState(false);
   const [chatResult, setChatResult] = useState<ChatTestResult | null>(null);
 
-  const [existingProfiles, setExistingProfiles] = useState<Array<{ profileId: string; provider: string; model: string }>>([]);
-  const [bindingModel, setBindingModel] = useState<string | null>(null);
   const [primaryModel, setPrimaryModel] = useState<PrimaryModelConfig | null>(null);
   const [settingPrimary, setSettingPrimary] = useState<string | null>(null);
 
@@ -346,18 +343,7 @@ export function OllamaConfigCard() {
     }
   }, [models, testModel]);
 
-  // 7. 加载已接入的 Butler 模型配置
-  const loadExistingProfiles = useCallback(async () => {
-    const res = await loadJson<{ profiles: Array<{ profileId: string; provider: string; model: string }> }>(
-      "/api/llm/profiles",
-      10_000,
-    );
-    if (res.ok && Array.isArray(res.data?.profiles)) {
-      setExistingProfiles(res.data.profiles);
-    }
-  }, []);
-
-  // 8. 加载当前系统主模型状态
+  // 7. 加载当前系统主模型状态
   const loadPrimaryModel = useCallback(async () => {
     const res = await loadJson<{ ok: boolean; primary: PrimaryModelConfig }>("/api/models/primary", 5000);
     if (res.ok && res.data.primary) {
@@ -397,9 +383,8 @@ export function OllamaConfigCard() {
     void loadHardwareProfile();
     void loadModels();
     void loadUsageSummary();
-    void loadExistingProfiles();
     void loadPrimaryModel();
-  }, [checkStatus, loadHardwareProfile, loadModels, loadUsageSummary, loadExistingProfiles, loadPrimaryModel]);
+  }, [checkStatus, loadHardwareProfile, loadModels, loadUsageSummary, loadPrimaryModel]);
 
   // 发起下载模型
   const handleStartPull = async (modelToPull?: string) => {
@@ -435,35 +420,6 @@ export function OllamaConfigCard() {
       void loadModels();
     } else {
       message.error("删除模型失败");
-    }
-  };
-
-  // 一键录入到 Butler 模型凭据库（设为探针/管家模型）
-  const handleQuickBind = async (modelName: string) => {
-    setBindingModel(modelName);
-    try {
-      const endpoint = status?.endpoint ? `${status.endpoint}/v1` : "http://ollama:11434/v1";
-      const profileId = `ollama-${modelName.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
-      const payload = {
-        profileId,
-        provider: "Ollama (本地)",
-        protocol: "openai-compatible",
-        endpoint,
-        model: modelName,
-        apiKey: "ollama",
-      };
-      const res = await postJson("/api/llm/profiles", payload, 10_000);
-      if (res.ok) {
-        message.success(`已成功将 ${modelName} 接入 Butler 模型列表（端点：${endpoint}）`);
-        setExistingProfiles((prev) => [
-          ...prev.filter((p) => p.model !== modelName),
-          { profileId, provider: "Ollama (本地)", model: modelName },
-        ]);
-      } else {
-        message.error("录入失败，请确认管家服务在线");
-      }
-    } finally {
-      setBindingModel(null);
     }
   };
 

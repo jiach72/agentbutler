@@ -21,7 +21,6 @@ import {
 import {
   CheckCircleFilled,
   CloudOutlined,
-  DesktopOutlined,
   ReloadOutlined,
   SwapOutlined,
   ThunderboltFilled,

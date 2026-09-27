@@ -99,7 +99,6 @@ export async function handlePrimaryModel(ctx: RequestContext): Promise<boolean> 
     const source = typeof body["source"] === "string" ? body["source"] : "credential";
     const envVar = typeof body["envVar"] === "string" ? body["envVar"].trim() : undefined;
     const apiKey = typeof body["apiKey"] === "string" ? body["apiKey"].trim() : undefined;
-    const restartNow = body["restartNow"] === true;
 
     if (!provider || !model) {
       sendJson(res, 400, { error: "invalid-primary-model", detail: "provider 和 model 均不能为空" });

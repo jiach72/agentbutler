@@ -106,11 +106,14 @@ describe("Primary Model API (/api/models/primary)", () => {
 
     // 验证 config.yaml 内容已更新
     const updatedYaml = readFileSync(join(hermesDir, "config.yaml"), "utf8");
-    const parsed = parseYaml(updatedYaml) as Record<string, any>;
+    const parsed = parseYaml(updatedYaml) as {
+      model: { provider: string; default: string; base_url: string };
+      custom_providers: Array<{ provider: string }>;
+    };
     expect(parsed.model.provider).toBe("ollama");
     expect(parsed.model.default).toBe("qwen2.5:0.5b");
     expect(parsed.model.base_url).toBe("http://ollama:11434/v1");
-    expect(parsed.custom_providers.some((p: any) => p.provider === "ollama")).toBe(true);
+    expect(parsed.custom_providers.some((p) => p.provider === "ollama")).toBe(true);
   });
 
   it("POST /api/models/primary 带 API Key 时自动同步到 .env", async () => {

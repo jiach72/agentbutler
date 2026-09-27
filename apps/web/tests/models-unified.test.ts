@@ -50,33 +50,42 @@ describe("Unified Models Hub (/api/models/*)", () => {
     expect(Array.isArray(json.options)).toBe(true);
 
     // 验证 DeepSeek 凭据映射到了具体模型项
-    const deepseekChat = json.options.find((o: any) => o.model === "deepseek-chat");
+    const options = json.options as Array<{
+      model: string;
+      provider: string;
+      source: string;
+      category: string;
+      costCategory: string;
+      ready: boolean;
+      probeStatus: string;
+    }>;
+    const deepseekChat = options.find((o) => o.model === "deepseek-chat");
     expect(deepseekChat).toBeDefined();
-    expect(deepseekChat.provider).toBe("deepseek");
-    expect(deepseekChat.source).toBe("credential");
-    expect(deepseekChat.category).toBe("cloud");
-    expect(deepseekChat.costCategory).toBe("low");
-    expect(deepseekChat.ready).toBe(true);
-    expect(deepseekChat.probeStatus).toBe("pass");
+    expect(deepseekChat?.provider).toBe("deepseek");
+    expect(deepseekChat?.source).toBe("credential");
+    expect(deepseekChat?.category).toBe("cloud");
+    expect(deepseekChat?.costCategory).toBe("low");
+    expect(deepseekChat?.ready).toBe(true);
+    expect(deepseekChat?.probeStatus).toBe("pass");
 
     await app.close();
   });
 
   it("POST /api/models/primary 正常转发至 Watch 控制服务", async () => {
-    let capturedBody: any = null;
+    let capturedBody: Record<string, unknown> | null = null;
     const app = createWebServer({
       accessToken: "",
       watchUrl: "http://127.0.0.1:7533",
       fetchImpl: async (url, init) => {
         if (String(url).includes("/api/models/primary") && init?.method === "POST") {
-          capturedBody = JSON.parse(String(init.body));
+          capturedBody = JSON.parse(String(init.body)) as Record<string, unknown>;
           return new Response(
             JSON.stringify({
               ok: true,
               primary: {
-                provider: capturedBody.provider,
-                model: capturedBody.model,
-                endpoint: capturedBody.endpoint,
+                provider: capturedBody["provider"],
+                model: capturedBody["model"],
+                endpoint: capturedBody["endpoint"],
               },
             }),
             { status: 200, headers: { "content-type": "application/json" } },

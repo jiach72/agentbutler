@@ -174,12 +174,6 @@ export function ModelSelector({
     return groups;
   }, [localList, cloudList]);
 
-  // 匹配选中的 option
-  const selectedOption = useMemo(() => {
-    if (!value) return undefined;
-    return rawOptions.find((o) => o.id === value || o.model === value);
-  }, [value, rawOptions]);
-
   const handleChange = (val: string) => {
     const matched = rawOptions.find((o) => o.id === val);
     onChange?.(val, matched);
