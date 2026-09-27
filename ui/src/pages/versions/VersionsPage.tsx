@@ -433,6 +433,7 @@ export function VersionsPanel() {
                 <Flex align="center" gap={8}>
                   <Text strong>{instanceLabel(instance.instanceId)}</Text>
                   <Text type="secondary">v{base || "?"}</Text>
+                  <Text copyable={{ text: instance.instanceId }} style={{ fontSize: 12 }} />
                 </Flex>
                 {candidate !== null ? (
                   <Flex align="center" gap={8}>
@@ -524,7 +525,11 @@ export function VersionsPanel() {
         ) : (
           <Flex wrap gap={12} align="center">
             <Text>
-              上一次升级：{previousSelfSnapshot.version}（commit {previousSelfSnapshot.commit}）
+              上一次升级：{previousSelfSnapshot.version}（commit{" "}
+              <Text code copyable={{ text: previousSelfSnapshot.commit }} style={{ fontSize: 11 }}>
+                {previousSelfSnapshot.commit.slice(0, 8)}
+              </Text>
+              ）
             </Text>
             <Tooltip title="有升级操作正在执行">
               <Button size="small" disabled={selfBusy} onClick={() => requestSelfRollback(previousSelfSnapshot)}>
@@ -602,14 +607,26 @@ export function VersionsPanel() {
               <Title level={4} style={{ marginBottom: 0 }}>
                 管家 Butler
               </Title>
-              <Text type="secondary">
-                版本 {formatDisplayVersion(displayVersion) || "-"}
-                （{prefs.channel === "beta" ? "测试版" : "正式版"} 通道
-                {butlerSelf?.commit !== null && butlerSelf?.commit !== undefined
-                  ? ` · commit ${butlerSelf.commit}`
-                  : ""}
-                ）
-              </Text>
+              <Flex align="center" gap={6} wrap="wrap">
+                <Text type="secondary">版本</Text>
+                <Text strong copyable={{ text: formatDisplayVersion(displayVersion) || "" }}>
+                  {formatDisplayVersion(displayVersion) || "-"}
+                </Text>
+                <Text type="secondary">
+                  （{prefs.channel === "beta" ? "测试版" : "正式版"} 通道
+                  {butlerSelf?.commit !== null && butlerSelf?.commit !== undefined ? (
+                    <>
+                      {" · commit "}
+                      <Text code copyable={{ text: butlerSelf.commit }} style={{ fontSize: 11 }}>
+                        {butlerSelf.commit.slice(0, 8)}
+                      </Text>
+                    </>
+                  ) : (
+                    ""
+                  )}
+                  ）
+                </Text>
+              </Flex>
             </Flex>
           </Flex>
           {statusLine}
