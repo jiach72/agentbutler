@@ -17,6 +17,7 @@ import {
 } from "@ant-design/icons";
 import type { ScheduledTaskDraft, ScheduledTaskSummary, ScheduledTaskStatus, ScheduledTaskIncidents } from "@butler/contract";
 import { PageHeader } from "../../components/PageHeader.js";
+import { Empty as ButlerEmpty } from "../../components/Empty.js";
 import { loadJson, mutateJson } from "../../lib/api.js";
 import { usePolling } from "../../hooks/usePolling.js";
 import { TaskEditorDrawer, TASK_TEMPLATES } from "./TaskEditorDrawer.js";
@@ -321,11 +322,11 @@ export function TasksPage() {
             />
             <Input.Search
               aria-label="搜索定时任务"
-              placeholder="搜索任务名称或表达式..."
+              placeholder="搜索任务名称或表达式 (如: 晨报, 08:00, 备份...)"
               allowClear
               value={filter}
               onChange={(event) => setFilter(event.target.value)}
-              style={{ maxWidth: 260 }}
+              style={{ maxWidth: 280 }}
             />
           </div>
 
@@ -376,7 +377,25 @@ export function TasksPage() {
               </div>
             </div>
           ) : reachable && visible.length === 0 ? (
-            <Empty description="没有匹配当前筛选条件的任务" />
+            <ButlerEmpty
+              mascot={false}
+              title={
+                filter.trim()
+                  ? `未找到与 “${filter.trim()}” 相关的任务`
+                  : `当前「${statusTab === "active" ? "已启用" : statusTab === "paused" ? "已暂停" : statusTab === "attention" ? "需关注" : "全部"}」分类下没有任务`
+              }
+              hint="可以尝试调整状态筛选，或清空搜索关键词查看全部任务。"
+              action={
+                <Button
+                  onClick={() => {
+                    setFilter("");
+                    setStatusTab("all");
+                  }}
+                >
+                  重置筛选条件
+                </Button>
+              }
+            />
           ) : reachable && (
             <div className="tasks-grid-list">
               {visible.map((task, idx) => {
