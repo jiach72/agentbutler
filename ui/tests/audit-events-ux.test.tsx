@@ -46,7 +46,9 @@ describe("行为审计与事件中心 (AuditPage & EventsPage) UI/UX 与工效�
     expect(html).toContain("事件中心");
     expect(html).toContain("事件列表");
 
-    // 状态筛选分段控制器无障碍
+    // 状态筛选分段控制器与即时搜索无障碍
     expect(html).toContain('aria-label="按事件处理状态筛选"');
+    expect(html).toContain('aria-label="搜索事件"');
+    expect(html).toContain("搜索事件标题 / 类型");
   });
 });

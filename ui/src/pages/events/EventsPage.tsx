@@ -7,7 +7,7 @@
  * 结论只来自真实数据（评审 P0-2）；筛选落 URL 便于把「你看这个」贴给同事（评审 P1-7）；
  * 选中态与分隔线走品牌令牌，不再用 antd 默认蓝与半透明灰（评审 P1-2 / P2-4）。
  */
-import { Button, Card, Col, Collapse, Descriptions, Flex, Row, Segmented, Typography } from "antd";
+import { Button, Card, Col, Collapse, Descriptions, Flex, Input, Row, Segmented, Typography } from "antd";
 import { CheckOutlined, FlagOutlined } from "@ant-design/icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -243,12 +243,28 @@ export function EventsPage() {
     }
   };
 
+  const [searchKeyword, setSearchKeyword] = useState("");
+
   const visible = useMemo(() => {
     const list = events ?? [];
-    if (statusFilter === "open") return list.filter((event) => event.status !== "resolved");
-    if (statusFilter === "all") return list;
-    return list.filter((event) => event.status === statusFilter);
-  }, [events, statusFilter]);
+    let filtered = list;
+    if (statusFilter === "open") filtered = list.filter((event) => event.status !== "resolved");
+    else if (statusFilter !== "all") filtered = list.filter((event) => event.status === statusFilter);
+
+    const kw = searchKeyword.trim().toLowerCase();
+    if (!kw) return filtered;
+    return filtered.filter((event) => {
+      const matchTitle = event.title.toLowerCase().includes(kw);
+      const matchKind = event.kind.toLowerCase().includes(kw);
+      const matchDedupe = event.dedupeKey.toLowerCase().includes(kw);
+      return matchTitle || matchKind || matchDedupe;
+    });
+  }, [events, statusFilter, searchKeyword]);
+
+  const resetFilters = useCallback(() => {
+    setStatusFilter("open");
+    setSearchKeyword("");
+  }, [setStatusFilter]);
 
   const selected = useMemo(
     () => visible.find((event) => event.id === selectedId) ?? visible[0] ?? null,
@@ -324,7 +340,7 @@ export function EventsPage() {
         {/* §2.3 ② 结论条。 */}
         <ConclusionBar tone={conclusion.tone} title={conclusion.title} copy={conclusion.copy} action={conclusion.action} />
 
-        <Flex gap={8} wrap="wrap">
+        <Flex gap={12} wrap="wrap" justify="space-between" align="center">
           <Segmented
             aria-label="按事件处理状态筛选"
             value={statusFilter}
@@ -336,6 +352,14 @@ export function EventsPage() {
               { value: "all", label: "全部" },
             ]}
           />
+          <Input
+            placeholder="搜索事件标题 / 类型 (如: approval, budget)..."
+            allowClear
+            value={searchKeyword}
+            onChange={(e) => setSearchKeyword(e.target.value)}
+            style={{ width: 280 }}
+            aria-label="搜索事件"
+          />
         </Flex>
         <Row gutter={16}>
           <Col xs={24} lg={10}>
@@ -343,8 +367,17 @@ export function EventsPage() {
               {visible.length === 0 ? (
                 <Empty
                   className="events-empty"
-                  title="没有待处理的事件"
-                  hint="换个筛选看看，或等管家报告新的异常——没问题时这里本来就该是空的。"
+                  title={searchKeyword.trim() !== "" ? "未找到匹配的事件" : "没有待处理的事件"}
+                  hint={
+                    searchKeyword.trim() !== ""
+                      ? `未找到与「${searchKeyword.trim()}」相关的事件记录。`
+                      : "换个筛选看看，或等管家报告新的异常——没问题时这里本来就该是空的。"
+                  }
+                  action={
+                    events !== null && (events.length > 0 || searchKeyword.trim() !== "" || statusFilter !== "open") ? (
+                      <Button onClick={resetFilters}>重置筛选条件</Button>
+                    ) : undefined
+                  }
                   mascotWidth={80}
                 />
               ) : (
