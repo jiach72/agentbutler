@@ -7,7 +7,7 @@
  * 3. 核心资产与配置：核心 Markdown 指令管理、记忆探针频率与 LLM 成本控制、升级策略；
  * 4. 深度追踪与实验：行为审计、会话上下文回放、记忆变更比对、实例联邦与自进化。
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   App,
@@ -43,7 +43,7 @@ import { AdvancedEvidence } from "../../components/AdvancedEvidence.js";
 import { Empty as ButlerEmpty } from "../../components/Empty.js";
 import { DiagnosticsCenter } from "../settings/DiagnosticsCenter.js";
 import { MemoryProbeConfigCard } from "../settings/MemoryProbeConfigCard.js";
-import { HermesGuideCard } from "./HermesGuideCard.js";
+import { CATEGORIES, COMMANDS, HermesGuideCard } from "./HermesGuideCard.js";
 import { loadJson } from "../../lib/api.js";
 import { routeMetaFor } from "../../lib/routeMeta.js";
 import { settingsToolPaths } from "../settings/categories.js";
@@ -187,7 +187,27 @@ export function ToolsPage() {
   const filteredSec1 = section1Cards.filter((c) => isMatch(c.title, c.description, c.tag));
   const filteredSec2 = section2Cards.filter((c) => isMatch(c.title, c.description, c.tag));
   const filteredSec3 = section3Cards.filter((c) => isMatch(c.title, c.description, c.tag));
-  const totalMatches = filteredSec1.length + filteredSec2.length + filteredSec3.length;
+
+  const guideMatchesCount = useMemo(() => {
+    const q = searchKeyword.trim().toLowerCase();
+    if (!q) return 0;
+    let count = 0;
+    for (const cat of CATEGORIES) {
+      for (const item of COMMANDS[cat.key]) {
+        if (
+          item.cmd.toLowerCase().includes(q) ||
+          item.desc.toLowerCase().includes(q) ||
+          (item.caveat && item.caveat.toLowerCase().includes(q)) ||
+          (item.tag && item.tag.toLowerCase().includes(q))
+        ) {
+          count++;
+        }
+      }
+    }
+    return count;
+  }, [searchKeyword]);
+
+  const totalMatches = filteredSec1.length + filteredSec2.length + filteredSec3.length + guideMatchesCount;
 
   const renderReportLinks = (items: string[]) => (
     <div className="tools-report-links-grid">
@@ -313,7 +333,7 @@ export function ToolsPage() {
         </div>
 
         {/* Hermes 引擎核心指引与常用运维命令 */}
-        <HermesGuideCard />
+        <HermesGuideCard keyword={searchKeyword} />
 
         {/* 专区 1：链路诊断与系统维护（包含自动化选择器匹配文本） */}
         {filteredSec1.length > 0 && (

@@ -61,8 +61,10 @@ describe("专家工具工作台 (ToolsPage)", () => {
     expect(html).toContain("记忆变更");
   });
 
-  it("首屏渲染专家工具即时检索框", () => {
+  it("首屏渲染专家工具即时检索框与 Hermes 速查命令", () => {
     const html = renderToolsPage();
     expect(html).toContain("搜索专家工具或报表");
+    expect(html).toContain("Hermes 引擎指引与常用运维命令");
+    expect(html).toContain("systemctl --user status hermes-gateway");
   });
 });

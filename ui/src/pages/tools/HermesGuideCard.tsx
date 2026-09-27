@@ -1,24 +1,24 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { CopySnippetButton } from "../../components/CopySnippetButton.js";
 import { EtherealIcon } from "../../components/EtherealIcon.js";
 
-type CategoryKey = "service" | "bridge" | "config" | "cli";
+export type CategoryKey = "service" | "bridge" | "config" | "cli";
 
-interface CommandItem {
+export interface CommandItem {
   cmd: string;
   desc: string;
   caveat?: string;
   tag?: string;
 }
 
-const CATEGORIES: { key: CategoryKey; label: string; icon: string }[] = [
+export const CATEGORIES: { key: CategoryKey; label: string; icon: string }[] = [
   { key: "service", label: "服务状态与管理", icon: "schedule" },
   { key: "bridge", label: "网关与 Bridge 诊断", icon: "network_check" },
   { key: "config", label: "配置修改与预检", icon: "settings" },
   { key: "cli", label: "任务与常用 CLI", icon: "terminal" },
 ];
 
-const COMMANDS: Record<CategoryKey, CommandItem[]> = {
+export const COMMANDS: Record<CategoryKey, CommandItem[]> = {
   service: [
     {
       cmd: "systemctl --user status hermes-gateway",
@@ -88,8 +88,35 @@ const COMMANDS: Record<CategoryKey, CommandItem[]> = {
   ],
 };
 
-export function HermesGuideCard() {
+interface HermesGuideCardProps {
+  keyword?: string;
+}
+
+export function HermesGuideCard({ keyword = "" }: HermesGuideCardProps) {
   const [activeCategory, setActiveCategory] = useState<CategoryKey>("service");
+
+  const q = keyword.trim().toLowerCase();
+
+  const matchedCommands = useMemo(() => {
+    if (!q) return null;
+    const list: Array<CommandItem & { categoryLabel: string }> = [];
+    for (const cat of CATEGORIES) {
+      for (const item of COMMANDS[cat.key]) {
+        if (
+          item.cmd.toLowerCase().includes(q) ||
+          item.desc.toLowerCase().includes(q) ||
+          (item.caveat && item.caveat.toLowerCase().includes(q)) ||
+          (item.tag && item.tag.toLowerCase().includes(q))
+        ) {
+          list.push({ ...item, categoryLabel: cat.label });
+        }
+      }
+    }
+    return list;
+  }, [q]);
+
+  const isSearching = matchedCommands !== null;
+  const displayItems = matchedCommands ?? COMMANDS[activeCategory];
 
   return (
     <div className="rounded-2xl bg-surface-container-lowest p-4 md:p-5 shadow-xs border border-outline-variant/15 space-y-4">
@@ -118,30 +145,36 @@ export function HermesGuideCard() {
         </div>
       </div>
 
-      {/* 分类选项卡 */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none" role="tablist" aria-label="Hermes 指南分类">
-        {CATEGORIES.map((cat) => (
-          <button
-            key={cat.key}
-            type="button"
-            role="tab"
-            aria-selected={activeCategory === cat.key}
-            onClick={() => setActiveCategory(cat.key)}
-            className={`px-3 py-1.5 min-h-[34px] rounded-lg text-xs font-medium transition-all inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
-              activeCategory === cat.key
-                ? "bg-primary text-white shadow-xs"
-                : "bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface"
-            }`}
-          >
-            <EtherealIcon name={cat.icon} size={13} className={activeCategory === cat.key ? "text-white" : ""} />
-            <span>{cat.label}</span>
-          </button>
-        ))}
-      </div>
+      {/* 分类选项卡 或 检索提示 */}
+      {!isSearching ? (
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none" role="tablist" aria-label="Hermes 指南分类">
+          {CATEGORIES.map((cat) => (
+            <button
+              key={cat.key}
+              type="button"
+              role="tab"
+              aria-selected={activeCategory === cat.key}
+              onClick={() => setActiveCategory(cat.key)}
+              className={`px-3 py-1.5 min-h-[34px] rounded-lg text-xs font-medium transition-all inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                activeCategory === cat.key
+                  ? "bg-primary text-white shadow-xs"
+                  : "bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface"
+              }`}
+            >
+              <EtherealIcon name={cat.icon} size={13} className={activeCategory === cat.key ? "text-white" : ""} />
+              <span>{cat.label}</span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="text-xs font-medium text-on-surface-variant">
+          匹配到 {matchedCommands.length} 条速查命令：
+        </div>
+      )}
 
       {/* 命令列表 */}
       <div className="space-y-3">
-        {COMMANDS[activeCategory].map((item) => (
+        {displayItems.map((item) => (
           <div
             key={item.cmd}
             className="p-3 rounded-xl bg-surface-container-low border border-outline-variant/10 space-y-2 hover:border-outline-variant/25 transition-colors"
@@ -149,6 +182,11 @@ export function HermesGuideCard() {
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0">
                 <span className="text-xs font-medium text-on-surface truncate">{item.desc}</span>
+                {"categoryLabel" in item && (
+                  <span className="px-1.5 py-0.5 rounded text-[10px] bg-surface-container text-on-surface-variant shrink-0">
+                    {String(item.categoryLabel)}
+                  </span>
+                )}
                 {item.tag && (
                   <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-tertiary-container/10 text-tertiary shrink-0">
                     {item.tag}
@@ -163,15 +201,16 @@ export function HermesGuideCard() {
               <code>{item.cmd}</code>
             </div>
 
-              {item.caveat && (
-                <div className="flex items-start gap-1.5 text-[11px] text-warn leading-tight">
-                  <EtherealIcon name="warning" size={13} className="shrink-0 mt-0.5 text-warn" />
-                  <span>{item.caveat}</span>
-                </div>
-              )}
+            {item.caveat && (
+              <div className="flex items-start gap-1.5 text-[11px] text-warn leading-tight">
+                <EtherealIcon name="warning" size={13} className="shrink-0 mt-0.5 text-warn" />
+                <span>{item.caveat}</span>
+              </div>
+            )}
           </div>
         ))}
       </div>
     </div>
   );
 }
+
