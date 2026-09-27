@@ -14,6 +14,7 @@ import type { WizardOutcome } from "../useTroubleshoot.js";
 import { useExportReport } from "../exportReport.js";
 import { guidanceForDiagnosis } from "../guidance.js";
 import { AdvancedEvidence } from "../../../components/AdvancedEvidence.js";
+import { CopySnippetButton } from "../../../components/CopySnippetButton.js";
 
 const { Text, Paragraph } = Typography;
 
@@ -53,18 +54,21 @@ export function ResultStep({ job, outcome, diagnosis, busy, onBack, onRestart }:
         )}
 
         {!running && outcome !== null && (
-          <Flex className={`ts-result ${outcome.state === "fixed" ? "is-ok" : "is-fail"}`} gap={10}>
-            {outcome.state === "fixed" ? (
-              <CheckCircleOutlined className="ts-result-icon" aria-hidden="true" />
-            ) : (
-              <CloseCircleOutlined className="ts-result-icon" aria-hidden="true" />
-            )}
-            <Flex vertical gap={2} style={{ minWidth: 0 }}>
-              <Text strong>{outcome.label}</Text>
-              <AdvancedEvidence>
-                <Text>{outcome.detail}</Text>
-              </AdvancedEvidence>
+          <Flex className={`ts-result ${outcome.state === "fixed" ? "is-ok" : "is-fail"}`} justify="space-between" align="flex-start" gap={10}>
+            <Flex align="flex-start" gap={10} style={{ minWidth: 0, flex: 1 }}>
+              {outcome.state === "fixed" ? (
+                <CheckCircleOutlined className="ts-result-icon" aria-hidden="true" />
+              ) : (
+                <CloseCircleOutlined className="ts-result-icon" aria-hidden="true" />
+              )}
+              <Flex vertical gap={4} style={{ minWidth: 0, flex: 1 }}>
+                <Text strong>{outcome.label}</Text>
+                <AdvancedEvidence>
+                  <Text>{outcome.detail}</Text>
+                </AdvancedEvidence>
+              </Flex>
             </Flex>
+            <CopySnippetButton text={`${outcome.label}：${outcome.detail}`} />
           </Flex>
         )}
 
@@ -84,6 +88,11 @@ export function ResultStep({ job, outcome, diagnosis, busy, onBack, onRestart }:
           <div className="ts-nav">
             <Flex vertical gap={8}>
               <Space wrap>
+                {outcome?.state === "fixed" && (
+                  <Button type="primary" onClick={() => navigate("/")}>
+                    返回控制台仪表盘
+                  </Button>
+                )}
                 {outcome?.state === "unresolved" && (
                   <>
                     <Button type="primary" onClick={onBack}>

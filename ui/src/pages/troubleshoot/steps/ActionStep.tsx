@@ -148,7 +148,7 @@ export function ActionStep({
                         </Flex>
                         <Text type="secondary">{action.unavailableReason ?? "当前环境不支持"}</Text>
                         {action.unavailableFix !== undefined && (
-                          <Text type="secondary" style={{ fontSize: 12 }}>
+                          <Text type="secondary" copyable={{ text: action.unavailableFix }} style={{ fontSize: 12 }}>
                             想用上的话：{action.unavailableFix}
                           </Text>
                         )}
