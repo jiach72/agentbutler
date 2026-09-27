@@ -210,21 +210,31 @@ export async function registerModelRoutes(
         const profiles = profData.profiles ?? [];
 
         for (const profile of profiles) {
-          // 若不是 Ollama 且未在列表中出现，则加入 Profile
           const isOllama =
             profile.provider.toLowerCase().includes("ollama") ||
             profile.profileId.startsWith("ollama-") ||
             /11434/.test(profile.endpoint);
 
-          const alreadyIncluded = unifiedOptions.some(
-            (opt) => opt.model === profile.model && opt.provider.toLowerCase() === profile.provider.toLowerCase(),
-          );
+          // 严格去重：本地 Ollama 模型只要 model 名称一致即视为同一项；云端模型按 provider/model 去重
+          const alreadyIncluded = unifiedOptions.some((opt) => {
+            if (opt.model.toLowerCase() !== profile.model.toLowerCase()) return false;
+            if (isOllama && (opt.source === "ollama" || opt.category === "local" || opt.provider.toLowerCase().includes("ollama"))) {
+              return true;
+            }
+            const p1 = opt.provider.toLowerCase().replace(/[^a-z0-9]/g, "");
+            const p2 = profile.provider.toLowerCase().replace(/[^a-z0-9]/g, "");
+            return p1 === p2 || p1.includes(p2) || p2.includes(p1);
+          });
 
           if (!alreadyIncluded) {
+            const isEmbedding =
+              profile.model.toLowerCase().includes("embed") ||
+              profile.provider.toLowerCase().includes("embed");
+
             unifiedOptions.push({
               id: `profile:${profile.profileId}`,
               name: `${profile.model} (${profile.provider})`,
-              provider: profile.provider,
+              provider: isOllama ? "ollama" : profile.provider,
               model: profile.model,
               protocol: profile.protocol,
               endpoint: profile.endpoint,
@@ -235,7 +245,10 @@ export async function registerModelRoutes(
               probeStatus: profile.probe?.status ?? "unknown",
               probeDetail: profile.probe?.detail ?? undefined,
               maskedKey: profile.maskedKey,
-              description: `Profile 配置: ${profile.provider}`,
+              isEmbedding,
+              description: isOllama
+                ? "本地免成本模型 (来自 Profile)"
+                : `Profile 配置: ${profile.provider}`,
             });
           }
         }
@@ -244,8 +257,25 @@ export async function registerModelRoutes(
       // 容错处理
     }
 
+    // 最终防御性去重：确保同名本地模型绝对只出现一条，同服务商同模型绝对只出现一条
+    const finalOptions: UnifiedModelOption[] = [];
+    const seenOptionKeys = new Set<string>();
+    for (const opt of unifiedOptions) {
+      const isLocal =
+        opt.category === "local" ||
+        opt.source === "ollama" ||
+        opt.provider.toLowerCase().includes("ollama");
+      const key = isLocal
+        ? `local:${opt.model.toLowerCase()}`
+        : `${opt.provider.toLowerCase().replace(/[^a-z0-9]/g, "")}:${opt.model.toLowerCase()}`;
+      if (!seenOptionKeys.has(key)) {
+        seenOptionKeys.add(key);
+        finalOptions.push(opt);
+      }
+    }
+
     // 排序策略：本地零成本模型 (free) 优先置顶，其次是低成本 (low)，最后是商业按量 (standard)
-    unifiedOptions.sort((a, b) => {
+    finalOptions.sort((a, b) => {
       const rank = (c: string) => (c === "free" ? 0 : c === "low" ? 1 : 2);
       if (rank(a.costCategory) !== rank(b.costCategory)) {
         return rank(a.costCategory) - rank(b.costCategory);
@@ -253,7 +283,7 @@ export async function registerModelRoutes(
       return a.name.localeCompare(b.name, "zh-CN");
     });
 
-    return { ok: true, options: unifiedOptions };
+    return { ok: true, options: finalOptions };
   });
 
   /** 2. 主模型读取代理 */

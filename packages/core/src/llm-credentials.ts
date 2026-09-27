@@ -303,8 +303,11 @@ export class LlmCredentialService {
   addBinding(input: import("./store.js").LlmBindingInput): LlmBindingRow {
     if (!this.store.getLlmProfile(input.profileId)) throw new Error("profile-not-found");
     if ((input.scope === "skill" || input.scope === "plugin" || input.scope === "evolution") && !input.targetRef?.trim()) throw new Error("binding-target-required");
-    if (input.scope === "instance" && !input.instanceId?.trim()) throw new Error("binding-instance-required");
-    if (input.scope === "framework" && (!input.instanceId?.trim() || !input.frameworkId?.trim())) throw new Error("binding-framework-required");
+    if (input.scope === "instance" && !input.instanceId?.trim()) input.instanceId = "hermes-main";
+    if (input.scope === "framework") {
+      if (!input.instanceId?.trim()) input.instanceId = "hermes-main";
+      if (!input.frameworkId?.trim()) input.frameworkId = "hermes";
+    }
     
     // 检查该范围是否已有绑定；若已有，则平滑更新该范围的绑定到新 profile，避免让用户反复手动删除重建
     const existing = this.store.findExactBinding(input.scope, input.instanceId, input.frameworkId, input.targetRef);

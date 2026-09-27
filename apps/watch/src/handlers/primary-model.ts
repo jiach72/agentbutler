@@ -200,6 +200,8 @@ export async function handlePrimaryModel(ctx: RequestContext): Promise<boolean> 
             deps.llm.addBinding({
               bindingId: `bind-primary-${Date.now()}`,
               scope: "instance",
+              instanceId: "hermes-main",
+              frameworkId: "hermes",
               profileId: matchedProfile.profileId,
             });
           }

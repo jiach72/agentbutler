@@ -15,9 +15,11 @@ import {
   Button,
   Card,
   Divider,
+  Dropdown,
   Empty,
   Flex,
   Input,
+  type MenuProps,
   Popconfirm,
   Progress,
   Segmented,
@@ -29,20 +31,25 @@ import {
   Typography,
 } from "antd";
 import {
+  ApiOutlined,
   BarChartOutlined,
   CheckCircleFilled,
   CloseCircleFilled,
   DeleteOutlined,
+  DownOutlined,
   DownloadOutlined,
+  ExperimentOutlined,
   LineChartOutlined,
   LinkOutlined,
   LoadingOutlined,
+  MessageOutlined,
   ReloadOutlined,
   SendOutlined,
+  SettingOutlined,
   TableOutlined,
   ThunderboltOutlined,
 } from "@ant-design/icons";
-import type { PrimaryModelConfig } from "@butler/contract";
+import type { MemoryProbeConfig, PrimaryModelConfig } from "@butler/contract";
 import { deleteJson, loadJson, postJson } from "../../lib/api.js";
 import {
   ChartEmpty,
@@ -192,7 +199,9 @@ export function OllamaConfigCard() {
   const [chatResult, setChatResult] = useState<ChatTestResult | null>(null);
 
   const [primaryModel, setPrimaryModel] = useState<PrimaryModelConfig | null>(null);
-  const [settingPrimary, setSettingPrimary] = useState<string | null>(null);
+  const [probeConfig, setProbeConfig] = useState<MemoryProbeConfig | null>(null);
+  const [instanceBindingModel, setInstanceBindingModel] = useState<string | null>(null);
+  const [assigningModel, setAssigningModel] = useState<string | null>(null);
 
   const { mode } = useTheme();
   const [usageViewMode, setUsageViewMode] = useState<"tokens" | "calls" | "table">("tokens");
@@ -343,37 +352,113 @@ export function OllamaConfigCard() {
     }
   }, [models, testModel]);
 
-  // 7. 加载当前系统主模型状态
-  const loadPrimaryModel = useCallback(async () => {
-    const res = await loadJson<{ ok: boolean; primary: PrimaryModelConfig }>("/api/models/primary", 5000);
-    if (res.ok && res.data.primary) {
-      setPrimaryModel(res.data.primary);
+  // 7. 加载各模型角色的实时生效分配情况（主对话、记忆探针、实例默认）
+  const loadRoles = useCallback(async () => {
+    try {
+      const [pRes, probeRes, bRes, profRes] = await Promise.all([
+        loadJson<{ ok: boolean; primary: PrimaryModelConfig }>("/api/models/primary", 5000),
+        loadJson<{ ok?: boolean; config?: MemoryProbeConfig } & Partial<MemoryProbeConfig>>("/api/memory-probe/config", 5000),
+        loadJson<{ bindings: Array<{ scope: string; profileId: string }> }>("/api/llm/bindings", 5000),
+        loadJson<{ profiles: Array<{ profileId: string; model: string }> }>("/api/llm/profiles", 5000),
+      ]);
+
+      if (pRes.ok && pRes.data?.primary) {
+        setPrimaryModel(pRes.data.primary);
+      }
+      if (probeRes.ok && probeRes.data) {
+        const raw = probeRes.data;
+        const cfg = raw.config ?? (raw.intervalMin !== undefined ? (raw as unknown as MemoryProbeConfig) : null);
+        if (cfg) {
+          setProbeConfig(cfg);
+        }
+      }
+      if (bRes.ok && profRes.ok && Array.isArray(bRes.data?.bindings)) {
+        const instBinding = bRes.data.bindings.find((b) => b.scope === "instance");
+        if (instBinding) {
+          const prof = profRes.data?.profiles?.find((p) => p.profileId === instBinding.profileId);
+          setInstanceBindingModel(prof?.model ?? null);
+        } else {
+          setInstanceBindingModel(null);
+        }
+      }
+    } catch {
+      // 容错降级
     }
   }, []);
 
-  // 一键将本地模型设为系统主模型（自动物理备份配置）
-  const handleSetPrimary = async (modelName: string) => {
-    setSettingPrimary(modelName);
+  // 快捷分配模型角色（主对话模型、记忆探针、实例默认）
+  const handleAssignRole = async (modelName: string, roleKey: "primary" | "probe" | "instance") => {
+    setAssigningModel(modelName);
     try {
       const endpoint = status?.endpoint ? `${status.endpoint}/v1` : "http://ollama:11434/v1";
-      const res = await postJson(
-        "/api/models/primary",
-        {
-          provider: "ollama",
-          model: modelName,
-          endpoint,
-          source: "ollama",
-        },
-        30_000,
-      );
-      if (res.ok) {
-        message.success(`已将 ${modelName} 设为系统主模型并备份重载！`);
-        await loadPrimaryModel();
-      } else {
-        message.error("设为主模型失败，请检查管家服务连接");
+
+      if (roleKey === "primary") {
+        const res = await postJson(
+          "/api/models/primary",
+          {
+            provider: "ollama",
+            model: modelName,
+            endpoint,
+            source: "ollama",
+          },
+          30_000,
+        );
+        if (res.ok) {
+          message.success(`已成功将 ${modelName} 设为 Hermes 主对话模型并备份重载！`);
+          await loadRoles();
+        } else {
+          message.error("设为主对话模型失败，请检查管家服务连接");
+        }
+      } else if (roleKey === "probe") {
+        const res = await postJson(
+          "/api/memory-probe/config",
+          {
+            modelId: `ollama:${modelName}`,
+            modelName,
+            endpoint,
+            isLocal: true,
+          },
+          15_000,
+        );
+        if (res.ok) {
+          message.success(`已成功将 ${modelName} 设为记忆探针模型（全天候 0 成本事实抽取）！`);
+          await loadRoles();
+        } else {
+          message.error("设为记忆探针模型失败，请检查管家服务连接");
+        }
+      } else if (roleKey === "instance") {
+        const profileId = `ollama-${modelName.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+        await postJson(
+          "/api/llm/profiles",
+          {
+            profileId,
+            provider: "Ollama (本地)",
+            protocol: "openai-compatible",
+            endpoint,
+            model: modelName,
+            apiKey: "ollama",
+          },
+          10_000,
+        );
+        const bindRes = await postJson(
+          "/api/llm/bindings",
+          {
+            profileId,
+            scope: "instance",
+            instanceId: "hermes-main",
+            frameworkId: "hermes",
+          },
+          15_000,
+        );
+        if (bindRes.ok) {
+          message.success(`已成功将 ${modelName} 设为 Butler 实例默认调度模型！`);
+          await loadRoles();
+        } else {
+          message.error("设为实例默认模型失败，请检查管家服务连接");
+        }
       }
     } finally {
-      setSettingPrimary(null);
+      setAssigningModel(null);
     }
   };
 
@@ -383,8 +468,8 @@ export function OllamaConfigCard() {
     void loadHardwareProfile();
     void loadModels();
     void loadUsageSummary();
-    void loadPrimaryModel();
-  }, [checkStatus, loadHardwareProfile, loadModels, loadUsageSummary, loadPrimaryModel]);
+    void loadRoles();
+  }, [checkStatus, loadHardwareProfile, loadModels, loadUsageSummary, loadRoles]);
 
   // 发起下载模型
   const handleStartPull = async (modelToPull?: string) => {
@@ -681,7 +766,7 @@ export function OllamaConfigCard() {
             </Button>
           </Flex>
           <Text type="secondary" style={{ display: "block", marginBottom: 14 }}>
-            已安装在 Ollama 中的模型列表
+            已安装在 Ollama 中的模型列表。点击卡片上的【快捷分配角色】可自由指派为 Hermes 主对话、记忆探针或实例默认调度模型。
           </Text>
 
           {models.length === 0 ? (
@@ -695,24 +780,101 @@ export function OllamaConfigCard() {
                 const isEmbed =
                   item.name.toLowerCase().includes("embed") ||
                   item.details?.family?.toLowerCase().includes("bert") === true;
-                const isCurrentPrimary = primaryModel?.model === item.name;
+                const isPrimary = Boolean(
+                  primaryModel?.model &&
+                    (primaryModel.model === item.name ||
+                      primaryModel.model.toLowerCase() === item.name.toLowerCase()),
+                );
+                const isProbe = Boolean(
+                  (probeConfig?.modelName &&
+                    (probeConfig.modelName === item.name ||
+                      probeConfig.modelName.toLowerCase() === item.name.toLowerCase())) ||
+                    (probeConfig?.modelId &&
+                      (probeConfig.modelId === `ollama:${item.name}` ||
+                        probeConfig.modelId.toLowerCase() === `ollama:${item.name.toLowerCase()}`)),
+                );
+                const isInstance = Boolean(
+                  instanceBindingModel &&
+                    (instanceBindingModel === item.name ||
+                      instanceBindingModel.toLowerCase() === item.name.toLowerCase()),
+                );
+                const hasAnyRole = isPrimary || isProbe || isInstance;
+
+                const roleMenuItems: MenuProps["items"] = [
+                  {
+                    key: "primary",
+                    label: (
+                      <div style={{ padding: "4px 0" }}>
+                        <div style={{ fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}>
+                          <span>设为 Hermes 主对话模型</span>
+                          {isPrimary && <Tag color="blue" style={{ fontSize: 10, margin: 0 }}>当前生效</Tag>}
+                        </div>
+                        <div style={{ fontSize: 11, color: "var(--ab-text-3)", marginTop: 2 }}>
+                          系统的核心日常对话大脑 (Core Chat)，修改后重载网关
+                        </div>
+                      </div>
+                    ),
+                    icon: <MessageOutlined style={{ color: "var(--ab-primary)", fontSize: 14 }} />,
+                    disabled: isPrimary,
+                  },
+                  {
+                    type: "divider",
+                  },
+                  {
+                    key: "probe",
+                    label: (
+                      <div style={{ padding: "4px 0" }}>
+                        <div style={{ fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}>
+                          <span>设为记忆探针抽取模型</span>
+                          {isProbe && <Tag color="green" style={{ fontSize: 10, margin: 0 }}>当前生效</Tag>}
+                        </div>
+                        <div style={{ fontSize: 11, color: "var(--ab-text-3)", marginTop: 2 }}>
+                          用于后台记忆提炼与事实抽取 (Memory Probe)，0 成本运行
+                        </div>
+                      </div>
+                    ),
+                    icon: <ExperimentOutlined style={{ color: "var(--ab-ok)", fontSize: 14 }} />,
+                    disabled: isProbe,
+                  },
+                  {
+                    type: "divider",
+                  },
+                  {
+                    key: "instance",
+                    label: (
+                      <div style={{ padding: "4px 0" }}>
+                        <div style={{ fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}>
+                          <span>设为 Butler 实例默认调度模型</span>
+                          {isInstance && <Tag color="orange" style={{ fontSize: 10, margin: 0 }}>当前生效</Tag>}
+                        </div>
+                        <div style={{ fontSize: 11, color: "var(--ab-text-3)", marginTop: 2 }}>
+                          Butler 任务调度、代码分析与技能执行的默认底层 LLM (Binding)
+                        </div>
+                      </div>
+                    ),
+                    icon: <ApiOutlined style={{ color: "var(--ab-warning)", fontSize: 14 }} />,
+                    disabled: isInstance,
+                  },
+                ];
 
                 return (
                   <div
                     key={item.name}
                     style={{
-                      minWidth: 260,
-                      maxWidth: 320,
+                      minWidth: 270,
+                      maxWidth: 330,
                       padding: "14px 16px",
                       backgroundColor: "var(--ab-surface-2)",
-                      border: isCurrentPrimary
-                        ? "1px solid var(--ab-ok)"
-                        : "1px solid var(--ab-border)",
+                      border: isPrimary
+                        ? "1px solid var(--ab-primary)"
+                        : hasAnyRole
+                          ? "1px solid var(--ab-ok)"
+                          : "1px solid var(--ab-border)",
                       borderRadius: 8,
                       display: "flex",
                       flexDirection: "column",
                       gap: 10,
-                      boxShadow: isCurrentPrimary ? "0 0 0 1px var(--ab-ok)" : "none",
+                      boxShadow: isPrimary ? "0 0 0 1px var(--ab-primary)" : "none",
                     }}
                   >
                     <Flex justify="space-between" align="flex-start" gap={8}>
@@ -760,46 +922,77 @@ export function OllamaConfigCard() {
                       </Text>
                     </Flex>
 
+                    {/* 当前已生效的角色徽章展示 */}
+                    <Flex wrap="wrap" gap={6} align="center" style={{ minHeight: 24 }}>
+                      {isPrimary && (
+                        <Tag
+                          color="blue"
+                          icon={<MessageOutlined />}
+                          style={{ margin: 0, fontSize: 11, display: "inline-flex", alignItems: "center", gap: 3 }}
+                        >
+                          主对话模型
+                        </Tag>
+                      )}
+                      {isProbe && (
+                        <Tag
+                          color="green"
+                          icon={<ExperimentOutlined />}
+                          style={{ margin: 0, fontSize: 11, display: "inline-flex", alignItems: "center", gap: 3 }}
+                        >
+                          记忆探针
+                        </Tag>
+                      )}
+                      {isInstance && (
+                        <Tag
+                          color="orange"
+                          icon={<ApiOutlined />}
+                          style={{ margin: 0, fontSize: 11, display: "inline-flex", alignItems: "center", gap: 3 }}
+                        >
+                          实例默认
+                        </Tag>
+                      )}
+                      {!hasAnyRole && !isEmbed && (
+                        <Text type="secondary" style={{ fontSize: 11, color: "var(--ab-text-3)" }}>
+                          未分配角色
+                        </Text>
+                      )}
+                    </Flex>
+
+                    {/* 操作区域 */}
                     {isEmbed ? (
                       <div style={{ marginTop: 2 }}>
                         <Text type="secondary" style={{ fontSize: 12, color: "var(--ab-text-3)" }}>
-                          专用向量模型（不可设为对话主模型）
+                          专用向量模型（不可设为对话角色）
                         </Text>
                       </div>
-                    ) : isCurrentPrimary ? (
-                      <Tag
-                        color="success"
-                        icon={<CheckCircleFilled style={{ color: "var(--ab-ok)" }} />}
-                        style={{
-                          marginTop: 2,
-                          padding: "4px 8px",
-                          fontSize: 12,
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 4,
-                          width: "fit-content",
-                        }}
-                      >
-                        ★ 当前系统主模型
-                      </Tag>
                     ) : (
-                      <Button
-                        size="small"
-                        type="primary"
-                        ghost
-                        style={{ marginTop: 2, width: "fit-content" }}
-                        icon={<ThunderboltOutlined />}
-                        loading={settingPrimary === item.name}
-                        onClick={() => handleSetPrimary(item.name)}
-                      >
-                        设为系统主模型
-                      </Button>
+                      <div style={{ marginTop: 2 }}>
+                        <Dropdown
+                          menu={{
+                            items: roleMenuItems,
+                            onClick: ({ key }) =>
+                              void handleAssignRole(item.name, key as "primary" | "probe" | "instance"),
+                          }}
+                          trigger={["click"]}
+                        >
+                          <Button
+                            size="small"
+                            type={hasAnyRole ? "default" : "primary"}
+                            ghost={!hasAnyRole}
+                            loading={assigningModel === item.name}
+                            icon={<SettingOutlined />}
+                            style={{ width: "fit-content" }}
+                          >
+                            快捷分配角色 <DownOutlined style={{ fontSize: 10, marginLeft: 2 }} />
+                          </Button>
+                        </Dropdown>
+                      </div>
                     )}
                   </div>
                 );
               })}
-              </Flex>
-            )}
+            </Flex>
+          )}
           </div>
 
           <Divider style={{ margin: "18px 0" }} />
