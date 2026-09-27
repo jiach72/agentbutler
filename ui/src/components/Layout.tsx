@@ -583,7 +583,19 @@ export function Layout() {
 
               <div className="flex items-center gap-1">
                 <button
-                  className="w-8 h-8 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all duration-200 active:scale-90"
+                  className="hidden sm:inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-surface-container/70 hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface border border-outline-variant/15 transition-all text-xs cursor-pointer group active:scale-95"
+                  onClick={openCommandPalette}
+                  title="全局指令与搜索 (⌘K / Ctrl+K)"
+                  type="button"
+                >
+                  <EtherealIcon name="search" size={14} className="group-hover:text-primary transition-colors" />
+                  <span className="text-on-surface-variant/80 text-[11px]">搜索与极客工具</span>
+                  <kbd className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-surface-container-highest/80 text-on-surface-variant font-medium border border-outline-variant/20 shadow-2xs">
+                    ⌘K
+                  </kbd>
+                </button>
+                <button
+                  className="sm:hidden w-8 h-8 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all duration-200 active:scale-90"
                   onClick={openCommandPalette}
                   title="全局指令与搜索 (⌘K)"
                   type="button"

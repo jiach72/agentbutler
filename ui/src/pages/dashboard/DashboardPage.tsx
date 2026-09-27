@@ -1,6 +1,6 @@
 import { type ReactNode, useState } from "react";
-import { Link } from "react-router-dom";
-import { App, Button, Collapse, Skeleton } from "antd";
+import { Link, useNavigate } from "react-router-dom";
+import { App, Button, Collapse, Input, Skeleton } from "antd";
 import { postJson } from "../../lib/api.js";
 import { formatRelative } from "../../lib/format.js";
 import { EtherealIcon } from "../../components/EtherealIcon.js";
@@ -11,6 +11,33 @@ import { MatrixSparkline } from "./MatrixSparkline.js";
 import { GuardianPostureChart } from "./GuardianPostureChart.js";
 import { SetupHeroCard } from "./SetupHeroCard.js";
 import { WalletSafetyCard } from "./WalletSafetyCard.js";
+
+const BUTLER_COMMAND_PRESETS = [
+  {
+    icon: "🌅",
+    label: "每日晨报简报",
+    name: "每日晨报推送",
+    prompt: "收集并整理今天的天气预报、日历待办与重要科技要闻，以结构化简报形式推送到首选通知通道。",
+  },
+  {
+    icon: "🛡️",
+    label: "系统安全自检",
+    name: "系统安全健康巡检",
+    prompt: "检查系统运行状态、Docker 容器健康度、磁盘空间与关键服务错误日志，若有异常立即发出告警通知。",
+  },
+  {
+    icon: "🧹",
+    label: "日志与缓存清理",
+    name: "日志与临时缓存清理",
+    prompt: "清理超过 14 天的临时日志与构建缓存，保持存储空间整洁健康，并在完成后汇报释放的空间大小。",
+  },
+  {
+    icon: "📈",
+    label: "GitHub 热门速递",
+    name: "GitHub 趋势速递",
+    prompt: "抓取 GitHub Trending 榜单上最热门的前 5 个开源 AI 项目及其简要说明，发送摘要。",
+  },
+];
 
 interface RuntimeDetailsProps {
   open: boolean;
@@ -53,6 +80,19 @@ function DashboardSkeleton() {
 export function DashboardPage() {
   const data = useUserHealthData();
   const { message } = App.useApp();
+  const navigate = useNavigate();
+  const [commandText, setCommandText] = useState("");
+
+  const handleDispatchCommand = (promptToUse?: string) => {
+    const text = (promptToUse ?? commandText).trim();
+    if (!text) {
+      navigate("/tasks?action=new");
+      return;
+    }
+    const matched = BUTLER_COMMAND_PRESETS.find((p) => p.prompt === text);
+    const taskName = matched ? matched.name : text.length > 16 ? text.slice(0, 16) + "…" : text;
+    navigate(`/tasks?action=new&name=${encodeURIComponent(taskName)}&prompt=${encodeURIComponent(text)}`);
+  };
 
   const [inspecting, setInspecting] = useState(false);
   const [heroDismissed, setHeroDismissed] = useState<boolean>(() => {
@@ -196,61 +236,95 @@ export function DashboardPage() {
             </div>
           </section>
 
-          {/* Section B: Butler Quick Interaction Bar (管家随手吩咐与快捷导航) */}
-          <section className="animate-entrance rounded-2xl bg-surface-container-lowest/80 p-3.5 md:p-4 shadow-xs border border-outline-variant/15 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0 flex-1">
-              <div className="w-9 h-9 rounded-xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center shrink-0">
-                <EtherealIcon name="chat" size={18} />
+          {/* Section B: Butler Quick Interaction Bar (管家随手吩咐输入启动器与快捷导航) */}
+          <section className="animate-entrance rounded-2xl bg-surface-container-lowest/90 p-4 md:p-5 shadow-xs border border-outline-variant/15 space-y-3 bento-card-hover">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center shrink-0">
+                  <EtherealIcon name="chat" size={17} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-on-surface flex items-center gap-2 tracking-tight">
+                    <span>随手吩咐管家</span>
+                    <span className="text-[11px] font-normal text-on-surface-variant/80 hidden sm:inline">输入一句话指令，智能体即刻排程执行</span>
+                  </h3>
+                </div>
               </div>
-              <div className="min-w-0 flex-1">
-                <div className="text-xs md:text-sm font-semibold text-on-surface flex items-center gap-2">
-                  <span>随手吩咐管家</span>
-                  <span className="text-[11px] font-normal text-on-surface-variant/80">随时向智能体发送任务或指令</span>
-                </div>
-                <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-                  <Link
-                    to="/tasks"
-                    className="text-xs px-2.5 py-1 rounded-lg bg-surface-container/60 hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-1.5 border border-outline-variant/15"
+              <div className="flex items-center gap-1.5 self-end sm:self-center">
+                <Link
+                  to="/gateway"
+                  className="text-xs px-2.5 py-1 rounded-lg bg-surface-container/60 hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-1.5 border border-outline-variant/15"
+                >
+                  <span>💬</span>
+                  <span>通知网关</span>
+                </Link>
+                <Link
+                  to="/skills"
+                  className="text-xs px-2.5 py-1 rounded-lg bg-surface-container/60 hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-1.5 border border-outline-variant/15"
+                >
+                  <span>🧠</span>
+                  <span>记忆便签</span>
+                </Link>
+                {heroDismissed && (
+                  <button
+                    type="button"
+                    onClick={showHero}
+                    className="text-xs px-2.5 py-1 rounded-lg bg-surface-container/60 hover:bg-surface-container-high text-on-surface-variant hover:text-primary transition-colors flex items-center gap-1.5 border border-outline-variant/15 cursor-pointer"
+                    title="重新打开新手启航向导"
                   >
-                    <span>📅</span>
-                    <span>新建自动化巡检</span>
-                  </Link>
-                  <Link
-                    to="/gateway"
-                    className="text-xs px-2.5 py-1 rounded-lg bg-surface-container/60 hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-1.5 border border-outline-variant/15"
-                  >
-                    <span>💬</span>
-                    <span>检查通知通道</span>
-                  </Link>
-                  <Link
-                    to="/skills"
-                    className="text-xs px-2.5 py-1 rounded-lg bg-surface-container/60 hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-1.5 border border-outline-variant/15"
-                  >
-                    <span>🧠</span>
-                    <span>查阅记忆便签</span>
-                  </Link>
-                  {heroDismissed && (
-                    <button
-                      type="button"
-                      onClick={showHero}
-                      className="text-xs px-2.5 py-1 rounded-lg bg-surface-container/60 hover:bg-surface-container-high text-on-surface-variant hover:text-primary transition-colors flex items-center gap-1.5 border border-outline-variant/15 cursor-pointer"
-                      title="重新打开新手启航向导"
-                    >
-                      <span>✨</span>
-                      <span>新手启航</span>
-                    </button>
-                  )}
-                </div>
+                    <span>✨</span>
+                    <span>新手启航</span>
+                  </button>
+                )}
               </div>
             </div>
-            <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
-              <Link
-                to="/tasks"
-                className="h-8 px-3 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary text-xs font-medium border border-primary/20 transition-all inline-flex items-center gap-1.5"
+
+            {/* 指令快速输入框 */}
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Input
+                  value={commandText}
+                  onChange={(e) => setCommandText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleDispatchCommand();
+                    }
+                  }}
+                  placeholder="随手吩咐管家：例如「每天早上8:30发送简报」或输入任务指令，按 Enter 快速排程…"
+                  allowClear
+                  className="!rounded-xl !py-2 !px-3.5 !text-xs md:!text-sm !bg-surface-container/40 !border-outline-variant/25 focus:!bg-surface-container-lowest transition-all"
+                  prefix={<EtherealIcon name="auto_awesome" size={15} className="text-primary/70 mr-1.5" />}
+                />
+              </div>
+              <Button
+                type="primary"
+                onClick={() => handleDispatchCommand()}
+                className="!h-[36px] !px-4 !rounded-xl text-xs md:text-sm font-medium shadow-xs hover:brightness-105 active:scale-95 transition-all inline-flex items-center gap-1.5 shrink-0"
               >
-                <EtherealIcon name="add" size={14} />
-                <span>添加任务</span>
-              </Link>
+                <span>吩咐管家</span>
+                <EtherealIcon name="arrow_forward" size={14} className="text-white" />
+              </Button>
+            </div>
+
+            {/* 场景预设快捷胶囊 */}
+            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+              <span className="text-[11px] text-on-surface-variant/70 font-medium mr-1">快捷场景:</span>
+              {BUTLER_COMMAND_PRESETS.map((preset) => (
+                <button
+                  key={preset.name}
+                  type="button"
+                  onClick={() => {
+                    setCommandText(preset.prompt);
+                    handleDispatchCommand(preset.prompt);
+                  }}
+                  className="text-xs px-2.5 py-1 rounded-lg bg-surface-container/50 hover:bg-primary/10 hover:border-primary/30 text-on-surface-variant hover:text-primary transition-all flex items-center gap-1.5 border border-outline-variant/15 active:scale-95 cursor-pointer group"
+                  title={preset.prompt}
+                >
+                  <span>{preset.icon}</span>
+                  <span className="font-normal">{preset.label}</span>
+                </button>
+              ))}
             </div>
           </section>
 

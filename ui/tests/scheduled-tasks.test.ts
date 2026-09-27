@@ -1,7 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { compareTasks, taskStatusLabel, taskMutationError, scheduleConfirmation, humanizeSchedule } from "../src/pages/tasks/taskCopy.js";
 
+import { TASK_TEMPLATES } from "../src/pages/tasks/TaskEditorDrawer.js";
+
 describe("scheduled task presentation", () => {
+  it("ensures all built-in task templates provide valid schedules and prompts", () => {
+    expect(TASK_TEMPLATES.length).toBeGreaterThanOrEqual(4);
+    for (const tpl of TASK_TEMPLATES) {
+      expect(tpl.key).toBeTruthy();
+      expect(tpl.name).toBeTruthy();
+      expect(tpl.prompt).toBeTruthy();
+      const sched = tpl.schedule("Asia/Shanghai");
+      expect(["daily", "every", "cron", "weekly", "weekdays", "interval"]).toContain(sched.kind);
+    }
+  });
   it("puts failed tasks before imminent tasks and paused tasks last", () => {
     const items = [
       { id: "paused", enabled: false, lastStatus: "failed", nextRunAt: null },

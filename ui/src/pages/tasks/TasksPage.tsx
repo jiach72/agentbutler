@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Alert, App, Button, Empty, Input, Modal, Segmented, Skeleton, Space, Switch, Tag, Tooltip } from "antd";
 import {
   BellOutlined,
@@ -80,6 +81,66 @@ export function TasksPage() {
     return () => { generation.current += 1; };
   }, [refresh]);
   usePolling(() => void refresh(), 30_000);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  useEffect(() => {
+    const action = searchParams.get("action");
+    const promptParam = searchParams.get("prompt");
+    const nameParam = searchParams.get("name");
+    const templateKey = searchParams.get("template");
+
+    if (templateKey) {
+      const tpl = TASK_TEMPLATES.find((t) => t.key === templateKey);
+      if (tpl) {
+        setEditor({
+          key: crypto.randomUUID(),
+          initialDraft: {
+            name: tpl.name,
+            prompt: tpl.prompt,
+            schedule: tpl.schedule(status?.timezone || "Asia/Shanghai"),
+            delivery: { enabled: true },
+          },
+        });
+        setSearchParams(
+          (prev) => {
+            const next = new URLSearchParams(prev);
+            next.delete("template");
+            next.delete("action");
+            return next;
+          },
+          { replace: true },
+        );
+        return;
+      }
+    }
+
+    if (action === "new" || promptParam) {
+      setEditor({
+        key: crypto.randomUUID(),
+        initialDraft: {
+          name: nameParam || (promptParam ? (promptParam.length > 15 ? promptParam.slice(0, 15) + "…" : promptParam) : "新建排程任务"),
+          prompt: promptParam || "",
+          schedule: {
+            kind: "daily",
+            time: "09:00",
+            timezone: status?.timezone || "Asia/Shanghai",
+          },
+          delivery: { enabled: true },
+        },
+      });
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("action");
+          next.delete("prompt");
+          next.delete("name");
+          return next;
+        },
+        { replace: true },
+      );
+    }
+  }, [searchParams, setSearchParams, status?.timezone]);
+
   const reachable = !failed && data?.reachable === true && status?.reachable === true;
   const supported = data?.supported !== false && status?.supported !== false;
   const timezone = status?.timezone ?? "";
