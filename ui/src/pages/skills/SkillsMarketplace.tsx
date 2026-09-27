@@ -930,6 +930,42 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
               menu={{
                 items: [
                   {
+                    key: "copy-name",
+                    label: "复制技能目录名",
+                    icon: <CopyOutlined />,
+                    onClick: () => {
+                      void navigator.clipboard.writeText(item.name);
+                      message.success(`已复制目录名：${item.name}`);
+                    },
+                  },
+                  {
+                    key: "copy-cmd",
+                    label: "复制 Hermes 安装命令",
+                    icon: <CopyOutlined />,
+                    onClick: () => {
+                      const cmd = `hermes skill install ${item.name}`;
+                      void navigator.clipboard.writeText(cmd);
+                      message.success("已复制安装命令到剪贴板");
+                    },
+                  },
+                  ...(item.gitUrl !== null || item.slug !== null
+                    ? [
+                        {
+                          key: "copy-url",
+                          label: "复制来源链接",
+                          icon: <CopyOutlined />,
+                          onClick: () => {
+                            const url = item.gitUrl ?? `https://skillhub.cn/skills/${item.slug}`;
+                            void navigator.clipboard.writeText(url);
+                            message.success("已复制来源链接到剪贴板");
+                          },
+                        },
+                      ]
+                    : []),
+                  {
+                    type: "divider" as const,
+                  },
+                  {
                     key: "dir",
                     label: `目录：${item.name}`,
                     disabled: true,
@@ -1160,6 +1196,14 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
             installedUpdateFilter === "updates_only" ? (
               <Button size="small" onClick={() => setInstalledUpdateFilter("all")}>
                 查看全部已安装技能
+              </Button>
+            ) : keyword.trim() !== "" ? (
+              <Button size="small" onClick={() => setKeyword("")}>
+                清空搜索关键词
+              </Button>
+            ) : activeInstalledCategory !== "" ? (
+              <Button size="small" onClick={() => setActiveInstalledCategory("")}>
+                查看全部分类
               </Button>
             ) : undefined
           }
@@ -1455,8 +1499,16 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
         {detailItem !== null && (
           <Flex vertical gap={16}>
             <Descriptions bordered size="small" column={1}>
-              <Descriptions.Item label="名称">{detailItem.displayName}</Descriptions.Item>
-              <Descriptions.Item label="目录名">{detailItem.name}</Descriptions.Item>
+              <Descriptions.Item label="名称">
+                <Typography.Text copyable={{ text: detailItem.displayName }}>
+                  {detailItem.displayName}
+                </Typography.Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="目录名">
+                <Typography.Text copyable={{ text: detailItem.name }} code>
+                  {detailItem.name}
+                </Typography.Text>
+              </Descriptions.Item>
               <Descriptions.Item label="描述">
                 {detailItem.description !== "" ? detailItem.description : "—"}
               </Descriptions.Item>
@@ -1465,7 +1517,21 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
               </Descriptions.Item>
               <Descriptions.Item label="来源">
                 {ORIGIN_LABELS[detailItem.origin]}
-                {detailItem.gitUrl !== null ? ` · ${detailItem.gitUrl}` : detailItem.slug !== null ? ` · skillhub.cn/skills/${detailItem.slug}` : ""}
+                {detailItem.gitUrl !== null ? (
+                  <>
+                    {" · "}
+                    <Typography.Text copyable={{ text: detailItem.gitUrl }}>
+                      {detailItem.gitUrl}
+                    </Typography.Text>
+                  </>
+                ) : detailItem.slug !== null ? (
+                  <>
+                    {" · "}
+                    <Typography.Text copyable={{ text: `https://skillhub.cn/skills/${detailItem.slug}` }}>
+                      {`skillhub.cn/skills/${detailItem.slug}`}
+                    </Typography.Text>
+                  </>
+                ) : ""}
               </Descriptions.Item>
               <Descriptions.Item label="安装时间">
                 {detailItem.installedAt === null ? "未知" : formatTime(detailItem.installedAt)}

@@ -71,7 +71,13 @@ export function SkillMarketCard({
               </span>
             </Avatar>
             <Flex vertical gap={2} style={{ minWidth: 0 }}>
-              <Text strong ellipsis style={{ fontSize: 16 }} title={name}>
+              <Text
+                strong
+                ellipsis
+                style={{ fontSize: 16 }}
+                title={name}
+                copyable={{ text: name, tooltips: ["复制技能名称", "已复制"] }}
+              >
                 {name}
               </Text>
               {subtitle !== undefined && subtitle !== "" && (
