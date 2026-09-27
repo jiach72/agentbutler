@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { Alert, App, Button, Drawer, Empty, Skeleton, Tag, Tooltip } from "antd";
+import { Alert, App, Button, Drawer, Flex, Skeleton, Tag, Tooltip, Typography } from "antd";
 import { CopyOutlined, ReloadOutlined } from "@ant-design/icons";
 import { loadJson } from "../../lib/api.js";
 import { taskStatusLabel, taskTime } from "./taskCopy.js";
+import { Empty as ButlerEmpty } from "../../components/Empty.js";
 
 interface RunView {
   id: string;
@@ -54,7 +55,21 @@ export function TaskRunHistory({ task, onClose, timezone }: {
   }, [task?.id, retry]);
   return <Drawer
     open={task !== null}
-    title={`${task?.name ?? "任务"} · 执行历史`}
+    title={
+      <Flex align="center" gap={8} wrap="wrap">
+        <span>{task?.name ? `任务执行历史：${task.name}` : "任务执行历史"}</span>
+        {task?.id && (
+          <Typography.Text
+            copyable={{ text: task.id, tooltips: ["复制任务 ID", "已复制"] }}
+            type="secondary"
+            code
+            style={{ fontSize: 11 }}
+          >
+            {task.id}
+          </Typography.Text>
+        )}
+      </Flex>
+    }
     onClose={onClose}
     extra={
       <Button
@@ -71,13 +86,27 @@ export function TaskRunHistory({ task, onClose, timezone }: {
     {error ? <Alert type="warning" showIcon title="暂时无法读取执行历史"
       action={<Button icon={<ReloadOutlined />} onClick={() => setRetry((value) => value + 1)}>重试</Button>} />
       : items === null ? <Skeleton active />
-      : items.length === 0 ? <Empty description="尚无执行记录" />
+      : items.length === 0 ? (
+        <ButlerEmpty
+          mascot={false}
+          title="尚无执行记录"
+          hint="该任务尚未触发执行。您可以等待到达预定时间，或在任务列表点击「测试运行」立即验证。"
+        />
+      )
       : <ol className="task-run-list">{items.map((run) => <li key={run.id}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <Tag color={getRunTagColor(run.status)} style={{ margin: 0 }}>
               {taskStatusLabel(run.status)}
             </Tag>
+            <Typography.Text
+              copyable={{ text: run.id, tooltips: ["复制运行编号", "已复制"] }}
+              type="secondary"
+              code
+              style={{ fontSize: 11 }}
+            >
+              {run.id.length > 8 ? run.id.slice(0, 8) : run.id}
+            </Typography.Text>
             <span style={{ fontSize: 13, color: "var(--ab-text-2)" }}>{taskTime(run.startedAt, timezone)}</span>
           </div>
           {run.startedAt && run.finishedAt && Number.isFinite(Date.parse(run.startedAt)) && Number.isFinite(Date.parse(run.finishedAt)) && (
