@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import type { ProxyHelpers } from "../proxy-helpers.js";
+import { watchAuthHeaders, type ProxyHelpers } from "../proxy-helpers.js";
 
 export interface MemoryRouteOptions {
   proxy: ProxyHelpers;
@@ -63,7 +63,10 @@ export async function registerMemoryRoutes(
     try {
       res = await doFetch(`${watchUrl}/api/memory/export`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          ...watchAuthHeaders(),
+        },
         body: JSON.stringify(request.body ?? {}),
         signal: AbortSignal.timeout(20_000),
       });

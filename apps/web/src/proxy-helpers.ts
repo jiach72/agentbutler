@@ -13,21 +13,26 @@ export interface ProxyHelpers {
     reply: FastifyReply,
     timeoutMs?: number,
   ) => Promise<FastifyReply>;
+  proxyWatchDelete: (
+    watchPath: string,
+    reply: FastifyReply,
+    timeoutMs?: number,
+  ) => Promise<FastifyReply>;
+}
+
+export function watchAuthHeaders(): Record<string, string> {
+  const accessToken = (process.env["BUTLER_ACCESS_TOKEN"] ?? "").trim();
+  const internalToken = (process.env["BUTLER_INTERNAL_TOKEN"] ?? "").trim();
+  return {
+    ...(accessToken === "" ? {} : { "x-butler-token": accessToken }),
+    ...(internalToken === "" ? {} : { "x-butler-internal-token": internalToken }),
+  };
 }
 
 export function createProxyHelpers(
   doFetch: typeof fetch,
   watchUrl: string,
 ): ProxyHelpers {
-  const watchAuthHeaders = (): Record<string, string> => {
-    const accessToken = (process.env["BUTLER_ACCESS_TOKEN"] ?? "").trim();
-    const internalToken = (process.env["BUTLER_INTERNAL_TOKEN"] ?? "").trim();
-    return {
-      ...(accessToken === "" ? {} : { "x-butler-token": accessToken }),
-      ...(internalToken === "" ? {} : { "x-butler-internal-token": internalToken }),
-    };
-  };
-
   const fetchWatch = async (
     watchPath: string,
     timeoutMs = 5_000,
@@ -109,7 +114,35 @@ export function createProxyHelpers(
     return reply.status(res.status).send(parsed);
   };
 
-  return { fetchWatch, proxyWatchPost, proxyWatchGet };
+  const proxyWatchDelete = async (
+    watchPath: string,
+    reply: FastifyReply,
+    timeoutMs = 5_000,
+  ): Promise<FastifyReply> => {
+    let res: Response;
+    try {
+      res = await doFetch(`${watchUrl}${watchPath}`, {
+        method: "DELETE",
+        headers: watchAuthHeaders(),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch {
+      return reply.status(502).send({ error: "watch-unreachable" });
+    }
+    if (res.status === 204) return reply.status(204).send();
+    const raw = await res.text();
+    let parsed: unknown = {};
+    if (raw !== "") {
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        parsed = { raw };
+      }
+    }
+    return reply.status(res.status).send(parsed);
+  };
+
+  return { fetchWatch, proxyWatchPost, proxyWatchGet, proxyWatchDelete };
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {

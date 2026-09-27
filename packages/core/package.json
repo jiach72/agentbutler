@@ -12,6 +12,7 @@
     }
   },
   "dependencies": {
-    "@butler/contract": "workspace:*"
+    "@butler/contract": "workspace:*",
+    "yaml": "^2.9.0"
   }
 }

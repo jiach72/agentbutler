@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { classifyRuntimeState } from "../src/runtime-diagnosis.js";
-import { parsePortProxyOutput } from "../src/runtime.js";
+import { parsePortProxyOutput, wslPathOf } from "../src/runtime.js";
 
 describe("classifyRuntimeState", () => {
   it("does not turn warnings into a root cause when probes are healthy", () => {
@@ -55,5 +55,18 @@ Address         Port        Address         Port
 
   it("忽略 IPv6、空行与不完整记录", () => {
     expect(parsePortProxyOutput("::1 7531 172.26.64.1 7531\n127.0.0.1 7531 172.26.64.1")).toEqual([]);
+  });
+});
+
+describe("wslPathOf", () => {
+  it("归一化 Windows 反斜杠路径防止 shell 转义丢失", () => {
+    if (process.platform === "win32") {
+      const result = wslPathOf("Ubuntu-24.04", "C:\\Users");
+      if (result !== null) {
+        expect(result).toBe("/mnt/c/Users");
+      }
+    } else {
+      expect(wslPathOf("nonexistent", "dummy")).toBeNull();
+    }
   });
 });

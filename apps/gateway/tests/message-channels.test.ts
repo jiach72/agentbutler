@@ -223,4 +223,33 @@ describe("gateway channel lifecycle routes", () => {
       await app.gateway.close();
     }
   });
+
+  it("ping 校验通道状态：就绪通道返回 200，未启用通道返回 400，不存在通道返回 404", async () => {
+    const app = createGatewayServer({ home: isolatedHome(), startLoop: false, channelControl: new FakeChannelControl() });
+    try {
+      // 1. 已启用且配置就绪的通道 (weixin) -> 200
+      const okRes = await app.inject({ method: "POST", url: "/api/messages/channels/weixin/ping" });
+      expect(okRes.statusCode).toBe(200);
+      const okBody = okRes.json() as { ok: boolean; channel: string; message: string };
+      expect(okBody.ok).toBe(true);
+      expect(okBody.channel).toBe("weixin");
+      expect(okBody.message).toContain("连通性与配置检查通过");
+
+      // 2. 未启用的通道 (feishu) -> 400
+      const disabledRes = await app.inject({ method: "POST", url: "/api/messages/channels/feishu/ping" });
+      expect(disabledRes.statusCode).toBe(400);
+      const disabledBody = disabledRes.json() as { ok: boolean; error: string; message: string };
+      expect(disabledBody.ok).toBe(false);
+      expect(disabledBody.error).toBe("channel_disabled");
+
+      // 3. 不存在的通道 (nonexistent) -> 404
+      const notFoundRes = await app.inject({ method: "POST", url: "/api/messages/channels/nonexistent/ping" });
+      expect(notFoundRes.statusCode).toBe(404);
+      const notFoundBody = notFoundRes.json() as { ok: boolean; error: string };
+      expect(notFoundBody.ok).toBe(false);
+      expect(notFoundBody.error).toBe("channel_not_found");
+    } finally {
+      await app.gateway.close();
+    }
+  });
 });

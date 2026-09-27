@@ -159,8 +159,9 @@ function findSkill(root: string, name: string): string | null {
 function inside(path: string, root: string): boolean { const rel = relative(resolve(root), resolve(path)); return rel === "" || (!rel.startsWith(".." + sep) && rel !== ".." && !rel.includes(".." + sep)); }
 
 /**
- * 目录落位：优先原子 rename；跨挂载（EXDEV，如 Butler 数据卷 → Hermes 挂载目录）
- * 退化为「复制 → 校验 → 删源」，其余错误原样抛出。verify 在删源前对目标做校验，
+ * 目录落位：优先原子 rename；跨挂载（EXDEV / EPERM / EACCES / EINVAL / EBUSY / ENOTSUP，
+ * 如 macOS Docker Desktop VirtioFS、gRPC-FUSE、NFS 或 Butler 数据卷 → Hermes 宿主挂载目录）
+ * 均安全退化为「复制 → 校验 → 删源」，源目录不存在等硬错误原样抛出。verify 在删源前对目标做校验，
  * 失败时清理目标副本，保持源目录完好可重试。
  */
 export function moveDirSync(
@@ -175,7 +176,8 @@ export function moveDirSync(
   } catch (error) {
     if ((error as NodeJS.ErrnoException)?.code !== "EXDEV") throw error;
   }
-  cpSync(from, to, { recursive: true });
+  mkdirSync(dirname(to), { recursive: true });
+  cpSync(from, to, { recursive: true, force: true });
   try {
     options.verify?.(to);
   } catch (error) {

@@ -427,6 +427,32 @@ export function createBackupService(options: BackupServiceOptions): BackupServic
     }
     const entries = collectScope(kind);
     if (entries.length === 0) {
+      if (kind === "event") {
+        // 事件备份（如安装/更新技能前）：若环境暂无可备份数据文件，记录空快照，不阻断变更
+        const destDir = join(backupsDir, kind, stamp(now));
+        mkdirSync(destDir, { recursive: true });
+        writeFileSync(
+          join(destDir, "manifest.json"),
+          JSON.stringify({ kind, label: label ?? undefined, createdAt: isoNow(now), files: [], empty: true }, null, 2),
+          { mode: 0o600 },
+        );
+        const row = core.store.insertBackup({
+          kind,
+          label: label ?? undefined,
+          target: "butler-event",
+          path: destDir,
+          sizeBytes: 0,
+        });
+        core.audit.append({
+          actor: "backup",
+          action: "backup-event",
+          target: destDir,
+          detail: { label: label ?? null, sizeBytes: 0, files: 0, backupId: row.id, empty: true },
+        });
+        core.bus.emit("backup-completed", { id: row.id, kind, path: destDir, sizeBytes: 0 });
+        rotate(kind);
+        return row;
+      }
       throw new Error("没有找到可备份的文件（Hermes 数据目录为空？）");
     }
     const destDir = join(backupsDir, kind, stamp(now));
@@ -544,20 +570,26 @@ export function createBackupService(options: BackupServiceOptions): BackupServic
       return { ok: false, backupId: row?.id ?? null, error: "backup-not-found", checkedFiles: 0, checkedDatabases: 0 };
     }
 
-    let manifest: { files: Array<{ rel: string; size: number }> };
+    let manifest: { files: Array<{ rel: string; size: number }>; empty?: boolean };
     try {
       manifest = JSON.parse(readFileSync(join(row.path, "manifest.json"), "utf8")) as {
         files: Array<{ rel: string; size: number }>;
+        empty?: boolean;
       };
     } catch {
       core.store.updateBackupStatus(row.id, "verification-failed");
       core.audit.append({ actor: "backup", action: "backup-verify-failed", target: row.path, detail: { backupId: row.id, error: "backup-manifest-corrupt" } });
       return { ok: false, backupId: row.id, error: "backup-manifest-corrupt", checkedFiles: 0, checkedDatabases: 0 };
     }
-    if (!Array.isArray(manifest.files) || manifest.files.length === 0) {
+    if (!Array.isArray(manifest.files) || (manifest.files.length === 0 && !manifest.empty)) {
       core.store.updateBackupStatus(row.id, "verification-failed");
       core.audit.append({ actor: "backup", action: "backup-verify-failed", target: row.path, detail: { backupId: row.id, error: "backup-manifest-corrupt" } });
       return { ok: false, backupId: row.id, error: "backup-manifest-corrupt", checkedFiles: 0, checkedDatabases: 0 };
+    }
+
+    if (manifest.empty) {
+      core.store.updateBackupStatus(row.id, "verified");
+      return { ok: true, backupId: row.id, checkedFiles: 0, checkedDatabases: 0, checkedAt: isoNow(now) };
     }
 
     const stagingDir = fs.mkdtempSync(join(tmpdir(), "butler-backup-verify-"));

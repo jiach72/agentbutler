@@ -3,8 +3,8 @@ import type { ProxyHelpers } from "../proxy-helpers.js";
 
 export interface LlmRouteOptions {
   proxy: ProxyHelpers;
-  doFetch: typeof fetch;
-  watchUrl: string;
+  doFetch?: typeof fetch;
+  watchUrl?: string;
 }
 
 /**
@@ -14,8 +14,8 @@ export async function registerLlmRoutes(
   app: FastifyInstance,
   options: LlmRouteOptions,
 ): Promise<void> {
-  const { proxy, doFetch, watchUrl } = options;
-  const { proxyWatchGet, proxyWatchPost } = proxy;
+  const { proxy } = options;
+  const { proxyWatchGet, proxyWatchPost, proxyWatchDelete } = proxy;
 
   app.get("/api/llm/profiles", async (_request, reply) => proxyWatchGet("/api/llm/profiles", reply));
 
@@ -74,51 +74,12 @@ export async function registerLlmRoutes(
 
   app.delete("/api/llm/profiles/:id", async (request, reply) => {
     const id = encodeURIComponent((request.params as { id?: string }).id ?? "");
-    let res: Response;
-    const accessToken = (process.env["BUTLER_ACCESS_TOKEN"] ?? "").trim();
-    const internalToken = (process.env["BUTLER_INTERNAL_TOKEN"] ?? "").trim();
-    try {
-      res = await doFetch(`${watchUrl}/api/llm/profiles/${id}`, {
-        method: "DELETE",
-        headers: {
-          origin: "http://127.0.0.1:7531",
-          ...(accessToken === "" ? {} : { "x-butler-token": accessToken }),
-          ...(internalToken === "" ? {} : { "x-butler-internal-token": internalToken }),
-        },
-        signal: AbortSignal.timeout(15_000),
-      });
-    } catch {
-      return reply.status(502).send({ error: "watch-unreachable" });
-    }
-    if (res.status === 204) return reply.status(204).send();
-    const raw = await res.text();
-    let parsed: unknown = {};
-    try {
-      parsed = raw === "" ? {} : (JSON.parse(raw) as unknown);
-    } catch {
-      parsed = { raw };
-    }
-    return reply.status(res.status).send(parsed);
+    return proxyWatchDelete(`/api/llm/profiles/${id}`, reply, 15_000);
   });
 
   app.delete("/api/llm/bindings/:id", async (request, reply) => {
     const id = encodeURIComponent((request.params as { id?: string }).id ?? "");
-    let res: Response;
-    try {
-      res = await doFetch(`${watchUrl}/api/llm/bindings/${id}`, {
-        method: "DELETE",
-        signal: AbortSignal.timeout(5_000),
-      });
-    } catch {
-      return reply.status(502).send({ error: "watch-unreachable" });
-    }
-    const raw = await res.text();
-    if (raw === "") return reply.status(res.status).send();
-    try {
-      return reply.status(res.status).send(JSON.parse(raw));
-    } catch {
-      return reply.status(502).send({ error: "watch-invalid-response" });
-    }
+    return proxyWatchDelete(`/api/llm/bindings/${id}`, reply);
   });
 
   // 统一 API 密钥与服务中心代理路由
@@ -138,23 +99,6 @@ export async function registerLlmRoutes(
   });
   app.delete("/api/credentials/:id", async (request, reply) => {
     const id = encodeURIComponent((request.params as { id?: string }).id ?? "");
-    let res: Response;
-    try {
-      res = await doFetch(`${watchUrl}/api/credentials/${id}`, {
-        method: "DELETE",
-        signal: AbortSignal.timeout(15_000),
-      });
-    } catch {
-      return reply.status(502).send({ error: "watch-unreachable" });
-    }
-    if (res.status === 204) return reply.status(204).send();
-    const raw = await res.text();
-    let parsed: unknown = {};
-    try {
-      parsed = raw === "" ? {} : (JSON.parse(raw) as unknown);
-    } catch {
-      parsed = { raw };
-    }
-    return reply.status(res.status).send(parsed);
+    return proxyWatchDelete(`/api/credentials/${id}`, reply, 15_000);
   });
 }

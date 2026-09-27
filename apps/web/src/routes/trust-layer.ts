@@ -3,8 +3,8 @@ import type { ProxyHelpers } from "../proxy-helpers.js";
 
 export interface TrustLayerRouteOptions {
   proxy: ProxyHelpers;
-  doFetch: typeof fetch;
-  watchUrl: string;
+  doFetch?: typeof fetch;
+  watchUrl?: string;
 }
 
 /**
@@ -14,8 +14,8 @@ export async function registerTrustLayerRoutes(
   app: FastifyInstance,
   options: TrustLayerRouteOptions,
 ): Promise<void> {
-  const { proxy, doFetch, watchUrl } = options;
-  const { proxyWatchPost, proxyWatchGet } = proxy;
+  const { proxy } = options;
+  const { proxyWatchPost, proxyWatchGet, proxyWatchDelete } = proxy;
 
   // 预算引擎（M1.1）：状态 + 手动核算（正常节奏 15 分钟一轮，按钮即时刷新）。
   app.get("/api/budget", async (_request, reply) => proxyWatchGet("/api/budget", reply));
@@ -168,16 +168,7 @@ export async function registerTrustLayerRoutes(
   );
   app.delete("/api/approvals/rules/:fingerprint", async (request, reply) => {
     const rawFp = String((request.params as Record<string, string>)["fingerprint"] ?? "");
-    let res: Response;
-    try {
-      res = await doFetch(`${watchUrl}/api/approvals/rules/${encodeURIComponent(rawFp)}`, {
-        method: "DELETE",
-        signal: AbortSignal.timeout(10_000),
-      });
-    } catch {
-      return reply.status(502).send({ error: "watch-unreachable" });
-    }
-    return reply.status(res.status).send(await res.json().catch(() => ({})));
+    return proxyWatchDelete(`/api/approvals/rules/${encodeURIComponent(rawFp)}`, reply, 10_000);
   });
 
   // M3.2 升级金丝雀：列表 / 详情 / 抽样计划 / 执行 / 策略读写 / 手动巡检。

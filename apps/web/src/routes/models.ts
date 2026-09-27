@@ -6,8 +6,8 @@ import type { ProxyHelpers } from "../proxy-helpers.js";
 export interface ModelRouteOptions {
   ollamaUrl: string;
   proxy: ProxyHelpers;
-  doFetch: typeof fetch;
-  watchUrl: string;
+  doFetch?: typeof fetch;
+  watchUrl?: string;
 }
 
 interface CredentialItem {
@@ -95,8 +95,8 @@ export async function registerModelRoutes(
   app: FastifyInstance,
   options: ModelRouteOptions,
 ): Promise<void> {
-  const { ollamaUrl, proxy, doFetch, watchUrl } = options;
-  const { proxyWatchGet, proxyWatchPost } = proxy;
+  const { ollamaUrl, proxy } = options;
+  const { proxyWatchGet, proxyWatchPost, fetchWatch } = proxy;
 
   /** 1. 统一模型候选池聚合接口 */
   app.get("/api/models/unified-options", async () => {
@@ -136,10 +136,8 @@ export async function registerModelRoutes(
 
     // B. 读取已保存的受管 API 密钥凭据 (Watch /api/credentials)
     try {
-      const credRes = await doFetch(`${watchUrl}/api/credentials`, {
-        signal: AbortSignal.timeout(5_000),
-      });
-      if (credRes.ok) {
+      const credRes = await fetchWatch("/api/credentials");
+      if (credRes && credRes.ok) {
         const credData = (await credRes.json()) as { credentials?: CredentialItem[] };
         const credentials = credData.credentials ?? [];
 
@@ -202,10 +200,8 @@ export async function registerModelRoutes(
 
     // C. 读取已存在的受管 Profile (Watch /api/llm/profiles)
     try {
-      const profRes = await doFetch(`${watchUrl}/api/llm/profiles`, {
-        signal: AbortSignal.timeout(5_000),
-      });
-      if (profRes.ok) {
+      const profRes = await fetchWatch("/api/llm/profiles");
+      if (profRes && profRes.ok) {
         const profData = (await profRes.json()) as { profiles?: ProfileItem[] };
         const profiles = profData.profiles ?? [];
 

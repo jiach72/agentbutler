@@ -5,6 +5,7 @@
  */
 import fs from "node:fs/promises";
 import path from "node:path";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import type { BotProfile, BotTemplate } from "@butler/contract";
 
 /** 开箱即用的三大经典预设 Bot */
@@ -246,8 +247,9 @@ export async function listBotProfiles(hermesRoot: string): Promise<BotProfile[]>
       let soulContent = `你是专职智能体 ${botId}。`;
       let name = botId;
       let role = "自定义专职智能体";
-      const duties: string[] = ["协助执行协同任务"];
+      let duties: string[] = ["协助执行协同任务"];
       let avatar = "🤖";
+      let isPreset = false;
 
       try {
         soulContent = await fs.readFile(soulFile, "utf8");
@@ -257,14 +259,38 @@ export async function listBotProfiles(hermesRoot: string): Promise<BotProfile[]>
 
       try {
         const configRaw = await fs.readFile(configFile, "utf8");
-        const nameMatch = /^name:\s*"?([^"\n]+)"?/m.exec(configRaw);
-        if (nameMatch) name = nameMatch[1].trim();
-        const roleMatch = /^role:\s*"?([^"\n]+)"?/m.exec(configRaw);
-        if (roleMatch) role = roleMatch[1].trim();
-        const avatarMatch = /^avatar:\s*"?([^"\n]+)"?/m.exec(configRaw);
-        if (avatarMatch) avatar = avatarMatch[1].trim();
+        const parsed = parseYaml(configRaw) as Record<string, unknown> | null;
+        if (parsed && typeof parsed === "object") {
+          if (typeof parsed["name"] === "string" && parsed["name"].trim()) {
+            name = parsed["name"].trim();
+          }
+          if (typeof parsed["role"] === "string" && parsed["role"].trim()) {
+            role = parsed["role"].trim();
+          }
+          if (typeof parsed["avatar"] === "string" && parsed["avatar"].trim()) {
+            avatar = parsed["avatar"].trim();
+          }
+          if (Array.isArray(parsed["duties"])) {
+            const validDuties = parsed["duties"].filter(
+              (d): d is string => typeof d === "string" && d.trim() !== "",
+            );
+            if (validDuties.length > 0) {
+              duties = validDuties;
+            }
+          }
+          if (typeof parsed["preset"] === "boolean") {
+            isPreset = parsed["preset"];
+          }
+        } else {
+          const nameMatch = /^name:\s*"?([^"\n]+)"?/m.exec(configRaw);
+          if (nameMatch) name = nameMatch[1].trim();
+          const roleMatch = /^role:\s*"?([^"\n]+)"?/m.exec(configRaw);
+          if (roleMatch) role = roleMatch[1].trim();
+          const avatarMatch = /^avatar:\s*"?([^"\n]+)"?/m.exec(configRaw);
+          if (avatarMatch) avatar = avatarMatch[1].trim();
+        }
       } catch {
-        // 无 config.yaml
+        // 无 config.yaml 或解析异常
       }
 
       seenIds.add(botId);
@@ -275,7 +301,7 @@ export async function listBotProfiles(hermesRoot: string): Promise<BotProfile[]>
         duties,
         systemPrompt: soulContent,
         avatar,
-        isPreset: false,
+        isPreset,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
@@ -309,15 +335,14 @@ export async function saveBotProfile(
   // 1. 写入 SOUL.md
   await fs.writeFile(path.join(botDir, "SOUL.md"), systemPrompt, "utf8");
 
-  // 2. 写入 config.yaml
-  const yamlContent = [
-    `name: "${bot.name}"`,
-    `role: "${role}"`,
-    `avatar: "${avatar}"`,
-    `duties:`,
-    ...duties.map((d) => `  - "${d}"`),
-    `preset: ${Boolean(bot.isPreset)}`,
-  ].join("\n") + "\n";
+  // 2. 写入 config.yaml (标准 YAML 序列化)
+  const yamlContent = stringifyYaml({
+    name: bot.name,
+    role,
+    avatar,
+    duties,
+    preset: Boolean(bot.isPreset),
+  });
   await fs.writeFile(path.join(botDir, "config.yaml"), yamlContent, "utf8");
 
   return {

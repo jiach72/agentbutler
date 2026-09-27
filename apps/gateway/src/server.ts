@@ -1559,12 +1559,35 @@ function registerMessageRoutes(
     const channel = readString((request.params as Record<string, unknown>)["channel"]);
     if (channel === null) return reply.code(400).send({ error: "channel is required" });
     const nowIso = new Date().toISOString();
-    return reply.code(200).send({
-      ok: true,
-      channel,
-      sentAt: nowIso,
-      message: `连通性测试指令已发出，请在 ${channel} 客户端确认是否收到测试消息。`,
-    });
+    try {
+      const dir = await channelControl.listChannels();
+      const target = dir.channels.find((c) => c.id === channel);
+      if (!target) {
+        return reply.code(404).send({ ok: false, error: "channel_not_found", message: `通道 ${channel} 不存在` });
+      }
+      if (!target.enabled) {
+        return reply.code(400).send({
+          ok: false,
+          error: "channel_disabled",
+          message: `通道「${target.label}」当前未启用，请先开启通道。`,
+        });
+      }
+      if (!target.credentialsConfigured) {
+        return reply.code(400).send({
+          ok: false,
+          error: "credentials_missing",
+          message: `通道「${target.label}」尚未配置必要凭据，请先配置参数。`,
+        });
+      }
+      return reply.code(200).send({
+        ok: true,
+        channel,
+        sentAt: nowIso,
+        message: `连通性与配置检查通过（已启用且凭据就绪）。请在 ${target.label} 客户端确认是否收到消息。`,
+      });
+    } catch (error) {
+      return reply.code(500).send({ ok: false, error: errorMessage(error) });
+    }
   });
 
   app.get("/api/messages/tasks/:runId", async (request, reply) => {

@@ -63,4 +63,25 @@ describe("scheduled task BFF", () => {
     expect(bad.statusCode).toBe(400);
     expect(bad.body).not.toContain("SECRET");
   });
+
+  it("injects watchAuthHeaders into upstream watch calls when access token is configured", async () => {
+    const prevToken = process.env["BUTLER_ACCESS_TOKEN"];
+    process.env["BUTLER_ACCESS_TOKEN"] = "test-token-12345";
+    try {
+      const { app, fetchImpl } = setup(empty);
+      await app.inject({ method: "GET", url: "/api/scheduled-tasks" });
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      const callArgs = fetchImpl.mock.calls[0] as [string, RequestInit];
+      expect(callArgs[1].headers).toMatchObject({
+        "content-type": "application/json",
+        "x-butler-token": "test-token-12345",
+      });
+    } finally {
+      if (prevToken === undefined) {
+        delete process.env["BUTLER_ACCESS_TOKEN"];
+      } else {
+        process.env["BUTLER_ACCESS_TOKEN"] = prevToken;
+      }
+    }
+  });
 });

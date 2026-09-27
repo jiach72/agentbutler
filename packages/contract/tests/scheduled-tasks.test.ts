@@ -24,5 +24,54 @@ describe("scheduled task trust boundary", () => {
     expect(valid).not.toBeNull();
     expect(valid?.items[0]?.state).toBe("resolved");
   });
+
+  it("validates draft schema workdir accepting POSIX and Windows drive absolute paths", () => {
+    const baseDraft = {
+      name: "test-task",
+      prompt: "echo hello",
+      schedule: { kind: "interval", everyMinutes: 10 },
+      delivery: { enabled: false },
+    };
+
+    // POSIX path
+    const posixReq = parseScheduledTaskRequest({
+      action: "create",
+      requestId: "req-12345678-0001",
+      draft: { ...baseDraft, advanced: { workdir: "/var/log/app" } },
+    });
+    expect(posixReq).not.toBeNull();
+
+    // Windows forward-slash path
+    const winReq1 = parseScheduledTaskRequest({
+      action: "create",
+      requestId: "req-12345678-0001",
+      draft: { ...baseDraft, advanced: { workdir: "C:/projects/agentbutler" } },
+    });
+    expect(winReq1).not.toBeNull();
+
+    // Windows back-slash path
+    const winReq2 = parseScheduledTaskRequest({
+      action: "create",
+      requestId: "req-12345678-0001",
+      draft: { ...baseDraft, advanced: { workdir: "D:\\data\\workspace" } },
+    });
+    expect(winReq2).not.toBeNull();
+
+    // Invalid relative path
+    const relativeReq = parseScheduledTaskRequest({
+      action: "create",
+      requestId: "req-12345678-0001",
+      draft: { ...baseDraft, advanced: { workdir: "relative/path" } },
+    });
+    expect(relativeReq).toBeNull();
+
+    // Invalid path with newline
+    const newlineReq = parseScheduledTaskRequest({
+      action: "create",
+      requestId: "req-12345678-0001",
+      draft: { ...baseDraft, advanced: { workdir: "C:/projects\nmalicious" } },
+    });
+    expect(newlineReq).toBeNull();
+  });
 });
 

@@ -7,6 +7,7 @@ import {
   scheduledTaskFailure,
   scheduledTaskHttpStatus,
 } from "@butler/contract";
+import { watchAuthHeaders } from "../proxy-helpers.js";
 
 export interface ScheduledTasksRouteOptions {
   doFetch: typeof fetch;
@@ -47,7 +48,10 @@ export async function registerScheduledTasksRoutes(
           const upstream = await doFetch(`${watchUrl}${url.pathname}${url.search}`, {
             method: request.method,
             redirect: "error",
-            headers: { "content-type": "application/json" },
+            headers: {
+              "content-type": "application/json",
+              ...watchAuthHeaders(),
+            },
             ...(request.method === "GET" ? {} : { body: JSON.stringify(request.body ?? {}) }),
             signal: AbortSignal.timeout(50_000),
           });

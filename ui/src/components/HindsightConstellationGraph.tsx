@@ -785,26 +785,34 @@ export function HindsightConstellationGraph({
     }
   };
 
-  const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
-    if (!interactive) return;
-    e.preventDefault();
+  useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
 
-    const cam = cameraRef.current;
-    const factor = e.deltaY < 0 ? 1.15 : 0.87;
-    const newZoom = Math.max(0.1, Math.min(4.0, cam.targetZoom * factor));
+    const onNativeWheel = (e: WheelEvent) => {
+      if (!interactive) return;
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
 
-    // 围绕鼠标光标平滑缩放
-    const currentW = cam.width / 2 + cam.targetPanX;
-    const currentH = cam.height / 2 + cam.targetPanY;
-    cam.targetPanX = mouseX - (mouseX - currentW) * (newZoom / cam.targetZoom) - cam.width / 2;
-    cam.targetPanY = mouseY - (mouseY - currentH) * (newZoom / cam.targetZoom) - cam.height / 2;
-    cam.targetZoom = newZoom;
-  };
+      const cam = cameraRef.current;
+      const factor = e.deltaY < 0 ? 1.15 : 0.87;
+      const newZoom = Math.max(0.1, Math.min(4.0, cam.targetZoom * factor));
+
+      // 围绕鼠标光标平滑缩放
+      const currentW = cam.width / 2 + cam.targetPanX;
+      const currentH = cam.height / 2 + cam.targetPanY;
+      cam.targetPanX = mouseX - (mouseX - currentW) * (newZoom / cam.targetZoom) - cam.width / 2;
+      cam.targetPanY = mouseY - (mouseY - currentH) * (newZoom / cam.targetZoom) - cam.height / 2;
+      cam.targetZoom = newZoom;
+    };
+
+    canvas.addEventListener("wheel", onNativeWheel, { passive: false });
+    return () => {
+      canvas.removeEventListener("wheel", onNativeWheel);
+    };
+  }, [interactive]);
 
   const zoomIn = () => {
     const cam = cameraRef.current;
@@ -854,7 +862,6 @@ export function HindsightConstellationGraph({
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseLeave}
         onClick={handleClick}
-        onWheel={handleWheel}
         style={{
           display: "block",
           width: "100%",

@@ -78,9 +78,10 @@ function wslCommandOutput(distro: string, script: string): string | null {
   }
 }
 
-function wslPathOf(distro: string, pathValue: string): string | null {
+export function wslPathOf(distro: string, pathValue: string): string | null {
   try {
-    const output = execFileSync("wsl.exe", ["-d", distro, "--", "wslpath", "-a", "-u", pathValue], {
+    const normalizedPath = pathValue.replace(/\\/g, "/");
+    const output = execFileSync("wsl.exe", ["-d", distro, "--", "wslpath", "-a", "-u", normalizedPath], {
       encoding: "buffer",
       timeout: 8_000,
       windowsHide: true,

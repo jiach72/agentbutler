@@ -28,7 +28,7 @@ export const scheduledTaskDraftSchema = z.object({
   advanced: z.object({
     model: z.string().max(160).regex(/^(?:[A-Za-z0-9][A-Za-z0-9._:/-]*)?$/).optional(),
     skills: z.array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$/)).max(20).optional(),
-    workdir: text(512).refine((v) => v === "" || (v.startsWith("/") && !/[\r\n]/.test(v))).optional(),
+    workdir: text(512).refine((v) => v === "" || ((v.startsWith("/") || /^[a-zA-Z]:[/\\]/.test(v)) && !/[\r\n]/.test(v))).optional(),
   }).strict().optional(),
 }).strict();
 

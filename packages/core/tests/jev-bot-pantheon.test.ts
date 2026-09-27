@@ -57,6 +57,21 @@ describe("Pantheon Bot Mode & TypeSafe Jev System One", () => {
         const tester = profiles.find((p) => p.id === "custom-tester");
         expect(tester).toBeDefined();
         expect(tester?.name).toBe("测试专家");
+        expect(tester?.duties).toEqual(["编写 Vitest 测试", "校验边界条件覆盖"]);
+
+        // 保存包含特殊字符与引号的 Bot Profile
+        await saveBotProfile(tmpDir, {
+          id: "quote-bot",
+          name: '智能助手: "Special" & [Unique]',
+          role: "处理包含:冒号与'引号'的任务",
+          duties: ['执行 "特殊" 规则', "维护安全:合规基线"],
+        });
+        const quoteProfiles = await listBotProfiles(tmpDir);
+        const quoteBot = quoteProfiles.find((p) => p.id === "quote-bot");
+        expect(quoteBot?.name).toBe('智能助手: "Special" & [Unique]');
+        expect(quoteBot?.role).toBe("处理包含:冒号与'引号'的任务");
+        expect(quoteBot?.duties).toEqual(['执行 "特殊" 规则', "维护安全:合规基线"]);
+        await deleteBotProfile(tmpDir, "quote-bot");
 
         // 尝试删除预设 Bot 应报错
         await expect(deleteBotProfile(tmpDir, "inspector")).rejects.toThrow(

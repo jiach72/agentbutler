@@ -257,4 +257,68 @@ describe("M7 备份服务", () => {
       external.stop();
     });
   });
+
+  describe("空 Hermes 目录与事件备份容错", () => {
+    it("空 Hermes 与空数据目录执行事件备份：安全记录空快照，不阻断技能安装/变更，且验证通过", async () => {
+      // 清空 hermesRoot 里的所有预置文件，并将 dataDir 指向空目录
+      rmSync(join(hermesRoot, "memory_store.db"), { force: true });
+      rmSync(join(hermesRoot, "config.yaml"), { force: true });
+      const emptyDataDir = mkdtempSync(join(tmpdir(), "butler-empty-data-"));
+      const emptyCore = {
+        ...core,
+        paths: {
+          ...core.paths,
+          dataDir: emptyDataDir,
+        },
+      } as unknown as Core;
+
+      const emptyService = createBackupService({
+        core: emptyCore,
+        hermesRoot,
+        now: () => Date.parse("2026-08-23T05:00:00Z"),
+      });
+
+      // event 备份不应抛错，应记录 0 字节空快照
+      const row = await emptyService.run("event", "安装技能 demo");
+      expect(row.kind).toBe("event");
+      expect(row.sizeBytes).toBe(0);
+      expect(existsSync(join(row.path, "manifest.json"))).toBe(true);
+
+      const audit = core.store.listAudit({ action: "backup-event" });
+      expect(audit.length).toBeGreaterThan(0);
+
+      // verify 应支持 empty manifest 并验证通过
+      const verified = await emptyService.verify(row.id);
+      expect(verified.ok).toBe(true);
+      if (verified.ok) {
+        expect(verified.checkedFiles).toBe(0);
+        expect(verified.checkedDatabases).toBe(0);
+      }
+
+      rmSync(emptyDataDir, { recursive: true, force: true });
+    });
+
+    it("空 Hermes 与空数据目录执行全量备份：仍按约定抛出明确错误", async () => {
+      rmSync(join(hermesRoot, "memory_store.db"), { force: true });
+      rmSync(join(hermesRoot, "config.yaml"), { force: true });
+      const emptyDataDir = mkdtempSync(join(tmpdir(), "butler-empty-data-"));
+      const emptyCore = {
+        ...core,
+        paths: {
+          ...core.paths,
+          dataDir: emptyDataDir,
+        },
+      } as unknown as Core;
+
+      const emptyService = createBackupService({
+        core: emptyCore,
+        hermesRoot,
+        now: () => Date.parse("2026-08-23T05:00:00Z"),
+      });
+
+      await expect(emptyService.run("full", "全量备份")).rejects.toThrow("没有找到可备份的文件");
+      rmSync(emptyDataDir, { recursive: true, force: true });
+    });
+  });
 });
+

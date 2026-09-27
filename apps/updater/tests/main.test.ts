@@ -248,7 +248,19 @@ afterEach(async () => {
     await once(healthServer, "close");
     healthServer = undefined;
   }
-  if (root !== "" && existsSync(root)) rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
+  if (root !== "" && existsSync(root)) {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      try {
+        rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+        break;
+      } catch (error) {
+        if (attempt === 4) {
+          if (process.platform !== "win32") throw error;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
+  }
 });
 
 describe("butler-updater security and rollback", () => {

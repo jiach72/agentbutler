@@ -133,6 +133,9 @@ importers:
       '@butler/contract':
         specifier: workspace:*
         version: link:../contract
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
 
   packages/installer: {}
 
