@@ -7,7 +7,7 @@
  * 数据真相原则：Hermes 会话表/列缺失时对应维度显示「—」，不臆测；正文永不展示。
  */
 import { money } from "../../lib/format.js";
-import { Alert, Button, Card, Flex, Segmented, Select, Space, Table, Tooltip, Typography } from "antd";
+import { Alert, Button, Card, Flex, Input, Segmented, Select, Space, Table, Tooltip, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import {
   ClockCircleOutlined,
@@ -16,7 +16,7 @@ import {
   SyncOutlined,
   WarningOutlined,
 } from "@ant-design/icons";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ConclusionBar } from "../../components/ConclusionBar.js";
 import type { PageConclusionView } from "../../components/ConclusionBar.js";
@@ -111,6 +111,7 @@ export function SessionsPage() {
   // 过滤同步到 URL（规范 03 §3.12）：刷新/分享能还原同一视图（评审 P1-7）。
   const [anomaly, setAnomaly] = useUrlState<string>("anomaly", "all");
   const [outcome, setOutcome] = useUrlState<string>("outcome", "all");
+  const [searchKeyword, setSearchKeyword] = useState("");
   const [busy, setBusy] = useState(false);
 
   const anomalyOnly = anomaly === "anomaly";
@@ -141,17 +142,41 @@ export function SessionsPage() {
     if (result.ok) refresh();
   }, [refresh]);
 
+  const filteredItems = useMemo(() => {
+    if (!data?.items) return [];
+    const kw = searchKeyword.trim().toLowerCase();
+    if (!kw) return data.items;
+    return data.items.filter((item) => {
+      const matchId = item.sessionId.toLowerCase().includes(kw);
+      const matchModel = item.model?.toLowerCase().includes(kw) ?? false;
+      const matchTask = item.taskType?.toLowerCase().includes(kw) ?? false;
+      return matchId || matchModel || matchTask;
+    });
+  }, [data?.items, searchKeyword]);
+
+  const resetFilters = useCallback(() => {
+    setAnomaly("all");
+    setOutcome("all");
+    setSearchKeyword("");
+  }, [setAnomaly, setOutcome]);
+
   const columns: ColumnsType<SessionItem> = [
     {
       title: "会话",
       dataIndex: "sessionId",
       key: "sessionId",
       ellipsis: true,
-      width: 220,
+      width: 250,
       render: (sessionId: string) => (
-        <Link to={`/sessions/${encodeURIComponent(sessionId)}`} className="font-mono text-xs hover:underline">
-          {sessionId}
-        </Link>
+        <Flex align="center" gap={6}>
+          <Link to={`/sessions/${encodeURIComponent(sessionId)}`} className="font-mono text-xs hover:underline">
+            {sessionId}
+          </Link>
+          <Typography.Text
+            copyable={{ text: sessionId, tooltips: ["复制会话 ID", "已复制"] }}
+            aria-label={`复制会话 ID ${sessionId}`}
+          />
+        </Flex>
       ),
     },
     {
@@ -168,10 +193,15 @@ export function SessionsPage() {
       title: "Token",
       key: "tokens",
       width: 120,
-      render: (_: unknown, row: SessionItem) =>
-        row.tokenIn === null && row.tokenOut === null
-          ? "—"
-          : `${((row.tokenIn ?? 0) + (row.tokenOut ?? 0)).toLocaleString()}`,
+      render: (_: unknown, row: SessionItem) => {
+        if (row.tokenIn === null && row.tokenOut === null) return "—";
+        const total = ((row.tokenIn ?? 0) + (row.tokenOut ?? 0)).toLocaleString();
+        return (
+          <Tooltip title={`入: ${(row.tokenIn ?? 0).toLocaleString()} / 出: ${(row.tokenOut ?? 0).toLocaleString()}`}>
+            <span style={{ cursor: "help" }}>{total}</span>
+          </Tooltip>
+        );
+      },
     },
     { title: "成本", dataIndex: "costUsd", key: "costUsd", width: 90, render: (value: number | null) => money(value) },
     {
@@ -335,7 +365,15 @@ export function SessionsPage() {
         <Card
           title="会话列表"
           extra={
-            <Space>
+            <Space wrap>
+              <Input
+                placeholder="搜索会话 ID / 模型 / 任务类型..."
+                allowClear
+                value={searchKeyword}
+                onChange={(e) => setSearchKeyword(e.target.value)}
+                style={{ width: 230 }}
+                aria-label="搜索会话"
+              />
               <Segmented
                 options={[
                   { label: "全部", value: "all" },
@@ -346,7 +384,7 @@ export function SessionsPage() {
               />
               <Select
                 value={outcome}
-                style={{ width: 130 }}
+                style={{ width: 120 }}
                 aria-label="按会话终态筛选"
                 onChange={setOutcome}
                 options={[
@@ -361,17 +399,39 @@ export function SessionsPage() {
             </Space>
           }
         >
-          {data !== null && data.items.length === 0 ? (
-            <Empty
-              title="窗口内还没有会话记录"
-              hint="等采集器跑一轮，或点「重建索引」。"
-              mascotWidth={72}
-            />
+          {data !== null && filteredItems.length === 0 ? (
+            data.items.length > 0 || searchKeyword.trim() !== "" || anomaly !== "all" || outcome !== "all" ? (
+              <Empty
+                title="未找到匹配的会话"
+                hint={
+                  searchKeyword.trim() !== ""
+                    ? `未找到与「${searchKeyword.trim()}」相关的会话记录。`
+                    : "当前筛选条件下没有匹配的会话记录。"
+                }
+                action={
+                  <Button onClick={resetFilters}>
+                    重置筛选条件
+                  </Button>
+                }
+                mascotWidth={72}
+              />
+            ) : (
+              <Empty
+                title="窗口内还没有会话记录"
+                hint="等采集器跑一轮，或点「重建索引」。"
+                action={
+                  <Button type="primary" icon={<SyncOutlined />} loading={busy} onClick={() => void reindex()}>
+                    立即重建索引
+                  </Button>
+                }
+                mascotWidth={72}
+              />
+            )
           ) : (
             <Table<SessionItem>
               rowKey="sessionId"
               columns={columns}
-              dataSource={data?.items ?? []}
+              dataSource={filteredItems}
               loading={data === null}
               pagination={{ pageSize: 20, showSizeChanger: false }}
               scroll={{ x: 1200 }}

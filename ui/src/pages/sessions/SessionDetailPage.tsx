@@ -179,6 +179,11 @@ export function SessionDetailPage() {
         {session !== undefined && (
           <Card title="会话概况">
             <Descriptions size="small" column={{ xs: 1, sm: 2, lg: 3 }}>
+              <Descriptions.Item label="会话 ID" span={3}>
+                <Typography.Text copyable={{ text: sessionId }} className="font-mono text-xs">
+                  {sessionId}
+                </Typography.Text>
+              </Descriptions.Item>
               <Descriptions.Item label="开始时间">
                 {session.startedAt === null ? "—" : new Date(session.startedAt).toLocaleString()}
               </Descriptions.Item>

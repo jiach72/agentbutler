@@ -31,6 +31,8 @@ describe("会话追踪 (SessionsPage & SessionDetailPage) UI/UX 与工效测试"
 
     // 会话列表容器与筛选
     expect(html).toContain("会话列表");
+    expect(html).toContain('aria-label="搜索会话"');
+    expect(html).toContain("搜索会话 ID / 模型 / 任务类型...");
     expect(html).toContain('aria-label="按会话终态筛选"');
   });
 
