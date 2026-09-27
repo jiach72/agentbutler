@@ -306,6 +306,36 @@ const GLOSSARY_ITEMS: readonly GlossaryItem[] = [
     techDesc: "顶栏常驻的高优先级全局物理阻断机制，秒级下发 SIGTERM/SIGKILL 终止受管任务容器，冻结写入并触发数据快照归档。",
     tags: ["kill-switch", "急停", "熔断", "一键终止", "灾备"],
   },
+  {
+    id: "hermes-agent",
+    termZh: "Hermes Agent (开源自治智能体)",
+    termEn: "Hermes Agent",
+    category: "agent",
+    categoryLabel: "智能体架构",
+    plainDesc: "能在本地常驻挂机的轻量级开源智能体，具备终端交互、工具调度、长期记忆沉淀与多平台消息接入能力。",
+    techDesc: "由 Nous Research 主导研发的高性能自主执行代理，基于基座大模型支持 ReAct 循环、多通道消息桥接与技能扩展。",
+    tags: ["hermes", "nous", "智能体", "基座", "开源"],
+  },
+  {
+    id: "agent-butler",
+    termZh: "Agent Butler (智能体管家)",
+    termEn: "Agent Butler",
+    category: "basics",
+    categoryLabel: "通识基础",
+    plainDesc: "专为自主智能体打造的“全能保姆与驾驶舱”，负责守护连接、监控 API 钱包预算、拦截危险操作，让智能体安心在岗不失控。",
+    techDesc: "工业级 Agent 运行时监控与治理平台，提供物理回环绝缘、人机在环 (HITL) 审批门禁、健康三环巡检与一键运维能力。",
+    tags: ["agentbutler", "管家", "中台", "驾驶舱", "安全阀"],
+  },
+  {
+    id: "cron-task",
+    termZh: "Scheduled Task (定时任务 / Cron)",
+    termEn: "Cron / Scheduled Task",
+    category: "agent",
+    categoryLabel: "智能体架构",
+    plainDesc: "智能体的“定时闹钟与自律习惯”。让 AI 每天早上 8 点自动发晨报、每周五自动巡检服务器，无需人类每次手动下命令。",
+    techDesc: "基于标准 5 段式类 Unix Cron 表达式驱动的无状态调度引擎，支持执行窗口熔断、重试补偿机制与通道自动回送。",
+    tags: ["cron", "定时任务", "自动化", "排程", "晨报"],
+  },
 ];
 
 export function LearnPage() {
@@ -383,6 +413,20 @@ export function LearnPage() {
             />
           </div>
         </Flex>
+        {searchKeyword.trim() !== "" && (
+          <div style={{ marginTop: 12, padding: "8px 14px", borderRadius: 8, background: "var(--ab-surface-2, rgba(0,0,0,0.03))", border: "1px solid var(--ab-border, #e5e7eb)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span className="text-xs text-on-surface">
+              在权威术语词典中检索到 <strong>{filteredGlossary.length}</strong> 个与“{searchKeyword}”相关的核心概念
+            </span>
+            <button
+              type="button"
+              className="text-xs text-primary font-medium hover:underline cursor-pointer"
+              onClick={() => setActiveTab("glossary")}
+            >
+              前往词典卡片速查 →
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── 模块 1：从规则系统到自主智能体演进全景 ── */}
