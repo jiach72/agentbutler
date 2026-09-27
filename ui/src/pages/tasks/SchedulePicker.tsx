@@ -168,11 +168,47 @@ export function SchedulePicker({ value, timezone, onChange, disabled = false }: 
         <InputNumber id="task-interval" min={1} max={525600} precision={0} value={value.everyMinutes}
           disabled={disabled} onChange={(everyMinutes) => onChange({ ...value, everyMinutes: everyMinutes ?? 1 })} />
       </>}
-      {value.kind === "advanced" && <>
-        <label htmlFor="task-expression">Cron 表达式</label>
-        <Input id="task-expression" value={value.expression} maxLength={100} disabled={disabled}
-          onChange={(event) => onChange({ ...value, expression: event.target.value })} />
-      </>}
+      {value.kind === "advanced" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <label htmlFor="task-expression">Cron 表达式</label>
+          <Input
+            id="task-expression"
+            value={value.expression}
+            maxLength={100}
+            disabled={disabled}
+            placeholder="分 时 日 月 周 (例如: 0 9 * * 1-5)"
+            allowClear
+            onChange={(event) => onChange({ ...value, expression: event.target.value })}
+          />
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, marginTop: 2 }}>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>常用示例：</Typography.Text>
+            {[
+              { label: "工作日 09:00", expr: "0 9 * * 1-5" },
+              { label: "每 30 分钟", expr: "*/30 * * * *" },
+              { label: "每 2 小时整点", expr: "0 */2 * * *" },
+              { label: "每月 1 日 09:00", expr: "0 9 1 * *" },
+            ].map((p) => (
+              <button
+                key={p.label}
+                type="button"
+                disabled={disabled}
+                onClick={() => onChange({ ...value, expression: p.expr })}
+                style={{
+                  fontSize: 11,
+                  padding: "2px 8px",
+                  borderRadius: 12,
+                  border: "1px solid var(--ab-border, #d9d9d9)",
+                  background: "var(--ab-surface-2, rgba(0,0,0,0.02))",
+                  color: "var(--ab-text, inherit)",
+                  cursor: disabled ? "not-allowed" : "pointer",
+                }}
+              >
+                {p.label} <code style={{ opacity: 0.75 }}>({p.expr})</code>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <Typography.Text type="secondary">执行时区：{timezone || "尚未确认"}</Typography.Text>
       <div
         className="schedule-natural-preview"

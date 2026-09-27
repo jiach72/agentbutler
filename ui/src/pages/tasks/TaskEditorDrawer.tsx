@@ -148,11 +148,36 @@ export function TaskEditorDrawer({ open, taskId, initialDraft, timezone, onClose
   const frozen = busy || uncertain;
   const advanced = draft.advanced ?? {};
   return (
-    <Drawer title={taskId ? "编辑定时任务" : "新建定时任务"} open={open} onClose={close}
-      styles={{ wrapper: { width: 560, maxWidth: "100%" } }} className="task-editor" maskClosable={!busy}
-      footer={<Space wrap><Button onClick={close} disabled={busy}>取消</Button>
-        <Button type="primary" icon={<SaveOutlined />} loading={busy} disabled={!preview}
-          onClick={() => void save()}>{uncertain ? "核对并重试保存" : "保存任务"}</Button></Space>}>
+    <Drawer
+      title={
+        taskId ? (
+          <Flex align="center" gap={8}>
+            <span>编辑定时任务</span>
+            <Typography.Text
+              type="secondary"
+              style={{ fontSize: 12, fontWeight: "normal" }}
+              copyable={{ text: taskId, tooltips: ["复制任务 ID", "已复制"] }}
+            >
+              #{taskId.slice(0, 8)}
+            </Typography.Text>
+          </Flex>
+        ) : (
+          "新建定时任务"
+        )
+      }
+      open={open}
+      onClose={close}
+      styles={{ wrapper: { width: 560, maxWidth: "100%" } }}
+      className="task-editor"
+      maskClosable={!busy}
+      footer={
+        <Space wrap>
+          <Button onClick={close} disabled={busy}>取消</Button>
+          <Button type="primary" icon={<SaveOutlined />} loading={busy} disabled={!preview}
+            onClick={() => void save()}>{uncertain ? "核对并重试保存" : "保存任务"}</Button>
+        </Space>
+      }
+    >
       <div className="task-editor-fields">
         {error && <Alert type="error" showIcon title={error} />}
         {!taskId && (
@@ -278,6 +303,22 @@ export function TaskEditorDrawer({ open, taskId, initialDraft, timezone, onClose
             allowClear
             onChange={(event) => setDraft({ ...draft, advanced: { ...advanced, model: event.target.value } })}
           />
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, marginTop: 4, marginBottom: 8 }}>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>推荐模型：</Typography.Text>
+            {["deepseek-chat", "qwen2.5:7b", "gpt-4o-mini", "claude-3-5-sonnet"].map((m) => (
+              <Tag
+                key={m}
+                style={{ cursor: frozen ? "not-allowed" : "pointer", margin: 0, fontSize: 12 }}
+                onClick={() => {
+                  if (!frozen) {
+                    setDraft({ ...draft, advanced: { ...advanced, model: m } });
+                  }
+                }}
+              >
+                {m}
+              </Tag>
+            ))}
+          </div>
           <label htmlFor="task-skills">技能</label>
           <Select
             id="task-skills"
