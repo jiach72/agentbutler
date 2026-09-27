@@ -12,6 +12,8 @@ import {
   Drawer,
   Empty,
   Flex,
+  Input,
+  Segmented,
   Switch,
   Tag,
   Typography,
@@ -22,7 +24,9 @@ import {
   PlusOutlined,
   ReloadOutlined,
   RobotOutlined,
+  SearchOutlined,
 } from "@ant-design/icons";
+import { CopySnippetButton } from "../../../components/CopySnippetButton.js";
 import type { BotProfile } from "./imTypes.js";
 import { loadJson, postJson } from "../../../lib/api.js";
 
@@ -60,6 +64,8 @@ export function IMBotTemplateDrawer(props: IMBotTemplateDrawerProps) {
   const [templates, setTemplates] = useState<BotTemplate[]>([]);
   const [loading, setLoading] = useState(false);
   const [creatingId, setCreatingId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<string>("all");
 
   const fetchTemplates = async () => {
     setLoading(true);
@@ -100,6 +106,19 @@ export function IMBotTemplateDrawer(props: IMBotTemplateDrawerProps) {
   const installedBotIds = new Set((props.availableBots || []).map((b) => b.id));
   const groupBotIds = new Set(props.currentMemberBotIds || []);
 
+  const filteredTemplates = templates.filter((tpl) => {
+    if (selectedCategory !== "all" && tpl.category !== selectedCategory) {
+      return false;
+    }
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      tpl.name.toLowerCase().includes(q) ||
+      tpl.role.toLowerCase().includes(q) ||
+      tpl.duties.some((d) => d.toLowerCase().includes(q))
+    );
+  });
+
   return (
     <Drawer
       title={
@@ -123,11 +142,49 @@ export function IMBotTemplateDrawer(props: IMBotTemplateDrawerProps) {
           自由扩展您的专家智能体。点击启用即可自动同步落盘至 <Text code>~/.hermes/profiles/</Text>，并在协同群聊中支持智能调度或 <Text code>@指定</Text> 接力。
         </Paragraph>
 
+        {/* 搜索与分类筛选控制栏 */}
+        <Flex vertical gap={8}>
+          <Input
+            placeholder="搜索 Agent 专家名称、职能或职责..."
+            prefix={<SearchOutlined style={{ color: "var(--ab-text-3)" }} />}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            allowClear
+            size="middle"
+          />
+          <Segmented
+            value={selectedCategory}
+            onChange={(val) => setSelectedCategory(val as string)}
+            block
+            options={[
+              { label: "全部", value: "all" },
+              { label: "工程架构", value: "engineering" },
+              { label: "行政协同", value: "operations" },
+              { label: "数据透视", value: "analysis" },
+              { label: "通用职能", value: "general" },
+            ]}
+          />
+        </Flex>
+
         {templates.length === 0 && !loading && (
           <Empty description="暂无可用模板" />
         )}
 
-        {templates.map((tpl) => {
+        {templates.length > 0 && filteredTemplates.length === 0 && (
+          <Empty description="未找到符合条件的 Agent 模板">
+            <Button
+              size="small"
+              onClick={() => {
+                setSearchQuery("");
+                setSelectedCategory("all");
+              }}
+            >
+              重置筛选
+            </Button>
+          </Empty>
+        )}
+
+        {filteredTemplates.map((tpl) => {
           const isInstalled = installedBotIds.has(tpl.templateId);
           const isInGroup = groupBotIds.has(tpl.templateId);
           const cat = CATEGORY_MAP[tpl.category] || { label: "专职角色", color: "default" };
@@ -176,9 +233,12 @@ export function IMBotTemplateDrawer(props: IMBotTemplateDrawerProps) {
                           </Tag>
                         )}
                       </Flex>
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        {tpl.role}
-                      </Text>
+                      <Flex align="center" gap={6} wrap="wrap">
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          {tpl.role}
+                        </Text>
+                        <CopySnippetButton text={tpl.templateId} label={`#${tpl.templateId}`} />
+                      </Flex>
                     </div>
                   </Flex>
 
@@ -227,6 +287,12 @@ export function IMBotTemplateDrawer(props: IMBotTemplateDrawerProps) {
                     ))}
                   </ul>
                 </div>
+
+                {tpl.systemPrompt && (
+                  <Flex justify="flex-end" align="center" gap={8}>
+                    <CopySnippetButton text={tpl.systemPrompt} label="复制 Prompt 设定" />
+                  </Flex>
+                )}
               </Flex>
             </Card>
           );
