@@ -5,8 +5,8 @@
  * 并灵活调节巡检频率，消除用户的费用焦虑。
  */
 import { useCallback, useEffect, useState } from "react";
-import { Alert, App, Card, Col, Divider, Flex, Row, Select, Space, Tag, Typography } from "antd";
-import { CheckCircleFilled, ExperimentOutlined } from "@ant-design/icons";
+import { Alert, App, Button, Card, Col, Divider, Flex, Row, Select, Space, Tag, Typography } from "antd";
+import { CheckCircleFilled, ExperimentOutlined, ReloadOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import type { MemoryProbeConfig, UnifiedModelOption } from "@butler/contract";
 import { loadJson, postJson } from "../../lib/api.js";
 import { ModelSelector } from "../../components/ModelSelector.js";
@@ -25,6 +25,7 @@ export function MemoryProbeConfigCard() {
   const { message } = App.useApp();
   const [config, setConfig] = useState<MemoryProbeConfig | null>(null);
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
 
   const refresh = useCallback(() => {
     void loadJson<MemoryProbeConfig>("/api/memory-probe/config", 6_000).then((result) => {
@@ -62,6 +63,19 @@ export function MemoryProbeConfigCard() {
     [config, message],
   );
 
+  const runSelfCheck = useCallback(async () => {
+    setTesting(true);
+    const result = await postJson("/api/memory/self-check", {}, 30_000);
+    setTesting(false);
+    if (result.ok) {
+      const outcome = result.data as { result?: { status?: string; detail?: string } } | null;
+      const detail = outcome?.result?.detail || "写入并召回测试记忆成功，全链路通畅。";
+      message.success(`记忆探针自检通过：${detail}`);
+    } else {
+      message.error("记忆探针自检失败，请检查 Watch 服务状态。");
+    }
+  }, [message]);
+
   const handleSelectModel = (_: string, opt?: UnifiedModelOption) => {
     if (!opt) return;
     const isLocal = opt.category === "local" || opt.costCategory === "free";
@@ -82,6 +96,25 @@ export function MemoryProbeConfigCard() {
         <Flex align="center" gap={8}>
           <ExperimentOutlined style={{ color: "var(--ant-color-primary)" }} />
           <span>记忆探针模型与频率设置（成本治理）</span>
+        </Flex>
+      }
+      extra={
+        <Flex align="center" gap={8} wrap="wrap">
+          <Button
+            size="small"
+            icon={<ThunderboltOutlined />}
+            loading={testing}
+            onClick={() => void runSelfCheck()}
+          >
+            立即自检
+          </Button>
+          <Button
+            size="small"
+            icon={<ReloadOutlined />}
+            onClick={refresh}
+          >
+            刷新
+          </Button>
         </Flex>
       }
     >
@@ -139,7 +172,17 @@ export function MemoryProbeConfigCard() {
             }
             description={
               <div>
-                当前探针采用本地模型（{config?.modelName || "Ollama"}
+                当前探针采用本地模型（
+                {config?.modelName ? (
+                  <Typography.Text
+                    copyable={{ text: config.modelName, tooltips: ["复制模型名", "已复制"] }}
+                    code
+                  >
+                    {config.modelName}
+                  </Typography.Text>
+                ) : (
+                  "Ollama"
+                )}
                 ），即使设置 5 分钟高频巡检也不会产生任何第三方 API 账单费用，兼顾高灵敏度与零成本。
               </div>
             }
@@ -154,7 +197,31 @@ export function MemoryProbeConfigCard() {
                 <Tag color="blue">按量计费 ({config.modelName})</Tag>
               </Space>
             }
-            description="建议设置 30 分钟或更长间隔以降低 API 消耗；若需彻底免除费用，可在上方切换为本地已安装的 Ollama 模型。"
+            description={
+              <div>
+                <span>模型：</span>
+                <Typography.Text
+                  copyable={{ text: config.modelName, tooltips: ["复制模型名", "已复制"] }}
+                  code
+                >
+                  {config.modelName}
+                </Typography.Text>
+                {config.endpoint && (
+                  <>
+                    <span style={{ marginLeft: 8 }}>端点：</span>
+                    <Typography.Text
+                      copyable={{ text: config.endpoint, tooltips: ["复制端点", "已复制"] }}
+                      code
+                    >
+                      {config.endpoint}
+                    </Typography.Text>
+                  </>
+                )}
+                <div style={{ marginTop: 4 }}>
+                  建议设置 30 分钟或更长间隔以降低 API 消耗；若需彻底免除费用，可在上方切换为本地已安装的 Ollama 模型。
+                </div>
+              </div>
+            }
           />
         ) : (
           <Alert
