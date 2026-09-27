@@ -2,7 +2,8 @@
  * 设置页右栏备份面板：手动备份入口、保留策略与备份记录时间线。
  * 备份/管家自检两路数据独立三态，失败时显示降级横幅与单源重试。
  */
-import { Button, Card, Divider, Flex, Space, Spin, Timeline, Tooltip, Typography } from "antd";
+import { useMemo, useState } from "react";
+import { Button, Card, Divider, Flex, Input, Space, Spin, Timeline, Tooltip, Typography } from "antd";
 import { Empty } from "../../components/Empty.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
@@ -51,6 +52,21 @@ export function BackupCenter({
   );
   const fullVerification =
     backups.status === "ready" ? backups.data.status?.lastFullVerification ?? null : null;
+
+  const [keyword, setKeyword] = useState("");
+
+  const filteredItems = useMemo(() => {
+    if (backups.status !== "ready") return [];
+    const q = keyword.trim().toLowerCase();
+    if (!q) return backups.data.items;
+    return backups.data.items.filter(
+      (item) =>
+        item.id.toLowerCase().includes(q) ||
+        (item.label ?? "").toLowerCase().includes(q) ||
+        backupKindLabel(item.kind).toLowerCase().includes(q) ||
+        item.kind.toLowerCase().includes(q),
+    );
+  }, [backups, keyword]);
 
   return (
     <Flex vertical gap={16}>
@@ -165,15 +181,44 @@ export function BackupCenter({
       </Card>
 
       {backups.status === "ready" && backups.data.items.length > 0 && (
+        <Flex justify="space-between" align="center" gap={12} wrap>
+          <Text strong style={{ fontSize: 13 }}>
+            历史备份记录（{keyword ? `匹配 ${filteredItems.length} / 共 ` : ""}{backups.data.items.length} 份）
+          </Text>
+          <Input.Search
+            placeholder="搜索备份标签 / 类型 / 编号..."
+            allowClear
+            size="small"
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            style={{ width: 220, maxWidth: "100%" }}
+          />
+        </Flex>
+      )}
+
+      {backups.status === "ready" && backups.data.items.length > 0 && filteredItems.length === 0 && (
+        <Empty
+          mascot={false}
+          title="未找到匹配的备份"
+          hint={`没有找到与 "${keyword}" 相关的备份记录`}
+          action={<Button size="small" onClick={() => setKeyword("")}>清空筛选</Button>}
+        />
+      )}
+
+      {backups.status === "ready" && filteredItems.length > 0 && (
         <Timeline
-          items={backups.data.items.slice(0, 8).map((item) => ({
+          items={filteredItems.slice(0, 10).map((item) => ({
             key: item.id,
             children: (
               <Flex justify="space-between" align="flex-start" wrap gap={12}>
                 <div style={{ minWidth: 0 }}>
-                  <Text strong>{item.label ?? backupKindLabel(item.kind)}</Text>
-                  <br />
-                  <Text type="secondary">
+                  <Flex align="center" gap={8} wrap>
+                    <Text strong>{item.label ?? backupKindLabel(item.kind)}</Text>
+                    <Text copyable={{ text: item.id }} type="secondary" className="is-mono" style={{ fontSize: 11 }}>
+                      {item.id.slice(0, 12)}...
+                    </Text>
+                  </Flex>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
                     {backupKindLabel(item.kind)} · {formatTime(item.createdAt)} ·{" "}
                     {formatBytes(item.sizeBytes)}
                   </Text>
@@ -189,7 +234,7 @@ export function BackupCenter({
                         onClick={() => onRequestRestore(item)}
                       >
                         还原
-                    </Button>
+                      </Button>
                     </Tooltip>
                   )}
                 </Space>
