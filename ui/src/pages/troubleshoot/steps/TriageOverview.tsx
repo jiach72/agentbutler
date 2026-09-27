@@ -9,7 +9,7 @@
  * 产品原则：用户带着焦虑来，第一屏必须是答案而不是选择题。
  * 现象选择不删除——降级为「按我的感受重新聚焦」，只影响排序不隐藏信息。
  */
-import { CaretRightOutlined, ReloadOutlined } from "@ant-design/icons";
+import { CaretRightOutlined, CopyOutlined, DownloadOutlined, ReloadOutlined } from "@ant-design/icons";
 import { Button, Card, Flex, Progress, Skeleton, Space, Typography } from "antd";
 import { useNavigate } from "react-router-dom";
 import { IssueCard } from "../../../components/IssueCard.js";
@@ -69,7 +69,7 @@ export function TriageOverview({
   onOpenWizard,
 }: TriageOverviewProps) {
   const navigate = useNavigate();
-  const { exportReport } = useExportReport();
+  const { exportReport, copyReport, copying, downloading } = useExportReport();
 
   if (triage === null) {
     return (
@@ -190,15 +190,28 @@ export function TriageOverview({
       )}
 
       {/* 底部出口：主次分明，向导入口弱化为文字链 */}
-      <div className="ts-footer-links">
+      <div className="ts-footer-links flex flex-wrap items-center gap-2">
         <Button type="primary" ghost onClick={onOpenWizard}>
           按现象仔细查（完整向导）
         </Button>
         {tone !== "ok" && (
           <Button onClick={() => navigate(guidance.to)}>{guidance.label}</Button>
         )}
-        <Button type="text" onClick={() => void exportReport()}>
-          下载诊断报告
+        <Button
+          type="default"
+          icon={<CopyOutlined />}
+          onClick={() => void copyReport()}
+          loading={copying}
+        >
+          {copying ? "正在生成摘要…" : "复制诊断摘要 (已脱敏)"}
+        </Button>
+        <Button
+          type="text"
+          icon={<DownloadOutlined />}
+          onClick={() => void exportReport()}
+          loading={downloading}
+        >
+          {downloading ? "正在下载…" : "下载完整报告 (.md)"}
         </Button>
       </div>
     </Flex>

@@ -19,6 +19,7 @@ import {
   Typography,
 } from "antd";
 import {
+  ApiOutlined,
   CheckCircleFilled,
   CloudOutlined,
   ReloadOutlined,
@@ -39,6 +40,13 @@ export function PrimaryModelCard() {
   const [selectedOption, setSelectedOption] = useState<UnifiedModelOption | null>(null);
   const [restartNow, setRestartNow] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [testResult, setTestResult] = useState<{
+    ok: boolean;
+    latencyMs?: number;
+    message: string;
+    checkedAt: string;
+  } | null>(null);
 
   const fetchPrimary = useCallback(async () => {
     setLoading(true);
@@ -107,6 +115,90 @@ export function PrimaryModelCard() {
     }
   };
 
+  const handleTestConnection = async () => {
+    if (!primary?.model) {
+      message.warning("尚未获取到当前主模型信息");
+      return;
+    }
+    setTestingConnection(true);
+    const start = performance.now();
+    try {
+      if (isLocal) {
+        // 本地 Ollama 引擎连通性测试
+        const res = await loadJson<{ available: boolean; version?: string; error?: string }>(
+          "/api/ollama/status",
+          8_000,
+        );
+        const elapsed = Math.round(performance.now() - start);
+        if (res.ok && res.data.available) {
+          const detail = `Ollama 引擎在线 (v${res.data.version || "latest"})，响应耗时 ${elapsed}ms`;
+          setTestResult({
+            ok: true,
+            latencyMs: elapsed,
+            message: detail,
+            checkedAt: new Date().toLocaleTimeString(),
+          });
+          message.success(`主模型 ${primary.model} 连通正常！${detail}`);
+        } else {
+          const detail = res.ok ? (res.data.error || "本地 Ollama 引擎未运行或端口未监听") : res.reason;
+          setTestResult({
+            ok: false,
+            message: detail,
+            checkedAt: new Date().toLocaleTimeString(),
+          });
+          message.error(`连通失败：${detail}`);
+        }
+      } else {
+        // 商业 API / 自定义提供商连通性探测
+        const res = await loadJson<{ ok: boolean; options: UnifiedModelOption[] }>(
+          "/api/models/unified-options",
+          12_000,
+        );
+        const elapsed = Math.round(performance.now() - start);
+        if (res.ok && res.data.options) {
+          const matched = res.data.options.find(
+            (o) =>
+              o.model.toLowerCase() === primary.model.toLowerCase() ||
+              o.provider.toLowerCase() === primary.provider.toLowerCase(),
+          );
+          if (matched && matched.ready === false) {
+            setTestResult({
+              ok: false,
+              message: `模型凭据未就绪或已被禁用 (${matched.provider})`,
+              checkedAt: new Date().toLocaleTimeString(),
+            });
+            message.warning("模型凭据未完全就绪，请核对 API Key");
+          } else {
+            const detail = `服务接口正常响应，延迟 ${elapsed}ms，凭据配置完整`;
+            setTestResult({
+              ok: true,
+              latencyMs: elapsed,
+              message: detail,
+              checkedAt: new Date().toLocaleTimeString(),
+            });
+            message.success(`主模型连通测试通过！${detail}`);
+          }
+        } else {
+          setTestResult({
+            ok: false,
+            message: "无法从管家读取模型凭据列表",
+            checkedAt: new Date().toLocaleTimeString(),
+          });
+          message.error("模型连通性检测未响应，请核对管家服务状态");
+        }
+      }
+    } catch (err) {
+      setTestResult({
+        ok: false,
+        message: err instanceof Error ? err.message : "请求超时或网络不可达",
+        checkedAt: new Date().toLocaleTimeString(),
+      });
+      message.error("检测异常：网络或服务端点超时");
+    } finally {
+      setTestingConnection(false);
+    }
+  };
+
   return (
     <Card
       size="small"
@@ -120,6 +212,14 @@ export function PrimaryModelCard() {
       }
       extra={
         <Space size={8}>
+          <Button
+            size="small"
+            icon={<ApiOutlined />}
+            loading={testingConnection}
+            onClick={() => void handleTestConnection()}
+          >
+            测试连通性
+          </Button>
           <Button
             size="small"
             icon={<ReloadOutlined spin={loading} />}
@@ -181,6 +281,24 @@ export function PrimaryModelCard() {
             },
           ]}
         />
+
+        {testResult && (
+          <Alert
+            type={testResult.ok ? "success" : "error"}
+            showIcon
+            closable
+            onClose={() => setTestResult(null)}
+            message={
+              <Flex align="center" justify="space-between" style={{ width: "100%" }}>
+                <span>
+                  <strong>{testResult.ok ? "模型连通检测通过" : "模型连通检测异常"}</strong>：
+                  {testResult.message}
+                </span>
+                <span style={{ fontSize: 12, opacity: 0.75 }}>检测于 {testResult.checkedAt}</span>
+              </Flex>
+            }
+          />
+        )}
 
         {isLocal ? (
           <Alert
