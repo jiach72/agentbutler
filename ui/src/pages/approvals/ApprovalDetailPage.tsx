@@ -224,6 +224,14 @@ export function ApprovalDetailPage() {
       <Flex vertical gap={16}>
         <PageHeader
           title="操作审批"
+          description={
+            <Flex align="center" gap={8} wrap="wrap">
+              <span>审批单号：</span>
+              <Typography.Text code copyable={{ tooltips: ["复制审批单号", "已复制"] }}>
+                {id}
+              </Typography.Text>
+            </Flex>
+          }
           extra={
             <Space>
               <Button icon={<ReloadOutlined />} onClick={refresh}>
@@ -321,7 +329,15 @@ export function ApprovalDetailPage() {
               <Descriptions.Item label="超时时刻">{new Date(item.expiresAt).toLocaleString()}</Descriptions.Item>
               <Descriptions.Item label="今日请求次数">{item.windowCount}</Descriptions.Item>
               <Descriptions.Item label="应答者">{item.actor ?? "-"}</Descriptions.Item>
-              <Descriptions.Item label="会话">{item.sessionId ?? "-"}</Descriptions.Item>
+              <Descriptions.Item label="会话">
+                {item.sessionId ? (
+                  <Typography.Text copyable={{ tooltips: ["复制会话 ID", "已复制"] }}>
+                    {item.sessionId}
+                  </Typography.Text>
+                ) : (
+                  "-"
+                )}
+              </Descriptions.Item>
             </Descriptions>
 
             {Object.keys(detail).length > 1 && (

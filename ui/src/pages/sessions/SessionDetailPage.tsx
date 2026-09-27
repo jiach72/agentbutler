@@ -8,7 +8,7 @@
  */
 import { money } from "../../lib/format.js";
 import { Alert, Button, Card, Descriptions, Flex, Input, Tag, Timeline, Typography } from "antd";
-import { ArrowLeftOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, ReloadOutlined } from "@ant-design/icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ConclusionBar } from "../../components/ConclusionBar.js";
@@ -182,9 +182,14 @@ export function SessionDetailPage() {
           title="会话追踪"
           description={`会话 ${sessionId} 的完整动作记录，每一步都能展开看详情。`}
           extra={
-            <Button icon={<ArrowLeftOutlined />} aria-label="返回会话追踪列表" onClick={() => navigate("/sessions")}>
-              返回列表
-            </Button>
+            <Flex gap={8} align="center">
+              <Button icon={<ReloadOutlined />} aria-label="刷新会话记录" onClick={refresh}>
+                刷新
+              </Button>
+              <Button icon={<ArrowLeftOutlined />} aria-label="返回会话追踪列表" onClick={() => navigate("/sessions")}>
+                返回列表
+              </Button>
+            </Flex>
           }
         />
 
@@ -208,7 +213,15 @@ export function SessionDetailPage() {
               <Descriptions.Item label="时长">
                 {session.durationMs === null ? "—" : `${Math.round(session.durationMs / 1000)}s`}
               </Descriptions.Item>
-              <Descriptions.Item label="模型">{session.model ?? "—"}</Descriptions.Item>
+              <Descriptions.Item label="模型">
+                {session.model ? (
+                  <Typography.Text copyable={{ tooltips: ["复制模型名称", "已复制"] }}>
+                    {session.model}
+                  </Typography.Text>
+                ) : (
+                  "—"
+                )}
+              </Descriptions.Item>
               <Descriptions.Item label="任务类型">{session.taskType ?? "—"}</Descriptions.Item>
               <Descriptions.Item label="终态">
                 <StatusBadge

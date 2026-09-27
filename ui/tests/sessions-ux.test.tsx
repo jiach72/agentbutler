@@ -47,8 +47,9 @@ describe("会话追踪 (SessionsPage & SessionDetailPage) UI/UX 与工效测试"
       </React.StrictMode>
     );
 
-    // 返回按钮无障碍
+    // 返回按钮与刷新操作无障碍
     expect(html).toContain('aria-label="返回会话追踪列表"');
+    expect(html).toContain('aria-label="刷新会话记录"');
     expect(html).toContain("隐私边界");
   });
 });
