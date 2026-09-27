@@ -21,6 +21,7 @@ import { loadJson } from "../lib/api.js";
 import {
   ROUTES,
   STITCH_SIDEBAR_NAV,
+  GEEK_DRAWER_NAV,
   isStitchNavActive,
   routeMetaFor,
   type StitchNavItem,
@@ -52,9 +53,10 @@ interface SidebarNavProps {
   collapsed?: boolean;
   onToggleCollapse?: () => void;
   onNavigate?: () => void;
+  onOpenGeekDrawer?: () => void;
 }
 
-function SidebarNav({ collapsed = false, onToggleCollapse, onNavigate }: SidebarNavProps) {
+function SidebarNav({ collapsed = false, onToggleCollapse, onNavigate, onOpenGeekDrawer }: SidebarNavProps) {
   const location = useLocation();
   const currentPath = location.pathname;
   const [pendingApprovals, setPendingApprovals] = useState(0);
@@ -256,6 +258,36 @@ function SidebarNav({ collapsed = false, onToggleCollapse, onNavigate }: Sidebar
               </nav>
             </div>
           ))}
+
+          {/* 极客开发者工具箱入口按钮 */}
+          <div className="pt-2">
+            {collapsed ? (
+              <Tooltip title="极客开发者工具箱 (⌘⇧D)" placement="right">
+                <button
+                  type="button"
+                  onClick={onOpenGeekDrawer}
+                  className="w-10 h-10 mx-auto rounded-xl bg-surface-container/70 hover:bg-primary/10 text-on-surface-variant hover:text-primary border border-outline-variant/20 flex items-center justify-center transition-all active:scale-95 cursor-pointer"
+                  aria-label="打开极客开发者工具箱"
+                >
+                  <EtherealIcon name="terminal" size={17} />
+                </button>
+              </Tooltip>
+            ) : (
+              <button
+                type="button"
+                onClick={onOpenGeekDrawer}
+                className="w-full px-3 py-2 rounded-xl bg-surface-container/50 hover:bg-primary/10 border border-outline-variant/20 hover:border-primary/30 flex items-center justify-between text-on-surface-variant hover:text-primary transition-all active:scale-98 cursor-pointer group"
+              >
+                <div className="flex items-center gap-2.5">
+                  <EtherealIcon name="terminal" size={16} className="text-primary group-hover:scale-110 transition-transform" />
+                  <span className="text-xs font-medium tracking-tight">极客工具箱</span>
+                </div>
+                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-surface-container-high text-on-surface-variant/70 border border-outline-variant/15">
+                  ⌘⇧D
+                </span>
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -310,6 +342,7 @@ export function Layout() {
   const [bridgeConnected, setBridgeConnected] = useState<boolean | null>(null);
   const [commandText, setCommandText] = useState("");
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+  const [geekDrawerOpen, setGeekDrawerOpen] = useState(false);
   const commandInputRef = useRef<HTMLInputElement>(null);
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -415,13 +448,17 @@ export function Layout() {
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "b") {
         e.preventDefault();
         toggleSidebar();
-      } else if (e.key === "Escape" && commandOpen) {
-        setCommandOpen(false);
+      } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "d") {
+        e.preventDefault();
+        setGeekDrawerOpen((prev) => !prev);
+      } else if (e.key === "Escape") {
+        if (commandOpen) setCommandOpen(false);
+        if (geekDrawerOpen) setGeekDrawerOpen(false);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [commandOpen]);
+  }, [commandOpen, geekDrawerOpen]);
 
   return (
     <NotificationsProvider>
@@ -439,7 +476,11 @@ export function Layout() {
             sidebarCollapsed ? "w-16" : "w-60"
           } z-50 shadow-[0_1px_8px_rgba(0,0,0,0.04)] transition-all duration-300`}
         >
-          <SidebarNav collapsed={sidebarCollapsed} onToggleCollapse={toggleSidebar} />
+          <SidebarNav
+            collapsed={sidebarCollapsed}
+            onToggleCollapse={toggleSidebar}
+            onOpenGeekDrawer={() => setGeekDrawerOpen(true)}
+          />
         </div>
 
         {/* Main Application Shell */}
@@ -708,7 +749,72 @@ export function Layout() {
                 collapsed={false}
                 onNavigate={() => setMobileDrawerOpen(false)}
                 onToggleCollapse={() => setMobileDrawerOpen(false)}
+                onOpenGeekDrawer={() => {
+                  setMobileDrawerOpen(false);
+                  setGeekDrawerOpen(true);
+                }}
               />
+            </div>
+          </Drawer>
+
+          {/* Geek Developer Drawer (极客开发者工具箱抽屉) */}
+          <Drawer
+            open={geekDrawerOpen}
+            onClose={() => setGeekDrawerOpen(false)}
+            placement="right"
+            title={
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+                  <EtherealIcon name="terminal" size={18} />
+                </div>
+                <div>
+                  <div className="text-sm font-semibold text-on-surface">极客开发者工具箱</div>
+                  <div className="text-[11px] font-normal text-on-surface-variant font-mono">底层诊断、行为审计与高阶运维工具 (⌘⇧D)</div>
+                </div>
+              </div>
+            }
+            styles={{ wrapper: { width: 360 }, body: { padding: "16px 18px" } }}
+          >
+            <div className="space-y-6">
+              {GEEK_DRAWER_NAV.map((group) => (
+                <div key={group.key} className="space-y-2">
+                  <div className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant/80 px-1">
+                    {group.label}
+                  </div>
+                  <div className="grid grid-cols-1 gap-1.5">
+                    {group.items.map((item) => {
+                      const active = isStitchNavActive(item.path, location.pathname);
+                      return (
+                        <Link
+                          key={item.path}
+                          to={item.path}
+                          onClick={() => setGeekDrawerOpen(false)}
+                          className={`p-2.5 rounded-xl border transition-all duration-200 flex items-center gap-3 group ${
+                            active
+                              ? "bg-primary/10 border-primary/40 text-primary shadow-xs"
+                              : "bg-surface-container/50 hover:bg-surface-container-high border-outline-variant/15 hover:border-primary/30 text-on-surface"
+                          }`}
+                        >
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-transform group-hover:scale-105 ${
+                            active ? "bg-primary text-white" : "bg-surface-container-high text-on-surface-variant group-hover:text-primary"
+                          }`}>
+                            <EtherealIcon name={item.materialIcon} size={16} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm font-medium leading-none">{item.title}</span>
+                              <span className="text-[10px] font-mono text-on-surface-variant/60">{item.path}</span>
+                            </div>
+                            {item.note && (
+                              <p className="text-xs text-on-surface-variant/70 mt-1 line-clamp-1 leading-none">{item.note}</p>
+                            )}
+                          </div>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           </Drawer>
 

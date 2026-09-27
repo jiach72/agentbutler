@@ -15,7 +15,7 @@ import { SymptomStep } from "../src/pages/troubleshoot/steps/SymptomStep.js";
 import { DiagnosticsCenter } from "../src/pages/settings/DiagnosticsCenter.js";
 
 describe("关键页面组件渲染", () => {
-  it("侧栏提供四组精工导航，旧页面仍可从深链进入", () => {
+  it("侧栏收敛为日常核心与极客开发者工具箱，旧页面仍可从深链进入", () => {
     const html = renderToStaticMarkup(
       React.createElement(
         ThemeProvider,
@@ -33,10 +33,8 @@ describe("关键页面组件渲染", () => {
     expect(html).toContain('href="/gateway"');
     expect(html).toContain('href="/settings"');
     expect(html).toContain("定时任务");
-    expect(html).toContain("日常使用");
-    expect(html).toContain("记录与审批");
-    expect(html).toContain("维护工具");
-    expect(html).toContain("系统设置");
+    expect(html).toContain("日常核心");
+    expect(html).toContain("极客工具箱");
     expect(html).toContain('aria-label="开始排查问题"');
     expect(html).toContain("排查问题");
     expect(html).toContain('class="topbar-title">自进化</strong>');

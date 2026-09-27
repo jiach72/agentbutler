@@ -207,44 +207,43 @@ export interface StitchNavGroup {
 export const STITCH_SIDEBAR_NAV: StitchNavGroup[] = [
   {
     key: "console",
-    label: "日常使用",
+    label: "日常核心",
     items: [
-      { path: "/dashboard", title: "首页", materialIcon: "dashboard" },
-      { path: "/tasks", title: "定时任务", materialIcon: "schedule" },
-      { path: "/gateway", title: "消息通知", materialIcon: "chat" },
-      { path: "/skills", title: "智能体中心", materialIcon: "memory" },
-      { path: "/knowledge", title: "本地知识库", materialIcon: "menu_book" },
+      { path: "/dashboard", title: "管家工作台", materialIcon: "dashboard", note: "在岗状态与随手吩咐" },
+      { path: "/tasks", title: "定时任务", materialIcon: "schedule", note: "自动化巡检与定时执行" },
+      { path: "/skills", title: "能力与记忆", materialIcon: "memory", note: "技能商店、知识库与记忆便签" },
+      { path: "/settings", title: "系统设置", materialIcon: "settings", note: "模型、数据备份与环境体检" },
+    ],
+  },
+];
+
+export const GEEK_DRAWER_NAV: StitchNavGroup[] = [
+  {
+    key: "monitor_records",
+    label: "监控与记录",
+    items: [
+      { path: "/gateway", title: "消息网关流水", materialIcon: "chat", note: "IM 消息路由与底层转发" },
+      { path: "/cost", title: "成本与 Token", materialIcon: "payments", note: "Token 消耗报表与预算" },
+      { path: "/approvals", title: "高危安全审批", materialIcon: "verified_user", badgeKey: "approvals", note: "系统越权动作确认" },
+      { path: "/audit", title: "全量行为审计", materialIcon: "fact_check", note: "智能体全部操作时间线" },
+      { path: "/sessions", title: "底层会话追踪", materialIcon: "history", note: "分会话调用明细" },
+      { path: "/events", title: "事件与告警", materialIcon: "notifications_active", note: "异常与报警流水" },
+      { path: "/report", title: "Agent 数据周报", materialIcon: "analytics", note: "阶段性行为总结" },
     ],
   },
   {
-    key: "trust",
-    label: "记录与审批",
+    key: "diagnostics_advanced",
+    label: "专家维护与进阶",
     items: [
-      { path: "/cost", title: "成本分析", materialIcon: "payments" },
-      { path: "/approvals", title: "安全与审批", materialIcon: "verified_user", badgeKey: "approvals" },
-      { path: "/audit", title: "行为审计", materialIcon: "fact_check" },
-      { path: "/sessions", title: "会话追踪", materialIcon: "history" },
-      { path: "/events", title: "事件中心", materialIcon: "notifications_active" },
-      { path: "/report", title: "Agent 周报", materialIcon: "analytics" },
-    ],
-  },
-  {
-    key: "maintain",
-    label: "维护工具",
-    items: [
-      { path: "/troubleshoot", title: "排查向导", materialIcon: "healing" },
-      { path: "/logs", title: "系统日志", materialIcon: "subject" },
-      { path: "/tools", title: "专家工具箱", materialIcon: "build" },
-      { path: "/core-files", title: "核心文件", materialIcon: "description" },
-      { path: "/evolution", title: "自进化", materialIcon: "auto_awesome" },
-    ],
-  },
-  {
-    key: "settings",
-    label: "系统设置",
-    items: [
-      { path: "/settings", title: "设置", materialIcon: "settings" },
-      { path: "/wall", title: "监控大屏", materialIcon: "tv" },
+      { path: "/knowledge", title: "本地知识库", materialIcon: "menu_book", note: "文档切片与 RAG 检索" },
+      { path: "/troubleshoot", title: "排查向导", materialIcon: "healing", note: "常见异常逐步排查" },
+      { path: "/logs", title: "系统终端日志", materialIcon: "subject", note: "容器与底层进程原始输出" },
+      { path: "/tools", title: "专家工具箱", materialIcon: "build", note: "进阶运维命令集" },
+      { path: "/core-files", title: "核心文件源码", materialIcon: "description", note: "底层 Markdown/YAML 配置" },
+      { path: "/evolution", title: "自进化实验", materialIcon: "auto_awesome", note: "日志分析与提示词调优" },
+      { path: "/canary", title: "灰度金丝雀", materialIcon: "rocket_launch", note: "影子环境升级验证" },
+      { path: "/federation", title: "多实例联邦", materialIcon: "hub", note: "跨机器集群管理" },
+      { path: "/wall", title: "4K 监控大屏", materialIcon: "tv", note: "全屏展厅态大看板" },
     ],
   },
 ];
