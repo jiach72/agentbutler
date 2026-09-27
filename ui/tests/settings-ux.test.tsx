@@ -218,4 +218,12 @@ describe("④ 模型管理重排", () => {
       addDraftStore.values = {};
     }
   });
+
+  it("预设提供商包含标准官方端点与默认模型，支持零配置填充", async () => {
+    const { PROVIDER_DEFAULTS } = await import("../src/pages/settings/LlmProfileManager.js");
+    expect(PROVIDER_DEFAULTS.DeepSeek.endpoint).toBe("https://api.deepseek.com/v1");
+    expect(PROVIDER_DEFAULTS.DeepSeek.defaultModel).toBe("deepseek-chat");
+    expect(PROVIDER_DEFAULTS.OpenAI.endpoint).toBe("https://api.openai.com/v1");
+    expect(PROVIDER_DEFAULTS.Claude.protocol).toBe("anthropic");
+  });
 });

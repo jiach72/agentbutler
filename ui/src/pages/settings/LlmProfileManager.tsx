@@ -5,7 +5,7 @@
  * （非常开表单）；添加模型与高级绑定是两步有意操作；绑定表用可读名而非裸 profileId；
  * 探针 / 状态 / 动作改用平实文案；请求失败或切标签时草稿不丢（模块级草稿持久）。
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   App,
@@ -23,7 +23,7 @@ import {
   Tooltip,
   Typography,
 } from "antd";
-import { ApiOutlined, CopyOutlined, DeleteOutlined, ReloadOutlined, SafetyCertificateOutlined } from "@ant-design/icons";
+import { ApiOutlined, CopyOutlined, DeleteOutlined, ReloadOutlined, SafetyCertificateOutlined, SearchOutlined } from "@ant-design/icons";
 import { deleteJson, loadJson, postJson } from "../../lib/api.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { SectionHeader } from "../../components/SectionHeader.js";
@@ -92,6 +92,19 @@ function profileLabel(profile: Profile | undefined): string {
 
 const providerOptions = ["OpenAI", "DeepSeek", "通义", "智谱", "Kimi", "豆包", "MiniMax", "百川", "自定义 OpenAI-compatible", "Claude", "Gemini"].map((value) => ({ label: value, value }));
 
+export const PROVIDER_DEFAULTS: Record<string, { endpoint: string; defaultModel: string; protocol: Profile["protocol"] }> = {
+  DeepSeek: { endpoint: "https://api.deepseek.com/v1", defaultModel: "deepseek-chat", protocol: "openai-compatible" },
+  OpenAI: { endpoint: "https://api.openai.com/v1", defaultModel: "gpt-4o-mini", protocol: "openai-compatible" },
+  通义: { endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1", defaultModel: "qwen-plus", protocol: "openai-compatible" },
+  智谱: { endpoint: "https://open.bigmodel.cn/api/paas/v4", defaultModel: "glm-4-flash", protocol: "openai-compatible" },
+  Kimi: { endpoint: "https://api.moonshot.cn/v1", defaultModel: "moonshot-v1-8k", protocol: "openai-compatible" },
+  豆包: { endpoint: "https://ark.cn-beijing.volces.com/api/v3", defaultModel: "ep-xxx", protocol: "openai-compatible" },
+  MiniMax: { endpoint: "https://api.minimax.chat/v1", defaultModel: "abab6.5s-chat", protocol: "openai-compatible" },
+  百川: { endpoint: "https://api.baichuan-ai.com/v1", defaultModel: "Baichuan4", protocol: "openai-compatible" },
+  Claude: { endpoint: "https://api.anthropic.com", defaultModel: "claude-3-5-sonnet-20241022", protocol: "anthropic" },
+  Gemini: { endpoint: "https://generativelanguage.googleapis.com", defaultModel: "gemini-1.5-flash", protocol: "gemini" },
+};
+
 const protocolOptions = [
   { value: "openai-compatible", label: "OpenAI-compatible" },
   { value: "anthropic", label: "Anthropic 原生" },
@@ -126,6 +139,18 @@ export function LlmProfileManager({ seed }: LlmProfileManagerProps = {}) {
   const [profileForm] = Form.useForm();
   const [bindingForm] = Form.useForm();
   const [rotateForm] = Form.useForm();
+  const [profileSearch, setProfileSearch] = useState("");
+
+  const filteredProfiles = useMemo(() => {
+    if (!profileSearch.trim()) return profiles;
+    const q = profileSearch.trim().toLowerCase();
+    return profiles.filter((p) =>
+      p.provider.toLowerCase().includes(q) ||
+      p.model.toLowerCase().includes(q) ||
+      p.endpoint.toLowerCase().includes(q) ||
+      p.profileId.toLowerCase().includes(q),
+    );
+  }, [profiles, profileSearch]);
 
   const refresh = useCallback(async () => {
     if (seed) return;
@@ -305,19 +330,47 @@ export function LlmProfileManager({ seed }: LlmProfileManagerProps = {}) {
           size="small"
           title="已有模型配置"
           extra={
-            <Button type="primary" icon={<SafetyCertificateOutlined />} onClick={openAdd}>
-              添加模型配置
-            </Button>
+            <Flex align="center" gap={8} wrap="wrap">
+              {profiles.length > 0 && (
+                <Input
+                  size="small"
+                  placeholder="搜索模型 / 提供商 / 端点..."
+                  prefix={<SearchOutlined style={{ color: "var(--ab-text-3)" }} />}
+                  value={profileSearch}
+                  onChange={(e) => setProfileSearch(e.target.value)}
+                  allowClear
+                  style={{ width: 210 }}
+                  aria-label="搜索模型配置"
+                />
+              )}
+              <Button type="primary" icon={<SafetyCertificateOutlined />} onClick={openAdd}>
+                添加模型配置
+              </Button>
+            </Flex>
           }
         >
           <Table<Profile>
             size="small"
             loading={loading}
             rowKey="profileId"
-            dataSource={profiles}
-            pagination={false}
+            dataSource={filteredProfiles}
+            pagination={filteredProfiles.length > 10 ? { pageSize: 10, showSizeChanger: false } : false}
             columns={[
-              { title: "提供商 / 模型", render: (_, row) => <div><strong>{row.provider}</strong><br />{row.model}</div> },
+              {
+                title: "提供商 / 模型",
+                render: (_, row) => (
+                  <Flex vertical gap={2}>
+                    <Text strong>{row.provider}</Text>
+                    <Text
+                      copyable={{ text: row.model, tooltips: ["复制模型名", "已复制"] }}
+                      className="font-mono"
+                      style={{ fontSize: 13 }}
+                    >
+                      {row.model}
+                    </Text>
+                  </Flex>
+                ),
+              },
               {
                 title: "状态",
                 render: (_, row) => {
@@ -325,7 +378,20 @@ export function LlmProfileManager({ seed }: LlmProfileManagerProps = {}) {
                   return <StatusBadge tone={meta.tone} label={meta.label} />;
                 },
               },
-              { title: "端点", dataIndex: "endpoint", ellipsis: true },
+              {
+                title: "端点",
+                dataIndex: "endpoint",
+                ellipsis: true,
+                render: (endpoint: string) => (
+                  <Text
+                    copyable={{ text: endpoint, tooltips: ["复制端点 URL", "已复制"] }}
+                    ellipsis
+                    style={{ maxWidth: 220, fontSize: 12 }}
+                  >
+                    {endpoint}
+                  </Text>
+                ),
+              },
               { title: "Key", dataIndex: "maskedKey" },
               {
                 title: "连接",
@@ -366,7 +432,23 @@ export function LlmProfileManager({ seed }: LlmProfileManagerProps = {}) {
                 ),
               },
             ]}
-            locale={{ emptyText: "还没有模型配置。添加后必须绑定到实例、技能或进化目标才会被使用。" }}
+            locale={{
+              emptyText:
+                profiles.length === 0 ? (
+                  "还没有模型配置。添加后必须绑定到实例、技能或进化目标才会被使用。"
+                ) : (
+                  <div style={{ padding: "16px 0", textAlign: "center" }}>
+                    <Typography.Text type="secondary">
+                      未找到包含「{profileSearch}」的模型配置
+                    </Typography.Text>
+                    <div style={{ marginTop: 8 }}>
+                      <Button size="small" onClick={() => setProfileSearch("")}>
+                        清空筛选
+                      </Button>
+                    </div>
+                  </div>
+                ),
+            }}
           />
         </Card>
 
@@ -401,19 +483,35 @@ export function LlmProfileManager({ seed }: LlmProfileManagerProps = {}) {
               }}
             >
               <Form.Item name="provider" label="提供商" rules={[{ required: true }]}>
-                <Select options={providerOptions} />
+                <Select
+                  options={providerOptions}
+                  onChange={(val) => {
+                    const preset = PROVIDER_DEFAULTS[val];
+                    if (preset) {
+                      const currentEndpoint = profileForm.getFieldValue("endpoint") as string | undefined;
+                      const currentModel = profileForm.getFieldValue("model") as string | undefined;
+                      const isDefaultEndpoint = !currentEndpoint || Object.values(PROVIDER_DEFAULTS).some((p) => p.endpoint === currentEndpoint);
+                      const isDefaultModel = !currentModel || Object.values(PROVIDER_DEFAULTS).some((p) => p.defaultModel === currentModel);
+                      profileForm.setFieldsValue({
+                        protocol: preset.protocol,
+                        endpoint: isDefaultEndpoint ? preset.endpoint : currentEndpoint,
+                        model: isDefaultModel ? preset.defaultModel : currentModel,
+                      });
+                    }
+                  }}
+                />
               </Form.Item>
               <Form.Item name="protocol" label="协议" rules={[{ required: true }]}>
                 <Select options={protocolOptions} />
               </Form.Item>
               <Form.Item name="endpoint" label="端点" rules={[{ required: true, type: "url" }]}>
-                <Input placeholder="https://api.example.com/v1" />
+                <Input placeholder="https://api.example.com/v1" allowClear />
               </Form.Item>
               <Form.Item name="model" label="模型" rules={[{ required: true }]}>
-                <Input placeholder="model-name" />
+                <Input placeholder="model-name" allowClear />
               </Form.Item>
               <Form.Item name="apiKey" label="API Key" rules={[{ required: true }]}>
-                <Input.Password autoComplete="new-password" />
+                <Input.Password autoComplete="new-password" allowClear />
               </Form.Item>
               <Space>
                 <Button type="primary" icon={<SafetyCertificateOutlined />} loading={saving} disabled={status?.vault.available === false} onClick={() => void createProfile()}>
@@ -477,13 +575,13 @@ export function LlmProfileManager({ seed }: LlmProfileManagerProps = {}) {
                 <Select options={scopeOptions} />
               </Form.Item>
               <Form.Item name="instanceId" label="实例 ID">
-                <Input placeholder="可选，建议填写" />
+                <Input placeholder="可选，建议填写" allowClear />
               </Form.Item>
               <Form.Item name="frameworkId" label="框架">
-                <Input placeholder="hermes" />
+                <Input placeholder="hermes" allowClear />
               </Form.Item>
               <Form.Item name="targetRef" label="技能/插件/目标引用">
-                <Input placeholder="skill-name（精确绑定时必填）" />
+                <Input placeholder="skill-name（精确绑定时必填）" allowClear />
               </Form.Item>
               <Space direction="vertical" style={{ width: "100%" }}>
                 <Text type="secondary" style={{ fontSize: 12 }}>
@@ -513,7 +611,20 @@ export function LlmProfileManager({ seed }: LlmProfileManagerProps = {}) {
               columns={[
                 { title: "来源", dataIndex: "source", ellipsis: true },
                 { title: "提供商 / 模型", render: (_, row) => <div><strong>{row.provider}</strong><br />{row.model}</div> },
-                { title: "端点", dataIndex: "endpoint", ellipsis: true },
+                {
+                  title: "端点",
+                  dataIndex: "endpoint",
+                  ellipsis: true,
+                  render: (endpoint: string) => (
+                    <Text
+                      copyable={endpoint.trim() !== "" ? { text: endpoint, tooltips: ["复制端点", "已复制"] } : false}
+                      ellipsis
+                      style={{ maxWidth: 200, fontSize: 12 }}
+                    >
+                      {endpoint || "—"}
+                    </Text>
+                  ),
+                },
                 { title: "Key", dataIndex: "maskedKey" },
                 {
                   title: "操作",
@@ -535,7 +646,7 @@ export function LlmProfileManager({ seed }: LlmProfileManagerProps = {}) {
           </Paragraph>
           <Form form={rotateForm} layout="vertical">
             <Form.Item name="apiKey" label="新 API Key" rules={[{ required: true, message: "请输入新 API Key" }]}>
-              <Input.Password autoComplete="new-password" />
+              <Input.Password autoComplete="new-password" allowClear />
             </Form.Item>
           </Form>
         </Modal>
