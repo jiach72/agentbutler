@@ -132,12 +132,18 @@ export function CostPage() {
       dataIndex: "sessionId",
       key: "sessionId",
       ellipsis: true,
-      width: 260,
+      width: 280,
       // M2.3 深链：成本页最贵会话一键进入会话时间线。
       render: (sessionId: string) => (
-        <Link to={`/sessions/${encodeURIComponent(sessionId)}`} className="font-mono text-xs hover:underline">
-          {sessionId}
-        </Link>
+        <Flex align="center" gap={6}>
+          <Link to={`/sessions/${encodeURIComponent(sessionId)}`} className="font-mono text-xs hover:underline">
+            {sessionId}
+          </Link>
+          <Typography.Text
+            copyable={{ text: sessionId, tooltips: ["复制会话 ID", "已复制"] }}
+            aria-label={`复制会话 ID ${sessionId}`}
+          />
+        </Flex>
       ),
     },
     { title: "模型", dataIndex: "model", key: "model", ellipsis: true },
@@ -378,6 +384,28 @@ export function CostPage() {
                 { required: true, message: "请输入月度预算（0 为关闭）" },
                 { type: "number", min: 0, max: 720_000, message: "请输入 0 ~ 720,000 之间的金额" },
               ]}
+              extra={
+                <Flex gap={6} wrap="wrap" style={{ marginTop: 8 }}>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>快捷预设：</Typography.Text>
+                  {[50, 100, 300, 500, 1000].map((amount) => (
+                    <Button
+                      key={amount}
+                      size="small"
+                      onClick={() => budgetForm.setFieldsValue({ monthlyCny: amount })}
+                      style={{ fontSize: 12, height: 24, padding: "0 8px" }}
+                    >
+                      {amount} 元
+                    </Button>
+                  ))}
+                  <Button
+                    size="small"
+                    onClick={() => budgetForm.setFieldsValue({ monthlyCny: 0 })}
+                    style={{ fontSize: 12, height: 24, padding: "0 8px" }}
+                  >
+                    关闭预算
+                  </Button>
+                </Flex>
+              }
             >
               <InputNumber
                 style={{ width: "100%" }}
