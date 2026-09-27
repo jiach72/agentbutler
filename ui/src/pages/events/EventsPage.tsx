@@ -8,7 +8,7 @@
  * 选中态与分隔线走品牌令牌，不再用 antd 默认蓝与半透明灰（评审 P1-2 / P2-4）。
  */
 import { Button, Card, Col, Collapse, Descriptions, Flex, Input, Row, Segmented, Typography } from "antd";
-import { CheckOutlined, FlagOutlined } from "@ant-design/icons";
+import { CheckOutlined, FlagOutlined, ReloadOutlined } from "@ant-design/icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ConclusionBar } from "../../components/ConclusionBar.js";
@@ -122,6 +122,22 @@ const EVIDENCE_KEY_LABEL: Record<string, string> = {
   note: "说明",
 };
 
+/** 关键排障标识与路径/端点：支持一键复制，避免手动选词截断 */
+const COPYABLE_EVIDENCE_KEYS = new Set([
+  "approvalId",
+  "actionId",
+  "sessionId",
+  "fingerprint",
+  "signature",
+  "instanceId",
+  "runId",
+  "command",
+  "path",
+  "target",
+  "endpoint",
+  "snapshotId",
+]);
+
 function isPlainValue(value: unknown): value is string | number | boolean | null {
   return value === null || ["string", "number", "boolean"].includes(typeof value);
 }
@@ -159,11 +175,21 @@ function EvidenceReadable({ event }: { event: TrustEvent }) {
             )}
             {simple.length > 0 && (
               <Descriptions size="small" column={1} className="events-evidence-kv">
-                {simple.map((key) => (
-                  <Descriptions.Item key={key} label={EVIDENCE_KEY_LABEL[key] ?? key}>
-                    {String(record[key])}
-                  </Descriptions.Item>
-                ))}
+                {simple.map((key) => {
+                  const valStr = String(record[key]);
+                  const isCopyable = COPYABLE_EVIDENCE_KEYS.has(key);
+                  return (
+                    <Descriptions.Item key={key} label={EVIDENCE_KEY_LABEL[key] ?? key}>
+                      {isCopyable ? (
+                        <Typography.Text copyable={{ text: valStr }}>
+                          {valStr}
+                        </Typography.Text>
+                      ) : (
+                        valStr
+                      )}
+                    </Descriptions.Item>
+                  );
+                })}
               </Descriptions>
             )}
             {complex.length > 0 && (
@@ -335,6 +361,15 @@ export function EventsPage() {
       <Flex vertical gap={16}>
         <PageHeader
           title="事件中心"
+          extra={
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={refresh}
+              aria-label="刷新事件列表"
+            >
+              刷新
+            </Button>
+          }
         />
 
         {/* §2.3 ② 结论条。 */}
@@ -353,7 +388,7 @@ export function EventsPage() {
             ]}
           />
           <Input
-            placeholder="搜索事件标题 / 类型 (如: approval, budget)..."
+            placeholder="搜索事件标题 / 类型 (如: approval, budget, critical)..."
             allowClear
             value={searchKeyword}
             onChange={(e) => setSearchKeyword(e.target.value)}
@@ -433,7 +468,22 @@ export function EventsPage() {
           </Col>
           <Col xs={24} lg={14}>
             <Card
-              title={selected !== null ? "事件详情" : "详情"}
+              title={
+                selected !== null ? (
+                  <Flex align="center" gap={8}>
+                    <span>事件详情</span>
+                    <Typography.Text
+                      type="secondary"
+                      style={{ fontSize: 13, fontWeight: "normal" }}
+                      copyable={{ text: String(selected.id) }}
+                    >
+                      #{selected.id}
+                    </Typography.Text>
+                  </Flex>
+                ) : (
+                  "详情"
+                )
+              }
               extra={
                 selected !== null && (selected.status === "active" || selected.status === "regressed")
                   ? (
