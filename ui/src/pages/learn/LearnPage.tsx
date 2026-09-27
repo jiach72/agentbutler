@@ -7,10 +7,9 @@
  * 3. 自主智能体核心架构（Agent 公式、ReAct 思考循环、MCP 协议、Tool Calling、多智能体）
  * 4. 记忆系统与知识检索 RAG（三层记忆金字塔、Embedding、向量相似度、本地 SQLite 治理）
  * 5. 安全合规与防御防线（Prompt 注入、HITL 审批门禁、127.0.0.1 回环网络隔离、Kill Switch 熔断）
- * 6. 全景分类权威术语大词典（30+ 核心概念中英文通俗与硬核双重视角解析）
  */
 import { useState, useMemo } from "react";
-import { Input, Flex } from "antd";
+import { Button, Flex, Input, Typography } from "antd";
 import { SearchOutlined, InfoCircleOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import { PageHeader } from "../../components/PageHeader.js";
 import { EtherealIcon } from "../../components/EtherealIcon.js";
@@ -406,7 +405,7 @@ export function LearnPage() {
           <div style={{ minWidth: 260 }}>
             <Input
               prefix={<SearchOutlined style={{ color: "var(--ab-text-3)" }} />}
-              placeholder="全局搜索 AI 概念、术语与指标..."
+              placeholder="全局搜索 AI 概念、术语与指标 (如: Transformer, Agent, RAG...)"
               allowClear
               value={searchKeyword}
               onChange={(e) => setSearchKeyword(e.target.value)}
@@ -922,6 +921,15 @@ export function LearnPage() {
             <div className="learn-empty-state">
               <InfoCircleOutlined style={{ fontSize: 32, color: "var(--ab-text-3)" }} />
               <p>未找到匹配的术语，请尝试更换关键词或切换分类。</p>
+              <Button
+                size="small"
+                onClick={() => {
+                  setSearchKeyword("");
+                  setGlossaryCategory("all");
+                }}
+              >
+                清空筛选条件
+              </Button>
             </div>
           ) : (
             <div className="learn-glossary-grid">
@@ -929,7 +937,13 @@ export function LearnPage() {
                 <div key={item.id} className="learn-glossary-card">
                   <div className="learn-glossary-head">
                     <div className="learn-glossary-term">
-                      <span>{item.termZh}</span>
+                      <Typography.Text
+                        copyable={{ text: `${item.termZh} (${item.termEn})`, tooltips: ["复制术语", "已复制"] }}
+                        strong
+                        style={{ fontSize: 15 }}
+                      >
+                        {item.termZh}
+                      </Typography.Text>
                       <span className="learn-glossary-en">{item.termEn}</span>
                     </div>
                     <span className="learn-glossary-cat-tag">{item.categoryLabel}</span>
