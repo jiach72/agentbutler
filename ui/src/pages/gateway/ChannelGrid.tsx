@@ -13,8 +13,9 @@ import {
   WechatOutlined,
 } from "@ant-design/icons";
 import type { ComponentType } from "react";
-import { App, Button, Card, Flex, Tag, Typography } from "antd";
-import { useCallback, useEffect, useState } from "react";
+import { App, Button, Card, Flex, Input, Tag, Typography } from "antd";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Empty } from "../../components/Empty.js";
 import { usePolling } from "../../hooks/usePolling.js";
 import { fetchJson, postJson } from "../../lib/api.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
@@ -69,6 +70,20 @@ export function ChannelGrid({ onReconnect, channels: injected }: ChannelGridProp
   const [configChannel, setConfigChannel] = useState<ChannelDirectoryEntryView | null>(null);
   const [applyingIds, setApplyingIds] = useState<ReadonlySet<string>>(new Set());
   const [pingingId, setPingingId] = useState<string | null>(null);
+  const [keyword, setKeyword] = useState("");
+
+  const searchedChannels = useMemo(() => {
+    if (channels === null) return null;
+    const q = keyword.trim().toLowerCase();
+    if (!q) return channels;
+    return channels.filter(
+      (c) =>
+        c.label.toLowerCase().includes(q) ||
+        c.id.toLowerCase().includes(q) ||
+        channelKindLabel(c.kind).toLowerCase().includes(q) ||
+        (c.account && c.account.toLowerCase().includes(q)),
+    );
+  }, [channels, keyword]);
 
   const pingChannel = async (channelId: string, channelLabel: string) => {
     setPingingId(channelId);
@@ -183,6 +198,16 @@ export function ChannelGrid({ onReconnect, channels: injected }: ChannelGridProp
           通讯工具
         </Typography.Title>
         <Flex wrap="wrap" justify="flex-end" align="center" gap={12}>
+          {channels !== null && channels.length > 0 && (
+            <Input.Search
+              placeholder="搜索通讯工具 / 账号..."
+              allowClear
+              size="small"
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              style={{ width: 190, maxWidth: "100%" }}
+            />
+          )}
           {unreachable && <Tag color="warning">通道服务不可达</Tag>}
           <Button icon={<ReloadOutlined />} onClick={onReconnect}>
             重新连接通道
@@ -194,7 +219,18 @@ export function ChannelGrid({ onReconnect, channels: injected }: ChannelGridProp
           <Typography.Text type="secondary">{unreachable ? "暂时读不到通道目录，稍后自动重试。" : "正在读取通道目录…"}</Typography.Text>
         ) : (
           (() => {
-            const { active, addable } = partitionChannels(channels);
+            const currentList = searchedChannels ?? channels;
+            const { active, addable } = partitionChannels(currentList);
+            if (active.length === 0 && addable.length === 0 && keyword.trim()) {
+              return (
+                <Empty
+                  mascot={false}
+                  title="未找到匹配的通讯工具"
+                  hint={`没有找到与 "${keyword}" 相关的通道或账号`}
+                  action={<Button size="small" onClick={() => setKeyword("")}>清空筛选</Button>}
+                />
+              );
+            }
             const renderCard = (channel: ChannelDirectoryEntryView) => {
               const { Icon, tone } = channelTileOf(channel.label);
               const flags = channelStatusFlags(channel);
@@ -215,7 +251,16 @@ export function ChannelGrid({ onReconnect, channels: injected }: ChannelGridProp
                   <Flex vertical gap={8}>
                     <Typography.Text type="secondary">
                       {channelKindLabel(channel.kind)}
-                      {channel.account !== undefined ? ` · ${channel.account}` : ""}
+                      {channel.account !== undefined ? (
+                        <>
+                          {" · "}
+                          <Typography.Text copyable={{ text: channel.account }} type="secondary">
+                            {channel.account}
+                          </Typography.Text>
+                        </>
+                      ) : (
+                        ""
+                      )}
                       {` · ${loginStateCopy(channel.loginState)}`}
                     </Typography.Text>
                     {/* 三个独立事实：已配置 / 连接状态 / 已启用，互不掩盖；
