@@ -15,9 +15,11 @@ describe("备份中心 (BackupCenter) UI/UX 与工效测试", () => {
       data: {
         items: [
           {
-            id: "backup-2026-09-28-full-abc123456",
+            id: 108,
             kind: "full" as const,
             label: "每日全量自动备份",
+            target: "host",
+            path: "/data/backups/backup-2026-09-28-full.tar.gz",
             createdAt: new Date().toISOString(),
             sizeBytes: 10485760,
             status: "ready" as const,
@@ -74,7 +76,7 @@ describe("备份中心 (BackupCenter) UI/UX 与工效测试", () => {
 
     // 列表项与一键复制属性
     expect(html).toContain("每日全量自动备份");
-    expect(html).toContain("backup-2026-");
+    expect(html).toContain("#108");
   });
 
   it("无备份数据时渲染友好空态与创建首个备份按钮", () => {

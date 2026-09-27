@@ -61,7 +61,8 @@ export function BackupCenter({
     if (!q) return backups.data.items;
     return backups.data.items.filter(
       (item) =>
-        item.id.toLowerCase().includes(q) ||
+        String(item.id).includes(q) ||
+        item.path.toLowerCase().includes(q) ||
         (item.label ?? "").toLowerCase().includes(q) ||
         backupKindLabel(item.kind).toLowerCase().includes(q) ||
         item.kind.toLowerCase().includes(q),
@@ -214,8 +215,8 @@ export function BackupCenter({
                 <div style={{ minWidth: 0 }}>
                   <Flex align="center" gap={8} wrap>
                     <Text strong>{item.label ?? backupKindLabel(item.kind)}</Text>
-                    <Text copyable={{ text: item.id }} type="secondary" className="is-mono" style={{ fontSize: 11 }}>
-                      {item.id.slice(0, 12)}...
+                    <Text copyable={{ text: String(item.id) }} type="secondary" className="is-mono" style={{ fontSize: 11 }}>
+                      #{item.id}
                     </Text>
                   </Flex>
                   <Text type="secondary" style={{ fontSize: 12 }}>
