@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import {
   Alert,
@@ -10,6 +10,7 @@ import {
   Descriptions,
   Divider,
   Flex,
+  Input,
   Progress,
   Row,
   Select,
@@ -156,6 +157,21 @@ export function EvolutionPage() {
   const [confirmTarget, setConfirmTarget] = useState<
     { kind: "apply-proposal"; id: string } | { kind: "promote-run"; run: Run } | null
   >(null);
+  const [directionKeyword, setDirectionKeyword] = useState("");
+
+  const filteredDirections = useMemo(() => {
+    const list = data?.directions ?? [];
+    const q = directionKeyword.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter(
+      (item) =>
+        item.title.toLowerCase().includes(q) ||
+        item.summary.toLowerCase().includes(q) ||
+        (item.targetRef && item.targetRef.toLowerCase().includes(q)) ||
+        item.impact.toLowerCase().includes(q) ||
+        (item.recommendedAction && item.recommendedAction.toLowerCase().includes(q)),
+    );
+  }, [data?.directions, directionKeyword]);
 
   // 实例读取走 ref：自动初始化选中实例不会重建 refresh，首次加载只发一轮
   // 请求（此前 refresh 依赖 instanceId/selectedId，初始化写入会连锁触发
@@ -563,13 +579,32 @@ export function EvolutionPage() {
           <Col xs={24} lg={10}>
             <Card
               title={<SectionHeader kicker="改进方向" title={`${data?.directions.length ?? 0} 项`} />}
+              extra={
+                (data?.directions?.length ?? 0) > 0 ? (
+                  <Input.Search
+                    placeholder="搜索方向 / 技能 / 关键词..."
+                    allowClear
+                    size="small"
+                    value={directionKeyword}
+                    onChange={(e) => setDirectionKeyword(e.target.value)}
+                    style={{ width: 190 }}
+                  />
+                ) : null
+              }
               styles={{ body: { padding: 12, maxHeight: 640, overflow: "auto" } }}
             >
               {(data?.directions ?? []).length === 0 ? (
                 <Empty mascot={false} title="当前窗口没有可归纳的问题" />
+              ) : filteredDirections.length === 0 ? (
+                <Empty
+                  mascot={false}
+                  title="未找到匹配的改进方向"
+                  hint={`未找到与 "${directionKeyword}" 相关的方向`}
+                  action={<Button size="small" onClick={() => setDirectionKeyword("")}>清空筛选</Button>}
+                />
               ) : (
                 <Flex vertical gap={8}>
-                  {data?.directions.map((item) => (
+                  {filteredDirections.map((item) => (
                     <div
                       key={item.id}
                       role="button"
@@ -644,7 +679,11 @@ export function EvolutionPage() {
                     <Paragraph style={{ marginBottom: 0 }}>{selected.summary}</Paragraph>
                     <Descriptions size="small" column={1}>
                       <Descriptions.Item label="关联技能">
-                        {selected.targetRef ?? "未能定位"}
+                        {selected.targetRef ? (
+                          <Typography.Text copyable={{ text: selected.targetRef }}>{selected.targetRef}</Typography.Text>
+                        ) : (
+                          "未能定位"
+                        )}
                       </Descriptions.Item>
                       <Descriptions.Item label="证据">
                         {selected.occurrences} 次 · {selected.sources.join("、") || "未知来源"}
@@ -769,10 +808,14 @@ export function EvolutionPage() {
                     <Flex vertical gap={12}>
                       <Descriptions size="small" column={1}>
                         <Descriptions.Item label="当前版本标识">
-                          <Typography.Text code>{selectedProposal.baselineHash}</Typography.Text>
+                          <Typography.Text code copyable={{ text: selectedProposal.baselineHash }}>
+                            {selectedProposal.baselineHash}
+                          </Typography.Text>
                         </Descriptions.Item>
                         <Descriptions.Item label="改进方案标识">
-                          <Typography.Text code>{selectedProposal.candidateHash}</Typography.Text>
+                          <Typography.Text code copyable={{ text: selectedProposal.candidateHash }}>
+                            {selectedProposal.candidateHash}
+                          </Typography.Text>
                         </Descriptions.Item>
                         <Descriptions.Item label="验证">
                           {selectedProposal.validation.reason}
@@ -822,7 +865,9 @@ export function EvolutionPage() {
                         <Divider style={{ margin: 0 }} />
                         <Descriptions size="small" column={1}>
                           <Descriptions.Item label="运行编号">
-                            <Typography.Text code>{run.runId}</Typography.Text>
+                            <Typography.Text code copyable={{ text: run.runId }}>
+                              {run.runId}
+                            </Typography.Text>
                           </Descriptions.Item>
                           <Descriptions.Item label="当前状态">
                             {runStatusLabel(run.status)}
@@ -833,7 +878,9 @@ export function EvolutionPage() {
                           <Descriptions.Item label="说明">{run.detail}</Descriptions.Item>
                           {run.artifacts?.candidatePath && (
                             <Descriptions.Item label="候选文件">
-                              {run.artifacts.candidatePath}
+                              <Typography.Text copyable={{ text: run.artifacts.candidatePath }}>
+                                {run.artifacts.candidatePath}
+                              </Typography.Text>
                             </Descriptions.Item>
                           )}
                         </Descriptions>
