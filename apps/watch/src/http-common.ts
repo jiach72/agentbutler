@@ -227,8 +227,11 @@ export interface WatchHttpDeps {
   /* ------------------- 信任层（Trust Layer）服务 ------------------- */
   /** 预算引擎（M1.1；未接线时 /api/budget 返回 503）。 */
   budget?: BudgetEngine;
-  /** 记忆探针完整写入档频率（分钟；get 读当前值，set 持久化并生效）。 */
-  probeConfig?: { get(): number; set(min: number): void };
+  /** 记忆探针完整写入档频率与模型配置（get 读当前值，set 持久化并生效）。 */
+  probeConfig?: {
+    get(): { intervalMin: number; modelId?: string; modelName?: string; endpoint?: string; isLocal?: boolean } | number;
+    set(config: { intervalMin?: number; modelId?: string; modelName?: string; endpoint?: string; isLocal?: boolean } | number): void;
+  };
   /** 行为审计流（M1.2；未接线时 /api/audit/* 返回 503）。 */
   actionAudit?: ActionAuditService;
   /** 全局急停（M1.3；未接线时 /api/killswitch 返回 503）。 */

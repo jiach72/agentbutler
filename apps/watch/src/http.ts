@@ -38,6 +38,7 @@ import {
   handleGateway,
   handleEvolution,
   handleCredentials,
+  handlePrimaryModel,
 } from "./handlers/index.js";
 
 export * from "./http-common.js";
@@ -56,6 +57,7 @@ const handlers: Array<(ctx: RequestContext) => Promise<boolean>> = [
   handleGateway,
   handleEvolution,
   handleCredentials,
+  handlePrimaryModel,
 ];
 
 /** 将现有恢复目录包装成后台修复会话执行器。动作仍复用同一套门禁、快照和复验。 */

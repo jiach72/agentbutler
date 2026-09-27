@@ -37,6 +37,7 @@ import { SettingsCategoryNav, resolveCategoryKey } from "./SettingsCategoryNav.j
 import { SourceStatusBar } from "./SourceStatusBar.js";
 import { PreferencesPanel } from "../preferences/PreferencesPage.js";
 import { LlmProfileManager } from "./LlmProfileManager.js";
+import { PrimaryModelCard } from "./PrimaryModelCard.js";
 import { UnifiedApiKeyManager } from "./UnifiedApiKeyManager.js";
 import { OllamaConfigCard } from "./OllamaConfigCard.js";
 import { KnowledgeConfigCard } from "./KnowledgeConfigCard.js";
@@ -268,8 +269,10 @@ export function SettingsPage() {
         );
       case "llm":
         return (
-          <Tabs
-            key="preferences"
+          <Flex vertical gap={16}>
+            <PrimaryModelCard />
+            <Tabs
+              key="preferences"
             activeKey={
               searchParams.get("tab") === "preferences"
                 ? "preferences"
@@ -311,6 +314,7 @@ export function SettingsPage() {
               },
             ]}
           />
+          </Flex>
         );
       case "advanced":
         return <Navigate to="/tools" replace />;

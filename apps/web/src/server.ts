@@ -23,6 +23,7 @@ import { registerMarkdownRoutes } from "./routes/markdown.js";
 import { registerMemoryRoutes } from "./routes/memory.js";
 import { registerKnowledgeRoutes } from "./routes/knowledge.js";
 import { registerOllamaRoutes } from "./routes/ollama.js";
+import { registerModelRoutes } from "./routes/models.js";
 import { registerPromptOptimizationRoutes } from "./routes/prompt-optimization.js";
 import { registerRecoveryRoutes } from "./routes/recovery.js";
 import { registerScheduledTasksRoutes } from "./routes/scheduled-tasks.js";
@@ -545,6 +546,9 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
 
   /* ---------------------- LLM 供应商画像与成本中枢 ---------------------- */
   void registerLlmRoutes(app, { proxy, doFetch, watchUrl });
+
+  /* ---------------------- 统一模型与凭据枢纽 ---------------------- */
+  void registerModelRoutes(app, { ollamaUrl, proxy, doFetch, watchUrl });
 
   /* ---------------------- 提示词优化与候选评估代理（M5 切片 1/2） ---------------------- */
   void registerPromptOptimizationRoutes(app, { proxy });

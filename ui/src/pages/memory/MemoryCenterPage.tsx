@@ -21,6 +21,7 @@ import {
   Radio,
   Rate,
   Row,
+  Select,
   Space,
   Spin,
   Switch,
@@ -99,6 +100,9 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
   const [selectedEngine, setSelectedEngine] = useState<MemoryEngineId | null>(null);
   const [selectedMode, setSelectedMode] = useState<MemoryDeployMode>("docker");
   const [configParams, setConfigParams] = useState<{ apiKey?: string; apiUrl?: string; port?: number }>({});
+  const [savedCredentials, setSavedCredentials] = useState<
+    Array<{ id: string; name: string; category: string; envVar: string; provider: string; endpoint: string | null; maskedKey: string }>
+  >([]);
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [configPreview, setConfigPreview] = useState<MemoryConfigPreview | null>(null);
@@ -274,6 +278,11 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
 
   useEffect(() => {
     void fetchSystems();
+    void loadJson<{ credentials: Array<{ id: string; name: string; category: string; envVar: string; provider: string; endpoint: string | null; maskedKey: string }> }>("/api/credentials", 10_000).then((res) => {
+      if (res.ok && res.data.credentials) {
+        setSavedCredentials(res.data.credentials);
+      }
+    });
   }, [fetchSystems]);
 
   // 发起 Jev 智能选型
@@ -863,9 +872,40 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
             {/* API 模式下输入 Key */}
             {selectedMode === "api" && (
               <Form layout="vertical">
+                {savedCredentials.length > 0 && (
+                  <Form.Item label="从已配置的受管 API 密钥中直接选取：">
+                    <Select
+                      placeholder="点此选取已保存的受管密钥（自动载入参数）..."
+                      allowClear
+                      onChange={(val) => {
+                        const matched = savedCredentials.find((c) => c.id === val);
+                        if (matched) {
+                          setConfigParams((prev) => ({
+                            ...prev,
+                            apiKey: matched.envVar,
+                            apiUrl: matched.endpoint || prev.apiUrl,
+                          }));
+                          message.success(`已选用 ${matched.name}，参数已自动填入`);
+                        }
+                      }}
+                      options={savedCredentials
+                        .filter(
+                          (c) =>
+                            c.category === "memory" ||
+                            c.provider.toLowerCase() === selectedEngine?.toLowerCase() ||
+                            (selectedEngine && c.envVar.includes(selectedEngine.toUpperCase())) ||
+                            c.category === "llm",
+                        )
+                        .map((c) => ({
+                          value: c.id,
+                          label: `${c.name} (${c.envVar} · ${c.maskedKey})`,
+                        }))}
+                    />
+                  </Form.Item>
+                )}
                 <Form.Item label="API Key (将同步写入 ~/.hermes/.env)">
                   <Input.Password
-                    placeholder="请输入 API Key"
+                    placeholder="请输入 API Key（若上方已选择已配置密钥可留空或输入新 Key 覆盖）"
                     value={configParams.apiKey}
                     onChange={(e) => setConfigParams((prev) => ({ ...prev, apiKey: e.target.value }))}
                   />

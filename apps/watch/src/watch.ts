@@ -2274,10 +2274,26 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       // 信任层（Trust Layer）服务注册：M1 成本/审计/急停 + M2 事件中心/周报 + M2.3 会话索引。
       // ⚠️ 这些必须显式注入，否则断点端点在生产装配下返回 503（测试因直接传 deps 掩盖过该问题）。
       budget: budgetEngine,
-      // 探针完整写入档频率：get 每次读 app_config（面板可改），set 持久化。
+      // 探针完整写入档频率与模型配置：持久化到 app_config。
       probeConfig: {
-        get: () => getFullProbeIntervalMin(),
-        set: (min: number) => core.store.setAppConfig("probe_full_interval_min", String(min)),
+        get: () => ({
+          intervalMin: getFullProbeIntervalMin(),
+          modelId: core.store.getAppConfig("probe_model_id") ?? undefined,
+          modelName: core.store.getAppConfig("probe_model_name") ?? undefined,
+          endpoint: core.store.getAppConfig("probe_model_endpoint") ?? undefined,
+          isLocal: core.store.getAppConfig("probe_model_is_local") === "true",
+        }),
+        set: (cfg: { intervalMin?: number; modelId?: string; modelName?: string; endpoint?: string; isLocal?: boolean } | number) => {
+          if (typeof cfg === "number") {
+            core.store.setAppConfig("probe_full_interval_min", String(cfg));
+          } else {
+            if (cfg.intervalMin !== undefined) core.store.setAppConfig("probe_full_interval_min", String(cfg.intervalMin));
+            if (cfg.modelId !== undefined) core.store.setAppConfig("probe_model_id", cfg.modelId);
+            if (cfg.modelName !== undefined) core.store.setAppConfig("probe_model_name", cfg.modelName);
+            if (cfg.endpoint !== undefined) core.store.setAppConfig("probe_model_endpoint", cfg.endpoint);
+            if (cfg.isLocal !== undefined) core.store.setAppConfig("probe_model_is_local", String(cfg.isLocal));
+          }
+        },
       },
       actionAudit: auditCollector,
       killswitch: killSwitch,

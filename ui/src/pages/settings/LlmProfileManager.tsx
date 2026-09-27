@@ -27,8 +27,9 @@ import { ApiOutlined, CopyOutlined, DeleteOutlined, ReloadOutlined, SafetyCertif
 import { deleteJson, loadJson, postJson } from "../../lib/api.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { SectionHeader } from "../../components/SectionHeader.js";
+import { ModelSelector } from "../../components/ModelSelector.js";
 
-const { Paragraph } = Typography;
+const { Paragraph, Text } = Typography;
 
 /** 配置状态的人话标签（status 来自 LlmProfileView：active/disabled/unsupported）。 */
 const PROFILE_STATUS: Record<Profile["status"], { label: string; tone: "ok" | "warn" | "unknown" }> = {
@@ -243,8 +244,8 @@ export function LlmProfileManager({ seed }: LlmProfileManagerProps = {}) {
   const addBinding = async () => {
     const values = await bindingForm.validateFields();
     const result = await postJson("/api/llm/bindings", values);
-    if (!result.ok) return message.error("绑定失败，请检查该范围是否已有绑定。");
-    message.success("已建立明确绑定。");
+    if (!result.ok) return message.error("保存绑定失败，请检查管家服务连接。");
+    message.success("已成功建立/更新模型绑定。");
     bindingForm.resetFields();
     bindingDraftStore.values = {};
     bindingDraftStore.open = false;
@@ -372,6 +373,25 @@ export function LlmProfileManager({ seed }: LlmProfileManagerProps = {}) {
         {/* 添加模型：显式动作，非常开表单。 */}
         {addOpen && (
           <Card size="small" title="添加模型配置">
+            <div style={{ marginBottom: 16, padding: "10px 14px", background: "var(--ab-surface-2)", borderRadius: 8 }}>
+              <Flex vertical gap={6}>
+                <Text strong style={{ fontSize: 13 }}>从已配置的 API Key 或本地模型快速载入：</Text>
+                <ModelSelector
+                  placeholder="点此选取已有的 API 或本地模型，自动填入参数..."
+                  onChange={(_, opt) => {
+                    if (!opt) return;
+                    profileForm.setFieldsValue({
+                      provider: opt.provider,
+                      protocol: opt.protocol,
+                      endpoint: opt.endpoint,
+                      model: opt.model,
+                      apiKey: opt.source === "ollama" ? "ollama" : "",
+                    });
+                  }}
+                  style={{ width: "100%" }}
+                />
+              </Flex>
+            </div>
             <Form
               form={profileForm}
               layout="vertical"
@@ -465,11 +485,16 @@ export function LlmProfileManager({ seed }: LlmProfileManagerProps = {}) {
               <Form.Item name="targetRef" label="技能/插件/目标引用">
                 <Input placeholder="skill-name（精确绑定时必填）" />
               </Form.Item>
-              <Space>
-                <Button icon={<ApiOutlined />} disabled={profiles.length === 0} onClick={() => void addBinding()}>
-                  建立绑定
-                </Button>
-                <Button onClick={closeBinding}>稍后再说</Button>
+              <Space direction="vertical" style={{ width: "100%" }}>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  提示：若所选范围此前已有绑定，保存将自动更新切换至新模型，无需先手动删除旧绑定。
+                </Text>
+                <Space>
+                  <Button icon={<ApiOutlined />} type="primary" disabled={profiles.length === 0} onClick={() => void addBinding()}>
+                    保存绑定
+                  </Button>
+                  <Button onClick={closeBinding}>取消</Button>
+                </Space>
               </Space>
             </Form>
           </Card>

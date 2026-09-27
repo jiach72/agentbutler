@@ -10,3 +10,4 @@ export { handleLlm } from "./llm.js";
 export { handleGateway } from "./gateway.js";
 export { handleEvolution } from "./evolution.js";
 export { handleCredentials } from "./credentials.js";
+export { handlePrimaryModel } from "./primary-model.js";

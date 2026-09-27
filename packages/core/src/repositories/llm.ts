@@ -249,6 +249,29 @@ export class LlmRepository extends BaseRepository {
     return this.prepare("DELETE FROM llm_bindings WHERE binding_id = ?").run(bindingId).changes > 0;
   }
 
+  findExactBinding(
+    scope: string,
+    instanceId?: string | null,
+    frameworkId?: string | null,
+    targetRef?: string | null,
+  ): LlmBindingRow | undefined {
+    const row = this.prepare(
+      `SELECT * FROM llm_bindings 
+       WHERE scope = ? 
+         AND COALESCE(instance_id, '') = COALESCE(?, '') 
+         AND COALESCE(framework_id, '') = COALESCE(?, '') 
+         AND COALESCE(target_ref, '') = COALESCE(?, '')`,
+    ).get(scope, instanceId ?? "", frameworkId ?? "", targetRef ?? "") as
+      | Record<string, unknown>
+      | undefined;
+    return row === undefined ? undefined : this.mapLlmBinding(row);
+  }
+
+  updateLlmBindingProfile(bindingId: string, profileId: string): LlmBindingRow | undefined {
+    this.prepare("UPDATE llm_bindings SET profile_id = ? WHERE binding_id = ?").run(profileId, bindingId);
+    return this.getLlmBinding(bindingId);
+  }
+
   /** 删除模型配置的全部版本行。返回删除的行数。 */
   deleteLlmProfileVersions(profileId: string): number {
     return Number(this.prepare("DELETE FROM llm_profile_versions WHERE profile_id = ?").run(profileId).changes);

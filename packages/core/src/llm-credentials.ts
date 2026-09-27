@@ -305,6 +305,22 @@ export class LlmCredentialService {
     if ((input.scope === "skill" || input.scope === "plugin" || input.scope === "evolution") && !input.targetRef?.trim()) throw new Error("binding-target-required");
     if (input.scope === "instance" && !input.instanceId?.trim()) throw new Error("binding-instance-required");
     if (input.scope === "framework" && (!input.instanceId?.trim() || !input.frameworkId?.trim())) throw new Error("binding-framework-required");
+    
+    // 检查该范围是否已有绑定；若已有，则平滑更新该范围的绑定到新 profile，避免让用户反复手动删除重建
+    const existing = this.store.findExactBinding(input.scope, input.instanceId, input.frameworkId, input.targetRef);
+    if (existing) {
+      const updated = this.store.updateLlmBindingProfile(existing.bindingId, input.profileId);
+      this.audit("llm-binding-updated", existing.bindingId, {
+        scope: existing.scope,
+        instanceId: existing.instanceId,
+        frameworkId: existing.frameworkId,
+        targetRef: existing.targetRef,
+        previousProfileId: existing.profileId,
+        profileId: input.profileId,
+      });
+      return updated!;
+    }
+
     const binding = this.store.insertLlmBinding(input);
     this.audit("llm-binding-created", binding.bindingId, { scope: binding.scope, instanceId: binding.instanceId, frameworkId: binding.frameworkId, targetRef: binding.targetRef, profileId: binding.profileId });
     return binding;

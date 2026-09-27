@@ -916,6 +916,19 @@ export class SqliteStore {
     return this.llm.deleteLlmBinding(bindingId);
   }
 
+  findExactBinding(
+    scope: string,
+    instanceId?: string | null,
+    frameworkId?: string | null,
+    targetRef?: string | null,
+  ): LlmBindingRow | undefined {
+    return this.llm.findExactBinding(scope, instanceId, frameworkId, targetRef);
+  }
+
+  updateLlmBindingProfile(bindingId: string, profileId: string): LlmBindingRow | undefined {
+    return this.llm.updateLlmBindingProfile(bindingId, profileId);
+  }
+
   deleteLlmProfileVersions(profileId: string): number {
     return this.llm.deleteLlmProfileVersions(profileId);
   }

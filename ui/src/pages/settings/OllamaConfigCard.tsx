@@ -43,6 +43,7 @@ import {
   TableOutlined,
   ThunderboltOutlined,
 } from "@ant-design/icons";
+import type { PrimaryModelConfig } from "@butler/contract";
 import { deleteJson, loadJson, postJson } from "../../lib/api.js";
 import {
   ChartEmpty,
@@ -111,6 +112,13 @@ interface OllamaModelItem {
   sizeFormatted: string;
   modifiedAt: string;
   digest: string;
+  details?: {
+    format?: string;
+    family?: string;
+    families?: string[];
+    parameter_size?: string;
+    quantization_level?: string;
+  };
 }
 
 interface PullStatusPayload {
@@ -186,6 +194,8 @@ export function OllamaConfigCard() {
 
   const [existingProfiles, setExistingProfiles] = useState<Array<{ profileId: string; provider: string; model: string }>>([]);
   const [bindingModel, setBindingModel] = useState<string | null>(null);
+  const [primaryModel, setPrimaryModel] = useState<PrimaryModelConfig | null>(null);
+  const [settingPrimary, setSettingPrimary] = useState<string | null>(null);
 
   const { mode } = useTheme();
   const [usageViewMode, setUsageViewMode] = useState<"tokens" | "calls" | "table">("tokens");
@@ -347,6 +357,40 @@ export function OllamaConfigCard() {
     }
   }, []);
 
+  // 8. 加载当前系统主模型状态
+  const loadPrimaryModel = useCallback(async () => {
+    const res = await loadJson<{ ok: boolean; primary: PrimaryModelConfig }>("/api/models/primary", 5000);
+    if (res.ok && res.data.primary) {
+      setPrimaryModel(res.data.primary);
+    }
+  }, []);
+
+  // 一键将本地模型设为系统主模型（自动物理备份配置）
+  const handleSetPrimary = async (modelName: string) => {
+    setSettingPrimary(modelName);
+    try {
+      const endpoint = status?.endpoint ? `${status.endpoint}/v1` : "http://ollama:11434/v1";
+      const res = await postJson(
+        "/api/models/primary",
+        {
+          provider: "ollama",
+          model: modelName,
+          endpoint,
+          source: "ollama",
+        },
+        30_000,
+      );
+      if (res.ok) {
+        message.success(`已将 ${modelName} 设为系统主模型并备份重载！`);
+        await loadPrimaryModel();
+      } else {
+        message.error("设为主模型失败，请检查管家服务连接");
+      }
+    } finally {
+      setSettingPrimary(null);
+    }
+  };
+
   // 初始化加载
   useEffect(() => {
     void checkStatus();
@@ -354,7 +398,8 @@ export function OllamaConfigCard() {
     void loadModels();
     void loadUsageSummary();
     void loadExistingProfiles();
-  }, [checkStatus, loadHardwareProfile, loadModels, loadUsageSummary, loadExistingProfiles]);
+    void loadPrimaryModel();
+  }, [checkStatus, loadHardwareProfile, loadModels, loadUsageSummary, loadExistingProfiles, loadPrimaryModel]);
 
   // 发起下载模型
   const handleStartPull = async (modelToPull?: string) => {
@@ -496,7 +541,7 @@ export function OllamaConfigCard() {
           )}
         </div>
 
-        <div style={{ height: 1, backgroundColor: "#f0f0f0" }} />
+        <div style={{ height: 1, backgroundColor: "var(--ab-border)" }} />
 
         {/* 2. 服务地址区块 */}
         <div>
@@ -513,14 +558,15 @@ export function OllamaConfigCard() {
             value={status?.endpoint || "http://ollama:11434"}
             style={{
               maxWidth: 460,
-              backgroundColor: "#f5f5f5",
-              color: "#333",
+              backgroundColor: "var(--ab-surface-2)",
+              color: "var(--ab-text-1)",
+              borderColor: "var(--ab-border)",
               cursor: "default",
             }}
           />
         </div>
 
-        <div style={{ height: 1, backgroundColor: "#f0f0f0" }} />
+        <div style={{ height: 1, backgroundColor: "var(--ab-border)" }} />
 
         {/* 3. 动态硬件自适应推荐（核心动态引擎） */}
         {hwProfile && (
@@ -660,7 +706,7 @@ export function OllamaConfigCard() {
           )}
         </div>
 
-        <div style={{ height: 1, backgroundColor: "#f0f0f0" }} />
+        <div style={{ height: 1, backgroundColor: "var(--ab-border)" }} />
 
         {/* 5. 已下载的模型区块 */}
         <div>
@@ -689,81 +735,113 @@ export function OllamaConfigCard() {
             />
           ) : (
             <Flex wrap="wrap" gap={12}>
-              {models.map((item) => (
-                <div
-                  key={item.name}
-                  style={{
-                    minWidth: 260,
-                    maxWidth: 320,
-                    padding: "14px 16px",
-                    backgroundColor: "#f0f5ff",
-                    border: "1px solid #d6e4ff",
-                    borderRadius: 8,
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 8,
-                  }}
-                >
-                  <Flex justify="space-between" align="center">
-                    <Text strong style={{ fontSize: 14, wordBreak: "break-all" }}>
-                      {item.name}
-                    </Text>
-                    <Popconfirm
-                      title="确认从本地删除该模型？"
-                      description="删除后将释放磁盘空间，后续可重新下载。"
-                      onConfirm={() => handleDeleteModel(item.name)}
-                      okText="确认删除"
-                      cancelText="取消"
-                      okButtonProps={{ danger: true }}
-                    >
-                      <Button
-                        type="text"
-                        size="small"
-                        danger
-                        icon={<DeleteOutlined />}
-                        title="删除模型"
-                      />
-                    </Popconfirm>
-                  </Flex>
-                  <Flex justify="space-between" align="center">
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      {item.sizeFormatted}
-                    </Text>
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      {item.modifiedAt}
-                    </Text>
-                  </Flex>
-                    {existingProfiles.some(
-                      (p) =>
-                        p.model === item.name &&
-                        (p.provider === "Ollama (本地)" || (p.profileId && p.profileId.startsWith("ollama-"))),
-                    ) ? (
-                      <Button
-                        size="small"
+              {models.map((item) => {
+                const isEmbed =
+                  item.name.toLowerCase().includes("embed") ||
+                  item.details?.family?.toLowerCase().includes("bert") === true;
+                const isCurrentPrimary = primaryModel?.model === item.name;
+
+                return (
+                  <div
+                    key={item.name}
+                    style={{
+                      minWidth: 260,
+                      maxWidth: 320,
+                      padding: "14px 16px",
+                      backgroundColor: "var(--ab-surface-2)",
+                      border: isCurrentPrimary
+                        ? "1px solid var(--ab-ok)"
+                        : "1px solid var(--ab-border)",
+                      borderRadius: 8,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 10,
+                      boxShadow: isCurrentPrimary ? "0 0 0 1px var(--ab-ok)" : "none",
+                    }}
+                  >
+                    <Flex justify="space-between" align="flex-start" gap={8}>
+                      <Flex vertical gap={4} style={{ overflow: "hidden" }}>
+                        <Text
+                          strong
+                          style={{
+                            fontSize: 14,
+                            wordBreak: "break-all",
+                            color: "var(--ab-text-1)",
+                          }}
+                        >
+                          {item.name}
+                        </Text>
+                        {isEmbed && (
+                          <Tag color="purple" style={{ width: "fit-content", fontSize: 11 }}>
+                            向量嵌入模型 (记忆检索)
+                          </Tag>
+                        )}
+                      </Flex>
+                      <Popconfirm
+                        title="确认从本地删除该模型？"
+                        description="删除后将释放磁盘空间，后续可重新下载。"
+                        onConfirm={() => handleDeleteModel(item.name)}
+                        okText="确认删除"
+                        cancelText="取消"
+                        okButtonProps={{ danger: true }}
+                      >
+                        <Button
+                          type="text"
+                          size="small"
+                          danger
+                          icon={<DeleteOutlined />}
+                          title="删除模型"
+                        />
+                      </Popconfirm>
+                    </Flex>
+
+                    <Flex justify="space-between" align="center">
+                      <Text type="secondary" style={{ fontSize: 12, color: "var(--ab-text-3)" }}>
+                        {item.sizeFormatted}
+                      </Text>
+                      <Text type="secondary" style={{ fontSize: 12, color: "var(--ab-text-3)" }}>
+                        {item.modifiedAt}
+                      </Text>
+                    </Flex>
+
+                    {isEmbed ? (
+                      <div style={{ marginTop: 2 }}>
+                        <Text type="secondary" style={{ fontSize: 12, color: "var(--ab-text-3)" }}>
+                          专用向量模型（不可设为对话主模型）
+                        </Text>
+                      </div>
+                    ) : isCurrentPrimary ? (
+                      <Tag
+                        color="success"
+                        icon={<CheckCircleFilled style={{ color: "var(--ab-ok)" }} />}
                         style={{
                           marginTop: 2,
-                          borderColor: "var(--ab-ok)",
-                          color: "var(--ab-ok)",
-                          backgroundColor: "var(--ab-ok-soft)",
+                          padding: "4px 8px",
+                          fontSize: 12,
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 4,
+                          width: "fit-content",
                         }}
-                        icon={<CheckCircleFilled style={{ color: "var(--ab-ok)" }} />}
-                        disabled
                       >
-                        已设为 Butler 模型
-                      </Button>
+                        ★ 当前系统主模型
+                      </Tag>
                     ) : (
                       <Button
                         size="small"
-                        style={{ marginTop: 2 }}
-                        icon={<CloudDownloadOutlined />}
-                        loading={bindingModel === item.name}
-                        onClick={() => handleQuickBind(item.name)}
+                        type="primary"
+                        ghost
+                        style={{ marginTop: 2, width: "fit-content" }}
+                        icon={<ThunderboltOutlined />}
+                        loading={settingPrimary === item.name}
+                        onClick={() => handleSetPrimary(item.name)}
                       >
-                        设为 Butler 模型
+                        设为系统主模型
                       </Button>
                     )}
                   </div>
-                ))}
+                );
+              })}
               </Flex>
             )}
           </div>

@@ -67,6 +67,12 @@ describe("LlmCredentialService", () => {
     const rotated = await service.rotateProfile("p1", "sk-new");
     expect(rotated.maskedKey).toBe("****");
     expect(service.resolveBinding({ instanceId: "hermes-main", frameworkId: "hermes", scope: "skill", targetRef: "demo" })?.apiKey).toBe("sk-new");
+
+    // 验证相同范围重复添加绑定时自动平滑更新覆盖
+    await service.createProfile({ profileId: "p2", provider: "OpenAI", protocol: "openai-compatible", endpoint: "https://llm.test/v1", model: "m2", instanceId: "hermes-main", apiKey: "sk-p2" });
+    const updatedBinding = service.addBinding({ bindingId: "b-instance-new", scope: "instance", instanceId: "hermes-main", frameworkId: "hermes", profileId: "p2" });
+    expect(updatedBinding.profileId).toBe("p2");
+    expect(service.resolveBinding({ instanceId: "hermes-main", frameworkId: "hermes", scope: "instance" })?.apiKey).toBe("sk-p2");
   });
 
   it("发现配置只返回掩码视图，不泄露 apiKey", async () => {

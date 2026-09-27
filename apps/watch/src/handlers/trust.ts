@@ -87,7 +87,8 @@ export async function handleTrust(ctx: RequestContext): Promise<boolean> {
       return true;
     }
     if (method === "GET") {
-      sendJson(res, 200, { intervalMin: deps.probeConfig.get() });
+      const cfg = deps.probeConfig.get();
+      sendJson(res, 200, typeof cfg === "number" ? { intervalMin: cfg } : cfg);
       return true;
     }
     if (method === "POST") {
@@ -97,19 +98,31 @@ export async function handleTrust(ctx: RequestContext): Promise<boolean> {
       }
       const body = await readJsonBody(req, res);
       if (body === null) return true;
-      const intervalMin = Number(body["intervalMin"]);
-      if (!Number.isFinite(intervalMin) || intervalMin < 5 || intervalMin > 1440) {
+      const intervalMin = body["intervalMin"] !== undefined ? Number(body["intervalMin"]) : undefined;
+      if (intervalMin !== undefined && (!Number.isFinite(intervalMin) || intervalMin < 5 || intervalMin > 1440)) {
         sendJson(res, 400, { error: "invalid-interval", detail: "intervalMin 须在 5 ~ 1440 分钟之间" });
         return true;
       }
-      deps.probeConfig.set(Math.floor(intervalMin));
+      const modelId = typeof body["modelId"] === "string" ? body["modelId"] : undefined;
+      const modelName = typeof body["modelName"] === "string" ? body["modelName"] : undefined;
+      const endpoint = typeof body["endpoint"] === "string" ? body["endpoint"] : undefined;
+      const isLocal = typeof body["isLocal"] === "boolean" ? body["isLocal"] : undefined;
+
+      deps.probeConfig.set({
+        intervalMin: intervalMin !== undefined ? Math.floor(intervalMin) : undefined,
+        modelId,
+        modelName,
+        endpoint,
+        isLocal,
+      });
       deps.audit?.append({
         actor: "panel",
-        action: "probe-interval-set",
+        action: "probe-config-set",
         target: "memory",
-        detail: { intervalMin },
+        detail: { intervalMin, modelId, modelName, isLocal },
       });
-      sendJson(res, 200, { intervalMin: deps.probeConfig.get() });
+      const updated = deps.probeConfig.get();
+      sendJson(res, 200, typeof updated === "number" ? { intervalMin: updated } : updated);
       return true;
     }
     sendJson(res, 405, { error: "method-not-allowed" });

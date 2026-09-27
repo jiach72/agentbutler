@@ -12,6 +12,7 @@ export * from "./scheduled-tasks.js";
 export * from "./attention.js";
 export * from "./memory-systems.js";
 export * from "./typesafe.js";
+export * from "./models.js";
 
 import type { ControlAdapter } from "./control.js";
 import type { DiscoveryAdapter } from "./discovery.js";
