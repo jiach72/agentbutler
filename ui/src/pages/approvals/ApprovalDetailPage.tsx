@@ -11,8 +11,8 @@
  *
  * gate/audit 两类确认的文案分流见 ./helpers.ts。
  */
-import { Alert, Button, Card, Descriptions, Flex, Popconfirm, Result, Space, Statistic, Tag, Typography } from "antd";
-import { CheckOutlined, CloseOutlined, ReloadOutlined, SafetyCertificateOutlined, StopOutlined } from "@ant-design/icons";
+import { Alert, App, Button, Card, Descriptions, Flex, Popconfirm, Result, Space, Statistic, Tag, Typography } from "antd";
+import { CheckOutlined, ClockCircleOutlined, CloseOutlined, CopyOutlined, ReloadOutlined, SafetyCertificateOutlined, StopOutlined } from "@ant-design/icons";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ConclusionBar } from "../../components/ConclusionBar.js";
@@ -44,18 +44,21 @@ const DECIDE_FAILURE: Record<string, string> = {
 };
 
 export function ApprovalDetailPage() {
+  const { message } = App.useApp();
   const { id = "" } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [item, setItem] = useState<ApprovalItem | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [remainingMs, setRemainingMs] = useState<number>(0);
 
   const refresh = useCallback(() => {
     if (id === "") return;
     void loadJson<{ item: ApprovalItem }>(`/api/approvals/${encodeURIComponent(id)}`, 20_000).then((result) => {
       if (result.ok) {
         setItem(result.data.item);
+        setRemainingMs(result.data.item.remainingMs);
         setError(null);
       } else {
         setError(result.reason);
@@ -66,6 +69,21 @@ export function ApprovalDetailPage() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // 本地平滑每秒递减，当归零时主动触发刷新同步终态
+  useEffect(() => {
+    if (!item || item.status !== "pending") return;
+    const timer = setInterval(() => {
+      setRemainingMs((prev) => {
+        if (prev <= 1000) {
+          refresh();
+          return 0;
+        }
+        return prev - 1000;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [item, refresh]);
   // 仅待处理时需要轮询：一旦被通道侧抢先应答，本页应立刻反映终态。
   usePolling(() => {
     if (item === null || item.status === "pending") refresh();
@@ -247,35 +265,82 @@ export function ApprovalDetailPage() {
             </Typography.Title>
 
             {pending && (
-              <Statistic
-                title={audit ? "剩余处理时限（超时未处理将自动关闭）" : "剩余处理时限（超时按拒绝拦截）"}
-                value={Math.max(0, Math.round(item.remainingMs / 1000))}
-                suffix="秒"
-                valueStyle={item.remainingMs < 120_000 ? { color: "var(--ab-error)" } : undefined}
-              />
+              <Flex vertical gap={8}>
+                <Statistic
+                  title={audit ? "剩余处理时限（超时未处理将自动关闭）" : "剩余处理时限（超时按拒绝拦截）"}
+                  value={Math.max(0, Math.round(remainingMs / 1000))}
+                  suffix="秒"
+                  prefix={<ClockCircleOutlined />}
+                  valueStyle={
+                    remainingMs <= 0
+                      ? { color: "var(--ab-text-secondary)" }
+                      : remainingMs < 60_000
+                        ? { color: "var(--ab-error)", fontWeight: 700 }
+                        : remainingMs < 180_000
+                          ? { color: "var(--ab-warning)", fontWeight: 600 }
+                          : undefined
+                  }
+                />
+                {remainingMs > 0 && remainingMs < 60_000 && (
+                  <Alert
+                    type="error"
+                    showIcon
+                    title={`即将超时（剩余约 ${Math.max(1, Math.round(remainingMs / 1000))} 秒）`}
+                    description={`请尽快确认：超时后管家将自动${audit ? "关闭核验归档" : "默认拒绝拦截此动作"}。`}
+                  />
+                )}
+                {remainingMs <= 0 && (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    title="时限已届满"
+                    description="该单正在等待系统后台结案或已终结，请刷新页面查看最新状态。"
+                  />
+                )}
+              </Flex>
             )}
 
             <Descriptions column={{ xs: 1, sm: 2 }} size="small" bordered>
               <Descriptions.Item label="动作类型">{KIND_LABEL[item.kind] ?? item.kind}</Descriptions.Item>
               <Descriptions.Item label="目标">
-                <Typography.Text code>
+                <Typography.Text code copyable={{ tooltips: ["复制目标", "已复制"] }}>
                   {String(detail["target"] ?? item.fingerprint.split("|")[1] ?? "-")}
+                </Typography.Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="动作指纹">
+                <Typography.Text code copyable={{ tooltips: ["复制指纹", "已复制"] }}>
+                  {item.fingerprint}
+                </Typography.Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="关联动作">
+                <Typography.Text copyable={{ tooltips: ["复制动作 ID", "已复制"] }}>
+                  {item.actionId}
                 </Typography.Text>
               </Descriptions.Item>
               <Descriptions.Item label="请求时间">{new Date(item.createdAt).toLocaleString()}</Descriptions.Item>
               <Descriptions.Item label="超时时刻">{new Date(item.expiresAt).toLocaleString()}</Descriptions.Item>
               <Descriptions.Item label="今日请求次数">{item.windowCount}</Descriptions.Item>
               <Descriptions.Item label="应答者">{item.actor ?? "-"}</Descriptions.Item>
-              <Descriptions.Item label="关联动作">{item.actionId}</Descriptions.Item>
               <Descriptions.Item label="会话">{item.sessionId ?? "-"}</Descriptions.Item>
             </Descriptions>
 
             {Object.keys(detail).length > 1 && (
-              <details>
-                <summary style={{ cursor: "pointer" }}>
+              <details style={{ background: "var(--ab-bg-subtle, rgba(0,0,0,0.02))", padding: "10px 14px", borderRadius: 8, border: "1px solid var(--ab-border-subtle, #f0f0f0)" }}>
+                <summary style={{ cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <Typography.Text type="secondary">查看结构化摘要（已脱敏，不含对话正文）</Typography.Text>
+                  <Button
+                    size="small"
+                    icon={<CopyOutlined />}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void navigator.clipboard.writeText(JSON.stringify(detail, null, 2));
+                      message.success("已复制结构化参数 JSON");
+                    }}
+                  >
+                    复制 JSON
+                  </Button>
                 </summary>
-                <pre style={{ marginTop: 8, maxHeight: 240, overflow: "auto", fontSize: "var(--ab-text-size-xs)" }}>
+                <pre style={{ marginTop: 8, maxHeight: 240, overflow: "auto", fontSize: "var(--ab-text-size-xs, 12px)", background: "var(--ab-bg-card, #fff)", padding: 8, borderRadius: 4 }}>
                   {JSON.stringify(detail, null, 2)}
                 </pre>
               </details>

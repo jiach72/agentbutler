@@ -108,15 +108,6 @@ const KIND_LABEL: Record<string, string> = {
   raw: "未归类动作",
 };
 
-/** 剩余时限：仅对 pending 有意义（服务端已按状态归零）。 */
-const remainingText = (item: ApprovalItem): string => {
-  if (item.status !== "pending") return "-";
-  if (item.remainingMs <= 0) return isAuditApproval(item) ? "已过窗口" : "即将拦截";
-  const totalSec = Math.round(item.remainingMs / 1000);
-  const min = Math.floor(totalSec / 60);
-  const sec = totalSec % 60;
-  return min > 0 ? `${min} 分 ${String(sec).padStart(2, "0")} 秒` : `${sec} 秒`;
-};
 
 const detailTarget = (item: ApprovalItem): string => {
   const detail = item.detail;
@@ -313,7 +304,16 @@ export function ApprovalsPage() {
       key: "target",
       ellipsis: true,
       width: 250,
-      render: (_: unknown, row) => <Typography.Text code>{detailTarget(row)}</Typography.Text>,
+      render: (_: unknown, row) => {
+        const target = detailTarget(row);
+        return (
+          <Tooltip title={target}>
+            <Typography.Text code copyable={{ text: target, tooltips: ["复制目标", "已复制"] }}>
+              {target}
+            </Typography.Text>
+          </Tooltip>
+        );
+      },
     },
     {
       title: "状态",
@@ -337,7 +337,32 @@ export function ApprovalsPage() {
         );
       },
     },
-    { title: "剩余时限", key: "remaining", width: 120, render: (_: unknown, row) => remainingText(row) },
+    {
+      title: "剩余时限",
+      key: "remaining",
+      width: 140,
+      render: (_: unknown, row) => {
+        if (row.status !== "pending") return <Typography.Text type="secondary">-</Typography.Text>;
+        if (row.remainingMs <= 0) {
+          return <Tag color="error">{isAuditApproval(row) ? "已过窗口" : "即将拦截"}</Tag>;
+        }
+        const totalSec = Math.round(row.remainingMs / 1000);
+        const min = Math.floor(totalSec / 60);
+        const sec = totalSec % 60;
+        const text = min > 0 ? `${min} 分 ${String(sec).padStart(2, "0")} 秒` : `${sec} 秒`;
+        if (row.remainingMs < 60_000) {
+          return (
+            <Tooltip title="时限不足 1 分钟，请尽快确认">
+              <Tag color="red" icon={<ClockCircleOutlined />}>{text}</Tag>
+            </Tooltip>
+          );
+        }
+        if (row.remainingMs < 180_000) {
+          return <Tag color="orange" icon={<ClockCircleOutlined />}>{text}</Tag>;
+        }
+        return <Tag icon={<ClockCircleOutlined />}>{text}</Tag>;
+      },
+    },
     {
       title: "请求时间",
       dataIndex: "createdAt",
@@ -668,10 +693,16 @@ export function ApprovalsPage() {
             <Empty
               title={
                 filter === "pending"
-                  ? "当前筛选下没有待处理项"
+                  ? summary?.pending === 0
+                    ? "当前没有待处理的高危动作或异动"
+                    : "当前筛选下没有待处理项"
                   : "当前窗口内没有匹配的记录"
               }
-              hint="可尝试切换类别、状态或时间窗口查看更多。"
+              hint={
+                filter === "pending" && summary?.pending === 0
+                  ? "管家安全护盾持续守护中。当智能体尝试执行高危动作时，将在此处等待您的批准或核验。"
+                  : "可尝试切换类别、状态或时间窗口查看更多。"
+              }
               mascotWidth={72}
             />
           ) : (
