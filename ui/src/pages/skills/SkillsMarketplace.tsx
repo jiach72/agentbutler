@@ -26,6 +26,7 @@ import {
 import {
   CheckOutlined,
   CloudDownloadOutlined,
+  CopyOutlined,
   MoreOutlined,
   PlusOutlined,
   ReloadOutlined,
@@ -1450,6 +1451,50 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
                 })()}
               </Descriptions.Item>
             </Descriptions>
+            {/* 贴心指令触发建议与示例 */}
+            <div
+              style={{
+                padding: "12px 14px",
+                borderRadius: 10,
+                background: "var(--ab-surface-container, rgba(0, 0, 0, 0.03))",
+                border: "1px solid var(--ab-outline-variant, rgba(0, 0, 0, 0.08))",
+              }}
+            >
+              <Flex vertical gap={6}>
+                <Text strong style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
+                  <span>💡 如何对智能体使用此技能</span>
+                </Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  Hermes 会在对话时根据您的意图自动判断并调用已安装的技能。您可以尝试复制下方提示词发给智能体：
+                </Text>
+                <Flex
+                  align="center"
+                  justify="space-between"
+                  gap={8}
+                  style={{
+                    padding: "8px 12px",
+                    borderRadius: 8,
+                    background: "var(--ab-surface, #fff)",
+                    border: "1px dashed var(--ab-primary, #0071e3)",
+                  }}
+                >
+                  <Text code style={{ fontSize: 12.5, wordBreak: "break-all" }}>
+                    {`请使用技能 ${detailItem.displayName}，帮我处理...`}
+                  </Text>
+                  <Button
+                    size="small"
+                    type="link"
+                    icon={<CopyOutlined />}
+                    onClick={() => {
+                      void navigator.clipboard.writeText(`请使用技能 ${detailItem.displayName}，帮我处理...`);
+                      message.success("示例指令已复制到剪贴板！");
+                    }}
+                  >
+                    复制
+                  </Button>
+                </Flex>
+              </Flex>
+            </div>
             {(detailItem.slug !== null || detailItem.gitUrl !== null) && (
               <Button
                 style={{ alignSelf: "flex-start" }}

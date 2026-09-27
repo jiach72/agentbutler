@@ -43,6 +43,7 @@ import { OllamaConfigCard } from "./OllamaConfigCard.js";
 import { KnowledgeConfigCard } from "./KnowledgeConfigCard.js";
 import { TaskDefaultsPanel } from "./TaskDefaultsPanel.js";
 import { VersionsPanel } from "../versions/VersionsPage.js";
+import { WalletSafetyCard } from "../dashboard/WalletSafetyCard.js";
 import "./settings.css";
 
 export function SettingsPage() {
@@ -270,6 +271,7 @@ export function SettingsPage() {
       case "llm":
         return (
           <Flex vertical gap={16}>
+            <WalletSafetyCard />
             <PrimaryModelCard />
             <Tabs
               key="preferences"
