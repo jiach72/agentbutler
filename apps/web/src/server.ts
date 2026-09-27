@@ -128,6 +128,7 @@ const SECURITY_HEADERS: Readonly<Record<string, string>> = {
   "content-security-policy":
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
     "img-src 'self' data: https: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; " +
+    "frame-src 'self' http://127.0.0.1:* http://localhost:*; " +
     "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
   "x-frame-options": "DENY",
   "x-content-type-options": "nosniff",

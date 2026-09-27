@@ -990,15 +990,35 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
         }
         open={hindsightDrawerOpen}
         onClose={() => setHindsightDrawerOpen(false)}
-        styles={{ wrapper: { width: "88%", maxWidth: "100%" }, body: { padding: 0 } }}
+        destroyOnClose
+        styles={{ wrapper: { width: "88%", maxWidth: "100%" }, body: { padding: 0, display: "flex", flexDirection: "column" } }}
       >
-        <div style={{ position: "relative", width: "100%", height: "100%", background: "var(--ant-color-bg-container)" }}>
-          <iframe
-            src="http://127.0.0.1:9999"
-            title="Hindsight Control Plane"
-            style={{ width: "100%", height: "100%", border: "none" }}
-          />
-        </div>
+        {hindsightDrawerOpen && (
+          <div style={{ position: "relative", width: "100%", height: "100%", background: "var(--ant-color-bg-container)", display: "flex", flexDirection: "column" }}>
+            <div
+              style={{
+                padding: "6px 16px",
+                background: "var(--ant-color-fill-quaternary)",
+                borderBottom: "1px solid var(--ant-color-border-secondary)",
+                fontSize: 12,
+                color: "var(--ant-color-text-secondary)",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <span>直连本地端口 <code>http://127.0.0.1:9999</code>。若显示空白，请确保 Hindsight 官方 Docker 容器已在本地启动。</span>
+              <a href="http://127.0.0.1:9999" target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>
+                外部无法访问时点此在新标签打开
+              </a>
+            </div>
+            <iframe
+              src="http://127.0.0.1:9999"
+              title="Hindsight Control Plane"
+              style={{ width: "100%", flex: 1, border: "none" }}
+            />
+          </div>
+        )}
       </Drawer>
 
       {/* 节点点击详情抽屉 */}

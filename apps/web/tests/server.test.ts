@@ -378,7 +378,7 @@ describe("butler-web 服务（fastify inject）", () => {
     ws.close();
   });
 
-  it("响应包含安全响应头，CSP 允许 https/blob 图片和 data 字体以适配 SkillHub 图标", async () => {
+  it("响应包含安全响应头，CSP 允许 https/blob 图片和 data 字体以适配 SkillHub 图标，且允许 frame-src 内嵌本地服务", async () => {
     const app = build(tmp);
     const res = await app.inject({ method: "GET", url: "/api/health" });
     expect(res.statusCode).toBe(200);
@@ -386,6 +386,7 @@ describe("butler-web 服务（fastify inject）", () => {
     expect(csp).toBeDefined();
     expect(csp).toContain("img-src 'self' data: https: blob:;");
     expect(csp).toContain("font-src 'self' data:;");
+    expect(csp).toContain("frame-src 'self' http://127.0.0.1:* http://localhost:*;");
     expect(res.headers["x-frame-options"]).toBe("DENY");
     expect(res.headers["x-content-type-options"]).toBe("nosniff");
   });

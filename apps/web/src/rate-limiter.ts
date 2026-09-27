@@ -12,15 +12,17 @@ export interface RateLimitRule {
 /**
  * 精准速率限制规则（ENG-04）：
  * - 静态资源、WebSocket、/api/health：完全豁免；
- * - 轮询聚合端点（/api/dashboard, /api/messages/status, /api/alerts）：宽容限流 600/min；
+ * - 轮询聚合端点（/api/dashboard, /api/messages/status, /api/alerts, /api/killswitch）：宽容限流 600/min；
  * - 高危与破坏性端点：
- *   - /api/killswitch：严格限制 10/min；
+ *   - /api/killswitch/engage, /api/killswitch/release：严格限制 10/min；
  *   - /api/upgrade/run：限制 5/min；
  *   - /api/inspect/run：限制 10/min。
  */
 export const TIERED_RATE_LIMIT_RULES: readonly RateLimitRule[] = [
   { prefix: "/api/upgrade/run", max: 5, windowMs: 60_000 },
-  { prefix: "/api/killswitch", max: 10, windowMs: 60_000 },
+  { prefix: "/api/killswitch/engage", max: 10, windowMs: 60_000 },
+  { prefix: "/api/killswitch/release", max: 10, windowMs: 60_000 },
+  { prefix: "/api/killswitch", max: 600, windowMs: 60_000 },
   { prefix: "/api/inspect/run", max: 10, windowMs: 60_000 },
   { prefix: "/api/dashboard", max: 600, windowMs: 60_000 },
   { prefix: "/api/messages/status", max: 600, windowMs: 60_000 },

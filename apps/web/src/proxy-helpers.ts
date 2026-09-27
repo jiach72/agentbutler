@@ -86,7 +86,16 @@ export function createProxyHelpers(
         signal: AbortSignal.timeout(timeoutMs),
       });
     } catch {
-      return reply.status(502).send({ error: "watch-unreachable" });
+      // 容错与启动瞬态补偿：短促等待 200ms 重试一次（针对连接拒绝或抖动），避免瞬态 502
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        res = await doFetch(`${watchUrl}${watchPath}`, {
+          headers: watchAuthHeaders(),
+          signal: AbortSignal.timeout(Math.min(timeoutMs, 3_000)),
+        });
+      } catch {
+        return reply.status(502).send({ error: "watch-unreachable" });
+      }
     }
     const raw = await res.text();
     let parsed: unknown = {};
