@@ -5,10 +5,10 @@
  * 关键呈现：「统一急停覆盖 x / y」——覆盖不全时用户必须看得见，而不是默认没事。
  */
 import { money } from "../../lib/format.js";
-import { Alert, Button, Card, Flex, Select, Table, Typography } from "antd";
+import { Alert, App, Button, Card, Flex, Input, Select, Table, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { ReloadOutlined } from "@ant-design/icons";
-import { useCallback, useEffect, useState } from "react";
+import { ReloadOutlined, SearchOutlined } from "@ant-design/icons";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ConclusionBar } from "../../components/ConclusionBar.js";
 import type { PageConclusionView } from "../../components/ConclusionBar.js";
 import { Empty } from "../../components/Empty.js";
@@ -50,9 +50,12 @@ interface FederationPayload {
 }
 
 export function FederationPage() {
+  const { message } = App.useApp();
   const [data, setData] = useState<FederationPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [searchText, setSearchText] = useState("");
+  const [groupFilter, setGroupFilter] = useState<string>("all");
 
   const refresh = useCallback(() => {
     void loadJson<FederationPayload>("/api/federation?windowDays=7", 20_000).then((result) => {
@@ -73,12 +76,34 @@ export function FederationPage() {
   const setGroup = useCallback(
     async (instanceId: string, group: Group) => {
       setBusyId(instanceId);
-      await postJson("/api/federation/group", { instanceId, group }, 30_000);
+      const res = await postJson("/api/federation/group", { instanceId, group }, 30_000);
       setBusyId(null);
-      refresh();
+      if (res.ok) {
+        message.success("实例分组已更新");
+        refresh();
+      } else {
+        message.error("分组更新失败，请稍后重试");
+      }
     },
-    [refresh],
+    [refresh, message],
   );
+
+  const filteredInstances = useMemo(() => {
+    if (!data?.instances) return [];
+    return data.instances.filter((inst) => {
+      const matchGroup = groupFilter === "all" || inst.group === groupFilter;
+      if (!matchGroup) return false;
+      if (!searchText.trim()) return true;
+      const q = searchText.trim().toLowerCase();
+      const groupLabel = data.groupLabels[inst.group] ?? inst.group;
+      return (
+        inst.instanceId.toLowerCase().includes(q) ||
+        inst.frameworkId.toLowerCase().includes(q) ||
+        groupLabel.toLowerCase().includes(q) ||
+        inst.state.toLowerCase().includes(q)
+      );
+    });
+  }, [data?.instances, data?.groupLabels, searchText, groupFilter]);
 
   const columns: ColumnsType<InstanceView> = [
     {
@@ -86,8 +111,14 @@ export function FederationPage() {
       dataIndex: "instanceId",
       key: "instanceId",
       render: (id: string, row) => (
-        <Flex vertical gap={0}>
-          <Typography.Text strong className="font-mono">{id}</Typography.Text>
+        <Flex vertical gap={2}>
+          <Typography.Text
+            strong
+            className="font-mono"
+            copyable={{ text: id, tooltips: ["复制实例 ID", "已复制"] }}
+          >
+            {id}
+          </Typography.Text>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             {row.frameworkId} · {row.state}
           </Typography.Text>
@@ -244,20 +275,78 @@ export function FederationPage() {
           />
         )}
 
-        <Card title="实例明细">
+        <Card
+          title={
+            <Flex align="center" gap={8}>
+              <span>实例明细</span>
+              {data !== null && data.instances.length > 0 && (
+                <Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: "normal" }}>
+                  （共 {data.instances.length} 个实例{filteredInstances.length !== data.instances.length ? `，匹配 ${filteredInstances.length} 个` : ""}）
+                </Typography.Text>
+              )}
+            </Flex>
+          }
+          extra={
+            data !== null && data.instances.length > 0 ? (
+              <Flex align="center" gap={8} wrap="wrap">
+                <Select
+                  size="small"
+                  value={groupFilter}
+                  onChange={setGroupFilter}
+                  style={{ width: 100 }}
+                  options={[
+                    { value: "all", label: "全部分组" },
+                    { value: "work", label: "工作" },
+                    { value: "lab", label: "实验" },
+                    { value: "sandbox", label: "沙箱" },
+                    { value: "unassigned", label: "未分组" },
+                  ]}
+                  aria-label="按分组筛选实例"
+                />
+                <Input
+                  size="small"
+                  placeholder="搜索实例 ID / 框架..."
+                  prefix={<SearchOutlined style={{ color: "var(--ab-text-3)" }} />}
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                  allowClear
+                  style={{ width: 190 }}
+                  aria-label="搜索实例"
+                />
+              </Flex>
+            ) : undefined
+          }
+        >
           {data !== null && data.instances.length === 0 ? (
             <Empty
               title="还没有观测到任何实例"
               hint="管家会按实例聚合会话与成本；有实例接入后这里会列出明细。"
               mascot={false}
             />
+          ) : data !== null && filteredInstances.length === 0 ? (
+            <Empty
+              title="未找到匹配的实例"
+              hint="没有与当前筛选条件匹配的实例，请尝试调整关键词或分组过滤。"
+              mascot={false}
+              action={
+                <Button
+                  size="small"
+                  onClick={() => {
+                    setSearchText("");
+                    setGroupFilter("all");
+                  }}
+                >
+                  清空筛选条件
+                </Button>
+              }
+            />
           ) : (
             <Table<InstanceView>
               rowKey="instanceId"
               columns={columns}
-              dataSource={data?.instances ?? []}
+              dataSource={filteredInstances}
               loading={data === null}
-              pagination={false}
+              pagination={filteredInstances.length > 10 ? { pageSize: 10, showSizeChanger: false } : false}
               scroll={{ x: 900 }}
             />
           )}
