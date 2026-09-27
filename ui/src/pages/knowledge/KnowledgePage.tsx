@@ -9,7 +9,7 @@
  * 7. 全功能内嵌视图 (AnythingLLM Iframe 混合模式)；
  * 8. 启动中真实步骤条、动态百分比与终端日志流。
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Alert,
@@ -57,6 +57,7 @@ import {
   MessageOutlined,
   PlayCircleOutlined,
   ReloadOutlined,
+  SearchOutlined,
   SyncOutlined,
   WarningFilled,
 } from "@ant-design/icons";
@@ -197,6 +198,12 @@ export function KnowledgePage() {
   // 2. 原生资料收集箱状态
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
   const [docsLoading, setDocsLoading] = useState(false);
+  const [docFilter, setDocFilter] = useState("");
+  const filteredDocuments = useMemo(() => {
+    const kw = docFilter.trim().toLowerCase();
+    if (!kw) return documents;
+    return documents.filter((doc) => doc.name.toLowerCase().includes(kw));
+  }, [docFilter, documents]);
 
   // 3. Obsidian 笔记库状态
   const [obsidianConfig, setObsidianConfig] = useState<ObsidianConfig | null>(null);
@@ -1388,12 +1395,21 @@ export function KnowledgePage() {
                     {/* C. 已入库文档管理表格 */}
                     <Card
                       title={
-                        <Flex justify="space-between" align="center">
+                        <Flex justify="space-between" align="center" wrap="wrap" gap={8}>
                           <Flex align="center" gap={8}>
                             <FileDoneOutlined style={{ color: "var(--ant-color-primary)" }} />
                             <span>已收集资料清单与索引状态</span>
                           </Flex>
-                          <Space>
+                          <Space wrap>
+                            <Input
+                              placeholder="搜索资料名称..."
+                              prefix={<SearchOutlined style={{ color: "var(--ab-text-3)" }} />}
+                              allowClear
+                              value={docFilter}
+                              onChange={(e) => setDocFilter(e.target.value)}
+                              style={{ width: 180 }}
+                              size="small"
+                            />
                             <Button
                               size="small"
                               icon={<ClearOutlined />}
@@ -1416,10 +1432,34 @@ export function KnowledgePage() {
                       <Table<KnowledgeDocument>
                         rowKey="id"
                         columns={documentColumns}
-                        dataSource={documents}
+                        dataSource={filteredDocuments}
                         loading={docsLoading}
                         pagination={{ pageSize: 8, showSizeChanger: false }}
                         size="small"
+                        locale={{
+                          emptyText: (
+                            <Empty
+                              mascot={false}
+                              title={
+                                docFilter.trim()
+                                  ? `未找到包含 “${docFilter.trim()}” 的资料文档`
+                                  : "尚未收集任何资料文档"
+                              }
+                              hint={
+                                docFilter.trim()
+                                  ? "可以尝试更换检索关键词，或清空筛选条件查看完整清单。"
+                                  : "可直接将 Markdown、PDF、Word 或 TXT 文件拖拽至上方投递框，即可完成入库切片与私有问答。"
+                              }
+                              action={
+                                docFilter.trim() ? (
+                                  <Button size="small" onClick={() => setDocFilter("")}>
+                                    清空筛选
+                                  </Button>
+                                ) : undefined
+                              }
+                            />
+                          ),
+                        }}
                       />
                     </Card>
                   </Flex>
