@@ -2,7 +2,7 @@
  * 诊断与维护中心：脱敏诊断报告生成与打包导出面板。
  * 响应式仪表盘布局：左栏脱敏矩阵与一键报告工作区，右栏实时指标透视与本机自愈审计。
  */
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import {
   App,
   Button,
@@ -27,6 +27,7 @@ import {
   DownloadOutlined,
   FileTextOutlined,
   LockOutlined,
+  ReloadOutlined,
   SafetyCertificateOutlined,
   ThunderboltOutlined,
 } from "@ant-design/icons";
@@ -132,16 +133,16 @@ export function DiagnosticsCenter({ actionBusy }: DiagnosticsCenterProps) {
   const [copied, setCopied] = useState(false);
   const [summaryState, setSummaryState] = useState<FetchState<DiagnosticSummaryResponse>>({ status: "loading" });
 
-  useEffect(() => {
-    let active = true;
+  const reloadSummary = useCallback(() => {
+    setSummaryState({ status: "loading" });
     void loadJson<DiagnosticSummaryResponse>("/api/diagnostics/summary", 8_000).then((result) => {
-      if (!active) return;
       setSummaryState(result.ok ? { status: "ready", data: result.data } : { status: "failed", reason: result.reason });
     });
-    return () => {
-      active = false;
-    };
   }, []);
+
+  useEffect(() => {
+    reloadSummary();
+  }, [reloadSummary]);
 
   const summaryData = summaryState.status === "ready" ? summaryState.data : null;
 
@@ -344,9 +345,19 @@ export function DiagnosticsCenter({ actionBusy }: DiagnosticsCenterProps) {
               <div style={{ marginTop: 4 }}>
                 <Flex align="center" justify="space-between" style={{ marginBottom: 6 }}>
                   <Text type="secondary" style={{ fontSize: 12 }}>报告预览（可直接选中文本或下载）：</Text>
-                  <Text type="secondary" style={{ fontSize: 11 }}>
-                    {diagnostic.text.length} 字符
-                  </Text>
+                  <Space size={8}>
+                    <Text type="secondary" style={{ fontSize: 11 }}>
+                      {diagnostic.text.length} 字符
+                    </Text>
+                    <Button
+                      type="link"
+                      size="small"
+                      style={{ padding: 0, fontSize: 12 }}
+                      onClick={() => setDiagnostic({ busy: false, text: null, error: null })}
+                    >
+                      清空预览
+                    </Button>
+                  </Space>
                 </Flex>
                 <pre style={REPORT_PREVIEW_STYLE}>{diagnostic.text}</pre>
               </div>
@@ -505,9 +516,14 @@ export function DiagnosticsCenter({ actionBusy }: DiagnosticsCenterProps) {
               )}
 
               {summaryState.status === "failed" && (
-                <Text type="secondary" role="status" style={{ display: "block", padding: "8px 0", fontSize: 12 }}>
-                  结果摘要暂时读不到：{summaryState.reason}
-                </Text>
+                <Flex align="center" justify="space-between" gap={8} style={{ padding: "8px 0" }}>
+                  <Text type="secondary" role="status" style={{ fontSize: 12 }}>
+                    结果摘要暂时读不到：{summaryState.reason}
+                  </Text>
+                  <Button size="small" icon={<ReloadOutlined />} onClick={reloadSummary}>
+                    重试读取
+                  </Button>
+                </Flex>
               )}
 
               {summaryState.status === "ready" && (
@@ -559,17 +575,22 @@ export function DiagnosticsCenter({ actionBusy }: DiagnosticsCenterProps) {
               >
                 <Flex align="center" justify="space-between" style={{ marginBottom: 6 }}>
                   <Text type="secondary" style={{ fontSize: 12 }}>主要异常特征指纹（前 3 项）：</Text>
-                  <Text type="secondary" style={{ fontSize: 11 }}>已去重聚合</Text>
+                  <Text type="secondary" style={{ fontSize: 11 }}>已去重聚合 · 点击复制</Text>
                 </Flex>
                 <Flex wrap="wrap" gap={6}>
                   {summaryData.logIssues.slice(0, 3).map((issue) => (
-                    <Tag
-                      key={issue.id}
-                      color={issue.severity === "error" ? "error" : "warning"}
-                      style={{ margin: 0, fontSize: 11, borderRadius: 4 }}
-                    >
-                      {issue.title} ({issue.count}次)
-                    </Tag>
+                    <Tooltip key={issue.id} title="点击复制异常指纹，方便粘贴排查">
+                      <Tag
+                        color={issue.severity === "error" ? "error" : "warning"}
+                        style={{ margin: 0, fontSize: 11, borderRadius: 4, cursor: "pointer" }}
+                        onClick={() => {
+                          void navigator.clipboard.writeText(issue.title);
+                          message.success(`已复制异常指纹：「${issue.title}」`);
+                        }}
+                      >
+                        {issue.title} ({issue.count}次)
+                      </Tag>
+                    </Tooltip>
                   ))}
                 </Flex>
               </div>
