@@ -619,3 +619,77 @@
   .tasks-toolbar-v2 .ant-input-search { width: 100%; max-width: 100% !important; }
 }
 
+/* 4. 空状态下的自动化任务引导卡片 */
+.task-empty-guide-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 36px 24px;
+  background: var(--ab-surface, #ffffff);
+  border: 1px dashed var(--ab-border, rgba(193, 198, 214, 0.4));
+  border-radius: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+}
+.task-empty-icon-wrapper {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: var(--ab-primary-soft, rgba(0, 113, 227, 0.1));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+.task-empty-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ab-text, #1a1b1f);
+  margin-bottom: 8px;
+}
+.task-empty-desc {
+  font-size: 13px;
+  color: var(--ab-text-2, #6e6e73);
+  max-width: 480px;
+  line-height: 1.5;
+  margin-bottom: 20px;
+}
+.task-empty-template-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  max-width: 600px;
+}
+.task-empty-template-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  gap: 3px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--ab-surface-container, rgba(0, 0, 0, 0.03));
+  border: 1px solid var(--ab-outline-variant, rgba(0, 0, 0, 0.08));
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.task-empty-template-btn:hover:not(:disabled) {
+  background: var(--ab-primary-soft, rgba(0, 113, 227, 0.08));
+  border-color: var(--ab-primary, #0071e3);
+  transform: translateY(-1px);
+}
+.task-empty-template-btn .template-btn-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ab-text, #1a1b1f);
+}
+.task-empty-template-btn .template-btn-sub {
+  font-size: 11.5px;
+  color: var(--ab-text-2, #6e6e73);
+  max-width: 200px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+

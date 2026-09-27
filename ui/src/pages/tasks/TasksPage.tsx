@@ -268,9 +268,56 @@ export function TasksPage() {
             />
           </div>
 
-          {!data && !failed ? <Skeleton active paragraph={{ rows: 6 }} />
-            : reachable && visible.length === 0 ? <Empty description={filter || statusTab !== "all" ? "没有匹配的任务" : "尚无定时任务"} />
-            : reachable && <div className="tasks-grid-list">
+          {!data && !failed ? (
+            <Skeleton active paragraph={{ rows: 6 }} />
+          ) : reachable && items.length === 0 ? (
+            <div className="task-empty-guide-card">
+              <div className="task-empty-icon-wrapper">
+                <ThunderboltOutlined style={{ fontSize: 26, color: "var(--ab-primary)" }} />
+              </div>
+              <h3 className="task-empty-title">开启您的首个自动化定时任务</h3>
+              <p className="task-empty-desc">
+                定时任务能让管家在每天固定时间主动为您收集资讯、检查系统健康、汇总未决消息并推送至手机。从以下精选场景一键开启：
+              </p>
+              <div className="task-empty-template-chips">
+                {TASK_TEMPLATES.slice(0, 3).map((tpl) => (
+                  <button
+                    key={tpl.key}
+                    type="button"
+                    disabled={!writable}
+                    onClick={() => {
+                      setEditor({
+                        key: crypto.randomUUID(),
+                        initialDraft: {
+                          name: tpl.name,
+                          prompt: tpl.prompt,
+                          schedule: tpl.schedule(timezone || "Asia/Shanghai"),
+                          delivery: { enabled: true },
+                        },
+                      });
+                    }}
+                    className="task-empty-template-btn"
+                  >
+                    <span className="template-btn-title">{tpl.title}</span>
+                    <span className="template-btn-sub">{tpl.name}</span>
+                  </button>
+                ))}
+              </div>
+              <div style={{ marginTop: 18 }}>
+                <Button
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  disabled={!writable}
+                  onClick={() => setEditor({ key: crypto.randomUUID() })}
+                >
+                  自定义新建任务
+                </Button>
+              </div>
+            </div>
+          ) : reachable && visible.length === 0 ? (
+            <Empty description="没有匹配当前筛选条件的任务" />
+          ) : reachable && (
+            <div className="tasks-grid-list">
               {visible.map((task, idx) => {
                 const cardStatus = !task.enabled
                   ? "paused"
@@ -402,7 +449,8 @@ export function TasksPage() {
                   </article>
                 );
               })}
-            </div>}
+            </div>
+          )}
         </div>
 
         {/* 右栏：未来24小时排程 + 快捷模版 + 运行基线 */}
