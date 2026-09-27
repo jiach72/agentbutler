@@ -306,13 +306,43 @@ export function MemoryPanel({
         <Input.Search
           allowClear
           enterButton="浏览"
-          placeholder="输入至少 3 个字"
+          placeholder="搜索记忆关键词 (如: 偏好, 城市, 项目, 规则...)"
           value={memoryInput}
           onChange={(event) => setMemoryInput(event.target.value)}
           onSearch={(keyword) => onSearch(keyword)}
           disabled={refreshing || data?.memory.mode !== "driver"}
           loading={searching}
         />
+        <Flex gap={6} align="center" wrap="wrap" style={{ marginTop: 8 }}>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            常用检索：
+          </Text>
+          {["偏好", "规则", "项目", "配置"].map((tag) => (
+            <Tag
+              key={tag}
+              style={{ cursor: "pointer", borderRadius: 10, fontSize: 12 }}
+              onClick={() => {
+                setMemoryInput(tag);
+                onSearch(tag);
+              }}
+            >
+              {tag}
+            </Tag>
+          ))}
+          {activeKeyword !== "" && (
+            <Button
+              type="link"
+              size="small"
+              style={{ fontSize: 12, padding: "0 4px" }}
+              onClick={() => {
+                setMemoryInput("");
+                onSearch("");
+              }}
+            >
+              清空搜索
+            </Button>
+          )}
+        </Flex>
       </Card>
 
       <Flex justify="space-between" align="baseline" gap={16}>
@@ -339,18 +369,42 @@ export function MemoryPanel({
       <div aria-live="polite" aria-busy={searching}>
         {previewEntries.length === 0 ? (
           !refreshing && !searching ? (
-            <Empty
-              mascot={false}
-              title="没有可预览的记忆"
-              hint={data?.memory.mode === "driver" ? undefined : "管家服务恢复后，这里会重新显示最近记忆。"}
-            />
+            activeKeyword !== "" ? (
+              <Empty
+                mascot={false}
+                title={`未找到包含 “${activeKeyword}” 的记忆`}
+                hint="可以尝试换用其他关键词，或者清空后浏览最近保存的全部记忆。"
+                action={
+                  <Button
+                    onClick={() => {
+                      setMemoryInput("");
+                      onSearch("");
+                    }}
+                  >
+                    清空筛选，查看全部
+                  </Button>
+                }
+              />
+            ) : (
+              <Empty
+                mascot={false}
+                title="还没有记录到任何记忆"
+                hint={
+                  data?.memory.mode === "driver"
+                    ? "在与智能体对话或执行任务时，关键信息会被自动提炼并沉淀到记忆库中。"
+                    : "管家服务恢复后，这里会重新显示最近记忆。"
+                }
+              />
+            )
           ) : null
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {previewEntries.map((entry) => (
               <div
                 key={entry.entryId}
-                className="p-3.5 rounded-xl bg-surface-container/50 hover:bg-surface-container border border-outline-variant/15 hover:border-outline-variant/30 transition-all flex flex-col justify-between gap-2.5 shadow-2xs group"
+                className="p-3.5 rounded-xl bg-surface-container/50 hover:bg-surface-container border border-outline-variant/15 hover:border-outline-variant/30 transition-all flex flex-col justify-between gap-2.5 shadow-2xs group cursor-pointer"
+                title="双击快速复制内容"
+                onDoubleClick={() => copyMemoryText(entry.content)}
               >
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2">
