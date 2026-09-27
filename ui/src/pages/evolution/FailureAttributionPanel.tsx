@@ -57,7 +57,11 @@ export function FailureAttributionPanel({ items }: { items: EvolutionOverviewPay
                 <Typography.Text type="secondary">
                   {labels[item.category] ?? item.category} · {item.count} 次 · {item.source}
                 </Typography.Text>
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                <Typography.Text
+                  type="secondary"
+                  style={{ fontSize: 12 }}
+                  copyable={{ text: item.evidence, tooltips: ["复制归因证据", "已复制"] }}
+                >
                   {item.evidence}
                 </Typography.Text>
               </Flex>

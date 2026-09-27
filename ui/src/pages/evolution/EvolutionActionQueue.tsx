@@ -39,7 +39,16 @@ export function EvolutionActionQueue({
           {open.slice(0, 6).map((item) => (
             <Flex key={item.actionId} wrap="wrap" justify="space-between" align="center" gap={12}>
               <Flex vertical gap={2} style={{ minWidth: 0 }}>
-                <Typography.Text strong>{item.title}</Typography.Text>
+                <Flex align="center" gap={8} wrap="wrap">
+                  <Typography.Text strong>{item.title}</Typography.Text>
+                  <Typography.Text
+                    type="secondary"
+                    style={{ fontSize: 11, fontFamily: "monospace" }}
+                    copyable={{ text: item.actionId, tooltips: ["复制行动编号", "已复制"] }}
+                  >
+                    #{item.actionId.slice(0, 8)}
+                  </Typography.Text>
+                </Flex>
                 <Flex wrap="wrap" align="center" gap={4}>
                   <StatusBadge
                     tone={item.impact === "blocking" ? "error" : "warn"}
