@@ -381,11 +381,11 @@ export async function executeSelfJob(
   try {
     update({ phase: "checkout" });
     // 临时/离线仓库可能没有 origin；先探测远端，避免无意义的长时间 fetch 阻塞升级。
-    const remote = exec("git", ["remote", "get-url", "origin"], sourceDir, 10_000);
+    const remote = exec("git", ["-c", "safe.directory=*", "remote", "get-url", "origin"], sourceDir, 10_000);
     if (remote.ok) {
-      exec("git", ["fetch", "--tags", "origin"], sourceDir, 60_000);
+      exec("git", ["-c", "safe.directory=*", "fetch", "--tags", "origin"], sourceDir, 60_000);
     }
-    const checkout = exec("git", ["checkout", job.target], sourceDir, 120_000);
+    const checkout = exec("git", ["-c", "safe.directory=*", "checkout", job.target], sourceDir, 120_000);
     if (!checkout.ok) {
       await fail("切到目标版本失败：" + checkout.error);
       return;
@@ -440,7 +440,7 @@ export async function rollbackSelfJob(
   };
   try {
     update({ phase: "rollback" });
-    const checkout = exec("git", ["checkout", job.target], sourceDir, 120_000);
+    const checkout = exec("git", ["-c", "safe.directory=*", "checkout", job.target], sourceDir, 120_000);
     if (!checkout.ok) throw new Error("回滚切到 " + job.target + " 失败：" + checkout.error);
     const built = build(sourceDir);
     if (!built.ok) throw new Error("回滚构建失败：" + built.error);
@@ -573,7 +573,7 @@ export function createButlerSelfUpgradeService(
   }
 
   function git(args: string[], timeoutMs = 10_000): CommandResult {
-    return exec("git", args, sourceDir, timeoutMs);
+    return exec("git", ["-c", "safe.directory=*", ...args], sourceDir, timeoutMs);
   }
 
   function currentVersion(): string {

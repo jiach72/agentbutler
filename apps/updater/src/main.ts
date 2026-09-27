@@ -190,7 +190,7 @@ function packageVersion(): string {
 }
 
 function git(args: string[], timeout = 20_000): Promise<CommandResult> {
-  return run("git", args, sourceDir, timeout);
+  return run("git", ["-c", "safe.directory=*", ...args], sourceDir, timeout);
 }
 
 function isLegacyTag(tag: string): boolean {
@@ -686,6 +686,7 @@ void (async () => {
       // ignore
     }
   }
+  await run("git", ["config", "--global", "--add", "safe.directory", "*"]);
   await persistStatus();
   server.listen(port, host, () => console.log(`[butler-updater] listening on ${host}:${port}`));
 })();
