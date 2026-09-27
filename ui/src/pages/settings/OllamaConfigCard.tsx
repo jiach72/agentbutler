@@ -184,7 +184,19 @@ export function OllamaConfigCard() {
   const [hwProfile, setHwProfile] = useState<HardwareProfilePayload | null>(null);
 
   const [models, setModels] = useState<OllamaModelItem[]>([]);
+  const [modelSearch, setModelSearch] = useState("");
   const [loadingModels, setLoadingModels] = useState(false);
+
+  const searchedModels = useMemo(() => {
+    const q = modelSearch.trim().toLowerCase();
+    if (!q) return models;
+    return models.filter(
+      (m) =>
+        m.name.toLowerCase().includes(q) ||
+        (m.details?.family && m.details.family.toLowerCase().includes(q)) ||
+        (m.details?.parameter_size && m.details.parameter_size.toLowerCase().includes(q)),
+    );
+  }, [models, modelSearch]);
 
   const [downloadInput, setDownloadInput] = useState("");
   const [pulling, setPulling] = useState(false);
@@ -753,30 +765,54 @@ export function OllamaConfigCard() {
         <div>
           <Flex justify="space-between" align="center" wrap="wrap" gap={8} style={{ marginBottom: 6 }}>
             <Text strong style={{ fontSize: 15 }}>
-              已下载的模型
+              已下载的模型 ({models.length})
             </Text>
-            <Button
-              type="text"
-              size="small"
-              icon={<ReloadOutlined />}
-              loading={loadingModels}
-              onClick={loadModels}
-            >
-              刷新
-            </Button>
+            <Flex align="center" gap={8}>
+              {models.length > 0 && (
+                <Input.Search
+                  placeholder="搜索本地模型..."
+                  allowClear
+                  size="small"
+                  value={modelSearch}
+                  onChange={(e) => setModelSearch(e.target.value)}
+                  style={{ width: 170, maxWidth: "100%" }}
+                />
+              )}
+              <Button
+                type="text"
+                size="small"
+                icon={<ReloadOutlined />}
+                loading={loadingModels}
+                onClick={loadModels}
+              >
+                刷新
+              </Button>
+            </Flex>
           </Flex>
           <Text type="secondary" style={{ display: "block", marginBottom: 14 }}>
             已安装在 Ollama 中的模型列表。点击卡片上的【快捷分配角色】可自由指派为 Hermes 主对话、记忆探针或实例默认调度模型。
           </Text>
 
-          {models.length === 0 ? (
+          {searchedModels.length === 0 ? (
             <Empty
               image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description={status?.available ? "暂无已下载模型，请在上方输入模型名称下载" : "Ollama 服务未连接"}
-            />
+              description={
+                modelSearch.trim()
+                  ? `未找到与 “${modelSearch.trim()}” 相关的本地模型`
+                  : status?.available
+                    ? "暂无已下载模型，请在上方输入模型名称下载"
+                    : "Ollama 服务未连接"
+              }
+            >
+              {modelSearch.trim() !== "" && (
+                <Button size="small" onClick={() => setModelSearch("")}>
+                  清空筛选
+                </Button>
+              )}
+            </Empty>
           ) : (
             <Flex wrap="wrap" gap={12}>
-              {models.map((item) => {
+              {searchedModels.map((item) => {
                 const isEmbed =
                   item.name.toLowerCase().includes("embed") ||
                   item.details?.family?.toLowerCase().includes("bert") === true;
@@ -881,6 +917,7 @@ export function OllamaConfigCard() {
                       <Flex vertical gap={4} style={{ overflow: "hidden" }}>
                         <Text
                           strong
+                          copyable={{ text: item.name, tooltips: ["复制模型名称", "已复制"] }}
                           style={{
                             fontSize: 14,
                             wordBreak: "break-all",
