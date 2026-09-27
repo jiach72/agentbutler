@@ -9,6 +9,7 @@ import {
   QqOutlined,
   ReloadOutlined,
   SendOutlined,
+  ThunderboltOutlined,
   WechatOutlined,
 } from "@ant-design/icons";
 import type { ComponentType } from "react";
@@ -38,6 +39,11 @@ function channelTileOf(label: string): { Icon: ComponentType; tone: string } {
   const lowered = label.toLowerCase();
   if (lowered.includes("微信") || lowered.includes("wechat")) return { Icon: WechatOutlined, tone: "green" };
   if (lowered.includes("telegram")) return { Icon: SendOutlined, tone: "blue" };
+  if (lowered.includes("飞书") || lowered.includes("feishu") || lowered.includes("lark"))
+    return { Icon: SendOutlined, tone: "teal" };
+  if (lowered.includes("钉钉") || lowered.includes("dingtalk")) return { Icon: ThunderboltOutlined, tone: "blue" };
+  if (lowered.includes("discord")) return { Icon: MessageOutlined, tone: "blue" };
+  if (lowered.includes("slack")) return { Icon: MessageOutlined, tone: "gold" };
   if (lowered.includes("邮件") || lowered.includes("mail") || lowered.includes("smtp"))
     return { Icon: MailOutlined, tone: "teal" };
   if (lowered.includes("短信") || lowered.includes("sms")) return { Icon: MobileOutlined, tone: "gold" };
