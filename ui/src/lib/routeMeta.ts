@@ -98,7 +98,7 @@ export const ROUTES: RouteMeta[] = [
   { path: "/dashboard", group: "console", title: "首页", note: "当前状态与待处理事项", icon: DashboardOutlined, nav: true },
   { path: "/tasks", group: "console", title: "定时任务", note: "执行时间与最近结果", icon: CalendarOutlined, nav: true, short: "任务" },
   { path: "/gateway", group: "console", title: "消息通知", note: "待处理消息与通道", icon: NotificationOutlined, nav: true, short: "消息" },
-  { path: "/skills", group: "console", title: "智能体与记忆", note: "技能、插件与记忆", icon: ApiOutlined, nav: true },
+  { path: "/skills", group: "console", title: "智能体与记忆", note: "技能、插件与记忆", icon: ApiOutlined, nav: true, short: "能力" },
   { path: "/knowledge", group: "console", title: "本地知识库", note: "文档资料收集与 RAG 检索", icon: BookOutlined, nav: true, short: "知识库" },
   { path: "/tools", group: "console", title: "专家工具", note: "体检、排障、日志与维护", icon: AppstoreOutlined, nav: true, short: "工具" },
   { path: "/learn", group: "console", title: "智能体通识", note: "概念、原理与安全百科", icon: ReadOutlined, nav: true, short: "通识" },
@@ -169,7 +169,7 @@ export function navRoutesFor(group: NavGroupKey): RouteMeta[] {
  * 与桌面侧栏同源于 ROUTES——不再另写一套一级信息架构（评审 P0-1）。
  * 更多导航由 Tab 尾部的「更多」按钮唤起抽屉（见 MobileTabBar）。
  */
-export const MOBILE_TAB_PATHS = ["/dashboard", "/tasks", "/gateway", "/settings"] as const;
+export const MOBILE_TAB_PATHS = ["/dashboard", "/tasks", "/skills", "/settings"] as const;
 
 export function shortTitleOf(route: RouteMeta): string {
   return route.short ?? route.title;

@@ -22,9 +22,9 @@ describe("公共界面的任务入口", () => {
     expect(html.match(/aria-label="读取急停状态"/g)).toHaveLength(1);
   });
 
-  it("手机只有首页、任务、消息、设置四个入口", () => {
+  it("手机只有首页、任务、能力、设置四个入口", () => {
     const html = renderAt("/tasks", <MobileTabBar />);
-    for (const path of ["/dashboard", "/tasks", "/gateway", "/settings"]) {
+    for (const path of ["/dashboard", "/tasks", "/skills", "/settings"]) {
       expect(html).toContain(`href="${path}"`);
     }
     expect(html).not.toContain('aria-label="更多导航"');

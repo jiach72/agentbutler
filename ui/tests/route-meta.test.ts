@@ -65,7 +65,7 @@ describe("路由元信息单一事实源", () => {
   });
 
   it("移动 Tab 从同一份表取路径、图标与短标签", () => {
-    expect(MOBILE_TAB_PATHS).toEqual(["/dashboard", "/tasks", "/gateway", "/settings"]);
+    expect(MOBILE_TAB_PATHS).toEqual(["/dashboard", "/tasks", "/skills", "/settings"]);
     for (const path of MOBILE_TAB_PATHS) {
       const meta = ROUTES.find((route) => route.path === path);
       expect(meta, path).toBeDefined();
