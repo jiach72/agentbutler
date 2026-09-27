@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Alert, Button, Modal, Space, Tag, Typography } from "antd";
-import { PlayCircleOutlined, ReloadOutlined } from "@ant-design/icons";
+import { Alert, App, Button, Modal, Space, Tag, Tooltip, Typography } from "antd";
+import { CopyOutlined, PlayCircleOutlined, ReloadOutlined } from "@ant-design/icons";
 import { mutateJson } from "../../lib/api.js";
 
 const { Text, Paragraph } = Typography;
@@ -23,11 +23,21 @@ export function TaskTestRunModal({
   open: boolean;
   onClose: () => void;
 }) {
+  const { message } = App.useApp();
   const [running, setRunning] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [result, setResult] = useState<TestRunResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const timerRef = useRef<number | null>(null);
+
+  const copySnippet = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      message.success("控制台输出摘要已复制到剪贴板");
+    } catch {
+      message.error("复制失败");
+    }
+  };
 
   const startRun = async () => {
     if (!task || running) return;
@@ -186,9 +196,21 @@ export function TaskTestRunModal({
 
         {(result?.outputSnippet || result?.errorSnippet) && (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <Text strong style={{ fontSize: 13 }}>
-              执行控制台输出摘要：
-            </Text>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <Text strong style={{ fontSize: 13 }}>
+                执行控制台输出摘要：
+              </Text>
+              <Tooltip title="复制控制台输出">
+                <Button
+                  size="small"
+                  type="text"
+                  icon={<CopyOutlined />}
+                  onClick={() => void copySnippet((result.outputSnippet || result.errorSnippet)!)}
+                >
+                  复制输出
+                </Button>
+              </Tooltip>
+            </div>
             <pre
               style={{
                 margin: 0,
