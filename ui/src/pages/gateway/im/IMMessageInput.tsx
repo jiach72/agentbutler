@@ -104,9 +104,9 @@ export function IMMessageInput(props: IMMessageInputProps) {
     await props.onSend(text);
   };
 
-  // 键盘事件：Enter 发送，Shift+Enter 换行
+  // 键盘事件：Enter 发送，Shift+Enter 换行；支持 Ctrl+Enter / Cmd+Enter
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if ((e.key === "Enter" && !e.shiftKey) || (e.key === "Enter" && (e.ctrlKey || e.metaKey))) {
       e.preventDefault();
       void handleSend();
     }
@@ -225,9 +225,21 @@ export function IMMessageInput(props: IMMessageInputProps) {
 
       {/* 底部工具栏与操作按钮 */}
       <Flex justify="space-between" align="center" style={{ paddingTop: 4 }}>
-        <Text type="secondary" style={{ fontSize: 11 }}>
-          {inputText.length > 0 ? `${inputText.length} 字` : "支持 Markdown 与快捷指令"}
-        </Text>
+        <Flex align="center" gap={8}>
+          <Text type="secondary" style={{ fontSize: 11 }}>
+            {inputText.length > 0 ? `${inputText.length} 字` : "支持 Markdown 与快捷指令"}
+          </Text>
+          {hasText && (
+            <Button
+              type="link"
+              size="small"
+              onClick={() => setInputText("")}
+              style={{ padding: 0, height: "auto", fontSize: 11 }}
+            >
+              清空
+            </Button>
+          )}
+        </Flex>
 
         <Flex align="center" gap={10}>
           {/* 提示词增强按钮（高保真还原参考图红框） */}
@@ -244,27 +256,31 @@ export function IMMessageInput(props: IMMessageInputProps) {
           </Tooltip>
 
           {/* 发送按钮 */}
-          <Button
-            type="primary"
-            shape="circle"
-            icon={<ArrowUpOutlined style={{ fontSize: 16 }} />}
-            aria-label="发送消息"
-            title="发送消息"
-            loading={props.sending}
-            disabled={!hasText || props.disabled || props.sending}
-            onClick={handleSend}
-            style={{
-              width: 34,
-              height: 34,
-              minWidth: 34,
-              minHeight: 34,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              backgroundColor: hasText ? "var(--ant-color-primary)" : undefined,
-              boxShadow: hasText ? "0 2px 8px rgba(0, 89, 181, 0.25)" : undefined,
-            }}
-          />
+          <Tooltip title={hasText ? "按 Enter 发送 (Shift+Enter 换行)" : "请输入消息内容"}>
+            <span>
+              <Button
+                type="primary"
+                shape="circle"
+                icon={<ArrowUpOutlined style={{ fontSize: 16 }} />}
+                aria-label="发送消息"
+                title="发送消息"
+                loading={props.sending}
+                disabled={!hasText || props.disabled || props.sending}
+                onClick={handleSend}
+                style={{
+                  width: 34,
+                  height: 34,
+                  minWidth: 34,
+                  minHeight: 34,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: hasText ? "var(--ant-color-primary)" : undefined,
+                  boxShadow: hasText ? "0 2px 8px rgba(0, 89, 181, 0.25)" : undefined,
+                }}
+              />
+            </span>
+          </Tooltip>
         </Flex>
       </Flex>
 
