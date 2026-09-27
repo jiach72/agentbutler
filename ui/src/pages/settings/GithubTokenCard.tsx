@@ -5,6 +5,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { App, Button, Card, Flex, Input, Popconfirm, Tooltip, Typography } from "antd";
+import { ReloadOutlined } from "@ant-design/icons";
 import { loadJson, postJson } from "../../lib/api.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 
@@ -80,18 +81,27 @@ export function GithubTokenCard() {
       size="small"
       title="GitHub 访问令牌"
       extra={
-        configured === null ? (
-          <StatusBadge tone="unknown" label="状态未知" />
-        ) : configured ? (
-          <StatusBadge tone="ok" label="已配置" />
-        ) : (
-          <StatusBadge tone="offline" label="未配置" />
-        )
+        <Flex align="center" gap={8}>
+          {configured === null ? (
+            <StatusBadge tone="unknown" label="状态未知" />
+          ) : configured ? (
+            <StatusBadge tone="ok" label="已配置" />
+          ) : (
+            <StatusBadge tone="offline" label="未配置" />
+          )}
+          <Button
+            size="small"
+            type="text"
+            icon={<ReloadOutlined />}
+            onClick={() => void loadStatus()}
+            aria-label="刷新 GitHub 令牌状态"
+          />
+        </Flex>
       }
     >
       <Flex vertical gap={12}>
         <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-          用于查询 GitHub 版本与技能市场，避免 API 限流。保存后立即生效，不需要重启。
+          用于查询 GitHub 版本与技能市场，避免匿名 API 限流（仅需读取公开仓库，无需勾选任何私有仓库权限）。保存后立即生效，不需要重启。
         </Paragraph>
         <Flex gap={8} wrap="wrap">
           <Input.Password
@@ -101,6 +111,7 @@ export function GithubTokenCard() {
             value={token}
             onChange={(event) => setToken(event.target.value)}
             onPressEnter={() => void saveToken()}
+            allowClear
           />
           <Button type="primary" loading={busy} disabled={token.trim() === ""} onClick={() => void saveToken()}>
             保存

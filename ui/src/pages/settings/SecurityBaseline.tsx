@@ -276,11 +276,27 @@ export function SecurityBaseline({
             <Text type="secondary">{security.data.message}</Text>
             <Flex vertical gap={6} className="divide-y divide-outline-variant/10">
               {security.data.secrets.map((secret, idx) => (
-                <Flex key={secret.rel || idx} vertical gap={2} className={idx > 0 ? "pt-2" : undefined}>
-                  <Text code>{secret.rel}</Text>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    {`${secret.secure ? "权限正常" : "权限过宽"} · ${secret.mode}`}
-                  </Text>
+                <Flex key={secret.rel || idx} justify="space-between" align="center" className={idx > 0 ? "pt-2" : undefined}>
+                  <Flex vertical gap={2}>
+                    <Text code copyable={{ text: secret.rel, tooltips: ["复制密钥文件路径", "已复制"] }}>
+                      {secret.rel}
+                    </Text>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      {`${secret.secure ? "权限正常" : "权限过宽"} · ${secret.mode}`}
+                    </Text>
+                  </Flex>
+                  {!secret.secure && (
+                    <Text
+                      code
+                      copyable={{
+                        text: `chmod 600 ${secret.rel}`,
+                        tooltips: ["复制修复命令 (chmod 600)", "已复制修复命令"],
+                      }}
+                      style={{ fontSize: 11 }}
+                    >
+                      chmod 600
+                    </Text>
+                  )}
                 </Flex>
               ))}
             </Flex>
