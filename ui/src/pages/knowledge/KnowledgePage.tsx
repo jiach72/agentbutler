@@ -66,6 +66,7 @@ import { ConclusionBar } from "../../components/ConclusionBar.js";
 import { ConnectionChip } from "../../components/ConnectionChip.js";
 import { CopySnippetButton } from "../../components/CopySnippetButton.js";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
+import { Empty as ButlerEmpty } from "../../components/Empty.js";
 import { deleteJson, loadJson, postJson } from "../../lib/api.js";
 import type { KnowledgeStatus } from "../settings/KnowledgeConfigCard.js";
 import {
@@ -1438,7 +1439,7 @@ export function KnowledgePage() {
                         size="small"
                         locale={{
                           emptyText: (
-                            <Empty
+                            <ButlerEmpty
                               mascot={false}
                               title={
                                 docFilter.trim()
