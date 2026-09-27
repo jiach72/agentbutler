@@ -45,6 +45,7 @@ import {
   CloudUploadOutlined,
   CommentOutlined,
   CompassOutlined,
+  CopyOutlined,
   DeleteOutlined,
   ExclamationCircleOutlined,
   EyeOutlined,
@@ -827,7 +828,9 @@ export function KnowledgePage() {
           ) : (
             <FileTextOutlined style={{ color: "var(--ab-primary)", fontSize: 16 }} />
           )}
-          <Text strong>{name}</Text>
+          <Text strong copyable={{ text: name, tooltips: ["复制资料名称", "已复制"] }}>
+            {name}
+          </Text>
         </Flex>
       ),
     },
@@ -879,7 +882,7 @@ export function KnowledgePage() {
     {
       title: "操作",
       key: "actions",
-      width: 100,
+      width: 120,
       render: (_, record) => (
         <Space size="small">
           <Tooltip title="在线预览文档内容">
@@ -888,6 +891,17 @@ export function KnowledgePage() {
               type="text"
               icon={<EyeOutlined style={{ color: "var(--ant-color-primary)" }} />}
               onClick={() => handleOpenPreview(record)}
+            />
+          </Tooltip>
+          <Tooltip title="复制文档路径/名称">
+            <Button
+              size="small"
+              type="text"
+              icon={<CopyOutlined />}
+              onClick={() => {
+                void navigator.clipboard.writeText(record.path || record.name);
+                message.success("已复制文档路径");
+              }}
             />
           </Tooltip>
           <Popconfirm
@@ -2061,7 +2075,15 @@ export function KnowledgePage() {
         title={
           <Flex align="center" gap={8}>
             <FileTextOutlined style={{ color: "var(--ant-color-primary)" }} />
-            <span>文档原文预览：{previewData?.name}</span>
+            <Typography.Text
+              strong
+              copyable={{
+                text: previewData?.name ?? "",
+                tooltips: ["复制文件名", "已复制"],
+              }}
+            >
+              {previewData?.name ? `文档原文预览：${previewData.name}` : "文档原文预览"}
+            </Typography.Text>
           </Flex>
         }
         placement="right"
