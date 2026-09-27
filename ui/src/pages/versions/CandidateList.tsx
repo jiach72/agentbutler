@@ -2,9 +2,11 @@
  * 版本页 · 最新可升级版本：版本源诊断、目标实例选择与候选列表。
  */
 import { Button, Card, Flex, Select, Timeline, Tooltip, Typography } from "antd";
+import { ReloadOutlined } from "@ant-design/icons";
 import { Empty } from "../../components/Empty.js";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
+import { CopySnippetButton } from "../../components/CopySnippetButton.js";
 import { formatRelative } from "../../lib/format.js";
 import { compareVersion } from "../../lib/semver.js";
 import {
@@ -90,22 +92,27 @@ export function CandidateList({
         }));
   return (
     <Flex vertical gap={16}>
-      <Flex wrap="wrap" align="center" gap={12}>
-        <Text>更新来源：{versionSourceLabel(available.source ?? "")}</Text>
-        <Text type="secondary">
-          已检查：{available.checkedAt ? formatRelative(available.checkedAt) : "—"}
-        </Text>
-        <label htmlFor="upgrade-target">
-          <Text>要升级的管家：</Text>
-        </label>
-        <Select
-          id="upgrade-target"
-          style={{ minWidth: 180 }}
-          value={targetInstance}
-          options={instanceOptions}
-          onChange={(value) => onSelectInstance(value)}
-          popupMatchSelectWidth={false}
-        />
+      <Flex wrap="wrap" justify="space-between" align="center" gap={12}>
+        <Flex wrap="wrap" align="center" gap={12}>
+          <Text>更新来源：{versionSourceLabel(available.source ?? "")}</Text>
+          <Text type="secondary">
+            已检查：{available.checkedAt ? formatRelative(available.checkedAt) : "—"}
+          </Text>
+          <label htmlFor="upgrade-target">
+            <Text>要升级的管家：</Text>
+          </label>
+          <Select
+            id="upgrade-target"
+            style={{ minWidth: 180 }}
+            value={targetInstance}
+            options={instanceOptions}
+            onChange={(value) => onSelectInstance(value)}
+            popupMatchSelectWidth={false}
+          />
+        </Flex>
+        <Button size="small" icon={<ReloadOutlined />} onClick={onRefresh}>
+          重新检查版本
+        </Button>
       </Flex>
       {available.attempts !== undefined && available.attempts.length > 0 && (
         <Flex vertical aria-label="版本源探测记录">
@@ -163,10 +170,12 @@ export function CandidateList({
                       {badge !== null && <StatusBadge tone={badge.tone} label={badge.label} />}
                       {isCurrent && <StatusBadge tone="brand" label="当前版本" />}
                     </Flex>
-                    <Text type="secondary">
-                      {entry.version}
-                      {published !== "" ? ` · ${published}` : ""}
-                    </Text>
+                    <Flex align="center" gap={6} wrap="wrap">
+                      <CopySnippetButton text={entry.version} label={entry.version} />
+                      {published !== "" && (
+                        <Text type="secondary">· {published}</Text>
+                      )}
+                    </Flex>
                     {entry.notes !== undefined && entry.notes !== "" && (
                       <Text type="secondary">{entry.notes}</Text>
                     )}

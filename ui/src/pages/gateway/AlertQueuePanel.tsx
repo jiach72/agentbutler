@@ -8,6 +8,7 @@ import { AdvancedEvidence } from "../../components/AdvancedEvidence.js";
 import type { TableColumnsType } from "antd";
 import { Empty } from "../../components/Empty.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
+import { CopySnippetButton } from "../../components/CopySnippetButton.js";
 import { formatNumber, formatRelative } from "../../lib/format.js";
 import { channelLabel, sourceLabel, statusTone } from "./helpers.js";
 import type { AlertItem, AlertsView } from "./helpers.js";
@@ -32,9 +33,12 @@ const QUEUE_COLUMNS: TableColumnsType<AlertItem> = [
     render: (_, item) => (
       <Flex vertical gap={2}>
         <Typography.Text strong>{item.title}</Typography.Text>
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          {sourceLabel(item.source)}
-        </Typography.Text>
+        <Flex align="center" gap={6} wrap="wrap">
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {sourceLabel(item.source)}
+          </Typography.Text>
+          <CopySnippetButton text={String(item.id)} label={`#${item.id}`} />
+        </Flex>
       </Flex>
     ),
   },
@@ -144,7 +148,16 @@ export function AlertQueuePanel({ alerts, history = false, onNavigate }: AlertQu
         </>
       )}
       <Drawer
-        title="通知详情"
+        title={
+          selected !== null ? (
+            <Flex align="center" gap={8} wrap="wrap">
+              <span>通知详情</span>
+              <CopySnippetButton text={String(selected.id)} label={`#${selected.id}`} />
+            </Flex>
+          ) : (
+            "通知详情"
+          )
+        }
         open={selected !== null}
         onClose={() => setSelected(null)}
         size={640}
@@ -152,7 +165,12 @@ export function AlertQueuePanel({ alerts, history = false, onNavigate }: AlertQu
       >
         {selected !== null && (
           <Flex vertical gap={16} style={{ overflowWrap: "anywhere" }}>
-            <Typography.Title level={4}>{selected.title}</Typography.Title>
+            <Flex justify="space-between" align="center" wrap="wrap" gap={8}>
+              <Typography.Title level={4} style={{ margin: 0 }}>
+                {selected.title}
+              </Typography.Title>
+              <CopySnippetButton text={() => JSON.stringify(selected, null, 2)} label="复制通知 JSON" />
+            </Flex>
             <Typography.Paragraph style={{ whiteSpace: "pre-wrap" }}>
               {selected.body}
             </Typography.Paragraph>
@@ -160,7 +178,12 @@ export function AlertQueuePanel({ alerts, history = false, onNavigate }: AlertQu
               <Button onClick={() => handleNavigate("/gateway?tab=channels")}>检查消息通道</Button>
             )}
             <AdvancedEvidence>
-              <Typography.Paragraph>{selected.lastError}</Typography.Paragraph>
+              {selected.lastError && (
+                <Flex justify="space-between" align="flex-start" gap={8} style={{ marginBottom: 6 }}>
+                  <Typography.Paragraph style={{ margin: 0, flex: 1 }}>{selected.lastError}</Typography.Paragraph>
+                  <CopySnippetButton text={selected.lastError} label="复制错误" />
+                </Flex>
+              )}
               <Typography.Text>
                 {selected.source} · {selected.status} · {selected.attempts} 次尝试
               </Typography.Text>
