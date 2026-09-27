@@ -4,8 +4,9 @@
  * 展示层为「市场风」：PageHeader + 数据源状态概览条 + 左侧分类导航 + 右侧内容区。
  */
 import { useCallback, useEffect, useState } from "react";
-import { App, Flex, Tabs } from "antd";
-import { Link, Navigate, useSearchParams } from "react-router-dom";
+import { App, Button, Card, Flex, Tabs, Typography } from "antd";
+import { MessageOutlined } from "@ant-design/icons";
+import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { ConnectionChip } from "../../components/ConnectionChip.js";
 import { ConclusionBar } from "../../components/ConclusionBar.js";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
@@ -48,6 +49,7 @@ import "./settings.css";
 
 export function SettingsPage() {
   const { message } = App.useApp();
+  const navigate = useNavigate();
   const [sources, setSources] = useState(createInitialSources);
   const [checkedAt, setCheckedAt] = useState<Partial<Record<SettingsSourceKey, number>>>({});
   const [busy, setBusy] = useState<string | null>(null);
@@ -312,7 +314,27 @@ export function SettingsPage() {
               {
                 key: "channels",
                 label: "消息通道",
-                children: <Link to="/gateway?tab=channels">管理消息通道</Link>,
+                children: (
+                  <Card size="small" style={{ borderRadius: 12 }}>
+                    <Flex vertical gap={12} align="flex-start">
+                      <Flex align="center" gap={8}>
+                        <MessageOutlined style={{ fontSize: 18, color: "var(--ab-primary)" }} />
+                        <Typography.Text strong style={{ fontSize: 15 }}>
+                          消息通道管理与热重载
+                        </Typography.Text>
+                      </Flex>
+                      <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                        消息网关支持接入 Telegram、Discord、飞书、企业微信、钉钉等 10+ 平台，具备断线自愈、实时审计与冒烟连通测试能力。
+                      </Typography.Paragraph>
+                      <Button
+                        type="primary"
+                        onClick={() => navigate("/gateway?tab=channels")}
+                      >
+                        前往消息网关配置通道 →
+                      </Button>
+                    </Flex>
+                  </Card>
+                ),
               },
             ]}
           />
