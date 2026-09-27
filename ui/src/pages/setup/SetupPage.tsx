@@ -80,6 +80,14 @@ function isActiveProfile(profile: LlmProfile): boolean {
   return profile.status === "active" && profile.probe?.status === "pass";
 }
 
+const PROVIDER_DEFAULT_ENDPOINTS: Record<string, { endpoint: string; defaultModel: string }> = {
+  DeepSeek: { endpoint: "https://api.deepseek.com/v1", defaultModel: "deepseek-chat" },
+  通义: { endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1", defaultModel: "qwen-plus" },
+  "硅基流动": { endpoint: "https://api.siliconflow.cn/v1", defaultModel: "deepseek-ai/DeepSeek-V3" },
+  Ollama: { endpoint: "http://host.docker.internal:11434/v1", defaultModel: "qwen2.5:7b" },
+  OpenAI: { endpoint: "https://api.openai.com/v1", defaultModel: "gpt-4o-mini" },
+};
+
 type LinkTone = "ok" | "warn" | "error";
 
 /** 单个链路环：图标 + 名称 + 状态 + 一句话 + 可选修复动作。 */
@@ -412,21 +420,65 @@ export function SetupPage() {
                 ) : !modelReady ? (
                   <Flex vertical gap={8}>
                     {modelFormOpen ? (
-                      <Form form={modelForm} layout="vertical" style={{ maxWidth: 560 }} initialValues={{ provider: "OpenAI", protocol: "openai-compatible" }}>
+                      <Form
+                        form={modelForm}
+                        layout="vertical"
+                        style={{ maxWidth: 560 }}
+                        initialValues={{
+                          provider: "DeepSeek",
+                          protocol: "openai-compatible",
+                          endpoint: "https://api.deepseek.com/v1",
+                          model: "deepseek-chat",
+                        }}
+                      >
                         <Form.Item name="provider" label="提供商" rules={[{ required: true, message: "请选择提供商" }]}>
-                          <Select options={[{ value: "OpenAI", label: "OpenAI" }, { value: "DeepSeek", label: "DeepSeek" }, { value: "通义", label: "通义" }, { value: "自定义 OpenAI-compatible", label: "自定义 OpenAI-compatible" }]} />
+                          <Select
+                            aria-label="选择模型提供商"
+                            options={[
+                              { value: "DeepSeek", label: "DeepSeek (深度求索)" },
+                              { value: "通义", label: "通义千问 (DashScope)" },
+                              { value: "硅基流动", label: "硅基流动 (SiliconFlow)" },
+                              { value: "Ollama", label: "Ollama (本地运行)" },
+                              { value: "OpenAI", label: "OpenAI" },
+                              { value: "自定义 OpenAI-compatible", label: "自定义 OpenAI-compatible" },
+                            ]}
+                            onChange={(val) => {
+                              const preset = PROVIDER_DEFAULT_ENDPOINTS[val];
+                              if (preset) {
+                                modelForm.setFieldsValue({
+                                  endpoint: preset.endpoint,
+                                  model: preset.defaultModel,
+                                });
+                                if (val === "Ollama" && !modelForm.getFieldValue("apiKey")) {
+                                  modelForm.setFieldsValue({ apiKey: "ollama" });
+                                }
+                              }
+                            }}
+                          />
                         </Form.Item>
                         <Form.Item name="protocol" label="协议" rules={[{ required: true }]}>
                           <Select options={[{ value: "openai-compatible", label: "OpenAI-compatible（推荐 Hermes）" }]} />
                         </Form.Item>
-                        <Form.Item name="endpoint" label="端点" rules={[{ required: true, type: "url", message: "请输入完整的 https 地址" }]}>
-                          <Input placeholder="https://api.example.com/v1" autoComplete="url" />
+                        <Form.Item
+                          name="endpoint"
+                          label="端点"
+                          rules={[
+                            { required: true, message: "请输入完整的接口地址（如 https://... 或 http://...）" },
+                            { pattern: /^https?:\/\//i, message: "地址必须以 http:// 或 https:// 开头" },
+                          ]}
+                        >
+                          <Input placeholder="例如 https://api.deepseek.com/v1 或 http://host.docker.internal:11434/v1" autoComplete="url" />
                         </Form.Item>
                         <Form.Item name="model" label="模型名称" rules={[{ required: true, message: "请输入模型名称" }]}>
-                          <Input placeholder="例如 gpt-4.1-mini" />
+                          <Input placeholder="例如 deepseek-chat, qwen-plus 或 gpt-4o-mini" />
                         </Form.Item>
-                        <Form.Item name="apiKey" label="API Key" rules={[{ required: true, message: "请输入 API Key" }]}>
-                          <Input.Password autoComplete="new-password" />
+                        <Form.Item
+                          name="apiKey"
+                          label="API Key"
+                          rules={[{ required: true, message: "请输入 API Key（本地 Ollama 可填 ollama）" }]}
+                          extra="密钥将由管家安全凭据库加密存储，仅供受管任务调用。"
+                        >
+                          <Input.Password placeholder="sk-... 或本地填写 ollama" autoComplete="new-password" />
                         </Form.Item>
                         <Space>
                           <Button type="primary" loading={savingModel} onClick={() => void createAndBindModel()}>验证并绑定</Button>
