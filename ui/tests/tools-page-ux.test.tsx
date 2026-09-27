@@ -60,4 +60,9 @@ describe("专家工具工作台 (ToolsPage)", () => {
     expect(html).toContain("会话追踪");
     expect(html).toContain("记忆变更");
   });
+
+  it("首屏渲染专家工具即时检索框", () => {
+    const html = renderToolsPage();
+    expect(html).toContain("搜索专家工具或报表");
+  });
 });

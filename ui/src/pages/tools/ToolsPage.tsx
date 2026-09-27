@@ -13,6 +13,7 @@ import {
   App,
   Button,
   Flex,
+  Input,
   Switch,
   Tag,
   Typography,
@@ -32,12 +33,14 @@ import {
   RightOutlined,
   RocketOutlined,
   SafetyCertificateOutlined,
+  SearchOutlined,
   ThunderboltOutlined,
   ToolOutlined,
 } from "@ant-design/icons";
 import { PageHeader } from "../../components/PageHeader.js";
 import { ConclusionBar } from "../../components/ConclusionBar.js";
 import { AdvancedEvidence } from "../../components/AdvancedEvidence.js";
+import { Empty as ButlerEmpty } from "../../components/Empty.js";
 import { DiagnosticsCenter } from "../settings/DiagnosticsCenter.js";
 import { MemoryProbeConfigCard } from "../settings/MemoryProbeConfigCard.js";
 import { HermesGuideCard } from "./HermesGuideCard.js";
@@ -105,6 +108,17 @@ export function ToolsPage() {
   const [instanceCount, setInstanceCount] = useState<number | null>(null);
   const [gatewayOnline, setGatewayOnline] = useState<boolean | null>(null);
   const [copied, setCopied] = useState(false);
+  const [searchKeyword, setSearchKeyword] = useState("");
+
+  const isMatch = useCallback((title: string, desc?: string, tag?: string) => {
+    const kw = searchKeyword.trim().toLowerCase();
+    if (!kw) return true;
+    return (
+      title.toLowerCase().includes(kw) ||
+      (desc !== undefined && desc.toLowerCase().includes(kw)) ||
+      (tag !== undefined && tag.toLowerCase().includes(kw))
+    );
+  }, [searchKeyword]);
 
   useEffect(() => {
     try {
@@ -149,6 +163,31 @@ export function ToolsPage() {
   }, [message]);
 
   const paths = settingsToolPaths(experiments, instanceCount);
+
+  const section1Cards = [
+    { to: "/setup", icon: <DeploymentUnitOutlined />, title: "连接体检", tag: "链路健康", tagColor: "blue", tone: "blue" as const, description: "宿主三环体检，检测 Docker、Token 挂载与 Hermes 网关 8754/8755 连通性，提供自愈指引。" },
+    { to: "/troubleshoot", icon: <ToolOutlined />, title: "排障助手", tag: "快速自愈", tagColor: "orange", tone: "orange" as const, description: "按故障现象（模型 401/超时、消息卡死、SQLite 锁死、权限缺失）逐步引导排查与一键自愈。" },
+    { to: "/logs", icon: <FileSearchOutlined />, title: "系统日志", tag: "实时流", tagColor: "cyan", tone: "cyan" as const, description: "实时捕获与过滤 Gateway、Watch、Web 各容器日志，支持关键字检索与异常堆栈高亮。" },
+    ...(experiments ? [{ to: "/evolution", icon: <ExperimentOutlined />, title: "自进化", tag: "实验功能", tagColor: "purple", tone: "purple" as const, description: "自主分析运行日志与故障模式，生成系统提示词优化方案与行为反思改进建议。" }] : []),
+    ...(instanceCount !== null && instanceCount >= 2 ? [{ to: "/federation", icon: <ClusterOutlined />, title: "实例联邦", tag: "多实例", tagColor: "geekblue", tone: "indigo" as const, description: `已探测到 ${instanceCount} 个活跃实例，跨机汇总状态分布、同步会话记录与协同管控。` }] : []),
+  ];
+
+  const section2Cards = [
+    { to: "/core-files", icon: <FileMarkdownOutlined />, title: "核心文件", tag: "规则资产", tagColor: "green", tone: "emerald" as const, description: "安全查看、在线编辑与版本历史回滚 AGENTS.md、SOPS.md、HERMES.md 等核心指令文件。" },
+    { to: "/memory", icon: <DatabaseOutlined />, title: "记忆系统中心", tag: "Jev 智能选型", tagColor: "purple", tone: "violet" as const, description: "自由切换 Hermes 支持的第三方记忆后端（Hindsight、Mem0 等），本地 Docker 一键部署与 Jev 智能治理。" },
+    { to: "/canary", icon: <RocketOutlined />, title: "升级策略", tag: "稳定性", tagColor: "volcano", tone: "rose" as const, description: "金丝雀升级与影子环境验证，确保配置与规则在生产环境切换前无抖动零风险。" },
+  ];
+
+  const section3Cards = [
+    { to: "/audit", icon: <AuditOutlined />, title: "行为审计", tag: "安全存证", tagColor: "blue", tone: "sky" as const, description: "完整记录 Agent 外部工具调用、文件改动、系统命令及审批流转的不可篡改审计时间线。" },
+    { to: "/sessions", icon: <HistoryOutlined />, title: "会话追踪", tag: "上下文分析", tagColor: "purple", tone: "violet" as const, description: "按会话深入查看 Hermes 交互明细、模型上下文流转与前后动作序列回放。" },
+    { to: "/memory-diff", icon: <DiffOutlined />, title: "记忆变更", tag: "记忆 diff", tagColor: "magenta", tone: "pink" as const, description: "对比管家记忆提取前后的 diff 变更差异，核实长期记忆沉淀的准确性与完整性。" },
+  ];
+
+  const filteredSec1 = section1Cards.filter((c) => isMatch(c.title, c.description, c.tag));
+  const filteredSec2 = section2Cards.filter((c) => isMatch(c.title, c.description, c.tag));
+  const filteredSec3 = section3Cards.filter((c) => isMatch(c.title, c.description, c.tag));
+  const totalMatches = filteredSec1.length + filteredSec2.length + filteredSec3.length;
 
   const renderReportLinks = (items: string[]) => (
     <div className="tools-report-links-grid">
@@ -217,6 +256,29 @@ export function ToolsPage() {
           }
         />
 
+        {/* 专家工具快速定位搜索框 */}
+        <Flex justify="space-between" align="center" wrap="wrap" gap={12}>
+          <Input
+            aria-label="搜索专家工具或报表"
+            placeholder="搜索专家工具或报表 (如: 排障, 诊断, 日志, 成本, 审计...)"
+            prefix={<SearchOutlined style={{ color: "var(--ab-text-3)" }} />}
+            allowClear
+            value={searchKeyword}
+            onChange={(e) => setSearchKeyword(e.target.value)}
+            style={{ maxWidth: 420 }}
+          />
+          {searchKeyword.trim() && (
+            <Flex align="center" gap={8}>
+              <Text type="secondary" style={{ fontSize: 13 }}>
+                找到 {totalMatches} 个匹配工具
+              </Text>
+              <Button type="link" size="small" onClick={() => setSearchKeyword("")}>
+                清空搜索
+              </Button>
+            </Flex>
+          )}
+        </Flex>
+
         {/* 顶部黄金排障与快速指令卡片 */}
         <div className="tools-hero-card">
           <div className="tools-hero-header">
@@ -254,147 +316,75 @@ export function ToolsPage() {
         <HermesGuideCard />
 
         {/* 专区 1：链路诊断与系统维护（包含自动化选择器匹配文本） */}
-        <div className="tools-section">
-          <div className="tools-section-title" role="button" tabIndex={0}>
-            <span className="tools-section-icon-badge badge-blue">
-              <ToolOutlined />
-            </span>
-            <span>专家工具 · 诊断与维护</span>
+        {filteredSec1.length > 0 && (
+          <div className="tools-section">
+            <div className="tools-section-title" role="button" tabIndex={0}>
+              <span className="tools-section-icon-badge badge-blue">
+                <ToolOutlined />
+              </span>
+              <span>专家工具 · 诊断与维护</span>
+            </div>
+            <div className="tools-grid">
+              {filteredSec1.map((card) => (
+                <ToolCard key={card.to} {...card} />
+              ))}
+            </div>
           </div>
-          <div className="tools-grid">
-            <ToolCard
-              to="/setup"
-              icon={<DeploymentUnitOutlined />}
-              title="连接体检"
-              tag="链路健康"
-              tagColor="blue"
-              tone="blue"
-              description="宿主三环体检，检测 Docker、Token 挂载与 Hermes 网关 8754/8755 连通性，提供自愈指引。"
-            />
-            <ToolCard
-              to="/troubleshoot"
-              icon={<ToolOutlined />}
-              title="排障助手"
-              tag="快速自愈"
-              tagColor="orange"
-              tone="orange"
-              description="按故障现象（模型 401/超时、消息卡死、SQLite 锁死、权限缺失）逐步引导排查与一键自愈。"
-            />
-            <ToolCard
-              to="/logs"
-              icon={<FileSearchOutlined />}
-              title="系统日志"
-              tag="实时流"
-              tagColor="cyan"
-              tone="cyan"
-              description="实时捕获与过滤 Gateway、Watch、Web 各容器日志，支持关键字检索与异常堆栈高亮。"
-            />
-            {experiments && (
-              <ToolCard
-                to="/evolution"
-                icon={<ExperimentOutlined />}
-                title="自进化"
-                tag="实验功能"
-                tagColor="purple"
-                tone="purple"
-                description="自主分析运行日志与故障模式，生成系统提示词优化方案与行为反思改进建议。"
-              />
-            )}
-            {instanceCount !== null && instanceCount >= 2 && (
-              <ToolCard
-                to="/federation"
-                icon={<ClusterOutlined />}
-                title="实例联邦"
-                tag="多实例"
-                tagColor="geekblue"
-                tone="indigo"
-                description={`已探测到 ${instanceCount} 个活跃实例，跨机汇总状态分布、同步会话记录与协同管控。`}
-              />
-            )}
-          </div>
-        </div>
+        )}
 
         {/* 内置实时诊断报告打包生成器 */}
-        <DiagnosticsCenter actionBusy={false} />
+        {(!searchKeyword.trim() || isMatch("诊断报告", "打包生成器", "诊断")) && (
+          <DiagnosticsCenter actionBusy={false} />
+        )}
 
         {/* 专区 2：核心配置与资产维护 */}
-        <div className="tools-section">
-          <div className="tools-section-title">
-            <span className="tools-section-icon-badge badge-emerald">
-              <FileMarkdownOutlined />
-            </span>
-            <span>核心配置与资产维护</span>
+        {filteredSec2.length > 0 && (
+          <div className="tools-section">
+            <div className="tools-section-title">
+              <span className="tools-section-icon-badge badge-emerald">
+                <FileMarkdownOutlined />
+              </span>
+              <span>核心配置与资产维护</span>
+            </div>
+            <div className="tools-grid">
+              {filteredSec2.map((card) => (
+                <ToolCard key={card.to} {...card} />
+              ))}
+            </div>
+            <MemoryProbeConfigCard />
           </div>
-          <div className="tools-grid">
-            <ToolCard
-              to="/core-files"
-              icon={<FileMarkdownOutlined />}
-              title="核心文件"
-              tag="规则资产"
-              tagColor="green"
-              tone="emerald"
-              description="安全查看、在线编辑与版本历史回滚 AGENTS.md、SOPS.md、HERMES.md 等核心指令文件。"
-            />
-            <ToolCard
-              to="/memory"
-              icon={<DatabaseOutlined />}
-              title="记忆系统中心"
-              tag="Jev 智能选型"
-              tagColor="purple"
-              tone="violet"
-              description="自由切换 Hermes 支持的第三方记忆后端（Hindsight、Mem0 等），本地 Docker 一键部署与 Jev 智能治理。"
-            />
-            <ToolCard
-              to="/canary"
-              icon={<RocketOutlined />}
-              title="升级策略"
-              tag="稳定性"
-              tagColor="volcano"
-              tone="rose"
-              description="金丝雀升级与影子环境验证，确保配置与规则在生产环境切换前无抖动零风险。"
-            />
-          </div>
-          <MemoryProbeConfigCard />
-        </div>
+        )}
 
         {/* 专区 3：审计追踪与深度分析 */}
-        <div className="tools-section">
-          <div className="tools-section-title">
-            <span className="tools-section-icon-badge badge-purple">
-              <SafetyCertificateOutlined />
-            </span>
-            <span>审计追踪与深度分析</span>
+        {filteredSec3.length > 0 && (
+          <div className="tools-section">
+            <div className="tools-section-title">
+              <span className="tools-section-icon-badge badge-purple">
+                <SafetyCertificateOutlined />
+              </span>
+              <span>审计追踪与深度分析</span>
+            </div>
+            <div className="tools-grid">
+              {filteredSec3.map((card) => (
+                <ToolCard key={card.to} {...card} />
+              ))}
+            </div>
           </div>
-          <div className="tools-grid">
-            <ToolCard
-              to="/audit"
-              icon={<AuditOutlined />}
-              title="行为审计"
-              tag="安全存证"
-              tagColor="blue"
-              tone="sky"
-              description="完整记录 Agent 外部工具调用、文件改动、系统命令及审批流转的不可篡改审计时间线。"
-            />
-            <ToolCard
-              to="/sessions"
-              icon={<HistoryOutlined />}
-              title="会话追踪"
-              tag="上下文分析"
-              tagColor="purple"
-              tone="violet"
-              description="按会话深入查看 Hermes 交互明细、模型上下文流转与前后动作序列回放。"
-            />
-            <ToolCard
-              to="/memory-diff"
-              icon={<DiffOutlined />}
-              title="记忆变更"
-              tag="记忆 diff"
-              tagColor="magenta"
-              tone="pink"
-              description="对比管家记忆提取前后的 diff 变更差异，核实长期记忆沉淀的准确性与完整性。"
-            />
-          </div>
-        </div>
+        )}
+
+        {/* 当搜索词无任何匹配项时展示友好空态 */}
+        {searchKeyword.trim() && totalMatches === 0 && (
+          <ButlerEmpty
+            mascot={false}
+            title={`未找到与 “${searchKeyword.trim()}” 相关的专家工具`}
+            hint="可以尝试缩短或更换检索关键词，或清空筛选查看全部工具与报表。"
+            action={
+              <Button type="primary" onClick={() => setSearchKeyword("")}>
+                清空搜索条件
+              </Button>
+            }
+          />
+        )}
 
         {/* 业务报告直通（折叠收纳，保证向后兼容） */}
         <AdvancedEvidence title="记录与报告">
