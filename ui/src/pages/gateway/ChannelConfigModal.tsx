@@ -55,7 +55,9 @@ export function ChannelConfigModal({ channel, label, onClose, onApplied }: Chann
     setError(null);
     const values = form.getFieldsValue() as Record<string, string | undefined>;
     const payload = Object.fromEntries(
-      Object.entries(values).filter(([, value]) => typeof value === "string" && value.trim() !== ""),
+      Object.entries(values)
+        .filter(([, value]) => typeof value === "string" && value.trim() !== "")
+        .map(([k, value]) => [k, (value as string).trim()]),
     ) as Record<string, string>;
     setApplying(true);
     try {
@@ -90,8 +92,8 @@ export function ChannelConfigModal({ channel, label, onClose, onApplied }: Chann
       okText="保存并启用"
     >
       {error !== null && <Alert type="error" showIcon title={error} style={{ marginBottom: 12 }} />}
-      <Typography.Paragraph type="secondary">
-        保存后管家会重启消息通道使其生效，期间通道状态会短暂显示「应用中」。
+      <Typography.Paragraph type="secondary" style={{ fontSize: 13 }}>
+        保存后管家会自动向本地 Hermes 网关写入并触发优雅重启生效，前后可能需要数秒。
       </Typography.Paragraph>
       {schema === null ? (
         error === null ? (
@@ -105,9 +107,13 @@ export function ChannelConfigModal({ channel, label, onClose, onApplied }: Chann
               name={field.name}
               label={field.label}
               rules={field.required ? [{ required: true, message: `${field.label} 为必填` }] : undefined}
-              extra={field.secret ? "留空表示不修改已保存的值" : undefined}
+              extra={field.secret ? "留空表示不修改已保存的值；可点击小眼睛核对避免复制多余空格" : undefined}
             >
-              <Input type={field.secret ? "password" : "text"} autoComplete="off" />
+              {field.secret ? (
+                <Input.Password autoComplete="new-password" placeholder={`请输入 ${field.label}`} />
+              ) : (
+                <Input autoComplete="off" placeholder={`请输入 ${field.label}`} />
+              )}
             </Form.Item>
           ))}
         </Form>
