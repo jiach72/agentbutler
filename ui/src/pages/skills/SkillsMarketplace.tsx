@@ -749,10 +749,10 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
   const searchValue = mode === "installed" || tab === "recommended" ? keyword : hubSearchInput;
   const searchPlaceholder =
     mode === "installed"
-      ? "筛选已安装技能"
+      ? "筛选已安装技能（名称或关键词）"
       : tab === "skillhub"
-        ? "搜索 SkillHub 技能"
-        : "筛选推荐与公开趋势";
+        ? "搜索 SkillHub 技能（如：weather, github, fetch, shell...）"
+        : "筛选推荐与公开趋势（如：资讯、运维、编程...）";
 
   const hubSearching = hubSearch.trim() !== "";
   const hubCategoryChips = useMemo(
@@ -1010,8 +1010,18 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
   ) : recommendedCards.length === 0 ? (
     <Empty
       mascot={false}
-      title="还没有推荐项目"
-      hint="点击右上角搜索，或从 Git 安装技能。"
+      title="暂时没有匹配的推荐项目"
+      hint="您可以前往 SkillHub 技能库搜索全球开源技能，或直接从 Git 仓库安装。"
+      action={
+        <Button
+          type="primary"
+          onClick={() => {
+            setTab("skillhub");
+          }}
+        >
+          探索 SkillHub 技能库 →
+        </Button>
+      }
     />
   ) : (
     <div className="wb-grid">
@@ -1116,7 +1126,18 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
         <Empty
           mascot={false}
           title="还没有安装任何技能"
-          hint="去 SkillHub 市场逛逛，或从 Git 安装。"
+          hint="技能可为智能体扩展联网搜索、执行脚本、操作文件、消息通知等能力。"
+          action={
+            <Button
+              type="primary"
+              onClick={() => {
+                setMode("market");
+                setTab("skillhub");
+              }}
+            >
+              去 SkillHub 技能库挑选 →
+            </Button>
+          }
         />
       ) : visibleInstalled.length === 0 && localError === null ? (
         <Empty
