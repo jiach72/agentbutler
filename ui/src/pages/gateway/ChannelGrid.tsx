@@ -69,9 +69,9 @@ export function ChannelGrid({ onReconnect, channels: injected }: ChannelGridProp
     try {
       const result = await postJson(`/api/messages/channels/${encodeURIComponent(channelId)}/ping`, {});
       if (result.ok) {
-        message.success(`测试消息已向 ${channelLabel} 发送，请查看对应客户端。`);
+        message.success(`🎉 握手测试包已发出！请留意您的 ${channelLabel} 是否收到消息。`);
       } else {
-        message.error(`测试消息发送失败：请确认通道配置或管家连接状态。`);
+        message.error(`测试消息发送未成功：请核对 ${channelLabel} 的凭据/Token 是否正确，或检查网关连接状态。`);
       }
     } finally {
       setPingingId(null);
@@ -228,6 +228,7 @@ export function ChannelGrid({ onReconnect, channels: injected }: ChannelGridProp
                         {channel.enabled && (
                           <Button
                             size="small"
+                            icon={<SendOutlined />}
                             loading={pingingId === channel.id}
                             onClick={() => void pingChannel(channel.id, channel.label)}
                           >
@@ -261,6 +262,7 @@ export function ChannelGrid({ onReconnect, channels: injected }: ChannelGridProp
                               </Button>
                               <Button
                                 size="small"
+                                icon={<SendOutlined />}
                                 loading={pingingId === channel.id}
                                 onClick={() => void pingChannel(channel.id, channel.label)}
                               >

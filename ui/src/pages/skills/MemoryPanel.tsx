@@ -5,6 +5,7 @@
 import { useMemo, useState } from "react";
 import {
   Alert,
+  App,
   Button,
   Card,
   Col,
@@ -17,6 +18,7 @@ import {
   Typography,
 } from "antd";
 import {
+  CopyOutlined,
   DatabaseOutlined,
   DeleteOutlined,
   LineChartOutlined,
@@ -90,8 +92,17 @@ export function MemoryPanel({
   onForget,
   onGoToSystems,
 }: MemoryPanelProps) {
+  const { message } = App.useApp();
   const [memoryInput, setMemoryInput] = useState("");
   const [forgettingId, setForgettingId] = useState<string | null>(null);
+
+  const copyMemoryText = (text: string) => {
+    void navigator.clipboard.writeText(text).then(() => {
+      message.success("记忆内容已复制到剪贴板");
+    }).catch(() => {
+      message.info("已选中记忆内容");
+    });
+  };
 
   const months = useMemo(() => {
     const source = data?.memory.stats?.byMonth ?? [];
@@ -335,56 +346,95 @@ export function MemoryPanel({
             />
           ) : null
         ) : (
-          <Flex vertical gap={10} className="divide-y divide-outline-variant/10">
-            {previewEntries.map((entry, idx) => (
-              <Flex
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {previewEntries.map((entry) => (
+              <div
                 key={entry.entryId}
-                justify="space-between"
-                align="flex-start"
-                gap={12}
-                className={idx > 0 ? "pt-3" : undefined}
-                style={{ width: "100%" }}
+                className="p-3.5 rounded-xl bg-surface-container/50 hover:bg-surface-container border border-outline-variant/15 hover:border-outline-variant/30 transition-all flex flex-col justify-between gap-2.5 shadow-2xs group"
               >
-                <Flex vertical gap={4} style={{ width: "100%" }}>
-                  <Flex gap={8} align="center" wrap="wrap">
-                    <Text type="secondary">{formatTime(entry.writtenAt)}</Text>
-                    {entry.channel !== undefined && <Tag>{channelLabel(entry.channel)}</Tag>}
-                    {entry.cold === true && <Tag color="warning">较久未用</Tag>}
-                  </Flex>
-                  <div style={{ wordBreak: "break-word", whiteSpace: "pre-wrap" }}>{entry.content}</div>
-                </Flex>
-                {onForget && (
-                  <Popconfirm
-                    title="遗忘此条记忆？"
-                    description="遗忘后此条记忆将被永久删除且无法召回。"
-                    okText="确认遗忘"
-                    cancelText="取消"
-                    okButtonProps={{ danger: true }}
-                    disabled={forgettingId === entry.entryId || data?.memory.mode !== "driver"}
-                    onConfirm={async () => {
-                      setForgettingId(entry.entryId);
-                      try {
-                        await onForget(entry.entryId);
-                      } finally {
-                        setForgettingId(null);
-                      }
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {entry.channel !== undefined ? (
+                        <Tag color="blue" style={{ margin: 0, borderRadius: 10, fontSize: 11 }}>
+                          {channelLabel(entry.channel)}
+                        </Tag>
+                      ) : (
+                        <Tag style={{ margin: 0, borderRadius: 10, fontSize: 11 }}>全局记忆</Tag>
+                      )}
+                      {entry.cold === true && (
+                        <Tag color="warning" style={{ margin: 0, borderRadius: 10, fontSize: 11 }}>
+                          较久未用
+                        </Tag>
+                      )}
+                      <Text type="secondary" style={{ fontSize: 11 }}>
+                        {formatTime(entry.writtenAt)}
+                      </Text>
+                    </div>
+
+                    <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<CopyOutlined />}
+                        title="复制记忆文本"
+                        onClick={() => copyMemoryText(entry.content)}
+                        style={{ width: 26, height: 26, padding: 0 }}
+                      />
+                      {onForget && (
+                        <Popconfirm
+                          title="遗忘此条记忆？"
+                          description="遗忘后此条记忆将被永久删除且无法召回。"
+                          okText="确认遗忘"
+                          cancelText="取消"
+                          okButtonProps={{ danger: true }}
+                          disabled={forgettingId === entry.entryId || data?.memory.mode !== "driver"}
+                          onConfirm={async () => {
+                            setForgettingId(entry.entryId);
+                            try {
+                              await onForget(entry.entryId);
+                            } finally {
+                              setForgettingId(null);
+                            }
+                          }}
+                        >
+                          <Button
+                            type="text"
+                            size="small"
+                            danger
+                            icon={<DeleteOutlined />}
+                            loading={forgettingId === entry.entryId}
+                            disabled={data?.memory.mode !== "driver"}
+                            title="遗忘此条记忆"
+                            style={{ width: 26, height: 26, padding: 0 }}
+                          />
+                        </Popconfirm>
+                      )}
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      wordBreak: "break-word",
+                      whiteSpace: "pre-wrap",
+                      fontSize: 13,
+                      lineHeight: 1.6,
+                      color: "var(--ab-text, inherit)",
                     }}
                   >
-                    <Button
-                      type="link"
-                      size="small"
-                      danger
-                      icon={<DeleteOutlined />}
-                      loading={forgettingId === entry.entryId}
-                      disabled={data?.memory.mode !== "driver"}
-                    >
-                      遗忘
-                    </Button>
-                  </Popconfirm>
-                )}
-              </Flex>
+                    {entry.content}
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-outline-variant/10 flex items-center justify-between text-[11px] text-on-surface-variant font-mono">
+                  <span>ID: {entry.entryId.slice(0, 8)}…</span>
+                  <span className="text-primary hover:underline cursor-pointer" onClick={() => copyMemoryText(entry.content)}>
+                    点击复制
+                  </span>
+                </div>
+              </div>
             ))}
-          </Flex>
+          </div>
         )}
       </div>
 
