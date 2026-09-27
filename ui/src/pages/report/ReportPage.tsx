@@ -6,12 +6,13 @@
  * 数据真相原则：成本未接入显示「待接入」；审计未启用显式标注，不伪造 0。
  */
 import { money, USD_TO_CNY } from "../../lib/format.js";
-import { Button, Card, Flex, Skeleton, Space, Table, Tooltip, Typography } from "antd";
+import { Button, Card, Flex, Input, Skeleton, Space, Table, Tooltip, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { ReloadOutlined, ThunderboltOutlined } from "@ant-design/icons";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ConclusionBar } from "../../components/ConclusionBar.js";
 import type { PageConclusionView } from "../../components/ConclusionBar.js";
+import { CopySnippetButton } from "../../components/CopySnippetButton.js";
 import { Empty } from "../../components/Empty.js";
 import { PageHeader } from "../../components/PageHeader.js";
 import { StatStrip } from "../../components/StatStrip.js";
@@ -69,6 +70,7 @@ export function ReportPage() {
   const [history, setHistory] = useState<ReportRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [historyKeyword, setHistoryKeyword] = useState("");
 
   const refresh = useCallback(() => {
     void loadJson<{ data: ReportData; markdown: string }>("/api/trust/report", 15_000).then((result) => {
@@ -98,6 +100,18 @@ export function ReportPage() {
       refresh();
     }
   }, [refresh]);
+
+  const filteredHistory = useMemo(() => {
+    const q = historyKeyword.trim().toLowerCase();
+    if (!q) return history;
+    return history.filter(
+      (row) =>
+        row.weekStart.toLowerCase().includes(q) ||
+        row.weekEnd.toLowerCase().includes(q) ||
+        (STATUS_LABEL[row.status] && STATUS_LABEL[row.status].toLowerCase().includes(q)) ||
+        row.markdown.toLowerCase().includes(q),
+    );
+  }, [history, historyKeyword]);
 
   const data = current?.data ?? null;
 
@@ -258,7 +272,18 @@ export function ReportPage() {
         {data !== null ? (
           <Card
             title={`周报正文（${data.weekStart} ~ ${data.weekEnd}）`}
-            extra={<Typography.Text type="secondary">实时快照，未落库</Typography.Text>}
+            extra={
+              <Space>
+                <Typography.Text type="secondary">实时快照，未落库</Typography.Text>
+                {current?.markdown && (
+                  <CopySnippetButton
+                    text={current.markdown}
+                    label="复制正文"
+                    copiedLabel="已复制正文"
+                  />
+                )}
+              </Space>
+            }
           >
             <div className="p-4 rounded-xl bg-surface-container-low border border-outline-variant/15 font-mono text-xs leading-relaxed whitespace-pre-wrap select-text overflow-x-auto text-on-surface">
               {current?.markdown}
@@ -273,7 +298,21 @@ export function ReportPage() {
           </Card>
         ) : null}
 
-        <Card title="历史存档（近 12 周）">
+        <Card
+          title="历史存档（近 12 周）"
+          extra={
+            history.length > 0 ? (
+              <Input.Search
+                placeholder="搜索历史周报 (区间 / 状态 / 内容)..."
+                allowClear
+                size="small"
+                value={historyKeyword}
+                onChange={(e) => setHistoryKeyword(e.target.value)}
+                style={{ width: 240 }}
+              />
+            ) : null
+          }
+        >
           {historyLoading ? (
             <Table<ReportRow>
               rowKey="id"
@@ -288,15 +327,29 @@ export function ReportPage() {
               hint="等本周一 08:00 自动生成，或点上方「立即生成」试试。"
               mascotWidth={72}
             />
+          ) : filteredHistory.length === 0 ? (
+            <Empty
+              title="未找到匹配的周报存档"
+              hint={`未找到与 "${historyKeyword}" 相关的历史周报记录`}
+              action={<Button size="small" onClick={() => setHistoryKeyword("")}>清空筛选</Button>}
+              mascotWidth={72}
+            />
           ) : (
             <Table<ReportRow>
               rowKey="id"
               columns={columns}
-              dataSource={history}
+              dataSource={filteredHistory}
               pagination={false}
               expandable={{
                 expandedRowRender: (row) => (
                   <div className="p-3 my-1 rounded-lg bg-surface-container-low border border-outline-variant/15 font-mono text-xs leading-relaxed whitespace-pre-wrap select-text text-on-surface">
+                    <Flex justify="flex-end" style={{ marginBottom: 8 }}>
+                      <CopySnippetButton
+                        text={row.markdown}
+                        label="复制该周正文"
+                        copiedLabel="已复制正文"
+                      />
+                    </Flex>
                     {row.markdown}
                   </div>
                 ),
