@@ -30,6 +30,7 @@ import {
   FileMarkdownOutlined,
   FileSearchOutlined,
   HistoryOutlined,
+  ReloadOutlined,
   RightOutlined,
   RocketOutlined,
   SafetyCertificateOutlined,
@@ -109,6 +110,7 @@ export function ToolsPage() {
   const [gatewayOnline, setGatewayOnline] = useState<boolean | null>(null);
   const [copied, setCopied] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState("");
+  const [loadingStatus, setLoadingStatus] = useState(false);
 
   const isMatch = useCallback((title: string, desc?: string, tag?: string) => {
     const kw = searchKeyword.trim().toLowerCase();
@@ -120,6 +122,24 @@ export function ToolsPage() {
     );
   }, [searchKeyword]);
 
+  const loadStatus = useCallback(async () => {
+    setLoadingStatus(true);
+    try {
+      const [resFed, resHealth] = await Promise.all([
+        loadJson<{ instances: { instanceId: string }[] }>("/api/federation?windowDays=7"),
+        loadJson<{ ok?: boolean; gateway?: boolean }>("/api/health"),
+      ]);
+      if (resFed.ok) {
+        setInstanceCount(new Set(resFed.data.instances.map((item) => item.instanceId)).size);
+      }
+      if (resHealth.ok) {
+        setGatewayOnline(resHealth.data.gateway !== false);
+      }
+    } finally {
+      setLoadingStatus(false);
+    }
+  }, []);
+
   useEffect(() => {
     try {
       setExperiments(localStorage.getItem(EXPERIMENTS_KEY) === "1");
@@ -127,25 +147,8 @@ export function ToolsPage() {
       /* ignore storage issue */
     }
 
-    let active = true;
-    void loadJson<{ instances: { instanceId: string }[] }>("/api/federation?windowDays=7").then(
-      (result) => {
-        if (active && result.ok) {
-          setInstanceCount(new Set(result.data.instances.map((item) => item.instanceId)).size);
-        }
-      },
-    );
-
-    void loadJson<{ ok?: boolean; gateway?: boolean }>("/api/health").then((res) => {
-      if (active) {
-        setGatewayOnline(res.ok && res.data.gateway !== false);
-      }
-    });
-
-    return () => {
-      active = false;
-    };
-  }, []);
+    void loadStatus();
+  }, [loadStatus]);
 
   const handleCopyDoctor = useCallback(() => {
     if (!navigator.clipboard) {
@@ -243,6 +246,13 @@ export function ToolsPage() {
           eyebrow="日常使用"
           extra={
             <Flex align="center" gap={12}>
+              <Button
+                size="small"
+                icon={<ReloadOutlined spin={loadingStatus} />}
+                onClick={() => void loadStatus()}
+              >
+                刷新状态
+              </Button>
               <Text strong style={{ fontSize: 13 }}>实验功能</Text>
               <Switch
                 aria-label="实验功能"
@@ -277,26 +287,41 @@ export function ToolsPage() {
         />
 
         {/* 专家工具快速定位搜索框 */}
-        <Flex justify="space-between" align="center" wrap="wrap" gap={12}>
-          <Input
-            aria-label="搜索专家工具或报表"
-            placeholder="搜索专家工具或报表 (如: 排障, 诊断, 日志, 成本, 审计...)"
-            prefix={<SearchOutlined style={{ color: "var(--ab-text-3)" }} />}
-            allowClear
-            value={searchKeyword}
-            onChange={(e) => setSearchKeyword(e.target.value)}
-            style={{ maxWidth: 420 }}
-          />
-          {searchKeyword.trim() && (
-            <Flex align="center" gap={8}>
-              <Text type="secondary" style={{ fontSize: 13 }}>
-                找到 {totalMatches} 个匹配工具
-              </Text>
-              <Button type="link" size="small" onClick={() => setSearchKeyword("")}>
-                清空搜索
-              </Button>
-            </Flex>
-          )}
+        <Flex vertical gap={8}>
+          <Flex justify="space-between" align="center" wrap="wrap" gap={12}>
+            <Input
+              aria-label="搜索专家工具或报表"
+              placeholder="搜索专家工具或报表 (如: 排障, 诊断, 日志, 成本, 审计...)"
+              prefix={<SearchOutlined style={{ color: "var(--ab-text-3)" }} />}
+              allowClear
+              value={searchKeyword}
+              onChange={(e) => setSearchKeyword(e.target.value)}
+              style={{ maxWidth: 420 }}
+            />
+            {searchKeyword.trim() && (
+              <Flex align="center" gap={8}>
+                <Text type="secondary" style={{ fontSize: 13 }}>
+                  找到 {totalMatches} 个匹配工具
+                </Text>
+                <Button type="link" size="small" onClick={() => setSearchKeyword("")}>
+                  清空搜索
+                </Button>
+              </Flex>
+            )}
+          </Flex>
+          <Flex align="center" gap={6} wrap="wrap">
+            <Text type="secondary" style={{ fontSize: 12 }}>快捷筛选:</Text>
+            {["排障", "日志", "记忆", "审计", "核心文件"].map((kw) => (
+              <Tag
+                key={kw}
+                style={{ cursor: "pointer", userSelect: "none" }}
+                color={searchKeyword === kw ? "blue" : undefined}
+                onClick={() => setSearchKeyword(searchKeyword === kw ? "" : kw)}
+              >
+                {kw}
+              </Tag>
+            ))}
+          </Flex>
         </Flex>
 
         {/* 顶部黄金排障与快速指令卡片 */}
@@ -312,8 +337,14 @@ export function ToolsPage() {
               </Text>
             </div>
             <Flex align="center" gap={12} wrap="wrap">
-              <div className="tools-cmd-box">
+              <div
+                className="tools-cmd-box"
+                onClick={handleCopyDoctor}
+                style={{ cursor: "pointer" }}
+                title="点击直接复制命令"
+              >
                 <span className="tools-cmd-text">{DOCTOR_COMMAND}</span>
+                <CopyOutlined style={{ fontSize: 12, marginLeft: 8, opacity: 0.7 }} />
               </div>
               <Button
                 type="primary"
