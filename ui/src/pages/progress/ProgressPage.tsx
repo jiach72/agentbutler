@@ -9,10 +9,10 @@
  *    算成「不诚实」，那本身就是在制造新的信任问题；
  * 3. 每一条判定都给出理由与副作用明细，用户可以自己复核，不用信我们。
  */
-import { Alert, Button, Card, Flex, Segmented, Space, Table, Tooltip, Typography } from "antd";
+import { Alert, Button, Card, Flex, Input, Segmented, Space, Table, Tooltip, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { ReloadOutlined, SafetyCertificateOutlined, SyncOutlined } from "@ant-design/icons";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ConclusionBar } from "../../components/ConclusionBar.js";
 import type { PageConclusionView } from "../../components/ConclusionBar.js";
@@ -94,6 +94,7 @@ export function ProgressPage() {
   // 筛选同步到 URL（规范 03 §3.12）：刷新/分享能还原同一视图（评审 P1-7）。
   const [filter, setFilter] = useUrlState<string>("verdict", "all");
   const [busy, setBusy] = useState(false);
+  const [searchKeyword, setSearchKeyword] = useState("");
 
   const refresh = useCallback(() => {
     const params = new URLSearchParams({ windowDays: "7", limit: "300" });
@@ -120,6 +121,19 @@ export function ProgressPage() {
     refresh();
   }, [refresh]);
 
+  const filteredClaims = useMemo(() => {
+    const list = data?.claims ?? [];
+    const q = searchKeyword.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter(
+      (claim) =>
+        claim.sessionId.toLowerCase().includes(q) ||
+        claim.claimText.toLowerCase().includes(q) ||
+        (claim.reason && claim.reason.toLowerCase().includes(q)) ||
+        (VERDICT_LABEL[claim.verdict] && VERDICT_LABEL[claim.verdict].toLowerCase().includes(q)),
+    );
+  }, [data?.claims, searchKeyword]);
+
   const columns: ColumnsType<Claim> = [
     {
       title: "结论",
@@ -144,13 +158,17 @@ export function ProgressPage() {
         sessionId === "(unattributed)" ? (
           <Typography.Text type="secondary">（未归属）</Typography.Text>
         ) : (
-          <Link
-            to={`/sessions/${encodeURIComponent(sessionId)}`}
-            aria-label={`查看会话 ${sessionId} 详情`}
-            className="font-mono text-xs hover:underline"
-          >
-            {sessionId}
-          </Link>
+          <Flex align="center" gap={4}>
+            <Link
+              to={`/sessions/${encodeURIComponent(sessionId)}`}
+              aria-label={`查看会话 ${sessionId} 详情`}
+              className="font-mono text-xs hover:underline"
+              style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+            >
+              {sessionId}
+            </Link>
+            <Typography.Text copyable={{ text: sessionId }} style={{ display: "inline-flex" }} />
+          </Flex>
         ),
     },
     {
@@ -332,17 +350,19 @@ export function ProgressPage() {
           >
             <Flex gap={8} wrap="wrap">
               {summary.suspectSessions.map((row) => (
-                <Link
-                  key={row.sessionId}
-                  to={`/sessions/${encodeURIComponent(row.sessionId)}`}
-                  aria-label={`查看可疑会话 ${row.sessionId} 详情`}
-                  style={{ textDecoration: "none" }}
-                >
-                  <StatusBadge
-                    tone="error"
-                    label={`${row.sessionId} · 最长连续 ${row.maxSuspectStreak} 次 · 可信度 ${pct(row.trustRate)}`}
-                  />
-                </Link>
+                <Flex key={row.sessionId} align="center" gap={4}>
+                  <Link
+                    to={`/sessions/${encodeURIComponent(row.sessionId)}`}
+                    aria-label={`查看可疑会话 ${row.sessionId} 详情`}
+                    style={{ textDecoration: "none" }}
+                  >
+                    <StatusBadge
+                      tone="error"
+                      label={`${row.sessionId} · 最长连续 ${row.maxSuspectStreak} 次 · 可信度 ${pct(row.trustRate)}`}
+                    />
+                  </Link>
+                  <Typography.Text copyable={{ text: row.sessionId }} style={{ display: "inline-flex" }} />
+                </Flex>
               ))}
             </Flex>
           </Card>
@@ -351,17 +371,29 @@ export function ProgressPage() {
         <Card
           title="进度声明核实明细"
           extra={
-            <Segmented
-              aria-label="按可信度筛选进度声明"
-              options={[
-                { label: "全部", value: "all" },
-                { label: "可疑", value: "suspect" },
-                { label: "可信", value: "verified" },
-                { label: "无法验证", value: "unverifiable" },
-              ]}
-              value={filter}
-              onChange={(value) => setFilter(value as string)}
-            />
+            <Space wrap>
+              {(data?.claims?.length ?? 0) > 0 && (
+                <Input.Search
+                  placeholder="搜索会话 / 声明内容 / 理由..."
+                  allowClear
+                  size="small"
+                  value={searchKeyword}
+                  onChange={(e) => setSearchKeyword(e.target.value)}
+                  style={{ width: 220 }}
+                />
+              )}
+              <Segmented
+                aria-label="按可信度筛选进度声明"
+                options={[
+                  { label: "全部", value: "all" },
+                  { label: "可疑", value: "suspect" },
+                  { label: "可信", value: "verified" },
+                  { label: "无法验证", value: "unverifiable" },
+                ]}
+                value={filter}
+                onChange={(value) => setFilter(value as string)}
+              />
+            </Space>
           }
         >
           {data !== null && data.claims.length === 0 ? (
@@ -374,11 +406,18 @@ export function ProgressPage() {
               }
               mascotWidth={72}
             />
+          ) : filteredClaims.length === 0 ? (
+            <Empty
+              title="未找到匹配的进度声明"
+              hint={`未找到与 "${searchKeyword}" 相关的声明记录`}
+              action={<Button size="small" onClick={() => setSearchKeyword("")}>清空筛选</Button>}
+              mascot={false}
+            />
           ) : (
             <Table<Claim>
               rowKey="id"
               columns={columns}
-              dataSource={data?.claims ?? []}
+              dataSource={filteredClaims}
               loading={data === null}
               pagination={{ pageSize: 20, showSizeChanger: false }}
               scroll={{ x: 1000 }}
