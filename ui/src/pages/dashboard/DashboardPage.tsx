@@ -9,6 +9,8 @@ import { useUserHealthData } from "./useUserHealthData.js";
 import { SystemTelemetryChart } from "./SystemTelemetryChart.js";
 import { MatrixSparkline } from "./MatrixSparkline.js";
 import { GuardianPostureChart } from "./GuardianPostureChart.js";
+import { SetupHeroCard } from "./SetupHeroCard.js";
+import { WalletSafetyCard } from "./WalletSafetyCard.js";
 
 interface RuntimeDetailsProps {
   open: boolean;
@@ -53,6 +55,31 @@ export function DashboardPage() {
   const { message } = App.useApp();
 
   const [inspecting, setInspecting] = useState(false);
+  const [heroDismissed, setHeroDismissed] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem("butler.hero.onboarding.dismissed") === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  const dismissHero = () => {
+    try {
+      window.localStorage.setItem("butler.hero.onboarding.dismissed", "1");
+    } catch {
+      // ignore
+    }
+    setHeroDismissed(true);
+  };
+
+  const showHero = () => {
+    try {
+      window.localStorage.removeItem("butler.hero.onboarding.dismissed");
+    } catch {
+      // ignore
+    }
+    setHeroDismissed(false);
+  };
 
   const { health, input, onlineInstances, totalInstances, sources } = data;
   const inspectStatus = sources.dashboard?.inspectStatus;
@@ -96,6 +123,15 @@ export function DashboardPage() {
         <DashboardSkeleton />
       ) : (
         <>
+          {/* Section 0: Beginner Onboarding Guide (新手启航 3 步走) */}
+          {!heroDismissed && (
+            <SetupHeroCard
+              onlineInstances={onlineInstances ?? 1}
+              isBridgeConnected={isBridgeConnected}
+              onDismiss={dismissHero}
+            />
+          )}
+
           {/* Section A: Status & Health Conclusion Banner (精炼紧凑，实用主义) */}
           <section className="health-conclusion" data-status={health.status}>
             <div className="animate-entrance rounded-2xl bg-surface-container-lowest p-4 md:p-5 shadow-xs border border-outline-variant/15 relative overflow-hidden bento-card-hover">
@@ -193,6 +229,17 @@ export function DashboardPage() {
                     <span>🧠</span>
                     <span>查阅记忆便签</span>
                   </Link>
+                  {heroDismissed && (
+                    <button
+                      type="button"
+                      onClick={showHero}
+                      className="text-xs px-2.5 py-1 rounded-lg bg-surface-container/60 hover:bg-surface-container-high text-on-surface-variant hover:text-primary transition-colors flex items-center gap-1.5 border border-outline-variant/15 cursor-pointer"
+                      title="重新打开新手启航向导"
+                    >
+                      <span>✨</span>
+                      <span>新手启航</span>
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -628,6 +675,11 @@ export function DashboardPage() {
                 )}
               </div>
             </div>
+          </section>
+
+          {/* Section D-2: AI 钱包与预算安全阀 */}
+          <section className="animate-entrance">
+            <WalletSafetyCard />
           </section>
 
           {/* Section E-1: 系统巡检与调度吞吐态势 */}
