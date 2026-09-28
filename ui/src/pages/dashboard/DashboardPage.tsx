@@ -250,13 +250,27 @@ export function DashboardPage() {
                   </h3>
                 </div>
               </div>
-              <div className="flex items-center gap-1.5 self-end sm:self-center">
+              <div className="flex flex-wrap items-center gap-1.5 self-end sm:self-center">
                 <Link
-                  to="/gateway"
+                  to="/gateway?tab=im"
                   className="text-xs px-2.5 py-1 rounded-lg bg-surface-container/60 hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-1.5 border border-outline-variant/15"
                 >
                   <span>💬</span>
-                  <span>通知网关</span>
+                  <span>即时通讯</span>
+                </Link>
+                <Link
+                  to="/knowledge"
+                  className="text-xs px-2.5 py-1 rounded-lg bg-surface-container/60 hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-1.5 border border-outline-variant/15"
+                >
+                  <span>📚</span>
+                  <span>本地知识库</span>
+                </Link>
+                <Link
+                  to="/tasks"
+                  className="text-xs px-2.5 py-1 rounded-lg bg-surface-container/60 hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-1.5 border border-outline-variant/15"
+                >
+                  <span>⏰</span>
+                  <span>定时任务</span>
                 </Link>
                 <Link
                   to="/skills"

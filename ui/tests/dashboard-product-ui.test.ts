@@ -1,4 +1,5 @@
 import React from "react";
+import { readFileSync } from "node:fs";
 import { App } from "antd";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
@@ -61,5 +62,17 @@ describe("首页与消息页的产品级布局", () => {
     expect(html).toContain('class="channel-directory"');
     expect(html).toContain('class="channel-grid"');
     expect(html).toContain('id="channel-grid-heading"');
+  });
+
+  it("随手吩咐管家卡片提供即时通讯、本地知识库、定时任务与记忆便签直达入口", () => {
+    const src = readFileSync(new URL("../src/pages/dashboard/DashboardPage.tsx", import.meta.url), "utf8");
+    expect(src).toContain('to="/gateway?tab=im"');
+    expect(src).toContain("即时通讯");
+    expect(src).toContain('to="/knowledge"');
+    expect(src).toContain("本地知识库");
+    expect(src).toContain('to="/tasks"');
+    expect(src).toContain("定时任务");
+    expect(src).toContain('to="/skills"');
+    expect(src).toContain("记忆便签");
   });
 });
