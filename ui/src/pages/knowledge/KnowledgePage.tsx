@@ -35,6 +35,7 @@ import {
   Typography,
   Upload,
   Drawer,
+  Dropdown,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import {
@@ -48,6 +49,7 @@ import {
   CompassOutlined,
   CopyOutlined,
   DeleteOutlined,
+  DownOutlined,
   ExclamationCircleOutlined,
   EyeOutlined,
   FileDoneOutlined,
@@ -285,9 +287,38 @@ export function KnowledgePage() {
     return matches ? matches.length : 0;
   }, [docSearchKeyword, previewData?.content]);
 
-  const handleAskButlerAboutDoc = (docName: string) => {
-    const prompt = `请基于本地知识库文档《${docName}》的内容，帮我梳理其核心要点与操作步骤：`;
+  const handleAskButlerAboutDoc = (
+    docName: string,
+    scenario: "summary" | "todos" | "audit" | "brief" = "summary",
+  ) => {
+    let prompt = `请基于本地知识库文档《${docName}》的内容，帮我梳理其核心要点与操作步骤：`;
+    if (scenario === "todos") {
+      prompt = `请深入梳理本地知识库文档《${docName}》，提取其中列出的所有行动项、任务责任与截止时间待办清单：`;
+    } else if (scenario === "audit") {
+      prompt = `请作为专业审查员，核对本地知识库文档《${docName}》是否存在潜在风险、未决事项或逻辑漏洞：`;
+    } else if (scenario === "brief") {
+      prompt = `请将本地知识库文档《${docName}》的内容凝练为一段 200 字以内的即时通讯工作简报：`;
+    }
     navigate(`/gateway?tab=im&prefill=${encodeURIComponent(prompt)}`);
+  };
+
+  // 自动从预览文档中提取 Markdown 标签（如 #IM工作台、#知识沉淀 等）
+  const previewDocTags = useMemo(() => {
+    if (!previewData?.content) return [];
+    const matches = previewData.content.matchAll(/(?:^|\s)#([a-zA-Z0-9_\u4e00-\u9fa5]+)/g);
+    const tags: string[] = [];
+    for (const m of matches) {
+      if (m[1]) tags.push(`#${m[1]}`);
+    }
+    return Array.from(new Set(tags)).slice(0, 8);
+  }, [previewData?.content]);
+
+  // 按标签快速过滤收集箱资料
+  const handleFilterByTag = (tag: string) => {
+    setDocFilter(tag);
+    setActiveTab("vault");
+    setPreviewDrawerOpen(false);
+    message.info(`已按标签「${tag}」筛选资料收集箱`);
   };
 
   // 7. 原生知识问答与语义检索状态
@@ -941,9 +972,17 @@ export function KnowledgePage() {
     {
       title: "操作",
       key: "actions",
-      width: 120,
+      width: 140,
       render: (_, record) => (
         <Space size="small">
+          <Tooltip title="在即时通讯中提问此文档">
+            <Button
+              size="small"
+              type="text"
+              icon={<CommentOutlined style={{ color: "var(--ant-color-primary)" }} />}
+              onClick={() => handleAskButlerAboutDoc(record.name)}
+            />
+          </Tooltip>
           <Tooltip title="在线预览文档内容">
             <Button
               size="small"
@@ -1494,14 +1533,60 @@ export function KnowledgePage() {
                               </Tag>
                             )}
                           </Flex>
-                          <Space wrap>
+                          <Flex align="center" gap={8} wrap="wrap">
+                            {/* 快捷过滤芯片 */}
+                            <Flex align="center" gap={4} wrap="wrap">
+                              <Tag.CheckableTag
+                                checked={docSourceFilter === "all" && docIngestedFilter === "all" && !docFilter}
+                                onChange={() => {
+                                  setDocSourceFilter("all");
+                                  setDocIngestedFilter("all");
+                                  setDocFilter("");
+                                }}
+                              >
+                                全部
+                              </Tag.CheckableTag>
+                              <Tag.CheckableTag
+                                checked={docFilter === "知识卡片"}
+                                onChange={(checked) => {
+                                  setDocFilter(checked ? "知识卡片" : "");
+                                }}
+                              >
+                                🔖 知识卡片
+                              </Tag.CheckableTag>
+                              <Tag.CheckableTag
+                                checked={docSourceFilter === "obsidian"}
+                                onChange={(checked) => {
+                                  setDocSourceFilter(checked ? "obsidian" : "all");
+                                }}
+                              >
+                                📓 Obsidian
+                              </Tag.CheckableTag>
+                              <Tag.CheckableTag
+                                checked={docSourceFilter === "inbox"}
+                                onChange={(checked) => {
+                                  setDocSourceFilter(checked ? "inbox" : "all");
+                                }}
+                              >
+                                💬 聊天归档
+                              </Tag.CheckableTag>
+                              <Tag.CheckableTag
+                                checked={docIngestedFilter === "pending"}
+                                onChange={(checked) => {
+                                  setDocIngestedFilter(checked ? "pending" : "all");
+                                }}
+                              >
+                                ⏳ 待切片
+                              </Tag.CheckableTag>
+                            </Flex>
+
                             <Input
                               placeholder="搜索资料名称..."
                               prefix={<SearchOutlined style={{ color: "var(--ab-text-3)" }} />}
                               allowClear
                               value={docFilter}
                               onChange={(e) => setDocFilter(e.target.value)}
-                              style={{ width: 160 }}
+                              style={{ width: 140 }}
                               size="small"
                             />
                             <Select
@@ -1540,7 +1625,7 @@ export function KnowledgePage() {
                               智能去重
                             </Button>
                             <Button size="small" icon={<ReloadOutlined />} onClick={fetchDocuments} />
-                          </Space>
+                          </Flex>
                         </Flex>
                       }
                       size="small"
@@ -1624,8 +1709,9 @@ export function KnowledgePage() {
                       <Flex gap={8}>
                         <Input.Search
                           size="large"
-                          placeholder="向知识库提问，例如：这份文档的核心结论是什么？有哪些待办事项？"
+                          placeholder="向知识库提问，例如：这份文档的核心结论是什么？有哪些待办事项？（按 Enter 检索）"
                           enterButton="检索问答"
+                          allowClear
                           value={queryInput}
                           onChange={(e) => setQueryInput(e.target.value)}
                           onSearch={() => handleRunQuery()}
@@ -1722,10 +1808,23 @@ export function KnowledgePage() {
                                       >
                                         <Flex vertical gap={4}>
                                           <Flex justify="space-between" align="center">
-                                            <Text strong ellipsis style={{ maxWidth: 220 }}>
+                                            <Text strong ellipsis style={{ maxWidth: 170 }}>
                                               {c.docName}
                                             </Text>
-                                            <Tag color="blue">匹配度 {c.score}</Tag>
+                                            <Space size={4}>
+                                              <Tag color="blue" style={{ margin: 0 }}>匹配度 {c.score}</Tag>
+                                              <Tooltip title="在即时通讯中就此出处追问细节">
+                                                <Button
+                                                  size="small"
+                                                  type="text"
+                                                  icon={<CommentOutlined style={{ fontSize: 11, color: "var(--ant-color-primary)" }} />}
+                                                  onClick={() => {
+                                                    const prompt = `基于知识库文档《${c.docName}》的参考出处：\n> ${c.snippet}\n\n请针对问题「${queryResult.query}」展开深度解读与细节分析：`;
+                                                    navigate(`/gateway?tab=im&prefill=${encodeURIComponent(prompt)}`);
+                                                  }}
+                                                />
+                                              </Tooltip>
+                                            </Space>
                                           </Flex>
                                           <Text
                                             type="secondary"
@@ -1771,7 +1870,7 @@ export function KnowledgePage() {
                                         ? `${queryResult.answer.slice(0, 180)}…`
                                         : queryResult.answer;
                                     const prefill = `基于本地知识库针对「${queryResult.query}」的检索结果：\n> ${shortAnswer.replace(/\n+/g, "\n> ")}\n\n请帮我进一步分析并给出执行建议：`;
-                                    navigate(`/gateway?tab=history&prefill=${encodeURIComponent(prefill)}`);
+                                    navigate(`/gateway?tab=im&prefill=${encodeURIComponent(prefill)}`);
                                   }}
                                 >
                                   在即时通讯工作台继续深聊
@@ -2264,18 +2363,62 @@ export function KnowledgePage() {
                 <Text type="secondary">{Math.max(1, Math.round(previewData.size / 1024))} KB</Text>
                 <Text type="secondary">更新时间：{new Date(previewData.updatedAt).toLocaleString()}</Text>
               </Space>
-              <Space>
-                <Button
-                  type="primary"
-                  size="small"
-                  icon={<CommentOutlined />}
-                  onClick={() => handleAskButlerAboutDoc(previewData.name)}
+              <Space wrap>
+                <Dropdown
+                  menu={{
+                    items: [
+                      {
+                        key: "summary",
+                        label: "💡 梳理核心要点与操作步骤（默认）",
+                        onClick: () => handleAskButlerAboutDoc(previewData.name, "summary"),
+                      },
+                      {
+                        key: "todos",
+                        label: "📋 提取行动项与待办清单",
+                        onClick: () => handleAskButlerAboutDoc(previewData.name, "todos"),
+                      },
+                      {
+                        key: "audit",
+                        label: "🛡️ 审查潜在风险与合规注意",
+                        onClick: () => handleAskButlerAboutDoc(previewData.name, "audit"),
+                      },
+                      {
+                        key: "brief",
+                        label: "📝 总结为 200 字即时工作简报",
+                        onClick: () => handleAskButlerAboutDoc(previewData.name, "brief"),
+                      },
+                    ],
+                  }}
+                  trigger={["click"]}
                 >
-                  在即时通讯中提问
-                </Button>
+                  <Button type="primary" size="small" icon={<CommentOutlined />}>
+                    <span>在即时通讯中提问</span>
+                    <DownOutlined style={{ fontSize: 10, marginLeft: 2 }} />
+                  </Button>
+                </Dropdown>
                 <CopySnippetButton text={previewData.content} label="复制全文" />
               </Space>
             </Flex>
+
+            {/* 提取出的标签快速过滤 */}
+            {previewDocTags.length > 0 && (
+              <Flex align="center" gap={6} wrap="wrap" style={{ padding: "2px 0" }}>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  文档标签：
+                </Text>
+                {previewDocTags.map((tag) => (
+                  <Tag
+                    key={tag}
+                    color="processing"
+                    style={{ cursor: "pointer", margin: 0 }}
+                    onClick={() => handleFilterByTag(tag)}
+                    title={`点击在收集箱中按标签「${tag}」筛选`}
+                  >
+                    {tag}
+                  </Tag>
+                ))}
+              </Flex>
+            )}
 
             {/* 文档内关键词搜索工具条 */}
             <Flex align="center" justify="space-between" gap={8} style={{ padding: "4px 0" }}>

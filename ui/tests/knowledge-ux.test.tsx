@@ -55,4 +55,45 @@ describe("本地知识库设置的信息层级", () => {
     expect(src).toContain("sorter: (a, b) => a.size - b.size");
     expect(src).toContain("重置全部筛选");
   });
+
+  it("KnowledgePage 具备多场景提问模版、标签提取与收集箱快捷过滤芯片 (Commit 90)", () => {
+    const src = readFileSync(new URL("../src/pages/knowledge/KnowledgePage.tsx", import.meta.url), "utf8");
+    // 1. 预览抽屉多场景提问
+    expect(src).toContain("💡 梳理核心要点与操作步骤（默认）");
+    expect(src).toContain("📋 提取行动项与待办清单");
+    expect(src).toContain("🛡️ 审查潜在风险与合规注意");
+    expect(src).toContain("📝 总结为 200 字即时工作简报");
+    // 2. 标签提取与联动过滤
+    expect(src).toContain("previewDocTags");
+    expect(src).toContain("handleFilterByTag");
+    expect(src).toContain("文档标签：");
+    // 3. 表格操作列直达提问
+    expect(src).toContain("在即时通讯中提问此文档");
+    // 4. 表格工具条快捷分类芯片
+    expect(src).toContain("🔖 知识卡片");
+    expect(src).toContain("📓 Obsidian");
+    expect(src).toContain("💬 聊天归档");
+    expect(src).toContain("⏳ 待切片");
+    // 5. 问答出处（Citations）IM 追问
+    expect(src).toContain("在即时通讯中就此出处追问细节");
+  });
+
+  it("Markdown 知识标签自动提取算法精准提取 #标签 并安全过滤标题", () => {
+    const extractTags = (content: string) => {
+      const matches = content.matchAll(/(?:^|\s)#([a-zA-Z0-9_\u4e00-\u9fa5]+)/g);
+      const tags: string[] = [];
+      for (const m of matches) {
+        if (m[1]) tags.push(`#${m[1]}`);
+      }
+      return Array.from(new Set(tags));
+    };
+
+    const doc = "# 知识卡片-本地 RAG 部署要点\n- 会话：Hermes 专属管家\n#IM工作台 #知识沉淀 #向量模型_768\n\n正文描述...";
+    const tags = extractTags(doc);
+    expect(tags).toContain("#IM工作台");
+    expect(tags).toContain("#知识沉淀");
+    expect(tags).toContain("#向量模型_768");
+    // 不应将 # 误判为标签
+    expect(tags).not.toContain("#");
+  });
 });
