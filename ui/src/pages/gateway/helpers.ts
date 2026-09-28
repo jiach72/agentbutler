@@ -765,6 +765,12 @@ export function resolveGatewayTab(
   const tab = params.get("tab");
   if (
     tab === "history" ||
+    tab === "im" ||
+    tab === "chat"
+  ) {
+    return "history";
+  }
+  if (
     tab === "prompts" ||
     tab === "messages" ||
     tab === "settings"

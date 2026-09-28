@@ -5,6 +5,7 @@
  * - 聚合外部通道（微信、A2A 等）数据流，无缝对接 Outbox 生命周期与链路排查 Drawer。
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { App, Drawer, Flex } from "antd";
 import { InfoCircleOutlined } from "@ant-design/icons";
 import { loadJson, postJson } from "../../../lib/api.js";
@@ -53,6 +54,7 @@ export interface IMWorkbenchProps {
 
 export function IMWorkbench(props: IMWorkbenchProps) {
   const { message } = App.useApp();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   // 1. 直连与群聊会话状态
   const [directSessions, setDirectSessions] = useState(() => getDirectSessions());
@@ -66,6 +68,26 @@ export function IMWorkbench(props: IMWorkbenchProps) {
   const [sendingDirect, setSendingDirect] = useState(false);
   const [apiServerAvailable, setApiServerAvailable] = useState(true);
   const [botMarketOpen, setBotMarketOpen] = useState(false);
+
+  // 外部预填输入内容（例如从本地知识库问答一键跳转追问）
+  const [prefillText, setPrefillText] = useState<string | undefined>(() => {
+    return searchParams.get("prefill") || undefined;
+  });
+
+  useEffect(() => {
+    const p = searchParams.get("prefill");
+    if (p) {
+      setPrefillText(p);
+    }
+  }, [searchParams]);
+
+  const handleClearPrefill = useCallback(() => {
+    setPrefillText(undefined);
+    if (searchParams.has("prefill")) {
+      searchParams.delete("prefill");
+      setSearchParams(searchParams, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   // 加载可用的 Bot 列表
   const loadBots = useCallback(async () => {
@@ -769,6 +791,8 @@ ${aiReplyText}
           onOpenBotMarket={() => setBotMarketOpen(true)}
           apiServerAvailable={apiServerAvailable}
           availableBots={availableBots}
+          prefill={prefillText}
+          onClearPrefill={handleClearPrefill}
         />
       </div>
 

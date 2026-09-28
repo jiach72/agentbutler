@@ -63,6 +63,8 @@ export interface IMChatWindowProps {
   onOpenBotMarket?: () => void;
   apiServerAvailable?: boolean;
   availableBots?: BotProfile[];
+  prefill?: string;
+  onClearPrefill?: () => void;
 }
 
 export function IMChatWindow(props: IMChatWindowProps) {
@@ -739,6 +741,8 @@ export function IMChatWindow(props: IMChatWindowProps) {
         }
         isGroupChat={props.conversation.type === "group"}
         availableBots={props.availableBots}
+        prefill={props.prefill}
+        onClearPrefill={props.onClearPrefill}
       />
 
       {/* 4. 存为知识卡片确认弹窗 */}

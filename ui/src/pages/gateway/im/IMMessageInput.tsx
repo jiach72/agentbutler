@@ -37,6 +37,8 @@ export interface IMMessageInputProps {
   placeholder?: string;
   isGroupChat?: boolean;
   availableBots?: BotProfile[];
+  prefill?: string;
+  onClearPrefill?: () => void;
 }
 
 const QUICK_CHIPS = [
@@ -55,6 +57,14 @@ export function IMMessageInput(props: IMMessageInputProps) {
     changes: string[];
   } | null>(null);
   const [diffModalOpen, setDiffModalOpen] = useState(false);
+
+  // 外部预填提示词（如从知识库问答一键跳转追问）
+  useEffect(() => {
+    if (props.prefill && props.prefill.trim()) {
+      setInputText(props.prefill);
+      props.onClearPrefill?.();
+    }
+  }, [props.prefill, props.onClearPrefill]);
 
   // 15 秒后自动关闭撤销胶囊
   useEffect(() => {

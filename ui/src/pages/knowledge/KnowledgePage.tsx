@@ -10,7 +10,7 @@
  * 8. 启动中真实步骤条、动态百分比与终端日志流。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Alert,
   App,
@@ -181,6 +181,7 @@ export interface InboxFile {
 
 export function KnowledgePage() {
   const { message, modal } = App.useApp();
+  const navigate = useNavigate();
   const [status, setStatus] = useState<KnowledgeStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [toggling, setToggling] = useState(false);
@@ -1649,6 +1650,49 @@ export function KnowledgePage() {
                                 </Row>
                               </Flex>
                             )}
+
+                            {/* 问答快捷操作条：直达即时通讯工作台深聊 + 复制全文 */}
+                            <Flex
+                              justify="space-between"
+                              align="center"
+                              wrap="wrap"
+                              gap={8}
+                              style={{
+                                marginTop: 4,
+                                paddingTop: 10,
+                                borderTop: "1px dashed var(--ant-color-border-secondary)",
+                              }}
+                            >
+                              <Flex align="center" gap={8}>
+                                <Button
+                                  type="primary"
+                                  icon={<CommentOutlined />}
+                                  onClick={() => {
+                                    const shortAnswer =
+                                      queryResult.answer.length > 180
+                                        ? `${queryResult.answer.slice(0, 180)}…`
+                                        : queryResult.answer;
+                                    const prefill = `基于本地知识库针对「${queryResult.query}」的检索结果：\n> ${shortAnswer.replace(/\n+/g, "\n> ")}\n\n请帮我进一步分析并给出执行建议：`;
+                                    navigate(`/gateway?tab=history&prefill=${encodeURIComponent(prefill)}`);
+                                  }}
+                                >
+                                  在即时通讯工作台继续深聊
+                                </Button>
+                                <Button
+                                  icon={<CopyOutlined />}
+                                  onClick={() => {
+                                    const qaText = `问题：${queryResult.query}\n\n回答：\n${queryResult.answer}\n\n（来自 Agent Butler 本地私有知识库）`;
+                                    void navigator.clipboard?.writeText(qaText);
+                                    message.success("已复制问答全文到剪贴板");
+                                  }}
+                                >
+                                  复制问答全文
+                                </Button>
+                              </Flex>
+                              <Text type="secondary" style={{ fontSize: 12 }}>
+                                一键携带问答上下文直达 IM 智能体交互
+                              </Text>
+                            </Flex>
                           </Flex>
                         </Card>
                       )}
