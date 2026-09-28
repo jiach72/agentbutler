@@ -257,6 +257,9 @@ export function IMChatWindow(props: IMChatWindowProps) {
   const [localPrefill, setLocalPrefill] = useState<string | null>(null);
   const [highlightedMsgId, setHighlightedMsgId] = useState<string | null>(null);
 
+  // 独立引用消息胶囊状态
+  const [quotedMessage, setQuotedMessage] = useState<{ id: string; sender: string; snippet: string } | null>(null);
+
   // 退出搜索并在完整上下文中平滑定位高亮该消息
   const handleJumpToContext = (targetMsgId: string) => {
     setSearchKeyword("");
@@ -328,6 +331,7 @@ export function IMChatWindow(props: IMChatWindowProps) {
     lastConversationIdRef.current = currentConvId;
 
     if (isConvChanged) {
+      setQuotedMessage(null);
       scrollToBottom(false);
       return;
     }
@@ -372,10 +376,15 @@ export function IMChatWindow(props: IMChatWindowProps) {
 
   // 引用 AI 回答发起追问
   const handleQuoteAI = (msg: IMChatMessage) => {
-    const snippet = msg.content.trim().slice(0, 80).replace(/\n+/g, " ");
-    setLocalPrefill(`针对上述回答：“${snippet}${msg.content.length > 80 ? "..." : ""}”：\n`);
+    const snippet = msg.content.trim().slice(0, 100).replace(/\n+/g, " ");
+    const sender = msg.sender === "ai" ? (msg.botName || "智能体回复") : "我的提问";
+    setQuotedMessage({
+      id: msg.id,
+      sender,
+      snippet: `${snippet}${msg.content.length > 100 ? "..." : ""}`,
+    });
     scrollToBottom(true);
-    message.success("已生成引用并填入输入框");
+    message.success(`已引用 ${sender} 的消息，可在输入框继续追问`);
   };
 
   const KNOWLEDGE_CARD_PRESETS = [
@@ -1445,6 +1454,8 @@ export function IMChatWindow(props: IMChatWindowProps) {
           setLocalPrefill(null);
           props.onClearPrefill?.();
         }}
+        quotedMessage={quotedMessage}
+        onClearQuote={() => setQuotedMessage(null)}
       />
 
       {/* 4. 存为知识卡片确认弹窗 */}

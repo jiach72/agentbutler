@@ -22,6 +22,7 @@ import {
   ArrowUpOutlined,
   BookOutlined,
   CloseOutlined,
+  CommentOutlined,
   CopyOutlined,
   EyeOutlined,
   FileAddOutlined,
@@ -48,6 +49,9 @@ export interface IMMessageInputProps {
   availableBots?: BotProfile[];
   prefill?: string;
   onClearPrefill?: () => void;
+  quotedMessage?: { id: string; sender: string; snippet: string } | null;
+  onClearQuote?: () => void;
+  onNavigate?: (path: string) => void;
 }
 
 export interface QuickPromptCategory {
@@ -125,6 +129,72 @@ export function IMMessageInput(props: IMMessageInputProps) {
   const historyIndexRef = useRef<number>(-1);
   const draftRef = useRef<string>("");
   const [historyNavActive, setHistoryNavActive] = useState(false);
+  // @ 联想补全状态与候选列表
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [selectedMentionIdx, setSelectedMentionIdx] = useState<number>(0);
+
+  const matchedBots = useMemo(() => {
+    if (mentionQuery === null || !props.availableBots || props.availableBots.length === 0) {
+      return [];
+    }
+    const q = mentionQuery.toLowerCase().trim();
+    if (!q) return props.availableBots;
+    return props.availableBots.filter(
+      (b) =>
+        b.name.toLowerCase().includes(q) ||
+        b.id.toLowerCase().includes(q) ||
+        (b.description && b.description.toLowerCase().includes(q))
+    );
+  }, [mentionQuery, props.availableBots]);
+
+  // 从联想列表中选中某个 Bot
+  const handleSelectMention = (botName: string) => {
+    const dom = (textAreaRef.current?.resizableTextArea?.textArea ||
+      textAreaRef.current?.input ||
+      textAreaRef.current) as HTMLTextAreaElement | undefined;
+
+    const cursorPos = dom && typeof dom.selectionStart === "number" ? dom.selectionStart : inputText.length;
+    const beforeCursor = inputText.slice(0, cursorPos);
+    const afterCursor = inputText.slice(cursorPos);
+    const atIdx = beforeCursor.lastIndexOf("@");
+
+    if (atIdx !== -1) {
+      const replacement = `@${botName} `;
+      const nextText = beforeCursor.slice(0, atIdx) + replacement + afterCursor;
+      setInputText(nextText);
+      setMentionQuery(null);
+      setTimeout(() => {
+        dom?.focus?.();
+        const newPos = atIdx + replacement.length;
+        dom?.setSelectionRange?.(newPos, newPos);
+      }, 10);
+    } else {
+      handleInsertMention(botName);
+      setMentionQuery(null);
+    }
+  };
+
+  // 文本变化处理（同步检测 @ 触发与关闭）
+  const handleTextChange = (val: string, cursorPos: number) => {
+    setInputText(val);
+    if (historyNavActive) {
+      setHistoryNavActive(false);
+      historyIndexRef.current = -1;
+    }
+
+    if (props.isGroupChat && props.availableBots && props.availableBots.length > 0) {
+      const before = val.slice(0, cursorPos);
+      const match = before.match(/@([a-zA-Z0-9_\u4e00-\u9fa5]*)$/);
+      if (match) {
+        setMentionQuery(match[1]);
+        setSelectedMentionIdx(0);
+      } else {
+        setMentionQuery(null);
+      }
+    } else {
+      setMentionQuery(null);
+    }
+  };
 
   const currentChips = useMemo(() => {
     const found = QUICK_PROMPT_CATEGORIES.find((c) => c.key === selectedCategory);
@@ -301,26 +371,59 @@ export function IMMessageInput(props: IMMessageInputProps) {
 
   // 发送消息
   const handleSend = async () => {
-    const text = inputText.trim();
-    if (!text || props.sending || props.disabled) return;
+    const raw = inputText.trim();
+    if (!raw || props.sending || props.disabled) return;
+
+    let text = raw;
+    if (props.quotedMessage) {
+      text = `[针对 ${props.quotedMessage.sender}：“${props.quotedMessage.snippet}”]\n${raw}`;
+      props.onClearQuote?.();
+    }
 
     // 记录到历史指令队列（最多保留 50 条，避免连续相同记录）
     const history = historyRef.current;
-    if (history.length === 0 || history[history.length - 1] !== text) {
-      history.push(text);
+    if (history.length === 0 || history[history.length - 1] !== raw) {
+      history.push(raw);
       if (history.length > 50) history.shift();
     }
     historyIndexRef.current = -1;
     draftRef.current = "";
     setHistoryNavActive(false);
+    setMentionQuery(null);
 
     setUndoState(null);
     setInputText("");
     await props.onSend(text);
   };
 
-  // 键盘事件：Enter 发送，Shift+Enter 换行；ArrowUp/ArrowDown 回溯历史；Esc 快速清空/退出回溯
+  // 键盘事件：Enter 发送，Shift+Enter 换行；ArrowUp/ArrowDown 回溯历史或选择 Bot；Esc 快速清空/退出回溯
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // 键盘处理：如果正在展示 @ 候选列表，优先处理方向键与回车确认
+    if (matchedBots.length > 0 && mentionQuery !== null) {
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSelectedMentionIdx((prev) => (prev > 0 ? prev - 1 : matchedBots.length - 1));
+        return;
+      }
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSelectedMentionIdx((prev) => (prev < matchedBots.length - 1 ? prev + 1 : 0));
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        const chosen = matchedBots[selectedMentionIdx] || matchedBots[0];
+        if (chosen) {
+          handleSelectMention(chosen.name);
+        }
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setMentionQuery(null);
+        return;
+      }
+    }
     if (e.key === "Escape") {
       if (historyIndexRef.current !== -1) {
         e.preventDefault();
@@ -508,19 +611,61 @@ export function IMMessageInput(props: IMMessageInputProps) {
         </Flex>
       </div>
 
+      {/* 引用回复预览条 (Quoted Message Banner) */}
+      {props.quotedMessage && (
+        <div className="im-quoted-banner">
+          <div className="im-quoted-content">
+            <span style={{ color: "var(--ab-primary)", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <CommentOutlined style={{ fontSize: 12 }} /> 引用 {props.quotedMessage.sender}:
+            </span>
+            <span style={{ color: "var(--ab-text-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {props.quotedMessage.snippet}
+            </span>
+          </div>
+          <Button
+            type="text"
+            size="small"
+            icon={<CloseOutlined style={{ fontSize: 10 }} />}
+            aria-label="取消引用"
+            title="取消引用"
+            onClick={props.onClearQuote}
+            style={{ width: 18, height: 18, padding: 0 }}
+          />
+        </div>
+      )}
+
+      {/* @ 专家联想悬浮浮层 */}
+      {matchedBots.length > 0 && mentionQuery !== null && (
+        <div className="im-mention-popup">
+          <div className="im-mention-popup-header">
+            <span>选择要点名的专家智能体 (↑↓ 选择，Enter / Tab 确认，Esc 取消)</span>
+          </div>
+          <div className="im-mention-list">
+            {matchedBots.map((bot, bIdx) => (
+              <div
+                key={bot.id}
+                className={`im-mention-item ${selectedMentionIdx === bIdx ? "selected" : ""}`}
+                onClick={() => handleSelectMention(bot.name)}
+                onMouseEnter={() => setSelectedMentionIdx(bIdx)}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <RobotOutlined style={{ color: "var(--ab-primary)", fontSize: 13 }} />
+                  <span className="im-mention-item-name">@{bot.name}</span>
+                </div>
+                <span className="im-mention-item-desc">{bot.description || "专职智能体"}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* 多行输入文本框 */}
       <TextArea
         ref={textAreaRef}
         value={inputText}
-        onChange={(e) => {
-          setInputText(e.target.value);
-          if (historyNavActive) {
-            setHistoryNavActive(false);
-            historyIndexRef.current = -1;
-          }
-        }}
+        onChange={(e) => handleTextChange(e.target.value, e.target.selectionStart ?? e.target.value.length)}
         onKeyDown={handleKeyDown}
-        placeholder={props.placeholder || "输入消息或指令... (Enter 发送，Shift+Enter 换行，↑ 调出历史)"}
+        placeholder={props.placeholder || "输入消息或指令... (Enter 发送，Shift+Enter 换行，↑ 调出历史，@ 点名专家)"}
         autoSize={{ minRows: 2, maxRows: 6 }}
         disabled={props.disabled}
         variant="borderless"

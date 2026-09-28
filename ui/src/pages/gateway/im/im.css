@@ -367,6 +367,99 @@
   animation: imFadeSlideIn 0.2s ease-out;
 }
 
+/* 引用回复预览条 */
+.im-quoted-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--ab-r-base, 8px);
+  background: var(--ab-surface-2);
+  border-left: 3px solid var(--ab-primary);
+  margin-bottom: 4px;
+  font-size: 12px;
+  animation: imFadeSlideIn 0.2s ease-out;
+}
+
+.im-quoted-content {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* @ 机器人联想弹出菜单 */
+.im-mention-popup {
+  position: absolute;
+  bottom: calc(100% - 6px);
+  left: 16px;
+  z-index: 100;
+  min-width: 260px;
+  max-width: 360px;
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--ab-surface);
+  border: 1px solid var(--ab-border);
+  border-radius: var(--ab-r-card, 12px);
+  box-shadow: var(--ab-shadow-lg);
+  backdrop-filter: blur(12px);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: imFadeSlideIn 0.18s ease-out;
+}
+
+.im-mention-popup-header {
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--ab-text-3);
+  border-bottom: 1px solid var(--ab-border);
+  margin-bottom: 2px;
+}
+
+.im-mention-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.im-mention-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--ab-r-base, 8px);
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.im-mention-item:hover,
+.im-mention-item.selected {
+  background: var(--ab-primary-soft);
+  color: var(--ab-primary);
+}
+
+.im-mention-item-name {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.im-mention-item-desc {
+  font-size: 11px;
+  color: var(--ab-text-3);
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* 提示词增强按钮（Sparkle Button - 对标截图红框） */
 .im-sparkle-btn {
   display: inline-flex;
