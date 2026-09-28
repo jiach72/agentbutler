@@ -96,4 +96,16 @@ describe("本地知识库设置的信息层级", () => {
     // 不应将 # 误判为标签
     expect(tags).not.toContain("#");
   });
+
+  it("KnowledgePage 支持资料收集箱多选 (rowSelection)、批量删除与在即时通讯中综合提问 (Commit 93)", () => {
+    const src = readFileSync(new URL("../src/pages/knowledge/KnowledgePage.tsx", import.meta.url), "utf8");
+    expect(src).toContain("selectedDocIds");
+    expect(src).toContain("handleBatchDelete");
+    expect(src).toContain("handleBatchAskIM");
+    expect(src).toContain("rowSelection=");
+    expect(src).toContain("在即时通讯中综合提问");
+    expect(src).toContain("批量删除");
+    expect(src).toContain("取消选择");
+  });
 });
+

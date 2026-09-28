@@ -232,6 +232,8 @@ export function KnowledgePage() {
   const [docFilter, setDocFilter] = useState("");
   const [docSourceFilter, setDocSourceFilter] = useState<string>("all");
   const [docIngestedFilter, setDocIngestedFilter] = useState<string>("all");
+  const [selectedDocIds, setSelectedDocIds] = useState<React.Key[]>([]);
+  const [batchDeleting, setBatchDeleting] = useState(false);
 
   const filteredDocuments = useMemo(() => {
     let list = documents;
@@ -625,6 +627,35 @@ export function KnowledgePage() {
     } else {
       message.error("删除失败");
     }
+  };
+
+  // 批量删除选中文档
+  const handleBatchDelete = async () => {
+    if (selectedDocIds.length === 0) return;
+    setBatchDeleting(true);
+    let successCount = 0;
+    for (const key of selectedDocIds) {
+      const id = String(key);
+      const res = await deleteJson(`/api/knowledge/documents/${encodeURIComponent(id)}`);
+      if (res.ok) successCount++;
+    }
+    setBatchDeleting(false);
+    setSelectedDocIds([]);
+    message.success(`已批量删除 ${successCount} 篇资料文档`);
+    void fetchDocuments();
+    void fetchGraph();
+  };
+
+  // 批量在即时通讯中就选中文档发起综合分析
+  const handleBatchAskIM = () => {
+    if (selectedDocIds.length === 0) return;
+    const selectedNames = documents
+      .filter((d) => selectedDocIds.includes(d.id))
+      .map((d) => `《${d.name}》`)
+      .slice(0, 5);
+    const docListStr = selectedNames.join("、");
+    const prompt = `请基于本地知识库文档 ${docListStr} 的内容，帮我进行综合归纳分析，提炼其核心共性、互补要点与操作建议：`;
+    navigate(`/gateway?tab=im&prefill=${encodeURIComponent(prompt)}`);
   };
 
   // 保存 Obsidian 路径配置
@@ -1631,8 +1662,60 @@ export function KnowledgePage() {
                       size="small"
                       style={{ borderRadius: 10 }}
                     >
+                      {selectedDocIds.length > 0 && (
+                        <div
+                          style={{
+                            padding: "8px 12px",
+                            marginBottom: 12,
+                            borderRadius: 8,
+                            background: "var(--ab-primary-soft, #e6f4ff)",
+                            border: "1px solid var(--ab-primary-soft-border, #91caff)",
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            flexWrap: "wrap",
+                            gap: 8,
+                          }}
+                        >
+                          <Space align="center">
+                            <Text strong style={{ color: "var(--ab-primary, #0071e3)" }}>
+                              已选中 {selectedDocIds.length} 篇资料
+                            </Text>
+                            <Button size="small" type="link" onClick={() => setSelectedDocIds([])}>
+                              取消选择
+                            </Button>
+                          </Space>
+                          <Space align="center" wrap>
+                            <Button
+                              size="small"
+                              type="primary"
+                              ghost
+                              icon={<MessageOutlined />}
+                              onClick={handleBatchAskIM}
+                            >
+                              在即时通讯中综合提问
+                            </Button>
+                            <Popconfirm
+                              title={`确定批量删除选中的 ${selectedDocIds.length} 篇资料？`}
+                              description="删除后将从本地知识库收集箱中彻底移除对应文档与向量索引。"
+                              onConfirm={handleBatchDelete}
+                              okText="批量删除"
+                              okButtonProps={{ danger: true }}
+                              cancelText="取消"
+                            >
+                              <Button size="small" danger icon={<DeleteOutlined />} loading={batchDeleting}>
+                                批量删除 ({selectedDocIds.length})
+                              </Button>
+                            </Popconfirm>
+                          </Space>
+                        </div>
+                      )}
                       <Table<KnowledgeDocument>
                         rowKey="id"
+                        rowSelection={{
+                          selectedRowKeys: selectedDocIds,
+                          onChange: (keys) => setSelectedDocIds(keys),
+                        }}
                         columns={documentColumns}
                         dataSource={filteredDocuments}
                         loading={docsLoading}
