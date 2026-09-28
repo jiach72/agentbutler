@@ -25,6 +25,7 @@ import {
   Popconfirm,
   Progress,
   Row,
+  Select,
   Space,
   Steps,
   Table,
@@ -227,11 +228,25 @@ export function KnowledgePage() {
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
   const [docsLoading, setDocsLoading] = useState(false);
   const [docFilter, setDocFilter] = useState("");
+  const [docSourceFilter, setDocSourceFilter] = useState<string>("all");
+  const [docIngestedFilter, setDocIngestedFilter] = useState<string>("all");
+
   const filteredDocuments = useMemo(() => {
+    let list = documents;
+    if (docSourceFilter !== "all") {
+      list = list.filter((doc) => doc.source === docSourceFilter);
+    }
+    if (docIngestedFilter === "ingested") {
+      list = list.filter((doc) => doc.ingested);
+    } else if (docIngestedFilter === "pending") {
+      list = list.filter((doc) => !doc.ingested);
+    }
     const kw = docFilter.trim().toLowerCase();
-    if (!kw) return documents;
-    return documents.filter((doc) => doc.name.toLowerCase().includes(kw));
-  }, [docFilter, documents]);
+    if (kw) {
+      list = list.filter((doc) => doc.name.toLowerCase().includes(kw));
+    }
+    return list;
+  }, [docFilter, docSourceFilter, docIngestedFilter, documents]);
 
   // 3. Obsidian 笔记库状态
   const [obsidianConfig, setObsidianConfig] = useState<ObsidianConfig | null>(null);
@@ -890,7 +905,8 @@ export function KnowledgePage() {
       title: "文件大小",
       dataIndex: "size",
       key: "size",
-      width: 100,
+      width: 110,
+      sorter: (a, b) => a.size - b.size,
       render: (bytes: number) => (
         <Text type="secondary">{Math.max(1, Math.round(bytes / 1024))} KB</Text>
       ),
@@ -899,7 +915,9 @@ export function KnowledgePage() {
       title: "入库时间",
       dataIndex: "updatedAt",
       key: "updatedAt",
-      width: 160,
+      width: 170,
+      sorter: (a, b) => new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime(),
+      defaultSortOrder: "descend",
       render: (iso: string) => (
         <Text type="secondary" style={{ fontSize: 12 }}>
           {new Date(iso).toLocaleString("zh-CN", { hour12: false })}
@@ -1470,6 +1488,11 @@ export function KnowledgePage() {
                           <Flex align="center" gap={8}>
                             <FileDoneOutlined style={{ color: "var(--ant-color-primary)" }} />
                             <span>已收集资料清单与索引状态</span>
+                            {documents.length > 0 && (
+                              <Tag style={{ margin: 0 }}>
+                                显示 {filteredDocuments.length} / {documents.length}
+                              </Tag>
+                            )}
                           </Flex>
                           <Space wrap>
                             <Input
@@ -1478,8 +1501,31 @@ export function KnowledgePage() {
                               allowClear
                               value={docFilter}
                               onChange={(e) => setDocFilter(e.target.value)}
-                              style={{ width: 180 }}
+                              style={{ width: 160 }}
                               size="small"
+                            />
+                            <Select
+                              size="small"
+                              value={docSourceFilter}
+                              onChange={setDocSourceFilter}
+                              style={{ width: 130 }}
+                              options={[
+                                { label: "全部来源", value: "all" },
+                                { label: "本地上传", value: "upload" },
+                                { label: "Obsidian 笔记", value: "obsidian" },
+                                { label: "微信/聊天归档", value: "inbox" },
+                              ]}
+                            />
+                            <Select
+                              size="small"
+                              value={docIngestedFilter}
+                              onChange={setDocIngestedFilter}
+                              style={{ width: 120 }}
+                              options={[
+                                { label: "全部状态", value: "all" },
+                                { label: "已向量化", value: "ingested" },
+                                { label: "就绪待分段", value: "pending" },
+                              ]}
                             />
                             <Button
                               size="small"
@@ -1505,26 +1551,38 @@ export function KnowledgePage() {
                         columns={documentColumns}
                         dataSource={filteredDocuments}
                         loading={docsLoading}
-                        pagination={{ pageSize: 8, showSizeChanger: false }}
+                        pagination={{
+                          pageSize: 8,
+                          showSizeChanger: true,
+                          pageSizeOptions: ["8", "16", "32", "64"],
+                          showTotal: (total) => `共 ${total} 篇资料`,
+                        }}
                         size="small"
                         locale={{
                           emptyText: (
                             <ButlerEmpty
                               mascot={false}
                               title={
-                                docFilter.trim()
-                                  ? `未找到包含 “${docFilter.trim()}” 的资料文档`
+                                docFilter.trim() || docSourceFilter !== "all" || docIngestedFilter !== "all"
+                                  ? "未找到符合筛选条件的资料文档"
                                   : "尚未收集任何资料文档"
                               }
                               hint={
-                                docFilter.trim()
-                                  ? "可以尝试更换检索关键词，或清空筛选条件查看完整清单。"
+                                docFilter.trim() || docSourceFilter !== "all" || docIngestedFilter !== "all"
+                                  ? "可以尝试更换检索关键词或调整来源/状态过滤条件，或点击下方按钮清空筛选。"
                                   : "可直接将 Markdown、PDF、Word 或 TXT 文件拖拽至上方投递框，即可完成入库切片与私有问答。"
                               }
                               action={
-                                docFilter.trim() ? (
-                                  <Button size="small" onClick={() => setDocFilter("")}>
-                                    清空筛选
+                                docFilter.trim() || docSourceFilter !== "all" || docIngestedFilter !== "all" ? (
+                                  <Button
+                                    size="small"
+                                    onClick={() => {
+                                      setDocFilter("");
+                                      setDocSourceFilter("all");
+                                      setDocIngestedFilter("all");
+                                    }}
+                                  >
+                                    重置全部筛选
                                   </Button>
                                 ) : undefined
                               }

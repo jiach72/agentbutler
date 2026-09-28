@@ -41,4 +41,18 @@ describe("本地知识库设置的信息层级", () => {
     const specialParts = highlight("涉及参数 [port: 8754] 与 127.0.0.1 回环", "[port: 8754]");
     expect(specialParts.some((p) => p === "[port: 8754]")).toBe(true);
   });
+
+  it("KnowledgePage 源码支持收集箱来源与向量化状态多维快选及大小/时间排序", () => {
+    const src = readFileSync(new URL("../src/pages/knowledge/KnowledgePage.tsx", import.meta.url), "utf8");
+    expect(src).toContain("docSourceFilter");
+    expect(src).toContain("docIngestedFilter");
+    expect(src).toContain("全部来源");
+    expect(src).toContain("Obsidian 笔记");
+    expect(src).toContain("微信/聊天归档");
+    expect(src).toContain("已向量化");
+    expect(src).toContain("就绪待分段");
+    expect(src).toContain("showSizeChanger: true");
+    expect(src).toContain("sorter: (a, b) => a.size - b.size");
+    expect(src).toContain("重置全部筛选");
+  });
 });
