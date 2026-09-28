@@ -128,6 +128,20 @@ describe("本地知识库设置的信息层级", () => {
     expect(src).toContain("即时通讯工作台");
     expect(src).toContain("navigate(\"/gateway?tab=im\")");
   });
+
+  it("KnowledgePage 支持在线新建私有笔记与知识卡片并自动切片入库", () => {
+    const src = readFileSync(new URL("../src/pages/knowledge/KnowledgePage.tsx", import.meta.url), "utf8");
+    expect(src).toContain("新建私有笔记/卡片");
+    expect(src).toContain("新建私有笔记与知识卡片");
+    expect(src).toContain("createNoteModalOpen");
+    expect(src).toContain("handleCreateNote");
+    expect(src).toContain("保存并自动切片入库");
+    expect(src).toContain("知识分类预设");
+    expect(src).toContain("🔖 知识卡片");
+    expect(src).toContain("📓 技术架构");
+    expect(src).toContain("💡 灵感备忘");
+    expect(src).toContain("📋 运维规程");
+  });
 });
 
 

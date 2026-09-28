@@ -25,6 +25,7 @@ import {
   Popconfirm,
   Progress,
   Row,
+  Segmented,
   Select,
   Space,
   Steps,
@@ -61,6 +62,7 @@ import {
   LoadingOutlined,
   MessageOutlined,
   PlayCircleOutlined,
+  PlusOutlined,
   ReloadOutlined,
   SearchOutlined,
   SyncOutlined,
@@ -356,6 +358,65 @@ export function KnowledgePage() {
   const [selectedRemoveIds, setSelectedRemoveIds] = useState<string[]>([]);
   const [dedupConfirmOpen, setDedupConfirmOpen] = useState(false);
   const [dedupConfirmIds, setDedupConfirmIds] = useState<string[]>([]);
+
+  // 11. 在线新建私有笔记与知识卡片
+  const [createNoteModalOpen, setCreateNoteModalOpen] = useState(false);
+  const [newNoteTitle, setNewNoteTitle] = useState("");
+  const [newNoteCategory, setNewNoteCategory] = useState("card");
+  const [newNoteContent, setNewNoteContent] = useState("");
+  const [creatingNote, setCreatingNote] = useState(false);
+
+  const handleCreateNote = async () => {
+    if (!newNoteTitle.trim() || !newNoteContent.trim()) {
+      message.warning("笔记标题与正文内容不能为空");
+      return;
+    }
+    setCreatingNote(true);
+    let finalFilename = newNoteTitle.trim();
+    if (!finalFilename.endsWith(".md") && !finalFilename.endsWith(".txt")) {
+      finalFilename += ".md";
+    }
+    const categoryPrefix =
+      newNoteCategory === "tech"
+        ? "技术架构"
+        : newNoteCategory === "idea"
+        ? "灵感备忘"
+        : newNoteCategory === "sop"
+        ? "运维规程"
+        : "知识卡片";
+    const decoratedContent = `---
+type: ${newNoteCategory}
+category: ${categoryPrefix}
+createdAt: ${new Date().toISOString()}
+---
+
+# ${newNoteTitle.replace(/\.(md|txt)$/i, "")}
+
+${newNoteContent}
+`;
+    try {
+      const res = await postJson("/api/knowledge/upload", {
+        filename: finalFilename,
+        content: decoratedContent,
+        encoding: "utf8",
+        source: "upload",
+      });
+      if (res.ok) {
+        message.success(`「${finalFilename}」已创建并写入本地知识库！已自动切片入库。`);
+        setCreateNoteModalOpen(false);
+        setNewNoteTitle("");
+        setNewNoteContent("");
+        void fetchDocuments();
+        void fetchGraph();
+      } else {
+        message.error("创建笔记失败，请重试");
+      }
+    } catch (err) {
+      message.error(`创建异常: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setCreatingNote(false);
+    }
+  };
 
   // 打开去重弹窗并执行扫描
   const handleOpenDedupModal = async () => {
@@ -1261,9 +1322,19 @@ export function KnowledgePage() {
                     {/* A. 直接拖拽上传区 (免跳转闭环) */}
                     <Card
                       title={
-                        <Flex align="center" gap={8}>
-                          <CloudUploadOutlined style={{ color: "var(--ant-color-primary)" }} />
-                          <span>极简资料投递与收集（支持 PDF / Word / TXT / Markdown / 表格）</span>
+                        <Flex justify="space-between" align="center" wrap="wrap" gap={8}>
+                          <Flex align="center" gap={8}>
+                            <CloudUploadOutlined style={{ color: "var(--ant-color-primary)" }} />
+                            <span>极简资料投递与收集（支持 PDF / Word / TXT / Markdown / 表格）</span>
+                          </Flex>
+                          <Button
+                            type="primary"
+                            size="small"
+                            icon={<PlusOutlined />}
+                            onClick={() => setCreateNoteModalOpen(true)}
+                          >
+                            新建私有笔记/卡片
+                          </Button>
                         </Flex>
                       }
                       size="small"
@@ -2854,6 +2925,72 @@ export function KnowledgePage() {
         onCancel={() => setDedupConfirmOpen(false)}
         onConfirm={handleExecuteClean}
       />
+
+      {/* 新建私有笔记与知识卡片 Modal */}
+      <Modal
+        title={
+          <Flex align="center" gap={8}>
+            <FileTextOutlined style={{ color: "var(--ab-primary)" }} />
+            <span>新建私有笔记与知识卡片</span>
+          </Flex>
+        }
+        open={createNoteModalOpen}
+        onCancel={() => {
+          if (!creatingNote) {
+            setCreateNoteModalOpen(false);
+          }
+        }}
+        onOk={handleCreateNote}
+        okText={creatingNote ? "保存入库中..." : "保存并自动切片入库"}
+        confirmLoading={creatingNote}
+        destroyOnClose
+        width={560}
+      >
+        <Flex vertical gap={14} style={{ marginTop: 16 }}>
+          <div>
+            <Text strong style={{ fontSize: 13, marginBottom: 4, display: "block" }}>
+              笔记标题 / 文件名
+            </Text>
+            <Input
+              placeholder="例如：系统核心架构设计规范（自动补齐 .md 后缀）"
+              value={newNoteTitle}
+              onChange={(e) => setNewNoteTitle(e.target.value)}
+              allowClear
+            />
+          </div>
+
+          <div>
+            <Text strong style={{ fontSize: 13, marginBottom: 4, display: "block" }}>
+              知识分类预设
+            </Text>
+            <Segmented
+              size="small"
+              block
+              value={newNoteCategory}
+              onChange={(val: string | number) => setNewNoteCategory(String(val))}
+              options={[
+                { label: "🔖 知识卡片", value: "card" },
+                { label: "📓 技术架构", value: "tech" },
+                { label: "💡 灵感备忘", value: "idea" },
+                { label: "📋 运维规程", value: "sop" },
+              ]}
+            />
+          </div>
+
+          <div>
+            <Text strong style={{ fontSize: 13, marginBottom: 4, display: "block" }}>
+              正文内容 (支持 Markdown)
+            </Text>
+            <Input.TextArea
+              placeholder="输入知识点、架构说明、运维备忘或核心规则..."
+              value={newNoteContent}
+              onChange={(e) => setNewNoteContent(e.target.value)}
+              autoSize={{ minRows: 6, maxRows: 14 }}
+              showCount
+            />
+          </div>
+        </Flex>
+      </Modal>
     </div>
   );
 }
