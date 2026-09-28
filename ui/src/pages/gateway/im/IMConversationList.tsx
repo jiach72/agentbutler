@@ -18,6 +18,7 @@ import {
   Tooltip,
   Typography,
 } from "antd";
+import type { InputRef } from "antd";
 import {
   DeleteOutlined,
   PlusOutlined,
@@ -148,7 +149,7 @@ function getConversationAvatar(conv: IMConversation) {
 export function IMConversationList(props: IMConversationListProps) {
   const [filterType, setFilterType] = useState<"all" | "group" | "bot" | "external">("all");
   const [searchKeyword, setSearchKeyword] = useState("");
-  const searchInputRef = useRef<any>(null);
+  const searchInputRef = useRef<InputRef>(null);
 
   const counts = useMemo(() => {
     let group = 0;

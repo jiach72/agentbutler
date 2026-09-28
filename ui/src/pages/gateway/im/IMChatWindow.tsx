@@ -535,7 +535,6 @@ export function IMChatWindow(props: IMChatWindowProps) {
   }
 
   const isDirect = props.conversation.type === "direct";
-  const isGroup = props.conversation.type === "group";
 
   // 针对不同会话类型（群聊、审查员、侦察员、管家）定制欢迎态与引导指令
   const emptyGuide = useMemo(() => {

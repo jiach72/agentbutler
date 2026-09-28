@@ -18,6 +18,7 @@ import {
   Tooltip,
   Typography,
 } from "antd";
+import type { TextAreaRef } from "antd/es/input/TextArea";
 import {
   ArrowUpOutlined,
   BookOutlined,
@@ -95,9 +96,11 @@ export const QUICK_PROMPT_CATEGORIES: QuickPromptCategory[] = [
 
 export function IMMessageInput(props: IMMessageInputProps) {
   const { message } = App.useApp();
+  // useNavigate 依赖 Router 上下文；本组件会被 renderToStaticMarkup 在无 Router
+  // 的测试/SSR 环境渲染，故运行时探测而非条件渲染拆分。挂载位置一旦确定，
+  // Router 上下文在整个生命周期内不变，hook 调用顺序仍然稳定。
   let routerNavigate: ((to: string) => void) | null = null;
   try {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
     routerNavigate = useNavigate();
   } catch {
     routerNavigate = null;
@@ -120,7 +123,7 @@ export function IMMessageInput(props: IMMessageInputProps) {
   const [diffModalOpen, setDiffModalOpen] = useState(false);
 
   // 文本框 DOM 引用（用于精确定位光标与自动聚焦）
-  const textAreaRef = useRef<any>(null);
+  const textAreaRef = useRef<TextAreaRef>(null);
 
   // 文件拖拽悬浮状态
   const [isDraggingOver, setIsDraggingOver] = useState(false);
@@ -151,8 +154,7 @@ export function IMMessageInput(props: IMMessageInputProps) {
   // 从联想列表中选中某个 Bot
   const handleSelectMention = (botName: string) => {
     const dom = (textAreaRef.current?.resizableTextArea?.textArea ||
-      textAreaRef.current?.input ||
-      textAreaRef.current) as HTMLTextAreaElement | undefined;
+      textAreaRef.current?.nativeElement) as HTMLTextAreaElement | undefined;
 
     const cursorPos = dom && typeof dom.selectionStart === "number" ? dom.selectionStart : inputText.length;
     const beforeCursor = inputText.slice(0, cursorPos);
@@ -275,8 +277,7 @@ export function IMMessageInput(props: IMMessageInputProps) {
   const handleInsertMention = (botName: string) => {
     const mentionStr = `@${botName} `;
     const dom = (textAreaRef.current?.resizableTextArea?.textArea ||
-      textAreaRef.current?.input ||
-      textAreaRef.current) as HTMLTextAreaElement | undefined;
+      textAreaRef.current?.nativeElement) as HTMLTextAreaElement | undefined;
 
     if (dom && typeof dom.selectionStart === "number") {
       const start = dom.selectionStart;
