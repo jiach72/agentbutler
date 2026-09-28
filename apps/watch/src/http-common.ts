@@ -902,13 +902,7 @@ const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 function isLoopbackOrigin(origin: string): boolean {
   try {
     const host = new URL(origin).hostname.toLowerCase();
-    return (
-      host === "localhost" ||
-      host === "127.0.0.1" ||
-      host === "::1" ||
-      host === "[::1]" ||
-      host === "butler-web"
-    );
+    return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
   } catch {
     return false;
   }
@@ -950,19 +944,13 @@ function tokensMatch(expected: string, presented: string): boolean {
 }
 
 function isLoopbackConnection(req: IncomingMessage): boolean {
+  // 只信任连接层对端地址（remoteAddress 永远是 IP，主机名比较是死代码）。
+  // 审计 K-3：不再把 RFC1918 内网（172./10./192.168.）视作回环——Compose 内
+  // 服务间写调用必须凭 BUTLER_INTERNAL_TOKEN（web 代理已自动附加，deploy.sh
+  // 默认生成），否则被攻陷的任意容器即可横向驱动 watch 的写端点。
   const raw = req.socket?.remoteAddress ?? "";
   const host = raw.replace(/^::ffff:/i, "").toLowerCase();
-  if (host === "127.0.0.1" || host === "::1" || host === "[::1]" || host === "localhost") {
-    return true;
-  }
-  // Docker Compose 内部网络桥接（Web 代理至 Watch）：当配置了 BUTLER_CREDENTIAL_WRITES_ALLOWED=true 时放行内网写操作
-  if (
-    process.env["BUTLER_CREDENTIAL_WRITES_ALLOWED"] === "true" &&
-    (host.startsWith("172.") || host.startsWith("10.") || host.startsWith("192.168.") || host === "butler-web")
-  ) {
-    return true;
-  }
-  return false;
+  return host === "127.0.0.1" || host === "::1";
 }
 
 /**

@@ -86,9 +86,57 @@ describe("gateway 访问口令与 wake 限速", () => {
       });
       expect(ok.statusCode).not.toBe(401);
 
-      // 非消息控制路径不受影响（保持原有内网语义）。
+      // 读路径不受影响（保持原有内网语义）。
       const other = await app.inject({ method: "GET", url: "/api/alerts" });
       expect(other.statusCode).toBe(200);
+    } finally {
+      await app.close();
+    }
+  });
+
+  // 审计 K-4 回归：内部口令必须覆盖 /api/messages/* 之外的状态变更路由
+  // （告警投递、SOUL.md 写入的 bots 管理），否则 Compose 内任意容器可横向驱动。
+  it("内部操作口令：覆盖全部状态变更路由，豁免 /internal/hermes/* 与 telegram webhook", async () => {
+    const app = createGatewayServer({
+      startLoop: false,
+      internalToken: "internal-secret",
+      messageService: {
+        wake: () => {},
+      } as unknown as MessageGatewayController,
+    });
+    try {
+      const alertsDenied = await app.inject({ method: "POST", url: "/api/alerts", payload: {} });
+      expect(alertsDenied.statusCode).toBe(401);
+
+      const botsDenied = await app.inject({ method: "POST", url: "/api/bots", payload: {} });
+      expect(botsDenied.statusCode).toBe(401);
+
+      const botsDeleteDenied = await app.inject({ method: "DELETE", url: "/api/bots/abc" });
+      expect(botsDeleteDenied.statusCode).toBe(401);
+
+      const alertsOk = await app.inject({
+        method: "POST",
+        url: "/api/alerts",
+        payload: {},
+        headers: { "x-butler-internal-token": "internal-secret" },
+      });
+      expect(alertsOk.statusCode).not.toBe(401);
+
+      // 豁免：宿主 Hermes 的 wake 提示（无令牌能力，另有限速）
+      const internalOk = await app.inject({
+        method: "POST",
+        url: "/internal/hermes/inbound",
+        payload: {},
+      });
+      expect(internalOk.statusCode).not.toBe(401);
+
+      // 豁免：telegram webhook 自带 secret 校验（未配置密钥时 fail-closed 503，但绝不该 401）
+      const webhook = await app.inject({
+        method: "POST",
+        url: "/api/channels/telegram/webhook",
+        payload: {},
+      });
+      expect(webhook.statusCode).not.toBe(401);
     } finally {
       await app.close();
     }

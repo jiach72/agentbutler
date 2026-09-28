@@ -63,6 +63,20 @@ const DEFAULT_WEIXIN_MIN_INTERVAL_SEC = 45;
 /** 会改变状态的请求方法；只有它们需要校验来源。 */
 const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
+/**
+ * SSRF 收窄（审计 K-9）：携带 Hermes api.key 的服务端转发，目标只允许
+ * 本机/容器网/内网地址（api_server 的合理部署位置）。/api/agent-message 与
+ * /api/messages/prompt-enhance 共用同一份白名单，避免一边收窄一边放行。
+ */
+function isAllowedAgentApiHost(host: string): boolean {
+  const normalized = host.trim().toLowerCase();
+  if (["127.0.0.1", "localhost", "::1", "host.docker.internal"].includes(normalized)) return true;
+  // RFC1918 内网段：docker 网桥 / 局域网内 apiserver（含 IPv4 字面量，排除注入字符）。
+  return /^(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3})$/.test(
+    normalized,
+  );
+}
+
 /** 来源是否指向本机；解析失败按不受信任处理。 */
 function isLoopbackOrigin(origin: string): boolean {
   try {
@@ -490,17 +504,21 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
   }
 
   /**
-   * 内部操作口令（审计 F-06）：未配置访问口令的部署里，gateway 的消息控制写路径
-   * （/api/messages/*）原先只靠「无 Origin 即放行」的 CSRF 校验兜底——Compose 内网
-   * 的任何进程都能改 ~/.hermes/config.yaml、切接管状态。配置 BUTLER_INTERNAL_TOKEN
-   * 后，这些写请求必须携带 x-butler-internal-token（web 代理自动附加）；已配置
-   * 访问口令的部署由上面的鉴权钩子全覆盖，此处不重复校验。
+   * 内部操作口令（审计 F-06 / K-4）：未配置访问口令的部署里，gateway 的状态变更
+   * 路由原先只靠「无 Origin 即放行」的 CSRF 校验兜底——Compose 内网的任何进程
+   * 都能改 ~/.hermes/config.yaml、切接管状态、投递告警、改写 SOUL.md。
+   * 配置 BUTLER_INTERNAL_TOKEN 后，除下列豁免外，一切状态变更请求必须携带
+   * x-butler-internal-token（web 代理自动附加）：
+   * - /internal/hermes/*：宿主 Hermes 网关的 wake 提示，无令牌能力，另有固定窗口限速；
+   * - /api/channels/telegram/webhook：Telegram 自带 secret-token 校验（fail-closed）。
+   * 已配置访问口令的部署由上面的鉴权钩子全覆盖，此处不重复校验。
    */
   const internalToken = (options.internalToken ?? process.env["BUTLER_INTERNAL_TOKEN"] ?? "").trim();
   if (accessToken === "" && internalToken !== "") {
     app.addHook("onRequest", async (request, reply) => {
       if (!STATE_CHANGING_METHODS.has(request.method)) return;
-      if (!request.url.startsWith("/api/messages/")) return;
+      if (request.url.startsWith("/internal/hermes/")) return;
+      if (request.url.startsWith("/api/channels/telegram/webhook")) return;
       const header = request.headers["x-butler-internal-token"];
       const provided = (typeof header === "string" ? header : "").trim();
       const expected = Buffer.from(internalToken, "utf8");
@@ -844,18 +862,9 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
         .send({ error: "agent-api-unavailable", detail: "未找到智能体接口（api_server）配置" });
     }
     // bind 地址（0.0.0.0）不能直接访问；容器内优先走 host.docker.internal。
-    // SSRF 收窄：该请求会携带 Bearer api.key，绝不允许被导向配置之外的任意主机——
-    // 目标只允许本机/容器网/内网地址（api_server 的合理部署位置）。
-    const allowed = (host: string): boolean => {
-      const normalized = host.trim().toLowerCase();
-      if (["127.0.0.1", "localhost", "::1", "host.docker.internal"].includes(normalized)) return true;
-      // RFC1918 内网段：docker 网桥 / 局域网内 apiserver（含 IPv4 字面量，排除注入字符）。
-      return /^(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3})$/.test(
-        normalized,
-      );
-    };
+    // SSRF 收窄：该请求会携带 Bearer api.key，绝不允许被导向配置之外的任意主机（K-9）。
     const hosts = [...new Set([api.host, "127.0.0.1", "host.docker.internal"])].filter(
-      (host) => host !== null && host !== "" && host !== "0.0.0.0" && allowed(host),
+      (host) => host !== null && host !== "" && host !== "0.0.0.0" && isAllowedAgentApiHost(host),
     );
     if (hosts.length === 0) {
       return reply.code(503).send({
@@ -1112,9 +1121,15 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
       "2. 保持中文表述自然顺畅，不要添加多余客套话；\n" +
       "3. 绝对不要输出任何前言、解释、引号或元说明，只直接输出重构后的最终提示词正文。";
 
+    // SSRF 收窄（审计 K-9）：与 /api/agent-message 共用同一份主机白名单——
+    // 该请求同样携带 Bearer api.key，不允许被导向白名单之外的目标。
     const hosts = [...new Set([api.host, "127.0.0.1", "host.docker.internal"])].filter(
-      (host) => host !== null && host !== "" && host !== "0.0.0.0"
+      (host) => host !== null && host !== "" && host !== "0.0.0.0" && isAllowedAgentApiHost(host),
     );
+    if (hosts.length === 0) {
+      // 无可转发目标时优雅降级为规则快道，不把 api.key 发往白名单之外的地址。
+      return reply.code(200).send({ ok: true, enhanced: prompt, mode: "rule", changes: ["规则快速处理"] });
+    }
 
     for (const host of hosts) {
       try {
