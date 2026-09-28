@@ -1852,6 +1852,28 @@ export function KnowledgePage() {
                         >
                           🔍 背景与关键节点？
                         </Button>
+                        <Button
+                          size="small"
+                          type="dashed"
+                          onClick={() => {
+                            const q = "请全面审查知识库中相关资料的潜在风险点、合规隐患与安全防线";
+                            setQueryInput(q);
+                            void handleRunQuery(q);
+                          }}
+                        >
+                          🛡️ 潜在风险与合规？
+                        </Button>
+                        <Button
+                          size="small"
+                          type="dashed"
+                          onClick={() => {
+                            const q = "请将知识库中相关文档的核心精要凝练成 200 字以内的高管工作简报";
+                            setQueryInput(q);
+                            void handleRunQuery(q);
+                          }}
+                        >
+                          📝 200 字工作简报？
+                        </Button>
                       </Flex>
 
                       {/* 问答检索结果 */}
@@ -1906,8 +1928,34 @@ export function KnowledgePage() {
                                             <Text strong ellipsis style={{ maxWidth: 170 }}>
                                               {c.docName}
                                             </Text>
-                                            <Space size={4}>
-                                              <Tag color="blue" style={{ margin: 0 }}>匹配度 {c.score}</Tag>
+                                            <Space size={2}>
+                                              <Tag color="blue" style={{ margin: 0, fontSize: 11 }}>匹配度 {c.score}</Tag>
+                                              {(() => {
+                                                const matchedDoc = documents.find(
+                                                  (d) => d.name === c.docName || d.path.endsWith(c.docName),
+                                                );
+                                                return matchedDoc ? (
+                                                  <Tooltip title="在线预览该文档原文">
+                                                    <Button
+                                                      size="small"
+                                                      type="text"
+                                                      icon={<EyeOutlined style={{ fontSize: 11, color: "var(--ant-color-primary)" }} />}
+                                                      onClick={() => handleOpenPreview(matchedDoc)}
+                                                    />
+                                                  </Tooltip>
+                                                ) : null;
+                                              })()}
+                                              <Tooltip title="一键复制出处切片内容">
+                                                <Button
+                                                  size="small"
+                                                  type="text"
+                                                  icon={<CopyOutlined style={{ fontSize: 11 }} />}
+                                                  onClick={() => {
+                                                    void navigator.clipboard?.writeText(c.snippet);
+                                                    message.success(`已复制《${c.docName}》切片内容`);
+                                                  }}
+                                                />
+                                              </Tooltip>
                                               <Tooltip title="在即时通讯中就此出处追问细节">
                                                 <Button
                                                   size="small"

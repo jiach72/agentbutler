@@ -115,6 +115,16 @@ describe("本地知识库设置的信息层级", () => {
     expect(src).toContain("已复制引用标签:");
     expect(src).toContain("复制引用标签");
   });
+
+  it("KnowledgePage 问答出处（Citations）支持切片复制、原文预览与多场景快捷提问", () => {
+    const src = readFileSync(new URL("../src/pages/knowledge/KnowledgePage.tsx", import.meta.url), "utf8");
+    expect(src).toContain("🛡️ 潜在风险与合规？");
+    expect(src).toContain("📝 200 字工作简报？");
+    expect(src).toContain("一键复制出处切片内容");
+    expect(src).toContain("在线预览该文档原文");
+    expect(src).toContain("handleOpenPreview(matchedDoc)");
+  });
 });
+
 
 
