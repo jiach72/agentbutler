@@ -11,9 +11,9 @@
  * ——「遗忘」用 warn 而不是 error：这一页存在的意义正是安抚「它是不是把事忘了」的焦虑，
  * 用错误红会和页面文案自相矛盾（评审 P1-1）。
  */
-import { Alert, Button, Card, Flex, Segmented, Table, Tag, Tooltip, Typography } from "antd";
+import { Alert, App, Button, Card, Flex, Segmented, Table, Tag, Tooltip, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { ReloadOutlined, InfoCircleOutlined } from "@ant-design/icons";
+import { ReloadOutlined, InfoCircleOutlined, CopyOutlined } from "@ant-design/icons";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ConclusionBar } from "../../components/ConclusionBar.js";
@@ -78,26 +78,38 @@ const shortPath = (path: string): string => {
 
 export function MemoryDiffPage() {
   const navigate = useNavigate();
+  const { message } = App.useApp();
   const [data, setData] = useState<MemoryDiffPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [copiedPath, setCopiedPath] = useState<string | null>(null);
   // 筛选同步到 URL（规范 03 §3.12）：刷新/分享能还原同一视图（评审 P1-7）。
   const [filter, setFilter] = useUrlState<string>("change", "all");
 
-  const refresh = useCallback(() => {
+  const copyPath = (path: string) => {
+    void navigator.clipboard?.writeText(path);
+    setCopiedPath(path);
+    message.success("已复制完整记忆路径");
+    setTimeout(() => setCopiedPath(null), 2000);
+  };
+
+  const refresh = useCallback((showNotice = false) => {
     void loadJson<MemoryDiffPayload>("/api/memory-diff?windowDays=7", 20_000).then((result) => {
       if (result.ok) {
         setData(result.data);
         setError(null);
+        if (showNotice) {
+          message.success("记忆变更流已刷新");
+        }
       } else {
         setError(result.reason);
       }
     });
-  }, []);
+  }, [message]);
 
   useEffect(() => {
-    refresh();
+    refresh(false);
   }, [refresh]);
-  usePolling(refresh, 60_000);
+  usePolling(() => refresh(false), 60_000);
 
   const columns: ColumnsType<MemoryEntry> = [
     {
@@ -113,8 +125,18 @@ export function MemoryDiffPage() {
       key: "path",
       ellipsis: true,
       render: (path: string) => (
-        <Tooltip title={path}>
-          <Typography.Text className="is-mono">{shortPath(path)}</Typography.Text>
+        <Tooltip title={copiedPath === path ? "已复制！" : `完整路径: ${path} (点击复制)`}>
+          <Typography.Text
+            className="is-mono"
+            style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}
+            onClick={() => copyPath(path)}
+          >
+            <span>{shortPath(path)}</span>
+            <CopyOutlined style={{ fontSize: 11, color: "var(--ant-color-text-tertiary)" }} />
+            {copiedPath === path && (
+              <span style={{ fontSize: 10, color: "var(--ant-color-success)", marginLeft: 2 }}>已复制</span>
+            )}
+          </Typography.Text>
         </Tooltip>
       ),
     },
@@ -268,7 +290,7 @@ export function MemoryDiffPage() {
               >
                 切换主记忆系统 →
               </Button>
-              <Button icon={<ReloadOutlined />} onClick={refresh}>
+              <Button icon={<ReloadOutlined />} onClick={() => refresh(true)}>
                 刷新
               </Button>
             </Flex>
@@ -284,8 +306,11 @@ export function MemoryDiffPage() {
           <Card size="small" title="本周它记住的重点（TOP5）">
             <Flex gap={8} wrap="wrap">
               {data.top.map((entry) => (
-                <Tooltip key={entry.path} title={entry.path}>
-                  <span>
+                <Tooltip key={entry.path} title={`完整路径: ${entry.path} (点击复制)`}>
+                  <span
+                    style={{ cursor: "pointer" }}
+                    onClick={() => copyPath(entry.path)}
+                  >
                     <StatusBadge
                       tone={CHANGE_TONE[entry.change]}
                       label={`${CHANGE_LABEL[entry.change]} ${shortPath(entry.path)}`}
