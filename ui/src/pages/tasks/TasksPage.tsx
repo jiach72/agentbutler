@@ -23,7 +23,7 @@ import { usePolling } from "../../hooks/usePolling.js";
 import { TaskEditorDrawer, TASK_TEMPLATES } from "./TaskEditorDrawer.js";
 import { TaskRunHistory } from "./TaskRunHistory.js";
 import { TaskTestRunModal } from "./TaskTestRunModal.js";
-import { compareTasks, humanizeSchedule, taskFailureLabel, taskMutationError, taskStatusLabel, taskTime } from "./taskCopy.js";
+import { compareTasks, humanizeSchedule, taskDisplayName, taskFailureLabel, taskMutationError, taskStatusLabel, taskTime } from "./taskCopy.js";
 import "./tasks.css";
 
 interface TasksPayload { supported: boolean; reachable: boolean; reason?: string; versionExact?: boolean; driftedFiles?: string[]; expectedRevision?: string; items: ScheduledTaskSummary[] }
@@ -417,7 +417,7 @@ export function TasksPage() {
                     <div className="task-card-header">
                       <div className="task-card-title-col">
                         <div className="task-card-title-row">
-                          <h2 className="task-card-name" title={task.name}>{task.name}</h2>
+                          <h2 className="task-card-name" title={task.name}>{taskDisplayName(task.name)}</h2>
                           <Typography.Text
                             copyable={{ text: task.id, tooltips: ["复制完整任务 ID", "已复制 ID"] }}
                             className="task-id-chip"

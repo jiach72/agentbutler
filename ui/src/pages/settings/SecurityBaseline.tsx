@@ -125,11 +125,13 @@ export function SecurityBaseline({
             : "partial",
       detail:
         baseline.status === "ready"
-          ? baseline.data.loopback || baseline.data.publishHost === "0.0.0.0"
+          ? baseline.data.loopback
             ? `本地访问模式（${baseline.data.listenHost}）${baseline.data.auth ? "，已设置访问口令" : "（仅本机操作）"}`
-            : baseline.data.auth
-              ? `监听在 ${baseline.data.listenHost}，同一网络的设备可以访问，已用访问口令保护`
-              : `监听在 ${baseline.data.listenHost}，建议配置访问口令保护`
+            : baseline.data.publishHost === "0.0.0.0"
+              ? `全接口监听（0.0.0.0）${baseline.data.auth ? "，已用访问口令保护；WSL portproxy 场景宿主侧仅暴露到本机" : "，依赖宿主 portproxy/防火墙限制仅本机可达"}`
+              : baseline.data.auth
+                ? `监听在 ${baseline.data.listenHost}，同一网络的设备可以访问，已用访问口令保护`
+                : `监听在 ${baseline.data.listenHost}，建议配置访问口令保护`
           : baseline.status === "loading"
             ? "正在读取访问方式"
             : DEGRADED_TEXT,

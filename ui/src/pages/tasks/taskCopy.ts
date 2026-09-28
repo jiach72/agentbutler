@@ -192,3 +192,15 @@ export function humanizeSchedule(raw: string | null | undefined): HumanizedSched
   return { text: str };
 }
 
+
+/**
+ * 任务显示名（设计评审 D-8）：Hermes 侧未命名任务回退为原始 ID（形如
+ * 4a96a35dd33a 的十六进制串），直接裸显可读性差——展示为「未命名任务」并保留
+ * ID 前缀供辨认；有正常名字的任务原样返回。
+ */
+export function taskDisplayName(name: string): string {
+  if (/^[a-f0-9]{8,64}$/i.test(name.trim())) {
+    return `未命名任务 (${name.trim().slice(0, 8)})`;
+  }
+  return name;
+}

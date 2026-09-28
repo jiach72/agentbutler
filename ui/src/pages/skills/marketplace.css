@@ -104,6 +104,21 @@
   overflow-x: auto;
   padding-bottom: 6px;
   scroll-snap-type: x proximity;
+  /* 横向卡片行使用隐藏滚动条 + 滚轮/触控板平移（设计评审 D-6）：
+     默认灰色滚动条横压在卡片下缘非常突兀；保留可滚动性并给 hover 提示。 */
+  scrollbar-width: none;
+}
+
+.wb-featured-row:hover {
+  scrollbar-width: thin;
+}
+
+.wb-featured-row::-webkit-scrollbar {
+  height: 0;
+}
+
+.wb-featured-row:hover::-webkit-scrollbar {
+  height: 6px;
 }
 
 .wb-featured-row > * {

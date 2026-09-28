@@ -1189,8 +1189,22 @@ ${newNoteContent}
           }
         />
 
-        {/* 1. Embedding 模型缺失智能检测、拉取进度与就绪提示栏 */}
-        {embeddingStatus && embeddingStatus.ready ? (
+        {/* 1+2. 状态结论条（设计评审 D-1）：全绿状态收敛为一条紧凑结论条，异常态各自完整展开 */}
+        {embeddingStatus?.ready && isRunning ? (
+          <ConclusionBar
+            tone="ok"
+            title="本地知识库正常运行中"
+            extra={
+              <span>
+                Embedding 模型 {embeddingStatus.activeModel || "nomic-embed-text:latest"} 已挂载生效 ·
+                文档自动切片并向量化，供智能体随时检索与推理
+              </span>
+            }
+          />
+        ) : (
+          <>
+            {/* 1. Embedding 模型缺失智能检测、拉取进度与就绪提示栏 */}
+            {embeddingStatus && embeddingStatus.ready ? (
           <Alert
             type="success"
             showIcon
@@ -1299,6 +1313,8 @@ ${newNoteContent}
             title="本地知识库尚未开启"
             copy="开启后，您可以把日常资料（PDF、Word、Markdown、Obsidian 笔记）收集起来，智能体能随时查找并解答相关问题。"
           />
+        )}
+          </>
         )}
 
         {/* 3. 运行中核心操作区：提供三大 Tab 视图（原生收集箱 / 知识星图 / 全功能内嵌视图） */}

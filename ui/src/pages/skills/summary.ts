@@ -97,6 +97,7 @@ export function buildSkillsConclusion(
   return {
     tone: "ok",
     title: "技能与记忆正常",
-    copy: "可安装、可维护；管理入口在上方标签页，各库当前计数见下方概览。",
+    // 全绿态不写填充句：技能/记忆计数已在结论条 extra 行，避免大横幅占屏（设计评审 D-1）。
+    copy: "",
   };
 }

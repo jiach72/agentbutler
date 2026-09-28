@@ -539,12 +539,12 @@ export function DashboardPage() {
                       {capabilityLabel(input.memory)}
                     </span>
                   </div>
-                  <div className="mt-2 mb-1 flex items-baseline justify-between">
-                    <div className="flex items-baseline gap-1.5">
-                      <span className="text-lg md:text-xl font-bold text-on-surface tracking-tight">Enclave 隔离</span>
-                      <span className="text-xs text-tertiary font-semibold">沙盒保护</span>
+                  <div className="mt-2 mb-1 flex items-baseline justify-between gap-2">
+                    <div className="flex items-baseline gap-1.5 min-w-0">
+                      <span className="text-lg md:text-xl font-bold text-on-surface tracking-tight whitespace-nowrap">Enclave</span>
+                      <span className="text-xs text-tertiary font-semibold whitespace-nowrap shrink-0">沙盒保护</span>
                     </div>
-                    <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-surface-container/60 font-mono text-xs text-tertiary">
+                    <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-surface-container/60 font-mono text-xs text-tertiary shrink-0">
                       <EtherealIcon name="lock" size={14} />
                       <span>SECURE</span>
                     </div>
