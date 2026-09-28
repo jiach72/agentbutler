@@ -6,6 +6,7 @@
  * - 快捷运维指令 Chips 与加载状态。
  */
 import { useState, useEffect, useMemo, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   App,
   Button,
@@ -23,6 +24,7 @@ import {
   CloseOutlined,
   CopyOutlined,
   EyeOutlined,
+  FileAddOutlined,
   FileTextOutlined,
   SearchOutlined,
   UndoOutlined,
@@ -88,6 +90,20 @@ export const QUICK_PROMPT_CATEGORIES: QuickPromptCategory[] = [
 
 export function IMMessageInput(props: IMMessageInputProps) {
   const { message } = App.useApp();
+  let routerNavigate: ((to: string) => void) | null = null;
+  try {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    routerNavigate = useNavigate();
+  } catch {
+    routerNavigate = null;
+  }
+  const safeNavigate = (path: string) => {
+    if (routerNavigate) {
+      routerNavigate(path);
+    } else {
+      window.location.assign(path);
+    }
+  };
   const [inputText, setInputText] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("ops");
   const [isEnhancing, setIsEnhancing] = useState(false);
@@ -97,6 +113,12 @@ export function IMMessageInput(props: IMMessageInputProps) {
     changes: string[];
   } | null>(null);
   const [diffModalOpen, setDiffModalOpen] = useState(false);
+
+  // 文本框 DOM 引用（用于精确定位光标与自动聚焦）
+  const textAreaRef = useRef<any>(null);
+
+  // 文件拖拽悬浮状态
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
 
   // 指令发送历史记录与上下键回溯
   const historyRef = useRef<string[]>([]);
@@ -176,6 +198,76 @@ export function IMMessageInput(props: IMMessageInputProps) {
     setInputText(template);
     setKnowledgePickerOpen(false);
     message.success(`已填充基于《${docName}》的问答提示词`);
+  };
+
+  // 在当前光标位置智能插入 @Bot 并自动聚焦
+  const handleInsertMention = (botName: string) => {
+    const mentionStr = `@${botName} `;
+    const dom = (textAreaRef.current?.resizableTextArea?.textArea ||
+      textAreaRef.current?.input ||
+      textAreaRef.current) as HTMLTextAreaElement | undefined;
+
+    if (dom && typeof dom.selectionStart === "number") {
+      const start = dom.selectionStart;
+      const end = dom.selectionEnd;
+      const nextText = inputText.slice(0, start) + mentionStr + inputText.slice(end);
+      setInputText(nextText);
+      setTimeout(() => {
+        dom.focus?.();
+        const newPos = start + mentionStr.length;
+        dom.setSelectionRange?.(newPos, newPos);
+      }, 10);
+    } else {
+      setInputText((prev) => (prev ? `${mentionStr}${prev}` : mentionStr));
+    }
+  };
+
+  // 拖拽文件进入输入区域
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isDraggingOver) {
+      setIsDraggingOver(true);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setIsDraggingOver(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(false);
+
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length === 0) return;
+
+    const textFiles = files.filter(
+      (f) =>
+        f.type.startsWith("text/") ||
+        /\.(md|txt|json|csv|yaml|yml|log|js|ts|tsx|jsx|py|sh|sql)$/i.test(f.name),
+    );
+
+    if (textFiles.length === 0) {
+      message.warning("仅支持拖入文本类文件 (Markdown, TXT, JSON, YAML, 代码等)");
+      return;
+    }
+
+    const targetFile = textFiles[0];
+    try {
+      const content = await targetFile.text();
+      const snippet = content.slice(0, 12000);
+      const isTruncated = content.length > 12000;
+      const formatted = `【文件: ${targetFile.name}】\n\`\`\`\n${snippet}${isTruncated ? "\n... (已截断前 12000 字符)" : ""}\n\`\`\`\n`;
+      setInputText((prev) => (prev ? `${prev}\n\n${formatted}` : formatted));
+      message.success(`已载入文件《${targetFile.name}》内容到输入框`);
+    } catch {
+      message.error("读取拖拽文件失败");
+    }
   };
 
   // 处理智能提示词增强（点击 Sparkle 按钮）
@@ -301,7 +393,22 @@ export function IMMessageInput(props: IMMessageInputProps) {
   const hasMention = /@([a-zA-Z0-9_\u4e00-\u9fa5]+)/.test(inputText);
 
   return (
-    <div className="im-input-dock">
+    <div
+      className={`im-input-dock ${isDraggingOver ? "is-dragover" : ""}`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* 拖拽文件进入时的悬浮高光遮罩 */}
+      {isDraggingOver && (
+        <div className="im-dropzone-overlay">
+          <FileAddOutlined style={{ fontSize: 24, color: "var(--ab-primary)" }} />
+          <span style={{ fontSize: 13, fontWeight: 600, color: "var(--ab-primary)" }}>
+            松开鼠标以将文本/代码文件内容快速载入输入框
+          </span>
+        </div>
+      )}
+
       {/* 群聊场景：展示可用 Bot @快捷点名与 Jev 智能指派指示器 */}
       {props.isGroupChat && props.availableBots && props.availableBots.length > 0 && (
         <div style={{ marginBottom: 6, paddingBottom: 6, borderBottom: "1px dashed var(--ant-color-border-secondary)" }}>
@@ -317,9 +424,7 @@ export function IMMessageInput(props: IMMessageInputProps) {
                   className="im-action-chip"
                   aria-label={`点名 ${bot.name}`}
                   disabled={props.disabled || props.sending}
-                  onClick={() => {
-                    setInputText((prev) => (prev ? `@${bot.name} ${prev}` : `@${bot.name} `));
-                  }}
+                  onClick={() => handleInsertMention(bot.name)}
                 >
                   @{bot.name}
                 </Button>
@@ -405,6 +510,7 @@ export function IMMessageInput(props: IMMessageInputProps) {
 
       {/* 多行输入文本框 */}
       <TextArea
+        ref={textAreaRef}
         value={inputText}
         onChange={(e) => {
           setInputText(e.target.value);
@@ -653,7 +759,7 @@ export function IMMessageInput(props: IMMessageInputProps) {
                     size="small"
                     onClick={() => {
                       setKnowledgePickerOpen(false);
-                      window.location.assign("/knowledge");
+                      safeNavigate("/knowledge");
                     }}
                   >
                     前往本地知识库上传私有文档 →

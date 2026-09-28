@@ -50,6 +50,13 @@ import { useTheme } from "../../../theme/ThemeProvider.js";
 import { Empty } from "../../../components/Empty.js";
 import { formatIMTimeCapsule, type IMChatMessage, type IMConversation, type BotProfile } from "./imTypes.js";
 import { IMMessageInput } from "./IMMessageInput.js";
+import { channelLabel } from "../helpers.js";
+import { postJson } from "../../../lib/api.js";
+import {
+  formatConversationToMarkdown,
+  formatMessageToKnowledgeCard,
+  triggerTextDownload,
+} from "./imExport.js";
 
 /**
  * 辅助高亮函数：对匹配搜索关键词的文本片段进行黄色 mark 标记，防止正则特殊字符注入并保留换行
@@ -87,7 +94,60 @@ export function renderHighlightedText(text: string, keyword?: string): React.Rea
   }
 }
 
-/** 轻量级 Markdown 气泡解析器，支持代码块独立高亮与右上角一键复制反馈，并支持普通文本段内的关键词搜索高亮 */
+/**
+ * 安全的轻量级行内 Markdown 解析器：
+ * - 支持将 `code` 渲染为行内代码标签；
+ * - 支持将 **bold** 渲染为粗体强调；
+ * - 无缝嵌套关键词搜索黄色高亮，安全防注入。
+ */
+export function renderInlineMarkdown(text: string, highlightKeyword?: string): React.ReactNode {
+  if (!text) return text;
+
+  // 1. 先按行内代码 (`...`) 切分
+  const codeParts = text.split(/(`[^`]+`)/g);
+  if (codeParts.length <= 1 && !text.includes("**")) {
+    return renderHighlightedText(text, highlightKeyword);
+  }
+
+  return codeParts.map((part, cIdx) => {
+    if (part.startsWith("`") && part.endsWith("`") && part.length >= 2) {
+      const innerCode = part.slice(1, -1);
+      return (
+        <code key={cIdx} className="im-inline-code">
+          {renderHighlightedText(innerCode, highlightKeyword)}
+        </code>
+      );
+    }
+
+    // 2. 对非代码部分，继续按粗体 (**...**) 切分
+    const boldParts = part.split(/(\*\*[^*]+\*\*)/g);
+    if (boldParts.length <= 1) {
+      return (
+        <span key={cIdx}>
+          {renderHighlightedText(part, highlightKeyword)}
+        </span>
+      );
+    }
+
+    return (
+      <span key={cIdx}>
+        {boldParts.map((bPart, bIdx) => {
+          if (bPart.startsWith("**") && bPart.endsWith("**") && bPart.length >= 4) {
+            const innerBold = bPart.slice(2, -2);
+            return (
+              <strong key={bIdx} style={{ fontWeight: 600 }}>
+                {renderHighlightedText(innerBold, highlightKeyword)}
+              </strong>
+            );
+          }
+          return renderHighlightedText(bPart, highlightKeyword);
+        })}
+      </span>
+    );
+  });
+}
+
+/** 轻量级 Markdown 气泡解析器，支持代码块独立高亮与右上角一键复制反馈，并支持行内代码与粗体高亮 */
 function RichMarkdownBubble({
   content,
   highlightKeyword,
@@ -153,20 +213,13 @@ function RichMarkdownBubble({
         }
         return (
           <span key={index} style={{ whiteSpace: "pre-wrap" }}>
-            {renderHighlightedText(part, highlightKeyword)}
+            {renderInlineMarkdown(part, highlightKeyword)}
           </span>
         );
       })}
     </div>
   );
 }
-import { channelLabel } from "../helpers.js";
-import { postJson } from "../../../lib/api.js";
-import {
-  formatConversationToMarkdown,
-  formatMessageToKnowledgeCard,
-  triggerTextDownload,
-} from "./imExport.js";
 
 const { Text } = Typography;
 
@@ -770,20 +823,26 @@ export function IMChatWindow(props: IMChatWindowProps) {
             {emptyGuide.prompts.length > 0 && (
               <Flex wrap="wrap" gap={8} justify="center" style={{ marginTop: 16 }}>
                 {emptyGuide.prompts.map((promptText) => (
-                  <Button
-                    key={promptText}
-                    size="small"
-                    style={{
-                      borderRadius: 12,
-                      fontSize: 12,
-                      background: "var(--ab-surface)",
-                      borderColor: "var(--ab-border)",
-                    }}
-                    disabled={props.sending}
-                    onClick={() => void props.onSend(promptText)}
-                  >
-                    {promptText}
-                  </Button>
+                  <Tooltip key={promptText} title="点击填入下方输入框（支持修改或直接按 Enter 发送）">
+                    <Button
+                      size="small"
+                      style={{
+                        borderRadius: 12,
+                        fontSize: 12,
+                        background: "var(--ab-surface)",
+                        borderColor: "var(--ab-border)",
+                        cursor: "pointer",
+                      }}
+                      disabled={props.sending}
+                      onClick={() => {
+                        setLocalPrefill(promptText);
+                        scrollToBottom(true);
+                        message.success("已填入输入框，可按 Enter 发送或修改指令");
+                      }}
+                    >
+                      {promptText}
+                    </Button>
+                  </Tooltip>
                 ))}
               </Flex>
             )}
@@ -1063,7 +1122,7 @@ export function IMChatWindow(props: IMChatWindowProps) {
                           )}
 
                           {/* 辅助信息微标 */}
-                          <Flex align="center" gap={8} style={{ fontSize: 11, color: timeCapsuleColor, paddingLeft: 4 }}>
+                          <Flex align="center" gap={6} wrap="wrap" style={{ fontSize: 11, color: timeCapsuleColor, paddingLeft: 4 }}>
                             <span>{isDirect ? "Hermes 智能体" : "管家回复"}</span>
                             <span>·</span>
                             <Tooltip title={`完整 ID: ${msg.id} (点击复制)`}>
@@ -1148,7 +1207,7 @@ export function IMChatWindow(props: IMChatWindowProps) {
                             boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
                           }}
                         >
-                          <div style={{ whiteSpace: "pre-wrap" }}>{renderHighlightedText(msg.content, searchKeyword)}</div>
+                          <div style={{ whiteSpace: "pre-wrap" }}>{renderInlineMarkdown(msg.content, searchKeyword)}</div>
                         </div>
 
                         {/* 悬浮微型快捷操作条 */}
@@ -1262,7 +1321,7 @@ export function IMChatWindow(props: IMChatWindowProps) {
                       )}
 
                       {/* 辅助信息微标 */}
-                      <Flex align="center" gap={6} style={{ fontSize: 11, color: timeCapsuleColor, paddingRight: 4 }}>
+                      <Flex align="center" gap={6} wrap="wrap" style={{ fontSize: 11, color: timeCapsuleColor, paddingRight: 4 }}>
                         <span>我</span>
                         <span>·</span>
                         <Tooltip title={`完整 ID: ${msg.id} (点击复制)`}>

@@ -24,7 +24,7 @@ import {
   getDirectSessions,
   renameDirectSession,
 } from "../src/pages/gateway/im/imSessionStore.js";
-import { renderHighlightedText } from "../src/pages/gateway/im/IMChatWindow.js";
+import { renderHighlightedText, renderInlineMarkdown } from "../src/pages/gateway/im/IMChatWindow.js";
 import type { IMChatMessage } from "../src/pages/gateway/im/imTypes.js";
 
 describe("即时通讯工作台：提示词增强引擎 (promptEnhancer)", () => {
@@ -448,8 +448,16 @@ describe("即时通讯工作台：UI/UX 深度重构与视窗自适应 (Commit 8
     const src = readFileSync(new URL("../src/pages/gateway/im/IMChatWindow.tsx", import.meta.url), "utf8");
     expect(src).toContain("renderHighlightedText");
     expect(src).toContain("highlightKeyword={searchKeyword}");
-    expect(src).toContain("renderHighlightedText(msg.content, searchKeyword)");
+    expect(src).toContain("renderInlineMarkdown(msg.content, searchKeyword)");
     expect(src).toContain("📚 基于本地知识库解答问题");
+  });
+
+  it("renderInlineMarkdown 能够安全解析行内代码、粗体并保留关键词高亮", () => {
+    const vnode = renderInlineMarkdown("请检查 `config.yaml` 文件的 **platforms** 配置", "config");
+    const html = renderToStaticMarkup(React.createElement("div", null, vnode));
+    expect(html).toContain('<code class="im-inline-code">');
+    expect(html).toContain("<mark");
+    expect(html).toContain("platforms</strong>");
   });
 
   it("IMConversationList.tsx 与 im.css 支持置顶智能体分段、角色徽标与视觉增强", () => {
@@ -553,6 +561,43 @@ describe("即时通讯工作台：UI/UX 深度重构与视窗自适应 (Commit 8
     expect(src).toContain("AimOutlined");
     expect(src).toContain("定位上下文");
     expect(src).toContain("id={`im-msg-${msg.id}`}");
+  });
+
+  it("IMMessageInput.tsx 支持光标感知插入与自动聚焦 (handleInsertMention)", () => {
+    const src = readFileSync(new URL("../src/pages/gateway/im/IMMessageInput.tsx", import.meta.url), "utf8");
+    expect(src).toContain("handleInsertMention");
+    expect(src).toContain("selectionStart");
+    expect(src).toContain("selectionEnd");
+    expect(src).toContain("setSelectionRange");
+    expect(src).toContain("textAreaRef");
+  });
+
+  it("IMMessageInput.tsx 与 im.css 支持文件拖拽载入 (Dropzone) 与安全 SPA 导航", () => {
+    const inputSrc = readFileSync(new URL("../src/pages/gateway/im/IMMessageInput.tsx", import.meta.url), "utf8");
+    const cssSrc = readFileSync(new URL("../src/pages/gateway/im/im.css", import.meta.url), "utf8");
+
+    // 拖拽与 Dropzone 断言
+    expect(inputSrc).toContain("handleDragOver");
+    expect(inputSrc).toContain("handleDrop");
+    expect(inputSrc).toContain("im-dropzone-overlay");
+    expect(cssSrc).toContain(".im-dropzone-overlay");
+    expect(cssSrc).toContain(".im-input-dock.is-dragover");
+
+    // 无感 SPA 导航断言（杜绝整站刷新）
+    expect(inputSrc).toContain("safeNavigate");
+    expect(inputSrc).not.toContain("window.location.assign(\"/knowledge\")");
+  });
+
+  it("IMConversationList.tsx 与 im.css 支持键盘无障碍浏览 (role=button, tabIndex, focus-visible)", () => {
+    const listSrc = readFileSync(new URL("../src/pages/gateway/im/IMConversationList.tsx", import.meta.url), "utf8");
+    const cssSrc = readFileSync(new URL("../src/pages/gateway/im/im.css", import.meta.url), "utf8");
+
+    expect(listSrc).toContain('role="button"');
+    expect(listSrc).toContain("tabIndex={0}");
+    expect(listSrc).toContain("aria-label");
+    expect(listSrc).toContain("aria-current");
+    expect(cssSrc).toContain(".im-conversation-item:focus-visible");
+    expect(cssSrc).toContain(".im-inline-code");
   });
 });
 

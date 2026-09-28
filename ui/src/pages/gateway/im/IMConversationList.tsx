@@ -295,6 +295,16 @@ export function IMConversationList(props: IMConversationListProps) {
               <div
                 key={conv.id}
                 className={`im-conversation-item ${isActive ? "active" : ""}`}
+                role="button"
+                tabIndex={0}
+                aria-label={`切换到会话：${conv.title}`}
+                aria-current={isActive ? "true" : undefined}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    props.onSelectConversation(conv.id);
+                  }
+                }}
                 onClick={() => props.onSelectConversation(conv.id)}
               >
                 <Flex align="center" gap={10}>

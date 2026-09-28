@@ -143,6 +143,11 @@
   transform: translateY(-1px);
 }
 
+.im-conversation-item:focus-visible {
+  outline: 2px solid var(--ab-primary);
+  outline-offset: 2px;
+}
+
 .im-conversation-item.active {
   background: var(--ab-surface);
   border-color: var(--ab-primary);
@@ -278,6 +283,20 @@
   font-size: 12px;
 }
 
+.im-inline-code {
+  font-family: var(--ab-font-mono, monospace);
+  background: var(--ab-surface-2);
+  color: var(--ab-primary);
+  border: 1px solid var(--ab-border);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 12px;
+  margin: 0 2px;
+  display: inline-block;
+  vertical-align: baseline;
+  line-height: 1.4;
+}
+
 /* 思考波浪动效 */
 .im-thinking-wave {
   display: flex;
@@ -323,6 +342,29 @@
   flex-direction: column;
   gap: 8px;
   position: relative;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.im-input-dock.is-dragover {
+  border-top-color: var(--ab-primary);
+  background: var(--ab-surface-2);
+}
+
+.im-dropzone-overlay {
+  position: absolute;
+  inset: 4px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: color-mix(in srgb, var(--ab-surface) 88%, var(--ab-primary));
+  border: 2px dashed var(--ab-primary);
+  border-radius: var(--ab-r-card, 12px);
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+  animation: imFadeSlideIn 0.2s ease-out;
 }
 
 /* 提示词增强按钮（Sparkle Button - 对标截图红框） */
