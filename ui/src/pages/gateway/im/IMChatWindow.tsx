@@ -394,6 +394,73 @@ export function IMChatWindow(props: IMChatWindowProps) {
   }
 
   const isDirect = props.conversation.type === "direct";
+  const isGroup = props.conversation.type === "group";
+
+  // 针对不同会话类型（群聊、审查员、侦察员、管家）定制欢迎态与引导指令
+  const emptyGuide = useMemo(() => {
+    if (!props.conversation) {
+      return {
+        title: "暂无消息记录",
+        hint: "在下方输入框发送消息以开始对话",
+        prompts: [] as string[],
+      };
+    }
+    if (props.conversation.type === "group") {
+      return {
+        title: "多智能体协同群聊已就绪",
+        hint: "群内专家各司其职，由 Jev 调度中枢智能指派或使用 @专家 点名发起接力协作",
+        prompts: [
+          "让团队专家各自进行一分钟自我介绍与专长分工声明",
+          "多专家联手：全面体检系统网关状态与通道健康度",
+          "📚 基于本地知识库与专家团队共商系统架构优化",
+          "请审查员全面审计近期死信，并由管家制定自愈计划",
+        ],
+      };
+    }
+    if (props.conversation.type === "direct") {
+      const bId = props.conversation.botId;
+      if (bId === "inspector") {
+        return {
+          title: "安全审查员 (Inspector) 直连已就绪",
+          hint: "专职于系统合规检查、死信审计、异常特征提取与安全建议",
+          prompts: [
+            "全面审计系统近 24 小时死信、告警与违规调用",
+            "检查当前消息网关与通信策略配置的合规性",
+            "分析当前系统潜在隐患并提供优化建议",
+            "总结当前未确认的异常指纹并生成风险报告",
+          ],
+        };
+      }
+      if (bId === "scout") {
+        return {
+          title: "前哨侦察员 (Scout) 直连已就绪",
+          hint: "专职于网络连通性侦测、外部消息通道探活与前沿信息收集",
+          prompts: [
+            "侦测所有外部网络接入与通道连通状态",
+            "检索最新的 Hermes 运行时与网关关键健康指标",
+            "探活当前微信、A2A 与 API Server 通讯状态",
+            "📚 检索本地知识库并列出最新沉淀的私有文档",
+          ],
+        };
+      }
+      return {
+        title: "全能管家直连通道已就绪",
+        hint: "像 Hermes Web UI 一样，在下方输入框直接向管家发送指令（支持一键增强提示词）",
+        prompts: [
+          "检查系统健康与网关状态",
+          "汇总待处理告警与死信",
+          "查看通道连接与运行时详情",
+          "📚 基于本地知识库解答问题",
+        ],
+      };
+    }
+    return {
+      title: "暂无消息记录",
+      hint: "外部通道收到或发出消息后将在此实时呈现",
+      prompts: [] as string[],
+    };
+  }, [props.conversation]);
+
   const wechatGreenBg = isDark ? "rgba(34, 139, 87, 0.32)" : "#95ec69";
   const wechatGreenText = isDark ? "#e6ffed" : "#111827";
   const wechatGreenBorder = isDark ? "1px solid rgba(34, 139, 87, 0.45)" : "none";
@@ -677,28 +744,24 @@ export function IMChatWindow(props: IMChatWindowProps) {
       {/* 2. 聊天流消息视窗 */}
       <div className="im-chat-stream" ref={streamContainerRef} onScroll={handleScroll}>
         {props.messages.length === 0 ? (
-          <div style={{ margin: "auto", textAlign: "center", maxWidth: 440, padding: "20px 16px" }}>
+          <div style={{ margin: "auto", textAlign: "center", maxWidth: 520, padding: "24px 16px" }}>
             <Empty
               mascot={false}
-              title={isDirect ? "直连通道已开启" : "暂无消息记录"}
-              hint={
-                isDirect
-                  ? "像 Hermes Web UI 一样，在下方输入框直接向智能体发送指令（支持一键增强提示词）"
-                  : "外部通道收到或发出消息后将在此实时呈现"
-              }
+              title={emptyGuide.title}
+              hint={emptyGuide.hint}
             />
-            {isDirect && (
+            {emptyGuide.prompts.length > 0 && (
               <Flex wrap="wrap" gap={8} justify="center" style={{ marginTop: 16 }}>
-                {[
-                  "检查系统健康与网关状态",
-                  "汇总待处理告警与死信",
-                  "查看通道连接与运行时详情",
-                  "📚 基于本地知识库解答问题",
-                ].map((promptText) => (
+                {emptyGuide.prompts.map((promptText) => (
                   <Button
                     key={promptText}
                     size="small"
-                    style={{ borderRadius: 12, fontSize: 12 }}
+                    style={{
+                      borderRadius: 12,
+                      fontSize: 12,
+                      background: "var(--ab-surface)",
+                      borderColor: "var(--ab-border)",
+                    }}
                     disabled={props.sending}
                     onClick={() => void props.onSend(promptText)}
                   >

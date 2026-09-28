@@ -533,6 +533,18 @@ describe("即时通讯工作台：UI/UX 深度重构与视窗自适应 (Commit 8
     expect(src).toContain("navigate(\"/knowledge\")");
     expect(src).not.toContain("window.location.assign(\"/knowledge\")");
   });
+
+  it("IMChatWindow.tsx 支持协同群聊与专职 Bot 定制化欢迎态及启发式推荐 Prompt", () => {
+    const src = readFileSync(new URL("../src/pages/gateway/im/IMChatWindow.tsx", import.meta.url), "utf8");
+    expect(src).toContain("emptyGuide");
+    expect(src).toContain("多智能体协同群聊已就绪");
+    expect(src).toContain("安全审查员 (Inspector) 直连已就绪");
+    expect(src).toContain("前哨侦察员 (Scout) 直连已就绪");
+    expect(src).toContain("全能管家直连通道已就绪");
+    expect(src).toContain("让团队专家各自进行一分钟自我介绍与专长分工声明");
+    expect(src).toContain("全面审计系统近 24 小时死信、告警与违规调用");
+    expect(src).toContain("侦测所有外部网络接入与通道连通状态");
+  });
 });
 
 
