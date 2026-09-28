@@ -21,6 +21,7 @@ import {
   Typography,
 } from "antd";
 import {
+  AimOutlined,
   CheckCircleFilled,
   CheckOutlined,
   ClearOutlined,
@@ -201,6 +202,22 @@ export function IMChatWindow(props: IMChatWindowProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState("");
   const [localPrefill, setLocalPrefill] = useState<string | null>(null);
+  const [highlightedMsgId, setHighlightedMsgId] = useState<string | null>(null);
+
+  // 退出搜索并在完整上下文中平滑定位高亮该消息
+  const handleJumpToContext = (targetMsgId: string) => {
+    setSearchKeyword("");
+    setHighlightedMsgId(targetMsgId);
+    setTimeout(() => {
+      const el = document.getElementById(`im-msg-${targetMsgId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }, 100);
+    setTimeout(() => {
+      setHighlightedMsgId(null);
+    }, 2800);
+  };
 
   // 用户是否向上滚动离开了底部（此时锁定滚动位置，不再随轮询自动回弹）
   const [userScrolledUp, setUserScrolledUp] = useState(false);
@@ -832,9 +849,23 @@ export function IMChatWindow(props: IMChatWindowProps) {
 
             const isAI = msg.sender === "ai";
             const isExpanded = expandedOptimizations.has(msg.id);
+            const isHighlighted = highlightedMsgId === msg.id;
 
             return (
-              <Flex vertical gap={8} key={msg.id} style={{ width: "100%" }}>
+              <Flex
+                vertical
+                gap={8}
+                key={msg.id}
+                id={`im-msg-${msg.id}`}
+                style={{
+                  width: "100%",
+                  transition: "all 0.3s ease",
+                  borderRadius: 12,
+                  boxShadow: isHighlighted ? "0 0 0 2px var(--ab-primary), 0 0 16px var(--ab-primary-soft-border)" : undefined,
+                  padding: isHighlighted ? "6px 8px" : undefined,
+                  background: isHighlighted ? "var(--ab-primary-soft)" : undefined,
+                }}
+              >
                 {/* 居中时间胶囊 */}
                 {showTimeCapsule && (
                   <div style={{ textAlign: "center", margin: "4px 0" }}>
@@ -914,6 +945,18 @@ export function IMChatWindow(props: IMChatWindowProps) {
                               <CommentOutlined style={{ fontSize: 13 }} />
                             </button>
                           </Tooltip>
+                          {Boolean(searchKeyword.trim()) && (
+                            <Tooltip title="退出搜索并在完整消息流中定位此回答">
+                              <button
+                                type="button"
+                                className="im-bubble-action-btn"
+                                onClick={() => handleJumpToContext(msg.id)}
+                                aria-label="定位上下文"
+                              >
+                                <AimOutlined style={{ fontSize: 13, color: "var(--ab-primary)" }} />
+                              </button>
+                            </Tooltip>
+                          )}
                         </div>
 
                         <Flex justify="flex-start" align="flex-start" gap={10} style={{ width: "100%" }}>
@@ -1150,6 +1193,19 @@ export function IMChatWindow(props: IMChatWindowProps) {
                               }}
                             />
                           </Tooltip>
+                          {Boolean(searchKeyword.trim()) && (
+                            <Tooltip title="退出搜索并在完整消息流中定位此提问">
+                              <Button
+                                type="text"
+                                size="small"
+                                icon={<AimOutlined style={{ fontSize: 12, color: "var(--ab-primary)" }} />}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleJumpToContext(msg.id);
+                                }}
+                              />
+                            </Tooltip>
+                          )}
                         </div>
                       </div>
 

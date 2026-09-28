@@ -545,6 +545,15 @@ describe("即时通讯工作台：UI/UX 深度重构与视窗自适应 (Commit 8
     expect(src).toContain("全面审计系统近 24 小时死信、告警与违规调用");
     expect(src).toContain("侦测所有外部网络接入与通道连通状态");
   });
+
+  it("IMChatWindow.tsx 搜索模式支持消息上下文一键跳转定位 (handleJumpToContext) 与高亮微光反馈", () => {
+    const src = readFileSync(new URL("../src/pages/gateway/im/IMChatWindow.tsx", import.meta.url), "utf8");
+    expect(src).toContain("handleJumpToContext");
+    expect(src).toContain("highlightedMsgId");
+    expect(src).toContain("AimOutlined");
+    expect(src).toContain("定位上下文");
+    expect(src).toContain("id={`im-msg-${msg.id}`}");
+  });
 });
 
 
