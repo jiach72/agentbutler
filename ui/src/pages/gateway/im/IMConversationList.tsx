@@ -14,6 +14,7 @@ import {
   Input,
   Popconfirm,
   Segmented,
+  Tag,
   Tooltip,
   Typography,
 } from "antd";
@@ -225,10 +226,38 @@ export function IMConversationList(props: IMConversationListProps) {
             <MessageOutlined style={{ fontSize: 24, marginBottom: 8, opacity: 0.5 }} />
             <div style={{ fontSize: 12 }}>暂无符合条件的会话</div>
           </div>
-        ) : (
-          filteredList.map((conv) => {
+        ) : (() => {
+          const renderItem = (conv: IMConversation) => {
             const isActive = conv.id === props.activeId;
             const isDirect = conv.type === "direct";
+            const isGroup = conv.type === "group";
+
+            let roleTag = null;
+            if (isGroup) {
+              roleTag = (
+                <Tag color="blue" style={{ fontSize: 10, lineHeight: "16px", padding: "0 4px", borderRadius: 4, margin: 0 }}>
+                  群聊
+                </Tag>
+              );
+            } else if (isDirect) {
+              roleTag = (
+                <Tag color="purple" style={{ fontSize: 10, lineHeight: "16px", padding: "0 4px", borderRadius: 4, margin: 0 }}>
+                  智能体
+                </Tag>
+              );
+            } else if (conv.channel === "weixin") {
+              roleTag = (
+                <Tag color="green" style={{ fontSize: 10, lineHeight: "16px", padding: "0 4px", borderRadius: 4, margin: 0 }}>
+                  微信
+                </Tag>
+              );
+            } else if (conv.channel === "a2a") {
+              roleTag = (
+                <Tag color="orange" style={{ fontSize: 10, lineHeight: "16px", padding: "0 4px", borderRadius: 4, margin: 0 }}>
+                  A2A
+                </Tag>
+              );
+            }
 
             return (
               <div
@@ -240,7 +269,7 @@ export function IMConversationList(props: IMConversationListProps) {
                   {/* 头像与通道徽标 */}
                   <div style={{ position: "relative" }}>
                     {getConversationAvatar(conv)}
-                    {(isDirect || conv.type === "group") && (
+                    {(isDirect || isGroup) && (
                       <span
                         className="im-pulse-dot"
                         style={{
@@ -255,14 +284,17 @@ export function IMConversationList(props: IMConversationListProps) {
 
                   {/* 标题与最后一条消息预览 */}
                   <Flex vertical style={{ minWidth: 0, flex: 1 }} gap={2}>
-                    <Flex justify="space-between" align="center">
-                      <Text
-                        strong
-                        ellipsis
-                        style={{ fontSize: 13, color: isActive ? "var(--ab-primary)" : "var(--ab-text)" }}
-                      >
-                        {conv.title}
-                      </Text>
+                    <Flex justify="space-between" align="center" gap={4}>
+                      <Flex align="center" gap={6} style={{ minWidth: 0, flex: 1 }}>
+                        <Text
+                          strong
+                          ellipsis
+                          style={{ fontSize: 13, color: isActive ? "var(--ab-primary)" : "var(--ab-text)" }}
+                        >
+                          {conv.title}
+                        </Text>
+                        {roleTag}
+                      </Flex>
                       {conv.lastMessage && (
                         <Text type="secondary" style={{ fontSize: 11, flexShrink: 0 }}>
                           {conv.lastMessage.timestamp.slice(11, 16)}
@@ -314,8 +346,35 @@ export function IMConversationList(props: IMConversationListProps) {
                 </Flex>
               </div>
             );
-          })
-        )}
+          };
+
+          const isSectioned = filterType === "all" && !searchKeyword.trim();
+          const pinnedList = isSectioned
+            ? filteredList.filter((c) => c.isPinned || c.type === "direct" || c.type === "group")
+            : [];
+          const externalList = isSectioned
+            ? filteredList.filter((c) => !pinnedList.includes(c))
+            : [];
+
+          if (isSectioned && pinnedList.length > 0 && externalList.length > 0) {
+            return (
+              <>
+                <div className="im-conversation-section-title">
+                  <span>置顶智能体与群组</span>
+                  <span>{pinnedList.length}</span>
+                </div>
+                {pinnedList.map(renderItem)}
+                <div className="im-conversation-section-title" style={{ marginTop: 8 }}>
+                  <span>外部通道与联系人</span>
+                  <span>{externalList.length}</span>
+                </div>
+                {externalList.map(renderItem)}
+              </>
+            );
+          }
+
+          return filteredList.map(renderItem);
+        })()}
       </div>
     </div>
   );

@@ -451,6 +451,19 @@ describe("即时通讯工作台：UI/UX 深度重构与视窗自适应 (Commit 8
     expect(src).toContain("renderHighlightedText(msg.content, searchKeyword)");
     expect(src).toContain("📚 基于本地知识库解答问题");
   });
+
+  it("IMConversationList.tsx 与 im.css 支持置顶智能体分段、角色徽标与视觉增强", () => {
+    const src = readFileSync(new URL("../src/pages/gateway/im/IMConversationList.tsx", import.meta.url), "utf8");
+    expect(src).toContain("im-conversation-section-title");
+    expect(src).toContain("置顶智能体与群组");
+    expect(src).toContain("外部通道与联系人");
+    expect(src).toContain("群聊");
+    expect(src).toContain("智能体");
+
+    const css = readFileSync(new URL("../src/pages/gateway/im/im.css", import.meta.url), "utf8");
+    expect(css).toContain(".im-conversation-section-title");
+    expect(css).toContain(".im-conversation-item.active::before");
+  });
 });
 
 
