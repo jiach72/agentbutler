@@ -93,7 +93,7 @@ function SidebarNav({ collapsed = false, onToggleCollapse, onNavigate, onOpenGee
   usePolling(fetchApprovals, 30_000);
 
   const renderItem = (item: StitchNavItem) => {
-    const active = isStitchNavActive(item.path, currentPath);
+    const active = isStitchNavActive(item.path, currentPath, location.search);
     const isSettings = item.path === "/settings";
     const settingsActive = isSettings && (active || currentPath.startsWith("/preferences"));
 
@@ -413,6 +413,8 @@ export function Layout() {
     if (!q) {
       return [
         { title: "总览大盘", path: "/dashboard", icon: "dashboard", description: "系统运行结论与关键介入卡片" },
+        { title: "即时通讯工作台", path: "/gateway?tab=im", icon: "forum", description: "直连对话与多智能体协同" },
+        { title: "本地知识库", path: "/knowledge", icon: "menu_book", description: "文档切片与 RAG 检索" },
         { title: "定时任务与巡检", path: "/tasks", icon: "calendar_today", description: "Cron 表达式调度与健康体检" },
         { title: "操作审批中心", path: "/approvals", icon: "verified_user", description: "HITL 拦截决策与事后审计" },
         { title: "消息通知网关", path: "/gateway", icon: "notifications", description: "Hermes Bridge 消息状态与策略" },
@@ -824,7 +826,7 @@ export function Layout() {
                     </div>
                     <div className="grid grid-cols-1 gap-1.5">
                       {group.items.map((item) => {
-                        const active = isStitchNavActive(item.path, location.pathname);
+                        const active = isStitchNavActive(item.path, location.pathname, location.search);
                         return (
                           <Link
                             key={item.path}

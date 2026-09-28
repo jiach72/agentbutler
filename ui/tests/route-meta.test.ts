@@ -13,9 +13,11 @@ import {
   NAV_GROUPS,
   PINNED_ROUTE,
   ROUTES,
+  STITCH_SIDEBAR_NAV,
   collapsibleGroupKeys,
   eyebrowFor,
   groupLabel,
+  isStitchNavActive,
   navRoutesFor,
   routeMetaFor,
   shortTitleOf,
@@ -96,4 +98,43 @@ describe("路由元信息单一事实源", () => {
       expect(routeMetaFor(path)?.nav, path).toBe(false);
     }
   });
+
+  it("STITCH_SIDEBAR_NAV 日常核心包含 6 个一级入口且包含即时通讯与本地知识库", () => {
+    const consoleGroup = STITCH_SIDEBAR_NAV.find((g) => g.key === "console");
+    expect(consoleGroup).toBeDefined();
+    expect(consoleGroup?.items.map((i) => i.path)).toEqual([
+      "/dashboard",
+      "/gateway?tab=im",
+      "/knowledge",
+      "/tasks",
+      "/skills",
+      "/settings",
+    ]);
+  });
+
+  it("isStitchNavActive 正确识别带 query 的即时通讯工作台并与底层网关流水互斥", () => {
+    // 即时通讯工作台 (/gateway?tab=im)
+    expect(isStitchNavActive("/gateway?tab=im", "/gateway", "?tab=im")).toBe(true);
+    expect(isStitchNavActive("/gateway?tab=im", "/gateway", "?tab=history")).toBe(true);
+    expect(isStitchNavActive("/gateway?tab=im", "/gateway", "?tab=chat")).toBe(true);
+    expect(isStitchNavActive("/gateway?tab=im", "/gateway", "?tab=messages")).toBe(false);
+    expect(isStitchNavActive("/gateway?tab=im", "/gateway", "")).toBe(false);
+    expect(isStitchNavActive("/gateway?tab=im", "/knowledge", "")).toBe(false);
+
+    // 消息网关流水 (/gateway)
+    expect(isStitchNavActive("/gateway", "/gateway", "")).toBe(true);
+    expect(isStitchNavActive("/gateway", "/gateway", "?tab=messages")).toBe(true);
+    expect(isStitchNavActive("/gateway", "/gateway", "?tab=im")).toBe(false);
+    expect(isStitchNavActive("/gateway", "/gateway", "?tab=history")).toBe(false);
+    expect(isStitchNavActive("/gateway", "/tasks", "")).toBe(false);
+
+    // 本地知识库与常规路由
+    expect(isStitchNavActive("/knowledge", "/knowledge")).toBe(true);
+    expect(isStitchNavActive("/knowledge", "/knowledge/subdoc")).toBe(true);
+    expect(isStitchNavActive("/knowledge", "/skills")).toBe(false);
+    expect(isStitchNavActive("/dashboard", "/")).toBe(true);
+    expect(isStitchNavActive("/dashboard", "/dashboard")).toBe(true);
+    expect(isStitchNavActive("/dashboard", "/tasks")).toBe(false);
+  });
 });
+

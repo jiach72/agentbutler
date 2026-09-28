@@ -210,6 +210,8 @@ export const STITCH_SIDEBAR_NAV: StitchNavGroup[] = [
     label: "日常核心",
     items: [
       { path: "/dashboard", title: "管家工作台", materialIcon: "dashboard", note: "在岗状态与随手吩咐" },
+      { path: "/gateway?tab=im", title: "即时通讯", materialIcon: "forum", note: "直连对话与多智能体协同" },
+      { path: "/knowledge", title: "本地知识库", materialIcon: "menu_book", note: "私有文档收集与 RAG 检索" },
       { path: "/tasks", title: "定时任务", materialIcon: "schedule", note: "自动化巡检与定时执行" },
       { path: "/skills", title: "能力与记忆", materialIcon: "memory", note: "技能商店、知识库与记忆便签" },
       { path: "/settings", title: "系统设置", materialIcon: "settings", note: "模型、数据备份与环境体检" },
@@ -235,7 +237,6 @@ export const GEEK_DRAWER_NAV: StitchNavGroup[] = [
     key: "diagnostics_advanced",
     label: "专家维护与进阶",
     items: [
-      { path: "/knowledge", title: "本地知识库", materialIcon: "menu_book", note: "文档切片与 RAG 检索" },
       { path: "/troubleshoot", title: "排查向导", materialIcon: "healing", note: "常见异常逐步排查" },
       { path: "/logs", title: "系统终端日志", materialIcon: "subject", note: "容器与底层进程原始输出" },
       { path: "/tools", title: "专家工具箱", materialIcon: "build", note: "进阶运维命令集" },
@@ -248,9 +249,43 @@ export const GEEK_DRAWER_NAV: StitchNavGroup[] = [
   },
 ];
 
-export function isStitchNavActive(itemPath: string, currentPath: string): boolean {
+export function isStitchNavActive(itemPath: string, currentPath: string, currentSearch?: string): boolean {
   if (itemPath === "/dashboard") {
     return currentPath === "/" || currentPath === "/dashboard";
   }
+
+  // 1. 如果配置项本身携带 Query 参数（如 /gateway?tab=im）
+  if (itemPath.includes("?")) {
+    const [pathPart, queryPart] = itemPath.split("?");
+    if (currentPath !== pathPart) return false;
+    const itemParams = new URLSearchParams(queryPart);
+    const currentParams = new URLSearchParams(currentSearch || "");
+
+    const itemTab = itemParams.get("tab");
+    const currentTab = currentParams.get("tab");
+    // /gateway?tab=im 对应 IM 工作台，在 tab 为 im/history/chat 时均激活高亮
+    if (pathPart === "/gateway" && (itemTab === "im" || itemTab === "history")) {
+      return currentTab === "im" || currentTab === "history" || currentTab === "chat";
+    }
+
+    for (const [key, val] of itemParams.entries()) {
+      if (currentParams.get(key) !== val) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // 2. 如果配置项是 /gateway 基础路由（消息网关流水），若当前处于 IM 模式，则不高亮基础网关
+  if (itemPath === "/gateway") {
+    if (currentPath !== "/gateway") return false;
+    const currentParams = new URLSearchParams(currentSearch || "");
+    const currentTab = currentParams.get("tab");
+    if (currentTab === "im" || currentTab === "history" || currentTab === "chat") {
+      return false;
+    }
+    return true;
+  }
+
   return currentPath === itemPath || currentPath.startsWith(`${itemPath}/`);
 }
