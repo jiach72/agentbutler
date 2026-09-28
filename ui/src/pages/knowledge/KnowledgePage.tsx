@@ -331,6 +331,8 @@ export function KnowledgePage() {
     answer: string;
     citations: Array<{ docName: string; path: string; snippet: string; score: number }>;
   } | null>(null);
+  const [qaCopied, setQaCopied] = useState(false);
+  const [copiedSnippetIdx, setCopiedSnippetIdx] = useState<number | null>(null);
 
   // 8. Obsidian 本地笔记库文件夹选择器与实时同步进度
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -1091,12 +1093,21 @@ export function KnowledgePage() {
         <PageHeader
           title="本地知识库"
           extra={
-            <Flex align="center" gap={12}>
+            <Flex align="center" gap={8} wrap="wrap">
               <ConnectionChip
                 reachable={isRunning}
                 onlineText="知识库服务在线 (:3001)"
                 offlineText={isEnabled ? "等待知识库容器响应" : "本地知识库未开启"}
               />
+              <Tooltip title="前往即时通讯工作台（向智能体下达指令、多 Bot 协同问答）">
+                <Button
+                  size="small"
+                  icon={<MessageOutlined style={{ color: "var(--ab-primary)" }} />}
+                  onClick={() => navigate("/gateway?tab=im")}
+                >
+                  即时通讯工作台
+                </Button>
+              </Tooltip>
               <Button
                 size="small"
                 icon={<ReloadOutlined spin={loading} />}
@@ -1949,9 +1960,17 @@ export function KnowledgePage() {
                                                 <Button
                                                   size="small"
                                                   type="text"
-                                                  icon={<CopyOutlined style={{ fontSize: 11 }} />}
+                                                  icon={
+                                                    copiedSnippetIdx === i ? (
+                                                      <CheckOutlined style={{ fontSize: 11, color: "var(--ab-ok, #52c41a)" }} />
+                                                    ) : (
+                                                      <CopyOutlined style={{ fontSize: 11 }} />
+                                                    )
+                                                  }
                                                   onClick={() => {
                                                     void navigator.clipboard?.writeText(c.snippet);
+                                                    setCopiedSnippetIdx(i);
+                                                    setTimeout(() => setCopiedSnippetIdx(null), 2000);
                                                     message.success(`已复制《${c.docName}》切片内容`);
                                                   }}
                                                 />
@@ -2019,14 +2038,22 @@ export function KnowledgePage() {
                                   在即时通讯工作台继续深聊
                                 </Button>
                                 <Button
-                                  icon={<CopyOutlined />}
+                                  icon={
+                                    qaCopied ? (
+                                      <CheckOutlined style={{ color: "var(--ab-ok, #52c41a)" }} />
+                                    ) : (
+                                      <CopyOutlined />
+                                    )
+                                  }
                                   onClick={() => {
                                     const qaText = `问题：${queryResult.query}\n\n回答：\n${queryResult.answer}\n\n（来自 Agent Butler 本地私有知识库）`;
                                     void navigator.clipboard?.writeText(qaText);
+                                    setQaCopied(true);
+                                    setTimeout(() => setQaCopied(false), 2000);
                                     message.success("已复制问答全文到剪贴板");
                                   }}
                                 >
-                                  复制问答全文
+                                  {qaCopied ? "已复制问答全文 √" : "复制问答全文"}
                                 </Button>
                               </Flex>
                               <Text type="secondary" style={{ fontSize: 12 }}>

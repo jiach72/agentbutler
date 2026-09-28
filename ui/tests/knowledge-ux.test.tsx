@@ -123,6 +123,10 @@ describe("本地知识库设置的信息层级", () => {
     expect(src).toContain("一键复制出处切片内容");
     expect(src).toContain("在线预览该文档原文");
     expect(src).toContain("handleOpenPreview(matchedDoc)");
+    expect(src).toContain("copiedSnippetIdx === i");
+    expect(src).toContain("已复制问答全文 √");
+    expect(src).toContain("即时通讯工作台");
+    expect(src).toContain("navigate(\"/gateway?tab=im\")");
   });
 });
 
