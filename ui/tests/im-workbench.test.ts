@@ -641,6 +641,8 @@ describe("即时通讯工作台：UI/UX 深度重构与视窗自适应 (Commit 8
     expect(inputSrc).toContain("matchedBots");
     expect(inputSrc).toContain("handleSelectMention");
     expect(inputSrc).toContain("im-mention-popup");
+    expect(inputSrc).toContain("CompassOutlined");
+    expect(inputSrc).toContain("botColor");
     expect(cssSrc).toContain(".im-mention-popup");
     expect(cssSrc).toContain(".im-mention-item");
   });

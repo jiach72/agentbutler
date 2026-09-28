@@ -31,6 +31,7 @@ import {
   UndoOutlined,
   RobotOutlined,
   TeamOutlined,
+  CompassOutlined,
 } from "@ant-design/icons";
 import { enhancePrompt } from "./promptEnhancer.js";
 import type { BotProfile } from "./imTypes.js";
@@ -520,18 +521,37 @@ export function IMMessageInput(props: IMMessageInputProps) {
               <Text type="secondary" style={{ fontSize: 11 }}>
                 <TeamOutlined aria-hidden="true" /> 点名专家:
               </Text>
-              {props.availableBots.map((bot) => (
-                <Button
-                  key={bot.id}
-                  size="small"
-                  className="im-action-chip"
-                  aria-label={`点名 ${bot.name}`}
-                  disabled={props.disabled || props.sending}
-                  onClick={() => handleInsertMention(bot.name)}
-                >
-                  @{bot.name}
-                </Button>
-              ))}
+              {props.availableBots.map((bot) => {
+                let botColor = "var(--ab-primary)";
+                let botIcon = <RobotOutlined style={{ fontSize: 11 }} />;
+                if (bot.id === "inspector") {
+                  botColor = "#8b5cf6";
+                  botIcon = <SearchOutlined style={{ fontSize: 11, color: "#8b5cf6" }} />;
+                } else if (bot.id === "scout") {
+                  botColor = "#06b6d4";
+                  botIcon = <CompassOutlined style={{ fontSize: 11, color: "#06b6d4" }} />;
+                } else if (bot.id === "butler") {
+                  botColor = "#1677ff";
+                  botIcon = <RobotOutlined style={{ fontSize: 11, color: "#1677ff" }} />;
+                }
+                return (
+                  <Tooltip key={bot.id} title={`${bot.name}：${bot.role || bot.description || "协同专家"}`}>
+                    <Button
+                      size="small"
+                      className="im-action-chip"
+                      aria-label={`点名 ${bot.name}`}
+                      disabled={props.disabled || props.sending}
+                      onClick={() => handleInsertMention(bot.name)}
+                      icon={botIcon}
+                      style={{
+                        borderColor: `color-mix(in srgb, ${botColor} 35%, var(--ab-border))`,
+                      }}
+                    >
+                      @{bot.name}
+                    </Button>
+                  </Tooltip>
+                );
+              })}
             </Flex>
 
             {!hasMention && hasText && (
@@ -641,20 +661,30 @@ export function IMMessageInput(props: IMMessageInputProps) {
             <span>选择要点名的专家智能体 (↑↓ 选择，Enter / Tab 确认，Esc 取消)</span>
           </div>
           <div className="im-mention-list">
-            {matchedBots.map((bot, bIdx) => (
-              <div
-                key={bot.id}
-                className={`im-mention-item ${selectedMentionIdx === bIdx ? "selected" : ""}`}
-                onClick={() => handleSelectMention(bot.name)}
-                onMouseEnter={() => setSelectedMentionIdx(bIdx)}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <RobotOutlined style={{ color: "var(--ab-primary)", fontSize: 13 }} />
-                  <span className="im-mention-item-name">@{bot.name}</span>
+            {matchedBots.map((bot, bIdx) => {
+              let botIcon = <RobotOutlined style={{ color: "var(--ab-primary)", fontSize: 13 }} />;
+              if (bot.id === "inspector") {
+                botIcon = <SearchOutlined style={{ color: "#8b5cf6", fontSize: 13 }} />;
+              } else if (bot.id === "scout") {
+                botIcon = <CompassOutlined style={{ color: "#06b6d4", fontSize: 13 }} />;
+              } else if (bot.id === "butler") {
+                botIcon = <RobotOutlined style={{ color: "#1677ff", fontSize: 13 }} />;
+              }
+              return (
+                <div
+                  key={bot.id}
+                  className={`im-mention-item ${selectedMentionIdx === bIdx ? "selected" : ""}`}
+                  onClick={() => handleSelectMention(bot.name)}
+                  onMouseEnter={() => setSelectedMentionIdx(bIdx)}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    {botIcon}
+                    <span className="im-mention-item-name">@{bot.name}</span>
+                  </div>
+                  <span className="im-mention-item-desc">{bot.description || "专职智能体"}</span>
                 </div>
-                <span className="im-mention-item-desc">{bot.description || "专职智能体"}</span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
