@@ -67,4 +67,16 @@ describe("专家工具工作台 (ToolsPage)", () => {
     expect(html).toContain("Hermes 引擎指引与常用运维命令");
     expect(html).toContain("systemctl --user status hermes-gateway");
   });
+
+  it("卡片内完整展示原生底层 CLI 命令胶囊与一键复制入口", () => {
+    const html = renderToolsPage();
+    expect(html).toContain("tool-card-cmd-snippet");
+    expect(html).toContain("bash scripts/bridge-healthcheck.sh");
+    expect(html).toContain("docker compose logs --tail=100 butler-gateway");
+    expect(html).toContain("docker compose logs -f");
+    expect(html).toContain("cat ~/.hermes/config.yaml");
+    expect(html).toContain("curl -s http://127.0.0.1:8754/v1/memory");
+    expect(html).toContain("bash scripts/deploy.sh --check");
+  });
 });
+

@@ -62,9 +62,24 @@ interface ToolCardProps {
   tagColor?: string;
   tone?: "blue" | "orange" | "cyan" | "purple" | "indigo" | "emerald" | "rose" | "sky" | "violet" | "pink";
   description: string;
+  commandSnippet?: string;
 }
 
-function ToolCard({ to, icon, title, tag, tagColor = "blue", tone = "blue", description }: ToolCardProps) {
+function ToolCard({ to, icon, title, tag, tagColor = "blue", tone = "blue", description, commandSnippet }: ToolCardProps) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyCmd = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!commandSnippet) return;
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(commandSnippet).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      });
+    }
+  };
+
   return (
     <div className="tool-card">
       <div className="tool-card-header">
@@ -77,6 +92,26 @@ function ToolCard({ to, icon, title, tag, tagColor = "blue", tone = "blue", desc
         </div>
       </div>
       <p className="tool-card-desc">{description}</p>
+      {commandSnippet && (
+        <div
+          className="tool-card-cmd-snippet"
+          onClick={handleCopyCmd}
+          title="点击复制原生 CLI 命令"
+        >
+          <span className="tool-card-cmd-code">{commandSnippet}</span>
+          <button
+            type="button"
+            className="tool-card-cmd-copy-btn"
+            aria-label={`复制命令 ${commandSnippet}`}
+          >
+            {copied ? (
+              <span className="tool-card-cmd-copied-tag"><CheckOutlined /> 已复制</span>
+            ) : (
+              <CopyOutlined />
+            )}
+          </button>
+        </div>
+      )}
       <div className="tool-card-action">
         <Link
           to={to}
@@ -112,13 +147,14 @@ export function ToolsPage() {
   const [searchKeyword, setSearchKeyword] = useState("");
   const [loadingStatus, setLoadingStatus] = useState(false);
 
-  const isMatch = useCallback((title: string, desc?: string, tag?: string) => {
+  const isMatch = useCallback((title: string, desc?: string, tag?: string, cmd?: string) => {
     const kw = searchKeyword.trim().toLowerCase();
     if (!kw) return true;
     return (
       title.toLowerCase().includes(kw) ||
       (desc !== undefined && desc.toLowerCase().includes(kw)) ||
-      (tag !== undefined && tag.toLowerCase().includes(kw))
+      (tag !== undefined && tag.toLowerCase().includes(kw)) ||
+      (cmd !== undefined && cmd.toLowerCase().includes(kw))
     );
   }, [searchKeyword]);
 
@@ -168,28 +204,29 @@ export function ToolsPage() {
   const paths = settingsToolPaths(experiments, instanceCount);
 
   const section1Cards = [
-    { to: "/setup", icon: <DeploymentUnitOutlined />, title: "连接体检", tag: "链路健康", tagColor: "blue", tone: "blue" as const, description: "宿主三环体检，检测 Docker、Token 挂载与 Hermes 网关 8754/8755 连通性，提供自愈指引。" },
-    { to: "/troubleshoot", icon: <ToolOutlined />, title: "排障助手", tag: "快速自愈", tagColor: "orange", tone: "orange" as const, description: "按故障现象（模型 401/超时、消息卡死、SQLite 锁死、权限缺失）逐步引导排查与一键自愈。" },
-    { to: "/logs", icon: <FileSearchOutlined />, title: "系统日志", tag: "实时流", tagColor: "cyan", tone: "cyan" as const, description: "实时捕获与过滤 Gateway、Watch、Web 各容器日志，支持关键字检索与异常堆栈高亮。" },
-    ...(experiments ? [{ to: "/evolution", icon: <ExperimentOutlined />, title: "自进化", tag: "实验功能", tagColor: "purple", tone: "purple" as const, description: "自主分析运行日志与故障模式，生成系统提示词优化方案与行为反思改进建议。" }] : []),
-    ...(instanceCount !== null && instanceCount >= 2 ? [{ to: "/federation", icon: <ClusterOutlined />, title: "实例联邦", tag: "多实例", tagColor: "geekblue", tone: "indigo" as const, description: `已探测到 ${instanceCount} 个活跃实例，跨机汇总状态分布、同步会话记录与协同管控。` }] : []),
+    { to: "/setup", icon: <DeploymentUnitOutlined />, title: "连接体检", tag: "链路健康", tagColor: "blue", tone: "blue" as const, description: "宿主三环体检，检测 Docker、Token 挂载与 Hermes 网关 8754/8755 连通性，提供自愈指引。", commandSnippet: "bash scripts/bridge-healthcheck.sh" },
+    { to: "/troubleshoot", icon: <ToolOutlined />, title: "排障助手", tag: "快速自愈", tagColor: "orange", tone: "orange" as const, description: "按故障现象（模型 401/超时、消息卡死、SQLite 锁死、权限缺失）逐步引导排查与一键自愈。", commandSnippet: "docker compose logs --tail=100 butler-gateway" },
+    { to: "/logs", icon: <FileSearchOutlined />, title: "系统日志", tag: "实时流", tagColor: "cyan", tone: "cyan" as const, description: "实时捕获与过滤 Gateway、Watch、Web 各容器日志，支持关键字检索与异常堆栈高亮。", commandSnippet: "docker compose logs -f" },
+    ...(experiments ? [{ to: "/evolution", icon: <ExperimentOutlined />, title: "自进化", tag: "实验功能", tagColor: "purple", tone: "purple" as const, description: "自主分析运行日志与故障模式，生成系统提示词优化方案与行为反思改进建议。", commandSnippet: "node scripts/doctor.mjs --self-heal" }] : []),
+    ...(instanceCount !== null && instanceCount >= 2 ? [{ to: "/federation", icon: <ClusterOutlined />, title: "实例联邦", tag: "多实例", tagColor: "geekblue", tone: "indigo" as const, description: `已探测到 ${instanceCount} 个活跃实例，跨机汇总状态分布、同步会话记录与协同管控。`, commandSnippet: "curl -s http://127.0.0.1:7531/api/federation" }] : []),
   ];
 
   const section2Cards = [
-    { to: "/core-files", icon: <FileMarkdownOutlined />, title: "核心文件", tag: "规则资产", tagColor: "green", tone: "emerald" as const, description: "安全查看、在线编辑与版本历史回滚 AGENTS.md、SOPS.md、HERMES.md 等核心指令文件。" },
-    { to: "/memory", icon: <DatabaseOutlined />, title: "记忆系统中心", tag: "Jev 智能选型", tagColor: "purple", tone: "violet" as const, description: "自由切换 Hermes 支持的第三方记忆后端（Hindsight、Mem0 等），本地 Docker 一键部署与 Jev 智能治理。" },
-    { to: "/canary", icon: <RocketOutlined />, title: "升级策略", tag: "稳定性", tagColor: "volcano", tone: "rose" as const, description: "金丝雀升级与影子环境验证，确保配置与规则在生产环境切换前无抖动零风险。" },
+    { to: "/core-files", icon: <FileMarkdownOutlined />, title: "核心文件", tag: "规则资产", tagColor: "green", tone: "emerald" as const, description: "安全查看、在线编辑与版本历史回滚 AGENTS.md、SOPS.md、HERMES.md 等核心指令文件。", commandSnippet: "cat ~/.hermes/config.yaml" },
+    { to: "/memory", icon: <DatabaseOutlined />, title: "记忆系统中心", tag: "Jev 智能选型", tagColor: "purple", tone: "violet" as const, description: "自由切换 Hermes 支持的第三方记忆后端（Hindsight、Mem0 等），本地 Docker 一键部署与 Jev 智能治理。", commandSnippet: "curl -s http://127.0.0.1:8754/v1/memory" },
+    { to: "/canary", icon: <RocketOutlined />, title: "升级策略", tag: "稳定性", tagColor: "volcano", tone: "rose" as const, description: "金丝雀升级与影子环境验证，确保配置与规则在生产环境切换前无抖动零风险。", commandSnippet: "bash scripts/deploy.sh --check" },
   ];
 
   const section3Cards = [
-    { to: "/audit", icon: <AuditOutlined />, title: "行为审计", tag: "安全存证", tagColor: "blue", tone: "sky" as const, description: "完整记录 Agent 外部工具调用、文件改动、系统命令及审批流转的不可篡改审计时间线。" },
-    { to: "/sessions", icon: <HistoryOutlined />, title: "会话追踪", tag: "上下文分析", tagColor: "purple", tone: "violet" as const, description: "按会话深入查看 Hermes 交互明细、模型上下文流转与前后动作序列回放。" },
-    { to: "/memory-diff", icon: <DiffOutlined />, title: "记忆变更", tag: "记忆 diff", tagColor: "magenta", tone: "pink" as const, description: "对比管家记忆提取前后的 diff 变更差异，核实长期记忆沉淀的准确性与完整性。" },
+    { to: "/audit", icon: <AuditOutlined />, title: "行为审计", tag: "安全存证", tagColor: "blue", tone: "sky" as const, description: "完整记录 Agent 外部工具调用、文件改动、系统命令及审批流转的不可篡改审计时间线。", commandSnippet: "docker compose exec butler-watch cat /data/audit.log" },
+    { to: "/sessions", icon: <HistoryOutlined />, title: "会话追踪", tag: "上下文分析", tagColor: "purple", tone: "violet" as const, description: "按会话深入查看 Hermes 交互明细、模型上下文流转与前后动作序列回放。", commandSnippet: "curl -s http://127.0.0.1:8754/v1/sessions" },
+    { to: "/memory-diff", icon: <DiffOutlined />, title: "记忆变更", tag: "记忆 diff", tagColor: "magenta", tone: "pink" as const, description: "对比管家记忆提取前后的 diff 变更差异，核实长期记忆沉淀的准确性与完整性。", commandSnippet: "curl -s http://127.0.0.1:7531/api/memory/diff" },
   ];
 
-  const filteredSec1 = section1Cards.filter((c) => isMatch(c.title, c.description, c.tag));
-  const filteredSec2 = section2Cards.filter((c) => isMatch(c.title, c.description, c.tag));
-  const filteredSec3 = section3Cards.filter((c) => isMatch(c.title, c.description, c.tag));
+  const filteredSec1 = section1Cards.filter((c) => isMatch(c.title, c.description, c.tag, c.commandSnippet));
+  const filteredSec2 = section2Cards.filter((c) => isMatch(c.title, c.description, c.tag, c.commandSnippet));
+  const filteredSec3 = section3Cards.filter((c) => isMatch(c.title, c.description, c.tag, c.commandSnippet));
+
 
   const guideMatchesCount = useMemo(() => {
     const q = searchKeyword.trim().toLowerCase();

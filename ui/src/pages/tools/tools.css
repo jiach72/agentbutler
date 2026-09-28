@@ -336,3 +336,58 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* 工具卡片底层命令胶囊 */
+.tool-card-cmd-snippet {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--ab-surface-2, #f4f3f8);
+  border: 1px solid var(--ab-border, rgba(193, 198, 214, 0.25));
+  border-radius: var(--ab-r-ctl, 8px);
+  padding: 6px 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.tool-card-cmd-snippet:hover {
+  background: var(--ab-surface-3, #ebe9f2);
+  border-color: var(--ab-primary-soft-border);
+}
+
+.tool-card-cmd-code {
+  font-family: var(--ab-mono, monospace);
+  font-size: 11px;
+  color: var(--ab-text-2, #414753);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-card-cmd-copy-btn {
+  background: transparent;
+  border: none;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ab-text-3, #727782);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tool-card-cmd-snippet:hover .tool-card-cmd-copy-btn {
+  color: var(--ab-primary);
+}
+
+.tool-card-cmd-copied-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ab-ok, #10b981);
+}
+
