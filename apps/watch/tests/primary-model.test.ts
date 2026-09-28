@@ -33,7 +33,12 @@ describe("Primary Model API (/api/models/primary)", () => {
   let watchHttp: WatchHttp;
   let baseUrl: string;
   let runbookCalls: string[];
-  let runbookOutcome: "started" | "unknown-runbook" | "throw";
+  let runbookOutcome:
+    | "started"
+    | "unknown-runbook"
+    | "circuit-breaker-tripped"
+    | "no-servicing-instance"
+    | "throw";
 
   beforeEach(async () => {
     tempDir = mkdtempSync(join(tmpdir(), "butler-watch-primary-"));
@@ -64,9 +69,10 @@ describe("Primary Model API (/api/models/primary)", () => {
       executeRunbook: async (id: string) => {
         runbookCalls.push(id);
         if (runbookOutcome === "throw") throw new Error("runbook boom");
-        return runbookOutcome === "started"
-          ? { status: "started", instanceId: "test" }
-          : { status: "unknown-runbook" };
+        if (runbookOutcome === "started") return { status: "started", instanceId: "test" };
+        if (runbookOutcome === "circuit-breaker-tripped") return { status: "circuit-breaker-tripped" };
+        if (runbookOutcome === "no-servicing-instance") return { status: "no-servicing-instance" };
+        return { status: "unknown-runbook" };
       },
     });
 
@@ -147,9 +153,9 @@ describe("Primary Model API (/api/models/primary)", () => {
     expect(envContent).toContain("OPENAI_API_KEY=sk-proj-test12345");
   });
 
-  // P1 空开关回归：面板勾选「立即优雅重启」后必须真的走 rb-restart，
-  // 且响应如实返回 restarted——UI 靠它兑现「即刻生效」的承诺。
-  it("POST restartNow:true 执行 rb-restart 优雅重启并返回 restarted:true", async () => {
+  // P1 空开关与状态集回归：面板勾选「优雅重启」后必须真的走 rb-restart，
+  // 且响应如实返回 restarted 与精确的 restartOutcome（覆盖全部状态集）。
+  it("POST restartNow:true 执行 rb-restart 优雅重启并返回 restarted:true 与 restartOutcome:started", async () => {
     const res = await fetch(`${baseUrl}/api/models/primary`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -166,10 +172,11 @@ describe("Primary Model API (/api/models/primary)", () => {
     const json = await res.json();
     expect(json.ok).toBe(true);
     expect(json.restarted).toBe(true);
+    expect(json.restartOutcome).toBe("started");
     expect(runbookCalls).toEqual(["rb-restart"]);
   });
 
-  it("POST 不带 restartNow 时不触发重启，restarted 为 false", async () => {
+  it("POST 不带 restartNow 时不触发重启，restarted 为 false 且 restartOutcome 为 skipped", async () => {
     const res = await fetch(`${baseUrl}/api/models/primary`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -180,10 +187,36 @@ describe("Primary Model API (/api/models/primary)", () => {
     const json = await res.json();
     expect(json.ok).toBe(true);
     expect(json.restarted).toBe(false);
+    expect(json.restartOutcome).toBe("skipped");
     expect(runbookCalls).toEqual([]);
   });
 
-  it("POST restartNow:true 但重启失败时仍成功保存且如实返回 restarted:false", async () => {
+  it("POST restartNow:true 覆盖状态集全分支（熔断、无实例、未知、异常），均如实反馈且不回滚落盘", async () => {
+    // A. 熔断跳闸保护
+    runbookOutcome = "circuit-breaker-tripped";
+    const resTripped = await fetch(`${baseUrl}/api/models/primary`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ provider: "openai", model: "gpt-4o", restartNow: true }),
+    });
+    expect(resTripped.status).toBe(200);
+    const jsonTripped = await resTripped.json();
+    expect(jsonTripped.restarted).toBe(false);
+    expect(jsonTripped.restartOutcome).toBe("circuit-breaker-tripped");
+
+    // B. 无就绪实例
+    runbookOutcome = "no-servicing-instance";
+    const resNoInstance = await fetch(`${baseUrl}/api/models/primary`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ provider: "openai", model: "gpt-4o", restartNow: true }),
+    });
+    expect(resNoInstance.status).toBe(200);
+    const jsonNoInstance = await resNoInstance.json();
+    expect(jsonNoInstance.restarted).toBe(false);
+    expect(jsonNoInstance.restartOutcome).toBe("no-servicing-instance");
+
+    // C. 未知 Runbook
     runbookOutcome = "unknown-runbook";
     const resUnknown = await fetch(`${baseUrl}/api/models/primary`, {
       method: "POST",
@@ -191,8 +224,11 @@ describe("Primary Model API (/api/models/primary)", () => {
       body: JSON.stringify({ provider: "openai", model: "gpt-4o", restartNow: true }),
     });
     expect(resUnknown.status).toBe(200);
-    expect((await resUnknown.json()).restarted).toBe(false);
+    const jsonUnknown = await resUnknown.json();
+    expect(jsonUnknown.restarted).toBe(false);
+    expect(jsonUnknown.restartOutcome).toBe("unknown-runbook");
 
+    // D. 异常抛错
     runbookOutcome = "throw";
     const resThrow = await fetch(`${baseUrl}/api/models/primary`, {
       method: "POST",
@@ -200,13 +236,15 @@ describe("Primary Model API (/api/models/primary)", () => {
       body: JSON.stringify({ provider: "openai", model: "gpt-4o", restartNow: true }),
     });
     expect(resThrow.status).toBe(200);
-    expect((await resThrow.json()).restarted).toBe(false);
+    const jsonThrow = await resThrow.json();
+    expect(jsonThrow.restarted).toBe(false);
+    expect(jsonThrow.restartOutcome).toBe("error");
 
-    // 两次保存都真实落盘（重启失败不回滚配置写入）
+    // 配置均真实落盘（重启未成功绝不回滚配置写入）
     const parsed = parseYaml(readFileSync(join(hermesDir, "config.yaml"), "utf8")) as {
       model: { default: string };
     };
     expect(parsed.model.default).toBe("gpt-4o");
-    expect(runbookCalls).toEqual(["rb-restart", "rb-restart"]);
+    expect(runbookCalls).toEqual(["rb-restart", "rb-restart", "rb-restart", "rb-restart"]);
   });
 });

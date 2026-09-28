@@ -219,22 +219,32 @@ export async function handlePrimaryModel(ctx: RequestContext): Promise<boolean> 
         detail: { provider, model, endpoint, source, restartNow },
       });
 
-      // E. 立即优雅重启（面板勾选 restartNow 时）：与 memory apply 走同一
+      // E. 自动优雅重启（面板勾选 restartNow 时）：与 memory apply 走同一
       //    rb-restart 通道。config.yaml 已落盘，重启失败不回滚——Hermes 下次
-      //    重载自然生效；响应带 restarted 供面板如实反馈（修复 P1 空开关）。
+      //    重载自然生效；响应如实携带 restarted 与详细的 restartOutcome 供面板反馈。
       let restarted = false;
+      let restartOutcome:
+        | "started"
+        | "unknown-runbook"
+        | "circuit-breaker-tripped"
+        | "no-servicing-instance"
+        | "error"
+        | "skipped" = "skipped";
+
       if (restartNow) {
         try {
           const restartRes = await deps.executeRunbook("rb-restart");
+          restartOutcome = restartRes.status;
           restarted = restartRes.status === "started";
         } catch {
-          // restart best effort
+          restartOutcome = "error";
         }
       }
 
       sendJson(res, 200, {
         ok: true,
         restarted,
+        restartOutcome,
         primary: {
           provider,
           model,

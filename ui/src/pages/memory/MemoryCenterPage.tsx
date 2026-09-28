@@ -361,10 +361,18 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
     setApplying(false);
     const data = res.data as { ok: boolean; result: MemoryApplyResult } | null;
     if (res.ok && data?.result?.success) {
+      const outcome = data.result.restartOutcome;
+      const restartNote = data.result.restarted
+        ? "已触发 Hermes 后台优雅重启（预计数秒内完成重载生效）。"
+        : outcome === "circuit-breaker-tripped"
+          ? "因重启过于频繁触发熔断保护，新配置将在下次重载时生效。"
+          : outcome === "no-servicing-instance"
+            ? "当前无运行中的 Hermes 实例，新配置将在服务启动后生效。"
+            : restartNow
+              ? "自动重启触发未成功，请适时手动重启 Hermes 使新配置完全加载。"
+              : "请适时重启 Hermes 使新配置完全加载。";
       message.success(
-        `记忆系统成功切换为 ${selectedEngine} (${selectedMode})！${
-          data.result.restarted ? "Hermes 已自动优雅重启。" : "请适时重启 Hermes 使新配置完全加载。"
-        }`,
+        `记忆系统成功切换为 ${selectedEngine} (${selectedMode})！${restartNote}`,
       );
       setPreviewModalOpen(false);
       void fetchSystems();
@@ -857,7 +865,7 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
                         {system.supportedModes.map((m) => (
                           <Tag
                             key={m}
-                            color={m === "docker" ? "processing" : "default"}
+                            color={system.active && m === system.currentMode ? "processing" : "default"}
                             style={{ fontSize: 11, margin: 0, padding: "0 4px" }}
                           >
                             {m === "docker" ? "Docker" : m === "api" ? "API" : m === "builtin" ? "原生" : "本地"}
@@ -1028,7 +1036,7 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
               <div>
                 <Text strong>自动优雅重启 Hermes</Text>
                 <Text type="secondary" style={{ display: "block", fontSize: 12 }}>
-                  落盘后通过宿主控制桥优雅重载 Hermes 进程，使新记忆配置即刻生效。
+                  落盘后通过宿主控制桥触发重载 Hermes 进程，新记忆配置将在后台重启完成后生效（通常数秒内）。
                 </Text>
               </div>
               <Switch checked={restartNow} onChange={setRestartNow} />

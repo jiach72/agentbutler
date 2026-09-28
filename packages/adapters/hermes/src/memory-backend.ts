@@ -188,11 +188,30 @@ export function listSupportedMemorySystems(
   const current = detectMemoryBackend(rootPath, options);
   const readText = options.readTextFile ?? defaultReadTextFile;
 
-  // 检测 Hindsight 模式
+  const exists = options.exists ?? existsSync;
+
+  // 检测 Hindsight 模式：显式 mode 配置 > 本地原生进程/虚拟环境标记 > 回环端口/API 推断
   let hindsightMode: MemoryDeployMode | null = null;
   if (current.backend === "hindsight") {
     const configRaw = readText(join(rootPath, HINDSIGHT_CONFIG_FILE));
-    if (configRaw && (configRaw.includes("127.0.0.1:9177") || configRaw.includes("localhost:9177"))) {
+    let parsed: Record<string, unknown> | null = null;
+    if (configRaw) {
+      try {
+        parsed = JSON.parse(configRaw) as Record<string, unknown>;
+      } catch {
+        // ignore
+      }
+    }
+    const explicitMode = parsed && typeof parsed["mode"] === "string" ? (parsed["mode"] as MemoryDeployMode) : null;
+    if (explicitMode === "local" || explicitMode === "docker" || explicitMode === "api") {
+      hindsightMode = explicitMode;
+    } else if (
+      exists(join(rootPath, "hindsight-local.pid")) ||
+      exists(join(rootPath, "hindsight-venv")) ||
+      exists(join(rootPath, "hindsight-local.env"))
+    ) {
+      hindsightMode = "local";
+    } else if (configRaw && (configRaw.includes("127.0.0.1:9177") || configRaw.includes("localhost:9177"))) {
       hindsightMode = "docker";
     } else if (configRaw && configRaw.includes("http")) {
       hindsightMode = "api";
@@ -201,11 +220,25 @@ export function listSupportedMemorySystems(
     }
   }
 
-  // 检测 Mem0 模式
+  // 检测 Mem0 模式：显式 mode 配置 > 本地原生标记 > 回环端口/平台推断
   let mem0Mode: MemoryDeployMode | null = null;
   if (current.backend === "mem0") {
     const configRaw = readText(join(rootPath, "mem0.json")) || readText(join(rootPath, "mem0/config.json"));
-    if (configRaw && (configRaw.includes("127.0.0.1:8888") || configRaw.includes("localhost:8888"))) {
+    let parsed: Record<string, unknown> | null = null;
+    if (configRaw) {
+      try {
+        parsed = JSON.parse(configRaw) as Record<string, unknown>;
+      } catch {
+        // ignore
+      }
+    }
+    const rawMode = parsed && typeof parsed["mode"] === "string" ? parsed["mode"] : null;
+    const explicitMode = rawMode === "selfhosted" ? "docker" : rawMode === "local" ? "local" : rawMode === "platform" || rawMode === "api" ? "api" : null;
+    if (explicitMode !== null) {
+      mem0Mode = explicitMode;
+    } else if (exists(join(rootPath, "mem0-local.env"))) {
+      mem0Mode = "local";
+    } else if (configRaw && (configRaw.includes("127.0.0.1:8888") || configRaw.includes("localhost:8888"))) {
       mem0Mode = "docker";
     } else if (configRaw && configRaw.includes("platform")) {
       mem0Mode = "api";

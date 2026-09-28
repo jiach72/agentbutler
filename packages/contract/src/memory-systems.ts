@@ -88,6 +88,7 @@ export interface MemoryApplyResult {
   success: boolean;
   backupPaths: string[];
   restarted: boolean;
+  restartOutcome?: "started" | "unknown-runbook" | "circuit-breaker-tripped" | "no-servicing-instance" | "error" | "skipped";
   message: string;
 }
 

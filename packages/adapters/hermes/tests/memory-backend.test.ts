@@ -143,6 +143,31 @@ describe("listSupportedMemorySystems", () => {
     expect(hindsightSys?.active).toBe(true);
     expect(hindsightSys?.currentMode).toBe("docker");
   });
+
+  it("当存在原生进程标记文件（如 hindsight-local.pid 或 hindsight-venv）时优先识别为 local", () => {
+    mkdirSync(join(root, "hindsight"), { recursive: true });
+    writeFileSync(
+      join(root, "hindsight", "config.json"),
+      JSON.stringify({ url: "http://127.0.0.1:9177" })
+    );
+    writeFileSync(join(root, "hindsight-local.pid"), "12345\n");
+    const systems = listSupportedMemorySystems(root);
+    const hindsightSys = systems.find((s) => s.id === "hindsight");
+    expect(hindsightSys?.active).toBe(true);
+    expect(hindsightSys?.currentMode).toBe("local");
+  });
+
+  it("当 config.json 显式配置 mode: local 时即使监听 9177 也识别为 local", () => {
+    mkdirSync(join(root, "hindsight"), { recursive: true });
+    writeFileSync(
+      join(root, "hindsight", "config.json"),
+      JSON.stringify({ api_url: "http://127.0.0.1:9177", mode: "local" })
+    );
+    const systems = listSupportedMemorySystems(root);
+    const hindsightSys = systems.find((s) => s.id === "hindsight");
+    expect(hindsightSys?.active).toBe(true);
+    expect(hindsightSys?.currentMode).toBe("local");
+  });
 });
 
 describe("previewMemoryBackendChange & applyMemoryBackendChange", () => {

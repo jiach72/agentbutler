@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type {
   ArchivePolicy,
@@ -5,7 +8,11 @@ import type {
   RestorePolicy,
 } from "@butler/contract";
 import type { MemoryActionResult, SkillsMemoryService } from "../src/skills.js";
-import { startWatchHttp, type WatchHttp, type WatchHttpDeps } from "../src/http.js";
+import {
+  startWatchHttp,
+  type WatchHttp,
+  type WatchHttpDeps,
+} from "../src/http.js";
 import type { MemorySelfCheckOutcome } from "../src/http.js";
 
 function makeDeps(): {
@@ -338,4 +345,118 @@ describe("startWatchHttp 记忆观察与管理动作端点", () => {
     expect((await fetch(`${base}/api/memory/export`)).status).toBe(405);
   });
 
+  describe("POST /api/memory/config/apply 与优雅重启状态集", () => {
+    let tempDir: string;
+    let hermesDir: string;
+    let runbookCalls: string[];
+
+    beforeEach(() => {
+      tempDir = mkdtempSync(join(tmpdir(), "butler-watch-memory-"));
+      hermesDir = join(tempDir, "hermes");
+      mkdirSync(hermesDir, { recursive: true });
+      writeFileSync(join(hermesDir, "config.yaml"), "initial_version: 1\n");
+      runbookCalls = [];
+    });
+
+    afterEach(() => {
+      rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it("restartNow:true 触发 rb-restart 并返回 restarted:true 与 restartOutcome:started", async () => {
+      http.close();
+      const deps: WatchHttpDeps = {
+        ...fake.deps,
+        hermesRoot: hermesDir,
+        executeRunbook: async (id) => {
+          runbookCalls.push(id);
+          return { status: "started", instanceId: "hermes-main" };
+        },
+      };
+      http = startWatchHttp(deps, { port: 0 });
+      const address = await http.start();
+      base = `http://127.0.0.1:${address.port}`;
+
+      const res = await fetch(`${base}/api/memory/config/apply`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          engine: "hindsight",
+          mode: "docker",
+          restartNow: true,
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.ok).toBe(true);
+      expect(json.result.success).toBe(true);
+      expect(json.result.restarted).toBe(true);
+      expect(json.result.restartOutcome).toBe("started");
+      expect(runbookCalls).toEqual(["rb-restart"]);
+    });
+
+    it("restartNow:false 时不触发重启，restarted 为 false 且 restartOutcome 为 skipped", async () => {
+      http.close();
+      const deps: WatchHttpDeps = {
+        ...fake.deps,
+        hermesRoot: hermesDir,
+        executeRunbook: async (id) => {
+          runbookCalls.push(id);
+          return { status: "started", instanceId: "hermes-main" };
+        },
+      };
+      http = startWatchHttp(deps, { port: 0 });
+      const address = await http.start();
+      base = `http://127.0.0.1:${address.port}`;
+
+      const res = await fetch(`${base}/api/memory/config/apply`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          engine: "hindsight",
+          mode: "docker",
+          restartNow: false,
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.ok).toBe(true);
+      expect(json.result.restarted).toBe(false);
+      expect(json.result.restartOutcome).toBe("skipped");
+      expect(runbookCalls).toEqual([]);
+    });
+
+    it("restartNow:true 遇到熔断保护返回 restarted:false 与 restartOutcome:circuit-breaker-tripped", async () => {
+      http.close();
+      const deps: WatchHttpDeps = {
+        ...fake.deps,
+        hermesRoot: hermesDir,
+        executeRunbook: async (id) => {
+          runbookCalls.push(id);
+          return { status: "circuit-breaker-tripped" };
+        },
+      };
+      http = startWatchHttp(deps, { port: 0 });
+      const address = await http.start();
+      base = `http://127.0.0.1:${address.port}`;
+
+      const res = await fetch(`${base}/api/memory/config/apply`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          engine: "hindsight",
+          mode: "docker",
+          restartNow: true,
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.ok).toBe(true);
+      expect(json.result.restarted).toBe(false);
+      expect(json.result.restartOutcome).toBe("circuit-breaker-tripped");
+      expect(runbookCalls).toEqual(["rb-restart"]);
+    });
+  });
 });

@@ -99,12 +99,21 @@ export async function handleMemory(ctx: RequestContext): Promise<boolean> {
     const applyOutcome = applyMemoryBackendChange(hermesRoot, engine, mode, body.config);
 
     let restarted = false;
+    let restartOutcome:
+      | "started"
+      | "unknown-runbook"
+      | "circuit-breaker-tripped"
+      | "no-servicing-instance"
+      | "error"
+      | "skipped" = "skipped";
+
     if (body.restartNow) {
       try {
         const restartRes = await deps.executeRunbook("rb-restart");
+        restartOutcome = restartRes.status;
         restarted = restartRes.status === "started";
       } catch {
-        // restart best effort
+        restartOutcome = "error";
       }
     }
 
@@ -113,6 +122,7 @@ export async function handleMemory(ctx: RequestContext): Promise<boolean> {
       result: {
         ...applyOutcome,
         restarted,
+        restartOutcome,
       },
     });
     return true;

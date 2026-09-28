@@ -107,16 +107,25 @@ export function PrimaryModelCard() {
 
       const res = await postJson("/api/models/primary", payload, 30_000);
       if (res.ok) {
-        // 后端如实返回 restarted：勾选了立即重启但 runbook 未成功时必须讲清楚，
-        // 不能让「即刻生效」的承诺落空（P1 空开关修复的配套反馈）。
-        const restarted = (res.data as { restarted?: boolean } | null)?.restarted === true;
-        message.success(
-          restarted
-            ? `主模型已切换为 ${selectedOption.model} (${selectedOption.provider})，Hermes 已优雅重启，新模型即刻生效。`
-            : restartNow
-              ? `主模型已切换为 ${selectedOption.model} (${selectedOption.provider})，已创建 config.yaml 备份；自动重启未完成，新模型将在 Hermes 下次重载时生效。`
-              : `主模型已切换为 ${selectedOption.model} (${selectedOption.provider})，已自动创建 config.yaml 备份，将在 Hermes 下次重载时生效。`,
-        );
+        // 后端如实返回 restarted 与 restartOutcome：
+        // runbook 启动只是后台开始重载（started），不能虚假宣称「即刻生效」；
+        // 遇到熔断/无实例等防御分支时细化提示原因。
+        const data = res.data as { restarted?: boolean; restartOutcome?: string } | null;
+        const restarted = data?.restarted === true;
+        const outcome = data?.restartOutcome;
+
+        let restartMsg = `主模型已切换为 ${selectedOption.model} (${selectedOption.provider})，已自动创建 config.yaml 备份，将在 Hermes 下次重载时生效。`;
+        if (restarted) {
+          restartMsg = `主模型已切换为 ${selectedOption.model} (${selectedOption.provider})，已触发 Hermes 优雅重启（后台重载中，预计数秒内完成生效）。`;
+        } else if (outcome === "circuit-breaker-tripped") {
+          restartMsg = `主模型已切换为 ${selectedOption.model} (${selectedOption.provider})，已创建备份；因重启过于频繁触发熔断保护，请稍后手动重启或等待下次重载生效。`;
+        } else if (outcome === "no-servicing-instance") {
+          restartMsg = `主模型已切换为 ${selectedOption.model} (${selectedOption.provider})，已创建备份；当前无在线的 Hermes 实例，将在服务启动后生效。`;
+        } else if (restartNow) {
+          restartMsg = `主模型已切换为 ${selectedOption.model} (${selectedOption.provider})，已创建备份；自动重启触发未成功，将在 Hermes 下次重载时生效。`;
+        }
+
+        message.success(restartMsg);
         setModalOpen(false);
         await fetchPrimary();
       } else if (res.status === 403) {
@@ -424,9 +433,9 @@ export function PrimaryModelCard() {
 
           <Flex align="center" justify="space-between">
             <div>
-              <Text strong>立即优雅重启 Hermes 生效</Text>
+              <Text strong>保存后自动优雅重启 Hermes</Text>
               <Text type="secondary" style={{ display: "block", fontSize: 12 }}>
-                保存后经由宿主控制桥自动重载 Hermes 进程，使新主模型即刻生效。
+                保存后经由宿主控制桥触发重载 Hermes 进程，新模型将在后台重启完成后生效（通常数秒内）。
               </Text>
             </div>
             <Checkbox checked={restartNow} onChange={(e) => setRestartNow(e.target.checked)} />
