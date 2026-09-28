@@ -30,7 +30,8 @@ describe("关键页面组件渲染", () => {
 
     expect(html).toContain('href="/dashboard"');
     expect(html).toContain('href="/skills"');
-    expect(html).toContain('href="/gateway"');
+    expect(html).toContain('href="/gateway?tab=im"');
+    expect(html).toContain('href="/knowledge"');
     expect(html).toContain('href="/settings"');
     expect(html).toContain("定时任务");
     expect(html).toContain("日常核心");

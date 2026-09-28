@@ -6,7 +6,6 @@
  * 具备自动备份、配置 Diff 预览与优雅重启的全闭环受控生效流程。
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import {
   Alert,
   App,
@@ -87,7 +86,6 @@ export interface MemoryCenterPageProps {
 
 export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) {
   const { message } = App.useApp();
-  const navigate = useNavigate();
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [systemsData, setSystemsData] = useState<SystemsResponse | null>(null);
@@ -410,7 +408,14 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
           description="统一管理与切换 Hermes 支持的第三方记忆后端，覆盖本地 Docker 编排、云端 API 与本地进程，提供 TypeSafe Jev 智能选型决策与受控生效闭环。"
           extra={
             <Space>
-              <Button icon={<DiffOutlined />} onClick={() => navigate("/memory-diff")}>
+              <Button
+                icon={<DiffOutlined />}
+                onClick={() => {
+                  if (typeof window !== "undefined") {
+                    window.location.assign("/memory-diff");
+                  }
+                }}
+              >
                 记忆变更流
               </Button>
               <Button
