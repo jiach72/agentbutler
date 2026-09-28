@@ -107,5 +107,14 @@ describe("本地知识库设置的信息层级", () => {
     expect(src).toContain("批量删除");
     expect(src).toContain("取消选择");
   });
+
+  it("KnowledgePage 支持表格操作列与预览抽屉一键复制知识库引用标签", () => {
+    const src = readFileSync(new URL("../src/pages/knowledge/KnowledgePage.tsx", import.meta.url), "utf8");
+    expect(src).toContain("复制知识库引用标签 ([参考本地知识库: 《...》])");
+    expect(src).toContain("[参考本地知识库: 《");
+    expect(src).toContain("已复制引用标签:");
+    expect(src).toContain("复制引用标签");
+  });
 });
+
 

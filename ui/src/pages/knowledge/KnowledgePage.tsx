@@ -1003,7 +1003,7 @@ export function KnowledgePage() {
     {
       title: "操作",
       key: "actions",
-      width: 140,
+      width: 170,
       render: (_, record) => (
         <Space size="small">
           <Tooltip title="在即时通讯中提问此文档">
@@ -1012,6 +1012,18 @@ export function KnowledgePage() {
               type="text"
               icon={<CommentOutlined style={{ color: "var(--ant-color-primary)" }} />}
               onClick={() => handleAskButlerAboutDoc(record.name)}
+            />
+          </Tooltip>
+          <Tooltip title="复制知识库引用标签 ([参考本地知识库: 《...》])">
+            <Button
+              size="small"
+              type="text"
+              icon={<BookOutlined style={{ color: "var(--ant-color-primary)" }} />}
+              onClick={() => {
+                const refTag = `[参考本地知识库: 《${record.name}》]`;
+                void navigator.clipboard.writeText(refTag);
+                message.success(`已复制引用标签: ${refTag}`);
+              }}
             />
           </Tooltip>
           <Tooltip title="在线预览文档内容">
@@ -2480,6 +2492,19 @@ export function KnowledgePage() {
                   </Button>
                 </Dropdown>
                 <CopySnippetButton text={previewData.content} label="复制全文" />
+                <Tooltip title="复制知识库引用标签 ([参考本地知识库: 《...》])">
+                  <Button
+                    size="small"
+                    icon={<BookOutlined style={{ color: "var(--ant-color-primary)" }} />}
+                    onClick={() => {
+                      const refTag = `[参考本地知识库: 《${previewData.name}》]`;
+                      void navigator.clipboard.writeText(refTag);
+                      message.success(`已复制引用标签: ${refTag}`);
+                    }}
+                  >
+                    复制引用标签
+                  </Button>
+                </Tooltip>
               </Space>
             </Flex>
 
