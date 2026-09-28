@@ -9,6 +9,7 @@
  * 5. 已安装模型列表（卡片展示、体积与日期、一键绑定探针、删除）。
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Alert,
   App,
@@ -178,6 +179,7 @@ interface ChatTestResult {
 
 export function OllamaConfigCard() {
   const { message } = App.useApp();
+  const navigate = useNavigate();
 
   const [status, setStatus] = useState<OllamaStatus | null>(null);
   const [checkingStatus, setCheckingStatus] = useState(false);
@@ -1023,7 +1025,7 @@ export function OllamaConfigCard() {
                         </Text>
                       </div>
                     ) : (
-                      <div style={{ marginTop: 2 }}>
+                      <div style={{ marginTop: 2, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                         <Dropdown
                           menu={{
                             items: roleMenuItems,
@@ -1043,6 +1045,24 @@ export function OllamaConfigCard() {
                             快捷分配角色 <DownOutlined style={{ fontSize: 10, marginLeft: 2 }} />
                           </Button>
                         </Dropdown>
+
+                        {isPrimary && (
+                          <Button
+                            size="small"
+                            type="primary"
+                            icon={<MessageOutlined />}
+                            onClick={() =>
+                              navigate(
+                                `/gateway?tab=im&prefill=${encodeURIComponent(
+                                  `你好！请问你作为本地运行的 ${item.name} 模型，能为我提供哪些帮助？`,
+                                )}`,
+                              )
+                            }
+                            title="直接在即时通讯工作台中与此主模型对话"
+                          >
+                            在即时通讯中对话
+                          </Button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1451,6 +1471,25 @@ export function OllamaConfigCard() {
                     >
                       {chatResult.reply || chatResult.error}
                     </div>
+
+                    {chatResult.ok && (
+                      <Flex justify="flex-end" gap={8} style={{ paddingTop: 4 }}>
+                        <Button
+                          size="small"
+                          icon={<MessageOutlined />}
+                          onClick={() =>
+                            navigate(
+                              `/gateway?tab=im&prefill=${encodeURIComponent(
+                                `关于刚才针对「${testPrompt}」的回答，请展开更深入地阐述细节并列出操作步骤。`,
+                              )}`,
+                            )
+                          }
+                          title="在即时通讯工作台中继续深入对话"
+                        >
+                          在即时通讯中深入对话
+                        </Button>
+                      </Flex>
+                    )}
                   </div>
                 )}
               </div>
