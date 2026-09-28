@@ -620,6 +620,19 @@ describe("即时通讯工作台：UI/UX 深度重构与视窗自适应 (Commit 8
     expect(cssSrc).toContain(".im-mention-popup");
     expect(cssSrc).toContain(".im-mention-item");
   });
+
+  it("IMConversationList.tsx 与 im.css 支持全局快捷键搜索聚焦 (Ctrl+K / /) 与会话切选 (Alt+Up/Down) 及 kbd 徽标", () => {
+    const listSrc = readFileSync(new URL("../src/pages/gateway/im/IMConversationList.tsx", import.meta.url), "utf8");
+    const cssSrc = readFileSync(new URL("../src/pages/gateway/im/im.css", import.meta.url), "utf8");
+
+    expect(listSrc).toContain("searchInputRef");
+    expect(listSrc).toContain("im-kbd-hint");
+    expect(listSrc).toContain("Ctrl K");
+    expect(listSrc).toContain("handleKeyDown");
+    expect(listSrc).toContain("ArrowUp");
+    expect(listSrc).toContain("ArrowDown");
+    expect(cssSrc).toContain(".im-kbd-hint");
+  });
 });
 
 

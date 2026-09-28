@@ -4,7 +4,7 @@
  * - 自动聚合外部通道联系人与群聊（微信、A2A 等）；
  * - 实时搜索、分类筛选（全部 / 直连 / 外部）、错误/死信预警徽标。
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Avatar,
   Badge,
@@ -148,6 +148,7 @@ function getConversationAvatar(conv: IMConversation) {
 export function IMConversationList(props: IMConversationListProps) {
   const [filterType, setFilterType] = useState<"all" | "group" | "bot" | "external">("all");
   const [searchKeyword, setSearchKeyword] = useState("");
+  const searchInputRef = useRef<any>(null);
 
   const counts = useMemo(() => {
     let group = 0;
@@ -182,6 +183,42 @@ export function IMConversationList(props: IMConversationListProps) {
       return true;
     });
   }, [props.conversations, filterType, searchKeyword]);
+
+  // 全局快捷键监听：Ctrl/Cmd + K 快速聚焦搜索框；Alt + Up/Down 快速上下切换会话
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl+K 或 Cmd+K 聚焦到搜索框
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        searchInputRef.current?.focus?.();
+        return;
+      }
+
+      // 当在非输入框且非编辑状态下按 "/" 键聚焦搜索框
+      if (e.key === "/" && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
+        e.preventDefault();
+        searchInputRef.current?.focus?.();
+        return;
+      }
+
+      // Alt+ArrowUp / Alt+ArrowDown 快速在会话列表之间上下切换活动会话
+      if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+        e.preventDefault();
+        if (filteredList.length === 0) return;
+        const currentIdx = filteredList.findIndex((c) => c.id === props.activeId);
+        if (e.key === "ArrowUp") {
+          const prevIdx = currentIdx > 0 ? currentIdx - 1 : filteredList.length - 1;
+          props.onSelectConversation(filteredList[prevIdx].id);
+        } else {
+          const nextIdx = currentIdx < filteredList.length - 1 ? currentIdx + 1 : 0;
+          props.onSelectConversation(filteredList[nextIdx].id);
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [filteredList, props]);
 
   const newItems = [
     {
@@ -218,9 +255,11 @@ export function IMConversationList(props: IMConversationListProps) {
         </Flex>
 
         <Input
+          ref={searchInputRef}
           size="small"
           placeholder="搜索智能体、群聊或消息"
           prefix={<SearchOutlined style={{ color: "var(--ant-color-text-quaternary)" }} />}
+          suffix={<kbd className="im-kbd-hint">Ctrl K</kbd>}
           value={searchKeyword}
           onChange={(e) => setSearchKeyword(e.target.value)}
           allowClear

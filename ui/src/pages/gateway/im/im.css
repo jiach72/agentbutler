@@ -688,6 +688,20 @@
   letter-spacing: 0.02em;
 }
 
+.im-kbd-hint {
+  font-family: inherit;
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 5px;
+  color: var(--ab-text-3);
+  background: var(--ab-surface-2);
+  border: 1px solid var(--ab-border);
+  border-radius: 4px;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.05);
+  pointer-events: none;
+  user-select: none;
+}
+
 /* ================= 5. 移动端与窄屏响应式推拉切换 ================= */
 @media (max-width: 768px) {
   .im-workbench-container {
