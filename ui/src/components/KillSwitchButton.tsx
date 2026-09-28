@@ -7,19 +7,12 @@
  */
 import { ExclamationCircleFilled, PauseCircleOutlined, PlayCircleOutlined } from "@ant-design/icons";
 import { App, Button, Tooltip, Typography } from "antd";
-import { useCallback, useEffect, useState } from "react";
-import { loadJson, postJson } from "../lib/api.js";
-import { usePolling } from "../hooks/usePolling.js";
-
-interface KillSwitchState {
-  engaged: boolean;
-  engagedAt: string | null;
-  stoppedInstanceIds: string[];
-  snapshotTaken: boolean;
-  snapshotId: number | null;
-  releasedAt: string | null;
-  restoredFromLog: boolean;
-}
+import { useState } from "react";
+import { postJson } from "../lib/api.js";
+import {
+  killswitchStatePoll,
+  useSharedPoll,
+} from "../lib/shared-polls.js";
 
 function engagedSinceLabel(engagedAt: string | null): string {
   if (engagedAt === null) return "";
@@ -54,25 +47,14 @@ export interface KillSwitchButtonProps {
 
 export function KillSwitchButton({ variant = "default" }: KillSwitchButtonProps = {}) {
   const { message, modal } = App.useApp();
-  const [state, setState] = useState<KillSwitchState | null>(null);
-  const [reachable, setReachable] = useState(true);
+  // 顶栏与移动端 Tab 双实例共用一次轮询（审计 F-2）。
+  const { data: state, ok } = useSharedPoll(killswitchStatePoll);
+  const reachable = ok !== false;
   const [busy, setBusy] = useState(false);
 
-  const refresh = useCallback(() => {
-    void loadJson<KillSwitchState>("/api/killswitch", 6_000).then((result) => {
-      if (result.ok) {
-        setState(result.data);
-        setReachable(true);
-      } else {
-        setReachable(false);
-      }
-    });
-  }, []);
-
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
-  usePolling(refresh, 10_000);
+  const refresh = (): void => {
+    void killswitchStatePoll.refresh();
+  };
 
   const engage = () => {
     if (busy) return;

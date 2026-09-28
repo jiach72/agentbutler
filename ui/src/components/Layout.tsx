@@ -18,6 +18,7 @@ import { NotificationsProvider } from "../hooks/useNotifications.js";
 import { usePolling } from "../hooks/usePolling.js";
 import { useTheme } from "../theme/ThemeProvider.js";
 import { loadJson } from "../lib/api.js";
+import { approvalsPendingPoll, useSharedPoll } from "../lib/shared-polls.js";
 import {
   ROUTES,
   STITCH_SIDEBAR_NAV,
@@ -26,10 +27,6 @@ import {
   routeMetaFor,
   type StitchNavItem,
 } from "../lib/routeMeta.js";
-
-interface ApprovalsSummary {
-  summary?: { pending?: number };
-}
 
 interface HealthSummary {
   gateway?: boolean;
@@ -59,15 +56,9 @@ interface SidebarNavProps {
 function SidebarNav({ collapsed = false, onToggleCollapse, onNavigate, onOpenGeekDrawer }: SidebarNavProps) {
   const location = useLocation();
   const currentPath = location.pathname;
-  const [pendingApprovals, setPendingApprovals] = useState(0);
-
-  const fetchApprovals = useCallback(() => {
-    void loadJson<ApprovalsSummary>("/api/approvals?status=pending&limit=1", 8_000).then((res) => {
-      if (res.ok && typeof res.data.summary?.pending === "number") {
-        setPendingApprovals(res.data.summary.pending);
-      }
-    });
-  }, []);
+  // 待批计数与横幅/审批卡片共用一次拉取（审计 F-2），不再各自轮询 limit=1。
+  const { data: approvalsData } = useSharedPoll(approvalsPendingPoll);
+  const pendingApprovals = approvalsData?.summary?.pending ?? 0;
 
   const [versionBadge, setVersionBadge] = useState<string>("v1.0.0");
   const [fullVersion, setFullVersion] = useState<string>("1.0.0");
@@ -87,10 +78,8 @@ function SidebarNav({ collapsed = false, onToggleCollapse, onNavigate, onOpenGee
   }, []);
 
   useEffect(() => {
-    fetchApprovals();
     fetchVersion();
-  }, [fetchApprovals, fetchVersion]);
-  usePolling(fetchApprovals, 30_000);
+  }, [fetchVersion]);
 
   const renderItem = (item: StitchNavItem) => {
     const active = isStitchNavActive(item.path, currentPath, location.search);
@@ -547,8 +536,8 @@ export function Layout() {
                 <EtherealIcon name="menu" size={18} />
               </button>
 
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-surface-container-low border border-outline-variant/15 shadow-[0_1px_2px_rgba(0,0,0,0.02)] transition-all hover:bg-surface-container">
-                <span className="relative flex h-2 w-2">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-surface-container-low border border-outline-variant/15 shadow-[0_1px_2px_rgba(0,0,0,0.02)] transition-all hover:bg-surface-container whitespace-nowrap">
+                <span className="relative flex h-2 w-2 shrink-0">
                   <span className={`ping-ring absolute inline-flex h-full w-full rounded-full ${bridgeConnected === false ? "bg-error" : "bg-tertiary"}`} />
                   <span className={`relative inline-flex rounded-full h-2 w-2 ${bridgeConnected === false ? "bg-error" : "bg-tertiary"}`} />
                 </span>

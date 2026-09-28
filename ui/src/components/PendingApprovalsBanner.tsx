@@ -7,37 +7,18 @@
  * - 点「知道了」只在本次会话内隐藏，直到待处理数量变化再次出现。
  */
 import { Alert, Button } from "antd";
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { loadJson } from "../lib/api.js";
-import { usePolling } from "../hooks/usePolling.js";
+import { approvalsPendingPoll, useSharedPoll } from "../lib/shared-polls.js";
 import { isAuditApproval } from "../pages/approvals/helpers.js";
-
-interface PendingPayload {
-  items?: Array<{ id: string; detail?: unknown }>;
-  summary: { pending: number };
-}
 
 export function PendingApprovalsBanner() {
   const location = useLocation();
-  const [pending, setPending] = useState<number | null>(null);
-  const [hasGate, setHasGate] = useState(false);
+  // 与侧栏计数、审批卡片共用一次拉取（审计 F-2）。
+  const { data, ok } = useSharedPoll(approvalsPendingPoll);
+  const pending = ok === null ? null : data?.summary?.pending ?? 0;
+  const hasGate = (data?.items ?? []).some((it) => !isAuditApproval(it));
   const [dismissedCount, setDismissedCount] = useState<number | null>(null);
-
-  const refresh = useCallback(() => {
-    void loadJson<PendingPayload>("/api/approvals?status=pending&limit=10", 8_000).then((result) => {
-      if (result.ok) {
-        setPending(result.data.summary.pending);
-        const items = result.data.items ?? [];
-        setHasGate(items.some((it) => !isAuditApproval(it)));
-      }
-    });
-  }, []);
-
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
-  usePolling(refresh, 30_000);
 
   // 审批页自身已有完整入口，不再叠加横幅。
   if (location.pathname.startsWith("/approvals")) return null;

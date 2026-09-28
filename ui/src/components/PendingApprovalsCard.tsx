@@ -6,16 +6,11 @@
  *
  * 区分事前放行（待放行/全部放行）与事后核验（待核验/全部已知）。
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { App, Button, Popconfirm } from "antd";
-import { usePolling } from "../hooks/usePolling.js";
-import { loadJson, postJson } from "../lib/api.js";
+import { postJson } from "../lib/api.js";
+import { approvalsPendingPoll, useSharedPoll } from "../lib/shared-polls.js";
 import { isAuditApproval } from "../pages/approvals/helpers.js";
-
-interface ApprovalsPayload {
-  items?: Array<{ id: string; detail?: unknown }>;
-  summary?: { pending?: number };
-}
 
 interface BulkResult {
   total?: number;
@@ -25,24 +20,15 @@ interface BulkResult {
 
 export function PendingApprovalsCard() {
   const { message } = App.useApp();
-  const [pending, setPending] = useState<number | null>(null);
-  const [hasGate, setHasGate] = useState(false);
+  // 与侧栏计数、待批横幅共用一次拉取（审计 F-2）。
+  const { data, ok } = useSharedPoll(approvalsPendingPoll);
+  const pending = ok === null ? null : typeof data?.summary?.pending === "number" ? data.summary.pending : 0;
+  const hasGate = (data?.items ?? []).some((it) => !isAuditApproval(it));
   const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(() => {
-    void loadJson<ApprovalsPayload>("/api/approvals?status=pending&limit=20", 8_000).then((result) => {
-      if (!result.ok) return;
-      const count = typeof result.data.summary?.pending === "number" ? result.data.summary.pending : 0;
-      setPending(count);
-      const items = result.data.items ?? [];
-      setHasGate(items.some((it) => !isAuditApproval(it)));
-    });
+    void approvalsPendingPoll.refresh();
   }, []);
-
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
-  usePolling(refresh, 30_000);
 
   const approveAll = async (): Promise<void> => {
     setBusy(true);
