@@ -524,6 +524,15 @@ describe("即时通讯工作台：UI/UX 深度重构与视窗自适应 (Commit 8
     expect(src).toContain("网络检索与快速信息采集");
     expect(src).toContain("Jev 智能调度与多 Bot 接力");
   });
+
+  it("IMChatWindow.tsx 顶栏支持会话多维导出（下载文件与全文复制）及无感 SPA 知识库导航", () => {
+    const src = readFileSync(new URL("../src/pages/gateway/im/IMChatWindow.tsx", import.meta.url), "utf8");
+    expect(src).toContain("handleCopyAllMarkdown");
+    expect(src).toContain("下载 Markdown 文件 (.md)");
+    expect(src).toContain("复制全文 Markdown 到剪贴板");
+    expect(src).toContain("navigate(\"/knowledge\")");
+    expect(src).not.toContain("window.location.assign(\"/knowledge\")");
+  });
 });
 
 

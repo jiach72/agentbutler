@@ -6,10 +6,12 @@
  * - 底部拟真输入基座（内置增强提示词按钮）。
  */
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   App,
   Avatar,
   Button,
+  Dropdown,
   Flex,
   Input,
   Modal,
@@ -187,6 +189,7 @@ export interface IMChatWindowProps {
 }
 
 export function IMChatWindow(props: IMChatWindowProps) {
+  const navigate = useNavigate();
   const { mode } = useTheme();
   const isDark = mode === "dark";
   const streamContainerRef = useRef<HTMLDivElement>(null);
@@ -330,6 +333,18 @@ export function IMChatWindow(props: IMChatWindowProps) {
     const filename = `会话纪要-${safeTitle}-${timeTag}.md`;
     triggerTextDownload(md, filename);
     message.success("已导出 Markdown 会话纪要");
+  };
+
+  // 复制全文 Markdown 到剪贴板
+  const handleCopyAllMarkdown = async () => {
+    if (!props.conversation || props.messages.length === 0) return;
+    const md = formatConversationToMarkdown(props.conversation, props.messages);
+    try {
+      await navigator.clipboard.writeText(md);
+      message.success("已复制全文 Markdown 纪要到剪贴板");
+    } catch {
+      message.error("复制失败，请检查剪贴板权限");
+    }
   };
 
   // 打开存为知识弹窗
@@ -578,23 +593,43 @@ export function IMChatWindow(props: IMChatWindowProps) {
             </Tooltip>
           )}
 
-          <Tooltip title={props.messages.length === 0 ? "暂无消息可导出" : "将当前会话导出为结构化 Markdown 纪要"}>
-            <Button
-              size="small"
-              icon={<ExportOutlined />}
-              onClick={handleExportMarkdown}
-              disabled={props.messages.length === 0}
-            >
-              导出会话纪要
-            </Button>
-          </Tooltip>
+          <Dropdown
+            menu={{
+              items: [
+                {
+                  key: "download",
+                  label: "下载 Markdown 文件 (.md)",
+                  icon: <ExportOutlined />,
+                  onClick: handleExportMarkdown,
+                },
+                {
+                  key: "copy",
+                  label: "复制全文 Markdown 到剪贴板",
+                  icon: <CopyOutlined />,
+                  onClick: () => void handleCopyAllMarkdown(),
+                },
+              ],
+            }}
+            placement="bottomRight"
+            disabled={props.messages.length === 0}
+          >
+            <Tooltip title={props.messages.length === 0 ? "暂无消息可导出" : "导出会话或复制全文 Markdown"}>
+              <Button
+                size="small"
+                icon={<ExportOutlined />}
+                disabled={props.messages.length === 0}
+              >
+                导出会话纪要
+              </Button>
+            </Tooltip>
+          </Dropdown>
 
           <Tooltip title="前往本地知识库（私有资料收集、RAG 检索与知识沉淀）">
             <Button
               size="small"
               icon={<BookOutlined style={{ color: "var(--ab-primary)" }} />}
               onClick={() => {
-                window.location.assign("/knowledge");
+                navigate("/knowledge");
               }}
             >
               知识库
