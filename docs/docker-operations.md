@@ -102,6 +102,8 @@ Hermes Bridge 保持宿主 loopback，WSL 原生 Docker 必须经转发器接入
 
 使用任一转发器时，Gateway 的 `BUTLER_HERMES_BRIDGE_URL` 设为 `http://host.docker.internal:8755`；不要同时启用两种转发器。`8755` 是 TCP 转发入口，应由宿主防火墙限制访问范围。
 
+> **形态切换的残留陷阱**：从 Compose socat 切到 systemd（或反过来）后，旧形态的容器/服务若带 `restart: unless-stopped`，会在每次 WSL 重启时与新形态抢占 8755，抢输的一方永久崩溃循环（日志 `bind: Address in use`）。deploy.sh 已在复用 systemd/既有监听时自动清理 Compose 转发容器；手动处置用 `docker compose rm -sf butler-bridge-forwarder`。消息链路在此噪音下仍正常（healthcheck 照常通过），但会掩盖真正的转发故障，看到就清。
+
 ### 通道控制面端点
 
 面板「消息通知」页的通道管理经 Gateway/Web 代理到 Bridge 的 `/v1/channels*` 端点（面板调用走 `/api/messages/channels*`；响应永不回显明文凭据）：

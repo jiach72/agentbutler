@@ -101,8 +101,10 @@ if [[ "$bridge_url" == *":8755" ]]; then
   if command -v systemctl >/dev/null 2>&1 &&
      [[ "$(systemctl --user is-active agent-butler-bridge-forward.service 2>/dev/null || true)" == "active" ]]; then
     echo "Using existing systemd bridge forwarder on :8755."
+    docker compose rm -sf butler-bridge-forwarder 2>/dev/null || true
   elif probe_port_listening 8755; then
     echo "Using an existing listener on :8755; Compose bridge-forward profile is skipped."
+    docker compose rm -sf butler-bridge-forwarder 2>/dev/null || true
   else
     compose_args+=(--profile bridge-forward)
   fi
