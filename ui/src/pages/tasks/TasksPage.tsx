@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Alert, App, Button, Empty, Input, Modal, Segmented, Skeleton, Space, Switch, Tag, Tooltip } from "antd";
+import { Alert, App, Button, Empty, Input, Modal, Segmented, Skeleton, Space, Switch, Tag, Tooltip, Typography } from "antd";
 import {
   BellOutlined,
   CheckCircleOutlined,
@@ -418,6 +418,13 @@ export function TasksPage() {
                       <div className="task-card-title-col">
                         <div className="task-card-title-row">
                           <h2 className="task-card-name" title={task.name}>{task.name}</h2>
+                          <Typography.Text
+                            copyable={{ text: task.id, tooltips: ["复制完整任务 ID", "已复制 ID"] }}
+                            className="task-id-chip"
+                            title={`完整任务 ID: ${task.id}`}
+                          >
+                            #{task.id.slice(0, 8)}
+                          </Typography.Text>
                           {task.deliveryEnabled ? (
                             <span className="task-meta-chip task-meta-delivery" title="已开启执行结果通知">
                               <BellOutlined /> 自动通知
@@ -447,7 +454,11 @@ export function TasksPage() {
                         <span className="task-schedule-human">{schedule.text}</span>
                         {schedule.rawCron && (
                           <span className="task-cron-tag" title={`Cron 表达式: ${schedule.rawCron}`}>
-                            {schedule.rawCron}
+                            <Typography.Text
+                              copyable={{ text: schedule.rawCron, tooltips: ["复制 Cron 表达式", "已复制 Cron"] }}
+                            >
+                              {schedule.rawCron}
+                            </Typography.Text>
                           </span>
                         )}
                       </div>

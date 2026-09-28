@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { compareTasks, taskStatusLabel, taskMutationError, scheduleConfirmation, humanizeSchedule } from "../src/pages/tasks/taskCopy.js";
 
 import { TASK_TEMPLATES } from "../src/pages/tasks/TaskEditorDrawer.js";
+import { isFailedRunStatus } from "../src/pages/tasks/TaskRunHistory.js";
 
 describe("scheduled task presentation", () => {
   it("ensures all built-in task templates provide valid schedules and prompts", () => {
@@ -56,5 +57,16 @@ describe("scheduled task presentation", () => {
     expect(humanizeSchedule("0 * * * *")).toEqual({ text: "每小时整点", rawCron: "0 * * * *" });
     expect(humanizeSchedule("every 30m")).toEqual({ text: "每 30 分钟" });
     expect(humanizeSchedule("每天 09:00")).toEqual({ text: "每天 09:00" });
+  });
+
+  it("correctly identifies failed run statuses for quick-filter in history drawer", () => {
+    expect(isFailedRunStatus("failed")).toBe(true);
+    expect(isFailedRunStatus("delivery_failed")).toBe(true);
+    expect(isFailedRunStatus("timeout")).toBe(true);
+    expect(isFailedRunStatus("success")).toBe(false);
+    expect(isFailedRunStatus("completed")).toBe(false);
+    expect(isFailedRunStatus("succeeded")).toBe(false);
+    expect(isFailedRunStatus("running")).toBe(false);
+    expect(isFailedRunStatus("claimed")).toBe(false);
   });
 });
