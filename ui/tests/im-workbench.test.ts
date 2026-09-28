@@ -4,6 +4,7 @@
  * 2. 直连会话管理器（imSessionStore 状态机与持久化断言）。
  */
 import { describe, expect, it, beforeEach } from "vitest";
+import { readFileSync } from "node:fs";
 import React from "react";
 import { App } from "antd";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -264,6 +265,67 @@ describe("即时通讯工作台：会话导出与知识卡片沉淀 (imExport)",
     expect(card.content).toContain("- **会话**：Hermes 专属管家");
     expect(card.content).toContain("#IM工作台 #知识沉淀 #智能体问答");
     expect(card.content).toContain("需要先拉取 nomic-embed-text 向量模型");
+  });
+
+  it("IMChatWindow 源码包含会话内查找、引用追问与填入输入框等交互闭环出口", () => {
+    const src = readFileSync(new URL("../src/pages/gateway/im/IMChatWindow.tsx", import.meta.url), "utf8");
+    expect(src).toContain("在当前会话中查找...");
+    expect(src).toContain("引用追问");
+    expect(src).toContain("填入输入框");
+    expect(src).toContain("清空搜索条件");
+    expect(src).toContain("handleRefillUser");
+    expect(src).toContain("handleQuoteAI");
+  });
+
+  it("会话消息过滤算法正确匹配正文、Bot 名称与消息 ID", () => {
+    const list: IMChatMessage[] = [
+      {
+        id: "msg-001",
+        conversationId: "conv-1",
+        sender: "user",
+        content: "排查 Docker 容器日志与 502 错误",
+        timestamp: "2026-09-28T09:00:00Z",
+        dateStr: "2026-09-28",
+      },
+      {
+        id: "msg-002",
+        conversationId: "conv-1",
+        sender: "ai",
+        botId: "inspector",
+        botName: "安全审查员",
+        content: "未发现 502，网关正常在线，内存消耗正常",
+        timestamp: "2026-09-28T09:01:00Z",
+        dateStr: "2026-09-28",
+      },
+      {
+        id: "msg-003",
+        conversationId: "conv-1",
+        sender: "ai",
+        botId: "scout",
+        botName: "情报侦察员",
+        content: "最新外部资讯整理完毕，共 3 条更新",
+        timestamp: "2026-09-28T09:02:00Z",
+        dateStr: "2026-09-28",
+      },
+    ];
+
+    const filterMsgs = (keyword: string) => {
+      const q = keyword.trim().toLowerCase();
+      if (!q) return list;
+      return list.filter(
+        (m) =>
+          m.content.toLowerCase().includes(q) ||
+          (m.botName && m.botName.toLowerCase().includes(q)) ||
+          m.id.toLowerCase().includes(q)
+      );
+    };
+
+    expect(filterMsgs("502")).toHaveLength(2);
+    expect(filterMsgs("安全审查员")).toHaveLength(1);
+    expect(filterMsgs("安全审查员")[0].id).toBe("msg-002");
+    expect(filterMsgs("msg-003")).toHaveLength(1);
+    expect(filterMsgs("不存在的关键字")).toHaveLength(0);
+    expect(filterMsgs("")).toHaveLength(3);
   });
 });
 

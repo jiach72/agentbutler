@@ -36,6 +36,8 @@ import {
   ArrowRightOutlined,
   ExportOutlined,
   BookOutlined,
+  CommentOutlined,
+  EditOutlined,
 } from "@ant-design/icons";
 import { useTheme } from "../../../theme/ThemeProvider.js";
 import { Empty } from "../../../components/Empty.js";
@@ -75,9 +77,26 @@ export function IMChatWindow(props: IMChatWindowProps) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [expandedOptimizations, setExpandedOptimizations] = useState<Set<string>>(new Set());
 
+  // 会话内消息检索与输入回填
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchKeyword, setSearchKeyword] = useState("");
+  const [localPrefill, setLocalPrefill] = useState<string | null>(null);
+
   // 用户是否向上滚动离开了底部（此时锁定滚动位置，不再随轮询自动回弹）
   const [userScrolledUp, setUserScrolledUp] = useState(false);
   const lastConversationIdRef = useRef<string | null>(null);
+
+  // 会话内消息过滤
+  const filteredMessages = useMemo(() => {
+    const q = searchKeyword.trim().toLowerCase();
+    if (!q) return props.messages;
+    return props.messages.filter(
+      (m) =>
+        m.content.toLowerCase().includes(q) ||
+        (m.botName && m.botName.toLowerCase().includes(q)) ||
+        m.id.toLowerCase().includes(q),
+    );
+  }, [props.messages, searchKeyword]);
 
   // 滚动监听：判断是否接近底部（小于 80px 视为处于底部）
   const handleScroll = () => {
@@ -137,6 +156,21 @@ export function IMChatWindow(props: IMChatWindowProps) {
       else next.add(id);
       return next;
     });
+  };
+
+  // 回填用户历史消息到输入框
+  const handleRefillUser = (msg: IMChatMessage) => {
+    setLocalPrefill(msg.content);
+    scrollToBottom(true);
+    message.success("已将指令填入输入框");
+  };
+
+  // 引用 AI 回答发起追问
+  const handleQuoteAI = (msg: IMChatMessage) => {
+    const snippet = msg.content.trim().slice(0, 80).replace(/\n+/g, " ");
+    setLocalPrefill(`针对上述回答：“${snippet}${msg.content.length > 80 ? "..." : ""}”：\n`);
+    scrollToBottom(true);
+    message.success("已生成引用并填入输入框");
   };
 
   const { message } = App.useApp();
@@ -311,6 +345,42 @@ export function IMChatWindow(props: IMChatWindowProps) {
 
         {/* 顶栏右侧快捷操作 */}
         <Flex align="center" gap={8}>
+          {/* 会话内关键字查找 */}
+          {searchOpen ? (
+            <Flex align="center" gap={4}>
+              <Input
+                size="small"
+                prefix={<SearchOutlined style={{ color: "var(--ab-text-secondary)" }} />}
+                placeholder="在当前会话中查找..."
+                value={searchKeyword}
+                onChange={(e) => setSearchKeyword(e.target.value)}
+                allowClear
+                style={{ width: 170 }}
+                autoFocus
+              />
+              <Button
+                size="small"
+                type="text"
+                onClick={() => {
+                  setSearchOpen(false);
+                  setSearchKeyword("");
+                }}
+              >
+                关闭
+              </Button>
+            </Flex>
+          ) : (
+            <Tooltip title="在当前会话记录中按关键字检索">
+              <Button
+                size="small"
+                icon={<SearchOutlined />}
+                onClick={() => setSearchOpen(true)}
+              >
+                查找
+              </Button>
+            </Tooltip>
+          )}
+
           <Tooltip title={props.messages.length === 0 ? "暂无消息可导出" : "将当前会话导出为结构化 Markdown 纪要"}>
             <Button
               size="small"
@@ -381,9 +451,54 @@ export function IMChatWindow(props: IMChatWindowProps) {
               </Flex>
             )}
           </div>
+        ) : filteredMessages.length === 0 && searchKeyword.trim() ? (
+          <div style={{ margin: "auto", textAlign: "center", maxWidth: 440, padding: "20px 16px" }}>
+            <Empty
+              mascot={false}
+              title={`未找到包含 “${searchKeyword}” 的消息`}
+              hint="请尝试输入其他关键词，或清空搜索条件以查看全部记录"
+            />
+            <Button
+              type="primary"
+              size="small"
+              onClick={() => setSearchKeyword("")}
+              style={{ marginTop: 12 }}
+            >
+              清空搜索条件
+            </Button>
+          </div>
         ) : (
-          props.messages.map((msg, idx) => {
-            const prev = idx > 0 ? props.messages[idx - 1] : null;
+          <>
+            {searchKeyword.trim() && (
+              <div
+                style={{
+                  padding: "6px 12px",
+                  background: isDark ? "rgba(22, 119, 255, 0.15)" : "#e6f4ff",
+                  border: "1px solid var(--ant-color-primary-border)",
+                  borderRadius: 8,
+                  marginBottom: 12,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  fontSize: 12,
+                }}
+              >
+                <span style={{ color: "var(--ant-color-primary)" }}>
+                  <SearchOutlined style={{ marginRight: 6 }} />
+                  找到 <strong>{filteredMessages.length}</strong> 条匹配 “{searchKeyword.trim()}” 的记录
+                </span>
+                <Button
+                  type="link"
+                  size="small"
+                  onClick={() => setSearchKeyword("")}
+                  style={{ padding: 0, height: "auto", fontSize: 12 }}
+                >
+                  清空搜索
+                </Button>
+              </div>
+            )}
+            {filteredMessages.map((msg, idx) => {
+              const prev = idx > 0 ? filteredMessages[idx - 1] : null;
             let showTimeCapsule = false;
             if (!prev) {
               showTimeCapsule = true;
@@ -580,6 +695,21 @@ export function IMChatWindow(props: IMChatWindowProps) {
                                 存为知识
                               </span>
                             </Tooltip>
+                            <span>·</span>
+                            <Tooltip title="引用此回答并填入输入框，方便针对性发起连续追问">
+                              <span
+                                style={{
+                                  cursor: "pointer",
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 3,
+                                }}
+                                onClick={() => handleQuoteAI(msg)}
+                              >
+                                <CommentOutlined style={{ fontSize: 11 }} />
+                                引用追问
+                              </span>
+                            </Tooltip>
                             {msg.rawOutbox && (
                               <>
                                 <span>·</span>
@@ -682,6 +812,21 @@ export function IMChatWindow(props: IMChatWindowProps) {
                         >
                           {copiedId === msg.id ? "已复制内容" : "复制"}
                         </span>
+                        <span>·</span>
+                        <Tooltip title="将此条消息内容填入下方输入框，方便修改微调或重新发送">
+                          <span
+                            style={{
+                              cursor: "pointer",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 3,
+                            }}
+                            onClick={() => handleRefillUser(msg)}
+                          >
+                            <EditOutlined style={{ fontSize: 11 }} />
+                            填入输入框
+                          </span>
+                        </Tooltip>
                       </Flex>
                     </Flex>
 
@@ -698,8 +843,9 @@ export function IMChatWindow(props: IMChatWindowProps) {
                 )}
               </Flex>
             );
-          })
-        )}
+          })}
+        </>
+      )}
 
         {/* 思考中动效 */}
         {props.sending && isDirect && (
@@ -741,8 +887,11 @@ export function IMChatWindow(props: IMChatWindowProps) {
         }
         isGroupChat={props.conversation.type === "group"}
         availableBots={props.availableBots}
-        prefill={props.prefill}
-        onClearPrefill={props.onClearPrefill}
+        prefill={localPrefill ?? props.prefill}
+        onClearPrefill={() => {
+          setLocalPrefill(null);
+          props.onClearPrefill?.();
+        }}
       />
 
       {/* 4. 存为知识卡片确认弹窗 */}
