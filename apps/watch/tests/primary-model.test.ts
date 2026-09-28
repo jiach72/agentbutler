@@ -32,6 +32,8 @@ describe("Primary Model API (/api/models/primary)", () => {
   let llmService: LlmCredentialService;
   let watchHttp: WatchHttp;
   let baseUrl: string;
+  let runbookCalls: string[];
+  let runbookOutcome: "started" | "unknown-runbook" | "throw";
 
   beforeEach(async () => {
     tempDir = mkdtempSync(join(tmpdir(), "butler-watch-primary-"));
@@ -53,9 +55,19 @@ describe("Primary Model API (/api/models/primary)", () => {
     vault = new SecretVault("b".repeat(64));
     llmService = new LlmCredentialService(store, vault);
 
+    runbookCalls = [];
+    runbookOutcome = "started";
+
     const deps = makeStubDeps({
       llm: llmService,
       hermesRoot: hermesDir,
+      executeRunbook: async (id: string) => {
+        runbookCalls.push(id);
+        if (runbookOutcome === "throw") throw new Error("runbook boom");
+        return runbookOutcome === "started"
+          ? { status: "started", instanceId: "test" }
+          : { status: "unknown-runbook" };
+      },
     });
 
     watchHttp = startWatchHttp(deps, { host: "127.0.0.1", port: 0, credentialWritesAllowed: true });
@@ -133,5 +145,68 @@ describe("Primary Model API (/api/models/primary)", () => {
     expect(res.status).toBe(200);
     const envContent = readFileSync(join(hermesDir, ".env"), "utf8");
     expect(envContent).toContain("OPENAI_API_KEY=sk-proj-test12345");
+  });
+
+  // P1 空开关回归：面板勾选「立即优雅重启」后必须真的走 rb-restart，
+  // 且响应如实返回 restarted——UI 靠它兑现「即刻生效」的承诺。
+  it("POST restartNow:true 执行 rb-restart 优雅重启并返回 restarted:true", async () => {
+    const res = await fetch(`${baseUrl}/api/models/primary`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        provider: "openai",
+        model: "gpt-4o",
+        endpoint: "https://api.openai.com/v1",
+        source: "credential",
+        restartNow: true,
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.ok).toBe(true);
+    expect(json.restarted).toBe(true);
+    expect(runbookCalls).toEqual(["rb-restart"]);
+  });
+
+  it("POST 不带 restartNow 时不触发重启，restarted 为 false", async () => {
+    const res = await fetch(`${baseUrl}/api/models/primary`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ provider: "openai", model: "gpt-4o" }),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.ok).toBe(true);
+    expect(json.restarted).toBe(false);
+    expect(runbookCalls).toEqual([]);
+  });
+
+  it("POST restartNow:true 但重启失败时仍成功保存且如实返回 restarted:false", async () => {
+    runbookOutcome = "unknown-runbook";
+    const resUnknown = await fetch(`${baseUrl}/api/models/primary`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ provider: "openai", model: "gpt-4o", restartNow: true }),
+    });
+    expect(resUnknown.status).toBe(200);
+    expect((await resUnknown.json()).restarted).toBe(false);
+
+    runbookOutcome = "throw";
+    const resThrow = await fetch(`${baseUrl}/api/models/primary`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ provider: "openai", model: "gpt-4o", restartNow: true }),
+    });
+    expect(resThrow.status).toBe(200);
+    expect((await resThrow.json()).restarted).toBe(false);
+
+    // 两次保存都真实落盘（重启失败不回滚配置写入）
+    const parsed = parseYaml(readFileSync(join(hermesDir, "config.yaml"), "utf8")) as {
+      model: { default: string };
+    };
+    expect(parsed.model.default).toBe("gpt-4o");
+    expect(runbookCalls).toEqual(["rb-restart", "rb-restart"]);
   });
 });

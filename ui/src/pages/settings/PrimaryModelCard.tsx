@@ -107,8 +107,15 @@ export function PrimaryModelCard() {
 
       const res = await postJson("/api/models/primary", payload, 30_000);
       if (res.ok) {
+        // 后端如实返回 restarted：勾选了立即重启但 runbook 未成功时必须讲清楚，
+        // 不能让「即刻生效」的承诺落空（P1 空开关修复的配套反馈）。
+        const restarted = (res.data as { restarted?: boolean } | null)?.restarted === true;
         message.success(
-          `主模型已成功切换为 ${selectedOption.model} (${selectedOption.provider})！已自动创建 config.yaml 备份。`,
+          restarted
+            ? `主模型已切换为 ${selectedOption.model} (${selectedOption.provider})，Hermes 已优雅重启，新模型即刻生效。`
+            : restartNow
+              ? `主模型已切换为 ${selectedOption.model} (${selectedOption.provider})，已创建 config.yaml 备份；自动重启未完成，新模型将在 Hermes 下次重载时生效。`
+              : `主模型已切换为 ${selectedOption.model} (${selectedOption.provider})，已自动创建 config.yaml 备份，将在 Hermes 下次重载时生效。`,
         );
         setModalOpen(false);
         await fetchPrimary();

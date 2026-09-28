@@ -99,6 +99,7 @@ export async function handlePrimaryModel(ctx: RequestContext): Promise<boolean> 
     const source = typeof body["source"] === "string" ? body["source"] : "credential";
     const envVar = typeof body["envVar"] === "string" ? body["envVar"].trim() : undefined;
     const apiKey = typeof body["apiKey"] === "string" ? body["apiKey"].trim() : undefined;
+    const restartNow = body["restartNow"] === true;
 
     if (!provider || !model) {
       sendJson(res, 400, { error: "invalid-primary-model", detail: "provider 和 model 均不能为空" });
@@ -215,11 +216,25 @@ export async function handlePrimaryModel(ctx: RequestContext): Promise<boolean> 
         actor: "panel",
         action: "primary-model-updated",
         target: "hermes",
-        detail: { provider, model, endpoint, source },
+        detail: { provider, model, endpoint, source, restartNow },
       });
+
+      // E. 立即优雅重启（面板勾选 restartNow 时）：与 memory apply 走同一
+      //    rb-restart 通道。config.yaml 已落盘，重启失败不回滚——Hermes 下次
+      //    重载自然生效；响应带 restarted 供面板如实反馈（修复 P1 空开关）。
+      let restarted = false;
+      if (restartNow) {
+        try {
+          const restartRes = await deps.executeRunbook("rb-restart");
+          restarted = restartRes.status === "started";
+        } catch {
+          // restart best effort
+        }
+      }
 
       sendJson(res, 200, {
         ok: true,
+        restarted,
         primary: {
           provider,
           model,

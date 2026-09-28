@@ -26,6 +26,7 @@
 - **K-11** bridge-healthcheck 口令改经 stdin 传递，不再 `exec -e` 注入环境。
 
 ### Fixed
+- **主模型切换「立即优雅重启」空开关（P1）**：面板勾选 restartNow（默认开）并宣称「使新主模型即刻生效」，但 `handlers/primary-model.ts` 对该字段零处理——切换后新模型并不即时生效。现与 memory apply 同通道执行 `rb-restart` 优雅重启，响应如实返回 `restarted`，UI 按「已重启生效 / 重启未完成、下次重载生效」两种结果如实反馈；3 个回归测试（触发、不触发、重启失败不回滚）。
 - **前端 lint 清账**：IM 模块 4 个 error（未用变量、`useRef<any>` 改 antd `InputRef`/`TextAreaRef`、幽灵 eslint-disable 注释）。
 - **设计走查修复**：知识库全绿态双横幅合并、仪表盘 Enclave 卡片折行、移动端状态胶囊竖排、技能横滚条样式、「本地访问模式（0.0.0.0）」误导文案、哈希任务名显示为「未命名任务」。
 
