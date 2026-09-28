@@ -5,7 +5,7 @@
  * - 多行自适应高度输入框，Enter 快捷发送，Shift+Enter 换行；
  * - 快捷运维指令 Chips 与加载状态。
  */
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   App,
   Button,
@@ -92,6 +92,12 @@ export function IMMessageInput(props: IMMessageInputProps) {
   } | null>(null);
   const [diffModalOpen, setDiffModalOpen] = useState(false);
 
+  // 指令发送历史记录与上下键回溯
+  const historyRef = useRef<string[]>([]);
+  const historyIndexRef = useRef<number>(-1);
+  const draftRef = useRef<string>("");
+  const [historyNavActive, setHistoryNavActive] = useState(false);
+
   const currentChips = useMemo(() => {
     const found = QUICK_PROMPT_CATEGORIES.find((c) => c.key === selectedCategory);
     return found ? found.items : QUICK_PROMPT_CATEGORIES[0].items;
@@ -158,18 +164,85 @@ export function IMMessageInput(props: IMMessageInputProps) {
     const text = inputText.trim();
     if (!text || props.sending || props.disabled) return;
 
+    // 记录到历史指令队列（最多保留 50 条，避免连续相同记录）
+    const history = historyRef.current;
+    if (history.length === 0 || history[history.length - 1] !== text) {
+      history.push(text);
+      if (history.length > 50) history.shift();
+    }
+    historyIndexRef.current = -1;
+    draftRef.current = "";
+    setHistoryNavActive(false);
+
     setUndoState(null);
     setInputText("");
     await props.onSend(text);
   };
 
-  // 键盘事件：Enter 发送，Shift+Enter 换行；支持 Ctrl+Enter / Cmd+Enter；Esc 快速清空草稿
+  // 键盘事件：Enter 发送，Shift+Enter 换行；ArrowUp/ArrowDown 回溯历史；Esc 快速清空/退出回溯
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Escape" && inputText) {
-      e.preventDefault();
-      setInputText("");
-      return;
+    if (e.key === "Escape") {
+      if (historyIndexRef.current !== -1) {
+        e.preventDefault();
+        setInputText(draftRef.current);
+        historyIndexRef.current = -1;
+        setHistoryNavActive(false);
+        return;
+      }
+      if (inputText) {
+        e.preventDefault();
+        setInputText("");
+        return;
+      }
     }
+
+    // 键盘 ↑ 键：向上唤回历史指令
+    if (e.key === "ArrowUp") {
+      const textarea = e.currentTarget;
+      const isAtFirstLineOrEmpty =
+        !inputText || (textarea.selectionStart === 0 && textarea.selectionEnd === 0);
+      if (isAtFirstLineOrEmpty && historyRef.current.length > 0) {
+        e.preventDefault();
+        const history = historyRef.current;
+        if (historyIndexRef.current === -1) {
+          // 首次启动回溯，暂存当前正在输入的草稿
+          draftRef.current = inputText;
+          const targetIndex = history.length - 1;
+          historyIndexRef.current = targetIndex;
+          setInputText(history[targetIndex]);
+          setHistoryNavActive(true);
+        } else if (historyIndexRef.current > 0) {
+          const targetIndex = historyIndexRef.current - 1;
+          historyIndexRef.current = targetIndex;
+          setInputText(history[targetIndex]);
+          setHistoryNavActive(true);
+        }
+        return;
+      }
+    }
+
+    // 键盘 ↓ 键：向下回退历史指令
+    if (e.key === "ArrowDown" && historyIndexRef.current !== -1) {
+      const textarea = e.currentTarget;
+      const isAtEnd = textarea.selectionEnd === textarea.value.length;
+      if (isAtEnd) {
+        e.preventDefault();
+        const history = historyRef.current;
+        if (historyIndexRef.current < history.length - 1) {
+          const targetIndex = historyIndexRef.current + 1;
+          historyIndexRef.current = targetIndex;
+          setInputText(history[targetIndex]);
+          setHistoryNavActive(true);
+        } else {
+          // 已经回到最底层，恢复最初暂存的草稿
+          historyIndexRef.current = -1;
+          setInputText(draftRef.current);
+          setHistoryNavActive(false);
+        }
+        return;
+      }
+    }
+
     if ((e.key === "Enter" && !e.shiftKey) || (e.key === "Enter" && (e.ctrlKey || e.metaKey))) {
       e.preventDefault();
       void handleSend();
@@ -285,9 +358,15 @@ export function IMMessageInput(props: IMMessageInputProps) {
       {/* 多行输入文本框 */}
       <TextArea
         value={inputText}
-        onChange={(e) => setInputText(e.target.value)}
+        onChange={(e) => {
+          setInputText(e.target.value);
+          if (historyNavActive) {
+            setHistoryNavActive(false);
+            historyIndexRef.current = -1;
+          }
+        }}
         onKeyDown={handleKeyDown}
-        placeholder={props.placeholder || "输入消息或指令... (Enter 发送，Shift+Enter 换行，Esc 清空)"}
+        placeholder={props.placeholder || "输入消息或指令... (Enter 发送，Shift+Enter 换行，↑ 调出历史)"}
         autoSize={{ minRows: 2, maxRows: 6 }}
         disabled={props.disabled}
         variant="borderless"
@@ -301,9 +380,15 @@ export function IMMessageInput(props: IMMessageInputProps) {
       {/* 底部工具栏与操作按钮 */}
       <Flex justify="space-between" align="center" style={{ paddingTop: 4 }}>
         <Flex align="center" gap={8}>
-          <Text type="secondary" style={{ fontSize: 11 }}>
-            {inputText.length > 0 ? `${inputText.length} 字` : "支持 Markdown 与快捷指令"}
-          </Text>
+          {historyNavActive ? (
+            <Tag color="blue" style={{ fontSize: 11, borderRadius: 10, margin: 0, padding: "0 8px" }}>
+              ↑↓ 历史指令 ({historyIndexRef.current + 1}/{historyRef.current.length}) · Esc 恢复
+            </Tag>
+          ) : (
+            <Text type="secondary" style={{ fontSize: 11 }}>
+              {inputText.length > 0 ? `${inputText.length} 字` : "支持 Markdown 与 ↑ 调出历史"}
+            </Text>
+          )}
           {hasText && (
             <Flex align="center" gap={6}>
               <Button

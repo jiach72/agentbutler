@@ -395,6 +395,27 @@
   transform: translateY(0);
 }
 
+.im-scroll-bottom-btn.has-new {
+  background: var(--ant-color-primary, #0071e3);
+  color: #ffffff;
+  border-color: var(--ant-color-primary, #0071e3);
+  box-shadow: 0 4px 14px rgba(0, 113, 227, 0.4);
+}
+
+.im-scroll-bottom-btn.has-new:hover {
+  background: var(--ant-color-primary-hover, #0077ed);
+  color: #ffffff;
+}
+
+.im-new-msg-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: #52c41a;
+  box-shadow: 0 0 6px #52c41a;
+  display: inline-block;
+}
+
 /* ================= 4. 气泡悬浮操作条 (Hover Floating Actions) ================= */
 .im-bubble-row {
   position: relative;

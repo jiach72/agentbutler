@@ -389,6 +389,31 @@ describe("即时通讯工作台：UI/UX 深度重构与视窗自适应 (Commit 8
     expect(src).toContain("mobile-view-chat");
     expect(src).toContain("mobile-view-list");
   });
+
+  it("IMMessageInput.tsx 支持 ArrowUp/ArrowDown 历史指令召回与状态指示", () => {
+    const src = readFileSync(new URL("../src/pages/gateway/im/IMMessageInput.tsx", import.meta.url), "utf8");
+    expect(src).toContain("historyRef");
+    expect(src).toContain("historyIndexRef");
+    expect(src).toContain("draftRef");
+    expect(src).toContain('e.key === "ArrowUp"');
+    expect(src).toContain('e.key === "ArrowDown"');
+    expect(src).toContain("历史指令");
+  });
+
+  it("IMChatWindow.tsx 具备实时新消息感知、动态悬浮回到底部提示与知识库快捷入口", () => {
+    const src = readFileSync(new URL("../src/pages/gateway/im/IMChatWindow.tsx", import.meta.url), "utf8");
+    expect(src).toContain("hasNewMessages");
+    expect(src).toContain("has-new");
+    expect(src).toContain("im-new-msg-dot");
+    expect(src).toContain("有新消息 ↓");
+    expect(src).toContain("知识库");
+    expect(src).toContain("/knowledge");
+
+    const css = readFileSync(new URL("../src/pages/gateway/im/im.css", import.meta.url), "utf8");
+    expect(css).toContain(".im-scroll-bottom-btn.has-new");
+    expect(css).toContain(".im-new-msg-dot");
+  });
 });
+
 
 

@@ -142,7 +142,9 @@ export function IMChatWindow(props: IMChatWindowProps) {
 
   // 用户是否向上滚动离开了底部（此时锁定滚动位置，不再随轮询自动回弹）
   const [userScrolledUp, setUserScrolledUp] = useState(false);
+  const [hasNewMessages, setHasNewMessages] = useState(false);
   const lastConversationIdRef = useRef<string | null>(null);
+  const prevMessageCountRef = useRef(props.messages.length);
 
   // 会话内消息过滤
   const filteredMessages = useMemo(() => {
@@ -161,15 +163,28 @@ export function IMChatWindow(props: IMChatWindowProps) {
     const el = streamContainerRef.current;
     if (!el) return;
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    setUserScrolledUp(distanceFromBottom > 80);
+    const scrolledUp = distanceFromBottom > 80;
+    setUserScrolledUp(scrolledUp);
+    if (!scrolledUp) {
+      setHasNewMessages(false);
+    }
   };
 
   const scrollToBottom = (smooth = true) => {
     if (streamBottomRef.current) {
       streamBottomRef.current.scrollIntoView({ behavior: smooth ? "smooth" : "auto" });
       setUserScrolledUp(false);
+      setHasNewMessages(false);
     }
   };
+
+  // 监听新消息到达：若用户正在上方看历史记录，标记有新消息
+  useEffect(() => {
+    if (userScrolledUp && props.messages.length > prevMessageCountRef.current) {
+      setHasNewMessages(true);
+    }
+    prevMessageCountRef.current = props.messages.length;
+  }, [props.messages.length, userScrolledUp]);
 
   // 智能滚动决策：
   // 1. 切换会话 -> 立即滚动到底部（auto）并重置上滑状态
@@ -460,6 +475,18 @@ export function IMChatWindow(props: IMChatWindowProps) {
               disabled={props.messages.length === 0}
             >
               导出会话纪要
+            </Button>
+          </Tooltip>
+
+          <Tooltip title="前往本地知识库（私有资料收集、RAG 检索与知识沉淀）">
+            <Button
+              size="small"
+              icon={<BookOutlined style={{ color: "var(--ab-primary)" }} />}
+              onClick={() => {
+                window.location.assign("/knowledge");
+              }}
+            >
+              知识库
             </Button>
           </Tooltip>
 
@@ -1008,17 +1035,18 @@ export function IMChatWindow(props: IMChatWindowProps) {
         <div ref={streamBottomRef} />
       </div>
 
-      {/* 悬浮回到底部按钮 */}
+      {/* 悬浮回到底部按钮（带新消息智能提示） */}
       {userScrolledUp && (
         <button
           type="button"
-          className="im-scroll-bottom-btn"
+          className={`im-scroll-bottom-btn${hasNewMessages ? " has-new" : ""}`}
           onClick={() => scrollToBottom(true)}
-          title="回到底部"
-          aria-label="回到底部"
+          title={hasNewMessages ? "有新消息到达，点击查看" : "回到底部"}
+          aria-label={hasNewMessages ? "有新消息，点击回到底部" : "回到底部"}
         >
           <DownOutlined />
-          <span>回到底部</span>
+          <span>{hasNewMessages ? "有新消息 ↓" : "回到底部"}</span>
+          {hasNewMessages && <span className="im-new-msg-dot" />}
         </button>
       )}
 
