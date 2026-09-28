@@ -5,6 +5,7 @@
  * 具备自动备份 ~/.hermes/config.yaml 与一键优雅重启生效的能力。
  */
 import { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Alert,
   App,
@@ -22,6 +23,7 @@ import {
   ApiOutlined,
   CheckCircleFilled,
   CloudOutlined,
+  MessageOutlined,
   ReloadOutlined,
   SwapOutlined,
   ThunderboltFilled,
@@ -34,6 +36,7 @@ const { Text, Paragraph } = Typography;
 
 export function PrimaryModelCard() {
   const { message } = App.useApp();
+  const navigate = useNavigate();
   const [primary, setPrimary] = useState<PrimaryModelConfig | null>(null);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
@@ -47,6 +50,12 @@ export function PrimaryModelCard() {
     message: string;
     checkedAt: string;
   } | null>(null);
+
+  const handleTestInIM = () => {
+    const modelName = primary?.model || "主模型";
+    const prompt = `你好！请做一下简短的自我介绍，并确认你当前正在使用 ${modelName} 模型工作。`;
+    navigate(`/gateway?tab=im&prefill=${encodeURIComponent(prompt)}`);
+  };
 
   const fetchPrimary = useCallback(async () => {
     setLoading(true);
@@ -211,7 +220,14 @@ export function PrimaryModelCard() {
         </Flex>
       }
       extra={
-        <Space size={8}>
+        <Space size={8} wrap>
+          <Button
+            size="small"
+            icon={<MessageOutlined />}
+            onClick={handleTestInIM}
+          >
+            在即时通讯中测试
+          </Button>
           <Button
             size="small"
             icon={<ApiOutlined />}
@@ -251,8 +267,12 @@ export function PrimaryModelCard() {
             {
               label: "当前模型",
               children: (
-                <Space size={6}>
-                  <Text strong style={{ fontSize: 14 }}>
+                <Space size={6} wrap>
+                  <Text
+                    strong
+                    style={{ fontSize: 14 }}
+                    copyable={primary?.model ? { text: primary.model, tooltips: ["复制模型名称", "已复制"] } : undefined}
+                  >
                     {primary?.model || "读取中..."}
                   </Text>
                   {isLocal ? (
@@ -264,17 +284,34 @@ export function PrimaryModelCard() {
                       商业按量计费
                     </Tag>
                   )}
+                  {testResult?.ok && testResult.latencyMs !== undefined && (
+                    <Tag color="green" style={{ margin: 0 }}>
+                      ⚡ {testResult.latencyMs}ms
+                    </Tag>
+                  )}
                 </Space>
               ),
             },
             {
               label: "驱动提供商",
-              children: <Text code>{primary?.provider || "—"}</Text>,
+              children: (
+                <Text
+                  code
+                  copyable={primary?.provider ? { text: primary.provider, tooltips: ["复制提供商", "已复制"] } : undefined}
+                >
+                  {primary?.provider || "—"}
+                </Text>
+              ),
             },
             {
               label: "服务端点 (Base URL)",
               children: (
-                <Text type="secondary" ellipsis style={{ maxWidth: 220 }}>
+                <Text
+                  type="secondary"
+                  ellipsis
+                  style={{ maxWidth: 220 }}
+                  copyable={primary?.endpoint ? { text: primary.endpoint, tooltips: ["复制服务端点", "已复制"] } : undefined}
+                >
                   {primary?.endpoint || "官方默认端点"}
                 </Text>
               ),
@@ -289,13 +326,20 @@ export function PrimaryModelCard() {
             closable
             onClose={() => setTestResult(null)}
             message={
-              <Flex align="center" justify="space-between" style={{ width: "100%" }}>
+              <Flex align="center" justify="space-between" wrap="wrap" gap={8} style={{ width: "100%" }}>
                 <span>
                   <strong>{testResult.ok ? "模型连通检测通过" : "模型连通检测异常"}</strong>：
                   {testResult.message}
                 </span>
                 <span style={{ fontSize: 12, opacity: 0.75 }}>检测于 {testResult.checkedAt}</span>
               </Flex>
+            }
+            action={
+              testResult.ok ? (
+                <Button size="small" type="primary" ghost icon={<MessageOutlined />} onClick={handleTestInIM}>
+                  发指令测试
+                </Button>
+              ) : undefined
             }
           />
         )}
