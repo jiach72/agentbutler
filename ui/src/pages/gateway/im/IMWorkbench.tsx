@@ -69,6 +69,21 @@ export function IMWorkbench(props: IMWorkbenchProps) {
   const [apiServerAvailable, setApiServerAvailable] = useState(true);
   const [botMarketOpen, setBotMarketOpen] = useState(false);
 
+  // 视窗控制：Zen 禅模式与移动端推拉视图状态
+  const [isZenMode, setIsZenMode] = useState(false);
+  const [mobileView, setMobileView] = useState<"list" | "chat">("chat");
+
+  // 监听 ESC 键退出 Zen 模式
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isZenMode) {
+        setIsZenMode(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isZenMode]);
+
   // 外部预填输入内容（例如从本地知识库问答一键跳转追问）
   const [prefillText, setPrefillText] = useState<string | undefined>(() => {
     return searchParams.get("prefill") || undefined;
@@ -379,11 +394,18 @@ export function IMWorkbench(props: IMWorkbenchProps) {
     return list;
   }, [activeConversation, directMessagesMap, props.items, inboundItems]);
 
+  // 选择会话（在移动端自动推拉切到聊天视窗）
+  const handleSelectConversation = useCallback((id: string) => {
+    setActiveConversationId(id);
+    setMobileView("chat");
+  }, []);
+
   // 新建直连专属对话
   const handleCreateDirectSession = () => {
     const newSession = createDirectSession();
     setDirectSessions(getDirectSessions());
     setActiveConversationId(newSession.id);
+    setMobileView("chat");
     message.success(`已创建 ${newSession.title}`);
   };
 
@@ -392,6 +414,7 @@ export function IMWorkbench(props: IMWorkbenchProps) {
     const newSession = createGroupSession();
     setDirectSessions(getDirectSessions());
     setActiveConversationId(newSession.id);
+    setMobileView("chat");
     message.success(`已创建协同群聊：${newSession.title}`);
   };
 
@@ -767,12 +790,16 @@ ${aiReplyText}
 
   return (
     <Flex vertical gap={16}>
-      <div className="im-workbench-container">
+      <div
+        className={`im-workbench-container ${isZenMode ? "im-zen-mode" : ""} ${
+          mobileView === "chat" ? "mobile-view-chat" : "mobile-view-list"
+        }`}
+      >
         {/* 1. 左侧会话列表 */}
         <IMConversationList
           conversations={conversations}
           activeId={activeConversationId}
-          onSelectConversation={setActiveConversationId}
+          onSelectConversation={handleSelectConversation}
           onCreateDirectSession={handleCreateDirectSession}
           onCreateGroupSession={handleCreateGroupSession}
           onDeleteDirectSession={handleDeleteDirectSession}
@@ -793,6 +820,9 @@ ${aiReplyText}
           availableBots={availableBots}
           prefill={prefillText}
           onClearPrefill={handleClearPrefill}
+          isZenMode={isZenMode}
+          onToggleZenMode={() => setIsZenMode((prev) => !prev)}
+          onBackToList={() => setMobileView("list")}
         />
       </div>
 

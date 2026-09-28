@@ -346,3 +346,49 @@ describe("即时通讯工作台：会话导出与知识卡片沉淀 (imExport)",
   });
 });
 
+describe("即时通讯工作台：UI/UX 深度重构与视窗自适应 (Commit 88)", () => {
+  it("im.css 满足视窗高度自适应、Zen 模式、移动端推拉与气泡悬浮操作条规范", () => {
+    const css = readFileSync(new URL("../src/pages/gateway/im/im.css", import.meta.url), "utf8");
+    // 1. 高度自适应消灭双滚动条
+    expect(css).toContain("height: calc(100vh - 128px)");
+    expect(css).toContain("min-height: 560px");
+    // 2. Zen Mode 纯净沉浸模式
+    expect(css).toContain(".im-workbench-container.im-zen-mode");
+    expect(css).toContain("z-index: 1000");
+    // 3. 悬浮微型快捷操作条与代码块复制
+    expect(css).toContain(".im-bubble-row");
+    expect(css).toContain(".im-bubble-actions");
+    expect(css).toContain(".im-bubble-row.im-bubble-row-user .im-bubble-actions");
+    expect(css).toContain(".im-code-copy-btn");
+    // 4. 移动端推拉视图响应式
+    expect(css).toContain("@media (max-width: 768px)");
+    expect(css).toContain(".im-workbench-container.mobile-view-chat .im-sidebar");
+    expect(css).toContain(".im-workbench-container.mobile-view-list .im-chat-window");
+  });
+
+  it("IMChatWindow.tsx 具备 RichMarkdownBubble、悬浮工具条、Zen Mode 切换与移动端返回", () => {
+    const src = readFileSync(new URL("../src/pages/gateway/im/IMChatWindow.tsx", import.meta.url), "utf8");
+    expect(src).toContain("RichMarkdownBubble");
+    expect(src).toContain("im-code-copy-btn");
+    expect(src).toContain("im-bubble-actions");
+    expect(src).toContain("im-bubble-row im-bubble-row-user");
+    expect(src).toContain("onToggleZenMode");
+    expect(src).toContain("onBackToList");
+    expect(src).toContain("im-mobile-back-btn");
+    expect(src).toContain("FullscreenOutlined");
+    expect(src).toContain("FullscreenExitOutlined");
+  });
+
+  it("IMWorkbench.tsx 实现 isZenMode、mobileView 与 ESC 快捷键退出的控制逻辑", () => {
+    const src = readFileSync(new URL("../src/pages/gateway/im/IMWorkbench.tsx", import.meta.url), "utf8");
+    expect(src).toContain("isZenMode");
+    expect(src).toContain("mobileView");
+    expect(src).toContain("handleSelectConversation");
+    expect(src).toContain('e.key === "Escape" && isZenMode');
+    expect(src).toContain("im-zen-mode");
+    expect(src).toContain("mobile-view-chat");
+    expect(src).toContain("mobile-view-list");
+  });
+});
+
+

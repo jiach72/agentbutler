@@ -2,13 +2,33 @@
 
 .im-workbench-container {
   display: flex;
-  height: 720px;
-  max-height: 82vh;
+  height: calc(100vh - 128px);
+  min-height: 560px;
   border-radius: var(--ab-r-card, 16px);
   overflow: hidden;
   border: 1px solid var(--ab-border);
   box-shadow: var(--ab-shadow-1);
   background: var(--ab-surface);
+  position: relative;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+/* 禅模式 / 全屏展开模式：左侧会话列表隐藏，右侧聊天满屏沉浸 */
+.im-workbench-container.im-zen-mode .im-sidebar,
+.im-workbench-container.is-zen-mode .im-sidebar {
+  display: none !important;
+}
+
+.im-workbench-container.im-zen-mode,
+.im-workbench-container.is-zen-mode {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  width: 100vw;
+  height: 100vh;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
 }
 
 /* ================= 1. 左侧会话列表 ================= */
@@ -373,4 +393,111 @@
 
 .im-scroll-bottom-btn:active {
   transform: translateY(0);
+}
+
+/* ================= 4. 气泡悬浮操作条 (Hover Floating Actions) ================= */
+.im-bubble-row {
+  position: relative;
+  width: 100%;
+}
+
+.im-bubble-row:hover .im-bubble-actions {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.im-bubble-actions {
+  position: absolute;
+  top: -10px;
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 6px;
+  border-radius: 20px;
+  background: var(--ab-surface);
+  border: 1px solid var(--ab-border);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  backdrop-filter: blur(8px);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 10;
+}
+
+.im-bubble-row.im-bubble-row-user .im-bubble-actions {
+  left: 12px;
+  right: auto;
+}
+
+.im-bubble-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  color: var(--ab-text-2);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+.im-bubble-action-btn:hover {
+  background: var(--ab-surface-2);
+  color: var(--ab-primary);
+  transform: scale(1.1);
+}
+
+/* 代码块一键复制 */
+.im-code-block-wrapper {
+  position: relative;
+  margin: 6px 0;
+}
+
+.im-code-copy-btn {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  background: var(--ab-surface);
+  color: var(--ab-text-2);
+  border: 1px solid var(--ab-border);
+  cursor: pointer;
+  opacity: 0.75;
+  transition: all 0.15s ease;
+  z-index: 2;
+}
+
+.im-code-copy-btn:hover {
+  opacity: 1;
+  color: var(--ab-primary);
+  border-color: var(--ab-primary);
+}
+
+/* ================= 5. 移动端与窄屏响应式推拉切换 ================= */
+@media (max-width: 768px) {
+  .im-workbench-container {
+    height: calc(100vh - 120px);
+    border-radius: 12px;
+  }
+  .im-workbench-container.mobile-view-chat .im-sidebar {
+    display: none !important;
+  }
+  .im-workbench-container.mobile-view-list .im-chat-window {
+    display: none !important;
+  }
+  .im-workbench-container.mobile-view-list .im-sidebar {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
 }

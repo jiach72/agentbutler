@@ -35,6 +35,9 @@ import {
   SyncOutlined,
   ArrowRightOutlined,
   ExportOutlined,
+  ArrowLeftOutlined,
+  FullscreenOutlined,
+  FullscreenExitOutlined,
   BookOutlined,
   CommentOutlined,
   EditOutlined,
@@ -43,6 +46,58 @@ import { useTheme } from "../../../theme/ThemeProvider.js";
 import { Empty } from "../../../components/Empty.js";
 import { formatIMTimeCapsule, type IMChatMessage, type IMConversation, type BotProfile } from "./imTypes.js";
 import { IMMessageInput } from "./IMMessageInput.js";
+
+/** 轻量级 Markdown 气泡解析器，支持代码块独立高亮与右上角一键复制 */
+function RichMarkdownBubble({ content, onCopyCode }: { content: string; onCopyCode?: (code: string) => void }) {
+  if (!content) return <span>（空内容）</span>;
+  const parts = content.split(/(```[\s\S]*?```)/g);
+  return (
+    <div className="im-markdown-rich-content">
+      {parts.map((part, index) => {
+        if (part.startsWith("```") && part.endsWith("```")) {
+          const raw = part.slice(3, -3).replace(/^\n+|\n+$/g, "");
+          const firstLineBreak = raw.indexOf("\n");
+          let lang = "";
+          let code = raw;
+          if (firstLineBreak > 0 && firstLineBreak < 24) {
+            const possibleLang = raw.slice(0, firstLineBreak).trim();
+            if (/^[a-zA-Z0-9_#-]+$/.test(possibleLang)) {
+              lang = possibleLang;
+              code = raw.slice(firstLineBreak + 1);
+            }
+          }
+          return (
+            <div key={index} className="im-code-block-wrapper">
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
+                <span style={{ fontSize: 11, fontFamily: "monospace", opacity: 0.65 }}>{lang || "code"}</span>
+                <button
+                  type="button"
+                  className="im-code-copy-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onCopyCode?.(code);
+                  }}
+                  title="复制代码块"
+                >
+                  <CopyOutlined style={{ fontSize: 10 }} />
+                  <span>复制</span>
+                </button>
+              </div>
+              <pre style={{ margin: 0 }}>
+                <code>{code}</code>
+              </pre>
+            </div>
+          );
+        }
+        return (
+          <span key={index} style={{ whiteSpace: "pre-wrap" }}>
+            {part}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
 import { channelLabel } from "../helpers.js";
 import { postJson } from "../../../lib/api.js";
 import {
@@ -67,6 +122,9 @@ export interface IMChatWindowProps {
   availableBots?: BotProfile[];
   prefill?: string;
   onClearPrefill?: () => void;
+  isZenMode?: boolean;
+  onToggleZenMode?: () => void;
+  onBackToList?: () => void;
 }
 
 export function IMChatWindow(props: IMChatWindowProps) {
@@ -247,7 +305,20 @@ export function IMChatWindow(props: IMChatWindowProps) {
     <div className="im-chat-window">
       {/* 1. 顶栏：会话标题、渠道标识与状态灯 */}
       <div className="im-chat-header">
-        <Flex align="center" gap={12}>
+        <Flex align="center" gap={10}>
+          {props.onBackToList && (
+            <Button
+              type="text"
+              size="small"
+              icon={<ArrowLeftOutlined />}
+              onClick={props.onBackToList}
+              className="im-mobile-back-btn"
+              style={{ display: "inline-flex", alignItems: "center" }}
+              title="返回会话列表"
+            >
+              返回
+            </Button>
+          )}
           <div>
             <Flex align="center" gap={8}>
               {props.conversation.type === "group" ? (
@@ -415,6 +486,18 @@ export function IMChatWindow(props: IMChatWindowProps) {
               </Button>
             </Popconfirm>
           )}
+
+          {props.onToggleZenMode && (
+            <Tooltip title={props.isZenMode ? "还原双栏视图" : "禅模式全屏展开（最大化视野）"}>
+              <Button
+                size="small"
+                type="text"
+                icon={props.isZenMode ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+                onClick={props.onToggleZenMode}
+                title={props.isZenMode ? "还原双栏视图" : "禅模式全屏展开"}
+              />
+            </Tooltip>
+          )}
         </Flex>
       </div>
 
@@ -557,56 +640,91 @@ export function IMChatWindow(props: IMChatWindowProps) {
                     }
 
                     return (
-                      <Flex justify="flex-start" align="flex-start" gap={10} style={{ width: "100%" }}>
-                        <Avatar
-                          size={36}
-                          style={{
-                            backgroundColor: botBg,
-                            flexShrink: 0,
-                            boxShadow: "0 1px 4px rgba(0,0,0,0.1)",
-                          }}
-                          icon={botIcon}
-                        />
-
-                        <Flex vertical align="flex-start" gap={4} style={{ maxWidth: "82%" }}>
-                          {/* 智能体身份与 Jev 调度标记 */}
-                          <Flex align="center" gap={6} style={{ marginBottom: 2 }}>
-                            <Text strong style={{ fontSize: 12, color: "var(--ant-color-text-secondary)" }}>
-                              {botLabel}
-                            </Text>
-                            {msg.dispatchInfo?.selectedByJev && (
-                              <Tooltip title={msg.dispatchInfo.reason || "由 TypeSafe Jev 根据需求特征自动分流调度"}>
-                                <Tag color="cyan" style={{ fontSize: 10, borderRadius: 8, margin: 0, padding: "0 6px" }}>
-                                  Jev 调度
-                                </Tag>
-                              </Tooltip>
-                            )}
-                            {msg.compliance && (
-                              <Tooltip title={msg.compliance.explanation}>
-                                <Tag
-                                  color={msg.compliance.compliant ? "default" : "warning"}
-                                  style={{ fontSize: 10, borderRadius: 8, margin: 0, padding: "0 6px" }}
-                                >
-                                  合规 {msg.compliance.score}/5
-                                </Tag>
-                              </Tooltip>
-                            )}
-                          </Flex>
-
-                          <Flex align="center" gap={8}>
-                            <div
-                              className="im-bubble-ai im-markdown-content"
-                              onClick={() => {
-                                if (msg.rawOutbox && props.onSelectOutboxMessage) {
-                                  props.onSelectOutboxMessage(msg.id);
-                                }
-                              }}
-                              style={{
-                                cursor: msg.rawOutbox ? "pointer" : "default",
-                              }}
+                      <div className="im-bubble-row" key={msg.id}>
+                        {/* 气泡悬浮操作条 */}
+                        <div className="im-bubble-actions">
+                          <Tooltip title="复制回答内容">
+                            <button
+                              type="button"
+                              className="im-bubble-action-btn"
+                              onClick={() => copyText(msg.id, msg.content)}
+                              aria-label="复制回答"
                             >
-                              <div style={{ whiteSpace: "pre-wrap" }}>{msg.content || "（空内容）"}</div>
-                            </div>
+                              <CopyOutlined style={{ fontSize: 13 }} />
+                            </button>
+                          </Tooltip>
+                          <Tooltip title="一键沉淀为知识卡片存入本地知识库">
+                            <button
+                              type="button"
+                              className="im-bubble-action-btn"
+                              onClick={() => handleOpenSaveKnowledgeModal(msg)}
+                              aria-label="存为知识"
+                            >
+                              <BookOutlined style={{ fontSize: 13, color: "var(--ab-primary)" }} />
+                            </button>
+                          </Tooltip>
+                          <Tooltip title="引用此回答并填入输入框追问">
+                            <button
+                              type="button"
+                              className="im-bubble-action-btn"
+                              onClick={() => handleQuoteAI(msg)}
+                              aria-label="引用追问"
+                            >
+                              <CommentOutlined style={{ fontSize: 13 }} />
+                            </button>
+                          </Tooltip>
+                        </div>
+
+                        <Flex justify="flex-start" align="flex-start" gap={10} style={{ width: "100%" }}>
+                          <Avatar
+                            size={36}
+                            style={{
+                              backgroundColor: botBg,
+                              flexShrink: 0,
+                              boxShadow: "0 1px 4px rgba(0,0,0,0.1)",
+                            }}
+                            icon={botIcon}
+                          />
+
+                          <Flex vertical align="flex-start" gap={4} style={{ maxWidth: "82%" }}>
+                            {/* 智能体身份与 Jev 调度标记 */}
+                            <Flex align="center" gap={6} style={{ marginBottom: 2 }}>
+                              <Text strong style={{ fontSize: 12, color: "var(--ant-color-text-secondary)" }}>
+                                {botLabel}
+                              </Text>
+                              {msg.dispatchInfo?.selectedByJev && (
+                                <Tooltip title={msg.dispatchInfo.reason || "由 TypeSafe Jev 根据需求特征自动分流调度"}>
+                                  <Tag color="cyan" style={{ fontSize: 10, borderRadius: 8, margin: 0, padding: "0 6px" }}>
+                                    Jev 调度
+                                  </Tag>
+                                </Tooltip>
+                              )}
+                              {msg.compliance && (
+                                <Tooltip title={msg.compliance.explanation}>
+                                  <Tag
+                                    color={msg.compliance.compliant ? "default" : "warning"}
+                                    style={{ fontSize: 10, borderRadius: 8, margin: 0, padding: "0 6px" }}
+                                  >
+                                    合规 {msg.compliance.score}/5
+                                  </Tag>
+                                </Tooltip>
+                              )}
+                            </Flex>
+
+                            <Flex align="center" gap={8} style={{ width: "100%" }}>
+                              <div
+                                className="im-bubble-ai im-markdown-content"
+                                onClick={() => {
+                                  if (msg.rawOutbox && props.onSelectOutboxMessage) {
+                                    props.onSelectOutboxMessage(msg.id);
+                                  }
+                                }}
+                                style={{
+                                  cursor: msg.rawOutbox ? "pointer" : "default",
+                                }}
+                              >
+                                <RichMarkdownBubble content={msg.content} onCopyCode={(c) => copyText(`code-${msg.id}`, c)} />
+                              </div>
 
                             {/* 状态指示与死信重发 */}
                             {msg.state === "delivering" && (
@@ -724,21 +842,51 @@ export function IMChatWindow(props: IMChatWindowProps) {
                           </Flex>
                         </Flex>
                       </Flex>
-                    );
-                  })()
+                    </div>
+                  );
+                })()
                 ) : (
                   /* ================= 用户气泡 (右侧绿色/高亮) ================= */
                   <Flex justify="flex-end" align="flex-start" gap={10} style={{ width: "100%" }}>
                     <Flex vertical align="flex-end" gap={4} style={{ maxWidth: "82%" }}>
-                      <div
-                        className="im-bubble-user"
-                        style={{
-                          backgroundColor: wechatGreenBg,
-                          color: wechatGreenText,
-                          boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
-                        }}
-                      >
-                        <div style={{ whiteSpace: "pre-wrap" }}>{msg.content}</div>
+                      {/* 气泡正文（含悬浮快捷工具条） */}
+                      <div className="im-bubble-row im-bubble-row-user">
+                        <div
+                          className="im-bubble-user"
+                          style={{
+                            backgroundColor: wechatGreenBg,
+                            color: wechatGreenText,
+                            boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+                          }}
+                        >
+                          <div style={{ whiteSpace: "pre-wrap" }}>{msg.content}</div>
+                        </div>
+
+                        {/* 悬浮微型快捷操作条 */}
+                        <div className="im-bubble-actions">
+                          <Tooltip title="一键复制提问">
+                            <Button
+                              type="text"
+                              size="small"
+                              icon={<CopyOutlined style={{ fontSize: 12 }} />}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                copyText(msg.id, msg.content);
+                              }}
+                            />
+                          </Tooltip>
+                          <Tooltip title="重新填入输入框">
+                            <Button
+                              type="text"
+                              size="small"
+                              icon={<EditOutlined style={{ fontSize: 12 }} />}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleRefillUser(msg);
+                              }}
+                            />
+                          </Tooltip>
+                        </div>
                       </div>
 
                       {/* Prompt 优化胶囊与对照卡片 */}
