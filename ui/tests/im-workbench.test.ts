@@ -459,6 +459,14 @@ describe("即时通讯工作台：UI/UX 深度重构与视窗自适应 (Commit 8
     expect(src).toContain("外部通道与联系人");
     expect(src).toContain("群聊");
     expect(src).toContain("智能体");
+    expect(src).toContain("onTogglePin");
+    expect(src).toContain("PushpinFilled");
+    expect(src).toContain("清空搜索条件");
+    expect(src).toContain("counts.all");
+
+    const wbSrc = readFileSync(new URL("../src/pages/gateway/im/IMWorkbench.tsx", import.meta.url), "utf8");
+    expect(wbSrc).toContain("butler_im_pin_overrides");
+    expect(wbSrc).toContain("handleTogglePin");
 
     const css = readFileSync(new URL("../src/pages/gateway/im/im.css", import.meta.url), "utf8");
     expect(css).toContain(".im-conversation-section-title");

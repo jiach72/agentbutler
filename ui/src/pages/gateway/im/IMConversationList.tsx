@@ -29,6 +29,9 @@ import {
   MessageOutlined,
   TeamOutlined,
   UserOutlined,
+  PushpinOutlined,
+  PushpinFilled,
+  ClearOutlined,
 } from "@ant-design/icons";
 import type { IMConversation } from "./imTypes.js";
 import { DEFAULT_DIRECT_CONVERSATION_ID } from "./imSessionStore.js";
@@ -42,6 +45,7 @@ export interface IMConversationListProps {
   onCreateDirectSession: () => void;
   onCreateGroupSession?: () => void;
   onDeleteDirectSession: (id: string) => void;
+  onTogglePin?: (id: string) => void;
 }
 
 function getConversationAvatar(conv: IMConversation) {
@@ -145,6 +149,23 @@ export function IMConversationList(props: IMConversationListProps) {
   const [filterType, setFilterType] = useState<"all" | "group" | "bot" | "external">("all");
   const [searchKeyword, setSearchKeyword] = useState("");
 
+  const counts = useMemo(() => {
+    let group = 0;
+    let bot = 0;
+    let external = 0;
+    for (const c of props.conversations) {
+      if (c.type === "group") group++;
+      else if (c.type === "direct") bot++;
+      else if (c.type === "external") external++;
+    }
+    return {
+      all: props.conversations.length,
+      group,
+      bot,
+      external,
+    };
+  }, [props.conversations]);
+
   const filteredList = useMemo(() => {
     return props.conversations.filter((c) => {
       if (filterType === "group" && c.type !== "group") return false;
@@ -211,10 +232,10 @@ export function IMConversationList(props: IMConversationListProps) {
           value={filterType}
           onChange={(val) => setFilterType(val as "all" | "group" | "bot" | "external")}
           options={[
-            { label: "全部", value: "all" },
-            { label: "协同群", value: "group" },
-            { label: "专职Bot", value: "bot" },
-            { label: "外部通道", value: "external" },
+            { label: `全部 (${counts.all})`, value: "all" },
+            { label: `协同群 (${counts.group})`, value: "group" },
+            { label: `专职Bot (${counts.bot})`, value: "bot" },
+            { label: `外部 (${counts.external})`, value: "external" },
           ]}
         />
       </div>
@@ -225,6 +246,17 @@ export function IMConversationList(props: IMConversationListProps) {
           <div style={{ textAlign: "center", padding: "32px 16px", color: "var(--ant-color-text-tertiary)" }}>
             <MessageOutlined style={{ fontSize: 24, marginBottom: 8, opacity: 0.5 }} />
             <div style={{ fontSize: 12 }}>暂无符合条件的会话</div>
+            {searchKeyword.trim() && (
+              <Button
+                type="link"
+                size="small"
+                icon={<ClearOutlined />}
+                style={{ marginTop: 8, fontSize: 12 }}
+                onClick={() => setSearchKeyword("")}
+              >
+                清空搜索条件
+              </Button>
+            )}
           </div>
         ) : (() => {
           const renderItem = (conv: IMConversation) => {
@@ -293,6 +325,11 @@ export function IMConversationList(props: IMConversationListProps) {
                         >
                           {conv.title}
                         </Text>
+                        {conv.isPinned && (
+                          <Tooltip title="已置顶">
+                            <PushpinFilled style={{ fontSize: 11, color: "var(--ab-primary)", transform: "rotate(45deg)", flexShrink: 0 }} />
+                          </Tooltip>
+                        )}
                         {roleTag}
                       </Flex>
                       {conv.lastMessage && (
@@ -313,11 +350,32 @@ export function IMConversationList(props: IMConversationListProps) {
                           : "暂无消息记录"}
                       </Text>
 
-                      {/* 状态微标 */}
-                      <Flex align="center" gap={4}>
+                      {/* 状态微标与快捷操作 */}
+                      <Flex align="center" gap={2}>
                         {conv.errorCount > 0 && (
                           <Tooltip title={`${conv.errorCount} 条消息投递异常/死信`}>
                             <Badge count={conv.errorCount} size="small" />
+                          </Tooltip>
+                        )}
+                        {props.onTogglePin && (
+                          <Tooltip title={conv.isPinned ? "取消置顶" : "置顶会话"}>
+                            <Button
+                              type="text"
+                              size="small"
+                              aria-label={conv.isPinned ? "取消置顶" : "置顶会话"}
+                              icon={
+                                conv.isPinned ? (
+                                  <PushpinFilled style={{ fontSize: 12, color: "var(--ab-primary)" }} />
+                                ) : (
+                                  <PushpinOutlined style={{ fontSize: 12, color: "var(--ant-color-text-quaternary)" }} />
+                                )
+                              }
+                              style={{ width: 22, height: 22, padding: 0, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 4 }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                props.onTogglePin?.(conv.id);
+                              }}
+                            />
                           </Tooltip>
                         )}
                         {isDirect && conv.id !== DEFAULT_DIRECT_CONVERSATION_ID && (
@@ -334,8 +392,9 @@ export function IMConversationList(props: IMConversationListProps) {
                             <Button
                               type="text"
                               size="small"
-                              icon={<DeleteOutlined style={{ fontSize: 13 }} />}
-                              style={{ width: 24, height: 24, padding: 0, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 6 }}
+                              aria-label="删除对话"
+                              icon={<DeleteOutlined style={{ fontSize: 12 }} />}
+                              style={{ width: 22, height: 22, padding: 0, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 4 }}
                               onClick={(e) => e.stopPropagation()}
                             />
                           </Popconfirm>
@@ -350,10 +409,10 @@ export function IMConversationList(props: IMConversationListProps) {
 
           const isSectioned = filterType === "all" && !searchKeyword.trim();
           const pinnedList = isSectioned
-            ? filteredList.filter((c) => c.isPinned || c.type === "direct" || c.type === "group")
+            ? filteredList.filter((c) => Boolean(c.isPinned))
             : [];
           const externalList = isSectioned
-            ? filteredList.filter((c) => !pinnedList.includes(c))
+            ? filteredList.filter((c) => !c.isPinned)
             : [];
 
           if (isSectioned && pinnedList.length > 0 && externalList.length > 0) {

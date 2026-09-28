@@ -89,6 +89,33 @@ export function IMWorkbench(props: IMWorkbenchProps) {
     return searchParams.get("prefill") || undefined;
   });
 
+  // 会话智能置顶覆盖偏好（支持持久化）
+  const [pinOverrides, setPinOverrides] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem("butler_im_pin_overrides");
+      if (saved) {
+        return JSON.parse(saved) as Record<string, boolean>;
+      }
+    } catch {
+      // 忽略存储读取异常
+    }
+    return {};
+  });
+
+  const handleTogglePin = useCallback((id: string) => {
+    setPinOverrides((prev) => {
+      const isDefaultPinned = id.startsWith("direct:") || id.startsWith("group:");
+      const currentPinned = prev[id] ?? isDefaultPinned;
+      const next = { ...prev, [id]: !currentPinned };
+      try {
+        localStorage.setItem("butler_im_pin_overrides", JSON.stringify(next));
+      } catch {
+        // 忽略存储写入异常
+      }
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
     const p = searchParams.get("prefill");
     if (p) {
@@ -174,7 +201,7 @@ export function IMWorkbench(props: IMWorkbenchProps) {
           : undefined,
         messageCount: msgs.length,
         errorCount: msgs.filter((m) => m.state === "policy_error" || m.state === "dead_letter").length,
-        isPinned: true,
+        isPinned: pinOverrides[ds.id] ?? true,
         createdAt: ds.createdAt,
         updatedAt: ds.updatedAt,
       });
@@ -276,13 +303,14 @@ export function IMWorkbench(props: IMWorkbenchProps) {
         lastMessage: last,
         messageCount: group.messages.length,
         errorCount,
+        isPinned: Boolean(pinOverrides[key]),
         createdAt: group.messages[0]?.timestamp || new Date().toISOString(),
         updatedAt: last?.timestamp || new Date().toISOString(),
       });
     }
 
     return list;
-  }, [directSessions, directMessagesMap, props.items, inboundItems]);
+  }, [directSessions, directMessagesMap, props.items, inboundItems, pinOverrides]);
 
   // 平滑回退：如果此前选中的是已被消除的重复假会话 channel:api-server:default，则切换到 DEFAULT_DIRECT_CONVERSATION_ID
   useEffect(() => {
@@ -803,6 +831,7 @@ ${aiReplyText}
           onCreateDirectSession={handleCreateDirectSession}
           onCreateGroupSession={handleCreateGroupSession}
           onDeleteDirectSession={handleDeleteDirectSession}
+          onTogglePin={handleTogglePin}
         />
 
         {/* 2. 右侧对话视窗 */}
