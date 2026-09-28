@@ -10,6 +10,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { enhancePromptRules } from "../src/pages/gateway/im/promptEnhancer.js";
 import { IMMessageInput } from "../src/pages/gateway/im/IMMessageInput.js";
 import {
+  formatConversationToMarkdown,
+  formatMessageToKnowledgeCard,
+} from "../src/pages/gateway/im/imExport.js";
+import {
   appendDirectMessage,
   clearDirectMessages,
   createDirectSession,
@@ -166,3 +170,100 @@ describe("即时通讯工作台：直连会话管理器 (imSessionStore)", () =>
     expect(externalChannels).toContain("api-server:butler-prompt-optimizer");
   });
 });
+
+describe("即时通讯工作台：会话导出与知识卡片沉淀 (imExport)", () => {
+  it("导出空消息记录的会话返回友好的占位说明", () => {
+    const md = formatConversationToMarkdown(
+      {
+        id: "direct:default",
+        type: "direct",
+        channel: "hermes",
+        title: "Hermes 专属管家",
+        createdAt: "2026-09-18T00:00:00Z",
+        updatedAt: "2026-09-18T00:00:00Z",
+      },
+      []
+    );
+    expect(md).toContain("# 会话纪要：Hermes 专属管家");
+    expect(md).toContain("Hermes 原生直连通道");
+    expect(md).toContain("本会话暂无消息记录");
+  });
+
+  it("导出多轮对话并正确呈现用户、AI、Prompt优化与自主接力", () => {
+    const messages: IMChatMessage[] = [
+      {
+        id: "m1",
+        conversationId: "group:g1",
+        sender: "user",
+        content: "检查服务器健康并排查死信",
+        optimizedText: "检查服务器运行指标，并排查死信队列的积压原因与未投递消息",
+        timestamp: "2026-09-18T10:00:00Z",
+        dateStr: "2026-09-18",
+      },
+      {
+        id: "m2",
+        conversationId: "group:g1",
+        sender: "ai",
+        botId: "butler",
+        botName: "全能管家",
+        content: "已检查健康：CPU 15%，内存 42%，无死信积压。",
+        timestamp: "2026-09-18T10:01:00Z",
+        dateStr: "2026-09-18",
+        peerHandoff: {
+          toBotId: "inspector",
+          toBotName: "审查员",
+          reason: "深入排查慢查询与安全审计",
+        },
+      },
+    ];
+
+    const md = formatConversationToMarkdown(
+      {
+        id: "group:g1",
+        type: "group",
+        channel: "hermes",
+        title: "DevOps 协同群",
+        createdAt: "2026-09-18T00:00:00Z",
+        updatedAt: "2026-09-18T00:00:00Z",
+      },
+      messages
+    );
+
+    expect(md).toContain("# 会话纪要：DevOps 协同群");
+    expect(md).toContain("智能体协同群聊");
+    expect(md).toContain("- **消息总数**：2 条");
+    expect(md).toContain("Prompt 优化对照");
+    expect(md).toContain("已转交给 @审查员");
+    expect(md).toContain("全能管家");
+  });
+
+  it("将 AI 消息提取为知识卡片格式并清洗文件名", () => {
+    const aiMsg: IMChatMessage = {
+      id: "ai-123",
+      conversationId: "direct:default",
+      sender: "ai",
+      botName: "全能管家",
+      content: "## 本地 RAG 部署要点\n1. 需要先拉取 nomic-embed-text 向量模型\n2. 启动 AnythingLLM 容器\n3. 配置嵌入维度为 768",
+      timestamp: "2026-09-18T12:00:00Z",
+      dateStr: "2026-09-18",
+    };
+
+    const card = formatMessageToKnowledgeCard(aiMsg, {
+      id: "direct:default",
+      type: "direct",
+      channel: "hermes",
+      title: "Hermes 专属管家",
+      createdAt: "2026-09-18T00:00:00Z",
+      updatedAt: "2026-09-18T00:00:00Z",
+    });
+
+    expect(card.defaultTitle).toBe("本地 RAG 部署要点");
+    expect(card.filename).toMatch(/^知识卡片-本地 RAG 部署要点-\d{8}-\d{4}\.md$/);
+    expect(card.content).toContain("# 本地 RAG 部署要点");
+    expect(card.content).toContain("- **来源**：Agent Butler 即时通讯工作台");
+    expect(card.content).toContain("- **会话**：Hermes 专属管家");
+    expect(card.content).toContain("#IM工作台 #知识沉淀 #智能体问答");
+    expect(card.content).toContain("需要先拉取 nomic-embed-text 向量模型");
+  });
+});
+

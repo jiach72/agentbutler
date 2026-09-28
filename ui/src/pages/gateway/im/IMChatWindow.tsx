@@ -7,9 +7,12 @@
  */
 import { useEffect, useRef, useState } from "react";
 import {
+  App,
   Avatar,
   Button,
   Flex,
+  Input,
+  Modal,
   Popconfirm,
   Tag,
   Tooltip,
@@ -31,12 +34,20 @@ import {
   CopyOutlined,
   SyncOutlined,
   ArrowRightOutlined,
+  ExportOutlined,
+  BookOutlined,
 } from "@ant-design/icons";
 import { useTheme } from "../../../theme/ThemeProvider.js";
 import { Empty } from "../../../components/Empty.js";
 import { formatIMTimeCapsule, type IMChatMessage, type IMConversation, type BotProfile } from "./imTypes.js";
 import { IMMessageInput } from "./IMMessageInput.js";
 import { channelLabel } from "../helpers.js";
+import { postJson } from "../../../lib/api.js";
+import {
+  formatConversationToMarkdown,
+  formatMessageToKnowledgeCard,
+  triggerTextDownload,
+} from "./imExport.js";
 
 const { Text } = Typography;
 
@@ -124,6 +135,62 @@ export function IMChatWindow(props: IMChatWindowProps) {
       else next.add(id);
       return next;
     });
+  };
+
+  const { message } = App.useApp();
+  const [saveKnowledgeModalOpen, setSaveKnowledgeModalOpen] = useState(false);
+  const [savingKnowledge, setSavingKnowledge] = useState(false);
+  const [knowledgeTitle, setKnowledgeTitle] = useState("");
+  const [knowledgeFilename, setKnowledgeFilename] = useState("");
+  const [knowledgeContent, setKnowledgeContent] = useState("");
+
+  // 导出会话纪要为 Markdown
+  const handleExportMarkdown = () => {
+    if (!props.conversation) return;
+    const md = formatConversationToMarkdown(props.conversation, props.messages);
+    const safeTitle = (props.conversation.title || "未命名会话").replace(/[\\/:*?"<>|]/g, "_").slice(0, 20);
+    const now = new Date();
+    const timeTag = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}-${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}`;
+    const filename = `会话纪要-${safeTitle}-${timeTag}.md`;
+    triggerTextDownload(md, filename);
+    message.success("已导出 Markdown 会话纪要");
+  };
+
+  // 打开存为知识弹窗
+  const handleOpenSaveKnowledgeModal = (msg: IMChatMessage) => {
+    const card = formatMessageToKnowledgeCard(msg, props.conversation);
+    setKnowledgeTitle(card.defaultTitle);
+    setKnowledgeFilename(card.filename);
+    setKnowledgeContent(card.content);
+    setSaveKnowledgeModalOpen(true);
+  };
+
+  // 确认写入本地知识库收集箱
+  const handleConfirmSaveKnowledge = async () => {
+    if (!knowledgeFilename.trim() || !knowledgeContent.trim()) {
+      message.warning("文件名与知识内容不能为空");
+      return;
+    }
+    setSavingKnowledge(true);
+    try {
+      const res = await postJson("/api/knowledge/upload", {
+        filename: knowledgeFilename.trim(),
+        content: knowledgeContent,
+        encoding: "utf8",
+        source: "upload",
+      });
+      if (res.ok) {
+        message.success(`已沉淀知识卡片「${knowledgeFilename.trim()}」！已写入本地知识库收集箱。`);
+        setSaveKnowledgeModalOpen(false);
+      } else {
+        const errMsg = (res.data as { error?: string })?.error || "写入失败，请检查知识库状态";
+        message.error(`存入知识库失败: ${errMsg}`);
+      }
+    } catch (err) {
+      message.error(`请求异常: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setSavingKnowledge(false);
+    }
   };
 
   if (!props.conversation) {
@@ -242,6 +309,17 @@ export function IMChatWindow(props: IMChatWindowProps) {
 
         {/* 顶栏右侧快捷操作 */}
         <Flex align="center" gap={8}>
+          <Tooltip title={props.messages.length === 0 ? "暂无消息可导出" : "将当前会话导出为结构化 Markdown 纪要"}>
+            <Button
+              size="small"
+              icon={<ExportOutlined />}
+              onClick={handleExportMarkdown}
+              disabled={props.messages.length === 0}
+            >
+              导出会话纪要
+            </Button>
+          </Tooltip>
+
           {props.conversation.type === "group" && (
             <Button
               size="small"
@@ -484,6 +562,22 @@ export function IMChatWindow(props: IMChatWindowProps) {
                             >
                               {copiedId === msg.id ? "已复制内容" : "复制"}
                             </span>
+                            <span>·</span>
+                            <Tooltip title="将此条智能体回答一键沉淀为知识卡片并写入本地知识库收集箱">
+                              <span
+                                style={{
+                                  cursor: "pointer",
+                                  color: "var(--ant-color-primary)",
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 3,
+                                }}
+                                onClick={() => handleOpenSaveKnowledgeModal(msg)}
+                              >
+                                <BookOutlined style={{ fontSize: 11 }} />
+                                存为知识
+                              </span>
+                            </Tooltip>
                             {msg.rawOutbox && (
                               <>
                                 <span>·</span>
@@ -646,6 +740,83 @@ export function IMChatWindow(props: IMChatWindowProps) {
         isGroupChat={props.conversation.type === "group"}
         availableBots={props.availableBots}
       />
+
+      {/* 4. 存为知识卡片确认弹窗 */}
+      <Modal
+        title={
+          <Flex align="center" gap={8}>
+            <BookOutlined style={{ color: "var(--ant-color-primary)" }} />
+            <span>沉淀为本地知识卡片</span>
+          </Flex>
+        }
+        open={saveKnowledgeModalOpen}
+        onCancel={() => setSaveKnowledgeModalOpen(false)}
+        onOk={handleConfirmSaveKnowledge}
+        confirmLoading={savingKnowledge}
+        okText="确认存入知识库"
+        cancelText="取消"
+        width={560}
+        destroyOnHidden
+      >
+        <Flex vertical gap={14} style={{ marginTop: 12 }}>
+          <Text type="secondary" style={{ fontSize: 13 }}>
+            将当前智能体的回复一键写入本地知识库资料收集箱，自动生成 Markdown 知识文档以供 RAG 问答与星图检索。
+          </Text>
+
+          <Flex vertical gap={6}>
+            <Text strong style={{ fontSize: 13 }}>
+              卡片标题
+            </Text>
+            <Input
+              value={knowledgeTitle}
+              onChange={(e) => {
+                const newTitle = e.target.value;
+                setKnowledgeTitle(newTitle);
+                // 同步调整推荐文件名
+                const safeTitle = newTitle.replace(/[\\/:*?"<>|]/g, "_").slice(0, 20);
+                if (safeTitle) {
+                  setKnowledgeFilename((prev) => {
+                    const parts = prev.split("-");
+                    if (parts.length >= 3) {
+                      return `知识卡片-${safeTitle}-${parts.slice(2).join("-")}`;
+                    }
+                    return `知识卡片-${safeTitle}.md`;
+                  });
+                }
+              }}
+              placeholder="请输入知识卡片标题"
+            />
+          </Flex>
+
+          <Flex vertical gap={6}>
+            <Text strong style={{ fontSize: 13 }}>
+              保存文件名
+            </Text>
+            <Input
+              value={knowledgeFilename}
+              onChange={(e) => setKnowledgeFilename(e.target.value)}
+              placeholder="请输入保存文件名 (如 知识卡片-标题.md)"
+            />
+          </Flex>
+
+          <Flex vertical gap={6}>
+            <Flex justify="space-between" align="center">
+              <Text strong style={{ fontSize: 13 }}>
+                知识卡片正文 (Markdown)
+              </Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                可直接按需增删或补充笔记
+              </Text>
+            </Flex>
+            <Input.TextArea
+              rows={8}
+              value={knowledgeContent}
+              onChange={(e) => setKnowledgeContent(e.target.value)}
+              style={{ fontFamily: "var(--ab-font-mono, monospace)", fontSize: 13 }}
+            />
+          </Flex>
+        </Flex>
+      </Modal>
     </div>
   );
 }
