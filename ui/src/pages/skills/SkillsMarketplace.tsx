@@ -115,6 +115,20 @@ const ORIGIN_LABELS: Record<LocalSkillItem["origin"], string> = {
   local: "本机",
 };
 
+export type SkillTestScenario = "smoke" | "task" | "guide";
+
+export function getSkillPrompt(displayName: string, scenario: SkillTestScenario): string {
+  switch (scenario) {
+    case "smoke":
+      return `请对技能 ${displayName} 进行自检冒烟测试，输出可用工具函数和基本配置。`;
+    case "task":
+      return `请使用技能 ${displayName}，帮我处理...`;
+    case "guide":
+      return `请介绍技能 ${displayName} 的功能特点、核心参数与典型使用场景。`;
+  }
+}
+
+
 /** 安装「+」圆钮：已安装显示对勾，处理中转圈。 */
 function InstallPlus(props: { installed: boolean; busy: boolean; label: string; onClick: () => void }) {
   if (props.installed) {
@@ -216,7 +230,16 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
   const [updateBusyName, setUpdateBusyName] = useState<string | null>(null);
   const [updateAllBusy, setUpdateAllBusy] = useState(false);
   const [detailItem, setDetailItem] = useState<LocalSkillItem | null>(null);
+  const [drawerScenario, setDrawerScenario] = useState<SkillTestScenario>("smoke");
   const [installedSlugs, setInstalledSlugs] = useState<Set<string>>(() => new Set());
+
+  const handleTestInIM = useCallback(
+    (item: LocalSkillItem, scenario: SkillTestScenario = "smoke") => {
+      const prompt = getSkillPrompt(item.displayName, scenario);
+      navigate(`/gateway?tab=im&prefill=${encodeURIComponent(prompt)}`);
+    },
+    [navigate],
+  );
 
   // ---- 从 Git 安装 ----
   const [gitModalOpen, setGitModalOpen] = useState(false);
@@ -920,6 +943,15 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
                 {update.latestVersion ? `升级到 v${update.latestVersion}` : "更新"}
               </Button>
             )}
+            <Button
+              size="small"
+              type="dashed"
+              icon={<MessageOutlined style={{ color: "var(--ant-color-primary)" }} />}
+              onClick={() => handleTestInIM(item, "smoke")}
+              title="在即时通讯中对该技能进行冒烟自测"
+            >
+              测试
+            </Button>
             <Button size="small" onClick={() => setDetailItem(item)}>
               详情
             </Button>
@@ -936,10 +968,7 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
                     key: "ask-im",
                     label: "在即时通讯中调用",
                     icon: <MessageOutlined />,
-                    onClick: () => {
-                      const prompt = `请使用技能 ${item.displayName}，帮我处理...`;
-                      navigate(`/gateway?tab=im&prefill=${encodeURIComponent(prompt)}`);
-                    },
+                    onClick: () => handleTestInIM(item, "task"),
                   },
                   {
                     type: "divider" as const,
@@ -1561,7 +1590,7 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
                 })()}
               </Descriptions.Item>
             </Descriptions>
-            {/* 贴心指令触发建议与示例 */}
+            {/* 贴心指令触发建议与多场景测试 */}
             <div
               style={{
                 padding: "12px 14px",
@@ -1570,52 +1599,70 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
                 border: "1px solid var(--ab-outline-variant, rgba(0, 0, 0, 0.08))",
               }}
             >
-              <Flex vertical gap={6}>
-                <Text strong style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
-                  <span>💡 如何对智能体使用此技能</span>
-                </Text>
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  Hermes 会在对话时根据您的意图自动判断并调用已安装的技能。您可以尝试复制下方提示词发给智能体：
-                </Text>
-                <Flex
-                  align="center"
-                  justify="space-between"
-                  gap={8}
-                  style={{
-                    padding: "8px 12px",
-                    borderRadius: 8,
-                    background: "var(--ab-surface, #fff)",
-                    border: "1px dashed var(--ab-primary, #0071e3)",
-                  }}
-                >
-                  <Text code style={{ fontSize: 12.5, wordBreak: "break-all" }}>
-                    {`请使用技能 ${detailItem.displayName}，帮我处理...`}
+              <Flex vertical gap={10}>
+                <Flex justify="space-between" align="center" wrap="wrap" gap={8}>
+                  <Text strong style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
+                    <span>💡 即时通讯测试与指令调用</span>
                   </Text>
-                  <Flex align="center" gap={4} style={{ flexShrink: 0 }}>
-                    <Button
-                      size="small"
-                      type="link"
-                      icon={<CopyOutlined />}
-                      onClick={() => {
-                        void navigator.clipboard.writeText(`请使用技能 ${detailItem.displayName}，帮我处理...`);
-                        message.success("示例指令已复制到剪贴板！");
-                      }}
-                    >
-                      复制
-                    </Button>
-                    <Button
-                      size="small"
-                      type="primary"
-                      icon={<MessageOutlined />}
-                      onClick={() => {
-                        const prompt = `请使用技能 ${detailItem.displayName}，帮我处理...`;
-                        navigate(`/gateway?tab=im&prefill=${encodeURIComponent(prompt)}`);
-                      }}
-                    >
-                      在即时通讯中调用
-                    </Button>
-                  </Flex>
+                  <Segmented<SkillTestScenario>
+                    size="small"
+                    value={drawerScenario}
+                    onChange={(val) => setDrawerScenario(val)}
+                    options={[
+                      { label: "冒烟自检", value: "smoke" },
+                      { label: "典型执行", value: "task" },
+                      { label: "用法咨询", value: "guide" },
+                    ]}
+                  />
                 </Flex>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {drawerScenario === "smoke"
+                    ? "快速验证技能是否正常被 Hermes 加载，检查工具导出与基本配置："
+                    : drawerScenario === "task"
+                      ? "在日常对话中指派该技能协助完成具体业务任务："
+                      : "向智能体咨询此技能的具体用法、入参格式与最佳实践："}
+                </Text>
+                {(() => {
+                  const prompt = getSkillPrompt(detailItem.displayName, drawerScenario);
+                  return (
+                    <Flex
+                      align="center"
+                      justify="space-between"
+                      gap={8}
+                      style={{
+                        padding: "8px 12px",
+                        borderRadius: 8,
+                        background: "var(--ab-surface, #fff)",
+                        border: "1px dashed var(--ab-primary, #0071e3)",
+                      }}
+                    >
+                      <Text code style={{ fontSize: 12.5, wordBreak: "break-all" }}>
+                        {prompt}
+                      </Text>
+                      <Flex align="center" gap={4} style={{ flexShrink: 0 }}>
+                        <Button
+                          size="small"
+                          type="link"
+                          icon={<CopyOutlined />}
+                          onClick={() => {
+                            void navigator.clipboard.writeText(prompt);
+                            message.success("示例指令已复制到剪贴板！");
+                          }}
+                        >
+                          复制
+                        </Button>
+                        <Button
+                          size="small"
+                          type="primary"
+                          icon={<MessageOutlined />}
+                          onClick={() => handleTestInIM(detailItem, drawerScenario)}
+                        >
+                          在即时通讯中调用
+                        </Button>
+                      </Flex>
+                    </Flex>
+                  );
+                })()}
               </Flex>
             </div>
             {(detailItem.slug !== null || detailItem.gitUrl !== null) && (

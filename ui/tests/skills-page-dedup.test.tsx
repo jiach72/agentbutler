@@ -11,6 +11,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { SkillsPage } from "../src/pages/skills/SkillsPage.js";
+import { getSkillPrompt } from "../src/pages/skills/SkillsMarketplace.js";
 import { buildSkillsConclusion, buildSkillsOverview } from "../src/pages/skills/summary.js";
 import type { SkillsPayload } from "../src/pages/skills/helpers.js";
 import type { FetchState } from "../src/lib/api.js";
@@ -74,4 +75,29 @@ describe("技能页首屏去重", () => {
     expect(src).toContain("MessageOutlined");
     expect(src).toContain("useNavigate");
   });
+
+  it("getSkillPrompt 支持冒烟自检、典型执行与用法咨询三大场景", () => {
+    const smoke = getSkillPrompt("天气助手", "smoke");
+    expect(smoke).toContain("天气助手");
+    expect(smoke).toContain("自检冒烟测试");
+
+    const task = getSkillPrompt("代码审查", "task");
+    expect(task).toContain("代码审查");
+    expect(task).toContain("请使用技能");
+
+    const guide = getSkillPrompt("知识检索", "guide");
+    expect(guide).toContain("知识检索");
+    expect(guide).toContain("功能特点、核心参数与典型使用场景");
+  });
+
+  it("SkillsMarketplace 源码包含快捷测试按钮、handleTestInIM 及三大场景切换", () => {
+    const src = readFileSync(new URL("../src/pages/skills/SkillsMarketplace.tsx", import.meta.url), "utf8");
+    expect(src).toContain("handleTestInIM");
+    expect(src).toContain("在即时通讯中对该技能进行冒烟自测");
+    expect(src).toContain("冒烟自检");
+    expect(src).toContain("典型执行");
+    expect(src).toContain("用法咨询");
+    expect(src).toContain("Segmented");
+  });
 });
+
