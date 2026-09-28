@@ -427,14 +427,25 @@ export function IMMessageInput(props: IMMessageInputProps) {
 
       {/* 底部工具栏与操作按钮 */}
       <Flex justify="space-between" align="center" style={{ paddingTop: 4 }}>
-        <Flex align="center" gap={8}>
+        <Flex align="center" gap={8} wrap="wrap">
           {historyNavActive ? (
             <Tag color="blue" style={{ fontSize: 11, borderRadius: 10, margin: 0, padding: "0 8px" }}>
               ↑↓ 历史指令 ({historyIndexRef.current + 1}/{historyRef.current.length}) · Esc 恢复
             </Tag>
           ) : (
-            <Text type="secondary" style={{ fontSize: 11 }}>
-              {inputText.length > 0 ? `${inputText.length} 字` : "支持 Markdown 与 ↑ 调出历史"}
+            <Text
+              type={inputText.length > 2000 ? "warning" : "secondary"}
+              style={{ fontSize: 11, display: "inline-flex", alignItems: "center", gap: 6 }}
+            >
+              {inputText.length > 0 ? (
+                <>
+                  <span>{inputText.length} 字</span>
+                  {inputText.length > 2000 && <span style={{ color: "var(--ab-warn, #faad14)" }}>(篇幅较长)</span>}
+                  <span className="im-shortcut-hint">Enter 发送 · Shift+Enter 换行</span>
+                </>
+              ) : (
+                "支持 Markdown、↑ 调出历史与知识库引用"
+              )}
             </Text>
           )}
 

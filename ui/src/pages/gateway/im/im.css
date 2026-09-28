@@ -543,6 +543,16 @@
   background: var(--ab-surface);
 }
 
+.im-shortcut-hint {
+  font-size: 10px;
+  color: var(--ab-text-3);
+  background: var(--ab-surface-2);
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--ab-border);
+  letter-spacing: 0.02em;
+}
+
 /* ================= 5. 移动端与窄屏响应式推拉切换 ================= */
 @media (max-width: 768px) {
   .im-workbench-container {

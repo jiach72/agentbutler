@@ -482,6 +482,12 @@ describe("即时通讯工作台：UI/UX 深度重构与视窗自适应 (Commit 8
     expect(src).toContain("handleAskWithDoc");
     expect(src).toContain("📚 基于本地知识库解答常见问题");
     expect(src).toContain("根据已沉淀的私有文档梳理核心架构");
+    expect(src).toContain("im-shortcut-hint");
+    expect(src).toContain("Enter 发送 · Shift+Enter 换行");
+    expect(src).toContain("篇幅较长");
+
+    const css = readFileSync(new URL("../src/pages/gateway/im/im.css", import.meta.url), "utf8");
+    expect(css).toContain(".im-shortcut-hint");
   });
 
   it("IMChatWindow.tsx 与 im.css 支持代码块复制动效、全屏禅模式悬浮胶囊与暗黑绿气泡微边框", () => {
