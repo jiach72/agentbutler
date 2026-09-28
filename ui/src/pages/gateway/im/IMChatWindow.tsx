@@ -83,7 +83,7 @@ export function renderHighlightedText(text: string, keyword?: string): React.Rea
   }
 }
 
-/** 轻量级 Markdown 气泡解析器，支持代码块独立高亮与右上角一键复制，并支持普通文本段内的关键词搜索高亮 */
+/** 轻量级 Markdown 气泡解析器，支持代码块独立高亮与右上角一键复制反馈，并支持普通文本段内的关键词搜索高亮 */
 function RichMarkdownBubble({
   content,
   highlightKeyword,
@@ -93,6 +93,8 @@ function RichMarkdownBubble({
   highlightKeyword?: string;
   onCopyCode?: (code: string) => void;
 }) {
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+
   if (!content) return <span>（空内容）</span>;
   const parts = content.split(/(```[\s\S]*?```)/g);
   return (
@@ -110,21 +112,33 @@ function RichMarkdownBubble({
               code = raw.slice(firstLineBreak + 1);
             }
           }
+          const isCopied = copiedIndex === index;
           return (
             <div key={index} className="im-code-block-wrapper">
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
                 <span style={{ fontSize: 11, fontFamily: "monospace", opacity: 0.65 }}>{lang || "code"}</span>
                 <button
                   type="button"
-                  className="im-code-copy-btn"
+                  className={`im-code-copy-btn ${isCopied ? "copied" : ""}`}
                   onClick={(e) => {
                     e.stopPropagation();
                     onCopyCode?.(code);
+                    setCopiedIndex(index);
+                    setTimeout(() => setCopiedIndex((prev) => (prev === index ? null : prev)), 2000);
                   }}
-                  title="复制代码块"
+                  title={isCopied ? "代码已复制" : "复制代码块"}
                 >
-                  <CopyOutlined style={{ fontSize: 10 }} />
-                  <span>复制</span>
+                  {isCopied ? (
+                    <>
+                      <CheckCircleFilled style={{ fontSize: 10, color: "var(--ab-ok, #52c41a)" }} />
+                      <span style={{ color: "var(--ab-ok, #52c41a)" }}>已复制</span>
+                    </>
+                  ) : (
+                    <>
+                      <CopyOutlined style={{ fontSize: 10 }} />
+                      <span>复制</span>
+                    </>
+                  )}
                 </button>
               </div>
               <pre style={{ margin: 0 }}>
@@ -355,13 +369,29 @@ export function IMChatWindow(props: IMChatWindowProps) {
   }
 
   const isDirect = props.conversation.type === "direct";
-  const wechatGreenBg = isDark ? "#286b32" : "#95ec69";
-  const wechatGreenText = isDark ? "#f0fdf4" : "#111827";
+  const wechatGreenBg = isDark ? "rgba(34, 139, 87, 0.32)" : "#95ec69";
+  const wechatGreenText = isDark ? "#e6ffed" : "#111827";
+  const wechatGreenBorder = isDark ? "1px solid rgba(34, 139, 87, 0.45)" : "none";
   const timeCapsuleBg = isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)";
   const timeCapsuleColor = isDark ? "#9ca3af" : "#6b7280";
 
   return (
     <div className="im-chat-window">
+      {props.isZenMode && (
+        <div className="im-zen-mode-exit-pill">
+          <FullscreenExitOutlined style={{ fontSize: 13 }} />
+          <span>全屏纯净模式 · 按 ESC 退出</span>
+          <Button
+            type="text"
+            size="small"
+            onClick={props.onToggleZenMode}
+            style={{ color: "#ffffff", padding: "0 4px", height: "auto", fontSize: 11 }}
+          >
+            退出
+          </Button>
+        </div>
+      )}
+
       {/* 1. 顶栏：会话标题、渠道标识与状态灯 */}
       <div className="im-chat-header">
         <Flex align="center" gap={10}>
@@ -928,6 +958,7 @@ export function IMChatWindow(props: IMChatWindowProps) {
                           style={{
                             backgroundColor: wechatGreenBg,
                             color: wechatGreenText,
+                            border: wechatGreenBorder,
                             boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
                           }}
                         >

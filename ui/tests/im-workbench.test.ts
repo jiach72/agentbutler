@@ -475,6 +475,19 @@ describe("即时通讯工作台：UI/UX 深度重构与视窗自适应 (Commit 8
     expect(src).toContain("📚 基于本地知识库解答常见问题");
     expect(src).toContain("根据已沉淀的私有文档梳理核心架构");
   });
+
+  it("IMChatWindow.tsx 与 im.css 支持代码块复制动效、全屏禅模式悬浮胶囊与暗黑绿气泡微边框", () => {
+    const src = readFileSync(new URL("../src/pages/gateway/im/IMChatWindow.tsx", import.meta.url), "utf8");
+    expect(src).toContain("im-zen-mode-exit-pill");
+    expect(src).toContain("全屏纯净模式 · 按 ESC 退出");
+    expect(src).toContain("wechatGreenBorder");
+    expect(src).toContain("isCopied");
+    expect(src).toContain("已复制");
+
+    const css = readFileSync(new URL("../src/pages/gateway/im/im.css", import.meta.url), "utf8");
+    expect(css).toContain(".im-zen-mode-exit-pill");
+    expect(css).toContain(".im-code-copy-btn.copied");
+  });
 });
 
 

@@ -31,6 +31,25 @@
   box-shadow: none;
 }
 
+.im-zen-mode-exit-pill {
+  position: absolute;
+  top: 14px;
+  right: 18px;
+  z-index: 1001;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(12px);
+  color: #ffffff;
+  padding: 4px 12px;
+  border-radius: 9999px;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  animation: imFadeSlideIn 0.3s ease-out;
+}
+
 /* ================= 1. 左侧会话列表 ================= */
 .im-sidebar {
   width: 300px;
@@ -515,6 +534,13 @@
   opacity: 1;
   color: var(--ab-primary);
   border-color: var(--ab-primary);
+}
+
+.im-code-copy-btn.copied {
+  opacity: 1;
+  color: var(--ab-ok, #52c41a);
+  border-color: var(--ab-ok, #52c41a);
+  background: var(--ab-surface);
 }
 
 /* ================= 5. 移动端与窄屏响应式推拉切换 ================= */
