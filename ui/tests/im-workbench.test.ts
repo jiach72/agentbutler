@@ -488,7 +488,21 @@ describe("即时通讯工作台：UI/UX 深度重构与视窗自适应 (Commit 8
     expect(css).toContain(".im-zen-mode-exit-pill");
     expect(css).toContain(".im-code-copy-btn.copied");
   });
+
+  it("IMChatWindow.tsx 支持消息快捷重试再次发送、操作条打勾复制反馈与沉淀知识分类预设", () => {
+    const src = readFileSync(new URL("../src/pages/gateway/im/IMChatWindow.tsx", import.meta.url), "utf8");
+    expect(src).toContain("再次发送");
+    expect(src).toContain("一键重新发送 / 重试此指令");
+    expect(src).toContain("CheckOutlined");
+    expect(src).toContain("KNOWLEDGE_CARD_PRESETS");
+    expect(src).toContain("🔖 知识卡片");
+    expect(src).toContain("💬 聊天归档");
+    expect(src).toContain("💡 灵感备忘");
+    expect(src).toContain("📓 技术架构");
+    expect(src).toContain("已复制内容 √");
+  });
 });
+
 
 
 

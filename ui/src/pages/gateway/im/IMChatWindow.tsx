@@ -20,6 +20,7 @@ import {
 } from "antd";
 import {
   CheckCircleFilled,
+  CheckOutlined,
   ClearOutlined,
   CloseCircleFilled,
   DownOutlined,
@@ -304,12 +305,20 @@ export function IMChatWindow(props: IMChatWindowProps) {
     message.success("已生成引用并填入输入框");
   };
 
+  const KNOWLEDGE_CARD_PRESETS = [
+    { label: "🔖 知识卡片", value: "card", prefix: "知识卡片", tags: "#IM工作台 #知识沉淀 #智能体问答" },
+    { label: "💬 聊天归档", value: "chat", prefix: "聊天归档", tags: "#IM工作台 #会话归档 #问答记录" },
+    { label: "💡 灵感备忘", value: "idea", prefix: "灵感备忘", tags: "#IM工作台 #灵感笔记 #待办参考" },
+    { label: "📓 技术架构", value: "tech", prefix: "技术架构", tags: "#IM工作台 #技术架构 #工程参考" },
+  ];
+
   const { message } = App.useApp();
   const [saveKnowledgeModalOpen, setSaveKnowledgeModalOpen] = useState(false);
   const [savingKnowledge, setSavingKnowledge] = useState(false);
   const [knowledgeTitle, setKnowledgeTitle] = useState("");
   const [knowledgeFilename, setKnowledgeFilename] = useState("");
   const [knowledgeContent, setKnowledgeContent] = useState("");
+  const [knowledgeCategory, setKnowledgeCategory] = useState("card");
 
   // 导出会话纪要为 Markdown
   const handleExportMarkdown = () => {
@@ -329,6 +338,7 @@ export function IMChatWindow(props: IMChatWindowProps) {
     setKnowledgeTitle(card.defaultTitle);
     setKnowledgeFilename(card.filename);
     setKnowledgeContent(card.content);
+    setKnowledgeCategory("card");
     setSaveKnowledgeModalOpen(true);
   };
 
@@ -745,14 +755,18 @@ export function IMChatWindow(props: IMChatWindowProps) {
                       <div className="im-bubble-row" key={msg.id}>
                         {/* 气泡悬浮操作条 */}
                         <div className="im-bubble-actions">
-                          <Tooltip title="复制回答内容">
+                          <Tooltip title={copiedId === msg.id ? "已复制回答" : "复制回答内容"}>
                             <button
                               type="button"
                               className="im-bubble-action-btn"
                               onClick={() => copyText(msg.id, msg.content)}
-                              aria-label="复制回答"
+                              aria-label={copiedId === msg.id ? "已复制回答" : "复制回答"}
                             >
-                              <CopyOutlined style={{ fontSize: 13 }} />
+                              {copiedId === msg.id ? (
+                                <CheckOutlined style={{ fontSize: 13, color: "var(--ant-color-success)" }} />
+                              ) : (
+                                <CopyOutlined style={{ fontSize: 13 }} />
+                              )}
                             </button>
                           </Tooltip>
                           <Tooltip title="一键沉淀为知识卡片存入本地知识库">
@@ -894,10 +908,14 @@ export function IMChatWindow(props: IMChatWindowProps) {
                             </Tooltip>
                             <span>·</span>
                             <span
-                              style={{ cursor: "pointer" }}
+                              style={{
+                                cursor: "pointer",
+                                color: copiedId === msg.id ? "var(--ant-color-success)" : undefined,
+                                fontWeight: copiedId === msg.id ? 500 : undefined,
+                              }}
                               onClick={() => copyText(msg.id, msg.content)}
                             >
-                              {copiedId === msg.id ? "已复制内容" : "复制"}
+                              {copiedId === msg.id ? "已复制内容 √" : "复制"}
                             </span>
                             <span>·</span>
                             <Tooltip title="将此条智能体回答一键沉淀为知识卡片并写入本地知识库收集箱">
@@ -967,11 +985,17 @@ export function IMChatWindow(props: IMChatWindowProps) {
 
                         {/* 悬浮微型快捷操作条 */}
                         <div className="im-bubble-actions">
-                          <Tooltip title="一键复制提问">
+                          <Tooltip title={copiedId === msg.id ? "已复制提问" : "一键复制提问"}>
                             <Button
                               type="text"
                               size="small"
-                              icon={<CopyOutlined style={{ fontSize: 12 }} />}
+                              icon={
+                                copiedId === msg.id ? (
+                                  <CheckOutlined style={{ fontSize: 12, color: "var(--ant-color-success)" }} />
+                                ) : (
+                                  <CopyOutlined style={{ fontSize: 12 }} />
+                                )
+                              }
                               onClick={(e) => {
                                 e.stopPropagation();
                                 copyText(msg.id, msg.content);
@@ -986,6 +1010,18 @@ export function IMChatWindow(props: IMChatWindowProps) {
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleRefillUser(msg);
+                              }}
+                            />
+                          </Tooltip>
+                          <Tooltip title="一键重新发送 / 重试此指令">
+                            <Button
+                              type="text"
+                              size="small"
+                              icon={<SyncOutlined style={{ fontSize: 12 }} />}
+                              disabled={props.sending}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void props.onSend(msg.content);
                               }}
                             />
                           </Tooltip>
@@ -1058,10 +1094,14 @@ export function IMChatWindow(props: IMChatWindowProps) {
                         </Tooltip>
                         <span>·</span>
                         <span
-                          style={{ cursor: "pointer" }}
+                          style={{
+                            cursor: "pointer",
+                            color: copiedId === msg.id ? "var(--ant-color-success)" : undefined,
+                            fontWeight: copiedId === msg.id ? 500 : undefined,
+                          }}
                           onClick={() => copyText(msg.id, msg.content)}
                         >
-                          {copiedId === msg.id ? "已复制内容" : "复制"}
+                          {copiedId === msg.id ? "已复制内容 √" : "复制"}
                         </span>
                         <span>·</span>
                         <Tooltip title="将此条消息内容填入下方输入框，方便修改微调或重新发送">
@@ -1076,6 +1116,27 @@ export function IMChatWindow(props: IMChatWindowProps) {
                           >
                             <EditOutlined style={{ fontSize: 11 }} />
                             填入输入框
+                          </span>
+                        </Tooltip>
+                        <span>·</span>
+                        <Tooltip title="一键重新发送此指令">
+                          <span
+                            style={{
+                              cursor: props.sending ? "not-allowed" : "pointer",
+                              color: "var(--ant-color-primary)",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 3,
+                              opacity: props.sending ? 0.6 : 1,
+                            }}
+                            onClick={() => {
+                              if (!props.sending) {
+                                void props.onSend(msg.content);
+                              }
+                            }}
+                          >
+                            <SyncOutlined style={{ fontSize: 11 }} />
+                            再次发送
                           </span>
                         </Tooltip>
                       </Flex>
@@ -1191,6 +1252,41 @@ export function IMChatWindow(props: IMChatWindowProps) {
               }}
               placeholder="请输入知识卡片标题"
             />
+          </Flex>
+
+          <Flex vertical gap={6}>
+            <Text strong style={{ fontSize: 13 }}>
+              卡片分类与预设标签
+            </Text>
+            <Flex gap={8} wrap="wrap">
+              {KNOWLEDGE_CARD_PRESETS.map((preset) => (
+                <Tag
+                  key={preset.value}
+                  color={knowledgeCategory === preset.value ? "blue" : undefined}
+                  style={{
+                    cursor: "pointer",
+                    userSelect: "none",
+                    padding: "3px 10px",
+                    fontSize: 12,
+                    borderRadius: "var(--ab-r-ctl, 6px)",
+                  }}
+                  onClick={() => {
+                    setKnowledgeCategory(preset.value);
+                    // 同步更新正文中的标签行
+                    setKnowledgeContent((prev) => {
+                      return prev.replace(/- \*\*标签\*\*：.*/, `- **标签**：${preset.tags}`);
+                    });
+                    // 同步更新文件名前缀
+                    const safeTitle = knowledgeTitle.replace(/[\\/:*?"<>|]/g, "_").slice(0, 20);
+                    const now = new Date();
+                    const timeTag = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}-${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}`;
+                    setKnowledgeFilename(`${preset.prefix}-${safeTitle || "卡片"}-${timeTag}.md`);
+                  }}
+                >
+                  {preset.label}
+                </Tag>
+              ))}
+            </Flex>
           </Flex>
 
           <Flex vertical gap={6}>
