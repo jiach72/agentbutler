@@ -1681,6 +1681,30 @@ ${newNoteContent}
                                 🔖 知识卡片
                               </Tag.CheckableTag>
                               <Tag.CheckableTag
+                                checked={docFilter === "技术架构"}
+                                onChange={(checked) => {
+                                  setDocFilter(checked ? "技术架构" : "");
+                                }}
+                              >
+                                📓 技术架构
+                              </Tag.CheckableTag>
+                              <Tag.CheckableTag
+                                checked={docFilter === "灵感备忘"}
+                                onChange={(checked) => {
+                                  setDocFilter(checked ? "灵感备忘" : "");
+                                }}
+                              >
+                                💡 灵感备忘
+                              </Tag.CheckableTag>
+                              <Tag.CheckableTag
+                                checked={docFilter === "运维规程"}
+                                onChange={(checked) => {
+                                  setDocFilter(checked ? "运维规程" : "");
+                                }}
+                              >
+                                📋 运维规程
+                              </Tag.CheckableTag>
+                              <Tag.CheckableTag
                                 checked={docSourceFilter === "obsidian"}
                                 onChange={(checked) => {
                                   setDocSourceFilter(checked ? "obsidian" : "all");
@@ -1712,14 +1736,14 @@ ${newNoteContent}
                               allowClear
                               value={docFilter}
                               onChange={(e) => setDocFilter(e.target.value)}
-                              style={{ width: 140 }}
+                              style={{ minWidth: 150, maxWidth: 220, flex: 1 }}
                               size="small"
                             />
                             <Select
                               size="small"
                               value={docSourceFilter}
                               onChange={setDocSourceFilter}
-                              style={{ width: 130 }}
+                              style={{ width: 120 }}
                               options={[
                                 { label: "全部来源", value: "all" },
                                 { label: "本地上传", value: "upload" },
@@ -1731,7 +1755,7 @@ ${newNoteContent}
                               size="small"
                               value={docIngestedFilter}
                               onChange={setDocIngestedFilter}
-                              style={{ width: 120 }}
+                              style={{ width: 110 }}
                               options={[
                                 { label: "全部状态", value: "all" },
                                 { label: "已向量化", value: "ingested" },
@@ -1749,6 +1773,14 @@ ${newNoteContent}
                               }}
                             >
                               智能去重
+                            </Button>
+                            <Button
+                              size="small"
+                              type="primary"
+                              icon={<PlusOutlined />}
+                              onClick={() => setCreateNoteModalOpen(true)}
+                            >
+                              新建笔记
                             </Button>
                             <Button size="small" icon={<ReloadOutlined />} onClick={fetchDocuments} />
                           </Flex>
@@ -2978,16 +3010,99 @@ ${newNoteContent}
           </div>
 
           <div>
-            <Text strong style={{ fontSize: 13, marginBottom: 4, display: "block" }}>
-              正文内容 (支持 Markdown)
-            </Text>
+            <Flex justify="space-between" align="center" style={{ marginBottom: 4 }}>
+              <Text strong style={{ fontSize: 13 }}>
+                正文内容 (支持 Markdown)
+              </Text>
+              <Space size={4}>
+                <Button
+                  size="small"
+                  type="text"
+                  style={{ fontSize: 11, padding: "0 4px", color: "var(--ab-primary)" }}
+                  onClick={() => {
+                    setNewNoteTitle((prev) => prev || "系统模块架构设计规范");
+                    setNewNoteCategory("tech");
+                    setNewNoteContent(`## 1. 架构目标与背景
+- 解决痛点：
+- 核心指标：
+
+## 2. 模块分工与依赖拓扑
+- 核心模块与职责：
+- 外部依赖与通信端口：
+
+## 3. 数据流与容错机制
+- 核心消息处理链路：
+- 异常自愈策略：`);
+                  }}
+                >
+                  架构模版
+                </Button>
+                <span style={{ color: "var(--ab-border)" }}>|</span>
+                <Button
+                  size="small"
+                  type="text"
+                  style={{ fontSize: 11, padding: "0 4px", color: "var(--ab-primary)" }}
+                  onClick={() => {
+                    setNewNoteTitle((prev) => prev || "通道异常排查与恢复SOP");
+                    setNewNoteCategory("sop");
+                    setNewNoteContent(`## 1. 适用场景与触发条件
+- 故障现象：
+- 前置检查命令：
+
+## 2. 标准排错与处置步骤
+1. 第一步：检查容器与进程状态
+2. 第二步：分析死信或错误日志
+3. 第三步：执行滚动重启或配置修正
+
+## 3. 验收标准与恢复验证
+- 验证指令：
+- 预期输出：`);
+                  }}
+                >
+                  运维模版
+                </Button>
+                <span style={{ color: "var(--ab-border)" }}>|</span>
+                <Button
+                  size="small"
+                  type="text"
+                  style={{ fontSize: 11, padding: "0 4px", color: "var(--ab-primary)" }}
+                  onClick={() => {
+                    setNewNoteTitle((prev) => prev || "关键技术知识卡片");
+                    setNewNoteCategory("card");
+                    setNewNoteContent(`## 核心概念与工作原理
+
+## 典型应用场景与关键代码
+\`\`\`bash
+# 常用排障或配置命令
+\`\`\`
+
+## 避坑指南与最佳实践
+- 注意事项 1：
+- 注意事项 2：`);
+                  }}
+                >
+                  卡片模版
+                </Button>
+              </Space>
+            </Flex>
             <Input.TextArea
-              placeholder="输入知识点、架构说明、运维备忘或核心规则..."
+              placeholder="输入知识点、架构说明、运维备忘或核心规则... (支持 Ctrl+Enter 快捷保存)"
               value={newNoteContent}
               onChange={(e) => setNewNoteContent(e.target.value)}
+              onKeyDown={(e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                  e.preventDefault();
+                  void handleCreateNote();
+                }
+              }}
               autoSize={{ minRows: 6, maxRows: 14 }}
               showCount
             />
+            <div style={{ marginTop: 4, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <Text type="secondary" style={{ fontSize: 11 }}>
+                <kbd className="im-kbd-hint">Ctrl + Enter</kbd> 快捷保存入库 · 写入后自动分段切片
+              </Text>
+            </div>
           </div>
         </Flex>
       </Modal>

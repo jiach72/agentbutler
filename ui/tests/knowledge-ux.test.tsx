@@ -142,6 +142,22 @@ describe("本地知识库设置的信息层级", () => {
     expect(src).toContain("💡 灵感备忘");
     expect(src).toContain("📋 运维规程");
   });
+
+  it("KnowledgePage 收集箱支持全分类标签筛选、快捷新建笔记按钮与弹窗结构化模板填入及快捷键 (Commit 119)", () => {
+    const src = readFileSync(new URL("../src/pages/knowledge/KnowledgePage.tsx", import.meta.url), "utf8");
+    // 快捷分类 CheckableTag 扩充断言
+    expect(src).toContain("docFilter === \"技术架构\"");
+    expect(src).toContain("docFilter === \"灵感备忘\"");
+    expect(src).toContain("docFilter === \"运维规程\"");
+    // 表格操作栏新建笔记按钮
+    expect(src).toContain("新建笔记");
+    // 新建笔记弹窗模板与快捷键断言
+    expect(src).toContain("架构模版");
+    expect(src).toContain("运维模版");
+    expect(src).toContain("卡片模版");
+    expect(src).toContain("Ctrl + Enter");
+    expect(src).toContain("im-kbd-hint");
+  });
 });
 
 
