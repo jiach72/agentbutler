@@ -9,7 +9,7 @@ import React from "react";
 import { App } from "antd";
 import { renderToStaticMarkup } from "react-dom/server";
 import { enhancePromptRules } from "../src/pages/gateway/im/promptEnhancer.js";
-import { IMMessageInput } from "../src/pages/gateway/im/IMMessageInput.js";
+import { IMMessageInput, QUICK_PROMPT_CATEGORIES } from "../src/pages/gateway/im/IMMessageInput.js";
 import {
   formatConversationToMarkdown,
   formatMessageToKnowledgeCard,
@@ -326,6 +326,23 @@ describe("即时通讯工作台：会话导出与知识卡片沉淀 (imExport)",
     expect(filterMsgs("msg-003")).toHaveLength(1);
     expect(filterMsgs("不存在的关键字")).toHaveLength(0);
     expect(filterMsgs("")).toHaveLength(3);
+  });
+
+  it("分类快捷指令库 (QUICK_PROMPT_CATEGORIES) 结构完备且涵盖运维、汇报与问答", () => {
+    expect(QUICK_PROMPT_CATEGORIES.length).toBeGreaterThanOrEqual(3);
+    const keys = QUICK_PROMPT_CATEGORIES.map((c) => c.key);
+    expect(keys).toContain("ops");
+    expect(keys).toContain("summary");
+    expect(keys).toContain("knowledge");
+
+    for (const cat of QUICK_PROMPT_CATEGORIES) {
+      expect(cat.label).toBeTruthy();
+      expect(cat.items.length).toBeGreaterThanOrEqual(2);
+      for (const item of cat.items) {
+        expect(typeof item).toBe("string");
+        expect(item.length).toBeGreaterThan(0);
+      }
+    }
   });
 });
 

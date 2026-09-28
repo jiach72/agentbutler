@@ -5,12 +5,14 @@
  * - 多行自适应高度输入框，Enter 快捷发送，Shift+Enter 换行；
  * - 快捷运维指令 Chips 与加载状态。
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
+  App,
   Button,
   Flex,
   Input,
   Modal,
+  Segmented,
   Tag,
   Tooltip,
   Typography,
@@ -18,6 +20,7 @@ import {
 import {
   ArrowUpOutlined,
   CloseOutlined,
+  CopyOutlined,
   EyeOutlined,
   UndoOutlined,
   RobotOutlined,
@@ -41,15 +44,46 @@ export interface IMMessageInputProps {
   onClearPrefill?: () => void;
 }
 
-const QUICK_CHIPS = [
-  "检查系统健康与网关状态",
-  "汇总待处理告警与死信",
-  "查看通道连接与运行时详情",
-  "总结近 24 小时消息吞吐",
+export interface QuickPromptCategory {
+  key: string;
+  label: string;
+  items: string[];
+}
+
+export const QUICK_PROMPT_CATEGORIES: QuickPromptCategory[] = [
+  {
+    key: "ops",
+    label: "运维排障",
+    items: [
+      "检查系统健康与网关状态",
+      "汇总待处理告警与死信",
+      "查看通道连接与运行时详情",
+      "总结近 24 小时消息吞吐",
+    ],
+  },
+  {
+    key: "summary",
+    label: "总结汇报",
+    items: [
+      "总结今日核心工作进展与关键成果",
+      "梳理当前待办事项与阻塞问题清单",
+      "生成一份今日执行纪要与明日规划",
+    ],
+  },
+  {
+    key: "knowledge",
+    label: "知识问答",
+    items: [
+      "基于本地知识库检索相关资料并总结",
+      "分析当前系统潜在隐患并提供优化建议",
+    ],
+  },
 ];
 
 export function IMMessageInput(props: IMMessageInputProps) {
+  const { message } = App.useApp();
   const [inputText, setInputText] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<string>("ops");
   const [isEnhancing, setIsEnhancing] = useState(false);
   const [undoState, setUndoState] = useState<{
     original: string;
@@ -57,6 +91,21 @@ export function IMMessageInput(props: IMMessageInputProps) {
     changes: string[];
   } | null>(null);
   const [diffModalOpen, setDiffModalOpen] = useState(false);
+
+  const currentChips = useMemo(() => {
+    const found = QUICK_PROMPT_CATEGORIES.find((c) => c.key === selectedCategory);
+    return found ? found.items : QUICK_PROMPT_CATEGORIES[0].items;
+  }, [selectedCategory]);
+
+  const handleCopyDraft = async () => {
+    if (!inputText) return;
+    try {
+      await navigator.clipboard.writeText(inputText);
+      message.success("草稿内容已复制到剪贴板");
+    } catch {
+      message.error("复制失败");
+    }
+  };
 
   // 外部预填提示词（如从知识库问答一键跳转追问）
   useEffect(() => {
@@ -114,8 +163,13 @@ export function IMMessageInput(props: IMMessageInputProps) {
     await props.onSend(text);
   };
 
-  // 键盘事件：Enter 发送，Shift+Enter 换行；支持 Ctrl+Enter / Cmd+Enter
+  // 键盘事件：Enter 发送，Shift+Enter 换行；支持 Ctrl+Enter / Cmd+Enter；Esc 快速清空草稿
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Escape" && inputText) {
+      e.preventDefault();
+      setInputText("");
+      return;
+    }
     if ((e.key === "Enter" && !e.shiftKey) || (e.key === "Enter" && (e.ctrlKey || e.metaKey))) {
       e.preventDefault();
       void handleSend();
@@ -197,32 +251,43 @@ export function IMMessageInput(props: IMMessageInputProps) {
         </div>
       )}
 
-      {/* 快捷运维指令 Chips */}
-      <Flex wrap="wrap" gap={6} align="center">
-        <Text type="secondary" style={{ fontSize: 11, marginRight: 2 }}>
-          快捷指令:
-        </Text>
-        {QUICK_CHIPS.map((chip) => (
-          <Button
-            key={chip}
+      {/* 快捷指令分类与 Chips */}
+      <div style={{ marginBottom: 6 }}>
+        <Flex wrap="wrap" gap={8} align="center">
+          <Segmented
             size="small"
-            className="im-action-chip"
-            disabled={props.disabled || props.sending}
-            onClick={() => {
-              setInputText((prev) => (prev ? `${prev}\n${chip}` : chip));
-            }}
-          >
-            {chip}
-          </Button>
-        ))}
-      </Flex>
+            value={selectedCategory}
+            onChange={(val) => setSelectedCategory(val as string)}
+            options={QUICK_PROMPT_CATEGORIES.map((c) => ({
+              label: c.label,
+              value: c.key,
+            }))}
+            style={{ fontSize: 11 }}
+          />
+          <Flex wrap="wrap" gap={6} align="center">
+            {currentChips.map((chip) => (
+              <Button
+                key={chip}
+                size="small"
+                className="im-action-chip"
+                disabled={props.disabled || props.sending}
+                onClick={() => {
+                  setInputText((prev) => (prev ? `${prev}\n${chip}` : chip));
+                }}
+              >
+                {chip}
+              </Button>
+            ))}
+          </Flex>
+        </Flex>
+      </div>
 
       {/* 多行输入文本框 */}
       <TextArea
         value={inputText}
         onChange={(e) => setInputText(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder={props.placeholder || "输入消息或指令... (Enter 发送，Shift+Enter 换行)"}
+        placeholder={props.placeholder || "输入消息或指令... (Enter 发送，Shift+Enter 换行，Esc 清空)"}
         autoSize={{ minRows: 2, maxRows: 6 }}
         disabled={props.disabled}
         variant="borderless"
@@ -240,14 +305,26 @@ export function IMMessageInput(props: IMMessageInputProps) {
             {inputText.length > 0 ? `${inputText.length} 字` : "支持 Markdown 与快捷指令"}
           </Text>
           {hasText && (
-            <Button
-              type="link"
-              size="small"
-              onClick={() => setInputText("")}
-              style={{ padding: 0, height: "auto", fontSize: 11 }}
-            >
-              清空
-            </Button>
+            <Flex align="center" gap={6}>
+              <Button
+                type="link"
+                size="small"
+                icon={<CopyOutlined style={{ fontSize: 11 }} />}
+                onClick={handleCopyDraft}
+                style={{ padding: 0, height: "auto", fontSize: 11 }}
+              >
+                复制草稿
+              </Button>
+              <span style={{ color: "var(--ant-color-border-secondary)", fontSize: 11 }}>|</span>
+              <Button
+                type="link"
+                size="small"
+                onClick={() => setInputText("")}
+                style={{ padding: 0, height: "auto", fontSize: 11 }}
+              >
+                清空 (Esc)
+              </Button>
+            </Flex>
           )}
         </Flex>
 
