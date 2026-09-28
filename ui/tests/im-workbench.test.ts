@@ -24,7 +24,7 @@ import {
   getDirectSessions,
   renameDirectSession,
 } from "../src/pages/gateway/im/imSessionStore.js";
-import { renderHighlightedText, renderInlineMarkdown } from "../src/pages/gateway/im/IMChatWindow.js";
+import { renderHighlightedText, renderInlineMarkdown, RichMarkdownBubble } from "../src/pages/gateway/im/IMChatWindow.js";
 import type { IMChatMessage } from "../src/pages/gateway/im/imTypes.js";
 
 describe("即时通讯工作台：提示词增强引擎 (promptEnhancer)", () => {
@@ -452,12 +452,36 @@ describe("即时通讯工作台：UI/UX 深度重构与视窗自适应 (Commit 8
     expect(src).toContain("📚 基于本地知识库解答问题");
   });
 
-  it("renderInlineMarkdown 能够安全解析行内代码、粗体并保留关键词高亮", () => {
-    const vnode = renderInlineMarkdown("请检查 `config.yaml` 文件的 **platforms** 配置", "config");
+  it("renderInlineMarkdown 能够安全解析行内代码、粗体、状态诊断徽标并保留关键词高亮", () => {
+    const vnode = renderInlineMarkdown("请检查 `config.yaml` 文件的 **platforms** 配置，结果 [OK] 正常，发现 [WARN] 警告，但无 [ERROR] 错误", "config");
     const html = renderToStaticMarkup(React.createElement("div", null, vnode));
     expect(html).toContain('<code class="im-inline-code">');
     expect(html).toContain("<mark");
     expect(html).toContain("platforms</strong>");
+    expect(html).toContain('class="im-status-badge ok"');
+    expect(html).toContain('class="im-status-badge warn"');
+    expect(html).toContain('class="im-status-badge error"');
+  });
+
+  it("RichMarkdownBubble 支持结构化引用块、项目清单与多智能体身份色彩指示条", () => {
+    const rawContent = `> 全面审计已启动\n- 微信通道 [OK] 连通良好\n* A2A 网络 [PASS] 探活成功\n1. 优先处理死信队列 [WARN]\n\`\`\`bash\ncurl http://localhost:8754/healthz\n\`\`\``;
+    const vnode = React.createElement(RichMarkdownBubble, { content: rawContent });
+    const html = renderToStaticMarkup(vnode);
+
+    expect(html).toContain('<blockquote class="im-markdown-quote">');
+    expect(html).toContain('class="im-markdown-bullet"');
+    expect(html).toContain('class="im-markdown-num"');
+    expect(html).toContain('class="im-status-badge ok"');
+    expect(html).toContain('class="im-code-block-wrapper"');
+
+    const chatSrc = readFileSync(new URL("../src/pages/gateway/im/IMChatWindow.tsx", import.meta.url), "utf8");
+    const cssSrc = readFileSync(new URL("../src/pages/gateway/im/im.css", import.meta.url), "utf8");
+    expect(chatSrc).toContain("agent-${msg.botId}");
+    expect(cssSrc).toContain(".im-bubble-ai.agent-inspector");
+    expect(cssSrc).toContain(".im-bubble-ai.agent-scout");
+    expect(cssSrc).toContain(".im-bubble-ai.agent-butler");
+    expect(cssSrc).toContain(".im-markdown-quote");
+    expect(cssSrc).toContain(".im-markdown-list-item");
   });
 
   it("IMConversationList.tsx 与 im.css 支持置顶智能体分段、角色徽标与视觉增强", () => {

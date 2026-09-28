@@ -95,9 +95,37 @@ export function renderHighlightedText(text: string, keyword?: string): React.Rea
 }
 
 /**
+ * 状态微标辅助识别：自动将 [OK], [WARN], [ERROR], [INFO] 等标识渲染为彩色诊断徽标
+ */
+function renderStatusOrText(text: string, highlightKeyword?: string): React.ReactNode {
+  if (!text) return text;
+  const parts = text.split(/(\[(?:OK|SUCCESS|PASS|WARN|WARNING|ERROR|FAIL|DEAD_LETTER|INFO)\])/gi);
+  if (parts.length <= 1) {
+    return renderHighlightedText(text, highlightKeyword);
+  }
+  return parts.map((part, pIdx) => {
+    const match = part.match(/^\[(OK|SUCCESS|PASS|WARN|WARNING|ERROR|FAIL|DEAD_LETTER|INFO)\]$/i);
+    if (match) {
+      const type = match[1].toUpperCase();
+      let badgeCls = "info";
+      if (type === "OK" || type === "SUCCESS" || type === "PASS") badgeCls = "ok";
+      else if (type === "WARN" || type === "WARNING") badgeCls = "warn";
+      else if (type === "ERROR" || type === "FAIL" || type === "DEAD_LETTER") badgeCls = "error";
+      return (
+        <span key={pIdx} className={`im-status-badge ${badgeCls}`}>
+          {part}
+        </span>
+      );
+    }
+    return renderHighlightedText(part, highlightKeyword);
+  });
+}
+
+/**
  * 安全的轻量级行内 Markdown 解析器：
  * - 支持将 `code` 渲染为行内代码标签；
  * - 支持将 **bold** 渲染为粗体强调；
+ * - 支持将 [OK], [WARN], [ERROR] 等渲染为状态徽标；
  * - 无缝嵌套关键词搜索黄色高亮，安全防注入。
  */
 export function renderInlineMarkdown(text: string, highlightKeyword?: string): React.ReactNode {
@@ -106,7 +134,7 @@ export function renderInlineMarkdown(text: string, highlightKeyword?: string): R
   // 1. 先按行内代码 (`...`) 切分
   const codeParts = text.split(/(`[^`]+`)/g);
   if (codeParts.length <= 1 && !text.includes("**")) {
-    return renderHighlightedText(text, highlightKeyword);
+    return renderStatusOrText(text, highlightKeyword);
   }
 
   return codeParts.map((part, cIdx) => {
@@ -124,7 +152,7 @@ export function renderInlineMarkdown(text: string, highlightKeyword?: string): R
     if (boldParts.length <= 1) {
       return (
         <span key={cIdx}>
-          {renderHighlightedText(part, highlightKeyword)}
+          {renderStatusOrText(part, highlightKeyword)}
         </span>
       );
     }
@@ -136,19 +164,19 @@ export function renderInlineMarkdown(text: string, highlightKeyword?: string): R
             const innerBold = bPart.slice(2, -2);
             return (
               <strong key={bIdx} style={{ fontWeight: 600 }}>
-                {renderHighlightedText(innerBold, highlightKeyword)}
+                {renderStatusOrText(innerBold, highlightKeyword)}
               </strong>
             );
           }
-          return renderHighlightedText(bPart, highlightKeyword);
+          return renderStatusOrText(bPart, highlightKeyword);
         })}
       </span>
     );
   });
 }
 
-/** 轻量级 Markdown 气泡解析器，支持代码块独立高亮与右上角一键复制反馈，并支持行内代码与粗体高亮 */
-function RichMarkdownBubble({
+/** 轻量级 Markdown 气泡解析器，支持代码块独立高亮、引用块、列表项与右上角一键复制反馈，并支持行内代码与粗体高亮 */
+export function RichMarkdownBubble({
   content,
   highlightKeyword,
   onCopyCode,
@@ -211,10 +239,44 @@ function RichMarkdownBubble({
             </div>
           );
         }
+
+        // 非代码块内容按行渲染，支持引用块 > 与列表项 - / * / 1.
+        const lines = part.split("\n");
         return (
-          <span key={index} style={{ whiteSpace: "pre-wrap" }}>
-            {renderInlineMarkdown(part, highlightKeyword)}
-          </span>
+          <div key={index} className="im-markdown-text-block">
+            {lines.map((line, lIdx) => {
+              const trimmed = line.trimStart();
+              if (trimmed.startsWith("> ")) {
+                return (
+                  <blockquote key={lIdx} className="im-markdown-quote">
+                    {renderInlineMarkdown(trimmed.slice(2), highlightKeyword)}
+                  </blockquote>
+                );
+              }
+              if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+                return (
+                  <div key={lIdx} className="im-markdown-list-item">
+                    <span className="im-markdown-bullet">•</span>
+                    <span className="im-markdown-list-text">{renderInlineMarkdown(trimmed.slice(2), highlightKeyword)}</span>
+                  </div>
+                );
+              }
+              const numMatch = trimmed.match(/^(\d+\.)\s+(.+)$/);
+              if (numMatch) {
+                return (
+                  <div key={lIdx} className="im-markdown-list-item">
+                    <span className="im-markdown-num">{numMatch[1]}</span>
+                    <span className="im-markdown-list-text">{renderInlineMarkdown(numMatch[2], highlightKeyword)}</span>
+                  </div>
+                );
+              }
+              return (
+                <div key={lIdx} style={{ minHeight: line === "" ? "0.6em" : undefined, wordBreak: "break-word" }}>
+                  {renderInlineMarkdown(line, highlightKeyword)}
+                </div>
+              );
+            })}
+          </div>
         );
       })}
     </div>
@@ -1065,7 +1127,7 @@ export function IMChatWindow(props: IMChatWindowProps) {
 
                             <Flex align="center" gap={8} style={{ width: "100%" }}>
                               <div
-                                className="im-bubble-ai im-markdown-content"
+                                className={`im-bubble-ai im-markdown-content ${msg.botId ? `agent-${msg.botId}` : ""}`}
                                 onClick={() => {
                                   if (msg.rawOutbox && props.onSelectOutboxMessage) {
                                     props.onSelectOutboxMessage(msg.id);

@@ -248,6 +248,16 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
 }
 
+.im-bubble-ai.agent-inspector {
+  border-left: 3px solid #8b5cf6;
+}
+.im-bubble-ai.agent-scout {
+  border-left: 3px solid #06b6d4;
+}
+.im-bubble-ai.agent-butler {
+  border-left: 3px solid #1677ff;
+}
+
 .im-bubble-user {
   padding: 10px 14px;
   border-radius: 12px 4px 12px 12px;
@@ -295,6 +305,78 @@
   display: inline-block;
   vertical-align: baseline;
   line-height: 1.4;
+}
+
+/* 结构化 Markdown 块级增强：引用块、项目清单与状态标签 */
+.im-markdown-quote {
+  margin: 6px 0;
+  padding: 4px 10px;
+  border-left: 3px solid var(--ab-primary);
+  background: var(--ab-surface-2);
+  border-radius: 0 4px 4px 0;
+  color: var(--ab-text-2);
+  font-size: 13px;
+  font-style: italic;
+}
+
+.im-markdown-list-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 3px 0;
+  line-height: 1.5;
+}
+
+.im-markdown-bullet {
+  color: var(--ab-primary);
+  font-size: 14px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.im-markdown-num {
+  color: var(--ab-text-3);
+  font-size: 12px;
+  font-family: var(--ab-font-mono, monospace);
+  flex-shrink: 0;
+}
+
+.im-markdown-list-text {
+  flex: 1;
+}
+
+/* 状态诊断胶囊 */
+.im-status-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-family: var(--ab-font-mono, monospace);
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  line-height: 1.3;
+  margin: 0 3px;
+  vertical-align: middle;
+}
+.im-status-badge.ok {
+  background: rgba(82, 196, 26, 0.15);
+  color: var(--ab-ok, #52c41a);
+  border: 1px solid rgba(82, 196, 26, 0.35);
+}
+.im-status-badge.warn {
+  background: rgba(250, 173, 20, 0.15);
+  color: var(--ab-warn, #faad14);
+  border: 1px solid rgba(250, 173, 20, 0.35);
+}
+.im-status-badge.error {
+  background: rgba(255, 77, 79, 0.15);
+  color: var(--ab-danger, #ff4d4f);
+  border: 1px solid rgba(255, 77, 79, 0.35);
+}
+.im-status-badge.info {
+  background: rgba(22, 119, 255, 0.12);
+  color: var(--ab-primary, #1677ff);
+  border: 1px solid rgba(22, 119, 255, 0.3);
 }
 
 /* 思考波浪动效 */
