@@ -64,6 +64,28 @@ export function hasAllowedOrigin(origin: string): boolean {
     .includes(origin);
 }
 
+/**
+ * Host 白名单（审计 K-2 / DNS rebinding 防线）。
+ * 无口令部署把"对端是回环"当信任源、同源校验拿 Host 作参照——若不校验 Host，
+ * 攻击者把自有域名 rebind 到 127.0.0.1 后，浏览器请求的 Origin 与 Host 天然一致，
+ * 两道防线同时失效。故 Host 必须落在：回环名 / 发布地址 / BUTLER_ALLOWED_HOSTS。
+ * 发布地址为通配（0.0.0.0、::、*）时无法枚举，放行并交由访问口令兜底
+ * （AGENTS.md 红线 5：通配发布必须配置口令）。
+ */
+export function isAllowedHost(hostHeader: string, publishHost: string | undefined): boolean {
+  const hostname = hostNameOf(hostHeader);
+  if (hostname === "") return false;
+  if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") return true;
+  const trimmedPublish = publishHost?.trim().toLowerCase() ?? "";
+  if (trimmedPublish === "0.0.0.0" || trimmedPublish === "::" || trimmedPublish === "*") return true;
+  if (trimmedPublish !== "" && hostname === trimmedPublish) return true;
+  const extra = (process.env["BUTLER_ALLOWED_HOSTS"] ?? "")
+    .split(",")
+    .map((value) => hostNameOf(value.trim()))
+    .filter((value) => value !== "");
+  return extra.includes(hostname);
+}
+
 export function isTrustedOrigin(origin: string, hostHeader: string | undefined): boolean {
   return isLoopbackOrigin(origin) || isSameRequestOrigin(origin, hostHeader) || hasAllowedOrigin(origin);
 }

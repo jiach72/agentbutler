@@ -33,6 +33,7 @@ import { registerUpgradeRoutes } from "./routes/upgrade.js";
 import {
   extractRequestTicket,
   extractRequestToken,
+  isAllowedHost,
   isLoopbackConnection,
   isTrustedOrigin,
   pathOf,
@@ -205,6 +206,15 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
       reply.code(404);
       return reply.send({ error: "not-found" });
     }
+  });
+
+  // Host 白名单（审计 K-2）：DNS rebinding 防线，对静态/API/ws 全部生效。
+  // 必须先于回环便利通道与同源校验执行，否则 rebind 域名可同时绕过两者。
+  app.addHook("onRequest", async (request, reply) => {
+    const hostHeader = request.headers.host;
+    if (typeof hostHeader === "string" && isAllowedHost(hostHeader, publishHost)) return;
+    reply.code(403);
+    return reply.send({ error: "host-not-allowed" });
   });
 
   /**

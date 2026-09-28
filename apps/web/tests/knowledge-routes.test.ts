@@ -3,7 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { makeTempDir, makeUiDist, rmTempDir } from "./helpers.js";
 import { createWebServer } from "../src/server.js";
 import { extractDocumentText } from "../src/routes/knowledge.js";
-import { writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 describe("本地知识库 (AnythingLLM RAG) API 路由", () => {
@@ -620,6 +620,119 @@ describe("本地知识库 (AnythingLLM RAG) API 路由", () => {
       const text = extractDocumentText(evilPdf);
       expect(typeof text).toBe("string");
       expect(text.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("知识库路径安全（审计 K-1 回归）", () => {
+    function writePoisonManifest(): void {
+      mkdirSync(join(home, "data"), { recursive: true });
+      const manifestFile = join(home, "data", "documents_manifest.json");
+      writeFileSync(
+        manifestFile,
+        JSON.stringify({
+          "doc:poison": {
+            id: "doc:poison",
+            name: "poison.txt",
+            path: "../../poison-target.txt",
+            size: 3,
+            ext: ".txt",
+            updatedAt: new Date().toISOString(),
+            source: "obsidian",
+            ingested: true,
+          },
+        }),
+        "utf8",
+      );
+    }
+
+    it("upload-vault 拒绝 .. 相对路径逃逸（正斜杠与反斜杠变体）", async () => {
+      const app = createApp();
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/knowledge/obsidian/upload-vault",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          files: [
+            { path: "../../evil-escape.txt", content: "pwned" },
+            { path: "..\\..\\evil-escape2.txt", content: "pwned" },
+            { path: "notes/正常笔记.md", content: "# ok" },
+          ],
+        }),
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().uploadedCount).toBe(1);
+
+      // 逃逸目标不得存在（documentsDir 之外与临时根目录均不应出现）
+      expect(existsSync(join(home, "data", "evil-escape.txt"))).toBe(false);
+      expect(existsSync(join(home, "evil-escape.txt"))).toBe(false);
+      expect(existsSync(join(home, "data", "evil-escape2.txt"))).toBe(false);
+      // 正常文件仍按原语义落盘
+      expect(existsSync(join(home, "data", "documents", "obsidian", "notes", "正常笔记.md"))).toBe(true);
+
+      const manifest = JSON.parse(
+        readFileSync(join(home, "data", "documents_manifest.json"), "utf8"),
+      ) as Record<string, { path: string }>;
+      expect(Object.values(manifest).some((d) => d.path.includes(".."))).toBe(false);
+    });
+
+    it("upload-vault 拒绝盘符段与绝对路径", async () => {
+      const app = createApp();
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/knowledge/obsidian/upload-vault",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          files: [
+            { path: "C:/Users/victim/evil.txt", content: "pwned" },
+            { path: "/etc/evil-abs.txt", content: "pwned" },
+          ],
+        }),
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().uploadedCount).toBe(0);
+    });
+
+    it("DELETE 拒绝清单中被投毒的逃逸路径，且不删除目标文件", async () => {
+      writePoisonManifest();
+      const escapeTarget = join(home, "data", "poison-target.txt");
+      writeFileSync(escapeTarget, "do-not-delete", "utf8");
+
+      const app = createApp();
+      const res = await app.inject({ method: "DELETE", url: "/api/knowledge/documents/doc:poison" });
+      expect(res.statusCode).toBe(400);
+      expect(existsSync(escapeTarget)).toBe(true);
+    });
+
+    it("preview 拒绝清单中被投毒的逃逸路径", async () => {
+      writePoisonManifest();
+      const escapeTarget = join(home, "data", "poison-target.txt");
+      writeFileSync(escapeTarget, "secret-content", "utf8");
+
+      const app = createApp();
+      const res = await app.inject({ method: "GET", url: "/api/knowledge/documents/doc:poison/preview" });
+      expect(res.statusCode).toBe(400);
+      expect(res.body).not.toContain("secret-content");
+    });
+
+    it("单文件 upload 对路径型文件名安全降级", async () => {
+      const app = createApp();
+      const dotDot = await app.inject({
+        method: "POST",
+        url: "/api/knowledge/upload",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ filename: "..", content: "pwned" }),
+      });
+      expect(dotDot.statusCode).toBe(400);
+
+      const traversal = await app.inject({
+        method: "POST",
+        url: "/api/knowledge/upload",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ filename: "../../evil-upload.txt", content: "pwned" }),
+      });
+      expect(traversal.statusCode).toBe(200);
+      expect(existsSync(join(home, "data", "evil-upload.txt"))).toBe(false);
+      expect(existsSync(join(home, "data", "documents", "evil-upload.txt"))).toBe(true);
     });
   });
 });

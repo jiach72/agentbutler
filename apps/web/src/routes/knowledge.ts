@@ -10,7 +10,8 @@ import {
   copyFileSync,
 } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
-import { join, basename, extname, relative, resolve } from "node:path";
+import { join, basename, dirname, extname, relative, resolve } from "node:path";
+import { isInsideRoot, sanitizeRelativePath } from "../path-safety.js";
 import { spawn, execFileSync } from "node:child_process";
 import { atomicWriteJson } from "@butler/core";
 
@@ -309,6 +310,11 @@ export async function registerKnowledgeRoutes(
   const { home } = options;
   const prefsFile = join(home, "data", "knowledge_prefs.json");
   const documentsDir = join(home, "data", "documents");
+  // 清单中的 path 属于回读的外部数据，使用前必须确认仍在 documentsDir 内（审计 K-1）。
+  const safeDocumentPath = (docPath: string): string | null => {
+    const full = join(documentsDir, docPath.replace(/\\/g, "/"));
+    return isInsideRoot(full, documentsDir) ? full : null;
+  };
   const documentsManifestFile = join(home, "data", "documents_manifest.json");
   const obsidianConfigFile = join(home, "data", "obsidian_config.json");
   const inboxDir = join(home, "data", "inbox");
@@ -688,10 +694,10 @@ export async function registerKnowledgeRoutes(
       }
     }
 
-    // 清理磁盘上已删除的项
+    // 清理磁盘上已删除的项（路径非法的条目同样视为已失效，一并清理）
     for (const [id, doc] of Object.entries(updatedManifest)) {
-      const full = join(documentsDir, doc.path);
-      if (!existsSync(full)) {
+      const full = safeDocumentPath(doc.path);
+      if (!full || !existsSync(full)) {
         delete updatedManifest[id];
       }
     }
@@ -720,7 +726,11 @@ export async function registerKnowledgeRoutes(
       return reply.status(400).send({ ok: false, error: "缺少 filename 或 content 参数" });
     }
 
-    const safeFilename = basename(body.filename);
+    const rawFilename = basename(body.filename);
+    const safeFilename = sanitizeRelativePath(rawFilename);
+    if (!safeFilename) {
+      return reply.status(400).send({ ok: false, error: "文件名不合法" });
+    }
     const targetPath = join(documentsDir, safeFilename);
     const encoding = body.encoding === "base64" ? "base64" : "utf8";
 
@@ -758,8 +768,14 @@ export async function registerKnowledgeRoutes(
       return reply.status(404).send({ ok: false, error: "文档不存在" });
     }
 
-    const full = join(documentsDir, doc.path);
+    const full = safeDocumentPath(doc.path);
+    if (!full) {
+      return reply.status(400).send({ ok: false, error: "文档路径不合法，已拒绝删除" });
+    }
     if (existsSync(full)) {
+      if (statSync(full).isSymbolicLink()) {
+        return reply.status(400).send({ ok: false, error: "文档路径指向符号链接，已拒绝删除" });
+      }
       try {
         unlinkSync(full);
       } catch {
@@ -796,9 +812,9 @@ export async function registerKnowledgeRoutes(
     const nameGroups = new Map<string, KnowledgeDocument[]>();
 
     for (const doc of docItems) {
-      const full = join(documentsDir, doc.path);
+      const full = safeDocumentPath(doc.path);
       let hash = "";
-      if (existsSync(full)) {
+      if (full && existsSync(full)) {
         try {
           const buf = readFileSync(full);
           hash = createHash("sha256").update(buf).digest("hex");
@@ -951,9 +967,9 @@ export async function registerKnowledgeRoutes(
         return reply.status(409).send({ ok: false, error: "dedup-candidate-stale" });
       }
 
-      const candidatePath = join(documentsDir, doc.path);
-      const primaryPath = join(documentsDir, primary.path);
-      if (!existsSync(candidatePath) || !existsSync(primaryPath)) {
+      const candidatePath = safeDocumentPath(doc.path);
+      const primaryPath = safeDocumentPath(primary.path);
+      if (!candidatePath || !primaryPath || !existsSync(candidatePath) || !existsSync(primaryPath)) {
         return reply.status(409).send({ ok: false, error: "dedup-candidate-stale" });
       }
       try {
@@ -980,8 +996,8 @@ export async function registerKnowledgeRoutes(
     for (const id of toRemove) {
       const doc = manifest[id];
       if (doc) {
-        const full = join(documentsDir, doc.path);
-        if (existsSync(full)) {
+        const full = safeDocumentPath(doc.path);
+        if (full && existsSync(full)) {
           try {
             unlinkSync(full);
           } catch {
@@ -1108,13 +1124,20 @@ export async function registerKnowledgeRoutes(
 
       for (const item of body.files) {
         if (!item.path || typeof item.content !== "string") continue;
-        const cleanRel = item.path.replace(/^[/\\]+/, "").replace(/\\/g, "/");
+        // 拒绝（而非重写）非法路径：`..` 段 / 绝对路径 / 盘符段一律丢弃，防目录逃逸（审计 K-1）。
+        const cleanRel = sanitizeRelativePath(item.path);
+        if (!cleanRel) continue;
         if (cleanRel.includes(".obsidian/") || cleanRel.includes(".git/") || cleanRel.includes(".trash/")) {
           continue;
         }
 
-        const fullDest = join(targetBase, cleanRel);
-        mkdirSync(resolve(fullDest, ".."), { recursive: true });
+        const fullDest = resolve(targetBase, cleanRel);
+        if (!isInsideRoot(fullDest, targetBase)) continue;
+        mkdirSync(dirname(fullDest), { recursive: true });
+        if (existsSync(fullDest)) {
+          const existing = statSync(fullDest);
+          if (existing.isSymbolicLink()) continue;
+        }
 
         if (item.encoding === "base64") {
           writeFileSync(fullDest, Buffer.from(item.content, "base64"));
@@ -1379,16 +1402,19 @@ export async function registerKnowledgeRoutes(
         continue;
       }
 
-      const dest = join(targetBase, item.name);
+      const safeName = sanitizeRelativePath(item.name);
+      if (!safeName) continue;
+      const dest = join(targetBase, safeName);
+      if (!isInsideRoot(dest, targetBase)) continue;
       try {
         copyFileSync(item.fullPath, dest);
         inboxManifest[item.id] = { ingested: true };
         const stats = statSync(dest);
-        const docId = `doc:inbox/${item.name}`;
+        const docId = `doc:inbox/${safeName}`;
         docManifest[docId] = {
           id: docId,
-          name: item.name,
-          path: `inbox/${item.name}`,
+          name: safeName,
+          path: `inbox/${safeName}`,
           size: stats.size,
           ext: extname(item.name).toLowerCase(),
           updatedAt: stats.mtime.toISOString(),
@@ -1421,7 +1447,10 @@ export async function registerKnowledgeRoutes(
       return reply.status(404).send({ ok: false, error: "文档未在清单中找到" });
     }
 
-    const full = join(documentsDir, doc.path);
+    const full = safeDocumentPath(doc.path);
+    if (!full) {
+      return reply.status(400).send({ ok: false, error: "文档路径不合法，已拒绝预览" });
+    }
     if (!existsSync(full)) {
       return reply.status(404).send({ ok: false, error: "磁盘文件不存在" });
     }
@@ -1486,8 +1515,8 @@ export async function registerKnowledgeRoutes(
     const queryTokens = Array.from(tokensSet);
 
     for (const doc of docItems) {
-      const fullPath = join(documentsDir, doc.path);
-      if (!existsSync(fullPath)) continue;
+      const fullPath = safeDocumentPath(doc.path);
+      if (!fullPath || !existsSync(fullPath)) continue;
 
       const docText = extractDocumentText(fullPath);
       if (!docText || docText.length < 10) continue;
@@ -1616,8 +1645,8 @@ ${query}`;
         continue;
       }
 
-      const fullPath = join(documentsDir, doc.path);
-      if (!existsSync(fullPath)) continue;
+      const fullPath = safeDocumentPath(doc.path);
+      if (!fullPath || !existsSync(fullPath)) continue;
 
       try {
         const text = readFileSync(fullPath, "utf8");

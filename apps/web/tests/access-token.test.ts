@@ -7,6 +7,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
 import { createWebServer, isLoopback, type WebServerOptions } from "../src/server";
+import { isAllowedHost } from "../src/http-auth.js";
 import { makeTempDir, makeUiDist, rmTempDir } from "./helpers";
 
 const DEAD_GATEWAY = "http://127.0.0.1:1";
@@ -122,6 +123,34 @@ describe("butler-web 访问口令", () => {
     expect(res.statusCode).toBe(200);
   });
 
+  // 审计 K-2 回归：DNS rebinding 下浏览器请求的 Origin 与 Host 天然一致，
+  // 回环便利通道与同源校验会同时失效——Host 白名单必须单独拦截。
+  it("Host 白名单：rebind 域名 403，回环与发布地址放行", async () => {
+    const app = build(tmp, { accessToken: "", publishHost: "192.168.1.88" });
+
+    const rebound = await app.inject({
+      method: "GET",
+      url: "/api/instances",
+      headers: { host: "attacker.example" },
+    });
+    expect(rebound.statusCode).toBe(403);
+    expect(rebound.json()).toMatchObject({ error: "host-not-allowed" });
+
+    const viaLoopback = await app.inject({
+      method: "GET",
+      url: "/api/instances",
+      headers: { host: "127.0.0.1:7531" },
+    });
+    expect(viaLoopback.statusCode).toBe(200);
+
+    const viaPublish = await app.inject({
+      method: "GET",
+      url: "/api/instances",
+      headers: { host: "192.168.1.88:7531" },
+    });
+    expect(viaPublish.statusCode).toBe(200);
+  });
+
   it("用 Authorization: Bearer 带上正确口令 → 放行", async () => {
     const app = build(tmp, { accessToken: "secret-token" });
     const res = await app.inject({
@@ -233,5 +262,35 @@ describe("isLoopback 判定口径", () => {
     expect(isLoopback("127.0.0.1:7531")).toBe(true);
     expect(isLoopback("[::1]:7531")).toBe(true);
     expect(isLoopback("::ffff:127.0.0.1")).toBe(true);
+  });
+});
+
+describe("isAllowedHost 判定口径（审计 K-2）", () => {
+  it("放行回环名（含端口与 IPv6 括号形态）", () => {
+    expect(isAllowedHost("localhost", undefined)).toBe(true);
+    expect(isAllowedHost("127.0.0.1:7531", undefined)).toBe(true);
+    expect(isAllowedHost("[::1]:7531", undefined)).toBe(true);
+  });
+
+  it("放行发布地址与 BUTLER_ALLOWED_HOSTS 显式扩展", () => {
+    expect(isAllowedHost("192.168.1.88:7531", "192.168.1.88")).toBe(true);
+    process.env["BUTLER_ALLOWED_HOSTS"] = "panel.example.com, backup.example.com";
+    try {
+      expect(isAllowedHost("panel.example.com", "127.0.0.1")).toBe(true);
+      expect(isAllowedHost("other.example.com", "127.0.0.1")).toBe(false);
+    } finally {
+      delete process.env["BUTLER_ALLOWED_HOSTS"];
+    }
+  });
+
+  it("通配发布地址放行（依赖访问口令兜底）", () => {
+    expect(isAllowedHost("anything.example", "0.0.0.0")).toBe(true);
+    expect(isAllowedHost("anything.example", "*")).toBe(true);
+  });
+
+  it("拒绝 rebind 域名、空 Host 与尾部点变体", () => {
+    expect(isAllowedHost("attacker.example", "127.0.0.1")).toBe(false);
+    expect(isAllowedHost("", "127.0.0.1")).toBe(false);
+    expect(isAllowedHost("localhost.", undefined)).toBe(false);
   });
 });
