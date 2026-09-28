@@ -17,7 +17,7 @@ function resolveControlBridgeVersion() {
   } catch {
     // Fall back to current build version
   }
-  return "1.0.2";
+  return "1.0.3";
 }
 export const CONTROL_BRIDGE_VERSION = resolveControlBridgeVersion();
 

@@ -3,6 +3,40 @@
 本项目遵循 [Semantic Versioning](https://semver.org/)。
 自 `1.0.0` 正式版起，版本严格遵循 SemVer 规范（`1.x.y`），后续版本按 `1.xx` 规则演进，构建号由 CI 流水线产生。
 
+## [1.0.3] - 2026-09-28 — 深度审计全量安全加固与前端去重
+
+### Highlights & Milestones
+- **全量安全修复落地**：2026-09-28 深度审计（报告见 `docs/audit-20260928.md`）的全部 1 High + 4 Medium + 6 Low 发现修复完毕，每项附回归测试；部署文档同步固化新不变量（AGENTS.md 红线 7/8、踩坑 9-13；`docker-operations.md` 第 7 节行为变更与发布自检清单）。
+
+### Security（High）
+- **K-1 知识库路径穿越（任意文件写/删/读）**：`upload-vault` 的路径清洗只剥开头斜杠、不处理 `..` 段，且逃逸路径写入 manifest 后被 DELETE/preview 回读直读直删。新增 `apps/web/src/path-safety.ts`（`sanitizeRelativePath` + `isInsideRoot`），knowledge.ts 全部 10 处落点统一边界断言，上传/入库入口拒绝 `..`、盘符与绝对路径，删除前拒绝符号链接；5 个回归测试覆盖正/反斜杠逃逸、盘符、投毒清单场景。
+
+### Security（Medium）
+- **K-2 面板 Host 白名单（DNS rebinding 防线）**：无口令部署信任「TCP 对端为回环」与「Origin 同源」两个假设，rebind 域名可同时绕过两者。新增 `isAllowedHost`（回环 + 发布地址 + `BUTLER_ALLOWED_HOSTS`；通配发布交由口令兜底），钩子先于回环便利通道执行。
+- **K-3 watch 连接层零信任**：拆除「RFC1918 内网视作回环」旁路（默认开启），Compose 内服务间写调用一律凭 `BUTLER_INTERNAL_TOKEN`（web 代理已自动附加）。
+- **K-4 gateway 内部口令全覆盖**：从 `/api/messages/*` 扩展到全部状态变更路由（豁免 `/internal/hermes/*` 与 telegram webhook）。
+- **K-5 watch Origin 白名单**：移除可伪造的 `butler-web` 主机名例外。
+
+### Security（Low）
+- **K-6** skills-manager 用户可控值拒绝 `-` 开头（防第三方 CLI 旗标注入）；
+- **K-7** 模型探针公网端点强制 https（明文 http 拒发 Bearer Key；本机/内网 http 不受限）；
+- **K-8** 大载荷写端点限流（knowledge upload* 30/min、markdown/files 60/min、memory 300/min）；
+- **K-9** `prompt-enhance` 与 `agent-message` 共用 SSRF 主机白名单，无可转发目标时降级规则快道；
+- **K-10** updater 运行身份参数化（`BUTLER_UPDATER_UID/GID`，默认 0:0 不变）；
+- **K-11** bridge-healthcheck 口令改经 stdin 传递，不再 `exec -e` 注入环境。
+
+### Fixed
+- **前端 lint 清账**：IM 模块 4 个 error（未用变量、`useRef<any>` 改 antd `InputRef`/`TextAreaRef`、幽灵 eslint-disable 注释）。
+- **设计走查修复**：知识库全绿态双横幅合并、仪表盘 Enclave 卡片折行、移动端状态胶囊竖排、技能横滚条样式、「本地访问模式（0.0.0.0）」误导文案、哈希任务名显示为「未命名任务」。
+
+### Changed
+- **前端同端点多路轮询收敛**：新增 `ui/src/lib/shared-polls.ts`（SharedPoll 引用计数 + 内容判等）；approvals 三路轮询合并为一、急停双实例合并、仪表盘告警复用通知中心——单刷新周期重复请求从约 6 个降到 0。
+- **仓库卫生**：删除零引用的 `.phase-tests/`（607 文件/11MB）、根目录 AI 原型三件套与两份旧文档；审计报告入库 `docs/audit-20260928.md`。
+
+### Verification
+- 全量测试 246 套件 / 2213 用例全部通过（含新增 17 个安全回归）；`pnpm lint` 0 error；`tsc -b` 0 error；`docker compose config -q` 通过；
+- CI 四道门禁（core / docker-compose / hermes-bridge / integration-tests）100% 绿后滚动部署 WSL，部署后 `bridge-healthcheck.sh` 0 FAIL、`connected:true`，K-1/K-2 线上行为实测符合预期。
+
 ## [1.0.0] - 2026-09-25 — 1.0.0 正式版全景审计与自升级就绪发布
 
 ### Highlights & Milestones
