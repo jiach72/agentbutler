@@ -24,6 +24,7 @@ import {
   getDirectSessions,
   renameDirectSession,
 } from "../src/pages/gateway/im/imSessionStore.js";
+import { renderHighlightedText } from "../src/pages/gateway/im/IMChatWindow.js";
 import type { IMChatMessage } from "../src/pages/gateway/im/imTypes.js";
 
 describe("即时通讯工作台：提示词增强引擎 (promptEnhancer)", () => {
@@ -412,6 +413,43 @@ describe("即时通讯工作台：UI/UX 深度重构与视窗自适应 (Commit 8
     const css = readFileSync(new URL("../src/pages/gateway/im/im.css", import.meta.url), "utf8");
     expect(css).toContain(".im-scroll-bottom-btn.has-new");
     expect(css).toContain(".im-new-msg-dot");
+  });
+
+  it("renderHighlightedText 能够安全对关键词进行黄色高亮渲染并防御正则注入", () => {
+    // 1. 空输入或空关键词原样返回
+    expect(renderHighlightedText("Hello World", "")).toBe("Hello World");
+    expect(renderHighlightedText("Hello World", "   ")).toBe("Hello World");
+    expect(renderHighlightedText("", "test")).toBe("");
+
+    // 2. 正常关键词命中渲染为带 mark 标签的 React Node
+    const renderedNormal = renderToStaticMarkup(
+      React.createElement("div", null, renderHighlightedText("这是一条包含网关状态的消息", "网关")),
+    );
+    expect(renderedNormal).toContain("<mark");
+    expect(renderedNormal).toContain("网关");
+    expect(renderedNormal).toContain("#ffe58f");
+
+    // 3. 多关键词不区分大小写匹配
+    const renderedMultiple = renderToStaticMarkup(
+      React.createElement("div", null, renderHighlightedText("Bridge status is OK, bridge alive", "bridge")),
+    );
+    const markCount = (renderedMultiple.match(/<mark/g) ?? []).length;
+    expect(markCount).toBe(2);
+
+    // 4. 正则特殊符号转义测试（确保不会因注入导致崩溃）
+    const renderedRegexSafe = renderToStaticMarkup(
+      React.createElement("div", null, renderHighlightedText("特殊符号测试: [abc]+ (.*) 正常显示", "[abc]+")),
+    );
+    expect(renderedRegexSafe).toContain("<mark");
+    expect(renderedRegexSafe).toContain("[abc]+");
+  });
+
+  it("IMChatWindow.tsx 支持消息气泡内搜索关键词高亮与空会话知识库提问预设", () => {
+    const src = readFileSync(new URL("../src/pages/gateway/im/IMChatWindow.tsx", import.meta.url), "utf8");
+    expect(src).toContain("renderHighlightedText");
+    expect(src).toContain("highlightKeyword={searchKeyword}");
+    expect(src).toContain("renderHighlightedText(msg.content, searchKeyword)");
+    expect(src).toContain("📚 基于本地知识库解答问题");
   });
 });
 

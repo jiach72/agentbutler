@@ -47,8 +47,52 @@ import { Empty } from "../../../components/Empty.js";
 import { formatIMTimeCapsule, type IMChatMessage, type IMConversation, type BotProfile } from "./imTypes.js";
 import { IMMessageInput } from "./IMMessageInput.js";
 
-/** 轻量级 Markdown 气泡解析器，支持代码块独立高亮与右上角一键复制 */
-function RichMarkdownBubble({ content, onCopyCode }: { content: string; onCopyCode?: (code: string) => void }) {
+/**
+ * 辅助高亮函数：对匹配搜索关键词的文本片段进行黄色 mark 标记，防止正则特殊字符注入并保留换行
+ */
+export function renderHighlightedText(text: string, keyword?: string): React.ReactNode {
+  if (!text) return text;
+  const kw = keyword?.trim();
+  if (!kw) return text;
+
+  try {
+    const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const regex = new RegExp(`(${escaped})`, "gi");
+    const parts = text.split(regex);
+    if (parts.length <= 1) return text;
+
+    return parts.map((part, i) =>
+      regex.test(part) ? (
+        <mark
+          key={i}
+          style={{
+            backgroundColor: "#ffe58f",
+            color: "#000",
+            padding: "0 2px",
+            borderRadius: 2,
+          }}
+        >
+          {part}
+        </mark>
+      ) : (
+        part
+      ),
+    );
+  } catch {
+    return text;
+  }
+}
+
+/** 轻量级 Markdown 气泡解析器，支持代码块独立高亮与右上角一键复制，并支持普通文本段内的关键词搜索高亮 */
+function RichMarkdownBubble({
+  content,
+  highlightKeyword,
+  onCopyCode,
+}: {
+  content: string;
+  highlightKeyword?: string;
+  onCopyCode?: (code: string) => void;
+}) {
   if (!content) return <span>（空内容）</span>;
   const parts = content.split(/(```[\s\S]*?```)/g);
   return (
@@ -91,7 +135,7 @@ function RichMarkdownBubble({ content, onCopyCode }: { content: string; onCopyCo
         }
         return (
           <span key={index} style={{ whiteSpace: "pre-wrap" }}>
-            {part}
+            {renderHighlightedText(part, highlightKeyword)}
           </span>
         );
       })}
@@ -547,6 +591,7 @@ export function IMChatWindow(props: IMChatWindowProps) {
                   "检查系统健康与网关状态",
                   "汇总待处理告警与死信",
                   "查看通道连接与运行时详情",
+                  "📚 基于本地知识库解答问题",
                 ].map((promptText) => (
                   <Button
                     key={promptText}
@@ -750,7 +795,7 @@ export function IMChatWindow(props: IMChatWindowProps) {
                                   cursor: msg.rawOutbox ? "pointer" : "default",
                                 }}
                               >
-                                <RichMarkdownBubble content={msg.content} onCopyCode={(c) => copyText(`code-${msg.id}`, c)} />
+                                <RichMarkdownBubble content={msg.content} highlightKeyword={searchKeyword} onCopyCode={(c) => copyText(`code-${msg.id}`, c)} />
                               </div>
 
                             {/* 状态指示与死信重发 */}
@@ -886,7 +931,7 @@ export function IMChatWindow(props: IMChatWindowProps) {
                             boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
                           }}
                         >
-                          <div style={{ whiteSpace: "pre-wrap" }}>{msg.content}</div>
+                          <div style={{ whiteSpace: "pre-wrap" }}>{renderHighlightedText(msg.content, searchKeyword)}</div>
                         </div>
 
                         {/* 悬浮微型快捷操作条 */}
