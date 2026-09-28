@@ -131,3 +131,56 @@ Hermes Bridge 保持宿主 loopback，WSL 原生 Docker 必须经转发器接入
 | 技能库 502，watch 日志 `spawn ENOEXEC` | 旧镜像把 CLI 下载产物硬编码为 Linux-x64，Apple Silicon 上拿到不可执行的 ELF。升级到含平台映射修复的版本（d5a05df+）后重启即自愈；CLI 会重新按平台下载并通过 `--version` 冒烟后才落位 | AGENTS.md 第 7 节坑 2 |
 | 干净克隆后构建报 `summary.js` 等模块找不到 | 旧提交曾漏 add 4 个源文件；拉取 d5a05df+ 后消失。若在新提交再现，用 `git log --stat` 核对引用方与被引用文件是否同提交 | AGENTS.md 第 7 节坑 1 |
 | macOS 容器连不上宿主 Hermes Bridge | `BUTLER_HERMES_BRIDGE_URL` 应为 `http://host.docker.internal:8754` 且**不要**设 `COMPOSE_PROFILES=bridge-forward`（Mac 的 host 网络指向 VM） | AGENTS.md 2.2 |
+| 容器内调试 watch/gateway 写端点 401 | 1.0.3 起服务间调用需带 `x-butler-internal-token`；web 代理已自动附加，手动 curl 才需要带 | 本文第 7 节 |
+| 知识库批量上传/冒烟脚本收 429 | 大载荷写端点已限流（upload* 30/min、markdown/files 60/min、memory 300/min）；脚本加间隔，非故障 | 本文第 7 节 |
+| 模型探针报「公网探测端点必须使用 https」 | 探针携带 Bearer Key，公网明文 http 拒发；改 https，本机/内网 http 不受限 | 本文第 7 节 |
+
+## 7. 1.0.3 安全加固后的行为变更（agent 与运维必读）
+
+以下变更来自 2026-09-28 深度审计（见 `docs/audit-20260928.md`），均为**预期行为**，排障时不要当故障处理，更不要改回去：
+
+### 7.1 服务间调用零信任（原 RFC1918 旁路已拆除）
+
+- watch 不再把 `172./10./192.168.` 源 IP 视作回环；gateway 的内部口令（`BUTLER_INTERNAL_TOKEN`）覆盖**全部**状态变更路由（豁免 `/internal/hermes/*` 与 telegram webhook——前者是宿主 wake 提示另有限速，后者自带 secret 校验）。
+- **面板功能不受影响**：web 代理对 watch/gateway 的所有调用已自动附加 `x-butler-internal-token`（`apps/web/src/proxy-helpers.ts` 的 `watchAuthHeaders`），`deploy.sh` 默认生成并注入该口令。
+- 容器内手动 `curl` 调试写端点时需要带上：
+
+  ```bash
+  docker compose exec butler-web sh -c 'curl -s -X POST http://butler-watch:7533/api/<写端点> \
+    -H "x-butler-internal-token: $BUTLER_INTERNAL_TOKEN" -H "content-type: application/json" -d "{}"'
+  ```
+
+### 7.2 面板 Host 白名单（DNS rebinding 防线）
+
+- Host 必须落在：回环名 / `BUTLER_WEB_PUBLISH_HOST` / `BUTLER_ALLOWED_HOSTS`（新增，逗号分隔，反向代理场景用）。
+- 发布地址为 `0.0.0.0` 通配时无法枚举，白名单按设计放行，由访问口令兜底——**通配发布必须配 `BUTLER_ACCESS_TOKEN`**。安全测试时伪造 Host 得到 200，先查发布配置再下结论。
+- 反向代理改写 Host 的部署：把对外域名加进 `BUTLER_ALLOWED_HOSTS`。
+
+### 7.3 凭据投递与写端点限流
+
+- 模型探针携带 Bearer API Key：公网端点强制 https（明文 http 拒发，防链路窃听）；`127.0.0.1`、容器网、RFC1918 内网的 http 不受限（本地 Ollama / oneapi 正常用）。
+- 大载荷写端点限流：`/api/knowledge/upload*`（含 upload-vault）30/min、`/api/markdown/files` 60/min、`/api/memory` 300/min。Obsidian 整库同步按批打包在单请求内，正常使用不会触顶。
+
+### 7.4 文件落盘的边界断言（写代码前必读）
+
+凡接受外部路径（上传文件名、manifest 回读、同步清单）并在服务端写/读/删文件的代码，一律复用 `apps/web/src/path-safety.ts`：
+
+```ts
+const cleanRel = sanitizeRelativePath(item.path);   // 拒绝 .. 段/盘符/绝对路径，null 即拒绝
+const full = resolve(targetBase, cleanRel);
+if (!isInsideRoot(full, targetBase)) return reply.code(400).send({ ok: false, error: "路径不合法" });
+```
+
+历史漏洞 K-1（路径穿越任意文件写/删/读）源于手写半截清洗（只剥开头斜杠不处理 `..`）。watch 侧同款语义见 `apps/watch/src/markdown-files.ts`。
+
+### 7.5 updater 降权（可选）
+
+updater 默认 root（需写宿主 bind 挂载的 `/workspace`）。`.env` 设置 `BUTLER_UPDATER_UID/GID` 为宿主仓库属主的 `id -u`/`id -g` 即可降权，docker socket 组访问由 `DOCKER_GID` 提供。
+
+### 7.6 发布自检清单（agent 执行发版时逐项过）
+
+1. `pnpm lint && pnpm test`——**push 前必跑**；本地 main 积压不超过一周/20 个提交（历史教训：积压 126 提交期间 lint 红灯潜伏，CI 门禁失效）。
+2. 改版本号走 `node scripts/version.mjs set <x.y.z>` + `version:check`，并同步 `CHANGELOG.md`。
+3. push 后 `gh run watch <run-id> --exit-status` 等 CI 四道门禁全绿；红了我方修复重推，**CI 未绿严禁更新 WSL**。
+4. WSL 内 `git pull --ff-only && bash scripts/deploy.sh`（自动备份 → 构建 → 滚动 → 健康等待）。
+5. 部署后验证：`docker compose ps` 全 healthy → `/api/health` 含 `"gateway":true` 且 `gitCommit` 为新 SHA → `bash scripts/bridge-healthcheck.sh` 0 FAIL → `connected:true`。

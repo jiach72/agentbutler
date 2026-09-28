@@ -83,6 +83,8 @@ BUTLER_HERMES_BRIDGE_ALLOW_NON_LOOPBACK=true
 
 默认仅本机可访问（Web 绑定 `127.0.0.1:7531`）。需要局域网访问时，在 `.env` 同时设置 `BUTLER_WEB_PUBLISH_HOST=<非回环地址>` 与强随机 `BUTLER_ACCESS_TOKEN`。**未配置口令时禁止把端口暴露到不可信网络。**
 
+面板带 Host 白名单（DNS rebinding 防线）：回环名 + `BUTLER_WEB_PUBLISH_HOST` + 可选 `BUTLER_ALLOWED_HOSTS`（逗号分隔，用于反向代理等 Host 不可直接比较的场景）。发布地址为 `0.0.0.0` 通配时无法枚举 Host，白名单按设计放行、由访问口令兜底——因此**通配发布必须配口令**（见第 5 节红线 5）。
+
 ## 3. 消息网关的连接保障机制（务必了解）
 
 部署后 Gateway 到 Hermes Bridge 的连接**不会因断线而失效**，这是代码保证的：
@@ -119,6 +121,7 @@ curl -s http://127.0.0.1:7531/api/health | grep -o '"connected":[a-z]*'  # 消�
 ### 4.3 升级 / 回滚（交付后运维）
 
 - 更新：`bash scripts/deploy.sh`（滚动重建，升级前自动备份数据卷），或在 UI「设置 → 关于」一键升级（内部 updater sidecar 执行，`deploy.sh` 会自动探测宿主机 `/var/run/docker.sock` 并注入 `BUTLER_UPDATER_DOCKER_SOCKET` 开启自升级权限，失败自动回滚）。旧版 updater 若仍内置 `docker-compose` v1，先拉取本修复并在宿主机一次性执行 `docker compose up -d --build --force-recreate butler-updater`，再使用 UI 升级；
+- updater 降权（可选）：updater 默认以 root 运行（需写宿主 bind 挂载的 `/workspace`）。设置 `BUTLER_UPDATER_UID/GID` 为宿主仓库属主的 `id -u`/`id -g` 即可以专用身份运行，socket 组访问由 `DOCKER_GID` 提供；
 - 回滚：`BUTLER_VERSION=<旧版本> docker compose up -d --no-build --force-recreate`。
 
 ## 5. 安全红线
@@ -129,6 +132,8 @@ curl -s http://127.0.0.1:7531/api/health | grep -o '"connected":[a-z]*'  # 消�
 4. 不要同时启用 socat 转发器与 systemd 转发器（8755 端口冲突）。
 5. 未配置 `BUTLER_ACCESS_TOKEN` 时，不要把 Web 端口发布到回环以外。
 6. 受管容器控制的 Docker Socket 默认关闭（挂载 `/dev/null`；仅在明确需要 Watch 控制宿主容器时配置 `DOCKER_SOCKET_PATH`）；用于管家自身 UI 升级的 `BUTLER_UPDATER_DOCKER_SOCKET` 由 `deploy.sh` 自动按需接入 `/var/run/docker.sock`。
+7. **容器间的状态变更请求必须携带 `x-butler-internal-token`（BUTLER_INTERNAL_TOKEN）**。1.0.3 起容器内网不再有免口令旁路（watch 不再把 RFC1918 内网当回环，gateway 内部口令覆盖全部状态变更路由）。容器内 `curl` 调试写端点收到 401 时，带上该头重试；**严禁**为「调试方便」恢复内网放行逻辑（web 代理已自动附加该头，属正常行为，无需处理）。
+8. **凡是接受外部路径并在服务端落盘/读盘/删文件的路由，必须做目录边界断言**：统一复用 `apps/web/src/path-safety.ts` 的 `sanitizeRelativePath` + `isInsideRoot`（watch 侧同款语义见 `apps/watch/src/markdown-files.ts` 的 `inside()`）。禁止手写 `replace(/^[/\\]+/)` 之类的半截清洗——历史漏洞 K-1（路径穿越任意文件写/删/读）正是这么来的。
 
 ## 6. 故障对照
 
@@ -145,6 +150,10 @@ curl -s http://127.0.0.1:7531/api/health | grep -o '"connected":[a-z]*'  # 消�
 | 面板切换接管后一直显示「待生效」 | Bridge 离线（`bash scripts/bridge-healthcheck.sh` 定位）；恢复后下一轮 reconcile 自动生效，无需人工处理 |
 | 通道启停后 60 秒仍「应用中」 | Hermes 网关重启失败：查 hermes-gateway 服务日志；Bridge 不会自动反复重启 |
 | UI 一键升级提示 Compose 不认识顶层 `name` | updater 仍在运行旧的 `docker-compose` v1；拉取修复后执行一次 `docker compose up -d --build --force-recreate butler-updater`，随后从 UI 重试 |
+| 容器内调试 watch/gateway 写端点收到 401 | 1.0.3 起服务间调用必须凭内部口令：请求带 `x-butler-internal-token: <BUTLER_INTERNAL_TOKEN>`（web 代理已自动附加，无需处理）。**不要**通过恢复内网旁路来"修复"（红线 7） |
+| 模型探针报「安全拦截：公网探测端点必须使用 https」 | 探针会携带 Bearer API Key，公网明文 http 一律拒绝（防链路窃听）。把模型端点改成 https，或本机/内网 http（127.0.0.1、容器网、RFC1918）不受限 |
+| 批量上传/冒烟脚本打知识库接口收到 429 | 1.0.3 起 `/api/knowledge/upload*` 限 30/min、`/api/markdown/files` 60/min、`/api/memory` 300/min（防大载荷写穿数据卷）。脚本加间隔或降低并发，不是服务故障 |
+| 伪造 Host 头（如 `curl -H "Host: evil.com"`）仍返回 200 | 先查 `.env` 的 `BUTLER_WEB_PUBLISH_HOST`：值为 `0.0.0.0` 通配发布时 Host 白名单按设计放行（无法枚举，由口令/WSL NAT 隔离兜底），**不是漏洞**；配置了具体发布地址时白名单才会强制拒绝 |
 
 更多细节见 `docs/docker-operations.md` 与 `docs/deployment-20260825.md`（含完整踩坑记录）。
 
@@ -162,3 +171,8 @@ curl -s http://127.0.0.1:7531/api/health | grep -o '"connected":[a-z]*'  # 消�
 | 6 | LLM 端点 401 预检建议 | 首次部署后探针/记忆写入整片失败，日志大量 401（`.env` 里模型 API Key 抄错或端点不通，部署时无校验） | 部署前用一条最小 `curl`（或等价请求）带 `.env` 中的 Key 打一次目标端点 `/models`（或最便宜端点）预检 200 再继续；避免带着坏 Key 走完全程再返工 |
 | 7 | macOS 控制桥 launchctl bootstrap 瞬态 EIO | macOS 下 `install-hermes-control-bridge.sh` 报 `Bootstrap failed: 5: Input/output error`，导致控制桥停留在卸载态 | 已修复（加入 1s 缓冲、bootstrap 重试、kickstart 唤醒与 launchctl print 回读断言；且优先锁定 Hermes 自带 node 运行时并收敛 plist PATH） |
 | 8 | UI / 容器查看 `/api/health` 时 `gitCommit` 为 null | 过去只在当前 shell export `BUTLER_GIT_COMMIT`，未落盘到 `.env`，导致 compose 启动容器无法注入 commit SHA | 已修复（`deploy.sh`、`deploy.ps1` 及 `apps/updater` 升级时均自动持久化 `BUTLER_GIT_COMMIT` 到 `.env`） |
+| 9 | 本地 main 长期积压未推送，lint 红灯潜伏 | 本地 main 领先远端 126 个提交，期间新代码带 4 个 eslint error——远端 CI 一直绿（推的不是这套代码），CI 门禁对未推代码形同虚设，下次 push 必红并卡住发布 | 已修复（2026-09-28 清账）。**固化规则：push 前必跑 `pnpm lint && pnpm test`；本地 main 积压不得超过一周 / 20 个提交**；lint 红的代码宁可修完再写新功能 |
+| 10 | 知识库 upload-vault 路径穿越（K-1，任意文件写/删/读） | `cleanRel` 只剥开头斜杠不处理 `..` 段，含 `..` 的路径进 manifest 后 DELETE/preview 回读直读直删 | 已修复（新建 `apps/web/src/path-safety.ts`，10 处落点统一边界断言 + 5 回归测试）。新写落盘路由直接复用，见第 5 节红线 8 |
+| 11 | 服务间写调用 401（1.0.3 行为变更，非故障） | 1.0.2 及以前 watch 把 RFC1918 内网当回环、gateway 内部口令只护 `/api/messages/*`；1.0.3 全部收紧 | 这是**安全修复的预期行为**。容器内调试带 `x-butler-internal-token` 头即可；web 代理无需任何改动（已自动附加）。详见第 5 节红线 7 |
+| 12 | 伪造 Host 探测返回 200 被误报为漏洞 | 通配发布（`BUTLER_WEB_PUBLISH_HOST=0.0.0.0`）下 Host 白名单按设计放行，安全审计/渗透测试时易误判 | 先查 publishHost 配置再下结论（见第 6 节故障对照末行）；通配发布配合口令 + WSL NAT 隔离属既有威胁模型 |
+| 13 | 前端同端点多路重复轮询拖累仪表盘 | 侧栏/横幅/卡片各自轮询 `/api/approvals`（30s×3）、急停按钮双实例各轮询一次，一个刷新周期 13+ 请求近半重复 | 已修复（新建 `ui/src/lib/shared-polls.ts`，SharedPoll 引用计数单间隔）。**固化规则：新增全局状态组件禁止各自 `setInterval` 轮询已有端点，一律订阅 SharedPoll 或对应 Provider** |
