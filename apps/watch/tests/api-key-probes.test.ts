@@ -75,6 +75,26 @@ describe("probeApiKey", () => {
     expect(fakeFetch).not.toHaveBeenCalled();
   });
 
+  // 审计 K-7 回归：探测携带 Bearer Key，公网明文 http 拒绝，内网 http 放行。
+  it("公网 http 探测端点被拦截（防明文泄露 Key），内网 http 放行", async () => {
+    const fakeFetch = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+
+    const resPublic = await probeApiKey("custom", "test-key", {
+      endpoint: "http://api.example.com/v1/models",
+      fetchFn: fakeFetch,
+    });
+    expect(resPublic.status).toBe("fail");
+    expect(resPublic.detail).toContain("https");
+    expect(fakeFetch).not.toHaveBeenCalled();
+
+    const resLocal = await probeApiKey("custom", "test-key", {
+      endpoint: "http://127.0.0.1:11434/v1/models",
+      fetchFn: fakeFetch,
+    });
+    expect(resLocal.status).toBe("pass");
+    expect(fakeFetch).toHaveBeenCalledTimes(1);
+  });
+
   it("TypeSafe 探针：正确向 /v1/systemone 发起探活 ping 请求", async () => {
     let capturedUrl = "";
     let capturedBody: unknown = null;

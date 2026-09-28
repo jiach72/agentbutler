@@ -184,6 +184,24 @@ export async function probeApiKey(
       };
     }
 
+    // 审计 K-7：探测请求携带 Bearer API Key。公网端点必须 https（明文 http 会把
+    // Key 泄露给链路中间人）；本机/容器网/RFC1918 内网允许 http（本地 Ollama、
+    // oneapi 等部署形态）。这样探针无法被用作向任意 http 目标投递凭据的原语。
+    {
+      const parsed = new URL(url);
+      const host = parsed.hostname.toLowerCase();
+      const isLocalHost =
+        ["127.0.0.1", "localhost", "::1", "host.docker.internal", "ollama"].includes(host) ||
+        /^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(host);
+      if (parsed.protocol === "http:" && !isLocalHost) {
+        return {
+          status: "fail",
+          category: "error",
+          detail: "安全拦截：公网探测端点必须使用 https（明文 http 会泄露 API Key）",
+        };
+      }
+    }
+
     const res = await fetchFn(url, {
       method,
       headers,

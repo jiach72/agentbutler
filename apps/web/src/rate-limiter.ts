@@ -16,7 +16,10 @@ export interface RateLimitRule {
  * - 高危与破坏性端点：
  *   - /api/killswitch/engage, /api/killswitch/release：严格限制 10/min；
  *   - /api/upgrade/run：限制 5/min；
- *   - /api/inspect/run：限制 10/min。
+ *   - /api/inspect/run：限制 10/min；
+ *   - 大载荷写端点（审计 K-8）：/api/knowledge/upload*（含 upload-vault）30/min、
+ *     /api/markdown/files 60/min、/api/memory 300/min——防止被反复打满
+ *     butler-data 卷（bodyLimit 100-200MB 叠加无限流可写穿磁盘）。
  */
 export const TIERED_RATE_LIMIT_RULES: readonly RateLimitRule[] = [
   { prefix: "/api/upgrade/run", max: 5, windowMs: 60_000 },
@@ -24,6 +27,9 @@ export const TIERED_RATE_LIMIT_RULES: readonly RateLimitRule[] = [
   { prefix: "/api/killswitch/release", max: 10, windowMs: 60_000 },
   { prefix: "/api/killswitch", max: 600, windowMs: 60_000 },
   { prefix: "/api/inspect/run", max: 10, windowMs: 60_000 },
+  { prefix: "/api/knowledge/upload", max: 30, windowMs: 60_000 },
+  { prefix: "/api/markdown/files", max: 60, windowMs: 60_000 },
+  { prefix: "/api/memory", max: 300, windowMs: 60_000 },
   { prefix: "/api/dashboard", max: 600, windowMs: 60_000 },
   { prefix: "/api/messages/status", max: 600, windowMs: 60_000 },
   { prefix: "/api/alerts", max: 600, windowMs: 60_000 },

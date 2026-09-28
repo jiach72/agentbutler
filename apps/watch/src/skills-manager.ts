@@ -438,6 +438,18 @@ export function createSkillsManagerCli(deps: SkillsManagerCliDeps = {}): SkillsM
 
   const trimmed = (value: string | undefined): string => (value ?? "").trim();
 
+  /**
+   * 用户可控的 CLI 参数值（审计 K-6）：拒绝以 "-" 开头，防止被第三方 CLI
+   * 当作旗标解析（如 name="--all" 把单技能操作放大成全库操作）。
+   */
+  const cliValue = (value: string | undefined, field: string): string => {
+    const clean = trimmed(value);
+    if (clean.startsWith("-")) {
+      throw new SkillsManagerError("INVALID_ARGUMENT", `${field} 不能以 "-" 开头。`);
+    }
+    return clean;
+  };
+
   return {
     get cliPath() {
       return cliPath;
@@ -477,24 +489,24 @@ export function createSkillsManagerCli(deps: SkillsManagerCliDeps = {}): SkillsM
       // CLI 的 skills install 不支持 --dry-run（安装是向中央库新增，重名会被
       // CLI 自身拒绝），因此本操作单段直接执行。sourceType 缺省不加来源旗标，
       // 保持旧行为由 CLI 推断（兼容 owner/repo 简写）。
-      const args = ["skills", "install", source];
+      const args = ["skills", "install", cliValue(source, "source")];
       if (sourceType === "skills") args.push("--skillssh");
       else if (sourceType === "local") args.push("--local");
-      const nameClean = trimmed(name);
+      const nameClean = cliValue(name, "name");
       if (nameClean !== "") args.push("--name", nameClean);
       return run(args);
     },
 
     async deploy({ name, confirmed = false }) {
       ensureTarget();
-      const args = ["skills", "deploy", name, "--agent", SKILLS_MANAGER_DEPLOY_AGENT];
+      const args = ["skills", "deploy", cliValue(name, "name"), "--agent", SKILLS_MANAGER_DEPLOY_AGENT];
       if (!confirmed) args.push("--dry-run");
       return run(args);
     },
 
     async undeploy({ name, confirmed = false }) {
       ensureTarget();
-      const args = ["skills", "undeploy", name, "--agent", SKILLS_MANAGER_DEPLOY_AGENT];
+      const args = ["skills", "undeploy", cliValue(name, "name"), "--agent", SKILLS_MANAGER_DEPLOY_AGENT];
       if (!confirmed) args.push("--dry-run");
       return run(args);
     },
@@ -507,13 +519,16 @@ export function createSkillsManagerCli(deps: SkillsManagerCliDeps = {}): SkillsM
       // CLI 的 skills update 不支持 --dry-run（更新只写中央库、不动已部署副本，
       // 「有可用更新」的预览由 skills check 承担），因此本操作单段直接执行。
       const nameClean = trimmed(name);
+      if (nameClean.startsWith("-")) {
+        throw new SkillsManagerError("INVALID_ARGUMENT", 'name 不能以 "-" 开头。');
+      }
       const args = nameClean !== "" ? ["skills", "update", nameClean] : ["skills", "update", "--all"];
       return run(args);
     },
 
     async remove({ name, confirmed = false }) {
       // 删除支持 --dry-run：预览只展示将移除的部署与中央库条目。
-      const nameClean = trimmed(name);
+      const nameClean = cliValue(name, "name");
       if (nameClean === "") {
         throw new SkillsManagerError("INVALID_ARGUMENT", "删除技能需要提供 name。");
       }
@@ -533,13 +548,13 @@ export function createSkillsManagerCli(deps: SkillsManagerCliDeps = {}): SkillsM
     },
 
     async adopt({ dir, confirmed = false }) {
-      const args = ["skills", "adopt", dir];
+      const args = ["skills", "adopt", cliValue(dir, "dir")];
       if (!confirmed) args.push("--dry-run");
       return run(args);
     },
 
     async search({ query, limit }) {
-      const queryClean = trimmed(query);
+      const queryClean = cliValue(query, "query");
       if (queryClean === "") {
         throw new SkillsManagerError("INVALID_ARGUMENT", "市场搜索需要提供关键词。");
       }
@@ -557,7 +572,7 @@ export function createSkillsManagerCli(deps: SkillsManagerCliDeps = {}): SkillsM
     },
 
     async detail(name) {
-      const nameClean = trimmed(name);
+      const nameClean = cliValue(name, "name");
       if (nameClean === "") {
         throw new SkillsManagerError("INVALID_ARGUMENT", "查看技能详情需要提供 name。");
       }
@@ -570,7 +585,7 @@ export function createSkillsManagerCli(deps: SkillsManagerCliDeps = {}): SkillsM
     },
 
     async tags({ action, name, tags }) {
-      const nameClean = trimmed(name);
+      const nameClean = cliValue(name, "name");
       if (nameClean === "") {
         throw new SkillsManagerError("INVALID_ARGUMENT", "标签操作需要提供 name。");
       }
@@ -578,7 +593,7 @@ export function createSkillsManagerCli(deps: SkillsManagerCliDeps = {}): SkillsM
         throw new SkillsManagerError("INVALID_ARGUMENT", `不支持的标签操作：${String(action)}`);
       }
       const cleanedTags = (Array.isArray(tags) ? tags : [])
-        .map((tag) => String(tag).trim())
+        .map((tag) => cliValue(String(tag), "tag"))
         .filter((tag) => tag !== "");
       if (cleanedTags.length === 0) {
         throw new SkillsManagerError("INVALID_ARGUMENT", "标签操作需要至少一个非空标签。");
@@ -587,8 +602,8 @@ export function createSkillsManagerCli(deps: SkillsManagerCliDeps = {}): SkillsM
     },
 
     async setSource({ name, gitUrl, subpath, branch, force = false, confirmed = false }) {
-      const nameClean = trimmed(name);
-      const urlClean = trimmed(gitUrl);
+      const nameClean = cliValue(name, "name");
+      const urlClean = cliValue(gitUrl, "gitUrl");
       if (nameClean === "") {
         throw new SkillsManagerError("INVALID_ARGUMENT", "绑定 Git 源需要提供 name。");
       }
@@ -597,8 +612,14 @@ export function createSkillsManagerCli(deps: SkillsManagerCliDeps = {}): SkillsM
       }
       const args = ["skills", "set-source", nameClean, "--git-url", urlClean];
       const subpathClean = trimmed(subpath);
+      if (subpathClean.startsWith("-")) {
+        throw new SkillsManagerError("INVALID_ARGUMENT", 'subpath 不能以 "-" 开头。');
+      }
       if (subpathClean !== "") args.push("--subpath", subpathClean);
       const branchClean = trimmed(branch);
+      if (branchClean.startsWith("-")) {
+        throw new SkillsManagerError("INVALID_ARGUMENT", 'branch 不能以 "-" 开头。');
+      }
       if (branchClean !== "") args.push("--branch", branchClean);
       if (force) args.push("--force");
       if (!confirmed) args.push("--dry-run");

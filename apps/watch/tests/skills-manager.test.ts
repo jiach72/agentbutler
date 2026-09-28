@@ -72,6 +72,22 @@ describe("createSkillsManagerCli", () => {
     expect(calls[0]!.options.timeout).toBe(120_000);
   });
 
+  // 审计 K-6 回归：用户可控值不允许以 "-" 开头，防止被第三方 CLI 当作旗标解析。
+  it("拒绝以 - 开头的 name/query/dir 等用户输入（防旗标注入）", async () => {
+    const { exec, calls } = makeExec();
+    const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), cliDownloadDir: join(tmp, "bin"), execFile: exec, autoDownload: false });
+
+    await expect(cli.update({ name: "--all" })).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+    await expect(cli.remove({ name: "--force" })).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+    await expect(cli.search({ query: "--json" })).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+    await expect(cli.deploy({ name: "-x" })).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+    await expect(cli.install({ source: "-bad", sourceType: "local" })).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+
+    // 合法输入不受影响，且 --all 旗标仍由代码自身添加而非来自用户值
+    await cli.update({ name: "normal-skill" });
+    expect(calls[0]!.args).toEqual(["skills", "update", "normal-skill", "--json"]);
+  });
+
   it("run 透传注入的 timeoutMs", async () => {
     const { exec, calls } = makeExec();
     const cli = createSkillsManagerCli({ cliHome: join(tmp, "home"), cliDownloadDir: join(tmp, "bin"), execFile: exec, timeoutMs: 5_000, autoDownload: false });
