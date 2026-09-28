@@ -5,7 +5,7 @@
  * - 思考打字波浪动效（Thinking Wave）；
  * - 底部拟真输入基座（内置增强提示词按钮）。
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   App,
   Avatar,
@@ -497,7 +497,7 @@ export function IMChatWindow(props: IMChatWindowProps) {
                 </Button>
               </div>
             )}
-            {filteredMessages.map((msg, idx) => {
+            {filteredMessages.map((msg: IMChatMessage, idx: number) => {
               const prev = idx > 0 ? filteredMessages[idx - 1] : null;
             let showTimeCapsule = false;
             if (!prev) {
