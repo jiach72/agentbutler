@@ -464,6 +464,17 @@ describe("即时通讯工作台：UI/UX 深度重构与视窗自适应 (Commit 8
     expect(css).toContain(".im-conversation-section-title");
     expect(css).toContain(".im-conversation-item.active::before");
   });
+
+  it("IMMessageInput.tsx 支持一键引用本地私有知识库文档与快捷问答模板填充", () => {
+    const src = readFileSync(new URL("../src/pages/gateway/im/IMMessageInput.tsx", import.meta.url), "utf8");
+    expect(src).toContain("引用知识库");
+    expect(src).toContain("handleOpenKnowledgePicker");
+    expect(src).toContain("/api/knowledge/documents");
+    expect(src).toContain("handleInsertDocReference");
+    expect(src).toContain("handleAskWithDoc");
+    expect(src).toContain("📚 基于本地知识库解答常见问题");
+    expect(src).toContain("根据已沉淀的私有文档梳理核心架构");
+  });
 });
 
 

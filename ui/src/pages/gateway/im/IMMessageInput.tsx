@@ -19,9 +19,12 @@ import {
 } from "antd";
 import {
   ArrowUpOutlined,
+  BookOutlined,
   CloseOutlined,
   CopyOutlined,
   EyeOutlined,
+  FileTextOutlined,
+  SearchOutlined,
   UndoOutlined,
   RobotOutlined,
   TeamOutlined,
@@ -29,6 +32,7 @@ import {
 import { enhancePrompt } from "./promptEnhancer.js";
 import type { BotProfile } from "./imTypes.js";
 import { EtherealIcon } from "../../../components/EtherealIcon.js";
+import { loadJson } from "../../../lib/api.js";
 
 const { TextArea } = Input;
 const { Text } = Typography;
@@ -74,6 +78,8 @@ export const QUICK_PROMPT_CATEGORIES: QuickPromptCategory[] = [
     key: "knowledge",
     label: "知识问答",
     items: [
+      "📚 基于本地知识库解答常见问题",
+      "根据已沉淀的私有文档梳理核心架构",
       "基于本地知识库检索相关资料并总结",
       "分析当前系统潜在隐患并提供优化建议",
     ],
@@ -129,6 +135,48 @@ export function IMMessageInput(props: IMMessageInputProps) {
     }, 15_000);
     return () => clearTimeout(timer);
   }, [undoState]);
+
+  // 本地知识库引用选择器状态与加载
+  const [knowledgePickerOpen, setKnowledgePickerOpen] = useState(false);
+  const [knowledgeDocs, setKnowledgeDocs] = useState<
+    Array<{ id: string; name: string; size: number; source: string; updatedAt: string }>
+  >([]);
+  const [knowledgeLoading, setKnowledgeLoading] = useState(false);
+  const [knowledgeSearch, setKnowledgeSearch] = useState("");
+
+  const loadKnowledgeDocs = async () => {
+    setKnowledgeLoading(true);
+    try {
+      const res = await loadJson<{
+        ok: boolean;
+        documents: Array<{ id: string; name: string; size: number; source: string; updatedAt: string }>;
+      }>("/api/knowledge/documents", 5_000);
+      if (res.ok && Array.isArray(res.data?.documents)) {
+        setKnowledgeDocs(res.data.documents);
+      }
+    } finally {
+      setKnowledgeLoading(false);
+    }
+  };
+
+  const handleOpenKnowledgePicker = () => {
+    setKnowledgePickerOpen(true);
+    void loadKnowledgeDocs();
+  };
+
+  const handleInsertDocReference = (docName: string) => {
+    const refTag = `[参考本地知识库: 《${docName}》]`;
+    setInputText((prev) => (prev ? `${prev} ${refTag} ` : `${refTag} `));
+    setKnowledgePickerOpen(false);
+    message.success(`已插入知识库文档引用《${docName}》`);
+  };
+
+  const handleAskWithDoc = (docName: string) => {
+    const template = `请结合本地知识库文档《${docName}》的内容，解答以下问题：\n`;
+    setInputText(template);
+    setKnowledgePickerOpen(false);
+    message.success(`已填充基于《${docName}》的问答提示词`);
+  };
 
   // 处理智能提示词增强（点击 Sparkle 按钮）
   const handleEnhancePrompt = async () => {
@@ -389,6 +437,27 @@ export function IMMessageInput(props: IMMessageInputProps) {
               {inputText.length > 0 ? `${inputText.length} 字` : "支持 Markdown 与 ↑ 调出历史"}
             </Text>
           )}
+
+          <Button
+            type="text"
+            size="small"
+            icon={<BookOutlined style={{ color: "var(--ab-primary)", fontSize: 13 }} />}
+            onClick={handleOpenKnowledgePicker}
+            style={{
+              padding: "2px 8px",
+              height: 24,
+              fontSize: 11,
+              borderRadius: 6,
+              background: "var(--ab-surface-2)",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+            }}
+            title="选择并引用本地私有知识库文档"
+          >
+            <span>引用知识库</span>
+          </Button>
+
           {hasText && (
             <Flex align="center" gap={6}>
               <Button
@@ -525,6 +594,114 @@ export function IMMessageInput(props: IMMessageInputProps) {
             </div>
           </Flex>
         )}
+      </Modal>
+
+      {/* 本地知识库引用选择器 Modal */}
+      <Modal
+        title={
+          <Flex align="center" gap={8}>
+            <BookOutlined style={{ color: "var(--ab-primary)" }} />
+            <span>引用本地私有知识库文档</span>
+          </Flex>
+        }
+        open={knowledgePickerOpen}
+        onCancel={() => setKnowledgePickerOpen(false)}
+        footer={null}
+        width={580}
+        destroyOnHidden
+      >
+        <div style={{ marginTop: 12 }}>
+          <Input
+            placeholder="搜索文档名称或类型..."
+            prefix={<SearchOutlined style={{ color: "var(--ant-color-text-quaternary)" }} />}
+            value={knowledgeSearch}
+            onChange={(e) => setKnowledgeSearch(e.target.value)}
+            allowClear
+            size="small"
+            style={{ marginBottom: 12 }}
+          />
+
+          {knowledgeLoading ? (
+            <div style={{ textAlign: "center", padding: "24px 0", color: "var(--ant-color-text-secondary)" }}>
+              正在加载本地知识库文档...
+            </div>
+          ) : (() => {
+            const filtered = knowledgeDocs.filter((d) =>
+              !knowledgeSearch.trim() || d.name.toLowerCase().includes(knowledgeSearch.trim().toLowerCase())
+            );
+
+            if (filtered.length === 0) {
+              return (
+                <div style={{ textAlign: "center", padding: "24px 16px", color: "var(--ant-color-text-tertiary)" }}>
+                  <FileTextOutlined style={{ fontSize: 24, marginBottom: 8, opacity: 0.5 }} />
+                  <div style={{ fontSize: 13, marginBottom: 8 }}>
+                    {knowledgeDocs.length === 0 ? "本地知识库尚未收集文档" : "未找到匹配的文档"}
+                  </div>
+                  <Button
+                    type="link"
+                    size="small"
+                    onClick={() => {
+                      setKnowledgePickerOpen(false);
+                      window.location.assign("/knowledge");
+                    }}
+                  >
+                    前往本地知识库上传私有文档 →
+                  </Button>
+                </div>
+              );
+            }
+
+            return (
+              <div style={{ maxHeight: 320, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+                {filtered.map((doc) => (
+                  <div
+                    key={doc.id}
+                    style={{
+                      padding: "8px 12px",
+                      borderRadius: 8,
+                      border: "1px solid var(--ab-border)",
+                      background: "var(--ab-surface)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 8,
+                    }}
+                  >
+                    <Flex align="center" gap={8} style={{ minWidth: 0, flex: 1 }}>
+                      <FileTextOutlined style={{ color: "var(--ab-primary)", fontSize: 15 }} />
+                      <div style={{ minWidth: 0 }}>
+                        <Text strong ellipsis style={{ fontSize: 13, display: "block" }}>
+                          {doc.name}
+                        </Text>
+                        <Text type="secondary" style={{ fontSize: 11 }}>
+                          {doc.size ? `${Math.max(1, Math.round(doc.size / 1024))} KB` : "文档"} · {doc.source || "资料收集箱"}
+                        </Text>
+                      </div>
+                    </Flex>
+
+                    <Flex align="center" gap={6} style={{ flexShrink: 0 }}>
+                      <Button
+                        size="small"
+                        onClick={() => handleInsertDocReference(doc.name)}
+                        title="在输入框追加文档引用标签"
+                      >
+                        引用
+                      </Button>
+                      <Button
+                        type="primary"
+                        size="small"
+                        onClick={() => handleAskWithDoc(doc.name)}
+                        title="基于该文档填充问答模板"
+                      >
+                        基于此提问
+                      </Button>
+                    </Flex>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+        </div>
       </Modal>
     </div>
   );
