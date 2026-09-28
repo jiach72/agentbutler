@@ -6,6 +6,7 @@
  * 安装统一走「下载 → 安全检查 → 确认」两段式，落位 Hermes 技能目录。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Alert,
   App,
@@ -27,6 +28,7 @@ import {
   CheckOutlined,
   CloudDownloadOutlined,
   CopyOutlined,
+  MessageOutlined,
   MoreOutlined,
   PlusOutlined,
   ReloadOutlined,
@@ -172,6 +174,7 @@ function CategoryChips(props: {
 export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
   const { onInstalled } = props;
   const { message, modal } = App.useApp();
+  const navigate = useNavigate();
 
   const [mode, setMode] = useState<MarketMode>("market");
   const [tab, setTab] = useState<ContentTab>("skillhub");
@@ -930,6 +933,18 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
               menu={{
                 items: [
                   {
+                    key: "ask-im",
+                    label: "在即时通讯中调用",
+                    icon: <MessageOutlined />,
+                    onClick: () => {
+                      const prompt = `请使用技能 ${item.displayName}，帮我处理...`;
+                      navigate(`/gateway?tab=im&prefill=${encodeURIComponent(prompt)}`);
+                    },
+                  },
+                  {
+                    type: "divider" as const,
+                  },
+                  {
                     key: "copy-name",
                     label: "复制技能目录名",
                     icon: <CopyOutlined />,
@@ -1576,17 +1591,30 @@ export function SkillsMarketplace(props: { onInstalled?: () => void } = {}) {
                   <Text code style={{ fontSize: 12.5, wordBreak: "break-all" }}>
                     {`请使用技能 ${detailItem.displayName}，帮我处理...`}
                   </Text>
-                  <Button
-                    size="small"
-                    type="link"
-                    icon={<CopyOutlined />}
-                    onClick={() => {
-                      void navigator.clipboard.writeText(`请使用技能 ${detailItem.displayName}，帮我处理...`);
-                      message.success("示例指令已复制到剪贴板！");
-                    }}
-                  >
-                    复制
-                  </Button>
+                  <Flex align="center" gap={4} style={{ flexShrink: 0 }}>
+                    <Button
+                      size="small"
+                      type="link"
+                      icon={<CopyOutlined />}
+                      onClick={() => {
+                        void navigator.clipboard.writeText(`请使用技能 ${detailItem.displayName}，帮我处理...`);
+                        message.success("示例指令已复制到剪贴板！");
+                      }}
+                    >
+                      复制
+                    </Button>
+                    <Button
+                      size="small"
+                      type="primary"
+                      icon={<MessageOutlined />}
+                      onClick={() => {
+                        const prompt = `请使用技能 ${detailItem.displayName}，帮我处理...`;
+                        navigate(`/gateway?tab=im&prefill=${encodeURIComponent(prompt)}`);
+                      }}
+                    >
+                      在即时通讯中调用
+                    </Button>
+                  </Flex>
                 </Flex>
               </Flex>
             </div>

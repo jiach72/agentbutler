@@ -5,6 +5,7 @@
  * 3. 结论条改为纯状态结论，不再重复「X 个技能与 Y 个插件」这类计数。
  */
 import React from "react";
+import { readFileSync } from "node:fs";
 import { App } from "antd";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
@@ -64,5 +65,13 @@ describe("技能页首屏去重", () => {
       ),
     );
     expect(html).toContain('id="skills-marketplace"');
+  });
+
+  it("SkillsMarketplace 源码包含在即时通讯中调用技能的深链与操作按钮", () => {
+    const src = readFileSync(new URL("../src/pages/skills/SkillsMarketplace.tsx", import.meta.url), "utf8");
+    expect(src).toContain("在即时通讯中调用");
+    expect(src).toContain("/gateway?tab=im&prefill=");
+    expect(src).toContain("MessageOutlined");
+    expect(src).toContain("useNavigate");
   });
 });
