@@ -42,6 +42,7 @@ import {
   AimOutlined,
   BookOutlined,
   CheckCircleFilled,
+  CheckOutlined,
   ClearOutlined,
   CloudDownloadOutlined,
   CloudUploadOutlined,
