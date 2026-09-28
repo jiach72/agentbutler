@@ -216,7 +216,11 @@ services:
       context: .
       dockerfile: apps/updater/Dockerfile
     image: agent-butler-butler-updater:${BUTLER_VERSION:-latest}
-    user: "0:0"
+    # 审计 K-10：updater 是破坏性最强的组件（git checkout + 重建镜像 + 可选
+    # docker.sock）。默认 0:0 维持既有部署行为——它需要写宿主 bind 挂载的
+    # /workspace，uid 必须与宿主仓库属主一致。显式设置 BUTLER_UPDATER_UID/GID
+    # （对齐宿主仓库属主）即可降权运行，socket 访问由 group_add 的 DOCKER_GID 提供。
+    user: "${BUTLER_UPDATER_UID:-0}:${BUTLER_UPDATER_GID:-0}"
     environment:
       BUTLER_HOME: /home/butler
       BUTLER_UPDATER_HOST: 0.0.0.0
