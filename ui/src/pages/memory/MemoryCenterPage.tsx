@@ -5,7 +5,7 @@
  * 深度集成 TypeSafe Jev 提供场景自适应智能选型顾问与平滑降级，
  * 具备自动备份、配置 Diff 预览与优雅重启的全闭环受控生效流程。
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Alert,
   App,
@@ -48,12 +48,6 @@ import {
 } from "@ant-design/icons";
 import { PageHeader } from "../../components/PageHeader.js";
 import { ConclusionBar } from "../../components/ConclusionBar.js";
-import {
-  HindsightConstellationGraph,
-  HINDSIGHT_PALETTE,
-  type ConstellationData,
-  type ConstellationNode,
-} from "../../components/HindsightConstellationGraph.js";
 import { loadJson, postJson } from "../../lib/api.js";
 import type {
   JevAdvisorRequest,
@@ -67,6 +61,10 @@ import type {
 } from "@butler/contract";
 
 const { Paragraph, Text, Title } = Typography;
+
+// Hindsight 官方 Control Plane 的记忆星图（Memory Constellation）数据视图：
+// 星图渲染完全交给官方 UI（iframe 直连），面板不再自绘拓扑。
+const HINDSIGHT_CONSTELLATION_URL = "http://127.0.0.1:9999/banks/hermes?view=data";
 
 interface SystemsResponse {
   ok: boolean;
@@ -124,7 +122,6 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
 
   // Hindsight 知识图谱与 Web UI 控制台状态
   const [hindsightDrawerOpen, setHindsightDrawerOpen] = useState(false);
-  const [selectedFactNode, setSelectedFactNode] = useState<ConstellationNode | null>(null);
   const [recallQuery, setRecallQuery] = useState("用户开发工作习惯与部署约束");
   const [recallLoading, setRecallLoading] = useState(false);
   const [hindsightConsoleTab, setHindsightConsoleTab] = useState<"constellation" | "recall">("constellation");
@@ -150,101 +147,6 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
       docId: "doc-insight-3",
     },
   ]);
-  const [liveMemories, setLiveMemories] = useState<
-    Array<{ id: string; text: string; factType?: string; mentionedAt?: string }>
-  >([]);
-
-  const fetchLiveMemories = useCallback(async () => {
-    const res = await loadJson<{
-      memory?: {
-        preview?: Array<{
-          entryId?: string;
-          id?: string;
-          content?: string;
-          text?: string;
-          factType?: string;
-          mentionedAt?: string;
-          writtenAt?: string;
-        }>;
-      };
-    }>("/api/memory", 8_000);
-    if (res.ok && res.data?.memory?.preview && Array.isArray(res.data.memory.preview)) {
-      setLiveMemories(
-        res.data.memory.preview.map((m, idx) => ({
-          id: m.id || m.entryId || `memory-${idx}`,
-          text: m.text || m.content || "",
-          factType: m.factType || "world",
-          mentionedAt: m.mentionedAt || m.writtenAt,
-        })),
-      );
-    }
-  }, []);
-
-  useEffect(() => {
-    void fetchLiveMemories();
-  }, [fetchLiveMemories]);
-
-  // 构建 Hindsight 记忆星图拓扑数据
-  const hindsightConstellationData = useMemo<ConstellationData>(() => {
-    if (liveMemories.length > 0) {
-      const nodes: ConstellationNode[] = liveMemories.map((m, idx) => {
-        const id = m.id || `node-${idx}`;
-        const text = typeof m.text === "string" ? m.text : "";
-        const label = text.slice(0, 32) || id;
-        const group = m.factType || "world";
-        return {
-          id,
-          label,
-          group,
-          color: HINDSIGHT_PALETTE[group] || HINDSIGHT_PALETTE.world,
-          raw: m,
-        };
-      });
-
-      const links: ConstellationData["links"] = [];
-      for (let i = 0; i < nodes.length - 1; i++) {
-        const s = nodes[i]?.id;
-        const t = nodes[i + 1]?.id;
-        if (s && t) {
-          links.push({
-            source: s,
-            target: t,
-            type: i % 2 === 0 ? "semantic" : "temporal",
-          });
-        }
-      }
-      return { nodes, links };
-    }
-
-    // 默认展示真实 Hindsight 认知图谱架构拓扑
-    return {
-      nodes: [
-        { id: "world-wsl", label: "WSL / Docker 隔离架构", group: "world" },
-        { id: "world-ollama", label: "本地 Ollama Metal 推理引擎", group: "world" },
-        { id: "world-hindsight", label: "Hindsight 知识图谱记忆引擎", group: "world" },
-        { id: "exp-evolve", label: "代码演化历程与实证检验", group: "experience" },
-        { id: "exp-gateway", label: "Hermes 跨通道消息自愈流水线", group: "experience" },
-        { id: "obs-insight", label: "反思洞察：极简可视星图交互体验", group: "observation" },
-        { id: "obs-perf", label: "反思洞察：长时记忆语义检索抗污染", group: "observation" },
-        { id: "entity-butler", label: "Agent Butler 管家系统", group: "entity" },
-        { id: "entity-hermes", label: "Hermes Agent 数据面", group: "entity" },
-        { id: "entity-cp", label: "Hindsight Control Plane", group: "entity" },
-      ],
-      links: [
-        { source: "world-wsl", target: "entity-butler", type: "semantic" },
-        { source: "world-ollama", target: "entity-butler", type: "semantic" },
-        { source: "world-hindsight", target: "entity-cp", type: "semantic" },
-        { source: "entity-butler", target: "entity-hermes", type: "causal" },
-        { source: "entity-hermes", target: "exp-evolve", type: "temporal" },
-        { source: "exp-evolve", target: "exp-gateway", type: "temporal" },
-        { source: "exp-gateway", target: "obs-insight", type: "causal" },
-        { source: "obs-insight", target: "obs-perf", type: "temporal" },
-        { source: "obs-perf", target: "entity-cp", type: "semantic" },
-        { source: "entity-cp", target: "world-hindsight", type: "causal" },
-      ],
-    };
-  }, [liveMemories]);
-
   // 模拟/执行 Recall 召回测试
   const handleRunRecallTest = (overrideQuery?: string) => {
     const q = (overrideQuery ?? recallQuery).trim();
@@ -430,7 +332,7 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
                 icon={<ReloadOutlined />}
                 onClick={async () => {
                   setLoading(true);
-                  await Promise.all([fetchSystems(), fetchLiveMemories()]);
+                  await fetchSystems();
                   setLoading(false);
                   message.success("记忆系统状态已刷新");
                 }}
@@ -631,14 +533,42 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
         {hindsightConsoleTab === "constellation" ? (
           <Flex vertical gap={12}>
             <Text type="secondary" style={{ fontSize: 13 }}>
-              基于 Hindsight 官方原生 Constellation 星图引擎驱动，实时以有机呼吸动画呈现 World（事实）、Experience（经历）、Observation（反思）与 Entity（实体）四层认知拓扑：
+              直接内嵌 Hindsight 官方 Control Plane 的记忆星图（Memory Constellation），数据与官方 UI 实时同源，支持滚动缩放、拖拽平移、悬停探索与点击选择：
             </Text>
-            <HindsightConstellationGraph
-              data={hindsightConstellationData}
-              height={500}
-              onNodeClick={(node) => setSelectedFactNode(node)}
-              clusterKeyFn={(n) => n.group || null}
-            />
+            <div
+              style={{
+                borderRadius: 10,
+                overflow: "hidden",
+                border: "1px solid var(--ant-color-border-secondary)",
+              }}
+            >
+              <Flex
+                align="center"
+                justify="space-between"
+                gap={12}
+                wrap="wrap"
+                style={{
+                  padding: "6px 16px",
+                  background: "var(--ant-color-fill-quaternary)",
+                  borderBottom: "1px solid var(--ant-color-border-secondary)",
+                  fontSize: 12,
+                  color: "var(--ant-color-text-secondary)",
+                }}
+              >
+                <span>
+                  直连本地端口 <code>{HINDSIGHT_CONSTELLATION_URL}</code>。若显示空白，请确保 Hindsight 官方
+                  Docker 容器已在本地启动（<code>docker compose --profile memory-hindsight up -d butler-memory-hindsight</code>）。
+                </span>
+                <a href={HINDSIGHT_CONSTELLATION_URL} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>
+                  新标签打开星图
+                </a>
+              </Flex>
+              <iframe
+                src={HINDSIGHT_CONSTELLATION_URL}
+                title="Hindsight Memory Constellation"
+                style={{ width: "100%", height: 560, border: "none", display: "block" }}
+              />
+            </div>
           </Flex>
         ) : (
           <Flex vertical gap={16}>
@@ -1127,67 +1057,6 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
               style={{ width: "100%", flex: 1, border: "none" }}
             />
           </div>
-        )}
-      </Drawer>
-
-      {/* 节点点击详情抽屉 */}
-      <Drawer
-        title="记忆事实与实体节点详情"
-        open={selectedFactNode !== null}
-        onClose={() => setSelectedFactNode(null)}
-        styles={{ wrapper: { width: 440, maxWidth: "100%" } }}
-      >
-        {selectedFactNode && (
-          <Flex vertical gap={12}>
-            <Card size="small" style={{ background: "var(--ant-color-fill-quaternary)" }}>
-              <Flex vertical gap={8}>
-                <div>
-                  <Text type="secondary">所属层级：</Text>
-                  <Tag color="purple">{(selectedFactNode.group || "Entity").toUpperCase()}</Tag>
-                </div>
-                <div>
-                  <Text type="secondary">节点标识：</Text>
-                  <Flex align="center" gap={6} style={{ marginTop: 2 }}>
-                    <Text code style={{ fontSize: 12 }}>{selectedFactNode.id}</Text>
-                    <Tooltip title={copiedKey === `node-${selectedFactNode.id}` ? "已复制" : "复制节点标识"}>
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={<CopyOutlined style={{ fontSize: 12 }} />}
-                        style={{ width: 22, height: 22, padding: 0 }}
-                        onClick={() => copySnippet(`node-${selectedFactNode.id}`, selectedFactNode.id, "节点标识")}
-                      />
-                    </Tooltip>
-                    {copiedKey === `node-${selectedFactNode.id}` && (
-                      <span style={{ fontSize: 11, color: "var(--ant-color-success)" }}>已复制</span>
-                    )}
-                  </Flex>
-                </div>
-                <div>
-                  <Flex justify="space-between" align="center">
-                    <Text type="secondary">记忆内容：</Text>
-                    <Tooltip title={copiedKey === `node-content-${selectedFactNode.id}` ? "已复制" : "复制记忆文本"}>
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={<CopyOutlined style={{ fontSize: 12 }} />}
-                        style={{ padding: "0 4px", height: 22 }}
-                        onClick={() => {
-                          const text = (selectedFactNode.raw as { text?: string } | null | undefined)?.text || selectedFactNode.label || "";
-                          copySnippet(`node-content-${selectedFactNode.id}`, text, "记忆内容");
-                        }}
-                      >
-                        复制
-                      </Button>
-                    </Tooltip>
-                  </Flex>
-                  <Paragraph style={{ margin: "4px 0 0 0", fontSize: 13, background: "var(--ant-color-fill-tertiary)", padding: 8, borderRadius: 6 }}>
-                    {(selectedFactNode.raw as { text?: string } | null | undefined)?.text || selectedFactNode.label}
-                  </Paragraph>
-                </div>
-              </Flex>
-            </Card>
-          </Flex>
         )}
       </Drawer>
     </div>

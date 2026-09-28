@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { MemoryCenterPage } from "../src/pages/memory/MemoryCenterPage.js";
 
 describe("MemoryCenterPage Hindsight 控制台与星图集成", () => {
-  it("静态渲染正常加载 Hindsight 知识图谱控制台、直达链接与记忆星图", () => {
+  it("静态渲染正常加载 Hindsight 知识图谱控制台，星图直接内嵌官方 Control Plane 数据视图", () => {
     const html = renderToStaticMarkup(
       React.createElement(
         App,
@@ -29,13 +29,12 @@ describe("MemoryCenterPage Hindsight 控制台与星图集成", () => {
     expect(html).toContain("记忆星图");
     expect(html).toContain("召回演练场");
 
-    // 验证 Constellation Canvas 存在
-    expect(html).toContain("<canvas");
+    // 星图 Tab 直接 iframe 官方 Control Plane 数据视图（不自绘拓扑）
+    expect(html).toContain(`src="http://127.0.0.1:9999/banks/hermes?view=data"`);
+    expect(html).toContain(`title="Hindsight Memory Constellation"`);
+    expect(html).toContain("新标签打开星图");
 
-    // 验证底层四层认知事实分类
-    expect(html).toContain("World");
-    expect(html).toContain("Experience");
-    expect(html).toContain("Observation");
-    expect(html).toContain("Entity");
+    // 自研星图已移除：不再渲染本地 canvas 拓扑
+    expect(html).not.toContain("<canvas");
   });
 });
