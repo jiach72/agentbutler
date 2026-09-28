@@ -92,12 +92,12 @@ export function MemoryDiffPage() {
     setTimeout(() => setCopiedPath(null), 2000);
   };
 
-  const refresh = useCallback((showNotice = false) => {
+  const refresh = useCallback((showNotice?: boolean | unknown) => {
     void loadJson<MemoryDiffPayload>("/api/memory-diff?windowDays=7", 20_000).then((result) => {
       if (result.ok) {
         setData(result.data);
         setError(null);
-        if (showNotice) {
+        if (showNotice === true) {
           message.success("记忆变更流已刷新");
         }
       } else {

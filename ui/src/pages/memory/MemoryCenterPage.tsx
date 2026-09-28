@@ -1160,7 +1160,7 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
                         icon={<CopyOutlined style={{ fontSize: 12 }} />}
                         style={{ padding: "0 4px", height: 22 }}
                         onClick={() => {
-                          const text = (selectedFactNode.raw as { text?: string } | null | undefined)?.text || selectedFactNode.label;
+                          const text = (selectedFactNode.raw as { text?: string } | null | undefined)?.text || selectedFactNode.label || "";
                           copySnippet(`node-content-${selectedFactNode.id}`, text, "记忆内容");
                         }}
                       >
