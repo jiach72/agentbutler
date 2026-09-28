@@ -467,7 +467,9 @@ export function IMChatWindow(props: IMChatWindowProps) {
                     const found = (props.availableBots || []).find((b) => b.id === bId);
                     const name = found ? found.name : bId;
                     const desc =
+                      found?.role ||
                       found?.description ||
+                      (found?.duties && found.duties.length > 0 ? found.duties.join("、") : undefined) ||
                       (bId === "butler" ? "全能管家：统筹调度与综合任务执行" : bId === "inspector" ? "审查员：合规检查与代码审计" : "侦察员：网络检索与快速信息采集");
                     return (
                       <Tooltip key={bId} title={`智能体专长：${desc}`}>

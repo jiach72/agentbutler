@@ -11,6 +11,7 @@ export interface BotProfile {
   role: string;
   duties: string[];
   systemPrompt: string;
+  description?: string;
   avatar?: string;
   isPreset?: boolean;
   createdAt?: string;
