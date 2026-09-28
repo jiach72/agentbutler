@@ -179,6 +179,31 @@ export interface InboxFile {
   ingested: boolean;
 }
 
+function renderHighlightedDocContent(content: string, keyword: string) {
+  const q = keyword.trim();
+  if (!q) return content;
+  const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const parts = content.split(new RegExp(`(${escaped})`, "gi"));
+  return parts.map((part, i) =>
+    part.toLowerCase() === q.toLowerCase() ? (
+      <mark
+        key={i}
+        style={{
+          backgroundColor: "#ffe58f",
+          color: "#000",
+          padding: "1px 3px",
+          borderRadius: 3,
+          fontWeight: 600,
+        }}
+      >
+        {part}
+      </mark>
+    ) : (
+      part
+    ),
+  );
+}
+
 export function KnowledgePage() {
   const { message, modal } = App.useApp();
   const navigate = useNavigate();
@@ -234,6 +259,21 @@ export function KnowledgePage() {
     content: string;
     truncated: boolean;
   } | null>(null);
+
+  // 文档原文预览抽屉内检索关键词与跳转追问
+  const [docSearchKeyword, setDocSearchKeyword] = useState("");
+  const docSearchMatchCount = useMemo(() => {
+    const q = docSearchKeyword.trim();
+    if (!q || !previewData?.content) return 0;
+    const regex = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+    const matches = previewData.content.match(regex);
+    return matches ? matches.length : 0;
+  }, [docSearchKeyword, previewData?.content]);
+
+  const handleAskButlerAboutDoc = (docName: string) => {
+    const prompt = `请基于本地知识库文档《${docName}》的内容，帮我梳理其核心要点与操作步骤：`;
+    navigate(`/gateway?tab=im&prefill=${encodeURIComponent(prompt)}`);
+  };
 
   // 7. 原生知识问答与语义检索状态
   const [queryInput, setQueryInput] = useState("");
@@ -2149,7 +2189,10 @@ export function KnowledgePage() {
         size={680}
         styles={{ wrapper: { maxWidth: "100%" } }}
         open={previewDrawerOpen}
-        onClose={() => setPreviewDrawerOpen(false)}
+        onClose={() => {
+          setPreviewDrawerOpen(false);
+          setDocSearchKeyword("");
+        }}
       >
         {previewLoading ? (
           <Flex justify="center" align="center" style={{ height: 200 }}>
@@ -2163,7 +2206,35 @@ export function KnowledgePage() {
                 <Text type="secondary">{Math.max(1, Math.round(previewData.size / 1024))} KB</Text>
                 <Text type="secondary">更新时间：{new Date(previewData.updatedAt).toLocaleString()}</Text>
               </Space>
-              <CopySnippetButton text={previewData.content} label="复制全文" />
+              <Space>
+                <Button
+                  type="primary"
+                  size="small"
+                  icon={<CommentOutlined />}
+                  onClick={() => handleAskButlerAboutDoc(previewData.name)}
+                >
+                  在即时通讯中提问
+                </Button>
+                <CopySnippetButton text={previewData.content} label="复制全文" />
+              </Space>
+            </Flex>
+
+            {/* 文档内关键词搜索工具条 */}
+            <Flex align="center" justify="space-between" gap={8} style={{ padding: "4px 0" }}>
+              <Input
+                size="small"
+                prefix={<SearchOutlined style={{ color: "var(--ab-text-secondary)" }} />}
+                placeholder="在文档中搜索关键词..."
+                allowClear
+                value={docSearchKeyword}
+                onChange={(e) => setDocSearchKeyword(e.target.value)}
+                style={{ maxWidth: 280 }}
+              />
+              {docSearchKeyword.trim() && (
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  匹配到 <strong style={{ color: docSearchMatchCount > 0 ? "var(--ant-color-primary)" : "var(--ant-color-error)" }}>{docSearchMatchCount}</strong> 处
+                </Text>
+              )}
             </Flex>
 
             {previewData.truncated && (
@@ -2184,12 +2255,12 @@ export function KnowledgePage() {
                 background: "var(--ant-color-fill-quaternary)",
                 padding: "12px 16px",
                 borderRadius: 8,
-                maxHeight: "75vh",
+                maxHeight: "70vh",
                 overflowY: "auto",
                 border: "1px solid var(--ant-color-border-secondary)",
               }}
             >
-              {previewData.content || "（暂无文本内容）"}
+              {previewData.content ? renderHighlightedDocContent(previewData.content, docSearchKeyword) : "（暂无文本内容）"}
             </div>
           </Flex>
         ) : (

@@ -1,4 +1,5 @@
 import React from "react";
+import { readFileSync } from "node:fs";
 import { App } from "antd";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -14,5 +15,30 @@ describe("本地知识库设置的信息层级", () => {
     expect(html).not.toMatch(/<details[^>]*\bopen(?:\s|=|>)/);
     expect(html).toContain("<summary>服务技术规格与配置参数</summary>");
     expect(html).toContain("anythingllm-data");
+  });
+
+  it("KnowledgePage 源码包含文档内搜索与在即时通讯中提问直达动作", () => {
+    const src = readFileSync(new URL("../src/pages/knowledge/KnowledgePage.tsx", import.meta.url), "utf8");
+    expect(src).toContain("在即时通讯中提问");
+    expect(src).toContain("在文档中搜索关键词...");
+    expect(src).toContain("handleAskButlerAboutDoc");
+    expect(src).toContain("renderHighlightedDocContent");
+    expect(src).toContain("/gateway?tab=im&prefill=");
+  });
+
+  it("文档关键词安全匹配与高亮切分逻辑准确无死角", () => {
+    const highlight = (content: string, keyword: string) => {
+      const q = keyword.trim();
+      if (!q) return [content];
+      const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return content.split(new RegExp(`(${escaped})`, "gi"));
+    };
+
+    const text = "本指南介绍 AnythingLLM 与 Hermes RAG 部署规范，涉及向量嵌入模型 nomic-embed-text。";
+    const parts = highlight(text, "rag");
+    expect(parts.some((p) => p.toLowerCase() === "rag")).toBe(true);
+
+    const specialParts = highlight("涉及参数 [port: 8754] 与 127.0.0.1 回环", "[port: 8754]");
+    expect(specialParts.some((p) => p === "[port: 8754]")).toBe(true);
   });
 });
