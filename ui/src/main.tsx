@@ -72,6 +72,19 @@ function FirstRunRedirect() {
   return null;
 }
 
+/** 具备 query 保持能力的别名语义重定向组件 */
+function RedirectWithSearch({ to }: { to: string }) {
+  const location = useLocation();
+  const [targetPath, targetSearch] = to.split("?");
+  const targetParams = new URLSearchParams(targetSearch || "");
+  const currentParams = new URLSearchParams(location.search);
+  currentParams.forEach((val, key) => {
+    targetParams.set(key, val);
+  });
+  const searchStr = targetParams.toString() ? `?${targetParams.toString()}` : "";
+  return <Navigate to={`${targetPath}${searchStr}`} replace />;
+}
+
 const initialMode = initialThemeMode(
   getLocalStorage(),
   typeof window === "undefined" ? undefined : (query) => window.matchMedia(query),
@@ -143,6 +156,11 @@ function ThemedApp({ locale }: { locale: React.ComponentProps<typeof ConfigProvi
                 <Route path="/setup" element={<SetupPage />} />
                 <Route path="/logs" element={<LogsPage />} />
                 <Route path="/prompt" element={<Navigate to="/gateway" replace />} />
+                {/* 语义别名直达路由：支持 /im, /chat 直达即时通讯工作台，/kb, /docs 直达本地知识库 */}
+                <Route path="/im" element={<RedirectWithSearch to="/gateway?tab=im" />} />
+                <Route path="/chat" element={<RedirectWithSearch to="/gateway?tab=im" />} />
+                <Route path="/kb" element={<RedirectWithSearch to="/knowledge" />} />
+                <Route path="/docs" element={<RedirectWithSearch to="/knowledge" />} />
                 <Route path="/skills" element={<SkillsPage />} />
                 <Route path="/knowledge" element={<KnowledgePage />} />
                 <Route path="/tools" element={<ToolsPage />} />

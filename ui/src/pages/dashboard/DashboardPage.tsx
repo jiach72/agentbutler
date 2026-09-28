@@ -82,9 +82,16 @@ export function DashboardPage() {
   const { message } = App.useApp();
   const navigate = useNavigate();
   const [commandText, setCommandText] = useState("");
-
-  const handleDispatchCommand = (promptToUse?: string) => {
+  const handleDispatchCommand = (promptToUse?: string, mode: "im" | "task" = "im") => {
     const text = (promptToUse ?? commandText).trim();
+    if (mode === "im") {
+      if (!text) {
+        navigate("/gateway?tab=im");
+      } else {
+        navigate(`/gateway?tab=im&prefill=${encodeURIComponent(text)}`);
+      }
+      return;
+    }
     if (!text) {
       navigate("/tasks?action=new");
       return;
@@ -253,16 +260,18 @@ export function DashboardPage() {
               <div className="flex flex-wrap items-center gap-1.5 self-end sm:self-center">
                 <Link
                   to="/gateway?tab=im"
-                  className="text-xs px-2.5 py-1 rounded-lg bg-surface-container/60 hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-1.5 border border-outline-variant/15"
+                  className="text-xs px-2.5 py-1 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary transition-colors flex items-center gap-1.5 border border-primary/25 font-medium shadow-2xs"
+                  title="直接打开即时通讯对话工作台 (快捷键 ⌘I)"
                 >
-                  <span>💬</span>
+                  <EtherealIcon name="forum" size={14} />
                   <span>即时通讯</span>
                 </Link>
                 <Link
                   to="/knowledge"
-                  className="text-xs px-2.5 py-1 rounded-lg bg-surface-container/60 hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-1.5 border border-outline-variant/15"
+                  className="text-xs px-2.5 py-1 rounded-lg bg-surface-container/70 hover:bg-surface-container-high text-on-surface hover:text-primary transition-colors flex items-center gap-1.5 border border-outline-variant/20 font-medium"
+                  title="私有资料收集与 RAG 检索中心"
                 >
-                  <span>📚</span>
+                  <EtherealIcon name="menu_book" size={14} />
                   <span>本地知识库</span>
                 </Link>
                 <Link
@@ -293,8 +302,8 @@ export function DashboardPage() {
               </div>
             </div>
 
-            {/* 指令快速输入框 */}
-            <div className="flex items-center gap-2">
+            {/* 指令快速输入框与双通道分流 */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
               <div className="relative flex-1">
                 <Input
                   value={commandText}
@@ -302,23 +311,38 @@ export function DashboardPage() {
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
-                      handleDispatchCommand();
+                      if (e.shiftKey) {
+                        handleDispatchCommand(undefined, "task");
+                      } else {
+                        handleDispatchCommand(undefined, "im");
+                      }
                     }
                   }}
-                  placeholder="随手吩咐管家：例如「每天早上8:30发送简报」或输入任务指令，按 Enter 快速排程…"
+                  placeholder="随手吩咐管家：按 Enter 发往即时通讯立即对话，或按 Shift+Enter 排程定时任务…"
                   allowClear
                   className="!rounded-xl !py-2 !px-3.5 !text-xs md:!text-sm !bg-surface-container/40 !border-outline-variant/25 focus:!bg-surface-container-lowest transition-all"
                   prefix={<EtherealIcon name="auto_awesome" size={15} className="text-primary/70 mr-1.5" />}
                 />
               </div>
-              <Button
-                type="primary"
-                onClick={() => handleDispatchCommand()}
-                className="!h-[36px] !px-4 !rounded-xl text-xs md:text-sm font-medium shadow-xs hover:brightness-105 active:scale-95 transition-all inline-flex items-center gap-1.5 shrink-0"
-              >
-                <span>吩咐管家</span>
-                <EtherealIcon name="arrow_forward" size={14} className="text-white" />
-              </Button>
+              <div className="flex items-center gap-2 shrink-0">
+                <Button
+                  type="primary"
+                  onClick={() => handleDispatchCommand(undefined, "im")}
+                  className="!h-[36px] !px-3.5 !rounded-xl text-xs md:text-sm font-medium shadow-xs hover:brightness-105 active:scale-95 transition-all inline-flex items-center gap-1.5"
+                  title="立即发送到即时通讯工作台进行对话 (Enter)"
+                >
+                  <EtherealIcon name="forum" size={15} className="text-white" />
+                  <span>发往对话</span>
+                </Button>
+                <Button
+                  onClick={() => handleDispatchCommand(undefined, "task")}
+                  className="!h-[36px] !px-3 !rounded-xl text-xs md:text-sm font-medium bg-surface-container/60 hover:bg-surface-container-high border-outline-variant/20 text-on-surface-variant hover:text-on-surface transition-all inline-flex items-center gap-1.5 cursor-pointer"
+                  title="排程为定时巡检或周期任务 (Shift+Enter)"
+                >
+                  <EtherealIcon name="schedule" size={15} />
+                  <span>排程任务</span>
+                </Button>
+              </div>
             </div>
 
             {/* 场景预设快捷胶囊 */}

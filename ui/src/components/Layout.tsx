@@ -424,7 +424,17 @@ export function Layout() {
         { title: "系统全局设置", path: "/settings", icon: "settings", description: "网络基线与凭据配置" },
       ];
     }
-    return ROUTES.filter(
+
+    // 常用高频缩写置顶命中
+    const aliasMatches: Array<{ title: string; path: string; icon: string; description: string }> = [];
+    if (["im", "chat", "msg", "talk"].some((k) => q.startsWith(k))) {
+      aliasMatches.push({ title: "即时通讯工作台", path: "/gateway?tab=im", icon: "forum", description: "直连对话与多智能体协同 (快捷键 ⌘I)" });
+    }
+    if (["kb", "rag", "doc", "knowledge"].some((k) => q.startsWith(k))) {
+      aliasMatches.push({ title: "本地知识库", path: "/knowledge", icon: "menu_book", description: "文档资料收集与 RAG 检索" });
+    }
+
+    const matchedRoutes = ROUTES.filter(
       (r) =>
         r.title.toLowerCase().includes(q) ||
         r.path.toLowerCase().includes(q) ||
@@ -434,7 +444,11 @@ export function Layout() {
       path: r.path,
       icon: "arrow_forward",
       description: r.note || r.path,
-    })).slice(0, 8);
+    }));
+
+    const combined = [...aliasMatches, ...matchedRoutes];
+    const unique = combined.filter((item, index, self) => index === self.findIndex((t) => t.path === item.path));
+    return unique.slice(0, 8);
   }, [commandText]);
 
   const openCommandPalette = () => {
@@ -468,6 +482,9 @@ export function Layout() {
       } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "d") {
         e.preventDefault();
         setGeekDrawerOpen((prev) => !prev);
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "i") {
+        e.preventDefault();
+        navigate("/gateway?tab=im");
       } else if (e.key === "Escape") {
         if (commandOpen) setCommandOpen(false);
         if (geekDrawerOpen) setGeekDrawerOpen(false);
@@ -563,6 +580,15 @@ export function Layout() {
 
             {/* Right Action Tools */}
             <div className="flex items-center gap-2 sm:gap-3">
+              <Link
+                to="/gateway?tab=im"
+                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 transition-all text-label-md font-label-md shadow-2xs group cursor-pointer active:scale-95"
+                title="即时通讯工作台 (⌘I / Ctrl+I)"
+              >
+                <EtherealIcon name="forum" size={15} className="group-hover:scale-110 transition-transform" />
+                <span className="font-medium">即时通讯</span>
+              </Link>
+
               <Link
                 to="/learn"
                 className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-all text-label-md font-label-md"
