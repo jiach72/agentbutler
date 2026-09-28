@@ -35,5 +35,8 @@ describe("系统主模型卡片 (PrimaryModelCard) UX 交互与深链闭环", ()
     expect(src).toContain("tooltips: [\"复制提供商\", \"已复制\"]");
     expect(src).toContain("tooltips: [\"复制服务端点\", \"已复制\"]");
     expect(src).toContain("⚡ {testResult.latencyMs}ms");
+    expect(src).toContain("重新检测");
+    expect(src).toContain("im-kbd-hint");
+    expect(src).not.toContain("message=\"当前主模型运行于本地 Ollama 引擎\"");
   });
 });

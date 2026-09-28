@@ -325,7 +325,7 @@ export function PrimaryModelCard() {
             showIcon
             closable
             onClose={() => setTestResult(null)}
-            message={
+            title={
               <Flex align="center" justify="space-between" wrap="wrap" gap={8} style={{ width: "100%" }}>
                 <span>
                   <strong>{testResult.ok ? "模型连通检测通过" : "模型连通检测异常"}</strong>：
@@ -339,7 +339,11 @@ export function PrimaryModelCard() {
                 <Button size="small" type="primary" ghost icon={<MessageOutlined />} onClick={handleTestInIM}>
                   发指令测试
                 </Button>
-              ) : undefined
+              ) : (
+                <Button size="small" danger ghost icon={<ApiOutlined />} loading={testingConnection} onClick={() => void handleTestConnection()}>
+                  重新检测
+                </Button>
+              )
             }
           />
         )}
@@ -348,14 +352,14 @@ export function PrimaryModelCard() {
           <Alert
             type="success"
             showIcon
-            message="当前主模型运行于本地 Ollama 引擎"
+            title="当前主模型运行于本地 Ollama 引擎"
             description="日常 Agent 交互 100% 离线私密运行，无任何第三方 API 账单费用支出。"
           />
         ) : (
           <Alert
             type="info"
             showIcon
-            message="当前主模型采用云端商业 API"
+            title="当前主模型采用云端商业 API"
             description="由您在 API 密钥管理中配置的凭据驱动。若希望降低日常开销，可随时在上方切换为已安装的轻量本地模型。"
           />
         )}
@@ -420,6 +424,12 @@ export function PrimaryModelCard() {
             </div>
             <Checkbox checked={restartNow} onChange={(e) => setRestartNow(e.target.checked)} />
           </Flex>
+
+          <div style={{ marginTop: -4 }}>
+            <Text type="secondary" style={{ fontSize: 11 }}>
+              <kbd className="im-kbd-hint">Esc</kbd> 取消 · 变更主模型将自动备份旧版 <Text code>config.yaml</Text>
+            </Text>
+          </div>
         </Flex>
       </Modal>
     </Card>
