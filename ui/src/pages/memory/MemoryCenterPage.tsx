@@ -6,6 +6,7 @@
  * 具备自动备份、配置 Diff 预览与优雅重启的全闭环受控生效流程。
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Alert,
   App,
@@ -86,8 +87,17 @@ export interface MemoryCenterPageProps {
 
 export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) {
   const { message } = App.useApp();
+  const navigate = useNavigate();
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [systemsData, setSystemsData] = useState<SystemsResponse | null>(null);
+
+  const copySnippet = (key: string, text: string, label = "内容") => {
+    void navigator.clipboard?.writeText(text);
+    setCopiedKey(key);
+    message.success(`已复制${label}`);
+    setTimeout(() => setCopiedKey(null), 2000);
+  };
 
   // Jev 选型向导状态
   const [advisorLoading, setAdvisorLoading] = useState(false);
@@ -238,13 +248,14 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
   }, [liveMemories]);
 
   // 模拟/执行 Recall 召回测试
-  const handleRunRecallTest = () => {
-    if (!recallQuery.trim()) return;
+  const handleRunRecallTest = (overrideQuery?: string) => {
+    const q = (overrideQuery ?? recallQuery).trim();
+    if (!q) return;
     setRecallLoading(true);
     setTimeout(() => {
       setRecallResults([
         {
-          text: `[Hindsight Recall 命中] 关于「${recallQuery.trim()}」的最新事实：系统严格采用回环地址 127.0.0.1:9177 / 9999 暴露 API 与 Control Plane 界面。`,
+          text: `[Hindsight Recall 命中] 关于「${q}」的最新事实：系统严格采用回环地址 127.0.0.1:9177 / 9999 暴露 API 与 Control Plane 界面。`,
           factType: "world",
           score: 0.95,
           docId: "doc-recall-matched-1",
@@ -399,10 +410,19 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
           description="统一管理与切换 Hermes 支持的第三方记忆后端，覆盖本地 Docker 编排、云端 API 与本地进程，提供 TypeSafe Jev 智能选型决策与受控生效闭环。"
           extra={
             <Space>
-              <Button icon={<DiffOutlined />} href="/memory-diff">
+              <Button icon={<DiffOutlined />} onClick={() => navigate("/memory-diff")}>
                 记忆变更流
               </Button>
-              <Button icon={<ReloadOutlined />} onClick={() => void fetchSystems()} loading={loading}>
+              <Button
+                icon={<ReloadOutlined />}
+                onClick={async () => {
+                  setLoading(true);
+                  await Promise.all([fetchSystems(), fetchLiveMemories()]);
+                  setLoading(false);
+                  message.success("记忆系统状态已刷新");
+                }}
+                loading={loading}
+              >
                 刷新状态
               </Button>
             </Space>
@@ -618,17 +638,42 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
                 placeholder="输入测试查询语句，例如：系统约束、用户偏好、开发规范..."
                 value={recallQuery}
                 onChange={(e) => setRecallQuery(e.target.value)}
-                onPressEnter={handleRunRecallTest}
+                onPressEnter={() => handleRunRecallTest()}
               />
               <Button
                 type="primary"
                 icon={<AimOutlined />}
                 loading={recallLoading}
-                onClick={handleRunRecallTest}
+                onClick={() => handleRunRecallTest()}
               >
                 执行召回测试
               </Button>
             </Flex>
+
+            {/* 快捷测试推荐词 */}
+            <Flex align="center" gap={8} wrap="wrap">
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                快捷测试：
+              </Text>
+              {[
+                "系统环境约束与部署规范",
+                "用户偏好与星图交互习惯",
+                "认知洞察与反思记录",
+                "网络连通性与回环端口",
+              ].map((preset) => (
+                <Tag
+                  key={preset}
+                  style={{ cursor: "pointer", borderRadius: 4 }}
+                  onClick={() => {
+                    setRecallQuery(preset);
+                    handleRunRecallTest(preset);
+                  }}
+                >
+                  {preset}
+                </Tag>
+              ))}
+            </Flex>
+
             <Row gutter={[12, 12]}>
               {recallResults.map((r, idx) => (
                 <Col xs={24} md={8} key={idx}>
@@ -662,18 +707,29 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
                               size="small"
                               icon={<CopyOutlined style={{ fontSize: 12 }} />}
                               style={{ width: 22, height: 22, padding: 0 }}
-                              onClick={() => {
-                                void navigator.clipboard.writeText(r.text);
-                                message.success("已复制记忆片段");
-                              }}
+                              onClick={() => copySnippet(`snippet-${idx}`, r.text, "记忆片段")}
                             />
                           </Tooltip>
                         </Space>
                       </Flex>
                       <Text style={{ fontSize: 13, lineHeight: "20px" }}>{r.text}</Text>
-                      <Text type="secondary" style={{ fontSize: 11, fontFamily: "monospace", marginTop: 4 }}>
-                        Doc ID: {r.docId}
-                      </Text>
+                      <Flex align="center" gap={4} style={{ marginTop: 4 }}>
+                        <Text type="secondary" style={{ fontSize: 11, fontFamily: "monospace" }}>
+                          Doc ID: {r.docId}
+                        </Text>
+                        <Tooltip title={copiedKey === `doc-${r.docId}` ? "已复制" : "点击复制 Doc ID"}>
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<CopyOutlined style={{ fontSize: 11 }} />}
+                            style={{ width: 18, height: 18, padding: 0 }}
+                            onClick={() => copySnippet(`doc-${r.docId}`, r.docId, "Doc ID")}
+                          />
+                        </Tooltip>
+                        {copiedKey === `doc-${r.docId}` && (
+                          <span style={{ fontSize: 10, color: "var(--ant-color-success)" }}>已复制</span>
+                        )}
+                      </Flex>
                     </Flex>
                   </Card>
                 </Col>
@@ -1078,11 +1134,41 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
                 </div>
                 <div>
                   <Text type="secondary">节点标识：</Text>
-                  <Text code>{selectedFactNode.id}</Text>
+                  <Flex align="center" gap={6} style={{ marginTop: 2 }}>
+                    <Text code style={{ fontSize: 12 }}>{selectedFactNode.id}</Text>
+                    <Tooltip title={copiedKey === `node-${selectedFactNode.id}` ? "已复制" : "复制节点标识"}>
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<CopyOutlined style={{ fontSize: 12 }} />}
+                        style={{ width: 22, height: 22, padding: 0 }}
+                        onClick={() => copySnippet(`node-${selectedFactNode.id}`, selectedFactNode.id, "节点标识")}
+                      />
+                    </Tooltip>
+                    {copiedKey === `node-${selectedFactNode.id}` && (
+                      <span style={{ fontSize: 11, color: "var(--ant-color-success)" }}>已复制</span>
+                    )}
+                  </Flex>
                 </div>
                 <div>
-                  <Text type="secondary">记忆内容：</Text>
-                  <Paragraph style={{ margin: "4px 0 0 0", fontSize: 13 }}>
+                  <Flex justify="space-between" align="center">
+                    <Text type="secondary">记忆内容：</Text>
+                    <Tooltip title={copiedKey === `node-content-${selectedFactNode.id}` ? "已复制" : "复制记忆文本"}>
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<CopyOutlined style={{ fontSize: 12 }} />}
+                        style={{ padding: "0 4px", height: 22 }}
+                        onClick={() => {
+                          const text = (selectedFactNode.raw as { text?: string } | null | undefined)?.text || selectedFactNode.label;
+                          copySnippet(`node-content-${selectedFactNode.id}`, text, "记忆内容");
+                        }}
+                      >
+                        复制
+                      </Button>
+                    </Tooltip>
+                  </Flex>
+                  <Paragraph style={{ margin: "4px 0 0 0", fontSize: 13, background: "var(--ant-color-fill-tertiary)", padding: 8, borderRadius: 6 }}>
                     {(selectedFactNode.raw as { text?: string } | null | undefined)?.text || selectedFactNode.label}
                   </Paragraph>
                 </div>
