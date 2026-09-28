@@ -590,6 +590,15 @@ export function Layout() {
               </Link>
 
               <Link
+                to="/knowledge"
+                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container text-on-surface-variant hover:text-primary hover:bg-surface-container-high transition-all text-label-md font-label-md cursor-pointer active:scale-95"
+                title="本地私有知识库与 RAG 检索中心"
+              >
+                <EtherealIcon name="menu_book" size={15} />
+                <span>知识库</span>
+              </Link>
+
+              <Link
                 to="/learn"
                 className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-all text-label-md font-label-md"
                 title="智能体技术全景与通识速查"

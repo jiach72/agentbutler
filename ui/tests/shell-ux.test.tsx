@@ -33,6 +33,14 @@ describe("公共界面的任务入口", () => {
     expect(html).not.toContain("急停");
   });
 
+  it("桌面顶栏常驻「即时通讯」与「本地知识库」双核心直达胶囊", () => {
+    const html = renderAt("/dashboard", <Layout />);
+    expect(html).toContain('href="/gateway?tab=im"');
+    expect(html).toContain('href="/knowledge"');
+    expect(html).toContain("即时通讯");
+    expect(html).toContain("知识库");
+  });
+
   it("详情路径仍选中对应手机主入口，前缀相似但不同的路由不误选", () => {
     const nested = renderAt("/tasks/details", <MobileTabBar />);
     expect(nested).toMatch(/href="\/tasks"[^>]*aria-current="page"|aria-current="page"[^>]*href="\/tasks"/);
