@@ -456,20 +456,45 @@ export function IMChatWindow(props: IMChatWindowProps) {
             </Flex>
             <Flex align="center" gap={8} style={{ marginTop: 2 }}>
               {props.conversation.type === "group" ? (
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  <span style={{ color: "var(--ant-color-text-secondary)" }}>
+                <Flex align="center" gap={4} wrap="wrap" style={{ fontSize: 12 }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
                     协同成员：
-                    {(props.conversation.memberBotIds && props.conversation.memberBotIds.length > 0
-                      ? props.conversation.memberBotIds
-                      : ["butler", "inspector", "scout"]
-                    )
-                      .map((bId) => {
-                        const found = (props.availableBots || []).find((b) => b.id === bId);
-                        return found ? `@${found.name}` : `@${bId}`;
-                      })
-                      .join("、")} · 支持 Jev 智能调度与多 Bot 接力
-                  </span>
-                </Text>
+                  </Text>
+                  {(props.conversation.memberBotIds && props.conversation.memberBotIds.length > 0
+                    ? props.conversation.memberBotIds
+                    : ["butler", "inspector", "scout"]
+                  ).map((bId) => {
+                    const found = (props.availableBots || []).find((b) => b.id === bId);
+                    const name = found ? found.name : bId;
+                    const desc =
+                      found?.description ||
+                      (bId === "butler" ? "全能管家：统筹调度与综合任务执行" : bId === "inspector" ? "审查员：合规检查与代码审计" : "侦察员：网络检索与快速信息采集");
+                    return (
+                      <Tooltip key={bId} title={`智能体专长：${desc}`}>
+                        <Tag
+                          bordered={false}
+                          style={{
+                            margin: 0,
+                            padding: "0 6px",
+                            fontSize: 11,
+                            borderRadius: "var(--ab-r-ctl, 6px)",
+                            background: "var(--ant-color-fill-quaternary)",
+                            cursor: "help",
+                          }}
+                        >
+                          @{name}
+                        </Tag>
+                      </Tooltip>
+                    );
+                  })}
+                  <Tag
+                    color="cyan"
+                    bordered={false}
+                    style={{ margin: 0, fontSize: 11, borderRadius: "var(--ab-r-ctl, 6px)" }}
+                  >
+                    Jev 智能调度与多 Bot 接力
+                  </Tag>
+                </Flex>
               ) : isDirect ? (
                 <Text type="secondary" style={{ fontSize: 12 }}>
                   {props.apiServerAvailable ? (

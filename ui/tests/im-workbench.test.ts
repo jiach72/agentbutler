@@ -501,7 +501,17 @@ describe("即时通讯工作台：UI/UX 深度重构与视窗自适应 (Commit 8
     expect(src).toContain("📓 技术架构");
     expect(src).toContain("已复制内容 √");
   });
+
+  it("IMChatWindow.tsx 顶栏支持群聊成员响应式徽标与智能体专长提示", () => {
+    const src = readFileSync(new URL("../src/pages/gateway/im/IMChatWindow.tsx", import.meta.url), "utf8");
+    expect(src).toContain("智能体专长：");
+    expect(src).toContain("统筹调度与综合任务执行");
+    expect(src).toContain("合规检查与代码审计");
+    expect(src).toContain("网络检索与快速信息采集");
+    expect(src).toContain("Jev 智能调度与多 Bot 接力");
+  });
 });
+
 
 
 
