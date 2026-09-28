@@ -165,11 +165,11 @@ export function navRoutesFor(group: NavGroupKey): RouteMeta[] {
 }
 
 /**
- * 移动端底部 Tab 的路径（顺序即展示顺序）：首页 / 智能体与记忆 / 消息通知 / 设置。
- * 与桌面侧栏同源于 ROUTES——不再另写一套一级信息架构（评审 P0-1）。
- * 更多导航由 Tab 尾部的「更多」按钮唤起抽屉（见 MobileTabBar）。
+ * 移动端底部 Tab 的路径（顺序即展示顺序）：首页 / 消息通讯 / 本地知识库 / 定时任务 / 设置。
+ * 与桌面侧栏同源于 ROUTES——直击移动端随时发消息与查知识的高频诉求。
+ * 更多导航由 Tab 尾部的「全部」按钮唤起抽屉（见 MobileTabBar）。
  */
-export const MOBILE_TAB_PATHS = ["/dashboard", "/tasks", "/skills", "/settings"] as const;
+export const MOBILE_TAB_PATHS = ["/dashboard", "/gateway", "/knowledge", "/tasks", "/settings"] as const;
 
 export function shortTitleOf(route: RouteMeta): string {
   return route.short ?? route.title;

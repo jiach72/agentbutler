@@ -22,13 +22,13 @@ describe("公共界面的任务入口", () => {
     expect(html.match(/aria-label="读取急停状态"/g)).toHaveLength(1);
   });
 
-  it("手机只有首页、任务、能力、设置四个入口", () => {
+  it("手机常驻首页、消息对话、本地知识库、任务、设置五个高频入口", () => {
     const html = renderAt("/tasks", <MobileTabBar />);
-    for (const path of ["/dashboard", "/tasks", "/skills", "/settings"]) {
+    for (const path of ["/dashboard", "/gateway?tab=im", "/knowledge", "/tasks", "/settings"]) {
       expect(html).toContain(`href="${path}"`);
     }
     expect(html).not.toContain('aria-label="更多导航"');
-    expect(html.match(/href="/g)).toHaveLength(4);
+    expect(html.match(/href="/g)).toHaveLength(5);
     expect(html).toContain('aria-current="page"');
     expect(html).not.toContain("急停");
   });
@@ -38,6 +38,9 @@ describe("公共界面的任务入口", () => {
     expect(nested).toMatch(/href="\/tasks"[^>]*aria-current="page"|aria-current="page"[^>]*href="\/tasks"/);
     const unknown = renderAt("/tasks-other", <MobileTabBar />);
     expect(unknown).not.toContain('aria-current="page"');
+
+    const imRoute = renderAt("/im", <MobileTabBar />);
+    expect(imRoute).toMatch(/href="\/gateway\?tab=im"[^>]*aria-current="page"|aria-current="page"[^>]*href="\/gateway\?tab=im"/);
 
     const root = renderAt("/", <MobileTabBar />);
     expect(root).toMatch(/href="\/dashboard"[^>]*aria-current="page"|aria-current="page"[^>]*href="\/dashboard"/);

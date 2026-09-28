@@ -21,9 +21,11 @@ const TABS = MOBILE_TAB_PATHS.map((path) => {
   return { to: meta.path, icon: meta.icon, label: shortTitleOf(meta) };
 });
 
-/** 活跃判定按路径段匹配：/skills/details 选中 /skills；/skills-other 不误选；/ 映射至 /dashboard。 */
+/** 活跃判定按路径段匹配：/gateway 与 /im 选中 /gateway；/knowledge 与 /kb 选中 /knowledge；/ 映射至 /dashboard。 */
 function isActive(pathname: string, to: string): boolean {
   if (to === "/dashboard" && pathname === "/") return true;
+  if (to === "/gateway" && (pathname === "/gateway" || pathname === "/im" || pathname === "/chat")) return true;
+  if (to === "/knowledge" && (pathname === "/knowledge" || pathname === "/kb" || pathname === "/docs")) return true;
   return pathname === to || pathname.startsWith(`${to}/`);
 }
 
@@ -33,16 +35,17 @@ export interface MobileTabBarProps {
 
 export function MobileTabBar({ onOpenMore }: MobileTabBarProps = {}) {
   const location = useLocation();
-  const colCount = onOpenMore ? 5 : 4;
+  const colCount = onOpenMore ? 6 : 5;
   return (
     <nav className="mobile-tabbar" aria-label="移动端主导航" style={{ gridTemplateColumns: `repeat(${colCount}, minmax(0, 1fr))` }}>
       {TABS.map((tab) => {
         const active = isActive(location.pathname, tab.to);
         const Icon = tab.icon;
+        const targetPath = tab.to === "/gateway" ? "/gateway?tab=im" : tab.to;
         return (
           <Link
             key={tab.to}
-            to={tab.to}
+            to={targetPath}
             className={`mobile-tab${active ? " is-active" : ""}`}
             aria-current={active ? "page" : undefined}
           >
