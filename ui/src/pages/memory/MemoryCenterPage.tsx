@@ -557,7 +557,7 @@ export function MemoryCenterPage({ isTab = false }: MemoryCenterPageProps = {}) 
               >
                 <span>
                   直连本地端口 <code>{HINDSIGHT_CONSTELLATION_URL}</code>。若显示空白，请确保 Hindsight 官方
-                  Docker 容器已在本地启动（<code>docker compose --profile memory-hindsight up -d butler-memory-hindsight</code>）。
+                  Control Plane 已在本地 9999 端口启动。
                 </span>
                 <a href={HINDSIGHT_CONSTELLATION_URL} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>
                   新标签打开星图
