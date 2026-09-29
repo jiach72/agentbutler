@@ -432,10 +432,9 @@
   white-space: nowrap;
 }
 
-/* 底部操作按钮 */
+/* 底部操作按钮：单行紧凑排布，删除键固定最右，避免窄卡折行 */
 .task-card-footer {
   display: flex;
-  justify-content: flex-end;
   align-items: center;
   margin-top: auto;
   padding-top: 10px;
@@ -444,23 +443,31 @@
 
 .task-card-footer .task-actions {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
   width: 100%;
+  min-width: 0;
+  flex-wrap: nowrap;
 }
 
 .task-card-footer .ant-btn {
-  height: 32px;
-  padding: 0 12px;
-  font-size: 13px;
-  border-radius: 8px;
+  height: 28px;
+  padding: 0 9px;
+  font-size: 12px;
+  border-radius: 7px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 4px;
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .task-btn-delete {
-  width: 32px;
+  flex: 0 0 auto;
+  margin-left: auto;
+  width: 28px;
   padding: 0 !important;
   color: var(--ab-text-3);
   opacity: 0.75;
@@ -644,17 +651,19 @@
   .tasks-grid-list {
     grid-template-columns: 1fr;
   }
-  .task-card-footer .task-actions {
-    justify-content: flex-start;
-  }
   .task-card-footer .task-actions .ant-btn {
-    flex: 1;
+    flex: 1 1 0;
     min-width: 0;
-    min-height: 40px;
+    height: 40px;
     padding-inline: 8px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
+  }
+  .task-card-footer .task-actions .task-btn-delete {
+    flex: 0 0 40px;
+    width: 40px;
+    margin-left: 0;
   }
   .task-editor .ant-input, .task-editor .ant-select, .task-editor .ant-input-number { font-size: 16px; }
   .task-schedule-fields .ant-checkbox-wrapper { min-height: 44px; align-items: center; }

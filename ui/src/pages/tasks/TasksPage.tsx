@@ -494,7 +494,7 @@ export function TasksPage() {
                     </div>
 
                     <div className="task-card-footer">
-                      <Space size={6} wrap className="task-actions">
+                      <div className="task-actions">
                         <Tooltip title="查看历史记录与日志">
                           <Button
                             aria-label={`查看${task.name}执行历史`}
@@ -535,7 +535,7 @@ export function TasksPage() {
                             onClick={() => { setDeleting(task); setConfirmName(""); }}
                           />
                         </Tooltip>
-                      </Space>
+                      </div>
                     </div>
                   </article>
                 );
