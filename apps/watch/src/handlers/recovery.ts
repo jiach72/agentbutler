@@ -465,13 +465,26 @@ export async function handleRecovery(ctx: RequestContext): Promise<boolean> {
       sendJson(res, 400, { error: "missing-target-version" });
       return true;
     }
+    // targetVersion/tag 会进入 git checkout / pip / docker 命令参数，必须以词字符开头，
+    // 防止 "-" 开头的选项注入。
+    const argShape = /^[\w][\w.+-]*$/;
+    if (!argShape.test(targetVersion.trim())) {
+      sendJson(res, 400, { error: "invalid-target-version" });
+      return true;
+    }
+    const rawTag = body["targetTag"];
+    if (rawTag !== undefined && (typeof rawTag !== "string" || rawTag.trim() === "" || !argShape.test(rawTag.trim()))) {
+      sendJson(res, 400, { error: "invalid-target-tag" });
+      return true;
+    }
+    const targetTag = typeof rawTag === "string" ? rawTag.trim() : undefined;
     const instanceId =
       typeof body["instanceId"] === "string" && body["instanceId"] !== ""
         ? body["instanceId"]
         : undefined;
     const channel =
       body["channel"] === "beta" ? "beta" : body["channel"] === "stable" ? "stable" : undefined;
-    const outcome = await deps.upgrade.startUpgrade({ instanceId, targetVersion, channel });
+    const outcome = await deps.upgrade.startUpgrade({ instanceId, targetVersion, tag: targetTag, channel });
     if (outcome.status === "started") {
       sendJson(res, 202, {
         started: true,

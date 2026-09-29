@@ -54,7 +54,7 @@ export interface UpgradeJobView {
 export interface AvailableVersionsView {
   reachable: boolean;
   source?: string;
-  versions: Array<{ version: string; channel?: string }>;
+  versions: Array<{ version: string; tag?: string; channel?: string }>;
   checkedAt?: string;
   attempts?: Array<{ id: string; url: string | null; status: string; error?: string; durationMs: number }>;
 }

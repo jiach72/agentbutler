@@ -17,7 +17,14 @@ import { fail, ok, type Result } from "@butler/contract";
 export interface VersionListEntry {
   version: string;
   channel?: "stable" | "beta";
-  /** 展示用版本号（如 release 正文中的 0.20.5；缺省等于 version）。 */
+  /**
+   * 上游工件 tag（git repo tag / docker image tag，保留原始 v 前缀，如 "v2026.9.24"）。
+   * 升级拉取（git checkout / docker pull）用它定位工件；缺省按 version 拉取。
+   * version 始终是与实例 pyproject 同轨的语义版本（release 正文可提取时优先），
+   * 二者分离避免「日期 tag 可拉取但 pyproject 复核必失败」的虚假承诺。
+   */
+  tag?: string;
+  /** 展示用版本号（与 version 同轨；保留字段兼容旧视图）。 */
   displayVersion?: string;
   /** 发布说明摘要（去掉 Markdown 标题后的正文，截断 220 字）。 */
   notes?: string;
@@ -48,7 +55,7 @@ export interface VersionSourceOptions {
   sources?: VersionListSource[];
   /** GitHub 仓库（默认 "NousResearch/hermes-agent"）。 */
   repo?: string;
-  /** Docker Hub 镜像（默认 "hermes-agent/hermes"）。 */
+  /** Docker Hub 镜像（默认 "nousresearch/hermes-agent"）。 */
   dockerImage?: string;
   /** PyPI 包名（默认 hermes-agent）。 */
   pypiPackage?: string;
@@ -61,6 +68,40 @@ export interface VersionSourceOptions {
 }
 
 const PYPI_VERSION_RE = /^\d+(?:\.\d+)*(?:-[\w.+-]+)?$/;
+/** 版本号形态约束：数值段开头，可带 -beta.1 类预发布后缀；latest/canary（+ 号）等非版本 tag 过滤。 */
+const VERSION_SHAPE_RE = /^\d+(?:\.\d+)*(?:-[\w.+-]+)?$/;
+
+/**
+ * 由原始 tag 与（可选的）正文语义版本组装版本条目：
+ * - 正文给出形态合法的语义版本时 version 用它（与实例 pyproject 同轨，拉取后复核才
+ *   可能通过）；无正文版本时 version 退化为剥 v 的 tag（semver tag 仓库旧行为不变）；
+ * - 两者皆不可得（canary「+」号 tag 等）→ 返回 null 丢弃：给出无法通过拉取复核的
+ *   候选即是虚假承诺。
+ * tag 字段始终保留原始工件标识（含 v 前缀），供 git checkout / docker pull 定位。
+ */
+function buildVersionEntry(input: {
+  rawTag: string;
+  bodySemver?: string;
+  prerelease?: boolean;
+  notes?: string;
+  publishedAt?: string;
+}): VersionListEntry | null {
+  const tagVersion = stripVPrefix(input.rawTag);
+  const version =
+    input.bodySemver !== undefined && VERSION_SHAPE_RE.test(input.bodySemver)
+      ? input.bodySemver
+      : VERSION_SHAPE_RE.test(tagVersion)
+        ? tagVersion
+        : null;
+  if (version === null) return null;
+  return {
+    version,
+    tag: input.rawTag,
+    channel: input.prerelease === true || version.includes("-") ? "beta" : "stable",
+    ...(input.notes !== undefined ? { notes: input.notes } : {}),
+    ...(input.publishedAt !== undefined ? { publishedAt: input.publishedAt } : {}),
+  };
+}
 
 function createPypiSource(packageName: string, fetchFn: typeof fetch, timeoutMs: number): VersionListSource {
   const url = `https://pypi.org/pypi/${encodeURIComponent(packageName)}/json`;
@@ -80,7 +121,11 @@ function createPypiSource(packageName: string, fetchFn: typeof fetch, timeoutMs:
         const payload = (await response.json()) as { releases?: Record<string, unknown> };
         const versions = Object.keys(payload.releases ?? {})
           .filter((version) => PYPI_VERSION_RE.test(version))
-          .map((version) => ({ version, channel: version.includes("-") ? "beta" as const : "stable" as const }));
+          .map((version) => ({
+            version,
+            tag: version,
+            channel: version.includes("-") ? "beta" as const : "stable" as const,
+          }));
         if (versions.length === 0) return fail("E203", "version source pypi parsed 0 releases", { startedAt });
         return ok({ versions: dedupeAndSortDesc(versions) }, startedAt);
       } catch (error) {
@@ -94,21 +139,27 @@ function createPypiSource(packageName: string, fetchFn: typeof fetch, timeoutMs:
 
 /**
  * releases.atom 兜底源：走 github.com 的 Atom 订阅（非 api.github.com），
- * 不受 GitHub API 匿名限流影响。从正文提取 /releases/tag/<tag> 并解析版本号。
+ * 不受 GitHub API 匿名限流影响。逐条目解析：链接定位 tag，条目正文（content+title）
+ * 提取语义版本作为 version（与 API 源同轨），tag 保留为工件标识。
  */
 export function parseReleasesAtom(xml: string): VersionListEntry[] {
-  const tags = new Set<string>();
-  // 兼容两种形态：链接 https://github.com/<repo>/releases/tag/<tag> 与
-  // 条目 id tag:github.com,2008:Repository/<owner>/<repo>/<tag>。
-  const pattern = /(?:\/releases\/tag\/|Repository\/[^/]+\/[^/]+\/)(v?[0-9][A-Za-z0-9.+-]*)/g;
-  for (const match of xml.matchAll(pattern)) {
-    tags.add(match[1]!);
-  }
   const versions: VersionListEntry[] = [];
-  for (const tag of tags) {
-    const version = stripVPrefix(tag);
-    if (!/^\d+(?:\.\d+)*(?:-[\w.+-]+)?$/.test(version)) continue;
-    versions.push({ version, channel: version.includes("-") ? "beta" : "stable" });
+  const seenTags = new Set<string>();
+  const entryPattern = /<entry>([\s\S]*?)<\/entry>/g;
+  for (const entryMatch of xml.matchAll(entryPattern)) {
+    const block = entryMatch[1] ?? "";
+    // 兼容两种形态：链接 https://github.com/<repo>/releases/tag/<tag> 与
+    // 条目 id tag:github.com,2008:Repository/<owner>/<repo>/<tag>。
+    const tagPattern = /(?:\/releases\/tag\/|Repository\/[^/]+\/[^/]+\/)(v?[0-9][A-Za-z0-9.+]*)/g;
+    const rawTag = tagPattern.exec(block)?.[1];
+    if (rawTag === undefined || seenTags.has(rawTag)) continue;
+    seenTags.add(rawTag);
+    // 语义版本只从 content 提取：标题即 tag 本体，扫描标题会把 canary tag
+    // （v0.21.4+canary…）误提升为稳定版本 0.21.4，造成重复候选。
+    const content = /<content[^>]*>([\s\S]*?)<\/content>/.exec(block)?.[1] ?? "";
+    const contentSemver = displayVersionOf(content);
+    const entry = buildVersionEntry({ rawTag, bodySemver: contentSemver });
+    if (entry !== null) versions.push(entry);
   }
   return versions;
 }
@@ -157,7 +208,7 @@ function createGithubReleasesAtomSource(
 /** GitHub 仓库缺省值。 */
 export const DEFAULT_VERSION_REPO = "NousResearch/hermes-agent";
 /** Docker Hub 镜像缺省值。 */
-export const DEFAULT_VERSION_DOCKER_IMAGE = "hermes-agent/hermes";
+export const DEFAULT_VERSION_DOCKER_IMAGE = "nousresearch/hermes-agent";
 /** 单源请求缺省超时（毫秒）。 */
 export const DEFAULT_VERSION_TIMEOUT_MS = 10_000;
 
@@ -223,14 +274,14 @@ interface GithubReleaseLike {
   published_at?: unknown;
 }
 
-/** 从 release 正文第一处 vX.Y.Z 提取展示版本（如 "Hermes Agent v0.20.5" → 0.20.5）。 */
+/** 从 release 正文第一处 vX.Y.Z（可带 -beta.1 预发布后缀）提取语义版本。 */
 function displayVersionOf(body: unknown): string | undefined {
   if (typeof body !== "string") return undefined;
-  const match = body.match(/v?(\d+\.\d+\.\d+)/);
+  const match = body.match(/v?(\d+\.\d+\.\d+(?:-[\w.+-]+)?)/);
   return match === null ? undefined : match[1];
 }
 
-/** 发布说明摘要：去掉 Markdown 标题与引用符号，压缩空白后截断 220 字。 */
+/** 发布说明摘要：去掉 Markdown 标题与引用符号，压缩空白后截断 220 字（空结果 → undefined）。 */
 function notesOf(body: unknown): string | undefined {
   if (typeof body !== "string") return undefined;
   const text = body
@@ -240,8 +291,7 @@ function notesOf(body: unknown): string | undefined {
     .replace(/[*_`]/g, "")
     .replace(/\s+/g, " ")
     .trim();
-  if (text === "") return undefined;
-  return text.length > 220 ? `${text.slice(0, 220)}…` : text;
+  return text === "" ? undefined : text.length > 220 ? `${text.slice(0, 220)}…` : text;
 }
 
 function createGithubReleasesSource(
@@ -300,18 +350,21 @@ function createGithubReleasesSource(
         });
       }
       const versions: VersionListEntry[] = [];
+      const seenTags = new Set<string>();
       for (const item of payload as GithubReleaseLike[]) {
         const tag = item?.tag_name;
         if (typeof tag !== "string" || tag.trim() === "") continue;
-        const version = stripVPrefix(tag.trim());
-        if (version === "") continue;
-        versions.push({
-          version,
-          channel: item.prerelease === true ? "beta" : "stable",
-          displayVersion: displayVersionOf(item?.body),
+        const rawTag = tag.trim();
+        if (seenTags.has(rawTag)) continue; // 重复 tag：首见优先（正文可能不同，以首个为准）
+        seenTags.add(rawTag);
+        const entry = buildVersionEntry({
+          rawTag,
+          bodySemver: displayVersionOf(item?.body),
+          prerelease: item.prerelease === true,
           notes: notesOf(item?.body),
           publishedAt: typeof item?.published_at === "string" ? item.published_at : undefined,
         });
+        if (entry !== null) versions.push(entry);
       }
       if (versions.length === 0) {
         return fail("E203", `version source ${id} parsed 0 releases`, {
@@ -383,7 +436,7 @@ function createDockerHubSource(
         if (typeof item?.name !== "string") continue;
         const version = stripVPrefix(item.name.trim());
         if (!DOCKER_VERSION_RE.test(version)) continue; // latest 等非版本 tag 过滤
-        versions.push({ version, channel: "stable" });
+        versions.push({ version, tag: item.name.trim(), channel: "stable" });
       }
       if (versions.length === 0) {
         return fail("E203", "version source docker-hub parsed 0 version tags", {

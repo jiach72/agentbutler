@@ -228,9 +228,11 @@ export function VersionsPanel() {
   const executeUpgrade = async (target: ManagedUpgradeTarget) => {
     if (managedUpgradePending !== null || job?.status === "running") return;
     setManagedUpgradePending({ target, jobId: null });
-    const body: { targetVersion: string; channel?: string; instanceId?: string } = {
+    const body: { targetVersion: string; targetTag?: string; channel?: string; instanceId?: string } = {
       targetVersion: target.version,
     };
+    // 上游工件 tag（如 v2026.9.24）与语义版本（0.21.5）分轨：拉取用 tag，复核用 version。
+    if (target.tag !== undefined && target.tag !== "") body.targetTag = target.tag;
     if (target.channel !== undefined && target.channel !== "") body.channel = target.channel;
     if (targetInstance !== "") body.instanceId = targetInstance;
 

@@ -87,6 +87,8 @@ export type PullStrategy = (ctx: {
   instance: InstanceRef;
   rootPath: string;
   targetVersion: string;
+  /** 上游工件 tag（git repo tag / docker image tag）；缺省按 targetVersion 拉取。 */
+  tag?: string;
   exec: CommandExecutor;
 }) => Promise<PullOutcome>;
 
@@ -108,7 +110,7 @@ export interface UpgradePipelineDeps {
   pull?: PullStrategy;
   /** venv pip 包名，默认 "hermes-agent"。 */
   pipPackage?: string;
-  /** docker 镜像，默认 "hermes-agent/hermes"。 */
+  /** docker 镜像，默认 "nousresearch/hermes-agent"。 */
   dockerImage?: string;
   now?: () => number;
   /** 拉取命令超时（毫秒），默认 1800s（长操作纪律）。 */
@@ -159,9 +161,9 @@ const defaultHealthVerifier: HealthVerifier = async () => ({
 /**
  * 默认拉取策略：
  * - runtime=process 且 <rootPath>/hermes-agent/.git 存在 → git fetch --tags +
- *   git checkout v<version>（失败回退裸 <version>）；
+ *   git checkout 上游 tag（target.tag，如 v2026.9.24；失败依次回退 v<version>、裸 <version>）；
  * - runtime=process 且无 .git → venv Python pip install --upgrade <pkg>==<version>；
- * - runtime=docker → docker pull <image>:<version>。
+ * - runtime=docker → docker pull <image>:<tag>（缺省 <version>）。
  * 全部命令经注入的 CommandExecutor 执行（超时由流水线包装统一施加）。
  */
 export function createDefaultPullStrategy(options?: {
@@ -169,15 +171,16 @@ export function createDefaultPullStrategy(options?: {
   dockerImage?: string;
 }): PullStrategy {
   const pipPackage = options?.pipPackage ?? "hermes-agent";
-  const dockerImage = options?.dockerImage ?? "hermes-agent/hermes";
-  return async ({ instance, rootPath, targetVersion, exec }) => {
+  const dockerImage = options?.dockerImage ?? "nousresearch/hermes-agent";
+  return async ({ instance, rootPath, targetVersion, tag, exec }) => {
     if (instance.runtime === "docker") {
-      const r = await exec.exec("docker", ["pull", `${dockerImage}:${targetVersion}`]);
+      const imageTag = tag ?? targetVersion;
+      const r = await exec.exec("docker", ["pull", `${dockerImage}:${imageTag}`]);
       return r.code === 0
-        ? { ok: true, detail: `docker pull ${dockerImage}:${targetVersion} 完成` }
+        ? { ok: true, detail: `docker pull ${dockerImage}:${imageTag} 完成` }
         : {
             ok: false,
-            detail: `docker pull ${dockerImage}:${targetVersion} 失败（退出码 ${r.code}）：${r.stderr.trim()}`,
+            detail: `docker pull ${dockerImage}:${imageTag} 失败（退出码 ${r.code}）：${r.stderr.trim()}`,
           };
     }
     const agentDir = join(rootPath, "hermes-agent");
@@ -189,18 +192,31 @@ export function createDefaultPullStrategy(options?: {
           detail: `git fetch --tags 失败（退出码 ${fetch.code}）：${fetch.stderr.trim()}`,
         };
       }
-      let checkout = await exec.exec("git", ["-C", agentDir, "checkout", `v${targetVersion}`]);
-      if (checkout.code !== 0) {
-        // tag 命名无 v 前缀的仓库：回退裸版本号。
-        checkout = await exec.exec("git", ["-C", agentDir, "checkout", targetVersion]);
+      // checkout 候选按序回退：上游原始 tag（v2026.9.24，已含 v 前缀）→ v+version → 裸 version。
+      // version 已是与 pyproject 同轨的语义版本；tag 才是仓库里真实存在的工件标识。
+      const candidates = Array.from(
+        new Set(
+          [tag, `v${targetVersion}`, targetVersion].flatMap(
+            (ref) => (typeof ref === "string" && ref !== "" && /^[\w][\w.+-]*$/.test(ref) ? [ref] : []),
+          ),
+        ),
+      );
+      let lastRef = "";
+      let lastStderr = "";
+      let checkout = { code: 1, stderr: "" };
+      for (const ref of candidates) {
+        lastRef = ref;
+        checkout = await exec.exec("git", ["-C", agentDir, "checkout", ref]);
+        if (checkout.code === 0) break;
+        lastStderr = checkout.stderr.trim();
       }
       if (checkout.code !== 0) {
         return {
           ok: false,
-          detail: `git checkout v${targetVersion}（及裸 ${targetVersion}）均失败（退出码 ${checkout.code}）：${checkout.stderr.trim()}`,
+          detail: `git checkout ${candidates.join(" / ")} 均失败（退出码 ${checkout.code}）：${lastStderr}`,
         };
       }
-      return { ok: true, detail: `git fetch --tags + checkout ${targetVersion} 完成` };
+      return { ok: true, detail: `git fetch --tags + checkout ${lastRef} 完成` };
     }
     const venvPython = findVenvPython(rootPath);
     if (!venvPython) {
@@ -423,6 +439,7 @@ export function createUpgradePipeline(deps: UpgradePipelineDeps): UpgradePipelin
         instance,
         rootPath: resolvedRoot,
         targetVersion,
+        tag: input.target.tag,
         exec: pullExec,
       });
       if (!pullOut.ok) {

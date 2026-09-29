@@ -77,8 +77,11 @@ export interface ConfigValidation {
 }
 
 export interface VersionRef {
+  /** 语义版本（与实例 pyproject 版本同轨，用于比较与升级后复核）。 */
   version: string;
   channel?: "stable" | "beta";
+  /** 上游工件标识（git repo tag / docker image tag，保留原始 v 前缀；缺省按 version 拉取）。 */
+  tag?: string;
 }
 
 /**

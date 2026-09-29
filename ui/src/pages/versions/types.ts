@@ -33,6 +33,8 @@ export interface UpgradeJobView {
 
 export interface ManagedUpgradeTarget {
   version: string;
+  /** 上游工件 tag（git repo tag / docker image tag，如 v2026.9.24）；拉取时优先使用。 */
+  tag?: string;
   channel?: string;
   displayVersion?: string;
 }
@@ -44,6 +46,8 @@ export interface PendingManagedUpgrade {
 
 export interface AvailableVersionEntry {
   version: string;
+  /** 上游工件 tag（拉取定位用；与 version 语义轨分离）。 */
+  tag?: string;
   channel?: string;
   displayVersion?: string;
   notes?: string;

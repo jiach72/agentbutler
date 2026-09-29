@@ -414,8 +414,8 @@ describe("createUpgradeService（listVersions 版本源）", () => {
     expect(result.reachable).toBe(true);
     expect(result.source).toBe("github-releases");
     expect(result.versions).toEqual([
-      { version: "0.22.0-beta.1", channel: "beta" },
-      { version: "0.21.0", channel: "stable" },
+      { version: "0.22.0-beta.1", tag: "v0.22.0-beta.1", channel: "beta" },
+      { version: "0.21.0", tag: "v0.21.0", channel: "stable" },
     ]);
   });
 
@@ -430,7 +430,7 @@ describe("createUpgradeService（listVersions 版本源）", () => {
     const result = await harness.service.listVersions();
     expect(result.reachable).toBe(true);
     expect(result.source).toBe("github-releases-mirror");
-    expect(result.versions).toEqual([{ version: "0.21.0", channel: "stable" }]);
+    expect(result.versions).toEqual([{ version: "0.21.0", tag: "v0.21.0", channel: "stable" }]);
   });
 
   it("全败：reachable=false 空列表（不抛异常）", async () => {

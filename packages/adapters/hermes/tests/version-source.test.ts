@@ -29,7 +29,7 @@ function fakeFetch(handler: (url: string) => Response | Promise<Response>): type
 }
 
 const GITHUB_RELEASES_URL = "https://api.github.com/repos/NousResearch/hermes-agent/releases";
-const DOCKER_TAGS_URL = "https://hub.docker.com/v2/repositories/hermes-agent/hermes/tags";
+const DOCKER_TAGS_URL = "https://hub.docker.com/v2/repositories/nousresearch/hermes-agent/tags";
 const releasesBody = [
   {
     tag_name: "v2026.8.19",
@@ -117,6 +117,26 @@ describe("parseReleasesAtom", () => {
       </feed>`;
     expect(parseReleasesAtom(xml).map((v) => v.version)).toEqual(["0.21.1", "0.21.0"]);
   });
+
+  it("日期 tag 条目从 content 提升语义版本（tag 保留为工件标识；canary 条目被过滤）", () => {
+    const xml = `
+      <feed>
+        <entry>
+          <id>tag:github.com,2008:Repository/NousResearch/hermes-agent/v2026.9.24</id>
+          <link href="https://github.com/NousResearch/hermes-agent/releases/tag/v2026.9.24"/>
+          <title>v2026.9.24</title>
+          <content type="html">&lt;p&gt;Hermes Agent v0.21.5 (v2026.9.24)&lt;/p&gt;</content>
+        </entry>
+        <entry>
+          <id>tag:github.com,2008:Repository/NousResearch/hermes-agent/v0.21.4+canary.20260928T071354Z</id>
+          <title>v0.21.4+canary.20260928T071354Z</title>
+          <content type="html">&lt;p&gt;Hermes Agent canary 20260928T071354Z&lt;/p&gt;</content>
+        </entry>
+      </feed>`;
+    expect(parseReleasesAtom(xml)).toEqual([
+      { version: "0.21.5", tag: "v2026.9.24", channel: "stable" },
+    ]);
+  });
 });
 
 /* ---------------------------- listAvailableVersions ---------------------------- */
@@ -135,7 +155,7 @@ describe("listAvailableVersions", () => {
     expect(authHeaders[0]).toBe("Bearer gh-token-x");
   });
 
-  it("GitHub 源成功：去 v 前缀、prerelease→beta、去重降序", async () => {
+  it("GitHub 源成功：日期 tag 正文语义版本提升、prerelease→beta、去重降序", async () => {
     const r = await listAvailableVersions({
       fetchFn: fakeFetch(() => jsonResponse(releasesBody)),
     });
@@ -143,17 +163,33 @@ describe("listAvailableVersions", () => {
     expect(r.data!.source).toBe("github-releases");
     expect(r.data!.versions).toEqual([
       {
-        version: "2026.8.19",
+        version: "0.21.0",
+        tag: "v2026.8.19",
         channel: "stable",
-        displayVersion: "0.21.0",
         notes: "修复 iLink 会话过期后静默丢消息 新增飞书卡片回调白名单",
         publishedAt: "2026-08-21T12:16:39Z",
       },
-      { version: "0.21.0-beta.1", channel: "beta", displayVersion: "0.21.0" },
-      { version: "0.20.4", channel: "stable" },
-      { version: "0.19.0", channel: "stable" },
+      { version: "0.21.0-beta.1", tag: "v0.21.0-beta.1", channel: "beta" },
+      { version: "0.20.4", tag: "v0.20.4", channel: "stable" },
+      { version: "0.19.0", tag: "0.19.0", channel: "stable" },
     ]);
     expect(r.durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it("GitHub 源：canary（+ 号）tag 无正文语义版本时被过滤，不产生无法复核的候选", async () => {
+    const r = await listAvailableVersions({
+      fetchFn: fakeFetch(() =>
+        jsonResponse([
+          { tag_name: "v0.21.4+canary.20260928T071354Z", prerelease: true, body: "<p>Hermes Agent canary 20260928T071354Z</p>" },
+          { tag_name: "v2026.9.24", prerelease: false, body: "# Hermes Agent v0.21.5 (v2026.9.24)\n\n> Patch release" },
+        ]),
+      ),
+    });
+    expect(r.ok).toBe(true);
+    // 正文只有标题与引用行 → 摘要剥空 → 无 notes 字段。
+    expect(r.data!.versions).toEqual([
+      { version: "0.21.5", tag: "v2026.9.24", channel: "stable" },
+    ]);
   });
 
   it("GitHub 失败 → 回退镜像源（同路径走镜像 host）", async () => {
@@ -173,7 +209,7 @@ describe("listAvailableVersions", () => {
     expect(urls[1]).toBe("https://gh-mirror.example.com/repos/NousResearch/hermes-agent/releases");
   });
 
-  it("GitHub 与 PyPI 均失败 → 回退 Docker Hub（过滤 latest 等非版本 tag）", async () => {
+  it("Docker Hub 源成功：过滤 latest，tag 保留原始名", async () => {
     const r = await listAvailableVersions({
       fetchFn: fakeFetch((url) =>
         url === DOCKER_TAGS_URL ? jsonResponse(dockerBody) : jsonResponse({ message: "oops" }, 500),
@@ -182,9 +218,9 @@ describe("listAvailableVersions", () => {
     expect(r.ok).toBe(true);
     expect(r.data!.source).toBe("docker-hub");
     expect(r.data!.versions).toEqual([
-      { version: "0.21.0", channel: "stable" },
-      { version: "0.21.0-beta.1", channel: "stable" },
-      { version: "0.20.4", channel: "stable" },
+      { version: "0.21.0", tag: "0.21.0", channel: "stable" },
+      { version: "0.21.0-beta.1", tag: "0.21.0-beta.1", channel: "stable" },
+      { version: "0.20.4", tag: "0.20.4", channel: "stable" },
     ]);
   });
 

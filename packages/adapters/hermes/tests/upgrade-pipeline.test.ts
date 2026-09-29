@@ -714,6 +714,64 @@ describe("createDefaultPullStrategy", () => {
     ]);
   });
 
+  it("git 仓库：携带上游 tag 时优先 checkout tag（日期 tag 仓库，version 为语义版本）", async () => {
+    mkdirSync(join(root, "hermes-agent", ".git"), { recursive: true });
+    const agentDir = join(root, "hermes-agent");
+    const { executor, calls } = recordingExec([]);
+    const outcome = await createDefaultPullStrategy()({
+      instance: instance(),
+      rootPath: root,
+      targetVersion: "0.21.5",
+      tag: "v2026.9.24",
+      exec: executor,
+    });
+    expect(outcome.ok).toBe(true);
+    expect(outcome.detail).toContain("checkout v2026.9.24");
+    expect(calls).toEqual([
+      { cmd: "git", args: ["-C", agentDir, "fetch", "--tags"] },
+      { cmd: "git", args: ["-C", agentDir, "checkout", "v2026.9.24"] },
+    ]);
+  });
+
+  it("git 仓库：tag checkout 失败 → 回退 v<version>、裸 <version>", async () => {
+    mkdirSync(join(root, "hermes-agent", ".git"), { recursive: true });
+    const agentDir = join(root, "hermes-agent");
+    const { executor, calls } = recordingExec([
+      {
+        match: (cmd, args) =>
+          cmd === "git" && args.includes("checkout") && (args.includes("v2026.9.24") || args.includes("v0.21.5")),
+        run: () => ({ code: 1, stdout: "", stderr: "pathspec did not match" }),
+      },
+    ]);
+    const outcome = await createDefaultPullStrategy()({
+      instance: instance(),
+      rootPath: root,
+      targetVersion: "0.21.5",
+      tag: "v2026.9.24",
+      exec: executor,
+    });
+    expect(outcome.ok).toBe(true);
+    expect(calls).toEqual([
+      { cmd: "git", args: ["-C", agentDir, "fetch", "--tags"] },
+      { cmd: "git", args: ["-C", agentDir, "checkout", "v2026.9.24"] },
+      { cmd: "git", args: ["-C", agentDir, "checkout", "v0.21.5"] },
+      { cmd: "git", args: ["-C", agentDir, "checkout", "0.21.5"] },
+    ]);
+  });
+
+  it("docker 形态：携带 tag 时 pull <image>:<tag>", async () => {
+    const { executor, calls } = recordingExec([]);
+    const outcome = await createDefaultPullStrategy({ dockerImage: "nousresearch/hermes-agent" })({
+      instance: instance("docker"),
+      rootPath: root,
+      targetVersion: "0.21.5",
+      tag: "v2026.9.24",
+      exec: executor,
+    });
+    expect(outcome.ok).toBe(true);
+    expect(calls).toEqual([{ cmd: "docker", args: ["pull", "nousresearch/hermes-agent:v2026.9.24"] }]);
+  });
+
   it("git fetch 失败 → ok:false 附 stderr", async () => {
     mkdirSync(join(root, "hermes-agent", ".git"), { recursive: true });
     const { executor } = recordingExec([

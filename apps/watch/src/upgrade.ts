@@ -101,6 +101,8 @@ export interface UpgradeService {
   startUpgrade(input: {
     instanceId?: string;
     targetVersion: string;
+    /** 上游工件 tag（git repo tag / docker image tag）；缺省按 targetVersion 拉取。 */
+    tag?: string;
     channel?: "stable" | "beta";
     trigger?: "manual" | "auto";
   }): UpgradeStartOutcome | Promise<UpgradeStartOutcome>;
@@ -338,6 +340,8 @@ export function createUpgradeService(deps: UpgradeServiceDeps): UpgradeService {
   function startUpgrade(input: {
     instanceId?: string;
     targetVersion: string;
+    /** 上游工件 tag（git repo tag / docker image tag）；缺省按 targetVersion 拉取。 */
+    tag?: string;
     channel?: "stable" | "beta";
     trigger?: "manual" | "auto";
   }): UpgradeStartOutcome {
@@ -350,7 +354,7 @@ export function createUpgradeService(deps: UpgradeServiceDeps): UpgradeService {
     const targetVersion = input.targetVersion.trim();
     const started = pipeline.start({
       instance: refOf(record),
-      target: { version: targetVersion, channel: input.channel },
+      target: { version: targetVersion, channel: input.channel, tag: input.tag },
       idempotencyKey: `upgrade:${record.instanceId}:${targetVersion}:${randomUUID()}`,
       trigger: input.trigger ?? "manual",
     });
