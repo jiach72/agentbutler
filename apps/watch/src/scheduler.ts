@@ -290,7 +290,9 @@ export class CriticalProbeScheduler {
       lastCompletedAt: this.lastCompletedAt,
       nextAt:
         this.handle !== undefined && baseMs !== null
-          ? new Date(baseMs + this.intervalMs).toISOString()
+          ? // 单轮巡检超时后 nextAt 会落在过去，UI 会显示「x 分钟前」（S-14）；
+            // 钳制到不早于当前时间。
+            new Date(Math.max(baseMs + this.intervalMs, this.now())).toISOString()
           : null,
       deadlineAt: this.deadlineAt,
       lastDurationMs: this.lastDurationMs,

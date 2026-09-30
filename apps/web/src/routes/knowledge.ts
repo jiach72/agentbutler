@@ -1208,6 +1208,9 @@ export async function registerKnowledgeRoutes(
     for (const src of noteFiles) {
       const rel = relative(effectivePath, src);
       const dest = join(targetBase, rel);
+      // 纵深防御（S-6）：rel 来自服务端枚举、effectivePath 须经 existsSync，
+      // 与 upload-vault 落点同样做目录边界断言，防将来 effectivePath 变更引入穿越。
+      if (!isInsideRoot(dest, targetBase)) continue;
       mkdirSync(resolve(dest, ".."), { recursive: true });
       copyFileSync(src, dest);
       syncedCount += 1;
@@ -1407,6 +1410,9 @@ export async function registerKnowledgeRoutes(
       const dest = join(targetBase, safeName);
       if (!isInsideRoot(dest, targetBase)) continue;
       try {
+        // S-11：safeName 若含子目录段（hermes 缓存历史文件名），先建目标目录，
+        // 避免 copyFileSync 因目录缺失抛错被 catch 吞掉、前端只见「入库 0 个」。
+        mkdirSync(resolve(dest, ".."), { recursive: true });
         copyFileSync(item.fullPath, dest);
         inboxManifest[item.id] = { ingested: true };
         const stats = statSync(dest);
@@ -1905,11 +1911,10 @@ ${query}`;
       // 2. 无 updater 侧车（宿主机单机裸跑模式）：检测本机 docker CLI
       appendLog(">>> docker compose up -d butler-rag-anythingllm");
       try {
-        const child = spawn(
-          "docker",
-          ["compose", "up", "-d", "butler-rag-anythingllm"],
-          { shell: true, cwd: process.cwd() },
-        );
+        // S-12：参数全是硬编码常量，不需要 shell 特性；去掉 shell:true 消除危险模式。
+        const child = spawn("docker", ["compose", "up", "-d", "butler-rag-anythingllm"], {
+          cwd: process.cwd(),
+        });
 
         child.stdout?.on("data", (chunk: Buffer) => {
           const text = chunk.toString();

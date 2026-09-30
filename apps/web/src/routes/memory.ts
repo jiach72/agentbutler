@@ -34,10 +34,17 @@ export async function registerMemoryRoutes(
     proxyWatchPost("/api/memory/config/apply", request.body, reply, 30_000),
   );
 
-  // 记忆面板读取：GET /api/memory 透传给 watch（instanceId 查询参数原样跟随）。
+  // 记忆面板读取：GET /api/memory 透传给 watch；query 与其他路由统一走
+  // URLSearchParams 白名单（S-9），不把原始 query 串原样转发。
   app.get("/api/memory", async (request, reply) => {
-    const query = (request.raw.url ?? "").split("?")[1] ?? "";
-    return proxyWatchGet(`/api/memory${query ? `?${query}` : ""}`, reply);
+    const query = request.query as Record<string, unknown>;
+    const params = new URLSearchParams();
+    for (const key of ["instanceId"]) {
+      const value = query[key];
+      if (typeof value === "string" && value !== "") params.set(key, value);
+    }
+    const qs = params.toString();
+    return proxyWatchGet(`/api/memory${qs ? `?${qs}` : ""}`, reply);
   });
 
   app.post("/api/memory/archive", async (request, reply) =>

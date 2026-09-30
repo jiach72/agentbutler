@@ -23,7 +23,7 @@ export async function registerOllamaRoutes(
 
   /** 动态读取当前宿主机客观硬件档案与自适应推荐模型 */
   app.get("/api/ollama/hardware-profile", async () => {
-    const hw = detectHardwareProfile();
+    const hw = await detectHardwareProfile();
     const evaluation = evaluateHardwareTier(hw);
     return { hardware: hw, evaluation };
   });

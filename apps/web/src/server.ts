@@ -237,7 +237,9 @@ export function createWebServer(options: WebServerOptions = {}): FastifyInstance
     if (tokensMatch(presented, accessToken)) return;
 
     // WS 握手一次性凭据：真实口令的替代物（POST /api/ws-ticket 签发）。
-    if (consumeWsTicket(extractRequestTicket(request.raw.url))) return;
+    // 仅在 /ws 握手路径上消费（S-7）：ticket 的作用域与签发注释保持一致，
+    // 不被任意 /api 请求提前吞掉。
+    if (route === "/ws" && consumeWsTicket(extractRequestTicket(request.raw.url))) return;
 
     reply.code(401);
     return reply.send({ error: "unauthorized", reason: "需要访问口令" });

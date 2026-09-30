@@ -510,7 +510,10 @@ export function createApprovalService(options: ApprovalServiceOptions): Approval
         "rule",
         `命中阻断规则（指纹已拉黑）：${matchedRule.reason ?? "用户标记存疑并阻断"}`,
       );
-      return toItem(store.getActionApproval(item.id)!);
+      // 并发下结算行可能被并行清理，非空断言会抛 TypeError（S-15）；
+      // 回退到结算前的本地视图，不再假设必非空。
+      const settledRow = store.getActionApproval(item.id);
+      return toItem(settledRow ?? row);
     }
 
     // 检查信任规则：若为 audit 单且已被用户设为信任，自动标记为已确认并归档，不推卡片
@@ -541,7 +544,10 @@ export function createApprovalService(options: ApprovalServiceOptions): Approval
         "rule",
         `命中信任规则（免核验）：${matchedRule.reason ?? "用户设为信任免核验"}`,
       );
-      return toItem(store.getActionApproval(item.id)!);
+      // 并发下结算行可能被并行清理，非空断言会抛 TypeError（S-15）；
+      // 回退到结算前的本地视图，不再假设必非空。
+      const settledRow = store.getActionApproval(item.id);
+      return toItem(settledRow ?? row);
     }
 
     // 同一指纹（同 kind+target）的未决单去重：上游重试常携带新 actionId 重复

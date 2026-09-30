@@ -151,13 +151,13 @@ describe("Ollama Service & Hardware Tier Engine", () => {
     expect(resIntel16.recommendations.map((r) => r.name)).toContain("qwen2.5:1.5b");
   });
 
-  it("detects containerized Apple Silicon Mac via BUTLER_HOST_OS and BUTLER_HOST_ARCH env vars", () => {
+  it("detects containerized Apple Silicon Mac via BUTLER_HOST_OS and BUTLER_HOST_ARCH env vars", async () => {
     const origHostOs = process.env["BUTLER_HOST_OS"];
     const origHostArch = process.env["BUTLER_HOST_ARCH"];
     try {
       process.env["BUTLER_HOST_OS"] = "Darwin";
       process.env["BUTLER_HOST_ARCH"] = "arm64";
-      const hw = detectHardwareProfile();
+      const hw = await detectHardwareProfile();
       expect(hw.platform).toBe("darwin");
       expect(hw.arch).toBe("arm64");
       // Apple Silicon has no SMT: cores should not be halved
@@ -180,7 +180,7 @@ describe("Ollama Service & Hardware Tier Engine", () => {
     }
   });
 
-  it("prioritizes host hardware env vars (Apple M4 16GB) over container limits and evaluates Tier 3", () => {
+  it("prioritizes host hardware env vars (Apple M4 16GB) over container limits and evaluates Tier 3", async () => {
     const orig = {
       os: process.env["BUTLER_HOST_OS"],
       arch: process.env["BUTLER_HOST_ARCH"],
@@ -198,7 +198,7 @@ describe("Ollama Service & Hardware Tier Engine", () => {
       process.env["BUTLER_HOST_LOGICAL_CORES"] = "10";
       process.env["BUTLER_HOST_CPU_MODEL"] = "Apple M4";
 
-      const hw = detectHardwareProfile();
+      const hw = await detectHardwareProfile();
 
       expect(hw.memory.totalGb).toBe(16.0);
       expect(hw.cpu.cores).toBe(10);

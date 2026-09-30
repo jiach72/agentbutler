@@ -156,7 +156,8 @@ export class OllamaUsageStore {
 
   /** 获取最近 N 天的每日调用量与汇总统计。 */
   getDailySummary(days = 14): OllamaUsageSummary {
-    const safeDays = Math.max(1, Math.min(90, Math.round(days)));
+    // 非有限值（如 ?days=abc）回落默认，避免 new Date(NaN).toISOString() 抛 500（S-10）。
+    const safeDays = Math.max(1, Math.min(90, Math.round(Number.isFinite(days) ? days : 14)));
     const now = new Date();
     const todayStr = now.toISOString().slice(0, 10);
 
@@ -247,7 +248,8 @@ export class OllamaUsageStore {
 
   /** 获取最近调用明细记录。 */
   getRecentRecords(limit = 20): OllamaUsageRecord[] {
-    const safeLimit = Math.max(1, Math.min(100, Math.round(limit)));
+    // 非有限值回落默认（S-10，同 getDailySummary）。
+    const safeLimit = Math.max(1, Math.min(100, Math.round(Number.isFinite(limit) ? limit : 20)));
     const rows = this.db.prepare(`
       SELECT
         id, timestamp, date, model, prompt_tokens, completion_tokens,

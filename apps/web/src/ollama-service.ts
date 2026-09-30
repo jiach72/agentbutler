@@ -6,9 +6,12 @@
  * 2. 算力分级与自适应推荐（evaluateHardwareTier）：根据真实硬件判定梯队（Tier 1~4），动态生成记忆/探针推荐模型；
  * 3. Ollama 客户端（OllamaService）：健康探活（/api/version）、模型列表（/api/tags）、异步拉取与进度跟踪（/api/pull）、模型删除。
  */
-import { execSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import os from "node:os";
 import type { OllamaUsageStore } from "./ollama-usage-store.js";
+
+const execFileAsync = promisify(execFile);
 
 export interface OllamaChatTestResult {
   ok: boolean;
@@ -123,7 +126,7 @@ export function formatBytes(bytes: number): string {
 }
 
 /** 动态探测当前宿主机客观硬件信息（宿主环境变量优先，平滑回退容器内部指标）。 */
-export function detectHardwareProfile(): HardwareProfile {
+export async function detectHardwareProfile(): Promise<HardwareProfile> {
   const cpus = os.cpus() || [];
   const containerLogicalCores = cpus.length || 1;
   const containerCpuModel = cpus[0]?.model?.trim() || "Unknown CPU";
@@ -189,13 +192,13 @@ export function detectHardwareProfile(): HardwareProfile {
 
   let gpu: HardwareProfile["gpu"] = null;
 
-  // 6. 尝试探测 NVIDIA GPU
+  // 6. 尝试探测 NVIDIA GPU（S-13：改 execFile 异步版，不阻塞事件循环；固定参数无注入）
   try {
-    const stdout = execSync("nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits", {
-      timeout: 1500,
-      encoding: "utf8",
-      stdio: ["pipe", "pipe", "ignore"],
-    });
+    const { stdout } = await execFileAsync(
+      "nvidia-smi",
+      ["--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
+      { timeout: 1500, encoding: "utf8" },
+    );
     const line = stdout.trim().split("\n")[0];
     if (line) {
       const parts = line.split(",").map((s) => s.trim());

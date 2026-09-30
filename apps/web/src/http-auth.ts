@@ -73,6 +73,10 @@ export function hasAllowedOrigin(origin: string): boolean {
  * （AGENTS.md 红线 5：通配发布必须配置口令）。
  */
 export function isAllowedHost(hostHeader: string, publishHost: string | undefined): boolean {
+  // Host 头带 userinfo（如 "xxx@localhost"）不是浏览器会发出的合法形态（S-8）：
+  // URL 解析会把 @ 前缀当作 userinfo 剥掉再取 hostname，白名单按设计放行回环名
+  // 时该畸形头会被连带放行——直接拒绝，纵深收紧。
+  if (hostHeader.includes("@")) return false;
   const hostname = hostNameOf(hostHeader);
   if (hostname === "") return false;
   if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") return true;
