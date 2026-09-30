@@ -22,6 +22,10 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # 供应链门禁（2026-09-30 复盘）：审计修复后新进的 IM 依赖曾带入 3 high 漏洞，
+      # 本地手动 audit 才发现。生产依赖存在已知漏洞即挡发布；上游出公告也会挡，
+      # 修复方式是升级/钉版后重推。devDependencies 不在审计范围（工具链噪音大）。
+      - run: pnpm audit --prod
       - run: pnpm version:check
       - run: pnpm lint
       - run: pnpm build
