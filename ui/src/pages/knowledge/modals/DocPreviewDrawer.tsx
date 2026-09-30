@@ -17,30 +17,28 @@ import { CopySnippetButton } from "../../../components/CopySnippetButton.js";
 
 const { Text } = Typography;
 
-/** 文档内容按关键词高亮渲染（原 KnowledgePage 模块级函数，仅本抽屉使用）。 */
+/** 文档内容按关键词高亮渲染（原 KnowledgePage 模块级函数，随抽屉一并搬移，实现保持原样）。 */
 function renderHighlightedDocContent(content: string, keyword: string) {
-  const segments: Array<{ text: string; hit: boolean }> = [{ text: content, hit: false }];
-  const kw = keyword.trim();
-  if (!kw) return segments.map((s, i) => <span key={i}>{s.text}</span>);
-  const regex = new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
-  const output: Array<{ text: string; hit: boolean }> = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(content)) !== null) {
-    if (match.index > lastIndex) output.push({ text: content.slice(lastIndex, match.index), hit: false });
-    output.push({ text: match[0], hit: true });
-    lastIndex = match.index + match[0].length;
-    if (match[0].length === 0) regex.lastIndex += 1;
-  }
-  if (lastIndex < content.length) output.push({ text: content.slice(lastIndex), hit: false });
-  void segments;
-  return output.map((seg, i) =>
-    seg.hit ? (
-      <mark key={i} style={{ background: "var(--ant-color-warning-bg)", color: "inherit", borderRadius: 2 }}>
-        {seg.text}
+  const q = keyword.trim();
+  if (!q) return content;
+  const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const parts = content.split(new RegExp(`(${escaped})`, "gi"));
+  return parts.map((part, i) =>
+    part.toLowerCase() === q.toLowerCase() ? (
+      <mark
+        key={i}
+        style={{
+          backgroundColor: "#ffe58f",
+          color: "#000",
+          padding: "1px 3px",
+          borderRadius: 3,
+          fontWeight: 600,
+        }}
+      >
+        {part}
       </mark>
     ) : (
-      <span key={i}>{seg.text}</span>
+      part
     ),
   );
 }
