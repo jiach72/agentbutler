@@ -20,14 +20,23 @@ export interface RateLimitRule {
  *   - 大载荷写端点（审计 K-8）：/api/knowledge/upload*（含 upload-vault）30/min、
  *     /api/markdown/files 60/min、/api/memory 300/min——防止被反复打满
  *     butler-data 卷（bodyLimit 100-200MB 叠加无限流可写穿磁盘）。
+ *   - 重副作用端点（审计 20260930 中等-14）：小请求触发大代价动作——
+ *     /api/knowledge/start（spawn docker compose）5/min、
+ *     /api/knowledge/embedding/pull 与 /api/ollama/pull（GB 级模型下载，
+ *     与 K-8 打满磁盘向量同类）5/min、/api/butler/self/upgrade（10min 代理）3/min。
+ *     这些端点虽需鉴权，但回环便利通道意味着本机任意进程可无口令调用。
  */
 export const TIERED_RATE_LIMIT_RULES: readonly RateLimitRule[] = [
   { prefix: "/api/upgrade/run", max: 5, windowMs: 60_000 },
+  { prefix: "/api/butler/self/upgrade", max: 3, windowMs: 60_000 },
   { prefix: "/api/killswitch/engage", max: 10, windowMs: 60_000 },
   { prefix: "/api/killswitch/release", max: 10, windowMs: 60_000 },
   { prefix: "/api/killswitch", max: 600, windowMs: 60_000 },
   { prefix: "/api/inspect/run", max: 10, windowMs: 60_000 },
+  { prefix: "/api/knowledge/embedding/pull", max: 5, windowMs: 60_000 },
   { prefix: "/api/knowledge/upload", max: 30, windowMs: 60_000 },
+  { prefix: "/api/knowledge/start", max: 5, windowMs: 60_000 },
+  { prefix: "/api/ollama/pull", max: 5, windowMs: 60_000 },
   { prefix: "/api/markdown/files", max: 60, windowMs: 60_000 },
   { prefix: "/api/memory", max: 300, windowMs: 60_000 },
   { prefix: "/api/dashboard", max: 600, windowMs: 60_000 },
