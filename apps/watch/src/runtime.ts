@@ -320,8 +320,9 @@ function requireDefaultExecutor(): CommandExecutor {
     spawnDetached: (cmd, args) => {
       try {
         spawn(cmd, args, { detached: true, stdio: "ignore" }).unref();
-      } catch {
-        // 状态轮询会把启动失败收敛成明确任务错误。
+      } catch (error) {
+        // 状态轮询会把启动失败收敛成明确任务错误；这里留痕便于从日志反查启动失败。
+        console.error(`[butler-watch] spawnDetached 启动失败 cmd=${cmd}: ${error instanceof Error ? error.message : String(error)}`);
       }
     },
   };

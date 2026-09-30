@@ -60,7 +60,13 @@ export class SecretVault {
 
   mask(secret: string): string {
     if (secret.length <= 8) return "****";
-    return `${secret.slice(0, Math.min(3, secret.length - 4))}****${secret.slice(-4)}`;
+    // 审计 nit：短 Key 按「前3后4」回显会漏出大半（14 位漏 7 位）。可见段合计
+    // 压到 Key 长度的 1/4 以内；长 Key（≥32 位）才展示前 3 后 4。
+    if (secret.length < 32) {
+      const keep = Math.max(1, Math.floor(secret.length / 8));
+      return `${secret.slice(0, keep)}****${secret.slice(-keep)}`;
+    }
+    return `${secret.slice(0, 3)}****${secret.slice(-4)}`;
   }
 }
 

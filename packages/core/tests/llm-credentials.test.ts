@@ -11,7 +11,11 @@ describe("SecretVault", () => {
     const envelope = vault.encrypt("sk-live-secret");
     expect(envelope.ciphertext).not.toContain("sk-live-secret");
     expect(vault.decrypt(envelope)).toBe("sk-live-secret");
-    expect(vault.mask("sk-live-secret")).toBe("sk-****cret");
+    // 短 Key 泄漏比例收敛（审计 nit）：可见段 ≤ 长度 1/4，不再是「前3后4」漏 7 位
+    expect(vault.mask("sk-live-secret")).toBe("s****t");
+    expect(vault.mask("123456789")).toBe("1****9");
+    // 长 Key（≥32 位）维持前 3 后 4
+    expect(vault.mask(`sk-${"a".repeat(32)}`)).toBe("sk-****aaaa");
     expect(new SecretVault().available).toBe(false);
     expect(new SecretVault("not-a-valid-master-key").available).toBe(false);
     expect(() => new SecretVault().encrypt("secret")).toThrow("secret-vault-unavailable");
@@ -79,11 +83,11 @@ describe("LlmCredentialService", () => {
     const service = new LlmCredentialService(store, new SecretVault("e".repeat(64)));
     service.setDiscoveryReader(async () => [{ id: "d1", source: "/home/jiach/.hermes", provider: "OpenAI", protocol: "openai-compatible", endpoint: "https://llm.test/v1", model: "m", apiKey: "sk-discovered" }]);
     const rows = await service.discover();
-    expect(rows[0]).toMatchObject({ id: "d1", maskedKey: "sk-****ered" });
+    expect(rows[0]).toMatchObject({ id: "d1", maskedKey: "s****d" });
     expect("apiKey" in (rows[0] as object)).toBe(false);
     const imported = await service.importDiscovered("d1");
     expect(imported.status).toBe("disabled");
-    expect(imported.maskedKey).toBe("sk-****ered");
+    expect(imported.maskedKey).toBe("s****d");
   });
 
   it("运行时模型观测只读展示，不能被当作凭据导入", async () => {
