@@ -142,7 +142,38 @@ function normalizeEndpoint(value: string): string {
   if (!/^https?:$/.test(parsed.protocol) || parsed.username || parsed.password || [...parsed.searchParams.keys()].some((key) => /(?:api[_-]?key|token|secret)/i.test(key))) {
     throw new Error("invalid-llm-endpoint");
   }
+  // S-4：探针会携带 Bearer/x-api-key，公网 http 明文传输等于泄露 Key。
+  // 与 watch 探针的既有拦截策略对齐：本机/内网（loopback、RFC1918、容器名、
+  // host.docker.internal）允许 http，公网 http 一律拒绝。
+  if (parsed.protocol === "http:" && isPublicHttpHost(parsed.hostname)) {
+    throw new Error(
+      "insecure-llm-endpoint：公网端点必须使用 https（本机/内网 http 不受限）；明文 http 会把 API Key 暴露在链路上",
+    );
+  }
   return parsed.toString().replace(/\/+$/, "");
+}
+
+/** http 下是否为公网主机（公网才拒绝；回环/RFC1918/单标签容器名/内网域名放行）。 */
+function isPublicHttpHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "::1" || host.startsWith("127.")) return false;
+  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return false;
+  if (host === "host.docker.internal") return false;
+  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (ipv4 !== null) {
+    const a = Number(ipv4[1]);
+    const b = Number(ipv4[2]);
+    if (a === 10) return false; // 10/8
+    if (a === 127) return false; // 127/8 loopback
+    if (a === 192 && b === 168) return false; // 192.168/16
+    if (a === 172 && b >= 16 && b <= 31) return false; // 172.16/12
+    if (a === 169 && b === 254) return false; // 169.254/16 link-local
+    return true;
+  }
+  // IPv6 公网地址：一律按公网处理（::1 已放行）。
+  if (host.includes(":")) return true;
+  // 单标签主机名（容器名/局域网短名）放行。
+  return host.includes(".");
 }
 
 /** Hermes 自我进化当前仅使用 LiteLLM/OpenAI-compatible 环境变量。 */
