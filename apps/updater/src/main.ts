@@ -190,7 +190,8 @@ function packageVersion(): string {
 }
 
 function git(args: string[], timeout = 20_000): Promise<CommandResult> {
-  return run("git", ["-c", "safe.directory=*", ...args], sourceDir, timeout);
+  // 审计 K-10 nit 收口：safe.directory 只放行受管仓库本身，不再通配整个文件系统。
+  return run("git", ["-c", `safe.directory=${sourceDir}`, ...args], sourceDir, timeout);
 }
 
 function isLegacyTag(tag: string): boolean {
@@ -677,6 +678,15 @@ const server = createServer(async (request, response) => {
   return send(response, 202, { started: true, jobId: job.jobId });
 });
 
+// 与 gateway/watch 对齐（审计遗留）：updater 中途崩溃会让 UI 一键升级卡在半路，
+// 兜底只记日志不退出，让运行中的升级/回滚任务有机会收敛到终态。
+process.on("uncaughtException", (error) => {
+  console.error("[butler-updater] uncaughtException:", error);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[butler-updater] unhandledRejection:", reason);
+});
+
 void (async () => {
   mkdirSync(stateDir, { recursive: true });
   if (existsSync(lockFile)) {
@@ -686,7 +696,7 @@ void (async () => {
       // ignore
     }
   }
-  await run("git", ["config", "--global", "--add", "safe.directory", "*"]);
+  await run("git", ["config", "--global", "--add", "safe.directory", sourceDir]);
   await persistStatus();
   server.listen(port, host, () => console.log(`[butler-updater] listening on ${host}:${port}`));
 })();
