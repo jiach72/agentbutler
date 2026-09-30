@@ -354,8 +354,12 @@ services:
     image: mintplexlabs/anythingllm:latest
     container_name: butler-rag-anythingllm
     restart: unless-stopped
-    cap_add:
-      - SYS_ADMIN
+    # 审计 20260930 中等-15：默认不再授予 SYS_ADMIN——它是极强 capability
+    # （mount 等特权 syscall），第三方 Node 应用被攻破后会让容器逃逸容易得多。
+    # 上游镜像文档建议该 capability 一般只为其内嵌 Chromium 抓取沙箱服务；
+    # 常规对话/向量检索不需要。若确需网页抓取且启动报沙箱错误，再取消注释：
+    # cap_add:
+    #   - SYS_ADMIN
     ports:
       - "${BUTLER_ANYTHINGLLM_BIND_HOST:-127.0.0.1}:${BUTLER_ANYTHINGLLM_PORT:-3001}:3001"
     environment:
