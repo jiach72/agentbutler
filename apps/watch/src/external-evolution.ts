@@ -182,10 +182,13 @@ export function createExternalEvolutionService(deps: {
       let candidate = "";
       try { candidate = readFileSync(proposal.candidatePath, "utf8"); } catch { issues.push("候选文件不可读"); }
       if (!candidate.includes("SKILL.md") && !candidate.includes("---")) issues.push("缺少可识别的技能文档结构");
-      if (/rm\s+-rf|curl\s+[^\n|]+\|\s*(sh|bash)|powershell\s+-enc/i.test(candidate)) issues.push("检测到高风险命令片段");
+      // 黑名单关键词初筛，可被编码/间接调用轻易绕过——不是沙箱（审计 20260930 中等-11）。
+      if (/rm\s+-rf|curl\s+[^\n|]+\|\s*(ba)?sh|wget\s+[^\n|]+\|\s*(ba)?sh|bash\s+-c|powershell\s+-enc|\beval\s*\(|\|\s*python3/i.test(candidate)) {
+        issues.push("检测到高风险命令片段");
+      }
       const valid = issues.length === 0;
       proposal.validation = valid
-        ? { status: "pass", reason: "结构和安全检查通过；未执行真实 Hermes 进程", fix: "无需修复", actions: ["查看差异", "应用到 Hermes"] }
+        ? { status: "pass", reason: "静态关键词初筛通过（黑名单正则，非沙箱执行验证）；候选未在真实 Hermes 进程中运行，应用前请自行人工审阅差异", fix: "无需修复", actions: ["查看差异", "应用到 Hermes"] }
         : { status: "fail", reason: issues.join("；"), fix: "编辑候选内容后重新验证", actions: ["编辑提案", "重新验证"] };
       proposal.status = valid ? "ready-to-apply" : "failed";
       proposal.updatedAt = nowIso(now);
