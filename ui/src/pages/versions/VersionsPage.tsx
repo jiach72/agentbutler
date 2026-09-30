@@ -149,7 +149,12 @@ export function VersionsPanel() {
 
     if (prevStatus === "running" && currentStatus !== "running" && currentJob !== null && currentJob !== undefined) {
       if (currentStatus === "done") {
-        message.success(`管家自身${currentJob.kind === "rollback" ? "回滚" : "升级"}成功！`);
+        // 升级链完整性：附上 checkout 前后的 commit SHA，供用户核对版本轨迹。
+        const commitNote =
+          currentJob.fromCommit && currentJob.toCommit
+            ? `（${currentJob.fromCommit.slice(0, 8)} → ${currentJob.toCommit.slice(0, 8)}）`
+            : "";
+        message.success(`管家自身${currentJob.kind === "rollback" ? "回滚" : "升级"}成功！${commitNote}`);
       } else if (currentStatus === "failed" || currentStatus === "rolled-back") {
         message.error(`管家自身${currentJob.kind === "rollback" ? "回滚" : "升级"}失败${currentStatus === "rolled-back" ? "（已自动回滚）" : ""}：${currentJob.error ?? "未知错误"}`);
       }
@@ -658,6 +663,9 @@ export function VersionsPanel() {
               <Flex vertical gap={6} style={{ marginTop: 4 }}>
                 <Text type="secondary" style={{ fontSize: 12 }}>
                   目标版本：{butlerSelf.lastJob.target} · 尝试时间：{new Date(butlerSelf.lastJob.startedAt).toLocaleString()}
+                  {butlerSelf.lastJob.fromCommit && butlerSelf.lastJob.toCommit
+                    ? ` · ${butlerSelf.lastJob.fromCommit.slice(0, 8)} → ${butlerSelf.lastJob.toCommit.slice(0, 8)}`
+                    : ""}
                 </Text>
                 {butlerSelf.lastJob.error && (
                   <Text

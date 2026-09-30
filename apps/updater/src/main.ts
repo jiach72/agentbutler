@@ -30,6 +30,9 @@ type Job = {
   finishedAt: string | null;
   error: string | null;
   snapshotId: string | null;
+  /** 升级链完整性：checkout 前后仓库 HEAD 的 commit SHA（供核对）。 */
+  fromCommit?: string | null;
+  toCommit?: string | null;
 };
 
 const sourceDir = process.env["BUTLER_UPDATER_SOURCE"]?.trim() || "/workspace";
@@ -571,16 +574,23 @@ async function runJob(job: Job): Promise<void> {
   };
   try {
     await update({ phase: "checkout" });
+    // 升级链完整性（审计 20260930 中等-3）：记录 checkout 前后的 commit SHA。
+    const fromSha = await git(["rev-parse", "HEAD"]);
     const remote = await git(["remote", "get-url", "origin"], 10_000);
     if (remote.ok) await git(["fetch", "--tags", "--force", "origin"], 90_000);
     const checkout = await git(["checkout", job.target], 120_000);
     if (!checkout.ok) throw new Error("切到目标版本失败：" + checkout.error);
+    const toSha = await git(["rev-parse", "HEAD"]);
+    await update({
+      phase: "install-build",
+      fromCommit: fromSha.ok ? fromSha.stdout.trim() : null,
+      toCommit: toSha.ok ? toSha.stdout.trim() : null,
+    });
     const newCommit = await git(["rev-parse", "HEAD"], 10_000);
     if (newCommit.ok) syncGitCommitEnv(newCommit.stdout);
     // 审批升级单的面板决策凭据：旧版 .env 可能缺失，升级时补生成
     //（仅追加不覆盖），确保 compose restart 后 watch/web 拿到该变量。
     ensurePanelDecisionEnv();
-    await update({ phase: "install-build" });
     const built = await build();
     if (!built.ok) throw new Error("构建失败：" + built.error);
     await update({ phase: "restart" });

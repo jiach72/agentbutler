@@ -133,6 +133,9 @@ export interface ButlerSelfJobView {
   finishedAt: string | null;
   error: string | null;
   snapshotId: string | null;
+  /** checkout 前后仓库 HEAD 的 commit SHA（供升级后核对）。 */
+  fromCommit?: string | null;
+  toCommit?: string | null;
 }
 
 export interface ButlerAvailableUpdate {

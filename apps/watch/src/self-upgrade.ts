@@ -69,6 +69,9 @@ export interface ButlerSelfJobView {
   finishedAt: string | null;
   error: string | null;
   snapshotId: string | null;
+  /** 升级链完整性（审计 20260930 中等-3）：checkout 前后仓库 HEAD 的 commit SHA。 */
+  fromCommit?: string | null;
+  toCommit?: string | null;
 }
 
 export interface ButlerAvailableUpdate {
@@ -238,6 +241,17 @@ function writeJsonAtomic(file: string, value: unknown): void {
   atomicWriteJson(file, value, { mode: 0o600, description: "自升级状态" });
 }
 
+/** 去掉远端 URL 中的 userinfo（可能含 token），供审计/日志安全展示。 */
+function redactOriginUrl(url: string): string {
+  return url.trim().replace(/^([^/]+\/\/)[^@/]+@/, "$1");
+}
+
+/** 归一化 http(s) 仓库 URL：去 .git 后缀与尾斜杠；非 http(s) 源返回 null（不比较）。 */
+function normalizeRepoUrl(url: string): string | null {
+  const value = url.trim().replace(/\.git$/, "").replace(/\/+$/, "").toLowerCase();
+  return /^https?:\/\//.test(value) ? value : null;
+}
+
 interface ParsedVersion {
   core: [number, number, number];
   prerelease: string[];
@@ -384,8 +398,19 @@ export async function executeSelfJob(
   };
   try {
     update({ phase: "checkout" });
-    // 临时/离线仓库可能没有 origin；先探测远端，避免无意义的长时间 fetch 阻塞升级。
+    // 升级链完整性（审计 20260930 中等-3）：记录 checkout 前的 HEAD，
+    // 并在配置了预期仓库时校验 origin（http/https 源）未被改写。
+    const fromSha = exec("git", ["rev-parse", "HEAD"], sourceDir, 10_000);
     const remote = exec("git", ["remote", "get-url", "origin"], sourceDir, 10_000);
+    const expectedRepo = normalizeRepoUrl(deps.repositoryUrl ?? "");
+    const originRepo = remote.ok ? normalizeRepoUrl(remote.stdout) : null;
+    if (expectedRepo !== null && originRepo !== null && originRepo !== expectedRepo) {
+      await fail(
+        `origin 远端（${redactOriginUrl(remote.stdout)}）与预期仓库不一致，已拒绝升级；请检查本地 git remote 配置。`,
+      );
+      return;
+    }
+    // 临时/离线仓库可能没有 origin；先探测远端，避免无意义的长时间 fetch 阻塞升级。
     if (remote.ok) {
       exec("git", ["fetch", "--tags", "origin"], sourceDir, 60_000);
     }
@@ -394,7 +419,12 @@ export async function executeSelfJob(
       await fail("切到目标版本失败：" + checkout.error);
       return;
     }
-    update({ phase: "install-build" });
+    const toSha = exec("git", ["rev-parse", "HEAD"], sourceDir, 10_000);
+    update({
+      phase: "install-build",
+      fromCommit: fromSha.ok ? fromSha.stdout.trim() : null,
+      toCommit: toSha.ok ? toSha.stdout.trim() : null,
+    });
     const built = build(sourceDir);
     if (!built.ok) {
       await fail("构建失败：" + built.error);
@@ -413,11 +443,18 @@ export async function executeSelfJob(
       return;
     }
     update({ status: "done", phase: "done", finishedAt: isoNow(now), error: null });
+    const finalJob = readJob();
     audit.append({
       actor: BUTLER_SELF_ACTOR,
       action: "self-upgrade-done",
       target: sourceDir,
-      detail: { jobId: job.jobId, kind: job.kind, target: job.target },
+      detail: {
+        jobId: job.jobId,
+        kind: job.kind,
+        target: job.target,
+        fromCommit: finalJob.fromCommit ?? null,
+        toCommit: finalJob.toCommit ?? null,
+      },
     });
   } catch (error) {
     await fail(error instanceof Error ? error.message : String(error));
@@ -444,8 +481,15 @@ export async function rollbackSelfJob(
   };
   try {
     update({ phase: "rollback" });
+    const fromSha = exec("git", ["rev-parse", "HEAD"], sourceDir, 10_000);
     const checkout = exec("git", ["checkout", job.target], sourceDir, 120_000);
     if (!checkout.ok) throw new Error("回滚切到 " + job.target + " 失败：" + checkout.error);
+    const toSha = exec("git", ["rev-parse", "HEAD"], sourceDir, 10_000);
+    update({
+      phase: "rollback",
+      fromCommit: fromSha.ok ? fromSha.stdout.trim() : null,
+      toCommit: toSha.ok ? toSha.stdout.trim() : null,
+    });
     const built = build(sourceDir);
     if (!built.ok) throw new Error("回滚构建失败：" + built.error);
     const restarted = restart(deps.services ?? []);
@@ -463,7 +507,13 @@ export async function rollbackSelfJob(
       actor: BUTLER_SELF_ACTOR,
       action: "self-upgrade-rollback",
       target: sourceDir,
-      detail: { jobId: job.jobId, target: job.target, from: job.from },
+      detail: {
+        jobId: job.jobId,
+        target: job.target,
+        from: job.from,
+        fromCommit: readJob().fromCommit ?? null,
+        toCommit: readJob().toCommit ?? null,
+      },
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
