@@ -164,7 +164,7 @@ curl -s http://127.0.0.1:7531/api/health | grep -o '"connected":[a-z]*'  # 消�
 | # | 坑 | 症状 | 状态 / 处置 |
 |---|---|---|---|
 | 1 | main 曾漏提交 4 个文件（85241b9） | 干净克隆后 `tsc -b` 报 `summary.js` / `onboardingDismiss.js` / `MemoryProbeConfigCard.js` 找不到；README 引用的 `scripts/install.sh` 不存在 | 已修复（d5a05df 补提交 4 文件 + 6 测试）。再遇到构建缺文件：先 `git log --stat` 核对引用方与被引用文件是否同一提交，不要怀疑本机环境 |
-| 2 | skills-manager CLI 下载产物曾硬编码 `Linux-x64` | Apple Silicon（darwin+arm64）上技能库 502，日志有 `spawn ENOEXEC`（Linux ELF 在 mac 不可执行） | 已修复（d5a05df 改为按 `process.platform`+`process.arch` 映射产物，并新增落位前 `--version` 冒烟：错平台二进制不再落位，降级为 unavailable 提示不中断服务）。老版本镜像升级后技能库自动恢复，无需手动下载 CLI |
+| 2 | skills-manager CLI 下载产物曾硬编码 `Linux-x64` | Apple Silicon（darwin+arm64）上技能库 502，日志有 `spawn ENOEXEC`（Linux ELF 在 mac 不可执行） | 已修复（d5a05df 改为按 `process.platform`+`process.arch` 映射产物，并新增落位前 `--version` 冒烟：错平台二进制不再落位，降级为 unavailable 提示不中断服务）。老版本镜像升级后技能库自动恢复，无需手动下载 CLI。**后续版本已整体移除 skills-manager 集成，技能安装统一走 SkillHub（watch 镜像不再内置该 CLI）** |
 | 3 | pnpm 会话子进程随父会话死亡 | 客户 agent 用 `pnpm start` 裸跑部署，终端会话结束/SSH 断开后服务全部消失，误判为「安装失败」 | 裸跑仅限一次性验证。长期运行必须走 Docker（`restart: unless-stopped`）；验证完执行 `corepack pnpm` 相关进程清理后改走分支 A |
 | 4 | Bridge 注入后需外部重启网关才激活 | 部署中向 Hermes 注入 Bridge 配置后，Gateway 侧连接一直 `connected:false`（注入不触发运行中的 Hermes 重载） | 注入完成后在宿主执行 `systemctl --user restart hermes-gateway`（或等价方式重启网关进程），再跑 `bash scripts/bridge-healthcheck.sh` 验证 |
 | 5 | 数据库锁定瞬态自愈 | 日志偶见 `SQLITE_BUSY` / `database is locked` | 瞬态：写路径带重试，通常自愈。仅在错误**持续**出现且面板数据停更时，`docker compose restart butler-watch`，并检查是否存在跨容器共享同一 SQLite 文件的非常规挂载 |

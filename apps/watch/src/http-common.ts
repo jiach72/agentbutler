@@ -35,7 +35,6 @@ import type { CanaryService } from "./canary.js";
 import type { ProgressIntegrityService } from "./progress-integrity.js";
 import type { MemoryDiffService } from "./memory-diff.js";
 import type { FederationService } from "./federation.js";
-import { SkillsManagerError, SKILLS_MANAGER_INSTALL_HINT, type SkillsManagerCli } from "./skills-manager.js";
 import { RepairSessionService } from "./repair-session.js";
 
 /** 记忆按需自检（memory-probe 单阶段）的结论。 */
@@ -321,8 +320,6 @@ export interface WatchHttpDeps {
   markdownFiles?: MarkdownFileService;
   /** 主机与 agent 进程指标服务（可选；未接线时 /api/host/metrics 返回 503）。 */
   hostMetrics?: HostMetricsService;
-  /** 技能库管理器（skills-manager CLI 集成；未接线时 /api/skills-manager/* 返回 503）。 */
-  skillsManager?: SkillsManagerCli;
   /**
    * 数据目录（github-token.json 存放处）。与 upgrade / skill-assets 消费端同一来源
    * （watch.ts 组装处传 core.paths.home）；未接线时 /api/github-token 返回 503。
@@ -997,16 +994,3 @@ export function internalErrorResponse(error: unknown): Record<string, string> {
   return { error: "internal-error", code: classified.code, detail: classified.detail, nextStep: classified.nextStep, errorId: classified.errorId };
 }
 
-export function skillsManagerErrorStatus(code: string): number {
-  if (code === "skills-manager-unavailable") return 503;
-  if (code === "TARGET_CONFLICT" || code === "deploy-target-conflict") return 409;
-  if (code === "INVALID_ARGUMENT") return 400;
-  return 502;
-}
-
-export function skillsManagerErrorBody(error: SkillsManagerError): Record<string, string> {
-  if (error.code === "skills-manager-unavailable") {
-    return { error: "skills-manager-unavailable", code: error.code, message: error.message, installHint: SKILLS_MANAGER_INSTALL_HINT };
-  }
-  return { error: "skills-manager-cli-failed", code: error.code, message: error.message };
-}

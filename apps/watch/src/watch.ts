@@ -92,7 +92,6 @@ import { buildDiagnosticSummary, renderDiagnosticReport } from "./diagnostics.js
 import type { LogMtimeSampler } from "./probes/stall-write.js";
 import type { MemoryProbeProvider, SqliteOpener } from "./probes/memory-probe.js";
 import { createSkillsMemoryService, type SkillsMemoryService } from "./skills.js";
-import { createSkillsManagerCli, type SkillsManagerCli } from "./skills-manager.js";
 import { discoverHermesLlm } from "./llm-discovery.js";
 import { createExternalEvolutionService, type ExternalEvolutionService } from "./external-evolution.js";
 import { createSkillAssetService, type SkillAssetService } from "./skill-assets.js";
@@ -218,8 +217,6 @@ export interface WatchApp {
   evolutionInsights: import("./evolution-insights.js").EvolutionInsightsService;
   evolutionAnalytics: EvolutionAnalyticsService;
   skillAssets: SkillAssetService;
-  /** 技能库管理器（skills-manager CLI 集成；HTTP /api/skills-manager/*）。 */
-  skillsManager: SkillsManagerCli;
   /** M5 切片 1/2：提示词 Registry + 候选持久化 + 成对评估服务。 */
   promptOptimization: PromptOptimizationService;
   /** Task 18：备份服务（每日全量/记忆增量/事件触发 + 还原）。 */
@@ -2170,13 +2167,6 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       })
     : undefined;
 
-  // 技能库管理器（skills-manager CLI 集成）：CLI 的 HOME 隔离在数据卷
-  // <dataDir>/skills-manager-home（中央库随卷持久化）；部署目标 claude_code 落在
-  // <cliHome>/.claude/skills，由服务维护为指向 Hermes skills 目录的 symlink 穿透落位。
-  const skillsManager: SkillsManagerCli = createSkillsManagerCli({
-    cliHome: join(core.paths.dataDir, "skills-manager-home"),
-    hermesSkillsDir: join(runtime.hermesRoot, "skills"),
-  });
   const evolutionInsights = createEvolutionInsightsService({
     core,
     analyzeLogs: (instanceId, range) => logAnalyzer.analyze(instanceId, range),
@@ -2270,7 +2260,6 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
       evolutionAnalytics,
       skillAssets,
       llmUsage,
-      skillsManager,
       // 信任层（Trust Layer）服务注册：M1 成本/审计/急停 + M2 事件中心/周报 + M2.3 会话索引。
       // ⚠️ 这些必须显式注入，否则断点端点在生产装配下返回 503（测试因直接传 deps 掩盖过该问题）。
       budget: budgetEngine,
@@ -2413,7 +2402,6 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
     evolutionInsights,
     evolutionAnalytics,
     skillAssets,
-    skillsManager,
     promptOptimization,
     backup,
     security,

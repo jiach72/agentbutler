@@ -2,8 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { atomicWriteJson, withManagedOperationLock, type Core, type InstanceRecord } from "@butler/core";
-import { resolveGithubToken } from "./github-token.js";
-import { createSkillHubClient, isNewerVersion, parseGitSource, readTarGzEntries, readZipEntries, type SkillHubCategoriesView, type SkillHubClient, type SkillHubListQuery, type SkillHubListView, type ZipEntry } from "./skillhub.js";
+import { createSkillHubClient, isNewerVersion, readZipEntries, type SkillHubCategoriesView, type SkillHubClient, type SkillHubListQuery, type SkillHubListView, type ZipEntry } from "./skillhub.js";
 import type { BackupService } from "./backup.js";
 import type { BackupGate } from "./backup-gate.js";
 import type { SkillsMemoryService } from "./skills.js";
@@ -16,10 +15,6 @@ export interface SkillAssetService {
   archive(name: string, thresholdDays?: number): Promise<Record<string, unknown>>;
   restore(name: string): Promise<Record<string, unknown>>;
   purge(name: string, confirmed: boolean): Promise<Record<string, unknown>>;
-  githubTrends(query?: { filter?: string; sort?: string }): Promise<Record<string, unknown>>;
-  refreshGithubTrends(): Promise<Record<string, unknown>>;
-  recommendations(): Promise<Record<string, unknown>>;
-  stageRecommendation(id: string): Promise<Record<string, unknown>>;
   installStaged(id: string, confirmed: boolean, overwrite?: boolean): Promise<Record<string, unknown>>;
   /** SkillHub（skillhub.cn）目录：一级分类（带短缓存）。 */
   skillHubCategories(): Promise<SkillHubCategoriesView>;
@@ -27,13 +22,11 @@ export interface SkillAssetService {
   skillHubList(query: SkillHubListQuery): Promise<SkillHubListView>;
   /** SkillHub 技能暂存：下载 zip → 解压校验 → 风险扫描 → 写入隔离区（复用 installStaged 确认安装）。 */
   stageSkillHub(slug: string): Promise<Record<string, unknown>>;
-  /** GitHub 仓库暂存：下载 tarball → 定位根目录 SKILL.md → 风险扫描 → 隔离区。 */
-  stageGitSource(url: string): Promise<Record<string, unknown>>;
   /** 本机已装技能清单：以 Hermes 技能目录为唯一事实来源。 */
   listLocal(): Promise<LocalSkillsView>;
   /** 删除本机技能：先移入备份区（可手动恢复），confirmed=false 时只返回预览。 */
   removeLocal(name: string, confirmed: boolean): Promise<Record<string, unknown>>;
-  /** 已装技能更新检查：SkillHub 比对版本、Git 比对最新 commit。 */
+  /** 已装技能更新检查：经 SkillHub 比对版本号（Git 来源已随「从 Git 安装」下线）。 */
   checkLocalUpdates(): Promise<LocalUpdatesView>;
   /** 更新单个技能：重新下载最新版并覆盖本机（旧版本移入备份区）。 */
   updateLocal(name: string, confirmed: boolean): Promise<Record<string, unknown>>;
@@ -78,63 +71,6 @@ export interface LocalUpdatesView {
 type ArchivedMeta = { name: string; source: string; originalPath: string; archivePath: string; archivedAt: string; hash: string };
 type LogSource = { id: string; path?: string; format?: string };
 type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
-type GithubRequestError = Error & {
-  status?: number;
-  apiMessage?: string;
-  rateLimitRemaining?: string | null;
-  rateLimitReset?: number | null;
-};
-
-const GITHUB_USER_AGENT = "agent-butler/1.0.0-beta.17";
-
-function githubHeaders(token: string): Record<string, string> {
-  return {
-    Accept: "application/vnd.github+json",
-    "User-Agent": GITHUB_USER_AGENT,
-    ...(token === "" ? {} : { Authorization: `Bearer ${token}` }),
-  };
-}
-
-async function githubResponseError(response: Response, operation: string): Promise<GithubRequestError> {
-  let apiMessage: string | undefined;
-  try {
-    const body = await response.json() as { message?: unknown };
-    if (typeof body.message === "string") apiMessage = body.message;
-  } catch {
-    // Some proxies return an empty or non-JSON error body.
-  }
-  const error = new Error(`${operation} HTTP ${response.status}`) as GithubRequestError;
-  error.status = response.status;
-  error.apiMessage = apiMessage;
-  error.rateLimitRemaining = response.headers.get("x-ratelimit-remaining");
-  const reset = Number(response.headers.get("x-ratelimit-reset"));
-  error.rateLimitReset = Number.isFinite(reset) && reset > 0 ? reset : null;
-  return error;
-}
-
-function githubFailure(error: unknown): { code: string; detail: string; fix: string; retryAt?: string } {
-  const failure = error as Partial<GithubRequestError>;
-  const message = typeof failure.apiMessage === "string" ? failure.apiMessage : error instanceof Error ? error.message : String(error);
-  const rateLimited = failure.status === 429 || (failure.status === 403 && (failure.rateLimitRemaining === "0" || /rate limit exceeded/i.test(message)));
-  if (rateLimited) {
-    return {
-      code: "github-rate-limit",
-      detail: "GitHub 公共 API 当前已达到请求限额。",
-      fix: "稍后重试；如需立即安装，请在部署环境配置 GITHUB_TOKEN 后重启 Butler。",
-      ...(failure.rateLimitReset !== undefined && failure.rateLimitReset !== null ? { retryAt: new Date(failure.rateLimitReset * 1000).toISOString() } : {}),
-    };
-  }
-  if (failure.status === 401 || failure.status === 403) {
-    return { code: "github-access-denied", detail: "GitHub 仓库无法访问。", fix: "确认仓库公开且可访问；私有仓库请检查 GITHUB_TOKEN 权限。" };
-  }
-  if (failure.status === 404) {
-    return { code: "github-repository-not-found", detail: "GitHub 仓库或技能文件不存在。", fix: "确认推荐项目仍存在，并包含 SKILL.md 后重试。" };
-  }
-  if (failure.status === undefined) {
-    return { code: "github-network-error", detail: "当前无法连接 GitHub。", fix: "检查网络或代理设置，稍后重试。" };
-  }
-  return { code: "github-request-failed", detail: "GitHub 暂时无法提供技能文件。", fix: "稍后重试；如果持续失败，请检查仓库状态。" };
-}
 
 function iso(now: () => number): string { return new Date(now()).toISOString(); }
 function sha(value: string): string { return createHash("sha256").update(value).digest("hex"); }
@@ -301,31 +237,11 @@ function usedSkillName(line: string): string | null {
   return (assignment ?? quoted)?.split("@")[0] ?? null;
 }
 
-const repositoryDescriptions: Record<string, string> = {
-  "obra/superpowers": "软件开发任务的规划、实现与复查工作流。",
-  "affaan-m/ECC": "面向编码代理的工程规范与开发检查清单。",
-  "mattpocock/skills": "TypeScript 和应用开发相关的可复用技能集合。",
-  "anthropics/skills": "文档、演示文稿和应用构建相关技能集合。",
-  "Shubhamsaboo/awesome-llm-apps": "大模型应用和智能体项目示例集合。",
-  "addyosmani/agent-skills": "前端与工程任务中可复用的代理技能示例。",
-  "Leonxlnx/taste-skill": "用于改进界面体验和视觉细节的技能示例。",
-  "bytedance/deer-flow": "面向复杂任务的多步骤智能体工作流项目。",
-};
-function describeRepository(name: string): string {
-  const known = repositoryDescriptions[name];
-  if (known) return known;
-  return "公开技能项目，具体用途以仓库说明为准。";
-}
-
-export function createSkillAssetService(deps: { core: Core; skills: SkillsMemoryService; backup?: BackupService; backupGate?: BackupGate; logs?: { listSources(instanceId?: string): LogSource[]; readTail(sourceId: string, instanceId?: string, limit?: number): Promise<{ lines: string[] } | null> }; now?: () => number; fetch?: FetchLike; githubToken?: string; skillHub?: SkillHubClient }): SkillAssetService {
+export function createSkillAssetService(deps: { core: Core; skills: SkillsMemoryService; backup?: BackupService; backupGate?: BackupGate; logs?: { listSources(instanceId?: string): LogSource[]; readTail(sourceId: string, instanceId?: string, limit?: number): Promise<{ lines: string[] } | null> }; now?: () => number; fetch?: FetchLike; skillHub?: SkillHubClient }): SkillAssetService {
   const now = deps.now ?? Date.now;
   const fetchImpl = deps.fetch ?? globalThis.fetch.bind(globalThis);
   const skillHub = deps.skillHub ?? createSkillHubClient({ fetchImpl, now });
-  // GitHub 令牌优先级：env（部署显式配置）> 注入 dep（测试）> 设置页保存的
-  // <home>/github-token.json（与本体目录同源解析）；都没有则匿名访问（受限流）。
-  const githubToken = resolveGithubToken(deps.core.paths.home, deps.githubToken).trim();
-  const headers = githubHeaders(githubToken);
-  const root = join(deps.core.paths.home, "skill-assets"); const archiveRoot = join(root, "archive"); const stageRoot = join(root, "staged"); const trendPath = join(root, "github-trends.json");
+  const root = join(deps.core.paths.home, "skill-assets"); const archiveRoot = join(root, "archive"); const stageRoot = join(root, "staged");
   mkdirSync(archiveRoot, { recursive: true }); mkdirSync(stageRoot, { recursive: true });
   const archived = new Map<string, ArchivedMeta>();
   for (const file of readdirSync(archiveRoot, { withFileTypes: true })) { if (!file.isDirectory()) continue; try { const meta = JSON.parse(readFileSync(join(archiveRoot, file.name, "meta.json"), "utf8")) as ArchivedMeta; archived.set(meta.name, meta); } catch { /* ignore corrupt archive */ } }
@@ -481,10 +397,6 @@ export function createSkillAssetService(deps: { core: Core; skills: SkillsMemory
         }
       });
     },
-    async githubTrends(query = {}) { let cached: Record<string, unknown> = {}; try { cached = JSON.parse(readFileSync(trendPath, "utf8")) as Record<string, unknown>; } catch { /* empty cache */ } const items = Array.isArray(cached.items) ? cached.items.map((item) => { const row = item as Record<string, unknown>; const name = String(row["name"] ?? ""); return { ...row, description: describeRepository(name) }; }) : []; return { items, filter: query.filter ?? "all", sort: query.sort ?? "trend", syncedAt: cached.syncedAt ?? null, source: "GitHub public API cache", notice: "公开仓库趋势，不代表官方 Hermes 技能排名。" }; },
-    async refreshGithubTrends() { try { const response = await fetchImpl("https://api.github.com/search/repositories?q=agent+skill+OR+hermes+skill+OR+openclaw+skill&sort=stars&order=desc&per_page=30", { headers, signal: AbortSignal.timeout(10000) }); if (!response.ok) throw await githubResponseError(response, "GitHub search"); const body = await response.json() as { items?: Array<Record<string, unknown>> }; const payload = { syncedAt: iso(now), items: (body.items ?? []).map((i) => { const name = String(i["full_name"] ?? ""); return { name, url: String(i["html_url"] ?? ""), stars: Number(i["stargazers_count"] ?? 0), forks: Number(i["forks_count"] ?? 0), updatedAt: String(i["updated_at"] ?? ""), description: describeRepository(name) }; }) }; atomicWriteJson(trendPath, payload, { mode: 0o600, description: "技能趋势缓存" }); return { ...payload, notice: "公开仓库趋势，不代表官方 Hermes 技能排名。" }; } catch (error) { const failure = githubFailure(error); return { ...(await this.githubTrends()), error: failure.code, detail: failure.detail, fix: failure.fix, ...(failure.retryAt === undefined ? {} : { retryAt: failure.retryAt }), notice: "同步失败，继续使用上次缓存（如有）。" }; } },
-    async recommendations() { const stats = await usage(90); const trends = await this.githubTrends(); const installed = new Set(stats.skills.filter((i) => i.status === "known").map((i) => i.name)); const items = (Array.isArray(trends.items) ? trends.items : []).filter((i) => typeof i === "object" && i !== null).map((i) => { const row = i as Record<string, unknown>; const name = String(row["name"] ?? ""); const description = describeRepository(name); return { id: "github:" + name, name, description, reason: description, sourceUrl: row["url"] ?? "", installed: installed.has(name) }; }).filter((i) => !i.installed); return { items, generatedAt: iso(now), notice: "推荐结合本地使用情况和公开仓库信息，不自动安装。" }; },
-    async stageRecommendation(id) { if (!id.startsWith("github:")) return { ok: false, error: "invalid-recommendation", fix: "选择公开 GitHub 推荐" }; const source = id.slice("github:".length); if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(source)) return { ok: false, error: "invalid-recommendation", fix: "GitHub 仓库标识无效" }; const stageId = randomUUID(); const path = join(stageRoot, stageId); mkdirSync(path, { recursive: true }); try { const treeResponse = await fetchImpl("https://api.github.com/repos/" + source + "/git/trees/HEAD?recursive=1", { headers, signal: AbortSignal.timeout(15000) }); if (!treeResponse.ok) throw await githubResponseError(treeResponse, "GitHub tree"); const tree = await treeResponse.json() as { tree?: Array<{ path?: string; type?: string }> }; const skillPath = (tree.tree ?? []).find((item) => item.type === "blob" && typeof item.path === "string" && item.path.toLowerCase().endsWith("skill.md"))?.path; if (!skillPath || skillPath.includes("..") || skillPath.startsWith("/")) throw new Error("SKILL.md not found"); const fileResponse = await fetchImpl("https://api.github.com/repos/" + source + "/contents/" + skillPath.split("/").map(encodeURIComponent).join("/"), { headers, signal: AbortSignal.timeout(15000) }); if (!fileResponse.ok) throw await githubResponseError(fileResponse, "GitHub content"); const file = await fileResponse.json() as { content?: string; encoding?: string }; if (file.encoding !== "base64" || typeof file.content !== "string") throw new Error("SKILL.md content unavailable"); const skillText = Buffer.from(file.content.replace(/\\s/g, ""), "base64").toString("utf8"); if (!skillText.trim() || /(^|\\n)\\s*\\.\\.(?:[\\\\/]|$)/.test(skillText)) throw new Error("unsafe SKILL.md"); const risk = inspectSkillText(skillText); writeFileSync(join(path, "SKILL.md"), skillText, { mode: 0o600 }); atomicWriteJson(join(path, "source.json"), { id, sourceUrl: "https://github.com/" + source, sourcePath: skillPath, stagedAt: iso(now) }, { mode: 0o600, description: "隔离技能来源" }); return { ok: true, id: stageId, status: "staged", sourceUrl: "https://github.com/" + source, sourcePath: skillPath, risk, notice: "已下载到 Butler 隔离区并完成初步风险扫描，尚未写入 Hermes；请确认安装" }; } catch (error) { rmSync(path, { recursive: true, force: true }); const failure = error instanceof Error && "status" in error ? githubFailure(error) : { code: "stage-download-failed", detail: "技能文件下载或检查未完成。", fix: "检查仓库是否包含有效 SKILL.md，或稍后重试。" }; return { ok: false, error: failure.code, detail: failure.detail, fix: failure.fix, ...(failure.retryAt === undefined ? {} : { retryAt: failure.retryAt }) }; } },
     async installStaged(id, confirmed, overwrite = false) {
       if (!confirmed) return { ok: false, error: "confirmation-required", fix: "确认安装前不要写入 Hermes" };
       if (!/^[0-9a-f-]{36}$/.test(id)) return { ok: false, error: "invalid-stage-id", fix: "无效的隔离安装标识" };
@@ -594,52 +506,6 @@ export function createSkillAssetService(deps: { core: Core; skills: SkillsMemory
       }
     },
 
-    /** GitHub 仓库暂存：下载 tarball → 根目录 SKILL.md → 风险扫描 → 隔离区；记录 commit 供更新检查。 */
-    async stageGitSource(urlRaw) {
-      const parsed = parseGitSource(urlRaw);
-      if (parsed === null) return { ok: false, error: "invalid-git-source", fix: "支持 GitHub 仓库：owner/repo 或完整 https://github.com/owner/repo 地址（可带 /tree/分支）。" };
-      const { owner, repo } = parsed;
-      const ref = parsed.ref ?? "HEAD";
-      let files: ZipEntry[];
-      try {
-        const response = await fetchImpl(`https://codeload.github.com/${owner}/${repo}/tar.gz/${encodeURIComponent(ref)}`, { headers, signal: AbortSignal.timeout(90_000), redirect: "follow" });
-        if (response.status === 404) throw new Error("仓库或分支不存在");
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const bytes = new Uint8Array(await response.arrayBuffer());
-        if (bytes.byteLength > 100 * 1024 * 1024) throw new Error("仓库压缩包超过 100MB 上限");
-        files = stripCommonPrefix(readTarGzEntries(bytes));
-      } catch (error) {
-        return { ok: false, error: "git-download-failed", detail: error instanceof Error ? error.message : String(error), fix: "确认仓库存在且根目录含 SKILL.md；目前支持 GitHub 仓库。" };
-      }
-      if (files.length === 0) {
-        return { ok: false, error: "skill-md-missing", fix: "仓库里没有找到任何 SKILL.md，无法安装。" };
-      }
-      const sourceUrl = `https://github.com/${owner}/${repo}${parsed.ref === undefined ? "" : `/tree/${parsed.ref}`}`;
-      let commit: string | null = null;
-      try {
-        const commitResponse = await fetchImpl(`https://api.github.com/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}`, { headers, signal: AbortSignal.timeout(15_000) });
-        if (commitResponse.ok) {
-          const body = await commitResponse.json() as { sha?: unknown };
-          if (typeof body.sha === "string") commit = body.sha;
-        }
-      } catch { /* commit 获取失败不阻塞安装 */ }
-      try {
-        const staged = stageFromEntries(files, sourceUrl, { source: "git", gitUrl: `https://github.com/${owner}/${repo}`, ref, ...(commit === null ? {} : { commit }) });
-        return {
-          ok: true,
-          id: staged.id,
-          status: "staged",
-          name: staged.name ?? `${owner}/${repo}`,
-          sourceUrl,
-          risk: staged.risk,
-          ...(staged.collection > 1 ? { collection: staged.collection, notice: `合集仓库：确认后将安装其中 ${staged.collection} 个技能` } : { notice: "已完成安全检查，确认后写入本机技能目录" }),
-        };
-      } catch (error) {
-        if (error instanceof Error && error.message === "skill-md-missing") return { ok: false, error: "skill-md-missing", fix: "仓库里没有找到任何 SKILL.md，无法安装。" };
-        return { ok: false, error: "git-stage-failed", detail: error instanceof Error ? error.message : String(error), fix: "检查磁盘与权限后重试。" };
-      }
-    },
-
     /** 本机已装清单：扫描 Hermes 技能目录，SKILL.md + source.json 合成视图。 */
     async listLocal() {
       const instance = instanceOf(deps.core);
@@ -718,7 +584,7 @@ export function createSkillAssetService(deps: { core: Core; skills: SkillsMemory
       });
     },
 
-    /** 更新检查：SkillHub 比对版本号，Git 比对最新 commit。 */
+    /** 更新检查：经 SkillHub 比对版本号；Git 来源已随「从 Git 安装」下线，只报未知。 */
     async checkLocalUpdates() {
       const { items } = await this.listLocal();
       const updates: LocalUpdateItem[] = [];
@@ -731,18 +597,6 @@ export function createSkillAssetService(deps: { core: Core; skills: SkillsMemory
         ),
       ];
       const hubLatest = hubSlugs.length > 0 ? await skillHub.latestVersions(hubSlugs) : new Map<string, string>();
-      const gitRepos = [...new Set(items.filter((item) => item.origin === "git" && item.gitUrl !== null).map((item) => item.gitUrl!))];
-      const gitLatest = new Map<string, string | null>();
-      for (const gitUrl of gitRepos) {
-        const parsed = parseGitSource(gitUrl);
-        if (parsed === null) { gitLatest.set(gitUrl, null); continue; }
-        try {
-          const response = await fetchImpl(`https://api.github.com/repos/${parsed.owner}/${parsed.repo}/commits/${encodeURIComponent(parsed.ref ?? "HEAD")}`, { headers, signal: AbortSignal.timeout(12_000) });
-          if (!response.ok) { gitLatest.set(gitUrl, null); continue; }
-          const body = await response.json() as { sha?: unknown };
-          gitLatest.set(gitUrl, typeof body.sha === "string" ? body.sha : null);
-        } catch { gitLatest.set(gitUrl, null); }
-      }
       for (const item of items) {
         const hubSlug = item.origin === "skillhub" ? (item.slug ?? item.name) : null;
         if (item.origin === "skillhub" && hubSlug !== null) {
@@ -761,18 +615,7 @@ export function createSkillAssetService(deps: { core: Core; skills: SkillsMemory
           continue;
         }
         if (item.origin === "git" && item.gitUrl !== null) {
-          const latest = gitLatest.get(item.gitUrl) ?? null;
-          if (latest === null) {
-            updates.push({ name: item.name, status: "unknown", installedVersion: null, latestVersion: null, reason: "暂时查不到 GitHub 最新版本，稍后再查。" });
-            continue;
-          }
-          updates.push({
-            name: item.name,
-            status: item.commit === null || item.commit !== latest ? "available" : "up_to_date",
-            installedVersion: item.commit === null ? null : item.commit.slice(0, 7),
-            latestVersion: latest.slice(0, 7),
-            ...(item.commit === null ? { reason: "本机未记录来源版本，建议更新一次以建立基线。" } : {}),
-          });
+          updates.push({ name: item.name, status: "unknown", installedVersion: null, latestVersion: null, reason: "Git 来源技能的自动更新已下线；请从 SkillHub 重新安装或手动更新。" });
           continue;
         }
         updates.push({ name: item.name, status: "unknown", installedVersion: item.version, latestVersion: null, reason: "本机技能未记录来源，无法自动检查更新。" });
@@ -792,8 +635,7 @@ export function createSkillAssetService(deps: { core: Core; skills: SkillsMemory
       let staged: Record<string, unknown>;
       const hubSlug = item.origin === "skillhub" ? (item.slug ?? item.name) : null;
       if (item.origin === "skillhub" && hubSlug !== null) staged = await this.stageSkillHub(hubSlug);
-      else if (item.origin === "git" && item.gitUrl !== null) staged = await this.stageGitSource(item.gitUrl);
-      else return { ok: false, error: "no-source", fix: "该技能没有记录来源，无法自动更新。" };
+      else return { ok: false, error: "no-source", fix: item.origin === "git" ? "Git 来源技能的自动更新已下线；请从 SkillHub 重新安装或手动更新。" : "该技能没有记录来源，无法自动更新。" };
       if (staged.ok !== true) return staged;
       return this.installStaged(String((staged as { id: unknown }).id), true, true);
     },

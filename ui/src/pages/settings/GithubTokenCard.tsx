@@ -1,7 +1,7 @@
 /**
  * GitHub 访问令牌设置卡片（设置页「本机安全」）：密码框输入 + 保存/清除 +
  * 配置状态徽标。令牌只写不读——状态来自 GET /api/github-token 的 configured
- * 布尔，任何接口都不回显令牌值；保存后立即生效（版本查询与技能市场即时使用）。
+ * 布尔，任何接口都不回显令牌值；保存后立即生效（上游版本查询即时使用）。
  */
 import { useCallback, useEffect, useState } from "react";
 import { App, Button, Card, Flex, Input, Popconfirm, Tooltip, Typography } from "antd";
@@ -108,7 +108,7 @@ export function GithubTokenCard() {
       <Flex vertical gap={12}>
         <Flex justify="space-between" align="center" wrap="wrap" gap={8}>
           <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-            用于查询 GitHub 版本与技能市场，避免匿名 API 限流（仅需读取公开仓库，无需勾选任何私有仓库权限）。保存后立即生效，不需要重启。
+            用于查询 GitHub 上游版本（一键升级检查），避免匿名 API 限流（仅需读取公开仓库，无需勾选任何私有仓库权限）。保存后立即生效，不需要重启。
           </Paragraph>
           <Typography.Link
             href="https://github.com/settings/tokens/new?description=AgentButler&scopes=public_repo"
@@ -134,7 +134,7 @@ export function GithubTokenCard() {
           </Button>
           <Popconfirm
             title="清除 GitHub 访问令牌？"
-            description="清除后公开版本和技能查询可能再次受到匿名限流。"
+            description="清除后公开版本查询可能再次受到匿名限流。"
             okText="确认清除"
             cancelText="保留"
             onConfirm={() => void clearToken()}

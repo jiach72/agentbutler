@@ -276,6 +276,6 @@ Agent Butler 仍处于 Beta 阶段。当前优先保证本地部署、运行时�
 
 MIT
 
-### 技能库管理（skills-manager 集成）
+### 技能安装（SkillHub）
 
-「技能」页新增「技能库」标签：基于 [skills-manager](https://github.com/xingkongliang/skills-manager) CLI 提供中央技能库——从 Git 仓库安装技能、一键部署/取消部署到 Hermes 技能目录（`~/.hermes/skills`）、更新检查。所有破坏性操作先预览再确认；中央库持久化在数据卷（`skills-manager-home/`）。CLI 未安装时页面会给出安装指引。页面同时支持 skills.sh 市场搜索与安装、按关键词/标签/来源筛选、批量部署/取消部署/删除与一键更新全部；本机收编技能可绑定 Git 源，恢复后续更新能力。
+「技能」页的技能安装唯一来源为 [SkillHub](https://skillhub.cn)（`api.skillhub.cn`，国内可直连）：分类浏览、关键词搜索、下载到 Butler 隔离区做静态风险扫描（外联域名/敏感路径/危险命令），确认后写入 Hermes 技能目录（`~/.hermes/skills`）。已安装技能支持按 SkillHub 版本号检查更新、单个/一键全部更新（旧版本先移入备份区）与删除恢复。此前基于 skills-manager CLI 的「从 Git 安装」与 GitHub 推荐/趋势链路已移除；历史 Git 来源技能仍会展示与备份，但不再提供自动更新。

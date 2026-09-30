@@ -1,6 +1,6 @@
 /**
  * 技能市场（分类侧栏 + 瀑布流卡片）共享类型与工具：
- * 固定中文分类体系、关键词归类启发式、skills-manager 载荷映射与操作状态标签。
+ * 固定中文分类体系、关键词归类启发式与暂存风险解析。
  */
 import {
   BarChartOutlined,
@@ -13,70 +13,6 @@ import {
   AppstoreOutlined,
 } from "@ant-design/icons";
 import type { ComponentType } from "react";
-
-/** skills-manager 中央库技能条目（status 接口原始形状，字段宽松）。 */
-export interface SkillsManagerSkill {
-  name: string;
-  skill_id?: string;
-  description?: string;
-  source_type?: string;
-  source_ref?: string;
-  tags?: string[];
-  [key: string]: unknown;
-}
-export interface SkillsManagerStatusOk {
-  available: true;
-  cli: { path: string; version: string };
-  repo: Record<string, unknown>;
-  skills: SkillsManagerSkill[];
-  deployTarget?: { agent: string; dir: string; symlinked: boolean };
-  hermesSkillsDir?: string;
-}
-export type SkillsManagerStatus = SkillsManagerStatusOk | { available: false; installHint?: string };
-export interface UpdateCheckItem {
-  name?: string;
-  skill_id?: string;
-  update_status?: string | null;
-  last_check_error?: string | null;
-  [key: string]: unknown;
-}
-/** skills.sh 市场搜索结果。 */
-export interface MarketSearchResult {
-  install_ref?: string;
-  name?: string;
-  source?: string;
-  skill_id?: string;
-  installs?: number;
-  [key: string]: unknown;
-}
-/** 公开趋势（GitHub）条目。 */
-export interface TrendItem {
-  name: string;
-  url: string;
-  stars: number;
-  forks: number;
-  updatedAt: string;
-  description?: string;
-}
-/** 本机使用情况生成的推荐技能。 */
-export interface Recommendation {
-  id: string;
-  name: string;
-  reason: string;
-  description?: string;
-  sourceUrl: string;
-}
-/** Watch 在推荐技能暂存阶段返回的轻量风险扫描结果。 */
-export interface StagedSkillRisk {
-  status: "clear" | "blocked";
-  externalDomains: string[];
-  sensitivePaths: string[];
-  dangerousCommands: string[];
-  detail: string;
-}
-
-export const DEPLOY_AGENT = "claude_code";
-export const ACTION_TIMEOUT_MS = 120_000;
 
 /** 分类色调：软底/前景成对（marketplace.css 的 tone-* 类同名）。 */
 export type CategoryTone = "teal" | "blue" | "purple" | "cinnabar" | "green" | "gold" | "gray";
@@ -139,6 +75,15 @@ export function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
+/** Watch 在推荐技能暂存阶段返回的轻量风险扫描结果。 */
+export interface StagedSkillRisk {
+  status: "clear" | "blocked";
+  externalDomains: string[];
+  sensitivePaths: string[];
+  dangerousCommands: string[];
+  detail: string;
+}
+
 /** 容忍旧 Watch 不返回风险字段，避免升级期间把合法暂存误判为风险通过。 */
 export function parseStagedRisk(value: unknown): StagedSkillRisk | null {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
@@ -152,32 +97,6 @@ export function parseStagedRisk(value: unknown): StagedSkillRisk | null {
     dangerousCommands: stringArray(record["dangerousCommands"]),
     detail: typeof record["detail"] === "string" ? record["detail"] : "",
   };
-}
-
-export function deployedToTarget(item: SkillsManagerSkill): boolean {
-  const deployedTo = item["deployed_to"];
-  if (Array.isArray(deployedTo)) return deployedTo.includes(DEPLOY_AGENT);
-  return item["deployed"] === true;
-}
-
-export function hasAvailableUpdate(item: UpdateCheckItem | undefined): boolean {
-  const status = item?.update_status;
-  return (
-    typeof status === "string" &&
-    status !== "" &&
-    !["up_to_date", "skipped", "local_only"].includes(status)
-  );
-}
-
-export function updateStatusLabel(status: string | null | undefined): {
-  text: string;
-  color?: "success" | "warning" | "error" | "default";
-} {
-  if (status === "up_to_date") return { text: "已是最新", color: "success" };
-  if (status === "local_only") return { text: "本地来源" };
-  if (!status) return { text: "未检查" };
-  if (status === "skipped") return { text: "已跳过" };
-  return { text: "有可用更新", color: "warning" };
 }
 
 export function extractError(
@@ -194,31 +113,4 @@ export function extractError(
     if (typeof record["error"] === "string" && record["error"] !== "") return record["error"];
   }
   return fallback;
-}
-
-/** 试运行预览的中文键名映射 + 有序键值对提取。 */
-export function previewEntries(preview: unknown): Array<[string, string]> {
-  if (preview === null || typeof preview !== "object") return [];
-  const labels: Record<string, string> = {
-    action: "动作",
-    dry_run: "试运行",
-    name: "名称",
-    skill_count: "技能数",
-    pair_count: "部署对数",
-    changed_pairs: "将变更",
-    message: "说明",
-  };
-  const record = preview as Record<string, unknown>;
-  return Object.entries(labels).flatMap(([key, label]) => {
-    const value = record[key];
-    return value === undefined || value === null
-      ? []
-      : [[label, typeof value === "object" ? JSON.stringify(value) : String(value)]];
-  });
-}
-
-export function formatInstalls(count: number | undefined): string {
-  if (count === undefined || Number.isNaN(count)) return "";
-  if (count >= 1000) return `${(count / 1000).toFixed(1).replace(/\.0$/, "")}k 安装`;
-  return `${count} 安装`;
 }

@@ -21,10 +21,7 @@ import {
   recoveryActionCatalog,
   recoveryTracker,
   sendJson,
-  skillsManagerErrorBody,
-  skillsManagerErrorStatus,
 } from "./http-common.js";
-import { SkillsManagerError } from "./skills-manager.js";
 import {
   handleTasks,
   handleSystem,
@@ -259,10 +256,6 @@ export async function handle(
     }
     sendJson(res, 404, { error: "not-found" });
   } catch (error) {
-    if (error instanceof SkillsManagerError) {
-      sendJson(res, skillsManagerErrorStatus(error.code), skillsManagerErrorBody(error));
-      return;
-    }
     sendJson(res, 500, internalErrorResponse(error));
   }
 }
