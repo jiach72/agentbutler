@@ -6,14 +6,12 @@
  * - 指标回落：无条件拒绝、baseline 保留、紧急告警；无显著提升保持 baseline；
  * - 每次运行以本地 Markdown 台账为持久化事实源，可列表与导出。
  */
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
-  renameSync,
-  rmSync,
   writeFileSync,
 } from "node:fs";
 import { isAbsolute, join, posix, relative, resolve, sep } from "node:path";
@@ -357,7 +355,6 @@ export interface EvolutionService {
   expandDataset(input: EvolutionExpandInput): Promise<EvolutionExpandOutcome>;
   recordResult(input: EvolutionResultInput): Promise<EvolutionGateOutcome>;
   evaluate(input: EvolutionEvaluateInput): Promise<EvolutionEvaluateOutcome>;
-  promoteArtifact(input: EvolutionPromoteInput): EvolutionPromoteOutcome;
   exportLedger(runId: string): { filename: string; markdown: string } | null;
 }
 
@@ -407,20 +404,6 @@ function resolveInstance(core: Core, instanceId?: string): InstanceRecord | unde
 function pathInside(candidate: string, allowedRoot: string): boolean {
   const rel = relative(resolve(allowedRoot), resolve(candidate));
   return rel === "" || (!rel.startsWith(`..${sep}`) && rel !== ".." && !isAbsolute(rel));
-}
-
-function sha256File(path: string): string {
-  return createHash("sha256").update(readFileSync(path)).digest("hex");
-}
-
-function atomicReplace(path: string, content: Buffer | string): void {
-  const temp = `${path}.butler-promote-${randomUUID()}.tmp`;
-  try {
-    writeFileSync(temp, content, { mode: 0o600 });
-    renameSync(temp, path);
-  } finally {
-    if (existsSync(temp)) rmSync(temp, { force: true });
-  }
 }
 
 function labels(status: EvolutionRunStatus): { conclusion: string; disposition: string } {
@@ -1328,54 +1311,18 @@ export function createEvolutionService(deps: EvolutionServiceDeps): EvolutionSer
         candidateMetric: input.candidateMetric,
         delta,
         writeAuthorized: false,
-        writeAuthority: status === "accepted" ? "one-time-artifact-token" : "none",
+        writeAuthority: "none",
+        // 手动录入通道的指标是调用方自报的，永远不签发写权限；
+        // 写授权只能来自受信评估路径（WSL 隔离运行的 metrics.json）。
+        requestedAuthority: input.targetPath !== undefined || input.candidatePath !== undefined,
       },
     });
-    let writeAuthority: EvolutionWriteAuthority | undefined;
-    if (status === "accepted" && input.targetPath !== undefined && input.candidatePath !== undefined) {
-      const record = resolveInstance(core, entry.instanceId ?? undefined);
-      const skillsRoot = record === undefined ? "" : join(record.rootPath, "skills");
-      const targetPath = resolve(input.targetPath);
-      const candidatePath = resolve(input.candidatePath);
-      if (
-        record !== undefined &&
-        pathInside(targetPath, skillsRoot) &&
-        pathInside(candidatePath, skillsRoot) &&
-        targetPath !== skillsRoot &&
-        candidatePath !== skillsRoot &&
-        targetPath !== candidatePath
-      ) {
-        try {
-          const baselineSha256 = sha256File(targetPath);
-          const candidateSha256 = sha256File(candidatePath);
-          writeAuthority = {
-            token: randomUUID(),
-            runId: input.runId,
-            instanceId: record.instanceId,
-            targetPath,
-            candidatePath,
-            baselineSha256,
-            candidateSha256,
-            issuedAt: new Date(now()).toISOString(),
-          };
-          authorities.set(writeAuthority.token, writeAuthority);
-          const authorityUpdated: EvolutionLedgerEntry = {
-            ...updated,
-            writeAuthorityIssuedAt: writeAuthority.issuedAt,
-          };
-          persist(authorityUpdated);
-        } catch {
-          // 候选路径未准备好时仍只保留台账，不签发任何写权限。
-        }
-      }
-    }
     return {
       status,
       allowWrite: false,
       baselinePreserved: true,
       delta,
       ledgerPath,
-      ...(writeAuthority !== undefined ? { writeAuthority } : {}),
     };
   }
 
@@ -1421,141 +1368,6 @@ export function createEvolutionService(deps: EvolutionServiceDeps): EvolutionSer
       canPromote: gate.status === "accepted" && gate.allowWrite,
       report: payload,
     };
-  }
-
-  function promoteArtifact(input: EvolutionPromoteInput): EvolutionPromoteOutcome {
-    if (!isRecord(input) || typeof input.runId !== "string" || input.runId === "" ||
-        typeof input.token !== "string" || input.token === "") {
-      return {
-        status: "error",
-        error: "invalid-input",
-        detail: "runId 与 token 必须是非空字符串",
-        ledgerPath: null,
-      };
-    }
-    const entry = entries.get(input.runId);
-    if (entry === undefined) {
-      return {
-        status: "error",
-        error: "run-not-found",
-        detail: `运行不存在：${input.runId}`,
-        ledgerPath: null,
-      };
-    }
-    const authority = authorities.get(input.token);
-    if (authority === undefined && usedAuthorities.has(input.token)) {
-      return {
-        status: "error",
-        error: "authority-used",
-        detail: "写入授权令牌只能使用一次",
-        ledgerPath: ledgerPathOf(input.runId),
-      };
-    }
-    if (authority === undefined || authority.runId !== input.runId) {
-      return {
-        status: "error",
-        error: "authority-not-found",
-        detail: "写入授权令牌不存在、已过期或不属于该运行",
-        ledgerPath: ledgerPathOf(input.runId),
-      };
-    }
-    const targetPath = resolve(input.targetPath ?? authority.targetPath);
-    const candidatePath = resolve(input.candidatePath ?? authority.candidatePath);
-    const record = resolveInstance(core, authority.instanceId);
-    const skillsRoot = record === undefined ? "" : join(record.rootPath, "skills");
-    if (
-      record === undefined ||
-      !pathInside(targetPath, skillsRoot) ||
-      !pathInside(candidatePath, skillsRoot) ||
-      targetPath === skillsRoot ||
-      candidatePath === skillsRoot ||
-      targetPath !== authority.targetPath ||
-      candidatePath !== authority.candidatePath
-    ) {
-      return {
-        status: "error",
-        error: "path-not-allowed",
-        detail: "目标与候选路径必须固定在同一实例 skills/ 根目录内",
-        ledgerPath: ledgerPathOf(input.runId),
-      };
-    }
-    let previousContent: Buffer;
-    let candidateContent: Buffer;
-    try {
-      previousContent = readFileSync(targetPath);
-      candidateContent = readFileSync(candidatePath);
-    } catch {
-      return {
-        status: "error",
-        error: "candidate-tampered",
-        detail: "目标或候选文件缺失、不可读",
-        ledgerPath: ledgerPathOf(input.runId),
-      };
-    }
-    if (createHash("sha256").update(previousContent).digest("hex") !== authority.baselineSha256) {
-      return {
-        status: "error",
-        error: "target-changed",
-        detail: "baseline 文件已变化，请重新预检并评估",
-        ledgerPath: ledgerPathOf(input.runId),
-      };
-    }
-    if (createHash("sha256").update(candidateContent).digest("hex") !== authority.candidateSha256) {
-      return {
-        status: "error",
-        error: "candidate-tampered",
-        detail: "候选文件 hash 与授权令牌不一致",
-        ledgerPath: ledgerPathOf(input.runId),
-      };
-    }
-    try {
-      atomicReplace(targetPath, candidateContent);
-      const promotedAt = new Date(now()).toISOString();
-      persist({
-        ...entry,
-        updatedAt: promotedAt,
-        status: "promoted",
-        promotedAt,
-        promotedTargetPath: targetPath,
-        runDetail: "用户已确认采用，候选已原子替换 baseline",
-        ...labels("promoted"),
-      });
-      authorities.delete(input.token);
-      usedAuthorities.add(input.token);
-      core.audit.append({
-        actor: EVOLUTION_ACTOR,
-        action: "artifact-promote",
-        target: authority.instanceId,
-        detail: {
-          runId: input.runId,
-          targetPath,
-          candidatePath,
-          baselineSha256: authority.baselineSha256,
-          candidateSha256: authority.candidateSha256,
-        },
-      });
-      return {
-        status: "promoted",
-        runId: input.runId,
-        targetPath,
-        candidatePath,
-        baselineSha256: authority.baselineSha256,
-        candidateSha256: authority.candidateSha256,
-        ledgerPath: ledgerPathOf(input.runId),
-      };
-    } catch (error) {
-      try {
-        atomicReplace(targetPath, previousContent);
-      } catch {
-        // 最佳努力恢复；错误仍以 fail-closed 返回，避免宣称已采用。
-      }
-      return {
-        status: "error",
-        error: "write-failed",
-        detail: `候选替换或台账登记失败：${error instanceof Error ? error.message : String(error)}`,
-        ledgerPath: ledgerPathOf(input.runId),
-      };
-    }
   }
 
   const runDirectory = (runId: string): string | null =>
@@ -2191,7 +2003,16 @@ export function createEvolutionService(deps: EvolutionServiceDeps): EvolutionSer
   }
 
   async function promoteRun(input: EvolutionPromoteInput): Promise<EvolutionPromoteOutcome> {
-    if (!deps.useWsl) return promoteArtifact(input);
+    if (!deps.useWsl) {
+      // 非 WSL 环境没有服务端产出的隔离候选，也没有受信签发方；
+      // 写授权只能来自 evaluateRun 的受信评估路径，这里 fail-closed。
+      return {
+        status: "error",
+        error: "authority-not-found",
+        detail: "没有可用的写入授权；候选应用仅支持由隔离运行评估通过的受信链路",
+        ledgerPath: ledgerPathOf(input.runId),
+      };
+    }
     const entry = entries.get(input.runId);
     const authority = authorities.get(input.token);
     if (!entry) return { status: "error", error: "run-not-found", detail: "运行不存在", ledgerPath: null };
@@ -2331,7 +2152,6 @@ export function createEvolutionService(deps: EvolutionServiceDeps): EvolutionSer
     expandDataset,
     recordResult,
     evaluate,
-    promoteArtifact,
     exportLedger: (runId) => {
       const path = ledgerPathOf(runId);
       if (!entries.has(runId) || !existsSync(path)) return null;

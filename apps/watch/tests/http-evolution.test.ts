@@ -155,10 +155,6 @@ function makeDeps(): { deps: WatchHttpDeps; state: EvolutionFakeState } {
       state.resultCalls.push(input);
       return state.resultOutcome;
     },
-    promoteArtifact: (input) => {
-      state.promoteCalls.push(input);
-      return state.promoteOutcome;
-    },
     promoteRun: async (input) => {
       state.promoteCalls.push(input);
       return state.promoteOutcome;

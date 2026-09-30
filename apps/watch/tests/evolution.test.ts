@@ -448,7 +448,7 @@ describe("运行后守门与台账导出", () => {
     expect(readdirSync(join(root, "skills"))).toHaveLength(0);
   });
 
-  it("显著正增益签发一次性令牌，并只允许在 skills 根目录内原子替换", async () => {
+  it("显著正增益也不签发写令牌：手动通道指标属调用方自报，写入仅限受信链路", async () => {
     const targetPath = join(root, "skills", "baseline.md");
     const candidatePath = join(root, "skills", "candidate.md");
     writeFileSync(targetPath, "baseline-v1\n");
@@ -463,36 +463,146 @@ describe("运行后守门与台账导出", () => {
       candidatePath,
     });
     expect(decision.status).toBe("accepted");
-    expect(decision.writeAuthority).toMatchObject({ runId, targetPath, candidatePath });
-    const token = decision.writeAuthority!.token;
+    expect(decision.writeAuthority).toBeUndefined();
 
-    const promoted = service.promoteArtifact({ runId, token });
-    expect(promoted).toMatchObject({ status: "promoted", runId, targetPath, candidatePath });
-    expect(readFileSync(targetPath, "utf8")).toBe("candidate-v2\n");
-    expect(service.promoteArtifact({ runId, token })).toMatchObject({
-      status: "error",
-      error: "authority-used",
+    // 自报指标 + 自带路径 + 伪造令牌：promote 必须 fail-closed，baseline 不被触碰。
+    const rejected = await service.promoteRun({ runId, token: "forged-authority-token" });
+    expect(rejected).toMatchObject({ status: "error", error: "authority-not-found" });
+    expect(readFileSync(targetPath, "utf8")).toBe("baseline-v1\n");
+    expect(readFileSync(candidatePath, "utf8")).toBe("candidate-v2\n");
+  });
+});
+
+describe("受信评估链路签发写授权（WSL 隔离运行）", () => {
+  interface WslHarness {
+    service: EvolutionService;
+    runId: string;
+    setPromoteExitCode: (code: number) => void;
+  }
+
+  async function wslRun(): Promise<WslHarness> {
+    let promoteExitCode = 0;
+    const calls: Array<{ cmd: string; args: string[] }> = [];
+    const linuxExec: CommandExecutor = {
+      exec: async (cmd, args): Promise<CommandResult> => {
+        calls.push({ cmd, args });
+        const script = args.at(-1) ?? "";
+        if (script.includes("importlib.util.find_spec")) {
+          return { code: 0, stdout: JSON.stringify({ dspy: true, gepa: true, optuna: true }), stderr: "" };
+        }
+        if (script.includes("'baseUrl'") || script.includes('"baseUrl"')) {
+          return { code: 0, stdout: JSON.stringify({ baseUrl: "https://api.example.test/v1", apiKey: "test-key", model: "test-model" }), stderr: "" };
+        }
+        if (script.includes("target=$(find")) {
+          return { code: 0, stdout: "/home/hermes/hermes-agent/skills/demo/SKILL.md\n", stderr: "" };
+        }
+        if (script.includes("setsid sh -lc")) {
+          return { code: 0, stdout: "4242\n", stderr: "" };
+        }
+        // refreshRun：进程已退出且 exit code 0，进入 evaluating。
+        if (script.includes("'alive'")) {
+          return { code: 0, stdout: JSON.stringify({ pid: 4242, code: 0, alive: false }), stderr: "" };
+        }
+        // collectRunArtifacts：隔离候选与 metrics 路径。
+        if (script.includes("'candidatePath'")) {
+          return {
+            code: 0,
+            stdout: JSON.stringify({
+              candidatePath: "/home/butler/evolution-runs/run/evolved_skill.md",
+              metricsPath: "/home/butler/evolution-runs/run/metrics.json",
+              diffPath: "/home/butler/evolution-runs/run/candidate.diff",
+            }),
+            stderr: "",
+          };
+        }
+        if (script.includes("sed -n '1,800p'")) {
+          return { code: 0, stdout: "--- baseline\n+++ candidate\n", stderr: "" };
+        }
+        // readRunMetrics：读取隔离运行产出的 metrics.json（服务端事实源）。
+        if (script.includes("&& cat ")) {
+          return {
+            code: 0,
+            stdout: `${JSON.stringify({ baseline_score: 0.5, evolved_score: 0.62, improvement: 0.12, holdout_examples: 12, constraints_passed: true })}\n`,
+            stderr: "",
+          };
+        }
+        // evaluateRun：由 WSL 侧 python 计算并回传路径边界与文件摘要。
+        if (script.includes("'baselineSha256'")) {
+          return {
+            code: 0,
+            stdout: JSON.stringify({
+              target: true,
+              candidate: true,
+              allowed: true,
+              baselineSha256: "b".repeat(64),
+              candidateSha256: "c".repeat(64),
+            }),
+            stderr: "",
+          };
+        }
+        // promoteRun：python 原子替换（含路径/hash 校验，此处只模拟退出码）。
+        if (script.includes("os.replace(temp, target)")) {
+          return { code: promoteExitCode, stdout: "", stderr: promoteExitCode === 0 ? "" : "digest mismatch" };
+        }
+        throw new Error(`unexpected shell command: ${script}`);
+      },
+      spawnDetached: () => {},
+    };
+    const isolated = createEvolutionService({
+      core,
+      control,
+      exec: linuxExec,
+      fetchFn,
+      llm: { apiKey: "test-key", model: "test-model" },
+      hermesRoot: "/home/hermes",
+      evolutionRoot: "/home/hermes/skills/hermes-agent-self-evolution",
+      runRoot: "/home/butler/evolution-runs",
+      useWsl: true,
+      poster,
+      now: () => Date.parse("2026-08-21T03:00:00.000Z"),
     });
+    const run = await isolated.createRun({
+      targetType: "skill",
+      targetRef: "category/demo",
+      instanceId: "hermes-main",
+      endpoint: "https://api.example.test/v1",
+      holdoutCount: 12,
+    });
+    expect(run.status).toBe("ready");
+    const started = await isolated.startRun(run.runId);
+    expect(started).toMatchObject({ status: "running" });
+    return { service: isolated, runId: run.runId, setPromoteExitCode: (code) => (promoteExitCode = code) };
+  }
+
+  it("评估通过由服务端签发一次性令牌，promote 成功后令牌作废", async () => {
+    const harness = await wslRun();
+    const outcome = await harness.service.evaluateRun(harness.runId);
+    expect(outcome.status).toBe("accepted");
+    if (outcome.status !== "accepted") return;
+    expect(outcome.canPromote).toBe(true);
+    expect(outcome.writeAuthority).toMatchObject({
+      runId: harness.runId,
+      targetPath: "/home/hermes/hermes-agent/skills/demo/SKILL.md",
+      candidatePath: "/home/butler/evolution-runs/run/evolved_skill.md",
+    });
+    const token = outcome.writeAuthority!.token;
+
+    const promoted = await harness.service.promoteRun({ runId: harness.runId, token });
+    expect(promoted).toMatchObject({ status: "promoted", runId: harness.runId });
+    const reused = await harness.service.promoteRun({ runId: harness.runId, token });
+    expect(reused).toMatchObject({ status: "error", error: "authority-used" });
   });
 
-  it("目标文件变化或候选篡改时拒绝采用，不覆盖 baseline", async () => {
-    const targetPath = join(root, "skills", "baseline.md");
-    const candidatePath = join(root, "skills", "candidate.md");
-    writeFileSync(targetPath, "baseline-v1\n");
-    writeFileSync(candidatePath, "candidate-v2\n");
-    const runId = await readyRun();
-    const decision = await service.recordResult({
-      runId,
-      baselineMetric: 0.5,
-      candidateMetric: 0.62,
-      significant: true,
-      targetPath,
-      candidatePath,
-    });
-    writeFileSync(targetPath, "baseline-drifted\n");
-    const rejected = service.promoteArtifact({ runId, token: decision.writeAuthority!.token });
+  it("baseline 变化或候选篡改时 python 校验失败映射为拒绝，baseline 不被覆盖", async () => {
+    const harness = await wslRun();
+    const outcome = await harness.service.evaluateRun(harness.runId);
+    expect(outcome.status).toBe("accepted");
+    if (outcome.status !== "accepted") return;
+    const token = outcome.writeAuthority!.token;
+
+    harness.setPromoteExitCode(12);
+    const rejected = await harness.service.promoteRun({ runId: harness.runId, token });
     expect(rejected).toMatchObject({ status: "error", error: "target-changed" });
-    expect(readFileSync(targetPath, "utf8")).toBe("baseline-drifted\n");
   });
 });
 

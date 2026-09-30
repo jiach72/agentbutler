@@ -355,12 +355,6 @@ describe("进化前备份门禁", () => {
       recordResult: async () => {
         throw new Error("unused");
       },
-      promoteArtifact: () => ({
-        status: "error" as const,
-        error: "authority-not-found" as const,
-        detail: "unused",
-        ledgerPath: null,
-      }),
       exportLedger: () => null,
     } satisfies EvolutionService;
     const backup = {
