@@ -1,9 +1,27 @@
 import React from "react";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { App } from "antd";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { KnowledgeConfigCard } from "../src/pages/settings/KnowledgeConfigCard.js";
+
+import { readdirSync, statSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+/**
+ * F-3 拆分后 KnowledgePage 由多个分片组成（tabs/、modals/、StartupPanel）。
+ * 源码契约测试统一扫描整个 knowledge 目录，避免分片后断言失明。
+ */
+function knowledgeSource(): string {
+  const root = fileURLToPath(new URL("../src/pages/knowledge/", import.meta.url));
+  const walk = (dir: string): string[] =>
+    readdirSync(dir).flatMap((name) => {
+      const full = dir + name;
+      return statSync(full).isDirectory() ? walk(full + "/") : /\.tsx?$/.test(name) ? [full] : [];
+    });
+  return walk(root).map((f) => readFileSync(f, "utf8")).join(String.fromCharCode(10));
+}
 
 describe("本地知识库设置的信息层级", () => {
   it("服务技术规格默认收起，并以原生键盘可操作的 summary 暴露", () => {
@@ -18,7 +36,7 @@ describe("本地知识库设置的信息层级", () => {
   });
 
   it("KnowledgePage 源码包含文档内搜索与在即时通讯中提问直达动作", () => {
-    const src = readFileSync(new URL("../src/pages/knowledge/KnowledgePage.tsx", import.meta.url), "utf8");
+    const src = knowledgeSource();
     expect(src).toContain("在即时通讯中提问");
     expect(src).toContain("在文档中搜索关键词...");
     expect(src).toContain("handleAskButlerAboutDoc");
@@ -43,7 +61,7 @@ describe("本地知识库设置的信息层级", () => {
   });
 
   it("KnowledgePage 源码支持收集箱来源与向量化状态多维快选及大小/时间排序", () => {
-    const src = readFileSync(new URL("../src/pages/knowledge/KnowledgePage.tsx", import.meta.url), "utf8");
+    const src = knowledgeSource();
     expect(src).toContain("docSourceFilter");
     expect(src).toContain("docIngestedFilter");
     expect(src).toContain("全部来源");
@@ -57,7 +75,7 @@ describe("本地知识库设置的信息层级", () => {
   });
 
   it("KnowledgePage 具备多场景提问模版、标签提取与收集箱快捷过滤芯片 (Commit 90)", () => {
-    const src = readFileSync(new URL("../src/pages/knowledge/KnowledgePage.tsx", import.meta.url), "utf8");
+    const src = knowledgeSource();
     // 1. 预览抽屉多场景提问
     expect(src).toContain("💡 梳理核心要点与操作步骤（默认）");
     expect(src).toContain("📋 提取行动项与待办清单");
@@ -98,7 +116,7 @@ describe("本地知识库设置的信息层级", () => {
   });
 
   it("KnowledgePage 支持资料收集箱多选 (rowSelection)、批量删除与在即时通讯中综合提问 (Commit 93)", () => {
-    const src = readFileSync(new URL("../src/pages/knowledge/KnowledgePage.tsx", import.meta.url), "utf8");
+    const src = knowledgeSource();
     expect(src).toContain("selectedDocIds");
     expect(src).toContain("handleBatchDelete");
     expect(src).toContain("handleBatchAskIM");
@@ -109,7 +127,7 @@ describe("本地知识库设置的信息层级", () => {
   });
 
   it("KnowledgePage 支持表格操作列与预览抽屉一键复制知识库引用标签", () => {
-    const src = readFileSync(new URL("../src/pages/knowledge/KnowledgePage.tsx", import.meta.url), "utf8");
+    const src = knowledgeSource();
     expect(src).toContain("复制知识库引用标签 ([参考本地知识库: 《...》])");
     expect(src).toContain("[参考本地知识库: 《");
     expect(src).toContain("已复制引用标签:");
@@ -117,7 +135,7 @@ describe("本地知识库设置的信息层级", () => {
   });
 
   it("KnowledgePage 问答出处（Citations）支持切片复制、原文预览与多场景快捷提问", () => {
-    const src = readFileSync(new URL("../src/pages/knowledge/KnowledgePage.tsx", import.meta.url), "utf8");
+    const src = knowledgeSource();
     expect(src).toContain("🛡️ 潜在风险与合规？");
     expect(src).toContain("📝 200 字工作简报？");
     expect(src).toContain("一键复制出处切片内容");
@@ -130,7 +148,7 @@ describe("本地知识库设置的信息层级", () => {
   });
 
   it("KnowledgePage 支持在线新建私有笔记与知识卡片并自动切片入库", () => {
-    const src = readFileSync(new URL("../src/pages/knowledge/KnowledgePage.tsx", import.meta.url), "utf8");
+    const src = knowledgeSource();
     expect(src).toContain("新建私有笔记/卡片");
     expect(src).toContain("新建私有笔记与知识卡片");
     expect(src).toContain("createNoteModalOpen");
@@ -144,7 +162,7 @@ describe("本地知识库设置的信息层级", () => {
   });
 
   it("KnowledgePage 收集箱支持全分类标签筛选、快捷新建笔记按钮与弹窗结构化模板填入及快捷键 (Commit 119)", () => {
-    const src = readFileSync(new URL("../src/pages/knowledge/KnowledgePage.tsx", import.meta.url), "utf8");
+    const src = knowledgeSource();
     // 快捷分类 CheckableTag 扩充断言
     expect(src).toContain("docFilter === \"技术架构\"");
     expect(src).toContain("docFilter === \"灵感备忘\"");

@@ -16,74 +16,55 @@ import {
   App,
   Button,
   Card,
-  Checkbox,
   Col,
-  Empty,
   Flex,
-  Input,
-  Modal,
   Popconfirm,
   Progress,
   Row,
-  Segmented,
-  Select,
   Space,
-  Steps,
-  Table,
   Tabs,
   Tag,
   Tooltip,
-  Typography,
-  Upload,
-  Drawer,
-  Dropdown,
+  Typography
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import {
   AimOutlined,
   BookOutlined,
   CheckCircleFilled,
-  CheckOutlined,
-  ClearOutlined,
   CloudDownloadOutlined,
-  CloudUploadOutlined,
   CommentOutlined,
-  CompassOutlined,
   CopyOutlined,
   DeleteOutlined,
-  DownOutlined,
   ExclamationCircleOutlined,
   EyeOutlined,
-  FileDoneOutlined,
   FilePdfOutlined,
   FileTextOutlined,
   FolderOpenOutlined,
-  InboxOutlined,
-  LoadingOutlined,
   MessageOutlined,
-  PlayCircleOutlined,
-  PlusOutlined,
   ReloadOutlined,
-  SearchOutlined,
-  SyncOutlined,
-  WarningFilled,
+  WarningFilled
 } from "@ant-design/icons";
 import { PageHeader } from "../../components/PageHeader.js";
 import { ConclusionBar } from "../../components/ConclusionBar.js";
 import { ConnectionChip } from "../../components/ConnectionChip.js";
 import { CopySnippetButton } from "../../components/CopySnippetButton.js";
-import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
-import { Empty as ButlerEmpty } from "../../components/Empty.js";
 import { deleteJson, loadJson, postJson } from "../../lib/api.js";
 import type { KnowledgeStatus } from "../settings/KnowledgeConfigCard.js";
 import {
   KnowledgeStarChart,
-  type GraphData,
+  type GraphData
 } from "./KnowledgeStarChart.js";
+import { StartupPanel } from "./StartupPanel.js";
+import { VaultTab } from "./tabs/VaultTab.js";
+import { QueryTab } from "./tabs/QueryTab.js";
+import { ObsidianConfigModal } from "./modals/ObsidianConfigModal.js";
+import { DocPreviewDrawer } from "./modals/DocPreviewDrawer.js";
+import { DedupModals } from "./modals/DedupModals.js";
+import { CreateNoteModal } from "./modals/CreateNoteModal.js";
 
 const { Paragraph, Text, Title } = Typography;
 
-const START_COMMAND = "docker compose up -d butler-rag-anythingllm";
 
 export interface StartupProgress {
   active: boolean;
@@ -183,31 +164,6 @@ export interface InboxFile {
   size: number;
   path: string;
   ingested: boolean;
-}
-
-function renderHighlightedDocContent(content: string, keyword: string) {
-  const q = keyword.trim();
-  if (!q) return content;
-  const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const parts = content.split(new RegExp(`(${escaped})`, "gi"));
-  return parts.map((part, i) =>
-    part.toLowerCase() === q.toLowerCase() ? (
-      <mark
-        key={i}
-        style={{
-          backgroundColor: "#ffe58f",
-          color: "#000",
-          padding: "1px 3px",
-          borderRadius: 3,
-          fontWeight: 600,
-        }}
-      >
-        {part}
-      </mark>
-    ) : (
-      part
-    ),
-  );
 }
 
 export function KnowledgePage() {
@@ -1334,575 +1290,41 @@ ${newNoteContent}
                   </Space>
                 ),
                 children: (
-                  <Flex vertical gap={20}>
-                    {/* A. 直接拖拽上传区 (免跳转闭环) */}
-                    <Card
-                      title={
-                        <Flex justify="space-between" align="center" wrap="wrap" gap={8}>
-                          <Flex align="center" gap={8}>
-                            <CloudUploadOutlined style={{ color: "var(--ant-color-primary)" }} />
-                            <span>极简资料投递与收集（支持 PDF / Word / TXT / Markdown / 表格）</span>
-                          </Flex>
-                          <Button
-                            type="primary"
-                            size="small"
-                            icon={<PlusOutlined />}
-                            onClick={() => setCreateNoteModalOpen(true)}
-                          >
-                            新建私有笔记/卡片
-                          </Button>
-                        </Flex>
-                      }
-                      size="small"
-                      style={{ borderRadius: 10 }}
-                    >
-                      <Upload.Dragger
-                        name="file"
-                        multiple
-                        showUploadList={false}
-                        customRequest={async (options) => {
-                          const { file, onSuccess, onError } = options;
-                          const rawFile = file as File;
-                          const reader = new FileReader();
-                          reader.onload = async () => {
-                            try {
-                              const content = reader.result as string;
-                              const isBase64 = content.startsWith("data:");
-                              const base64Data = isBase64 ? content.split(",")[1] : content;
-                              const res = await postJson("/api/knowledge/upload", {
-                                filename: rawFile.name,
-                                content: base64Data,
-                                encoding: isBase64 ? "base64" : "utf8",
-                                source: "upload",
-                              });
-                              if (res.ok) {
-                                message.success(`「${rawFile.name}」已成功投递入库并切片！`);
-                                onSuccess?.(res.data, rawFile);
-                                void fetchDocuments();
-                                void fetchGraph();
-                              } else {
-                                message.error(`「${rawFile.name}」上传失败`);
-                                onError?.(new Error("upload failed"));
-                              }
-                            } catch {
-                              onError?.(new Error("read failed"));
-                            }
-                          };
-                          // 若为二进制文件读 DataURL，纯文本读 Text
-                          if (rawFile.name.endsWith(".md") || rawFile.name.endsWith(".txt") || rawFile.name.endsWith(".json")) {
-                            reader.readAsText(rawFile);
-                          } else {
-                            reader.readAsDataURL(rawFile);
-                          }
-                        }}
-                      >
-                        <p className="ant-upload-drag-icon">
-                          <InboxOutlined style={{ color: "var(--ant-color-primary)", fontSize: 40 }} />
-                        </p>
-                        <p className="ant-upload-text" style={{ fontSize: 15, fontWeight: 500 }}>
-                          点击或将本地文件拖拽至此处，管家将直接切片并归入知识库
-                        </p>
-                        <p className="ant-upload-hint" style={{ fontSize: 13, color: "var(--ant-color-text-secondary)" }}>
-                          支持 PDF、Word (.docx)、TXT、Markdown (.md)、Canvas、JSON 与各类表格资料。
-                        </p>
-                      </Upload.Dragger>
-                    </Card>
-
-                    {/* B. 专属数据源扩展卡片：Obsidian 笔记库 + 微信聊天归档文件 */}
-                    <Row gutter={[16, 16]}>
-                      {/* Obsidian 笔记库同步卡片 */}
-                      <Col xs={24} md={12}>
-                        <Card
-                          size="small"
-                          title={
-                            <Flex justify="space-between" align="center">
-                              <Flex align="center" gap={8}>
-                                <BookOutlined style={{ color: "var(--ab-primary)" }} />
-                                <span>Obsidian 笔记库同步 (跨平台本地 Vault)</span>
-                              </Flex>
-                              <Button
-                                size="small"
-                                type="link"
-                                onClick={() => setObsidianModalOpen(true)}
-                              >
-                                {obsidianConfig?.vaultPath ? "手动路径设置" : "手动输入路径"}
-                              </Button>
-                            </Flex>
-                          }
-                          style={{ height: "100%", borderRadius: 10 }}
-                        >
-                          <Flex vertical gap={10}>
-                            <div>
-                              <Text type="secondary" style={{ fontSize: 12 }}>
-                                当前绑定的本地 Vault：
-                              </Text>
-                              <div style={{ marginTop: 2 }}>
-                                <Text code style={{ fontSize: 12 }}>
-                                  {obsidianConfig?.vaultPath
-                                    ? obsidianConfig.vaultPath
-                                    : obsidianConfig?.vaultName
-                                    ? `本地笔记库「${obsidianConfig.vaultName}」`
-                                    : "（点击下方「选择文件夹」直接同步，无需手动配路径）"}
-                                </Text>
-                              </div>
-                            </div>
-
-                            <Flex justify="space-between" align="center">
-                              <div>
-                                <Text type="secondary" style={{ fontSize: 12 }}>
-                                  已同步笔记篇数：
-                                </Text>
-                                <Text strong style={{ marginLeft: 6 }}>
-                                  {obsidianConfig?.noteCount || 0} 篇
-                                </Text>
-                              </div>
-                              <div>
-                                <Text type="secondary" style={{ fontSize: 12 }}>
-                                  上次同步：
-                                </Text>
-                                <Text style={{ marginLeft: 6, fontSize: 12 }}>
-                                  {obsidianConfig?.lastSyncAt
-                                    ? new Date(obsidianConfig.lastSyncAt).toLocaleTimeString()
-                                    : "从未"}
-                                </Text>
-                              </div>
-                            </Flex>
-
-                            {/* 实时同步进度条 */}
-                            {vaultSync?.active && (
-                              <div
-                                style={{
-                                  padding: "10px 12px",
-                                  borderRadius: 8,
-                                  background: "var(--ab-primary-soft)",
-                                  border: "1px solid var(--ab-primary-soft-border)",
-                                }}
-                              >
-                                <Flex justify="space-between" align="center" style={{ marginBottom: 6 }}>
-                                  <Flex align="center" gap={6}>
-                                    <SyncOutlined spin style={{ color: "var(--ab-primary)" }} />
-                                    <Text strong style={{ fontSize: 13 }}>
-                                      {vaultSync.phase === "reading"
-                                        ? "正在读取本地笔记并解析"
-                                        : "正在构建索引与入库"}
-                                    </Text>
-                                  </Flex>
-                                  <Text style={{ fontSize: 12, color: "var(--ant-color-text-secondary)" }}>
-                                    {vaultSync.current} / {vaultSync.total} 篇 ({vaultSync.percent}%)
-                                  </Text>
-                                </Flex>
-                                <Progress
-                                  percent={vaultSync.percent}
-                                  status="active"
-                                  strokeColor={{
-                                    "0%": "#1677ff",
-                                    "100%": "#00e5ff",
-                                  }}
-                                  showInfo={false}
-                                  size="small"
-                                />
-                                <div style={{ marginTop: 4 }}>
-                                  <Text type="secondary" style={{ fontSize: 12 }}>
-                                    {vaultSync.phaseLabel}
-                                  </Text>
-                                </div>
-                              </div>
-                            )}
-
-                            {vaultSync && !vaultSync.active && vaultSync.phase === "done" && (
-                              <Alert
-                                type="success"
-                                showIcon
-                                title={vaultSync.phaseLabel}
-                                closable
-                                onClose={() => setVaultSync(null)}
-                                style={{ padding: "6px 10px", fontSize: 12 }}
-                              />
-                            )}
-
-                            {/* 隐藏的文件夹选择 input，全平台原生浏览器支持（macOS / Linux / Windows） */}
-                            <input
-                              type="file"
-                              ref={folderInputRef}
-                              // @ts-expect-error webkitdirectory is standard in HTML5 browsers
-                              webkitdirectory=""
-                              directory=""
-                              multiple
-                              style={{ display: "none" }}
-                              onChange={handleFolderPicked}
-                            />
-
-                            <Flex gap={8}>
-                              <Button
-                                type="primary"
-                                icon={<FolderOpenOutlined />}
-                                onClick={() => folderInputRef.current?.click()}
-                                disabled={vaultSync?.active}
-                                loading={vaultSync?.active}
-                                style={{ flex: 1, maxWidth: 360 }}
-                              >
-                                {vaultSync?.active ? "正在同步笔记库..." : "选择本地 Obsidian 笔记库文件夹 (Vault)"}
-                              </Button>
-                              <Button
-                                type="default"
-                                icon={<SyncOutlined spin={syncingObsidian} />}
-                                onClick={handleSyncObsidian}
-                                disabled={!obsidianConfig?.vaultPath || vaultSync?.active}
-                                loading={syncingObsidian}
-                              >
-                                增量同步
-                              </Button>
-                            </Flex>
-                          </Flex>
-                        </Card>
-                      </Col>
-
-                      {/* 微信 / 聊天文件有序归纳箱卡片 */}
-                      <Col xs={24} md={12}>
-                        <Card
-                          size="small"
-                          title={
-                            <Flex justify="space-between" align="center">
-                              <Flex align="center" gap={8}>
-                                <MessageOutlined style={{ color: "var(--ab-ok)" }} />
-                                <span>微信传输与聊天附件归纳箱 (WeChat / IM)</span>
-                              </Flex>
-                              <Flex align="center" gap={6}>
-                                <Tag color={inboxFiles.filter(f => !f.ingested).length > 0 ? "warning" : "green"}>
-                                  {inboxFiles.filter(f => !f.ingested).length} 个待入库
-                                </Tag>
-                                <Button
-                                  size="small"
-                                  type="text"
-                                  icon={<ReloadOutlined />}
-                                  loading={inboxLoading}
-                                  onClick={() => void fetchInbox()}
-                                  aria-label="刷新微信传输归纳箱"
-                                />
-                              </Flex>
-                            </Flex>
-                          }
-                          style={{ height: "100%", borderRadius: 10 }}
-                        >
-                          <Flex vertical gap={10}>
-                            <Text type="secondary" style={{ fontSize: 12 }}>
-                              自动扫描微信等通道接收到的真实附件与文档，一键收录至本地知识库进行向量化。
-                            </Text>
-
-                            <Flex gap={8}>
-                              <Button
-                                size="small"
-                                type="primary"
-                                onClick={() => handleIngestInbox()}
-                                disabled={
-                                  inboxLoading ||
-                                  inboxFiles.length === 0 ||
-                                  inboxFiles.every((file) => file.ingested)
-                                }
-                                loading={inboxLoading || ingestingInbox}
-                                style={{ maxWidth: 280 }}
-                              >
-                                一键全部纳入本地知识库
-                              </Button>
-                            </Flex>
-
-                            <div
-                              style={{
-                                maxHeight: 115,
-                                overflowY: "auto",
-                                background: "var(--ant-color-fill-quaternary)",
-                                padding: "6px 8px",
-                                borderRadius: 6,
-                                fontSize: 12,
-                              }}
-                            >
-                              {inboxFiles.length === 0 ? (
-                                <Text type="secondary">收件箱暂无新传输文件</Text>
-                              ) : (
-                                inboxFiles.map((f) => (
-                                  <Flex key={f.id} justify="space-between" align="center" style={{ marginBottom: 4 }}>
-                                    <Flex align="center" gap={6} style={{ maxWidth: 260 }}>
-                                      {f.filename.endsWith(".pdf") ? (
-                                        <FilePdfOutlined style={{ color: "var(--ab-error)" }} />
-                                      ) : (
-                                        <FileTextOutlined style={{ color: "var(--ab-ok)" }} />
-                                      )}
-                                      <Text
-                                        ellipsis
-                                        style={{ maxWidth: 220 }}
-                                        title={f.filename}
-                                        copyable={{ text: f.filename, tooltips: ["复制文件名", "已复制"] }}
-                                      >
-                                        {f.filename}
-                                      </Text>
-                                    </Flex>
-                                    <Space size="small">
-                                      <Text type="secondary" style={{ fontSize: 11 }}>
-                                        {Math.max(1, Math.round(f.size / 1024))} KB
-                                      </Text>
-                                      {f.ingested ? (
-                                        <Tag color="blue" style={{ margin: 0, fontSize: 11 }}>已入库</Tag>
-                                      ) : (
-                                        <Button
-                                          size="small"
-                                          type="link"
-                                          style={{ padding: "0 4px", fontSize: 11 }}
-                                          onClick={() => handleIngestInbox([f.id])}
-                                        >
-                                          入库
-                                        </Button>
-                                      )}
-                                    </Space>
-                                  </Flex>
-                                ))
-                              )}
-                            </div>
-                          </Flex>
-                        </Card>
-                      </Col>
-                    </Row>
-
-                    {/* C. 已入库文档管理表格 */}
-                    <Card
-                      title={
-                        <Flex justify="space-between" align="center" wrap="wrap" gap={8}>
-                          <Flex align="center" gap={8}>
-                            <FileDoneOutlined style={{ color: "var(--ant-color-primary)" }} />
-                            <span>已收集资料清单与索引状态</span>
-                            {documents.length > 0 && (
-                              <Tag style={{ margin: 0 }}>
-                                显示 {filteredDocuments.length} / {documents.length}
-                              </Tag>
-                            )}
-                          </Flex>
-                          <Flex align="center" gap={8} wrap="wrap">
-                            {/* 快捷过滤芯片 */}
-                            <Flex align="center" gap={4} wrap="wrap">
-                              <Tag.CheckableTag
-                                checked={docSourceFilter === "all" && docIngestedFilter === "all" && !docFilter}
-                                onChange={() => {
-                                  setDocSourceFilter("all");
-                                  setDocIngestedFilter("all");
-                                  setDocFilter("");
-                                }}
-                              >
-                                全部
-                              </Tag.CheckableTag>
-                              <Tag.CheckableTag
-                                checked={docFilter === "知识卡片"}
-                                onChange={(checked) => {
-                                  setDocFilter(checked ? "知识卡片" : "");
-                                }}
-                              >
-                                🔖 知识卡片
-                              </Tag.CheckableTag>
-                              <Tag.CheckableTag
-                                checked={docFilter === "技术架构"}
-                                onChange={(checked) => {
-                                  setDocFilter(checked ? "技术架构" : "");
-                                }}
-                              >
-                                📓 技术架构
-                              </Tag.CheckableTag>
-                              <Tag.CheckableTag
-                                checked={docFilter === "灵感备忘"}
-                                onChange={(checked) => {
-                                  setDocFilter(checked ? "灵感备忘" : "");
-                                }}
-                              >
-                                💡 灵感备忘
-                              </Tag.CheckableTag>
-                              <Tag.CheckableTag
-                                checked={docFilter === "运维规程"}
-                                onChange={(checked) => {
-                                  setDocFilter(checked ? "运维规程" : "");
-                                }}
-                              >
-                                📋 运维规程
-                              </Tag.CheckableTag>
-                              <Tag.CheckableTag
-                                checked={docSourceFilter === "obsidian"}
-                                onChange={(checked) => {
-                                  setDocSourceFilter(checked ? "obsidian" : "all");
-                                }}
-                              >
-                                📓 Obsidian
-                              </Tag.CheckableTag>
-                              <Tag.CheckableTag
-                                checked={docSourceFilter === "inbox"}
-                                onChange={(checked) => {
-                                  setDocSourceFilter(checked ? "inbox" : "all");
-                                }}
-                              >
-                                💬 聊天归档
-                              </Tag.CheckableTag>
-                              <Tag.CheckableTag
-                                checked={docIngestedFilter === "pending"}
-                                onChange={(checked) => {
-                                  setDocIngestedFilter(checked ? "pending" : "all");
-                                }}
-                              >
-                                ⏳ 待切片
-                              </Tag.CheckableTag>
-                            </Flex>
-
-                            <Input
-                              placeholder="搜索资料名称..."
-                              prefix={<SearchOutlined style={{ color: "var(--ab-text-3)" }} />}
-                              allowClear
-                              value={docFilter}
-                              onChange={(e) => setDocFilter(e.target.value)}
-                              style={{ minWidth: 150, maxWidth: 220, flex: 1 }}
-                              size="small"
-                            />
-                            <Select
-                              size="small"
-                              value={docSourceFilter}
-                              onChange={setDocSourceFilter}
-                              style={{ width: 120 }}
-                              options={[
-                                { label: "全部来源", value: "all" },
-                                { label: "本地上传", value: "upload" },
-                                { label: "Obsidian 笔记", value: "obsidian" },
-                                { label: "微信/聊天归档", value: "inbox" },
-                              ]}
-                            />
-                            <Select
-                              size="small"
-                              value={docIngestedFilter}
-                              onChange={setDocIngestedFilter}
-                              style={{ width: 110 }}
-                              options={[
-                                { label: "全部状态", value: "all" },
-                                { label: "已向量化", value: "ingested" },
-                                { label: "就绪待分段", value: "pending" },
-                              ]}
-                            />
-                            <Button
-                              size="small"
-                              icon={<ClearOutlined />}
-                              onClick={handleOpenDedupModal}
-                              style={{
-                                background: "var(--ab-warn-soft)",
-                                borderColor: "color-mix(in srgb, var(--ab-warn) 40%, transparent)",
-                                color: "var(--ab-warn)",
-                              }}
-                            >
-                              智能去重
-                            </Button>
-                            <Button
-                              size="small"
-                              type="primary"
-                              icon={<PlusOutlined />}
-                              onClick={() => setCreateNoteModalOpen(true)}
-                            >
-                              新建笔记
-                            </Button>
-                            <Button size="small" icon={<ReloadOutlined />} onClick={fetchDocuments} />
-                          </Flex>
-                        </Flex>
-                      }
-                      size="small"
-                      style={{ borderRadius: 10 }}
-                    >
-                      {selectedDocIds.length > 0 && (
-                        <div
-                          style={{
-                            padding: "8px 12px",
-                            marginBottom: 12,
-                            borderRadius: 8,
-                            background: "var(--ab-primary-soft, #e6f4ff)",
-                            border: "1px solid var(--ab-primary-soft-border, #91caff)",
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            flexWrap: "wrap",
-                            gap: 8,
-                          }}
-                        >
-                          <Space align="center">
-                            <Text strong style={{ color: "var(--ab-primary, #0071e3)" }}>
-                              已选中 {selectedDocIds.length} 篇资料
-                            </Text>
-                            <Button size="small" type="link" onClick={() => setSelectedDocIds([])}>
-                              取消选择
-                            </Button>
-                          </Space>
-                          <Space align="center" wrap>
-                            <Button
-                              size="small"
-                              type="primary"
-                              ghost
-                              icon={<MessageOutlined />}
-                              onClick={handleBatchAskIM}
-                            >
-                              在即时通讯中综合提问
-                            </Button>
-                            <Popconfirm
-                              title={`确定批量删除选中的 ${selectedDocIds.length} 篇资料？`}
-                              description="删除后将从本地知识库收集箱中彻底移除对应文档与向量索引。"
-                              onConfirm={handleBatchDelete}
-                              okText="批量删除"
-                              okButtonProps={{ danger: true }}
-                              cancelText="取消"
-                            >
-                              <Button size="small" danger icon={<DeleteOutlined />} loading={batchDeleting}>
-                                批量删除 ({selectedDocIds.length})
-                              </Button>
-                            </Popconfirm>
-                          </Space>
-                        </div>
-                      )}
-                      <Table<KnowledgeDocument>
-                        rowKey="id"
-                        rowSelection={{
-                          selectedRowKeys: selectedDocIds,
-                          onChange: (keys) => setSelectedDocIds(keys),
-                        }}
-                        columns={documentColumns}
-                        dataSource={filteredDocuments}
-                        loading={docsLoading}
-                        pagination={{
-                          pageSize: 8,
-                          showSizeChanger: true,
-                          pageSizeOptions: ["8", "16", "32", "64"],
-                          showTotal: (total) => `共 ${total} 篇资料`,
-                        }}
-                        size="small"
-                        locale={{
-                          emptyText: (
-                            <ButlerEmpty
-                              mascot={false}
-                              title={
-                                docFilter.trim() || docSourceFilter !== "all" || docIngestedFilter !== "all"
-                                  ? "未找到符合筛选条件的资料文档"
-                                  : "尚未收集任何资料文档"
-                              }
-                              hint={
-                                docFilter.trim() || docSourceFilter !== "all" || docIngestedFilter !== "all"
-                                  ? "可以尝试更换检索关键词或调整来源/状态过滤条件，或点击下方按钮清空筛选。"
-                                  : "可直接将 Markdown、PDF、Word 或 TXT 文件拖拽至上方投递框，即可完成入库切片与私有问答。"
-                              }
-                              action={
-                                docFilter.trim() || docSourceFilter !== "all" || docIngestedFilter !== "all" ? (
-                                  <Button
-                                    size="small"
-                                    onClick={() => {
-                                      setDocFilter("");
-                                      setDocSourceFilter("all");
-                                      setDocIngestedFilter("all");
-                                    }}
-                                  >
-                                    重置全部筛选
-                                  </Button>
-                                ) : undefined
-                              }
-                            />
-                          ),
-                        }}
-                      />
-                    </Card>
-                  </Flex>
+                  <VaultTab
+                    message={message}
+                    documents={documents}
+                    filteredDocuments={filteredDocuments}
+                    docsLoading={docsLoading}
+                    documentColumns={documentColumns}
+                    docFilter={docFilter}
+                    setDocFilter={setDocFilter}
+                    docSourceFilter={docSourceFilter}
+                    setDocSourceFilter={setDocSourceFilter}
+                    docIngestedFilter={docIngestedFilter}
+                    setDocIngestedFilter={setDocIngestedFilter}
+                    selectedDocIds={selectedDocIds}
+                    setSelectedDocIds={setSelectedDocIds}
+                    batchDeleting={batchDeleting}
+                    handleBatchAskIM={handleBatchAskIM}
+                    handleBatchDelete={handleBatchDelete}
+                    obsidianConfig={obsidianConfig}
+                    setObsidianModalOpen={setObsidianModalOpen}
+                    vaultSync={vaultSync}
+                    setVaultSync={setVaultSync}
+                    syncingObsidian={syncingObsidian}
+                    handleSyncObsidian={handleSyncObsidian}
+                    folderInputRef={folderInputRef}
+                    handleFolderPicked={handleFolderPicked}
+                    inboxFiles={inboxFiles}
+                    inboxLoading={inboxLoading}
+                    ingestingInbox={ingestingInbox}
+                    fetchInbox={fetchInbox}
+                    handleIngestInbox={handleIngestInbox}
+                    handleOpenDedupModal={handleOpenDedupModal}
+                    setCreateNoteModalOpen={setCreateNoteModalOpen}
+                    fetchDocuments={fetchDocuments}
+                    fetchGraph={fetchGraph}
+                  />
                 ),
               },
               {
@@ -1914,277 +1336,20 @@ ${newNoteContent}
                   </Space>
                 ),
                 children: (
-                  <Card
-                    title={
-                      <Flex justify="space-between" align="center">
-                        <Flex align="center" gap={8}>
-                          <CompassOutlined style={{ color: "var(--ant-color-primary)" }} />
-                          <span>基于已收集资料的私有问答与语义检索 (Local RAG)</span>
-                        </Flex>
-                        <Tag color="cyan">本地 Ollama 驱动</Tag>
-                      </Flex>
-                    }
-                    style={{ borderRadius: 12 }}
-                  >
-                    <Flex vertical gap={16}>
-                      <Text type="secondary">
-                        向 Agent Butler 的本地私有知识库提问，智能体将实时在收集箱、Obsidian 笔记及微信归纳文件中检索相关切片，并结合本地模型回答。
-                      </Text>
-
-                      {/* 提问搜索框 */}
-                      <Flex gap={8}>
-                        <Input.Search
-                          size="large"
-                          placeholder="向知识库提问，例如：这份文档的核心结论是什么？有哪些待办事项？（按 Enter 检索）"
-                          enterButton="检索问答"
-                          allowClear
-                          value={queryInput}
-                          onChange={(e) => setQueryInput(e.target.value)}
-                          onSearch={() => handleRunQuery()}
-                          loading={querying}
-                        />
-                      </Flex>
-
-                      {/* 快捷提问推荐气泡 */}
-                      <Flex align="center" gap={8} wrap="wrap">
-                        <Text type="secondary" style={{ fontSize: 12 }}>
-                          快捷提问：
-                        </Text>
-                        <Button
-                          size="small"
-                          type="dashed"
-                          onClick={() => {
-                            const q = "请梳理知识库中相关文档的核心要点与关键结论";
-                            setQueryInput(q);
-                            void handleRunQuery(q);
-                          }}
-                        >
-                          💡 核心要点与结论？
-                        </Button>
-                        <Button
-                          size="small"
-                          type="dashed"
-                          onClick={() => {
-                            const q = "知识库中记录了哪些具体的行动项、任务或待办事项？";
-                            setQueryInput(q);
-                            void handleRunQuery(q);
-                          }}
-                        >
-                          📋 待办与行动项？
-                        </Button>
-                        <Button
-                          size="small"
-                          type="dashed"
-                          onClick={() => {
-                            const q = "请结合已有资料，总结背景信息、关键时间节点与注意事项";
-                            setQueryInput(q);
-                            void handleRunQuery(q);
-                          }}
-                        >
-                          🔍 背景与关键节点？
-                        </Button>
-                        <Button
-                          size="small"
-                          type="dashed"
-                          onClick={() => {
-                            const q = "请全面审查知识库中相关资料的潜在风险点、合规隐患与安全防线";
-                            setQueryInput(q);
-                            void handleRunQuery(q);
-                          }}
-                        >
-                          🛡️ 潜在风险与合规？
-                        </Button>
-                        <Button
-                          size="small"
-                          type="dashed"
-                          onClick={() => {
-                            const q = "请将知识库中相关文档的核心精要凝练成 200 字以内的高管工作简报";
-                            setQueryInput(q);
-                            void handleRunQuery(q);
-                          }}
-                        >
-                          📝 200 字工作简报？
-                        </Button>
-                      </Flex>
-
-                      {/* 问答检索结果 */}
-                      {queryResult && (
-                        <Card
-                          size="small"
-                          style={{
-                            background: "var(--ant-color-fill-quaternary)",
-                            borderRadius: 10,
-                            border: "1px solid var(--ant-color-border-secondary)",
-                          }}
-                        >
-                          <Flex vertical gap={12}>
-                            <Flex align="center" gap={8}>
-                              <MessageOutlined style={{ color: "var(--ant-color-primary)" }} />
-                              <Text strong style={{ fontSize: 14 }}>
-                                问答回复：
-                              </Text>
-                            </Flex>
-
-                            <div
-                              style={{
-                                whiteSpace: "pre-wrap",
-                                lineHeight: "1.7",
-                                fontSize: 14,
-                                padding: "10px 14px",
-                                background: "var(--ant-color-fill-quaternary)",
-                                borderRadius: 8,
-                              }}
-                            >
-                              {queryResult.answer}
-                            </div>
-
-                            {queryResult.citations && queryResult.citations.length > 0 && (
-                              <Flex vertical gap={8} style={{ marginTop: 8 }}>
-                                <Text strong style={{ fontSize: 13, color: "var(--ant-color-text-secondary)" }}>
-                                  参考来源与出处片段（Citations）：
-                                </Text>
-                                <Row gutter={[12, 12]}>
-                                  {queryResult.citations.map((c, i) => (
-                                    <Col xs={24} md={12} key={i}>
-                                      <Card
-                                        size="small"
-                                        style={{
-                                          borderRadius: 8,
-                                          background: "var(--ant-color-bg-container)",
-                                          border: "1px solid var(--ant-color-border)",
-                                        }}
-                                      >
-                                        <Flex vertical gap={4}>
-                                          <Flex justify="space-between" align="center">
-                                            <Text strong ellipsis style={{ maxWidth: 170 }}>
-                                              {c.docName}
-                                            </Text>
-                                            <Space size={2}>
-                                              <Tag color="blue" style={{ margin: 0, fontSize: 11 }}>匹配度 {c.score}</Tag>
-                                              {(() => {
-                                                const matchedDoc = documents.find(
-                                                  (d) => d.name === c.docName || d.path.endsWith(c.docName),
-                                                );
-                                                return matchedDoc ? (
-                                                  <Tooltip title="在线预览该文档原文">
-                                                    <Button
-                                                      size="small"
-                                                      type="text"
-                                                      icon={<EyeOutlined style={{ fontSize: 11, color: "var(--ant-color-primary)" }} />}
-                                                      onClick={() => handleOpenPreview(matchedDoc)}
-                                                    />
-                                                  </Tooltip>
-                                                ) : null;
-                                              })()}
-                                              <Tooltip title="一键复制出处切片内容">
-                                                <Button
-                                                  size="small"
-                                                  type="text"
-                                                  icon={
-                                                    copiedSnippetIdx === i ? (
-                                                      <CheckOutlined style={{ fontSize: 11, color: "var(--ab-ok, #52c41a)" }} />
-                                                    ) : (
-                                                      <CopyOutlined style={{ fontSize: 11 }} />
-                                                    )
-                                                  }
-                                                  onClick={() => {
-                                                    void navigator.clipboard?.writeText(c.snippet);
-                                                    setCopiedSnippetIdx(i);
-                                                    setTimeout(() => setCopiedSnippetIdx(null), 2000);
-                                                    message.success(`已复制《${c.docName}》切片内容`);
-                                                  }}
-                                                />
-                                              </Tooltip>
-                                              <Tooltip title="在即时通讯中就此出处追问细节">
-                                                <Button
-                                                  size="small"
-                                                  type="text"
-                                                  icon={<CommentOutlined style={{ fontSize: 11, color: "var(--ant-color-primary)" }} />}
-                                                  onClick={() => {
-                                                    const prompt = `基于知识库文档《${c.docName}》的参考出处：\n> ${c.snippet}\n\n请针对问题「${queryResult.query}」展开深度解读与细节分析：`;
-                                                    navigate(`/gateway?tab=im&prefill=${encodeURIComponent(prompt)}`);
-                                                  }}
-                                                />
-                                              </Tooltip>
-                                            </Space>
-                                          </Flex>
-                                          <Text
-                                            type="secondary"
-                                            style={{
-                                              fontSize: 12,
-                                              maxHeight: 70,
-                                              overflow: "hidden",
-                                              textOverflow: "ellipsis",
-                                              display: "-webkit-box",
-                                              WebkitLineClamp: 3,
-                                              WebkitBoxOrient: "vertical",
-                                            }}
-                                          >
-                                            {c.snippet}
-                                          </Text>
-                                        </Flex>
-                                      </Card>
-                                    </Col>
-                                  ))}
-                                </Row>
-                              </Flex>
-                            )}
-
-                            {/* 问答快捷操作条：直达即时通讯工作台深聊 + 复制全文 */}
-                            <Flex
-                              justify="space-between"
-                              align="center"
-                              wrap="wrap"
-                              gap={8}
-                              style={{
-                                marginTop: 4,
-                                paddingTop: 10,
-                                borderTop: "1px dashed var(--ant-color-border-secondary)",
-                              }}
-                            >
-                              <Flex align="center" gap={8}>
-                                <Button
-                                  type="primary"
-                                  icon={<CommentOutlined />}
-                                  onClick={() => {
-                                    const shortAnswer =
-                                      queryResult.answer.length > 180
-                                        ? `${queryResult.answer.slice(0, 180)}…`
-                                        : queryResult.answer;
-                                    const prefill = `基于本地知识库针对「${queryResult.query}」的检索结果：\n> ${shortAnswer.replace(/\n+/g, "\n> ")}\n\n请帮我进一步分析并给出执行建议：`;
-                                    navigate(`/gateway?tab=im&prefill=${encodeURIComponent(prefill)}`);
-                                  }}
-                                >
-                                  在即时通讯工作台继续深聊
-                                </Button>
-                                <Button
-                                  icon={
-                                    qaCopied ? (
-                                      <CheckOutlined style={{ color: "var(--ab-ok, #52c41a)" }} />
-                                    ) : (
-                                      <CopyOutlined />
-                                    )
-                                  }
-                                  onClick={() => {
-                                    const qaText = `问题：${queryResult.query}\n\n回答：\n${queryResult.answer}\n\n（来自 Agent Butler 本地私有知识库）`;
-                                    void navigator.clipboard?.writeText(qaText);
-                                    setQaCopied(true);
-                                    setTimeout(() => setQaCopied(false), 2000);
-                                    message.success("已复制问答全文到剪贴板");
-                                  }}
-                                >
-                                  {qaCopied ? "已复制问答全文 √" : "复制问答全文"}
-                                </Button>
-                              </Flex>
-                              <Text type="secondary" style={{ fontSize: 12 }}>
-                                一键携带问答上下文直达 IM 智能体交互
-                              </Text>
-                            </Flex>
-                          </Flex>
-                        </Card>
-                      )}
-                    </Flex>
-                  </Card>
+                  <QueryTab
+                    queryInput={queryInput}
+                    setQueryInput={setQueryInput}
+                    handleRunQuery={handleRunQuery}
+                    querying={querying}
+                    queryResult={queryResult}
+                    documents={documents}
+                    handleOpenPreview={handleOpenPreview}
+                    copiedSnippetIdx={copiedSnippetIdx}
+                    setCopiedSnippetIdx={setCopiedSnippetIdx}
+                    message={message}
+                    qaCopied={qaCopied}
+                    setQaCopied={setQaCopied}
+                  />
                 ),
               },
               {
@@ -2210,266 +1375,13 @@ ${newNoteContent}
 
         {/* 4. 已开启但尚未运行：展示四步流水线、动态百分比真实进度条与实时终端控制台 */}
         {isEnabled && !isRunning && (
-          <Card
-            style={{
-              borderRadius: 12,
-              border: "1px solid var(--ant-color-border-secondary)",
-              boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
-            }}
-          >
-            <Flex vertical gap={20}>
-              {/* 顶部标题与一键拉起按钮 */}
-              <Flex justify="space-between" align="center" wrap="wrap" gap={12}>
-                <div>
-                  <Flex align="center" gap={8}>
-                    <Title level={4} style={{ margin: 0 }}>
-                      本地知识库容器启动与进度
-                    </Title>
-                    {startupProgress?.active ? (
-                      <Tag icon={<LoadingOutlined />} color="processing">
-                        启动流式输出中
-                      </Tag>
-                    ) : (
-                      <Tag color="warning">待启动</Tag>
-                    )}
-                  </Flex>
-                  <Text type="secondary" style={{ fontSize: 13 }}>
-                    后台雷达正在自动侦听回环端口 127.0.0.1:3001；服务就绪后界面将自动切入工作台，无需手动刷新。
-                  </Text>
-                </div>
-
-                <Space wrap>
-                  <Button
-                    type="primary"
-                    icon={<PlayCircleOutlined />}
-                    onClick={handleLaunchInWeb}
-                    loading={launchingInWeb || startupProgress?.active}
-                  >
-                    立即在网页中拉起容器
-                  </Button>
-                </Space>
-              </Flex>
-
-              {/* 异常状态智能诊断提示条 */}
-              {startupProgress?.stage === "failed" && (
-                <Alert
-                  type="error"
-                  showIcon
-                  title={startupProgress.stageLabel || "容器启动未就绪"}
-                  description={
-                    <Flex vertical gap={6}>
-                      <Text style={{ fontSize: 13 }}>
-                        {startupProgress.error || "未在预期时间内检测到容器就绪，请根据下方日志排查或在宿主终端手动启动。"}
-                      </Text>
-                      <Flex align="center" gap={8} wrap="wrap" style={{ marginTop: 2 }}>
-                        <Text strong style={{ fontSize: 12 }}>宿主终端拉起命令：</Text>
-                        <Text code style={{ fontSize: 12 }}>{START_COMMAND}</Text>
-                        <CopySnippetButton text={START_COMMAND} label="一键复制" />
-                      </Flex>
-                    </Flex>
-                  }
-                  action={
-                    <Button
-                      size="small"
-                      danger
-                      onClick={handleLaunchInWeb}
-                      loading={launchingInWeb}
-                    >
-                      重新尝试
-                    </Button>
-                  }
-                  style={{ borderRadius: 8 }}
-                />
-              )}
-
-              {/* 四步流水线步骤条 */}
-              <Card size="small" style={{ background: "var(--ant-color-fill-quaternary)" }}>
-                <Steps
-                  current={currentStep}
-                  status={startupProgress?.stage === "failed" ? "error" : undefined}
-                  size="small"
-                  items={[
-                    {
-                      title: "环境预检",
-                      description:
-                        startupProgress?.stage === "failed" && currentStep === 0
-                          ? (startupProgress.stageLabel || "环境受限")
-                          : "校验调度环境与权限",
-                    },
-                    {
-                      title: "拉取镜像",
-                      description:
-                        startupProgress?.stage === "failed" && currentStep === 1
-                          ? (startupProgress.stageLabel || "拉取失败")
-                          : "mintplexlabs/anythingllm",
-                    },
-                    {
-                      title: "端口探活",
-                      description:
-                        startupProgress?.stage === "failed" && currentStep === 2
-                          ? "探活响应超时"
-                          : "127.0.0.1:3001",
-                    },
-                    { title: "就绪上线", description: "接入资料收集箱" },
-                  ]}
-                />
-              </Card>
-
-              {/* 真实百分比动态进度条 */}
-              <Flex vertical gap={6}>
-                <Flex justify="space-between" align="center">
-                  <Text strong style={{ fontSize: 13 }}>
-                    当前阶段：{startupProgress?.stageLabel || "准备就绪"}
-                  </Text>
-                  <Text strong style={{ color: "var(--ant-color-primary)" }}>
-                    {startupProgress?.percent ?? 0}%
-                  </Text>
-                </Flex>
-                <Progress
-                  percent={startupProgress?.percent ?? 0}
-                  status={
-                    startupProgress?.stage === "failed"
-                      ? "exception"
-                      : startupProgress?.ready
-                        ? "success"
-                        : "active"
-                  }
-                  strokeColor={{ "0%": "#1677ff", "100%": "#52c41a" }}
-                  showInfo={false}
-                />
-              </Flex>
-
-              {/* 实时终端控制台窗口 (Live Terminal Window) */}
-              <div
-                style={{
-                  borderRadius: 8,
-                  overflow: "hidden",
-                  border: "1px solid var(--ab-border)",
-                  background: "var(--ab-sunken)",
-                  boxShadow: "inset 0 1px 4px rgba(0,0,0,0.25)",
-                }}
-              >
-                {/* 仿终端顶栏 */}
-                <Flex
-                  justify="space-between"
-                  align="center"
-                  style={{
-                    padding: "6px 12px",
-                    background: "var(--ab-surface-2)",
-                    borderBottom: "1px solid var(--ab-border)",
-                  }}
-                >
-                  <Flex align="center" gap={6}>
-                    <span
-                      style={{
-                        width: 10,
-                        height: 10,
-                        borderRadius: "50%",
-                        background: "var(--ab-error)",
-                        display: "inline-block",
-                      }}
-                    />
-                    <span
-                      style={{
-                        width: 10,
-                        height: 10,
-                        borderRadius: "50%",
-                        background: "var(--ab-warn)",
-                        display: "inline-block",
-                      }}
-                    />
-                    <span
-                      style={{
-                        width: 10,
-                        height: 10,
-                        borderRadius: "50%",
-                        background: "var(--ab-ok)",
-                        display: "inline-block",
-                      }}
-                    />
-                    <Text
-                      style={{
-                        color: "var(--ab-text-3)",
-                        fontSize: 12,
-                        marginLeft: 8,
-                        fontFamily: "var(--ab-mono)",
-                      }}
-                    >
-                      AnythingLLM 实时终端输出 (Docker Compose)
-                    </Text>
-                  </Flex>
-                  <Space size="small">
-                    <CopySnippetButton
-                      text={startupProgress?.logs.join("\n") || START_COMMAND}
-                      label="复制日志"
-                    />
-                  </Space>
-                </Flex>
-
-                {/* 滚动日志区域 */}
-                <div
-                  style={{
-                    padding: "12px 14px",
-                    minHeight: 180,
-                    maxHeight: 280,
-                    overflowY: "auto",
-                    fontFamily: "var(--ab-mono)",
-                    fontSize: 12,
-                    lineHeight: "1.6",
-                    color: "var(--ab-ok)",
-                  }}
-                >
-                  {startupProgress?.logs && startupProgress.logs.length > 0 ? (
-                    startupProgress.logs.map((log, idx) => (
-                      <div
-                        key={idx}
-                        style={{
-                          color: log.includes("[Success]")
-                            ? "var(--ab-ok)"
-                            : log.includes("[Warn]") || log.includes("[Notice]")
-                              ? "var(--ab-warn)"
-                              : log.includes("[Error]")
-                                ? "var(--ab-error)"
-                                : log.startsWith(">>>")
-                                  ? "var(--ab-primary)"
-                                  : "var(--ab-text-2)",
-                          whiteSpace: "pre-wrap",
-                          wordBreak: "break-all",
-                        }}
-                      >
-                        {log}
-                      </div>
-                    ))
-                  ) : (
-                    <div style={{ color: "var(--ab-text-3)", fontStyle: "italic" }}>
-                      &gt; 等待指令。点击上方「立即在网页中拉起容器」可直接在网页中启动，或复制下方命令在外部终端运行。
-                    </div>
-                  )}
-                  <div ref={terminalBottomRef} />
-                </div>
-              </div>
-
-              {/* 外部命令行备用参考 */}
-              <Card size="small" style={{ background: "var(--ant-color-fill-quaternary)" }}>
-                <Flex justify="space-between" align="center" wrap="wrap" gap={8}>
-                  <Flex vertical gap={2}>
-                    <Text strong style={{ fontSize: 12 }}>
-                      外部宿主终端执行命令参考：
-                    </Text>
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      若容器环境权限受限，直接在宿主终端运行此命令，网页将自动感应到端口亮起并切入工作台。
-                    </Text>
-                  </Flex>
-                  <Flex align="center" gap={8}>
-                    <Text code style={{ fontSize: 12 }}>
-                      {START_COMMAND}
-                    </Text>
-                    <CopySnippetButton text={START_COMMAND} label="复制代码" />
-                  </Flex>
-                </Flex>
-              </Card>
-            </Flex>
-          </Card>
+          <StartupPanel
+            startupProgress={startupProgress}
+            currentStep={currentStep}
+            launchingInWeb={launchingInWeb}
+            handleLaunchInWeb={handleLaunchInWeb}
+            terminalBottomRef={terminalBottomRef}
+          />
         )}
 
         {/* 5. 未开启引导卡片 */}
@@ -2565,563 +1477,59 @@ ${newNoteContent}
         )}
       </Flex>
 
-      {/* Obsidian 笔记库配置弹窗 */}
-      <Modal
-        title="配置 Obsidian 笔记库本地路径"
-        open={obsidianModalOpen}
-        onOk={handleSaveObsidianConfig}
-        onCancel={() => {
-          setObsidianModalOpen(false);
-          setTestPathResult(null);
-        }}
-        okText="保存路径"
-        cancelText="取消"
-      >
-        <Flex vertical gap={12} style={{ marginTop: 12 }}>
-          <Paragraph style={{ margin: 0, fontSize: 13 }}>
-            若您希望绑定固定的本地路径进行后台周期同步，支持 macOS（如 <Text code>/Users/name/Documents/Notes</Text>）、Linux（如 <Text code>/home/name/notes</Text>）以及 Windows 绝对路径（如 <Text code>C:\Users\name\Documents\Notes</Text>）：
-          </Paragraph>
-          <Flex gap={8}>
-            <Input
-              placeholder="例如：/Users/name/Notes 或 C:\Users\name\Documents\MyVault"
-              value={obsidianPathInput}
-              onChange={(e) => {
-                setObsidianPathInput(e.target.value);
-                setTestPathResult(null);
-              }}
-            />
-            <Button onClick={handleTestPath} loading={testingPath}>
-              测试路径
-            </Button>
-          </Flex>
-
-          {testPathResult && (
-            <Alert
-              type={testPathResult.exists ? "success" : "warning"}
-              showIcon
-              title={testPathResult.message}
-              description={
-                testPathResult.exists ? (
-                  <Text style={{ fontSize: 12 }}>
-                    有效路径：<Text code>{testPathResult.resolvedPath}</Text>，可直接同步！
-                  </Text>
-                ) : (
-                  <Text style={{ fontSize: 12 }}>
-                    提示：全平台用户（macOS / Linux / Windows）均可直接在主界面点击「选择本地 Obsidian 笔记库文件夹」按钮，由浏览器原生拾取并建立索引同步，无需手动配置容器路径映射。
-                  </Text>
-                )
-              }
-            />
-          )}
-        </Flex>
-      </Modal>
-
-      {/* 文档内容在线预览抽屉 */}
-      <Drawer
-        title={
-          <Flex align="center" gap={8}>
-            <FileTextOutlined style={{ color: "var(--ant-color-primary)" }} />
-            <Typography.Text
-              strong
-              copyable={{
-                text: previewData?.name ?? "",
-                tooltips: ["复制文件名", "已复制"],
-              }}
-            >
-              {previewData?.name ? `文档原文预览：${previewData.name}` : "文档原文预览"}
-            </Typography.Text>
-          </Flex>
-        }
-        placement="right"
-        size={680}
-        styles={{ wrapper: { maxWidth: "100%" } }}
-        open={previewDrawerOpen}
-        onClose={() => {
-          setPreviewDrawerOpen(false);
-          setDocSearchKeyword("");
-        }}
-      >
-        {previewLoading ? (
-          <Flex justify="center" align="center" style={{ height: 200 }}>
-            <LoadingOutlined style={{ fontSize: 32 }} spin />
-          </Flex>
-        ) : previewData ? (
-          <Flex vertical gap={12}>
-            <Flex justify="space-between" align="center" wrap="wrap" gap={8}>
-              <Space>
-                <Tag color="blue">{previewData.ext.toUpperCase() || "DOC"}</Tag>
-                <Text type="secondary">{Math.max(1, Math.round(previewData.size / 1024))} KB</Text>
-                <Text type="secondary">更新时间：{new Date(previewData.updatedAt).toLocaleString()}</Text>
-              </Space>
-              <Space wrap>
-                <Dropdown
-                  menu={{
-                    items: [
-                      {
-                        key: "summary",
-                        label: "💡 梳理核心要点与操作步骤（默认）",
-                        onClick: () => handleAskButlerAboutDoc(previewData.name, "summary"),
-                      },
-                      {
-                        key: "todos",
-                        label: "📋 提取行动项与待办清单",
-                        onClick: () => handleAskButlerAboutDoc(previewData.name, "todos"),
-                      },
-                      {
-                        key: "audit",
-                        label: "🛡️ 审查潜在风险与合规注意",
-                        onClick: () => handleAskButlerAboutDoc(previewData.name, "audit"),
-                      },
-                      {
-                        key: "brief",
-                        label: "📝 总结为 200 字即时工作简报",
-                        onClick: () => handleAskButlerAboutDoc(previewData.name, "brief"),
-                      },
-                    ],
-                  }}
-                  trigger={["click"]}
-                >
-                  <Button type="primary" size="small" icon={<CommentOutlined />}>
-                    <span>在即时通讯中提问</span>
-                    <DownOutlined style={{ fontSize: 10, marginLeft: 2 }} />
-                  </Button>
-                </Dropdown>
-                <CopySnippetButton text={previewData.content} label="复制全文" />
-                <Tooltip title="复制知识库引用标签 ([参考本地知识库: 《...》])">
-                  <Button
-                    size="small"
-                    icon={<BookOutlined style={{ color: "var(--ant-color-primary)" }} />}
-                    onClick={() => {
-                      const refTag = `[参考本地知识库: 《${previewData.name}》]`;
-                      void navigator.clipboard.writeText(refTag);
-                      message.success(`已复制引用标签: ${refTag}`);
-                    }}
-                  >
-                    复制引用标签
-                  </Button>
-                </Tooltip>
-              </Space>
-            </Flex>
-
-            {/* 提取出的标签快速过滤 */}
-            {previewDocTags.length > 0 && (
-              <Flex align="center" gap={6} wrap="wrap" style={{ padding: "2px 0" }}>
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  文档标签：
-                </Text>
-                {previewDocTags.map((tag) => (
-                  <Tag
-                    key={tag}
-                    color="processing"
-                    style={{ cursor: "pointer", margin: 0 }}
-                    onClick={() => handleFilterByTag(tag)}
-                    title={`点击在收集箱中按标签「${tag}」筛选`}
-                  >
-                    {tag}
-                  </Tag>
-                ))}
-              </Flex>
-            )}
-
-            {/* 文档内关键词搜索工具条 */}
-            <Flex align="center" justify="space-between" gap={8} style={{ padding: "4px 0" }}>
-              <Input
-                size="small"
-                prefix={<SearchOutlined style={{ color: "var(--ab-text-secondary)" }} />}
-                placeholder="在文档中搜索关键词..."
-                allowClear
-                value={docSearchKeyword}
-                onChange={(e) => setDocSearchKeyword(e.target.value)}
-                style={{ maxWidth: 280 }}
-              />
-              {docSearchKeyword.trim() && (
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  匹配到 <strong style={{ color: docSearchMatchCount > 0 ? "var(--ant-color-primary)" : "var(--ant-color-error)" }}>{docSearchMatchCount}</strong> 处
-                </Text>
-              )}
-            </Flex>
-
-            {previewData.truncated && (
-              <Alert
-                type="info"
-                showIcon
-                title="文档内容较长，已展示前 16,000 字符预览，全部内容已建立切片索引。"
-              />
-            )}
-
-            <div
-              style={{
-                fontFamily: "monospace",
-                fontSize: 13,
-                lineHeight: "1.6",
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-                background: "var(--ant-color-fill-quaternary)",
-                padding: "12px 16px",
-                borderRadius: 8,
-                maxHeight: "70vh",
-                overflowY: "auto",
-                border: "1px solid var(--ant-color-border-secondary)",
-              }}
-            >
-              {previewData.content ? renderHighlightedDocContent(previewData.content, docSearchKeyword) : "（暂无文本内容）"}
-            </div>
-          </Flex>
-        ) : (
-          <Empty description="该文件暂无文本预览内容或格式无法直接解析" />
-        )}
-      </Drawer>
-
-      {/* 11. 笔记查重与智能清理 Modal */}
-      <Modal
-        title={
-          <Flex align="center" gap={8}>
-            <ClearOutlined style={{ color: "var(--ant-color-warning)" }} />
-            <span>笔记与文档智能查重与清理</span>
-          </Flex>
-        }
-        open={dedupModalOpen}
-        onCancel={() => setDedupModalOpen(false)}
-        width={760}
-        footer={[
-          <Button key="close" onClick={() => setDedupModalOpen(false)} disabled={dedupCleaning}>
-            取消
-          </Button>,
-          <Button
-            key="clean-selected"
-            danger
-            disabled={
-              dedupScanning ||
-              dedupCleaning ||
-              !dedupResult ||
-              selectedRemoveIds.length === 0
-            }
-            onClick={handleRequestDedupClean}
-          >
-            清理所选副本 ({selectedRemoveIds.length})
-          </Button>,
-        ]}
-      >
-        {dedupScanning ? (
-          <Flex justify="center" align="center" style={{ padding: "40px 0" }} vertical gap={12}>
-            <LoadingOutlined style={{ fontSize: 36, color: "var(--ant-color-warning)" }} spin />
-            <Text type="secondary">正在全面比对文档 SHA-256 哈希与同名异径副本...</Text>
-          </Flex>
-        ) : dedupResult ? (
-          <Flex vertical gap={16} style={{ marginTop: 8 }}>
-            {/* 统计横幅 */}
-            <Card
-              size="small"
-              style={{
-                background: "var(--ant-color-fill-quaternary)",
-                borderRadius: 8,
-                border: "1px solid var(--ant-color-border-secondary)",
-              }}
-            >
-              <Row gutter={16}>
-                <Col span={8}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>总扫描文档</Text>
-                  <div><Text strong style={{ fontSize: 18 }}>{dedupResult.totalDocs} 篇</Text></div>
-                </Col>
-                <Col span={8}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>发现冗余副本</Text>
-                  <div>
-                    <Text
-                      strong
-                      style={{
-                        fontSize: 18,
-                        color: dedupResult.duplicateCount > 0 ? "var(--ant-color-warning)" : "var(--ant-color-success)",
-                      }}
-                    >
-                      {dedupResult.duplicateCount} 篇
-                    </Text>
-                  </div>
-                </Col>
-                <Col span={8}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>预计释放空间</Text>
-                  <div>
-                    <Text strong style={{ fontSize: 18, color: "var(--ant-color-primary)" }}>
-                      {Math.max(0, Math.round(dedupResult.reclaimableBytes / 1024))} KB
-                    </Text>
-                  </div>
-                </Col>
-              </Row>
-            </Card>
-
-            {dedupResult.groups.length === 0 ? (
-              <Empty
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description="太棒了！知识库与笔记库非常整洁，未发现任何重复文档。"
-              />
-            ) : (
-              <>
-                <Paragraph type="secondary" style={{ fontSize: 12, margin: 0 }}>
-                  只有内容完全一致的副本可清理。文件名相同但内容不同的资料仅供核对，不会自动列入清理。
-                </Paragraph>
-
-                <div style={{ maxHeight: 380, overflowY: "auto", paddingRight: 4 }}>
-                  <Flex vertical gap={12}>
-                    {dedupResult.groups.map((group) => (
-                      <Card
-                        key={group.key}
-                        size="small"
-                        title={
-                          <Flex justify="space-between" align="center" wrap="wrap" gap={8}>
-                            <Flex align="center" gap={8}>
-                              <Text strong>{group.name}</Text>
-                              <Tag color={group.reason === "exact_content" ? "orange" : "blue"}>
-                                {group.reasonLabel}
-                              </Tag>
-                            </Flex>
-                            <Text type="secondary" style={{ fontSize: 12 }}>
-                              共 {group.items.length} 份副本
-                            </Text>
-                          </Flex>
-                        }
-                        style={{ borderRadius: 8 }}
-                      >
-                        <Flex vertical gap={4} className="divide-y divide-outline-variant/10">
-                          {group.items.map((item) => {
-                            const isSelected = selectedRemoveIds.includes(item.id);
-                            return (
-                              <Flex
-                                key={item.id}
-                                justify="space-between"
-                                align="center"
-                                style={{
-                                  padding: "8px 12px",
-                                  background: item.isPrimary
-                                    ? "color-mix(in srgb, var(--ab-ok) 8%, transparent)"
-                                    : isSelected
-                                      ? "color-mix(in srgb, var(--ab-warn) 8%, transparent)"
-                                      : "transparent",
-                                  borderRadius: 6,
-                                  width: "100%",
-                                }}
-                              >
-                                <Flex align="center" gap={10} style={{ overflow: "hidden" }}>
-                                  {group.reason === "exact_content" && !item.isPrimary ? (
-                                    <Checkbox
-                                      aria-label={`选择清理副本 ${item.path}`}
-                                      checked={isSelected}
-                                      onChange={(e) => {
-                                        if (e.target.checked) {
-                                          setSelectedRemoveIds((prev) =>
-                                            prev.includes(item.id) ? prev : [...prev, item.id],
-                                          );
-                                        } else {
-                                          setSelectedRemoveIds((prev) =>
-                                            prev.filter((id) => id !== item.id),
-                                          );
-                                        }
-                                      }}
-                                    />
-                                  ) : item.isPrimary ? (
-                                    <Tag color="success" style={{ margin: 0 }}>
-                                      推荐保留
-                                    </Tag>
-                                  ) : (
-                                    <Tag color="default" style={{ margin: 0 }}>
-                                      同名待核对
-                                    </Tag>
-                                  )}
-                                  <Flex vertical style={{ minWidth: 0 }}>
-                                    <Text ellipsis style={{ maxWidth: 360, fontSize: 13 }} code>
-                                      {item.path}
-                                    </Text>
-                                    <Text type="secondary" style={{ fontSize: 11 }}>
-                                      {item.source === "obsidian"
-                                        ? "Obsidian 笔记库"
-                                        : item.source === "inbox"
-                                          ? "微信归纳"
-                                          : "收集箱直传"}{" "}
-                                      · {Math.max(1, Math.round(item.size / 1024))} KB · 更新于{" "}
-                                      {new Date(item.updatedAt).toLocaleString("zh-CN", {
-                                        hour12: false,
-                                      })}
-                                    </Text>
-                                  </Flex>
-                                </Flex>
-
-                                {group.reason === "exact_content" && !item.isPrimary && (
-                                  <Tag color="volcano" style={{ margin: 0 }}>
-                                    待清理副本
-                                  </Tag>
-                                )}
-                              </Flex>
-                            );
-                          })}
-                        </Flex>
-                      </Card>
-                    ))}
-                  </Flex>
-                </div>
-              </>
-            )}
-          </Flex>
-        ) : null}
-      </Modal>
-      <DangerConfirmModal
-        open={dedupConfirmOpen}
-        title={`确认清理 ${dedupConfirmIds.length} 个重复副本？`}
-        impact={`将从本地磁盘与知识库文档清单中移除 ${dedupConfirmIds.length} 个本次扫描确认的相同内容副本。`}
-        reversible="不能通过本页面撤回；请确认已选副本不是唯一资料。推荐保留版本不会被清理。"
-        duration="通常数秒，期间知识库服务保持运行。"
-        acknowledge="我已核对清理数量与保留版本，并确认删除所选副本"
-        confirmLabel="清理所选副本"
-        busy={dedupCleaning}
-        onCancel={() => setDedupConfirmOpen(false)}
-        onConfirm={handleExecuteClean}
+      <ObsidianConfigModal
+        obsidianModalOpen={obsidianModalOpen}
+        handleSaveObsidianConfig={handleSaveObsidianConfig}
+        setObsidianModalOpen={setObsidianModalOpen}
+        setTestPathResult={setTestPathResult}
+        obsidianPathInput={obsidianPathInput}
+        setObsidianPathInput={setObsidianPathInput}
+        handleTestPath={handleTestPath}
+        testingPath={testingPath}
+        testPathResult={testPathResult}
       />
 
-      {/* 新建私有笔记与知识卡片 Modal */}
-      <Modal
-        title={
-          <Flex align="center" gap={8}>
-            <FileTextOutlined style={{ color: "var(--ab-primary)" }} />
-            <span>新建私有笔记与知识卡片</span>
-          </Flex>
-        }
-        open={createNoteModalOpen}
-        onCancel={() => {
-          if (!creatingNote) {
-            setCreateNoteModalOpen(false);
-          }
-        }}
-        onOk={handleCreateNote}
-        okText={creatingNote ? "保存入库中..." : "保存并自动切片入库"}
-        confirmLoading={creatingNote}
-        destroyOnClose
-        width={560}
-      >
-        <Flex vertical gap={14} style={{ marginTop: 16 }}>
-          <div>
-            <Text strong style={{ fontSize: 13, marginBottom: 4, display: "block" }}>
-              笔记标题 / 文件名
-            </Text>
-            <Input
-              placeholder="例如：系统核心架构设计规范（自动补齐 .md 后缀）"
-              value={newNoteTitle}
-              onChange={(e) => setNewNoteTitle(e.target.value)}
-              allowClear
-            />
-          </div>
+      <DocPreviewDrawer
+        previewDrawerOpen={previewDrawerOpen}
+        setPreviewDrawerOpen={setPreviewDrawerOpen}
+        setDocSearchKeyword={setDocSearchKeyword}
+        previewLoading={previewLoading}
+        previewData={previewData}
+        previewDocTags={previewDocTags}
+        docSearchKeyword={docSearchKeyword}
+        docSearchMatchCount={docSearchMatchCount}
+        handleAskButlerAboutDoc={handleAskButlerAboutDoc}
+        handleFilterByTag={handleFilterByTag}
+        message={message}
+      />
 
-          <div>
-            <Text strong style={{ fontSize: 13, marginBottom: 4, display: "block" }}>
-              知识分类预设
-            </Text>
-            <Segmented
-              size="small"
-              block
-              value={newNoteCategory}
-              onChange={(val: string | number) => setNewNoteCategory(String(val))}
-              options={[
-                { label: "🔖 知识卡片", value: "card" },
-                { label: "📓 技术架构", value: "tech" },
-                { label: "💡 灵感备忘", value: "idea" },
-                { label: "📋 运维规程", value: "sop" },
-              ]}
-            />
-          </div>
+      <DedupModals
+        dedupModalOpen={dedupModalOpen}
+        setDedupModalOpen={setDedupModalOpen}
+        dedupScanning={dedupScanning}
+        dedupCleaning={dedupCleaning}
+        dedupResult={dedupResult}
+        selectedRemoveIds={selectedRemoveIds}
+        setSelectedRemoveIds={setSelectedRemoveIds}
+        handleRequestDedupClean={handleRequestDedupClean}
+        dedupConfirmOpen={dedupConfirmOpen}
+        dedupConfirmIds={dedupConfirmIds}
+        setDedupConfirmOpen={setDedupConfirmOpen}
+        handleExecuteClean={handleExecuteClean}
+      />
 
-          <div>
-            <Flex justify="space-between" align="center" style={{ marginBottom: 4 }}>
-              <Text strong style={{ fontSize: 13 }}>
-                正文内容 (支持 Markdown)
-              </Text>
-              <Space size={4}>
-                <Button
-                  size="small"
-                  type="text"
-                  style={{ fontSize: 11, padding: "0 4px", color: "var(--ab-primary)" }}
-                  onClick={() => {
-                    setNewNoteTitle((prev) => prev || "系统模块架构设计规范");
-                    setNewNoteCategory("tech");
-                    setNewNoteContent(`## 1. 架构目标与背景
-- 解决痛点：
-- 核心指标：
-
-## 2. 模块分工与依赖拓扑
-- 核心模块与职责：
-- 外部依赖与通信端口：
-
-## 3. 数据流与容错机制
-- 核心消息处理链路：
-- 异常自愈策略：`);
-                  }}
-                >
-                  架构模版
-                </Button>
-                <span style={{ color: "var(--ab-border)" }}>|</span>
-                <Button
-                  size="small"
-                  type="text"
-                  style={{ fontSize: 11, padding: "0 4px", color: "var(--ab-primary)" }}
-                  onClick={() => {
-                    setNewNoteTitle((prev) => prev || "通道异常排查与恢复SOP");
-                    setNewNoteCategory("sop");
-                    setNewNoteContent(`## 1. 适用场景与触发条件
-- 故障现象：
-- 前置检查命令：
-
-## 2. 标准排错与处置步骤
-1. 第一步：检查容器与进程状态
-2. 第二步：分析死信或错误日志
-3. 第三步：执行滚动重启或配置修正
-
-## 3. 验收标准与恢复验证
-- 验证指令：
-- 预期输出：`);
-                  }}
-                >
-                  运维模版
-                </Button>
-                <span style={{ color: "var(--ab-border)" }}>|</span>
-                <Button
-                  size="small"
-                  type="text"
-                  style={{ fontSize: 11, padding: "0 4px", color: "var(--ab-primary)" }}
-                  onClick={() => {
-                    setNewNoteTitle((prev) => prev || "关键技术知识卡片");
-                    setNewNoteCategory("card");
-                    setNewNoteContent(`## 核心概念与工作原理
-
-## 典型应用场景与关键代码
-\`\`\`bash
-# 常用排障或配置命令
-\`\`\`
-
-## 避坑指南与最佳实践
-- 注意事项 1：
-- 注意事项 2：`);
-                  }}
-                >
-                  卡片模版
-                </Button>
-              </Space>
-            </Flex>
-            <Input.TextArea
-              placeholder="输入知识点、架构说明、运维备忘或核心规则... (支持 Ctrl+Enter 快捷保存)"
-              value={newNoteContent}
-              onChange={(e) => setNewNoteContent(e.target.value)}
-              onKeyDown={(e) => {
-                if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-                  e.preventDefault();
-                  void handleCreateNote();
-                }
-              }}
-              autoSize={{ minRows: 6, maxRows: 14 }}
-              showCount
-            />
-            <div style={{ marginTop: 4, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <Text type="secondary" style={{ fontSize: 11 }}>
-                <kbd className="im-kbd-hint">Ctrl + Enter</kbd> 快捷保存入库 · 写入后自动分段切片
-              </Text>
-            </div>
-          </div>
-        </Flex>
-      </Modal>
+      <CreateNoteModal
+        createNoteModalOpen={createNoteModalOpen}
+        setCreateNoteModalOpen={setCreateNoteModalOpen}
+        creatingNote={creatingNote}
+        handleCreateNote={handleCreateNote}
+        newNoteTitle={newNoteTitle}
+        setNewNoteTitle={setNewNoteTitle}
+        newNoteCategory={newNoteCategory}
+        setNewNoteCategory={setNewNoteCategory}
+        newNoteContent={newNoteContent}
+        setNewNoteContent={setNewNoteContent}
+      />
     </div>
   );
 }
