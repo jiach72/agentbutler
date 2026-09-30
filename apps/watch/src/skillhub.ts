@@ -231,6 +231,18 @@ export function createSkillHubClient(deps: SkillHubClientDeps = {}): SkillHubCli
       });
       if (response.status === 404) throw new Error("SkillHub 上不存在该技能或不可见");
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      // 重定向防降级（审计 20260930 中等-12）：follow 到最终地址后必须仍是 https，
+      // 防止平台 302 到 http 明文源被中间人替换包内容。真实 fetch 恒有 url；
+      // 为空（如测试桩）时无从判定，退回不检查。
+      if (typeof response.url === "string" && response.url !== "" && new URL(response.url).protocol !== "https:") {
+        throw new Error("下载被重定向到非 https 源，已拒绝");
+      }
+      // 先看 Content-Length 再读体（超限直接拒绝，不把 50MB+ 全量拉进内存）；
+      // 上游未提供长度时退回读后校验。
+      const declared = Number(response.headers.get("content-length") ?? "");
+      if (Number.isFinite(declared) && declared > DOWNLOAD_MAX_BYTES) {
+        throw new Error(`技能包超过 ${Math.floor(DOWNLOAD_MAX_BYTES / 1024 / 1024)}MB 上限`);
+      }
       const buffer = new Uint8Array(await response.arrayBuffer());
       if (buffer.byteLength > DOWNLOAD_MAX_BYTES) {
         throw new Error(`技能包超过 ${Math.floor(DOWNLOAD_MAX_BYTES / 1024 / 1024)}MB 上限`);
