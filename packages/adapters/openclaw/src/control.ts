@@ -374,6 +374,14 @@ export function createOpenClawControl(options: OpenClawControlOptions = {}): Con
       if (previous) return ok(previous, startedAt);
       const root = rootPath(ref);
       if (!root) return fail("E002", "OpenClaw instance rootPath is required", { startedAt, userHint: "缺少 OpenClaw 实例目录" });
+      // npm 的 @version 段接受 https tarball / github 等远程引用，会执行其
+      // 生命周期脚本＝任意代码执行（审计 20260930 中等-5）。只放行 semver 形态。
+      if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(target.version.trim())) {
+        return fail("E203", `OpenClaw 升级目标版本不合法：${target.version.slice(0, 80)}`, {
+          startedAt,
+          userHint: "目标版本必须是 x.y.z 或 x.y.z-预发布 形式，已拒绝升级",
+        });
+      }
       if (opts.dryRun === true) {
         const planned = job("upgrade", `升级 OpenClaw 到 ${target.version}`, "dry-run：未执行 npm install");
         jobs.set(opts.idempotencyKey, planned);
@@ -425,7 +433,7 @@ export function createOpenClawControl(options: OpenClawControlOptions = {}): Con
         }
         snapshotId = snapshot.data.snapshotId;
       }
-      const installed = await run("npm", ["install", "--global", `openclaw@${target.version}`], { cwd: root, timeoutMs: timeoutSec * 1_000, env: openClawEnv(root) });
+      const installed = await run("npm", ["install", "--global", `openclaw@${target.version.trim()}`], { cwd: root, timeoutMs: timeoutSec * 1_000, env: openClawEnv(root) });
       if (installed.code !== 0) {
         return failUpgrade(ref, `OpenClaw 升级失败：${installed.stderr.split(/\r?\n/)[0] || `exit ${installed.code}`}`, opts, snapshotId, previousVersion.data, timeoutSec, startedAt);
       }
