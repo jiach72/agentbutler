@@ -163,6 +163,8 @@ export interface ButlerSelfView {
   prefs: ButlerSelfPrefs;
   snapshots: ButlerSelfSnapshot[];
   availableUpdates: ButlerAvailableUpdate[];
+  /** 远端 tag 探测结果：ok=false 说明「已是最新」不可信（检查本身失败了）。 */
+  remoteCheck?: { ok: boolean; checkedAt: string | null; stale: boolean; error: string | null } | null;
   lastJob: ButlerSelfJobView | null;
   checkedAt: string;
 }

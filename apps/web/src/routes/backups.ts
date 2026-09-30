@@ -102,6 +102,11 @@ export async function registerBackupsRoutes(
     proxyWatchPost("/api/butler/self/upgrade", request.body, reply, 10 * 60_000),
   );
 
+  // 「手动检查更新」：watch → updater 强制重探远端 tag（ls-remote 最多 15s，给足余量）。
+  app.post("/api/butler/self/refresh-check", async (request, reply) =>
+    proxyWatchPost("/api/butler/self/refresh-check", request.body, reply, 45_000),
+  );
+
   app.post("/api/butler/self/rollback", async (request, reply) =>
     proxyWatchPost("/api/butler/self/rollback", request.body, reply),
   );

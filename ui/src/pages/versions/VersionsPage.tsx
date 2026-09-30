@@ -5,7 +5,7 @@
  */
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import { App, Button, Card, Flex, Select, Spin, Switch, Tooltip, Typography } from "antd";
-import { CheckCircleFilled, DownOutlined, UpOutlined, RobotOutlined } from "@ant-design/icons";
+import { CheckCircleFilled, DownOutlined, ExclamationCircleFilled, UpOutlined, RobotOutlined } from "@ant-design/icons";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { ConclusionBar } from "../../components/ConclusionBar.js";
 import { DangerConfirmModal } from "../../components/DangerConfirmModal.js";
@@ -81,6 +81,26 @@ export function VersionsPanel() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  /** 「手动检查更新」：强制 updater 重探远端 tag 后回读，绕过服务端 5 分钟缓存。 */
+  const [selfCheckBusy, setSelfCheckBusy] = useState(false);
+  const checkForUpdate = useCallback(async () => {
+    if (selfCheckBusy) return;
+    setSelfCheckBusy(true);
+    try {
+      // 刷新检查回传的是完整最新状态；失败时页面既有数据保持不动（与 refresh 语义一致）。
+      const result = await postJson("/api/butler/self/refresh-check", {}, 60_000);
+      const view = isRecord(result.data) ? (result.data as unknown as ButlerSelfView) : null;
+      if (result.ok && view !== null && view.availableUpdates !== undefined) {
+        setButlerSelf(view);
+        message.success("已重新检查远程版本");
+      } else if (!result.ok) {
+        message.error(`检查更新失败（HTTP ${result.status}），请稍后重试`);
+      }
+    } finally {
+      setSelfCheckBusy(false);
+    }
+  }, [selfCheckBusy, message]);
 
   useEventStream({
     prefixes: ["job-event", "upgrade", "snapshot"],
@@ -332,6 +352,8 @@ export function VersionsPanel() {
 
   /* ---- 状态行：更新中 > 回滚中 > 有可用更新 > 已是最新 ---- */
   const prefs = butlerSelf?.prefs ?? { channel: "beta" as const, locked: false };
+  const remoteCheckFailed =
+    butlerSelf?.remoteCheck != null && !butlerSelf.remoteCheck.ok;
   const runningSelfJob = butlerSelf?.lastJob?.status === "running" ? butlerSelf.lastJob : null;
   const managedRunning =
     managedUpgradePending !== null || job?.status === "running" ? { target: managedUpgradePending?.target ?? null } : null;
@@ -391,6 +413,14 @@ export function VersionsPanel() {
             （自更新已锁定，请使用 CLI 执行更新：<code>bash scripts/deploy.sh</code>）
           </Text>
         )}
+      </Flex>
+    );
+  } else if (butlerSelf?.remoteCheck !== null && butlerSelf?.remoteCheck !== undefined && !butlerSelf.remoteCheck.ok) {
+    // 诚实原则：远端检查失败时「已是最新」不可信，必须显式说明。
+    statusLine = (
+      <Flex align="center" gap={8}>
+        <ExclamationCircleFilled style={{ color: "var(--ant-color-warning)" }} />
+        <Text>无法检查远程版本（{butlerSelf.remoteCheck.error ?? "未知原因"}），以下结论基于本地 tag</Text>
       </Flex>
     );
   } else {
@@ -573,18 +603,27 @@ export function VersionsPanel() {
         />
       )}
 
-      {/* §2.3 ② 结论条：当前版本 / 可升级。 */}
+      {/* §2.3 ② 结论条：当前版本 / 可升级。remoteCheck 失败时不得假报「已是最新」。 */}
       <ConclusionBar
-        tone={selfUpgradeCandidate !== null ? "warn" : "ok"}
+        tone={selfUpgradeCandidate !== null ? "warn" : remoteCheckFailed ? "warn" : "ok"}
         title={
           selfUpgradeCandidate !== null
             ? `管家有可用更新 ${formatDisplayVersion(selfUpgradeCandidate.version)}（${selfUpgradeCandidate.channel === "beta" ? "测试" : "正式"} 通道）`
-            : "管家已是最新版本"
+            : remoteCheckFailed
+              ? "无法确认是否有新版本"
+              : "管家已是最新版本"
         }
         copy={
           selfUpgradeCandidate !== null
             ? "零停机升级通常几十秒，升级前会自动备份当前状态。"
-            : "新版本发布后这里会提示；也可以手动检查更新。"
+            : remoteCheckFailed
+              ? `远程版本检查失败：${butlerSelf?.remoteCheck?.error ?? "未知原因"}。下方结论基于本地 tag，可能过期；点击「手动检查更新」重试。`
+              : "新版本发布后这里会提示；也可以手动检查更新。"
+        }
+        extra={
+          <Button size="small" loading={selfCheckBusy} onClick={() => void checkForUpdate()}>
+            手动检查更新
+          </Button>
         }
       />
 

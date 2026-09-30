@@ -272,21 +272,86 @@ function channelOf(version: string): "stable" | "beta" {
   return version.includes("-") ? "beta" : "stable";
 }
 
-async function updates(): Promise<Array<{ version: string; channel: "stable" | "beta"; commit: string | null; tag: string }>> {
+/**
+ * 远端 tag 探测（版本检查的生命线）：本地 tag 只在升级发生后前进，只看本地 tag
+ * 永远发现不了新版本，面板会假报「已是最新」（2026-09-30 实测 1.0.3 部署复现）。
+ * ls-remote 结果缓存 5 分钟；失败时保留上次结果、如实上报 error/stale，由面板显式
+ * 提示「无法检查远程版本」，绝不静默降级成本地结论。
+ */
+const REMOTE_TAGS_TTL_MS = 5 * 60_000;
+type RemoteTagsState = {
+  at: number;
+  ok: boolean;
+  tags: string[];
+  commits: Record<string, string>;
+  error: string | null;
+  stale: boolean;
+};
+let remoteTagsState: RemoteTagsState | null = null;
+
+async function probeRemoteTags(force: boolean): Promise<RemoteTagsState> {
+  const fresh =
+    remoteTagsState !== null && remoteTagsState.ok && Date.now() - remoteTagsState.at < REMOTE_TAGS_TTL_MS;
+  if (!force && fresh) return remoteTagsState as RemoteTagsState;
+  const result = await git(["ls-remote", "--tags", "origin"], 15_000);
+  if (!result.ok) {
+    const previous = remoteTagsState;
+    // 失败后 60s 内不重试（面板轮询频繁，避免持续打网络），旧数据保留供降级展示。
+    remoteTagsState = {
+      at: Date.now() - REMOTE_TAGS_TTL_MS + 60_000,
+      ok: false,
+      tags: previous?.tags ?? [],
+      commits: previous?.commits ?? {},
+      error: result.error,
+      stale: previous !== null,
+    };
+    return remoteTagsState;
+  }
+  const tags: string[] = [];
+  const commits: Record<string, string> = {};
+  for (const line of result.stdout.split("\n")) {
+    const parts = line.trim().split(/\s+/);
+    if (parts.length < 2) continue;
+    const [hash, ref] = parts;
+    const tag = ref.replace(/^refs\/tags\//, "").replace(/\^\{\}$/, "");
+    if (tag === "" || tag.endsWith(".lock")) continue;
+    if (!tags.includes(tag)) tags.push(tag);
+    // annotated tag 会同时输出 tag 对象行与 ^{} 剥离行，剥离行才是 commit
+    commits[tag] = ref.endsWith("^{}") ? hash.slice(0, 7) : (commits[tag] ?? hash.slice(0, 7));
+  }
+  remoteTagsState = { at: Date.now(), ok: true, tags, commits, error: null, stale: false };
+  return remoteTagsState;
+}
+
+async function updates(forceRemote = false): Promise<Array<{ version: string; channel: "stable" | "beta"; commit: string | null; tag: string }>> {
   const result = await git(["tag", "--list"]);
   if (!result.ok) return [];
-  const tags = result.stdout
+  const localTags = result.stdout
     .split("\n")
     .map((tag) => tag.trim())
     .filter((tag) => tag !== "" && semanticVersion(tag));
-  if (tags.length === 0) return [];
-  // 一次 rev-parse 解析全部 tag，避免每个 tag 一个子进程的 N+1 调用。
-  const revs = await git(["rev-parse", "--short", ...tags]);
-  const revList = revs.ok ? revs.stdout.split("\n").map((line) => line.trim()) : [];
-  return tags
+  const remote = await probeRemoteTags(forceRemote);
+  const tagSet = new Set(localTags);
+  if (remote.ok) for (const tag of remote.tags) if (semanticVersion(tag)) tagSet.add(tag);
+  if (tagSet.size === 0) return [];
+  const all = [...tagSet];
+  // 远端探测已带 commit 的直接复用，只为本地独有 tag 批量 rev-parse（省 N+1 子进程）。
+  const commits: Array<string | null> = all.map((tag) => remote.commits[tag] ?? null);
+  const localOnly = all.filter((tag) => remote.commits[tag] === undefined);
+  if (localOnly.length > 0) {
+    const revs = await git(["rev-parse", "--short", ...localOnly]);
+    if (revs.ok) {
+      const parsed = revs.stdout.split("\n").map((line) => line.trim());
+      localOnly.forEach((tag, i) => {
+        const idx = all.indexOf(tag);
+        if (parsed[i] !== "") commits[idx] = parsed[i] as string;
+      });
+    }
+  }
+  return all
     .map((tag, index) => {
       const version = tag.replace(/^v/i, "");
-      return { version, channel: channelOf(version), commit: revList[index] ?? null, tag };
+      return { version, channel: channelOf(version), commit: commits[index] ?? null, tag };
     })
     .sort((left, right) => compareVersion(right.version, left.version));
 }
@@ -309,6 +374,7 @@ type RepoView = {
   snapshots: unknown[];
   snapshotRetention: number;
   availableUpdates: Awaited<ReturnType<typeof updates>>;
+  remoteTags: { ok: boolean; checkedAt: string | null; stale: boolean; error: string | null };
 };
 
 /**
@@ -344,6 +410,15 @@ async function computeRepoView(): Promise<RepoView> {
     snapshots: readJson(join(stateDir, "snapshots.json"), []),
     snapshotRetention: 3,
     availableUpdates: await updates(),
+    remoteTags: (() => {
+      const state = remoteTagsState;
+      return {
+        ok: state?.ok ?? false,
+        checkedAt: state ? new Date(state.at).toISOString() : null,
+        stale: state?.stale ?? false,
+        error: state?.error ?? null,
+      };
+    })(),
   };
 }
 
@@ -552,6 +627,16 @@ const server = createServer(async (request, response) => {
   }
 
   if (request.method === "GET" && path === "/api/status") {
+    const lastJob = readJson<Job | null>(stateFile, null);
+    const view = await statusView(lastJob);
+    writeJson(statusFile, view);
+    return send(response, 200, view);
+  }
+  if (request.method === "POST" && path === "/api/refresh") {
+    // 面板「手动检查更新」：强制重探远端 tag（绕过 5 分钟缓存）并返回最新仓库视图。
+    if (active) return send(response, 409, { error: "upgrade-in-flight", reason: "升级进行中，暂不能刷新版本信息" });
+    remoteTagsState = null;
+    repoViewCache = null;
     const lastJob = readJson<Job | null>(stateFile, null);
     const view = await statusView(lastJob);
     writeJson(statusFile, view);

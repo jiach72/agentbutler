@@ -391,6 +391,23 @@ export async function handleSystem(ctx: RequestContext): Promise<boolean> {
     return true;
   }
 
+  if (path === "/api/butler/self/refresh-check") {
+    if (method !== "POST") {
+      sendJson(res, 405, { error: "method-not-allowed" });
+      return true;
+    }
+    if (deps.butlerSelf === undefined) {
+      sendJson(res, 503, { error: "butler-self-unavailable" });
+      return true;
+    }
+    if (deps.butlerSelf.forceCheck === undefined) {
+      sendJson(res, 503, { error: "refresh-check-unsupported" });
+      return true;
+    }
+    sendJson(res, 200, await deps.butlerSelf.forceCheck());
+    return true;
+  }
+
   if (path === "/api/butler/self/upgrade") {
     if (method !== "POST") {
       sendJson(res, 405, { error: "method-not-allowed" });

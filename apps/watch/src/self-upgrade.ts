@@ -100,6 +100,8 @@ export interface ButlerSelfStatus {
   snapshots: ButlerSelfSnapshot[];
   snapshotRetention: number;
   availableUpdates: ButlerAvailableUpdate[];
+  /** 远端 tag 探测结果（来自 updater）：ok=false 时面板必须显式提示，不得假报「已是最新」。 */
+  remoteCheck: { ok: boolean; checkedAt: string | null; stale: boolean; error: string | null } | null;
   lastJob: ButlerSelfJobView | null;
   checkedAt: string;
 }
@@ -321,6 +323,8 @@ export interface ButlerSelfService {
   status(): ButlerSelfStatus;
   /** 刷新 updater 侧的远端 tag 缓存；容器部署的版本页刷新会调用。 */
   refresh?(): Promise<void>;
+  /** 「手动检查更新」：强制 updater 重探远端 tag（绕过缓存）并回读最新状态。 */
+  forceCheck?(): Promise<ButlerSelfStatus>;
   startUpgrade(input: {
     target?: string;
     channel?: "stable" | "beta";
@@ -844,6 +848,12 @@ export function createButlerSelfUpgradeService(
         snapshots: snapshots(),
         snapshotRetention: SELF_SNAPSHOT_KEEP,
         availableUpdates: listUpdates(),
+        remoteCheck: (() => {
+          const raw = upstream as { remoteTags?: { ok?: boolean; checkedAt?: string | null; stale?: boolean; error?: string | null } } | null;
+          const rt = raw?.remoteTags;
+          if (rt === null || typeof rt !== "object") return null;
+          return { ok: rt.ok === true, checkedAt: rt.checkedAt ?? null, stale: rt.stale === true, error: rt.error ?? null };
+        })(),
         lastJob: (() => {
           const candidate = lastJob ?? (upstream?.lastJob as ButlerSelfJobView | null | undefined) ?? null;
           if (candidate === null) return null;
@@ -868,6 +878,22 @@ export function createButlerSelfUpgradeService(
 
     async refresh() {
       await refreshUpdaterStatus();
+    },
+
+    async forceCheck() {
+      if (updaterUrl !== null) {
+        try {
+          await updaterFetch(`${updaterUrl}/api/refresh`, {
+            method: "POST",
+            headers: updaterHeaders(),
+            signal: AbortSignal.timeout(30_000),
+          });
+        } catch {
+          // 强刷失败不阻塞回读：status 的 remoteCheck 会如实带上失败原因。
+        }
+      }
+      await refreshUpdaterStatus();
+      return this.status();
     },
 
     async startUpgrade(input): Promise<SelfUpgradeOutcome> {
