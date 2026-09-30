@@ -22,6 +22,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { Worker } from "node:worker_threads";
 import type { BackupRow, Core } from "@butler/core";
+import { withManagedOperationLock } from "@butler/core";
 import { detectMemoryBackend, type MemoryBackendConfig } from "@butler/adapter-hermes";
 
 export type BackupKind = "full" | "memory" | "event";
@@ -412,7 +413,7 @@ export function createBackupService(options: BackupServiceOptions): BackupServic
     return `记忆由 ${detection.backend} 接管，本地无 memory_store.db 可备份（${detection.detail}）`;
   }
 
-  async function run(kind: BackupKind, label?: string): Promise<BackupRow> {
+  async function runInternal(kind: BackupKind, label?: string): Promise<BackupRow> {
     if (kind === "memory") {
       const skipReason = externalMemorySkipReason();
       if (skipReason !== null) {
@@ -488,7 +489,19 @@ export function createBackupService(options: BackupServiceOptions): BackupServic
     return row;
   }
 
-  async function restore(
+  /**
+   * 备份互斥（审计 20260930 中等-7）：run 的调用方众多（每小时 tick、急停快照、
+   * 升级前备份、HTTP 手动备份、技能安装等），目标目录由秒级 stamp 生成——
+   * 同秒两次 run 会写坏同一目录。所有备份与还原共用一把进程内锁串行执行。
+   * restore 内部复用 runInternal（同锁内调用会自锁）。
+   */
+  function run(kind: BackupKind, label?: string): Promise<BackupRow> {
+    return withManagedOperationLock("backup.run", () => runInternal(kind, label), {
+      timeoutMs: 3_600_000,
+    });
+  }
+
+  async function restoreInternal(
     id: number,
     confirmed: boolean,
   ): Promise<
@@ -521,7 +534,7 @@ export function createBackupService(options: BackupServiceOptions): BackupServic
       return { ok: false, error: "backup-manifest-corrupt" };
     }
     // 还原前先做当前态事件备份（PRD M7：还原任何快照前先做当前态快照）。
-    const pre = await run("event", `还原前自动备份（backup #${id}）`);
+    const pre = await runInternal("event", `还原前自动备份（backup #${id}）`);
     let restored = 0;
     let skipped = 0;
     for (const entry of manifest.files) {
@@ -555,6 +568,19 @@ export function createBackupService(options: BackupServiceOptions): BackupServic
     });
     core.store.updateBackupStatus(id, "restored");
     return { ok: true, backupId: id, preRestoreBackupId: pre.id, restored, skipped };
+  }
+
+  /** 还原与备份共用一把锁（与 run 互斥）；内部走 restoreInternal 避免自锁。 */
+  function restore(
+    id: number,
+    confirmed: boolean,
+  ): Promise<
+    | { ok: true; backupId: number; preRestoreBackupId: number; restored: number; skipped: number }
+    | { ok: false; error: string }
+  > {
+    return withManagedOperationLock("backup.run", () => restoreInternal(id, confirmed), {
+      timeoutMs: 3_600_000,
+    });
   }
 
   async function verify(
