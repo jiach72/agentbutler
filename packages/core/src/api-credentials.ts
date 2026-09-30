@@ -292,6 +292,7 @@ export class ApiKeyCredentialService {
     }
     // 合法 API Key 不含引号/反斜杠/控制字符；这些字符会破坏 .env 双引号
     // 配对甚至注入新行（审计 20260930 中等-2），在保存边界直接拒绝。
+    // eslint-disable-next-line no-control-regex -- 此处就是在检测控制字符本身
     if (/[\\"\x00-\x1f\x7f]/.test(input.apiKey.trim())) {
       throw new Error("invalid-api-key-characters");
     }
@@ -371,6 +372,7 @@ export class ApiKeyCredentialService {
 
     // dotenv 双引号值内的转义：`\` 与 `"` 转义，控制字符无法可靠表达 → 该项跳过。
     const envQuoteEscape = (value: string): string | null => {
+      // eslint-disable-next-line no-control-regex -- 此处就是在检测控制字符本身
       if (/[\x00-\x1f\x7f]/.test(value)) return null;
       return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
     };
