@@ -655,6 +655,11 @@ describe("本地知识库 (AnythingLLM RAG) API 路由", () => {
           files: [
             { path: "../../evil-escape.txt", content: "pwned" },
             { path: "..\\..\\evil-escape2.txt", content: "pwned" },
+            // 盲区补测：深层嵌套逃逸、路径中段混合分隔符、纯 ".." 段
+            { path: "notes/../../../evil-escape3.txt", content: "pwned" },
+            { path: "..\\..\\..\\evil-escape4.txt", content: "pwned" },
+            { path: "docs/..\\..\\evil-escape5.txt", content: "pwned" },
+            { path: "..", content: "pwned" },
             { path: "notes/正常笔记.md", content: "# ok" },
           ],
         }),
@@ -666,6 +671,11 @@ describe("本地知识库 (AnythingLLM RAG) API 路由", () => {
       expect(existsSync(join(home, "data", "evil-escape.txt"))).toBe(false);
       expect(existsSync(join(home, "evil-escape.txt"))).toBe(false);
       expect(existsSync(join(home, "data", "evil-escape2.txt"))).toBe(false);
+      expect(existsSync(join(home, "data", "evil-escape3.txt"))).toBe(false);
+      expect(existsSync(join(home, "evil-escape3.txt"))).toBe(false);
+      expect(existsSync(join(home, "data", "evil-escape4.txt"))).toBe(false);
+      expect(existsSync(join(home, "data", "evil-escape5.txt"))).toBe(false);
+      expect(existsSync(join(home, "evil-escape5.txt"))).toBe(false);
       // 正常文件仍按原语义落盘
       expect(existsSync(join(home, "data", "documents", "obsidian", "notes", "正常笔记.md"))).toBe(true);
 

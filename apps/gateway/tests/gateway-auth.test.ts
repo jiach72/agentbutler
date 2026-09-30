@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { createGatewayServer, type MessageGatewayController } from "../src/server.js";
@@ -167,6 +168,37 @@ describe("gateway 访问口令与 wake 限速", () => {
       expect(statuses[3]).toBe(429);
       expect(statuses[4]).toBe(429);
       expect(wakeCalls).toHaveLength(3);
+    } finally {
+      await app.close();
+    }
+  });
+
+  // 审计 K-4 盲区收口：内部口令必须是「默认拒绝」——从源码枚举全部状态变更路由
+  // 逐个断言，而不是只抽查已知前缀。今后新增写路由若忘记纳入鉴权，本测试会红。
+  it("K-4 覆盖矩阵：源码枚举的全部状态变更路由无凭据必须 401（豁免清单除外）", async () => {
+    const source = readFileSync(new URL("../src/server.ts", import.meta.url), "utf8");
+    const routes = [...source.matchAll(/app\.(post|put|delete|patch)\(\s*"([^"]+)"/g)].map((m) => ({
+      method: m[1]!.toUpperCase() as "POST" | "PUT" | "DELETE" | "PATCH",
+      url: m[2]!,
+    }));
+    // 自证扫描有效性：路由数明显不足说明正则失配，矩阵静默变空比失败更危险
+    expect(routes.length).toBeGreaterThanOrEqual(25);
+
+    const app = createGatewayServer({ startLoop: false, internalToken: TOKEN });
+    try {
+      for (const { method, url } of routes) {
+        const injectable = url.replace(/:[^/]+/g, "matrix-placeholder");
+        const res = await app.inject({ method, url: injectable });
+        if (url.startsWith("/internal/hermes/")) {
+          // 宿主 Hermes 无令牌能力的 wake 通道：设计内放行，另有固定窗口限速兜底
+          expect(res.statusCode, `${method} ${url}`).not.toBe(401);
+        } else if (url.startsWith("/api/channels/telegram/webhook")) {
+          // 专享 secret 校验（fail-closed）：测试环境未配密钥时必须 503 关闭
+          expect(res.statusCode, `${method} ${url}`).toBe(503);
+        } else {
+          expect(res.statusCode, `${method} ${url} 无凭据写必须 401`).toBe(401);
+        }
+      }
     } finally {
       await app.close();
     }
