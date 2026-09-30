@@ -545,8 +545,15 @@ export class SqliteStore {
 
   constructor(dbFile: string) {
     this.dbFile = dbFile;
-    fs.mkdirSync(path.dirname(dbFile), { recursive: true });
+    fs.mkdirSync(path.dirname(dbFile), { recursive: true, mode: 0o700 });
     this.db = new DatabaseSync(dbFile, { timeout: 5000 });
+    // 状态库含加密凭据密文与审计日志（S-1）：默认 umask 建出 0644 全局可读，
+    // 显式收紧到 0600（WAL/SHM 沿用同 owner，无需单独处理）；Windows 上为 no-op。
+    try {
+      if (process.platform !== "win32") fs.chmodSync(dbFile, 0o600);
+    } catch {
+      // 只读挂载等场景下收紧失败不阻断启动
+    }
     // 跨进程/跨容器共享同一 db 文件（web 直读、watch 写），并发写锁冲突时等待而非立即抛 SQLITE_BUSY。
     this.db.exec("PRAGMA busy_timeout=5000;");
     this.db.exec("PRAGMA journal_mode=WAL;");
