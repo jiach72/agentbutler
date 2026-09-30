@@ -59,6 +59,27 @@ if ([string]::IsNullOrWhiteSpace($internalToken)) {
 }
 $env:BUTLER_INTERNAL_TOKEN = $internalToken
 
+# 面板决策凭据（审计 20260930 严重-2）：仅注入 butler-web 与 butler-watch，
+# watch 端以此判定审批升级单可否内联决策（不信任 body.source）。
+$filePanelToken = ""
+$match = [regex]::Match($envContent, '(?m)^BUTLER_PANEL_DECISION_TOKEN=(.*)$')
+if ($match.Success) { $filePanelToken = $match.Groups[1].Value.Trim().Trim('"', "'") }
+$shellPanelToken = if ($null -eq $env:BUTLER_PANEL_DECISION_TOKEN) { "" } else { $env:BUTLER_PANEL_DECISION_TOKEN.Trim() }
+$panelToken = if ($filePanelToken) { $filePanelToken } else { $shellPanelToken }
+if ([string]::IsNullOrWhiteSpace($panelToken)) {
+  $bytes = New-Object byte[] 32
+  [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+  $panelToken = ([Convert]::ToHexString($bytes)).ToLowerInvariant()
+  if ([regex]::IsMatch($envContent, '(?m)^BUTLER_PANEL_DECISION_TOKEN=')) {
+    $envContent = [regex]::Replace($envContent, '(?m)^BUTLER_PANEL_DECISION_TOKEN=.*$', "BUTLER_PANEL_DECISION_TOKEN=$panelToken")
+  } else {
+    $envContent = $envContent.TrimEnd("`r", "`n") + "`r`nBUTLER_PANEL_DECISION_TOKEN=$panelToken`r`n"
+  }
+  [System.IO.File]::WriteAllText((Join-Path (Get-Location) ".env"), $envContent)
+  Write-Host "Generated and stored BUTLER_PANEL_DECISION_TOKEN in .env."
+}
+$env:BUTLER_PANEL_DECISION_TOKEN = $panelToken
+
 $deploySha = ""
 try {
   $deploySha = (git rev-parse HEAD 2>$null).Trim()

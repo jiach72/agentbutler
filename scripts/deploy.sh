@@ -94,6 +94,30 @@ if [[ -z "$internal_token" ]]; then
 fi
 export BUTLER_INTERNAL_TOKEN="$internal_token"
 
+# 审批升级单的面板决策凭据（审计 20260930 严重-2）：仅注入 butler-web 与
+# butler-watch；watch 端以此判定升级单可否内联决策，不信任 body.source。
+panel_token="${BUTLER_PANEL_DECISION_TOKEN:-$(env_value BUTLER_PANEL_DECISION_TOKEN)}"
+if [[ -z "$panel_token" ]]; then
+  if command -v openssl >/dev/null 2>&1; then
+    panel_token=$(openssl rand -hex 32)
+  elif command -v node >/dev/null 2>&1; then
+    panel_token=$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')
+  elif command -v python3 >/dev/null 2>&1; then
+    panel_token=$(python3 -c 'import secrets;print(secrets.token_hex(32))')
+  fi
+  if [[ -n "$panel_token" ]]; then
+    if grep -qE '^BUTLER_PANEL_DECISION_TOKEN=' .env; then
+      env_tmp="$(mktemp .env.XXXXXX)"
+      awk -v value="$panel_token" 'BEGIN { done = 0 } /^BUTLER_PANEL_DECISION_TOKEN=/ { print "BUTLER_PANEL_DECISION_TOKEN=" value; done = 1; next } { print } END { if (!done) print "BUTLER_PANEL_DECISION_TOKEN=" value }' .env > "$env_tmp"
+      mv "$env_tmp" .env
+    else
+      printf '\nBUTLER_PANEL_DECISION_TOKEN=%s\n' "$panel_token" >> .env
+    fi
+    echo "Generated and stored BUTLER_PANEL_DECISION_TOKEN in .env."
+  fi
+fi
+export BUTLER_PANEL_DECISION_TOKEN="$panel_token"
+
 compose_args=()
 bridge_url="${BUTLER_HERMES_BRIDGE_URL:-$(env_value BUTLER_HERMES_BRIDGE_URL)}"
 if [[ "$bridge_url" == *":8755" ]]; then

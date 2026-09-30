@@ -7,6 +7,7 @@ export interface ProxyHelpers {
     body: unknown,
     reply: FastifyReply,
     timeoutMs?: number,
+    extraHeaders?: Record<string, string>,
   ) => Promise<FastifyReply>;
   proxyWatchGet: (
     watchPath: string,
@@ -27,6 +28,17 @@ export function watchAuthHeaders(): Record<string, string> {
     ...(accessToken === "" ? {} : { "x-butler-token": accessToken }),
     ...(internalToken === "" ? {} : { "x-butler-internal-token": internalToken }),
   };
+}
+
+/**
+ * 面板决策凭据（审批升级单防绕过）：仅附加在 web → watch 的审批决策代理上。
+ * watch 端以该头判定 allowEscalatedInline，网关等只持内部口令的调用方拿不到
+ * 此凭据（BUTLER_PANEL_DECISION_TOKEN 只注入 butler-web 与 butler-watch）。
+ * 未配置时不上传头：watch 侧对升级单 fail-closed（保持「需面板确认」）。
+ */
+export function panelDecisionHeaders(): Record<string, string> {
+  const token = (process.env["BUTLER_PANEL_DECISION_TOKEN"] ?? "").trim();
+  return token === "" ? {} : { "x-butler-panel-decision": token };
 }
 
 export function createProxyHelpers(
@@ -52,6 +64,7 @@ export function createProxyHelpers(
     body: unknown,
     reply: FastifyReply,
     timeoutMs = 5_000,
+    extraHeaders?: Record<string, string>,
   ): Promise<FastifyReply> => {
     let res: Response;
     try {
@@ -60,6 +73,7 @@ export function createProxyHelpers(
         headers: {
           "content-type": "application/json",
           ...watchAuthHeaders(),
+          ...(extraHeaders ?? {}),
         },
         body: JSON.stringify(body ?? {}),
         signal: AbortSignal.timeout(timeoutMs),

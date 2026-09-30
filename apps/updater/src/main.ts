@@ -12,7 +12,7 @@ import {
   closeSync,
 } from "node:fs";
 import { basename, delimiter, dirname, extname, join } from "node:path";
-import { randomUUID, timingSafeEqual } from "node:crypto";
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
 const execFile = promisify(execFileCallback);
 const exec = promisify(execCallback);
@@ -548,6 +548,20 @@ function syncGitCommitEnv(commitSha: string): void {
   }
 }
 
+/** .env 缺失 BUTLER_PANEL_DECISION_TOKEN 时补生成（仅追加，不覆盖既有值）。 */
+function ensurePanelDecisionEnv(): void {
+  try {
+    const envPath = join(composeProjectDir, ".env");
+    if (!existsSync(envPath)) return;
+    const content = readFileSync(envPath, "utf8");
+    if (/^BUTLER_PANEL_DECISION_TOKEN=/m.test(content)) return;
+    const token = randomBytes(32).toString("hex");
+    writeFileSync(envPath, content.trimEnd() + `\nBUTLER_PANEL_DECISION_TOKEN=${token}\n`, "utf8");
+  } catch {
+    // non-fatal
+  }
+}
+
 async function runJob(job: Job): Promise<void> {
   const oldCommit = job.from;
   const update = async (patch: Partial<Job>): Promise<void> => {
@@ -563,6 +577,9 @@ async function runJob(job: Job): Promise<void> {
     if (!checkout.ok) throw new Error("切到目标版本失败：" + checkout.error);
     const newCommit = await git(["rev-parse", "HEAD"], 10_000);
     if (newCommit.ok) syncGitCommitEnv(newCommit.stdout);
+    // 审批升级单的面板决策凭据：旧版 .env 可能缺失，升级时补生成
+    //（仅追加不覆盖），确保 compose restart 后 watch/web 拿到该变量。
+    ensurePanelDecisionEnv();
     await update({ phase: "install-build" });
     const built = await build();
     if (!built.ok) throw new Error("构建失败：" + built.error);

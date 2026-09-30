@@ -6,6 +6,7 @@ import {
   parseSeverityParam,
   parseTrustSeverity,
   parseTrustStatus,
+  panelDecisionAuthorized,
   readBoundedNumber,
   readJsonBody,
   readNonEmptyString,
@@ -787,6 +788,8 @@ export async function handleTrust(ctx: RequestContext): Promise<boolean> {
         ...(readNonEmptyString(body["actor"]) === null
           ? {}
           : { actor: readNonEmptyString(body["actor"])! }),
+        // 批量放行升级单同样只认面板决策凭据，不认调用方自报的来源。
+        allowEscalatedInline: panelDecisionAuthorized(req),
       }),
     );
     return true;
@@ -870,7 +873,9 @@ export async function handleTrust(ctx: RequestContext): Promise<boolean> {
       ...(readNonEmptyString(body["reason"]) === null ? {} : { reason: readNonEmptyString(body["reason"])! }),
       blockFingerprint: body["blockFingerprint"] === true,
       trustFingerprint: body["trustFingerprint"] === true,
-      allowEscalatedInline: body["source"] === "panel" || body["source"] === "web",
+      // 面板决策凭据由 web 代理附加在请求头上；body.source 是调用方可随意
+      // 伪造的自由字符串，绝不作为升级单放行依据（审计 20260930 严重-2）。
+      allowEscalatedInline: panelDecisionAuthorized(req),
     });
     if (!outcome.ok) {
       const code =

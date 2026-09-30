@@ -163,13 +163,14 @@ export interface ApprovalService {
   ): ApprovalDecisionOutcome;
   /**
    * 批量批准 / 拒绝。all=true 时作用于当前全部 pending（上限 APPROVAL_BULK_LIMIT）。
-   * 面板发起即等于 web 确认，故内部带 allowEscalatedInline，不被升级闸门挡住。
+   * 升级单是否放行取决于 allowEscalatedInline（HTTP 层凭面板决策凭据判定）。
    */
   bulkDecide(input: {
     ids?: string[];
     all?: boolean;
     decision: ApprovalDecision;
     actor?: string;
+    allowEscalatedInline?: boolean;
   }): BulkDecisionResult;
   list(filter?: { status?: string; escalateOnly?: boolean; limit?: number; offset?: number }): {
     items: ActionApprovalItem[];
@@ -791,6 +792,8 @@ export function createApprovalService(options: ApprovalServiceOptions): Approval
     all?: boolean;
     decision: ApprovalDecision;
     actor?: string;
+    /** 仅在请求携带面板决策凭据（web 代理附加）时为 true；通道侧调用不得放行升级单。 */
+    allowEscalatedInline?: boolean;
   }): BulkDecisionResult {
     const ids =
       input.all === true
@@ -803,8 +806,9 @@ export function createApprovalService(options: ApprovalServiceOptions): Approval
         decision: input.decision,
         actor: input.actor ?? "panel-user",
         channel: "panel",
-        // 面板发起本身就等于 web 确认，不应再被「已升级单需面板确认」闸门挡住。
-        allowEscalatedInline: true,
+        // 升级单放行与否由面板决策凭据决定（HTTP 层校验请求头），这里只透传；
+        // 通道侧调用（网关等）不携带凭据时，升级单保持「需面板确认」不被绕过。
+        allowEscalatedInline: input.allowEscalatedInline === true,
       });
       if (outcome.ok === true) succeeded += 1;
       else failed.push({ id, reason: outcome.reason ?? "unknown" });

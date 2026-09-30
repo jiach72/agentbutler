@@ -940,6 +940,20 @@ function tokensMatch(expected: string, presented: string): boolean {
   return timingSafeEqual(a, b);
 }
 
+/**
+ * 面板决策请求判定（审批升级单防绕过）：
+ * 只认 web 代理附加的窄凭据头 x-butler-panel-decision（BUTLER_PANEL_DECISION_TOKEN，
+ * 仅注入 butler-web 与 butler-watch），绝不信任请求 body 中的 source 字段——
+ * 网关等持有内部口令的调用方拿不到该凭据，无法把通道侧决策伪装成面板决策。
+ */
+export function panelDecisionAuthorized(req: IncomingMessage): boolean {
+  const expected = (process.env["BUTLER_PANEL_DECISION_TOKEN"] ?? "").trim();
+  if (expected === "") return false;
+  const presented = req.headers["x-butler-panel-decision"];
+  const value = Array.isArray(presented) ? presented[0] : presented;
+  return typeof value === "string" && tokensMatch(expected, value.trim());
+}
+
 function isLoopbackConnection(req: IncomingMessage): boolean {
   // 只信任连接层对端地址（remoteAddress 永远是 IP，主机名比较是死代码）。
   // 审计 K-3：不再把 RFC1918 内网（172./10./192.168.）视作回环——Compose 内

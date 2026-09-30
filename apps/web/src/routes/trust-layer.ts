@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import type { ProxyHelpers } from "../proxy-helpers.js";
+import { panelDecisionHeaders, type ProxyHelpers } from "../proxy-helpers.js";
 
 export interface TrustLayerRouteOptions {
   proxy: ProxyHelpers;
@@ -155,10 +155,11 @@ export async function registerTrustLayerRoutes(
       ...((request.body as Record<string, unknown> | undefined) ?? {}),
       source: "panel",
     };
-    return proxyWatchPost(`/api/approvals/${id}/decide`, body, reply, 30_000);
+    // 升级单放行凭据只由 web 代理在服务端附加；watch 端不信任 body.source。
+    return proxyWatchPost(`/api/approvals/${id}/decide`, body, reply, 30_000, panelDecisionHeaders());
   });
   app.post("/api/approvals/bulk-decide", async (request, reply) =>
-    proxyWatchPost("/api/approvals/bulk-decide", request.body, reply, 30_000),
+    proxyWatchPost("/api/approvals/bulk-decide", request.body, reply, 30_000, panelDecisionHeaders()),
   );
   app.get("/api/approvals/rules", async (_request, reply) =>
     proxyWatchGet("/api/approvals/rules", reply, 30_000),

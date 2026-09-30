@@ -590,15 +590,20 @@ describe("审批服务：批量批准", () => {
     expect(service.get(settled.id)?.status).toBe("denied");
   });
 
-  it("批量批准可放行已升级单（面板发起即等于面板确认）", () => {
+  it("批量放行升级单需显式 allowEscalatedInline（面板决策凭据）", () => {
     const { service } = makeService();
     const first = service.request({ ...DELETE_INPUT, actionId: "evt-1" });
     service.request({ ...DELETE_INPUT, actionId: "evt-2" });
     const third = service.request({ ...DELETE_INPUT, actionId: "evt-3" });
     expect(third.escalateRequired).toBe(true);
-    // 单条通道侧会被挡，批量（面板侧）应当放行。
-    const result = service.bulkDecide({ ids: [third.id], decision: "approve" });
-    expect(result.succeeded).toBe(1);
+    // 无凭据（通道侧/伪造面板来源）：升级单不放行，保持「需面板确认」。
+    const denied = service.bulkDecide({ ids: [third.id], decision: "approve" });
+    expect(denied.succeeded).toBe(0);
+    expect(denied.failed[0]?.reason).toBe("requires-web-confirm");
+    expect(service.get(first.id)?.status).toBe("pending");
+    // 面板决策凭据在 HTTP 层校验通过后显式传入：升级单放行。
+    const allowed = service.bulkDecide({ ids: [third.id], decision: "approve", allowEscalatedInline: true });
+    expect(allowed.succeeded).toBe(1);
     expect(service.get(first.id)?.status).toBe("approved");
   });
 });
@@ -834,6 +839,45 @@ describe("审批 HTTP 端点", () => {
     });
     expect(escalated.status).toBe(409);
     expect(((await escalated.json()) as { error: string }).error).toBe("requires-web-confirm");
+  });
+
+  it("升级单内联决策只认面板决策凭据头，body.source 可伪造不生效（严重-2）", async () => {
+    const { service: service2 } = await boot(true, 30_000);
+    service2.request({ ...DELETE_INPUT, actionId: "e1" });
+    service2.request({ ...DELETE_INPUT, actionId: "e2" });
+    const third = service2.request({ ...DELETE_INPUT, actionId: "e3" });
+    expect(third.escalateRequired).toBe(true);
+
+    // 自报 source: "panel" 不再放行升级单。
+    const forged = await fetch(`${base}/api/approvals/${third.id}/decide`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ decision: "approve", source: "panel" }),
+    });
+    expect(forged.status).toBe(409);
+    expect(((await forged.json()) as { error: string }).error).toBe("requires-web-confirm");
+
+    // 凭据未配置时，带任何头都不放行；配置后仅匹配值放行。
+    const token = "panel-decision-test-token";
+    process.env["BUTLER_PANEL_DECISION_TOKEN"] = token;
+    try {
+      const wrongHeader = await fetch(`${base}/api/approvals/${third.id}/decide`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-butler-panel-decision": "wrong-value" },
+        body: JSON.stringify({ decision: "approve" }),
+      });
+      expect(wrongHeader.status).toBe(409);
+
+      const withHeader = await fetch(`${base}/api/approvals/${third.id}/decide`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-butler-panel-decision": token },
+        body: JSON.stringify({ decision: "approve" }),
+      });
+      expect(withHeader.status).toBe(200);
+      expect(((await withHeader.json()) as { item: { status: string } }).item.status).toBe("approved");
+    } finally {
+      delete process.env["BUTLER_PANEL_DECISION_TOKEN"];
+    }
   });
 
   it("未接线 approvals → 503", async () => {
