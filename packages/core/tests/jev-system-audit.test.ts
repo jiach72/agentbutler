@@ -76,12 +76,29 @@ describe("TypeSafe Jev 全项目架构与安全审计", () => {
   });
 
   it("[Jev 审计 4/5] 顶栏与安全基线文案去焦虑化审查", () => {
+    // 剥掉注释再扫：注释里可以记录历史，代码与文案里不得再出现旧口径。
+    const stripComments = (text: string) => text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+
     const layoutPath = join(repoRoot, "ui/src/components/Layout.tsx");
-    const layoutContent = readFileSync(layoutPath, "utf-8");
+    const layoutContent = stripComments(readFileSync(layoutPath, "utf-8"));
 
     // 严禁出现恐吓式的“任何人都可以访问”
     expect(layoutContent).not.toContain("任何人都可以访问");
-    expect(layoutContent).toContain("仅本地访问");
+    // 访问口径唯一来源是 ui/src/lib/accessScope.ts 的 describeAccess()（审计 D-7）。
+    // 旧顶栏把 0.0.0.0 通配发布也说成「仅本地访问」，属于安抚式谎言，废除后不得回归。
+    expect(layoutContent).not.toContain("仅本地访问");
+
+    const scopePath = join(repoRoot, "ui/src/lib/accessScope.ts");
+    const scopeContent = readFileSync(scopePath, "utf-8");
+    // 回环才配「仅本机可访问」；通配发布必须如实提示所有网络接口
+    expect(scopeContent).toContain("仅本机可访问");
+    expect(scopeContent).toContain("所有网络接口可访问");
+
+    const dashboardPath = join(repoRoot, "ui/src/pages/dashboard/DashboardPage.tsx");
+    const dashboardContent = stripComments(readFileSync(dashboardPath, "utf-8"));
+    // 首页安全位必须读真实基线（/api/security-baseline），不得硬编码结论
+    expect(dashboardContent).not.toContain("仅回环保护");
+    expect(dashboardContent).toContain("describeAccess");
 
     const serverPath = join(repoRoot, "apps/web/src/server.ts");
     const serverContent = readFileSync(serverPath, "utf-8");

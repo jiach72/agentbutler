@@ -108,3 +108,16 @@ export const killswitchStatePoll = new SharedPoll<KillSwitchStateSnapshot>(
   6_000,
   10_000,
 );
+
+/** 访问范围（发布地址 + 是否设置口令）：首页安全位展示用；部署期配置，5 分钟复核一次。 */
+export interface AccessBaseline {
+  listenHost?: string;
+  publishHost?: string;
+  loopback?: boolean;
+  auth?: boolean;
+}
+export const securityBaselinePoll = new SharedPoll<AccessBaseline>(
+  "/api/security-baseline",
+  8_000,
+  300_000,
+);

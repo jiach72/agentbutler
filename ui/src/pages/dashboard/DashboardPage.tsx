@@ -2,6 +2,8 @@ import { type ReactNode, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { App, Button, Collapse, Input, Skeleton } from "antd";
 import { postJson } from "../../lib/api.js";
+import { describeAccess } from "../../lib/accessScope.js";
+import { securityBaselinePoll, useSharedPoll } from "../../lib/shared-polls.js";
 import { formatRelative } from "../../lib/format.js";
 import { EtherealIcon } from "../../components/EtherealIcon.js";
 import { capabilityLabel } from "./userHealth.js";
@@ -131,6 +133,9 @@ export function DashboardPage() {
   const { health, input, onlineInstances, totalInstances, sources } = data;
   const inspectStatus = sources.dashboard?.inspectStatus;
   const probe = inspectStatus?.criticalProbe;
+  // 访问范围读真实基线（审计 D-7）：不再硬编码「仅回环保护」，0.0.0.0 如实显示所有网络接口。
+  const { data: accessBaseline } = useSharedPoll(securityBaselinePoll);
+  const access = describeAccess(accessBaseline);
 
   const inspect = async () => {
     setInspecting(true);
@@ -219,7 +224,7 @@ export function DashboardPage() {
                     <span className="inline-block w-px h-3 bg-outline-variant/40" aria-hidden="true" />
                     <span className="text-tertiary font-medium">管家心跳: {probe?.overdue ? "需留意" : "正常在岗"}</span>
                     <span className="inline-block w-px h-3 bg-outline-variant/40" aria-hidden="true" />
-                    <span>本地安全: 仅回环保护</span>
+                    <span className={`font-medium ${access.tone === "ok" ? "text-tertiary" : access.tone === "error" ? "text-error" : ""}`}>访问范围: {access.title}</span>
                   </div>
                 </div>
 

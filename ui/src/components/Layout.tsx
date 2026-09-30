@@ -33,18 +33,8 @@ interface HealthSummary {
   instances?: Array<{ state: string }>;
 }
 
-interface SecurityBaseline {
-  loopback?: boolean;
-  publishHost?: string;
-  auth?: boolean;
-}
-
-/** 访问安全态口径（Jev 安全审计规范）：默认仅本地访问，去焦虑化 */
-export function baselineTitle(baseline: SecurityBaseline | null): string {
-  if (baseline === null) return "正在读取访问方式";
-  if (baseline.loopback || baseline.publishHost === "0.0.0.0") return "仅本地访问";
-  return baseline.auth ? "同一网络可访问" : "局域网访问";
-}
+// 访问范围文案已收敛到 ui/src/lib/accessScope.ts 的 describeAccess()（审计 D-7）：
+// 旧 baselineTitle 把 0.0.0.0 通配发布也说成「仅本地访问」，属于安抚式谎言，已废除。
 
 interface SidebarNavProps {
   collapsed?: boolean;
