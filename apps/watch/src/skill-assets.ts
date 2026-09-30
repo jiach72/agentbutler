@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { atomicWriteJson, withManagedOperationLock, type Core, type InstanceRecord } from "@butler/core";
 import { createSkillHubClient, isNewerVersion, readZipEntries, type SkillHubCategoriesView, type SkillHubClient, type SkillHubListQuery, type SkillHubListView, type ZipEntry } from "./skillhub.js";
@@ -227,6 +227,56 @@ export function inspectSkillText(text: string): SkillStaticRiskReport {
   return { status: blocked ? "blocked" : "clear", externalDomains, sensitivePaths, dangerousCommands, detail };
 }
 
+/** 参与静态风险初筛的文本/脚本扩展名（中等-10）：包内 scripts/*.sh、*.py 等
+ *  可执行内容与 SKILL.md 一同纳入黑名单正则初筛。 */
+const SCANNABLE_EXTENSIONS = new Set([
+  ".md", ".txt", ".sh", ".bash", ".zsh", ".py", ".rb", ".js", ".mjs", ".cjs",
+  ".ts", ".mts", ".cts", ".ps1", ".psm1", ".bat", ".cmd", ".yaml", ".yml",
+]);
+/** 单文件扫描大小上限；超限跳过全文正则扫描（防病态压缩包拖垮 CPU）。 */
+const SKILL_SCAN_MAX_FILE_BYTES = 512 * 1024;
+/** 单包参与扫描的文件数量上限（防 zip 炸弹式文件数）。 */
+const SKILL_SCAN_MAX_FILES = 200;
+
+function isScannableSkillPath(path: string): boolean {
+  const dot = path.lastIndexOf(".");
+  const slash = path.lastIndexOf("/");
+  // 无扩展名，或最后一个点位于目录段中（如 ./config.d/README）→ 不扫描。
+  if (dot === -1 || dot < slash || dot === path.length - 1) return false;
+  return SCANNABLE_EXTENSIONS.has(path.slice(dot).toLowerCase());
+}
+
+/** 对技能包内全部文本/脚本文件做风险初筛并合并结果；命中即整体 blocked。 */
+export function inspectSkillBundle(entries: Array<{ path: string; text: string }>): SkillStaticRiskReport {
+  let blocked = false;
+  const externalDomains = new Set<string>();
+  const sensitivePaths = new Set<string>();
+  const dangerousCommands = new Set<string>();
+  const offenders: string[] = [];
+  for (const entry of entries) {
+    const report = inspectSkillText(entry.text);
+    if (report.status === "blocked") {
+      blocked = true;
+      offenders.push(entry.path);
+    }
+    for (const domain of report.externalDomains) externalDomains.add(domain);
+    for (const path of report.sensitivePaths) sensitivePaths.add(path);
+    for (const command of report.dangerousCommands) dangerousCommands.add(`${entry.path}: ${command}`);
+  }
+  const detail = blocked
+    ? `检测到敏感路径/凭据相关内容或高风险命令（${offenders.slice(0, 5).join("、")}），已阻止安装；请先人工审阅来源。`
+    : externalDomains.size > 0
+      ? `未发现已知高风险命令，但包含 ${externalDomains.size} 个外联域名，安装前请确认来源。`
+      : "未发现已知高风险命令或敏感路径；这不是完整沙箱审计。";
+  return {
+    status: blocked ? "blocked" : "clear",
+    externalDomains: [...externalDomains].slice(0, 20),
+    sensitivePaths: [...sensitivePaths].slice(0, 20),
+    dangerousCommands: [...dangerousCommands].slice(0, 20),
+    detail,
+  };
+}
+
 function usedSkillName(line: string): string | null {
   const activity = /\b(?:invoked|started|completed|succeeded|success|failed|failure|executing|executed|running)\b|调用|执行|开始|完成|失败/i;
   if (!activity.test(line)) return null;
@@ -284,7 +334,12 @@ export function createSkillAssetService(deps: { core: Core; skills: SkillsMemory
     const skillEntry = files.find((item) => item.path === "SKILL.md") ?? [...files].filter((item) => item.path.endsWith("/SKILL.md") || item.path === "SKILL.md").sort(byDepth)[0];
     if (skillEntry === undefined) throw new Error("skill-md-missing");
     const skillText = new TextDecoder().decode(skillEntry.data);
-    const risk = inspectSkillText(skillText);
+    // 中等-10：除 SKILL.md 外，包内全部文本/脚本文件同样纳入风险初筛。
+    const scanEntries = files
+      .filter((item) => item.path !== skillEntry.path && isScannableSkillPath(item.path) && item.data.length <= SKILL_SCAN_MAX_FILE_BYTES)
+      .slice(0, SKILL_SCAN_MAX_FILES)
+      .map((item) => ({ path: item.path, text: new TextDecoder().decode(item.data) }));
+    const risk = inspectSkillBundle([{ path: skillEntry.path, text: skillText }, ...scanEntries]);
     const stageId = randomUUID();
     const path = join(stageRoot, stageId);
     try {
@@ -421,9 +476,33 @@ export function createSkillAssetService(deps: { core: Core; skills: SkillsMemory
         ? [{ sourcePath: path, dirName: "", raw: readFileSync(join(path, "SKILL.md"), "utf8") }]
         : collectMembers(path, 0);
       if (members.length === 0) return { ok: false, error: "invalid-stage", fix: "隔离区必须包含有效 SKILL.md（或含带 SKILL.md 的技能子目录）" };
-      // 任一成员命中风险规则即整体拒绝（fail-closed），此时还没有任何目录被移动。
+      // 复检同样覆盖成员目录内的全部文本/脚本文件（中等-10），不止 SKILL.md。
+      const collectScanFiles = (root: string, dir: string, depth: number): Array<{ path: string; text: string }> => {
+        if (depth > 4) return [];
+        const found: Array<{ path: string; text: string }> = [];
+        let entries;
+        try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return found; }
+        for (const entry of entries) {
+          const full = join(dir, entry.name);
+          if (entry.isSymbolicLink()) continue;
+          if (entry.isDirectory()) {
+            found.push(...collectScanFiles(root, full, depth + 1));
+            continue;
+          }
+          if (!entry.isFile() || !isScannableSkillPath(entry.name)) continue;
+          let stats;
+          try { stats = statSync(full); } catch { continue; }
+          if (stats.size > SKILL_SCAN_MAX_FILE_BYTES) continue;
+          try { found.push({ path: relative(root, full), text: readFileSync(full, "utf8") }); } catch { /* 不可读文件跳过 */ }
+        }
+        return found;
+      };
+      // 任一成员（含其脚本文件）命中风险规则即整体拒绝（fail-closed），此时还没有任何目录被移动。
       for (const member of members) {
-        const risk = inspectSkillText(member.raw);
+        const risk = inspectSkillBundle([
+          { path: "SKILL.md", text: member.raw },
+          ...collectScanFiles(member.sourcePath, member.sourcePath, 0).filter((item) => item.path !== "SKILL.md"),
+        ]);
         if (risk.status === "blocked") return { ok: false, error: "skill-risk-blocked", risk, fix: risk.detail };
       }
       const instance = instanceOf(deps.core); if (!instance) return { ok: false, error: "no-instance", fix: "先连接 Hermes 实例" };
@@ -499,7 +578,7 @@ export function createSkillAssetService(deps: { core: Core; skills: SkillsMemory
       const sourceUrl = "https://skillhub.cn/skills/" + slug;
       try {
         const staged = stageFromEntries(files, sourceUrl, { source: "skillhub", slug, ...(version === null ? {} : { version }) });
-        return { ok: true, id: staged.id, status: "staged", slug, ...(version === null ? {} : { version }), name: staged.name ?? slug, sourceUrl, risk: staged.risk, notice: "已完成安全检查，确认后写入本机技能目录" };
+        return { ok: true, id: staged.id, status: "staged", slug, ...(version === null ? {} : { version }), name: staged.name ?? slug, sourceUrl, risk: staged.risk, notice: "已完成基础风险初筛（黑名单正则，非安全审计），确认后写入本机技能目录" };
       } catch (error) {
         if (error instanceof Error && error.message === "skill-md-missing") return { ok: false, error: "skill-md-missing", fix: "该技能包缺少 SKILL.md，无法安装。" };
         return { ok: false, error: "skillhub-stage-failed", detail: error instanceof Error ? error.message : String(error), fix: "检查磁盘与权限后重试。" };

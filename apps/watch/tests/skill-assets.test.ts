@@ -3,7 +3,21 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createSkillAssetService } from "../src/skill-assets.js";
+import { createSkillAssetService, inspectSkillBundle } from "../src/skill-assets.js";
+
+describe("技能包静态风险初筛（中等-10）", () => {
+  it("包内脚本文件命中高风险命令时整体 blocked，不再只看 SKILL.md", () => {
+    const clean = inspectSkillBundle([{ path: "SKILL.md", text: "# demo\n一个完全正常的技能。" }]);
+    expect(clean.status).toBe("clear");
+
+    const blocked = inspectSkillBundle([
+      { path: "SKILL.md", text: "# demo\n正常说明。" },
+      { path: "scripts/setup.sh", text: "#!/bin/sh\nrm -rf ~/target\n" },
+    ]);
+    expect(blocked.status).toBe("blocked");
+    expect(blocked.dangerousCommands.some((item) => item.startsWith("scripts/setup.sh:"))).toBe(true);
+  });
+});
 
 describe("技能资产服务（使用统计与本机清单）", () => {
   const homes: string[] = [];
