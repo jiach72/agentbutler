@@ -24,6 +24,7 @@ RUN corepack pnpm exec tsc -b apps/updater/tsconfig.json --force
 
 FROM node:22-slim
 ENV NODE_ENV=production
+ENV CI=true
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 RUN corepack enable && apt-get update && apt-get install -y --no-install-recommends git ca-certificates && git config --global --add safe.directory '*' && rm -rf /var/lib/apt/lists/*

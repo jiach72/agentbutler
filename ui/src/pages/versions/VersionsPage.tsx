@@ -3,8 +3,8 @@
  * 顶部一行产品名+版本，中间一行动态状态（最新/有更新/更新中/回滚中），
  * 次要功能（受管实例、更新偏好、回滚、备份节奏）收进可展开的简单行。
  */
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
-import { App, Button, Card, Flex, Select, Spin, Switch, Tooltip, Typography } from "antd";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import { Alert, App, Button, Card, Flex, Select, Spin, Switch, Tooltip, Typography } from "antd";
 import { CheckCircleFilled, DownOutlined, ExclamationCircleFilled, UpOutlined, RobotOutlined } from "@ant-design/icons";
 import { DegradedBanner } from "../../components/DegradedBanner.js";
 import { ConclusionBar } from "../../components/ConclusionBar.js";
@@ -28,6 +28,7 @@ import type {
   ButlerAvailableUpdate,
   ButlerSelfSnapshot,
   ButlerSelfPrefs,
+  ButlerSelfJobView,
   ButlerSelfView,
   ButlerVersionView,
   ConfirmAction,
@@ -63,6 +64,8 @@ export function VersionsPanel() {
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [expandedRows, setExpandedRows] = useState<ReadonlySet<string>>(new Set());
+  const [dismissedFailedJobId, setDismissedFailedJobId] = useState<string | null>(null);
+  const prevSelfJobStatusRef = useRef<ButlerSelfJobView["status"] | null>(null);
 
   const refresh = useCallback(async () => {
     await Promise.all([
@@ -137,6 +140,21 @@ export function VersionsPanel() {
           serverJob.targetVersion === managedUpgradePending.target.version;
     if (matches) setManagedUpgradePending(null);
   }, [data?.upgradeJob, managedUpgradePending]);
+
+  useEffect(() => {
+    const currentJob = butlerSelf?.lastJob;
+    const currentStatus = currentJob?.status ?? null;
+    const prevStatus = prevSelfJobStatusRef.current;
+    prevSelfJobStatusRef.current = currentStatus;
+
+    if (prevStatus === "running" && currentStatus !== "running" && currentJob !== null && currentJob !== undefined) {
+      if (currentStatus === "done") {
+        message.success(`管家自身${currentJob.kind === "rollback" ? "回滚" : "升级"}成功！`);
+      } else if (currentStatus === "failed" || currentStatus === "rolled-back") {
+        message.error(`管家自身${currentJob.kind === "rollback" ? "回滚" : "升级"}失败${currentStatus === "rolled-back" ? "（已自动回滚）" : ""}：${currentJob.error ?? "未知错误"}`);
+      }
+    }
+  }, [butlerSelf?.lastJob, message]);
 
   const instances = useMemo(() => data?.instances ?? [], [data]);
   const snapshots = useMemo(() => data?.snapshots ?? [], [data]);
@@ -626,6 +644,41 @@ export function VersionsPanel() {
           </Button>
         }
       />
+
+      {butlerSelf?.lastJob &&
+        (butlerSelf.lastJob.status === "failed" || butlerSelf.lastJob.status === "rolled-back") &&
+        dismissedFailedJobId !== butlerSelf.lastJob.jobId && (
+          <Alert
+            type="error"
+            showIcon
+            closable
+            onClose={() => setDismissedFailedJobId(butlerSelf.lastJob?.jobId ?? null)}
+            message={`最近一次管家${butlerSelf.lastJob.kind === "rollback" ? "回滚" : "升级"}失败${butlerSelf.lastJob.status === "rolled-back" ? "（已自动回滚保留当前版本）" : ""}`}
+            description={
+              <Flex vertical gap={6} style={{ marginTop: 4 }}>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  目标版本：{butlerSelf.lastJob.target} · 尝试时间：{new Date(butlerSelf.lastJob.startedAt).toLocaleString()}
+                </Text>
+                {butlerSelf.lastJob.error && (
+                  <Text
+                    code
+                    copyable
+                    style={{
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-all",
+                      maxHeight: 180,
+                      overflowY: "auto",
+                      display: "block",
+                      fontSize: 12,
+                    }}
+                  >
+                    {butlerSelf.lastJob.error}
+                  </Text>
+                )}
+              </Flex>
+            }
+          />
+        )}
 
       <Card>
         <Flex vertical gap={16}>

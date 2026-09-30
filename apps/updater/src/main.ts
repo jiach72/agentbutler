@@ -125,13 +125,18 @@ function validateTarget(raw: string): { ok: true; value: string } | { ok: false;
  * 事件循环一旦被同步进程调用占住，/healthz 与 /api/status 会一起失联，
  * 面板会把"正在升级"误判为"管家挂了"。异步是升级期可观测性的前提。
  */
-async function run(command: string, args: string[], cwd = sourceDir, timeout = 120_000): Promise<CommandResult> {
+async function run(command: string, args: string[], cwd = sourceDir, timeout = 120_000, extraEnv?: NodeJS.ProcessEnv): Promise<CommandResult> {
   const options = {
     cwd,
     encoding: "utf8" as const,
     timeout,
     maxBuffer: 32 * 1024 * 1024,
     windowsHide: true,
+    env: {
+      ...process.env,
+      CI: "true",
+      ...extraEnv,
+    },
   };
   try {
     const { stdout } = isWindowsBatchCommand(command)
@@ -553,7 +558,7 @@ async function runJob(job: Job): Promise<void> {
   try {
     await update({ phase: "checkout" });
     const remote = await git(["remote", "get-url", "origin"], 10_000);
-    if (remote.ok) await git(["fetch", "--tags", "origin"], 90_000);
+    if (remote.ok) await git(["fetch", "--tags", "--force", "origin"], 90_000);
     const checkout = await git(["checkout", job.target], 120_000);
     if (!checkout.ok) throw new Error("切到目标版本失败：" + checkout.error);
     const newCommit = await git(["rev-parse", "HEAD"], 10_000);

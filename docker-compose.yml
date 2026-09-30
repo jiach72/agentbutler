@@ -222,6 +222,7 @@ services:
     # （对齐宿主仓库属主）即可降权运行，socket 访问由 group_add 的 DOCKER_GID 提供。
     user: "${BUTLER_UPDATER_UID:-0}:${BUTLER_UPDATER_GID:-0}"
     environment:
+      CI: "true"
       BUTLER_HOME: /home/butler
       BUTLER_UPDATER_HOST: 0.0.0.0
       BUTLER_UPDATER_PORT: 7540

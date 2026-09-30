@@ -14,7 +14,7 @@
     "node": ">=22.5.0"
   },
   "scripts": {
-    "build": "tsc -b && corepack pnpm --filter @butler/ui exec vite build",
+    "build": "tsc -b --force && corepack pnpm --filter @butler/ui exec vite build",
     "test": "tsc -b && vitest run --test-timeout=15000",
     "lint": "eslint .",
     "format": "prettier --write .",

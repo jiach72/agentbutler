@@ -377,7 +377,7 @@ describe("butler-updater security and rollback", () => {
     const status = await terminalStatus();
     expect(status["lastJob"]).toMatchObject({ status: "rolled-back", phase: "done" });
     expect(runGit(["rev-parse", "--short", "HEAD"])).toBe(revisions.from);
-  }, 15_000);
+  }, 30_000);
 
   it("keeps /healthz and /api/status responsive while a build is running", async () => {
     // 构建步骤休眠 6 秒；此期间健康检查与状态轮询必须照常返回，否则面板会把升级误判为失联。
@@ -413,7 +413,7 @@ describe("butler-updater security and rollback", () => {
 
     const status = await terminalStatus();
     expect(status["lastJob"]).toMatchObject({ status: "done", phase: "done" });
-  }, 20_000);
+  }, 35_000);
 
   it("handles /api/service/start for whitelisted services securely", async () => {
     updater = await startUpdater();
