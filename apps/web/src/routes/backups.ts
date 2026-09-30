@@ -135,9 +135,11 @@ export async function registerBackupsRoutes(
   );
 
   // 还原备份（先做当前态快照；确认词由前端二次确认承载）。
+  // id 必须编码后再拼入代理路径，防止 ..%2F 变体改写 watch 侧请求路径
+  // （与其他代理路由的 encodeURIComponent 约定一致，审计 20260930 中等-1）。
   app.post("/api/backups/:id/restore", async (request, reply) =>
     proxyWatchPost(
-      `/api/backups/${(request.params as Record<string, string>)["id"]}/restore`,
+      `/api/backups/${encodeURIComponent((request.params as Record<string, string>)["id"] ?? "")}/restore`,
       request.body,
       reply,
     ),
