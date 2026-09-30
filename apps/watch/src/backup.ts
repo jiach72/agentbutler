@@ -535,6 +535,15 @@ export function createBackupService(options: BackupServiceOptions): BackupServic
     }
     // 还原前先做当前态事件备份（PRD M7：还原任何快照前先做当前态快照）。
     const pre = await runInternal("event", `还原前自动备份（backup #${id}）`);
+    // TOCTOU 二次检查（审计 20260930 中等-8）：上面的首次检查与还原前备份
+    // 之间是慢路径，Hermes 可能在此期间被拉起；回写前再核一次，避免覆盖
+    // 刚被打开的 live 库（SIGBUS/损坏）。
+    const recheckRunning = options.isHermesRunning
+      ? await options.isHermesRunning()
+      : isHermesProcessRunning(hermesRoot);
+    if (recheckRunning) {
+      return { ok: false, error: "hermes-running" };
+    }
     let restored = 0;
     let skipped = 0;
     for (const entry of manifest.files) {
