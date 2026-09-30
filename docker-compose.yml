@@ -145,8 +145,6 @@ services:
     depends_on:
       butler-gateway:
         condition: service_healthy
-      butler-updater:
-        condition: service_healthy
     expose:
       - "7533"
     extra_hosts:
