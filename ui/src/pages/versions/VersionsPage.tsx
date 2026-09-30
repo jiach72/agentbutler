@@ -297,6 +297,11 @@ export function VersionsPanel() {
     } else if (result.status === 409) {
       setManagedUpgradePending(null);
       message.error("已经有升级正在进行，请等它完成后再试");
+    } else if (result.status === 403) {
+      setManagedUpgradePending(null);
+      const err =
+        isRecord(result.data) && typeof result.data.detail === "string" ? result.data.detail : "";
+      message.error(`升级被金丝雀准入拦截${err !== "" ? `：${err}` : "，请先处置金丝雀运行或调整升级策略"}`);
     } else if (result.status === 0) {
       message.warning("请求等待超时，正在继续查询后台升级任务，请不要重复点击");
       await refresh();

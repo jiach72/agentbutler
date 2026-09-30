@@ -505,6 +505,11 @@ export async function handleRecovery(ctx: RequestContext): Promise<boolean> {
       sendJson(res, 503, { error: "upgrade-prebackup-failed", detail: outcome.error });
       return true;
     }
+    if (outcome.status === "canary-blocked") {
+      // 金丝雀（保守策略）判 blocked 的同版本升级请求被拦截。
+      sendJson(res, 403, { error: "canary-blocked", detail: outcome.error });
+      return true;
+    }
     sendJson(res, 503, { error: "no-servicing-instance" });
     return true;
   }

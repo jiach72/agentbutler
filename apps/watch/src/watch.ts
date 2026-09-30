@@ -1163,6 +1163,25 @@ export async function createWatchApp(options: WatchAppOptions = {}): Promise<Wat
   const upgradeWithBackup: UpgradeService = {
     ...upgrade,
     async startUpgrade(input) {
+      // 金丝雀准入闸门（审计 20260930 中等-9）：保守策略下金丝雀判 blocked 的
+      // 同实例同版本升级请求必须拦截——否则 canary 头部「升级拦截」的承诺落空。
+      const blockedCanary = canary
+        ?.list({ status: "blocked", limit: 50 })
+        .items.find(
+          (item) =>
+            item.targetVersion === input.targetVersion &&
+            (input.instanceId === undefined || item.instance === input.instanceId),
+        );
+      if (blockedCanary !== undefined) {
+        const detail = `金丝雀运行 ${blockedCanary.id} 判定 blocked（${blockedCanary.reason ?? "未通过准入判据"}），目标版本 ${input.targetVersion} 已拦截；请先在金丝雀页处置该运行或调整升级策略。`;
+        core.audit.append({
+          actor: "upgrade",
+          action: "upgrade-canary-blocked",
+          target: input.instanceId ?? "",
+          detail: { canaryRunId: blockedCanary.id, targetVersion: input.targetVersion },
+        });
+        return { status: "canary-blocked", error: detail };
+      }
       try {
         const record = input.instanceId !== undefined
           ? core.instances.getInstance(input.instanceId)

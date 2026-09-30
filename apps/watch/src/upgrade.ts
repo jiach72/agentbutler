@@ -66,7 +66,9 @@ export type UpgradeStartOutcome =
   | { status: "missing-target-version" }
   | { status: "upgrade-in-flight" }
   | { status: "no-servicing-instance" }
-  | { status: "backup-failed"; error: string };
+  | { status: "backup-failed"; error: string }
+  /** 金丝雀（保守策略）对同实例同版本判 blocked，升级被拦截。 */
+  | { status: "canary-blocked"; error: string };
 
 export interface UpgradeCompatibilityView {
   instanceId: string;
