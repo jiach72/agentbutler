@@ -29,6 +29,8 @@ export const SELF_STATE_FILE = "state.json";
 export const SELF_PREFS_FILE = "prefs.json";
 export const SELF_UPDATER_STATUS_FILE = "updater-status.json";
 export const SELF_SNAPSHOT_KEEP = 3;
+/** listUpdates 结果 TTL（S-2）：同步 git 探测代价高，轮询窗口内复用缓存。 */
+export const SELF_LIST_UPDATES_TTL_MS = 30_000;
 
 /** 服务以 dist 目录启动时，向上寻找真正的项目根，避免把 dist 当成 Git 仓库。 */
 export function resolveButlerSourceDir(start: string): string {
@@ -678,7 +680,15 @@ export function createButlerSelfUpgradeService(
     };
   }
 
+  // S-2：listUpdates 同步执行 git ls-remote --tags / rev-parse（最长 30s），
+  // 面板轮询 /api/butler/self 时会阻塞事件循环并拖住并发请求。加 30s TTL
+  // 缓存；refresh/forceCheck 完成后强制失效，保证「手动检查更新」拿到新数据。
+  let listUpdatesCache: { at: number; value: ButlerAvailableUpdate[] } | null = null;
+
   function listUpdates(): ButlerAvailableUpdate[] {
+    if (listUpdatesCache !== null && now() - listUpdatesCache.at < SELF_LIST_UPDATES_TTL_MS) {
+      return listUpdatesCache.value;
+    }
     const map = new Map<string, { tag: string; commit: string | null }>();
     const local = git(["tag", "--list"]);
     if (local.ok && local.stdout !== "") {
@@ -719,9 +729,12 @@ export function createButlerSelfUpgradeService(
         } satisfies ButlerAvailableUpdate;
       })
       .sort((a, b) => compareVersion(b.version, a.version));
-    if (localUpdates.length > 0) return localUpdates;
-    const upstream = updaterStatus();
-    return Array.isArray(upstream?.availableUpdates) ? upstream.availableUpdates : [];
+    const value =
+      localUpdates.length > 0
+        ? localUpdates
+        : (updaterStatus()?.availableUpdates ?? []);
+    listUpdatesCache = { at: now(), value };
+    return value;
   }
 
   function resolveTarget(target: string | undefined): ButlerAvailableUpdate | null {
@@ -931,6 +944,7 @@ export function createButlerSelfUpgradeService(
 
     async refresh() {
       await refreshUpdaterStatus();
+      listUpdatesCache = null; // 强刷后立即失效缓存（S-2）
     },
 
     async forceCheck() {
@@ -946,6 +960,7 @@ export function createButlerSelfUpgradeService(
         }
       }
       await refreshUpdaterStatus();
+      listUpdatesCache = null; // 强刷后立即失效缓存（S-2）
       return this.status();
     },
 
