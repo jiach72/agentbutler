@@ -11,7 +11,8 @@ export interface AtomicWriteOptions {
 /** 写入临时文件并 fsync 后替换目标，避免进程中断留下半个 JSON。 */
 export function atomicWriteFile(file: string, content: string | Uint8Array, options: AtomicWriteOptions = {}): void {
   const parent = dirname(file);
-  mkdirSync(parent, { recursive: true });
+  // 敏感写入的父目录按 0700 创建（S-3）；Windows 忽略 mode，不影响。
+  mkdirSync(parent, { recursive: true, mode: 0o700 });
   const mode = options.mode ?? (existsSync(file) ? statSync(file).mode & 0o777 : 0o600);
   const temp = join(parent, `.${file.split(/[\\/]/).pop() ?? "atomic"}.${process.pid}.${randomUUID()}.tmp`);
   let fd: number | undefined;
