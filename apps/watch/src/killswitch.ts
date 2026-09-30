@@ -122,146 +122,160 @@ export function createKillSwitchService(deps: KillSwitchDeps): KillSwitchService
       .catch(() => undefined);
   }
 
+  // engage/release 互斥（审计 20260930 中等-6）：engage 在「检查 engaged」与
+  // 「落库置位」之间有快照 + 逐实例停机两段长 await，并发双重急停会在窗口内
+  // 同时通过检查；engage 中 release 也会误报 not-engaged。状态迁移一律排队串行。
+  let transition: Promise<unknown> = Promise.resolve();
+  function serialize<T>(fn: () => Promise<T>): Promise<T> {
+    const next = transition.then(fn, fn);
+    transition = next.catch(() => undefined);
+    return next;
+  }
+
   return {
     state: snapshotState,
     isEngaged() {
       return snapshotState().engaged;
     },
 
-    async engage(input): Promise<KillSwitchEngageResult> {
-      if (snapshotState().engaged) return { status: "already-engaged", state: snapshotState() };
-      const trigger = input.trigger?.trim() || "panel";
-      const actor = input.actor?.trim() || "panel";
+    engage(input): Promise<KillSwitchEngageResult> {
+      return serialize(async (): Promise<KillSwitchEngageResult> => {
+        if (snapshotState().engaged) return { status: "already-engaged", state: snapshotState() };
+        const trigger = input.trigger?.trim() || "panel";
+        const actor = input.actor?.trim() || "panel";
 
-      // 1) engage 前自动全量快照；失败不阻断急停（如实记录）。
-      let snapshotId: number | null = null;
-      let snapshotError: string | null = null;
-      if (deps.createSnapshot !== undefined) {
-        try {
-          const row = await deps.createSnapshot(`急停前自动全量快照（${iso()}）`);
-          snapshotId = row.id;
-        } catch (error) {
-          snapshotError = error instanceof Error ? error.message : String(error);
+        // 1) engage 前自动全量快照；失败不阻断急停（如实记录）。
+        let snapshotId: number | null = null;
+        let snapshotError: string | null = null;
+        if (deps.createSnapshot !== undefined) {
+          try {
+            const row = await deps.createSnapshot(`急停前自动全量快照（${iso()}）`);
+            snapshotId = row.id;
+          } catch (error) {
+            snapshotError = error instanceof Error ? error.message : String(error);
+          }
+        } else {
+          snapshotError = "备份服务未接线";
         }
-      } else {
-        snapshotError = "备份服务未接线";
-      }
 
-      // 2) 逐实例停止（单实例失败不阻断其余）。
-      const candidates = deps.listRunningInstances();
-      const stopped: string[] = [];
-      const stopFailures: Array<{ instanceId: string; error: string }> = [];
-      for (const instance of candidates) {
-        try {
-          await deps.stopInstance(instance.instanceId);
-          stopped.push(instance.instanceId);
-        } catch (error) {
-          stopFailures.push({
-            instanceId: instance.instanceId,
-            error: error instanceof Error ? error.message : String(error),
-          });
+        // 2) 逐实例停止（单实例失败不阻断其余）。
+        const candidates = deps.listRunningInstances();
+        const stopped: string[] = [];
+        const stopFailures: Array<{ instanceId: string; error: string }> = [];
+        for (const instance of candidates) {
+          try {
+            await deps.stopInstance(instance.instanceId);
+            stopped.push(instance.instanceId);
+          } catch (error) {
+            stopFailures.push({
+              instanceId: instance.instanceId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
         }
-      }
 
-      // 3) 日志落库（crash-safe：重启后按未 released 行恢复）。
-      const row = deps.store.insertKillswitchLog({
-        engagedAt: iso(),
-        trigger,
-        snapshotId,
-        actor,
-        detail: { stoppedInstanceIds: stopped, stopFailures, snapshotError },
-      });
-      logRowId = row.id;
-      state = {
-        engaged: true,
-        engagedAt: row.engagedAt,
-        trigger,
-        actor,
-        snapshotId,
-        snapshotTaken: snapshotId !== null,
-        stoppedInstanceIds: stopped,
-        failedToRestart: [],
-        releasedAt: null,
-        restoredFromLog: false,
-      };
+        // 3) 日志落库（crash-safe：重启后按未 released 行恢复）。
+        const row = deps.store.insertKillswitchLog({
+          engagedAt: iso(),
+          trigger,
+          snapshotId,
+          actor,
+          detail: { stoppedInstanceIds: stopped, stopFailures, snapshotError },
+        });
+        logRowId = row.id;
+        state = {
+          engaged: true,
+          engagedAt: row.engagedAt,
+          trigger,
+          actor,
+          snapshotId,
+          snapshotTaken: snapshotId !== null,
+          stoppedInstanceIds: stopped,
+          failedToRestart: [],
+          releasedAt: null,
+          restoredFromLog: false,
+        };
 
-      // 4) 三路留痕：事件中心 + 审计 + 网关告警。
-      const snapshotNote =
-        snapshotId !== null
-          ? `已自动创建全量快照（备份 #${snapshotId}）`
-          : `快照未成功（${snapshotError ?? "未知原因"}），请检查备份服务`;
-      deps.trustEvents?.record({
-        kind: "killswitch",
-        severity: "critical",
-        title: `全局急停已触发：${stopped.length} 个实例已停止`,
-        dedupeKey: `killswitch:${row.id}`,
-        evidence: [
-          { trigger, actor, at: row.engagedAt, stoppedInstanceIds: stopped, stopFailures, snapshotId, snapshotError },
-        ],
+        // 4) 三路留痕：事件中心 + 审计 + 网关告警。
+        const snapshotNote =
+          snapshotId !== null
+            ? `已自动创建全量快照（备份 #${snapshotId}）`
+            : `快照未成功（${snapshotError ?? "未知原因"}），请检查备份服务`;
+        deps.trustEvents?.record({
+          kind: "killswitch",
+          severity: "critical",
+          title: `全局急停已触发：${stopped.length} 个实例已停止`,
+          dedupeKey: `killswitch:${row.id}`,
+          evidence: [
+            { trigger, actor, at: row.engagedAt, stoppedInstanceIds: stopped, stopFailures, snapshotId, snapshotError },
+          ],
+        });
+        deps.audit?.append({
+          actor,
+          action: "killswitch-engage",
+          target: stopped.join(","),
+          detail: { trigger, snapshotId, snapshotError, stopFailures },
+        });
+        await post(
+          "killswitch",
+          "critical",
+          "全局急停已触发",
+          `已停止 ${stopped.length} 个 agent 实例，新任务与重连已被拒绝。${snapshotNote}。恢复请在面板点击「恢复」。`,
+          `killswitch-engage:${row.id}`,
+        );
+        return { status: "engaged", state };
       });
-      deps.audit?.append({
-        actor,
-        action: "killswitch-engage",
-        target: stopped.join(","),
-        detail: { trigger, snapshotId, snapshotError, stopFailures },
-      });
-      await post(
-        "killswitch",
-        "critical",
-        "全局急停已触发",
-        `已停止 ${stopped.length} 个 agent 实例，新任务与重连已被拒绝。${snapshotNote}。恢复请在面板点击「恢复」。`,
-        `killswitch-engage:${row.id}`,
-      );
-      return { status: "engaged", state };
     },
 
-    async release(input): Promise<KillSwitchReleaseResult> {
-      const current = snapshotState();
-      if (!current.engaged || logRowId === null) {
-        return { status: "not-engaged", state: current };
-      }
-      const actor = input.actor?.trim() || "panel";
-      const failedToRestart: string[] = [];
-      for (const instanceId of current.stoppedInstanceIds) {
-        try {
-          await deps.startInstance(instanceId);
-        } catch {
-          failedToRestart.push(instanceId);
+    release(input): Promise<KillSwitchReleaseResult> {
+      return serialize(async (): Promise<KillSwitchReleaseResult> => {
+        const current = snapshotState();
+        if (!current.engaged || logRowId === null) {
+          return { status: "not-engaged", state: current };
         }
-      }
-      const releasedAt = iso();
-      deps.store.closeKillswitchLog(logRowId, releasedAt);
-      state = {
-        ...current,
-        engaged: false,
-        releasedAt,
-        failedToRestart,
-        restoredFromLog: false,
-      };
-      logRowId = null;
-      deps.trustEvents?.record({
-        kind: "killswitch-release",
-        severity: "info",
-        title: "全局急停已解除，实例正在恢复",
-        dedupeKey: `killswitch-release:${releasedAt}`,
-        evidence: [{ actor, at: releasedAt, failedToRestart, snapshotId: current.snapshotId }],
+        const actor = input.actor?.trim() || "panel";
+        const failedToRestart: string[] = [];
+        for (const instanceId of current.stoppedInstanceIds) {
+          try {
+            await deps.startInstance(instanceId);
+          } catch {
+            failedToRestart.push(instanceId);
+          }
+        }
+        const releasedAt = iso();
+        deps.store.closeKillswitchLog(logRowId, releasedAt);
+        state = {
+          ...current,
+          engaged: false,
+          releasedAt,
+          failedToRestart,
+          restoredFromLog: false,
+        };
+        logRowId = null;
+        deps.trustEvents?.record({
+          kind: "killswitch-release",
+          severity: "info",
+          title: "全局急停已解除，实例正在恢复",
+          dedupeKey: `killswitch-release:${releasedAt}`,
+          evidence: [{ actor, at: releasedAt, failedToRestart, snapshotId: current.snapshotId }],
+        });
+        deps.audit?.append({
+          actor,
+          action: "killswitch-release",
+          target: current.stoppedInstanceIds.join(","),
+          detail: { failedToRestart },
+        });
+        await post(
+          "killswitch",
+          "warn",
+          "全局急停已解除",
+          `已恢复 ${current.stoppedInstanceIds.length - failedToRestart.length} 个实例。${
+            failedToRestart.length > 0 ? `启动失败需手动处理：${failedToRestart.join(", ")}` : ""
+          }`,
+          `killswitch-release:${releasedAt}`,
+        );
+        return { status: "released", state };
       });
-      deps.audit?.append({
-        actor,
-        action: "killswitch-release",
-        target: current.stoppedInstanceIds.join(","),
-        detail: { failedToRestart },
-      });
-      await post(
-        "killswitch",
-        "warn",
-        "全局急停已解除",
-        `已恢复 ${current.stoppedInstanceIds.length - failedToRestart.length} 个实例。${
-          failedToRestart.length > 0 ? `启动失败需手动处理：${failedToRestart.join(", ")}` : ""
-        }`,
-        `killswitch-release:${releasedAt}`,
-      );
-      return { status: "released", state };
     },
   };
 }
