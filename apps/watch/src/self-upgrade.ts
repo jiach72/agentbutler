@@ -732,6 +732,9 @@ export function createButlerSelfUpgradeService(
       (item) => item.tag === wanted || item.version === wanted || item.commit === wanted,
     );
     if (exact !== undefined) return exact;
+    // 与 updater 的 SAFE_TARGET 同一白名单（审计 20260930 中等-4）：
+    // 不允许以 - 开头，防止 target 被 git 解析成命令行开关。
+    if (wanted.length > 200 || !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(wanted)) return null;
     const rev = git(["rev-parse", "--verify", wanted + "^{commit}"]);
     if (rev.ok) {
       return { version: wanted, channel: "stable", commit: rev.stdout.slice(0, 7), tag: wanted };
