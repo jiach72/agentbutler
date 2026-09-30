@@ -80,6 +80,20 @@ export const DEFAULT_ALERT_COOLDOWN_MS = 2 * 60 * 60 * 1000;
 /** 冷却窗允许的配置区间：0（关闭）到 24h。 */
 export const MAX_ALERT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
+/** 终态（delivered/failed/resolved）行保留期：过期删除，防队列表无界膨胀（中等-13）。 */
+export const ALERT_RETENTION_DAYS = 30;
+/** 终态保留期毫秒数。 */
+export const ALERT_RETENTION_MS = ALERT_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+/** enqueue 内 opportunistic 清理的节流间隔（6h）：清理是有界 DELETE，不必每次入队都跑。 */
+export const ALERT_PRUNE_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
+/** 入参长度上限：title/body 落库并外发到通道，超长截断（防大载荷写穿数据卷）。 */
+export const MAX_ALERT_TITLE_LENGTH = 200;
+export const MAX_ALERT_BODY_LENGTH = 4000;
+export const MAX_ALERT_KIND_LENGTH = 64;
+export const MAX_ALERT_SOURCE_LENGTH = 64;
+export const MAX_ALERT_DEDUPE_KEY_LENGTH = 200;
+
 /** 归一化冷却窗：非法/越界值回落默认或边界。 */
 export function normalizeCooldownMs(value: number | undefined): number {
   if (value === undefined || !Number.isFinite(value) || value < 0) return DEFAULT_ALERT_COOLDOWN_MS;
@@ -123,6 +137,7 @@ export class AlertQueue {
   private db: DatabaseSync;
   private closed = false;
   private readonly cooldownMs: number;
+  private lastPruneAtMs = 0;
 
   constructor(dbFile: string, options: { cooldownMs?: number } = {}) {
     this.dbFile = dbFile;
@@ -151,12 +166,30 @@ export class AlertQueue {
     this.db
       .prepare("UPDATE alerts SET status = 'pending', updated_at = ? WHERE status = 'delivering'")
       .run(new Date().toISOString());
+    // 启动即清一次历史终态行，保证存量库收敛（中等-13）。
+    this.prune();
   }
 
   close(): void {
     if (this.closed) return;
     this.closed = true;
     this.db.close();
+  }
+
+  /**
+   * 保留期清理（中等-13）：删除超过保留期的终态行（delivered/failed/resolved）。
+   * pending/delivering 行永不删除（告警不静默丢弃）。返回删除行数。
+   */
+  prune(now: string = new Date().toISOString()): number {
+    const cutoff = new Date(new Date(now).getTime() - ALERT_RETENTION_MS).toISOString();
+    const result = this.db
+      .prepare(
+        `DELETE FROM alerts
+         WHERE status IN ('delivered', 'failed', 'resolved')
+           AND updated_at < ?`,
+      )
+      .run(cutoff);
+    return Number(result.changes);
   }
 
   /**
@@ -171,8 +204,22 @@ export class AlertQueue {
    */
   enqueue(input: AlertInput): AlertRow {
     const now = new Date().toISOString();
-    const dedupeKey = input.dedupeKey?.trim() || null;
+    // opportunistic 保留期清理：节流到 6h 一次，写压力下的表体积保持有界（中等-13）。
+    const nowMs = Date.parse(now);
+    if (Number.isFinite(nowMs) && nowMs - this.lastPruneAtMs >= ALERT_PRUNE_INTERVAL_MS) {
+      this.lastPruneAtMs = nowMs;
+      try {
+        this.prune(now);
+      } catch {
+        // 清理失败不阻断入队
+      }
+    }
+    const dedupeKey = input.dedupeKey?.trim().slice(0, MAX_ALERT_DEDUPE_KEY_LENGTH) || null;
     const actionsJson = serializeActions(input.actions);
+    const kind = truncate(input.kind, MAX_ALERT_KIND_LENGTH);
+    const title = truncate(input.title, MAX_ALERT_TITLE_LENGTH);
+    const body = truncate(input.body, MAX_ALERT_BODY_LENGTH);
+    const source = truncate(input.source, MAX_ALERT_SOURCE_LENGTH);
     if (dedupeKey !== null) {
       const open = this.findOpenByDedupeKey(dedupeKey);
       if (open !== undefined) {
@@ -187,7 +234,7 @@ export class AlertQueue {
                    merged_count = merged_count + 1, updated_at = ?
                WHERE id = ?`,
             )
-            .run(input.severity, input.title, input.body, input.source, actionsJson, now, open.id);
+            .run(input.severity, title, body, source, actionsJson, now, open.id);
         } else {
           this.db
             .prepare("UPDATE alerts SET merged_count = merged_count + 1, updated_at = ? WHERE id = ?")
@@ -213,7 +260,7 @@ export class AlertQueue {
                              attempts, merged_count, next_attempt_at, created_at, updated_at, actions_json)
          VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, 1, NULL, ?, ?, ?)`,
       )
-      .run(input.kind, input.severity, input.title, input.body, input.source, dedupeKey, now, now, actionsJson);
+      .run(kind, input.severity, title, body, source, dedupeKey, now, now, actionsJson);
     const row = this.get(Number(result.lastInsertRowid));
     if (row === undefined) {
       throw new Error(`alert ${result.lastInsertRowid} disappeared right after insert`);
@@ -471,4 +518,10 @@ function severityRank(severity: AlertSeverity): number {
   if (severity === "critical") return 0;
   if (severity === "warn") return 1;
   return 2;
+}
+
+/** 按 Unicode 码点截断到 max（含省略号不算在 max 内，保证不超限）。 */
+function truncate(value: string, max: number): string {
+  if (value.length <= max) return value;
+  return value.slice(0, Math.max(0, max - 1)) + "…";
 }
