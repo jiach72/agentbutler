@@ -92,6 +92,19 @@ describe("ApiKeyCredentialService", () => {
         apiKey: "   ",
       }),
     ).toThrow("empty-api-key");
+
+    // 引号/反斜杠/换行会破坏 .env 双引号配对甚至注入新环境变量行（中等-2）。
+    for (const bad of ['abc"def', "abc\\def", "abc\nEVIL=x", "abc\rdef"]) {
+      expect(() =>
+        service.saveCredential({
+          name: "Test",
+          category: "custom",
+          envVar: "VALID_KEY",
+          provider: "test",
+          apiKey: bad,
+        }),
+      ).toThrow("invalid-api-key-characters");
+    }
   });
 
   it("autoMigrateFromHermesEnv 能够自动发现并强制接管 ~/.hermes/.env 中的历史 Key", async () => {
@@ -180,6 +193,43 @@ describe("ApiKeyCredentialService", () => {
     if (process.platform !== "win32") {
       const mode = statSync(envFile).mode & 0o777;
       expect(mode).toBe(0o600);
+    }
+  });
+
+  it("syncToHermesEnv 对存量特殊值转义引号、跳过控制字符值，不注入新行", async () => {
+    const hermesDir = join(tempDir, "hermes");
+    mkdirSync(hermesDir, { recursive: true });
+    const envFile = join(hermesDir, ".env");
+    // 存量 .env（迁移前）里就可能有含引号/制表符的历史值：迁移接管后
+    // 同步回写时必须保持行结构，不允许破坏引号配对或注入新行。
+    writeFileSync(
+      envFile,
+      ['LEGACY_API_KEY=has"quote', "CONTROL_KEY=abc\tdef"].join("\n"),
+    );
+
+    const migrated = await service.autoMigrateFromHermesEnv(hermesDir);
+    expect(migrated.migratedCount).toBe(2);
+
+    service.saveCredential({
+      name: "Fresh",
+      category: "custom",
+      envVar: "FRESH_KEY",
+      provider: "test",
+      apiKey: "safe-value",
+    });
+
+    const syncRes = await service.syncToHermesEnv(hermesDir);
+    expect(syncRes.updated).toBe(3);
+
+    const content = readFileSync(envFile, "utf8");
+    // 双引号被转义，引号配对不被破坏。
+    expect(content).toContain('LEGACY_API_KEY="has\\"quote"');
+    // 含控制字符的存量值不落盘（保存入口已拒绝新值），留注释待人工处理。
+    expect(content).toContain("# CONTROL_KEY (skipped: value contains control characters)");
+    expect(content).toContain('FRESH_KEY="safe-value"');
+    // 换行注入不会改变既有行的行数语义（每行仍是 KEY=value 或注释）。
+    for (const line of content.split("\n")) {
+      expect(line === "" || line.startsWith("#") || /^[A-Z][A-Z0-9_]*=/.test(line)).toBe(true);
     }
   });
 });

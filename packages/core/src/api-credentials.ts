@@ -290,6 +290,11 @@ export class ApiKeyCredentialService {
     if (!input.apiKey || input.apiKey.trim() === "") {
       throw new Error("empty-api-key");
     }
+    // 合法 API Key 不含引号/反斜杠/控制字符；这些字符会破坏 .env 双引号
+    // 配对甚至注入新行（审计 20260930 中等-2），在保存边界直接拒绝。
+    if (/[\\"\x00-\x1f\x7f]/.test(input.apiKey.trim())) {
+      throw new Error("invalid-api-key-characters");
+    }
 
     const envelope = this.vault.encrypt(input.apiKey.trim());
     const saved = this.store.credentials.upsert({
@@ -364,6 +369,12 @@ export class ApiKeyCredentialService {
     const processedKeys = new Set<string>();
     const newLines: string[] = [];
 
+    // dotenv 双引号值内的转义：`\` 与 `"` 转义，控制字符无法可靠表达 → 该项跳过。
+    const envQuoteEscape = (value: string): string | null => {
+      if (/[\x00-\x1f\x7f]/.test(value)) return null;
+      return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    };
+
     for (const line of originalLines) {
       const trimmed = line.trim();
       if (trimmed === "" || trimmed.startsWith("#") || !trimmed.includes("=")) {
@@ -378,10 +389,21 @@ export class ApiKeyCredentialService {
         processedKeys.add(key);
         const item = managedMap.get(key)!;
         if (item.status === "active") {
-          newLines.push(`${key}="${item.value}"`);
+          const safeValue = envQuoteEscape(item.value);
+          if (safeValue === null) {
+            // 含控制字符的存量值不落盘（保存入口已拒绝新值），保留原行待人工处理。
+            newLines.push(`# ${key} (skipped: value contains control characters)`);
+          } else {
+            newLines.push(`${key}="${safeValue}"`);
+          }
         } else {
-          // 已禁用的保留为注释
-          newLines.push(`# ${key}="${item.value}" (disabled via Agent Butler)`);
+          // 已禁用的保留为注释；值无法安全表达时只留键名，不落盘原始值。
+          const safeValue = envQuoteEscape(item.value);
+          newLines.push(
+            safeValue === null
+              ? `# ${key} (disabled via Agent Butler)`
+              : `# ${key}="${safeValue}" (disabled via Agent Butler)`,
+          );
         }
       } else {
         newLines.push(line);
@@ -392,12 +414,14 @@ export class ApiKeyCredentialService {
     let hasAppended = false;
     for (const [key, item] of managedMap.entries()) {
       if (!processedKeys.has(key) && item.status === "active") {
+        const safeValue = envQuoteEscape(item.value);
+        if (safeValue === null) continue;
         if (!hasAppended) {
           newLines.push("");
           newLines.push("# Managed by Agent Butler API Credentials");
           hasAppended = true;
         }
-        newLines.push(`${key}="${item.value}"`);
+        newLines.push(`${key}="${safeValue}"`);
       }
     }
 
