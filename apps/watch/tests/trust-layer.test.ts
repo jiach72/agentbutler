@@ -41,6 +41,13 @@ afterEach(() => {
   }
 });
 
+/**
+ * 固定时钟：成本 fixture 的 last_seen 与服务的「当月」判定都以它为基准。
+ * 之前用 Date.now() 往前推 1h/2h/24h——每月 1 号后的 24 小时内运行时，
+ * 三行全部落在上个月，monthToDateCost 汇总为 null（2026-10-01 CI 实测）。
+ */
+const FIXED_NOW = new Date("2026-09-15T10:00:00");
+
 /** 构造带/不带成本列的 session_model_usage fixture（镜像计划书声明的 Hermes 侧字段）。 */
 function writeStateDb(dir: string, withCostColumns: boolean): string {
   const dbPath = join(dir, "state.db");
@@ -52,7 +59,7 @@ function writeStateDb(dir: string, withCostColumns: boolean): string {
   const insert = withCostColumns
     ? db.prepare("INSERT INTO session_model_usage (model, last_seen, input_tokens, output_tokens, billing_provider, billing_mode, cost_status, cost_source, session_id, estimated_cost_usd, actual_cost_usd) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
     : db.prepare("INSERT INTO session_model_usage (model, last_seen, input_tokens, output_tokens) VALUES (?, ?, ?, ?)");
-  const nowSec = Math.floor(Date.now() / 1000);
+  const nowSec = Math.floor(FIXED_NOW.getTime() / 1000);
   if (withCostColumns) {
     insert.run("gpt-x", nowSec - 3600, 1000, 500, "openai", "api", "verified", "provider", "sess-1", 0.12, 0.10);
     insert.run("gpt-x", nowSec - 7200, 2000, 800, "openai", "api", "pending", "provider", "sess-1", 0.24, null);
@@ -85,7 +92,7 @@ const gatewayStub: GatewayPanelService = {
 describe("llm-usage 成本扩展（M1.1）", () => {
   it("成本列存在时 usage/costSummary 返回真实金额与 verified 小计", async () => {
     const dir = makeTempDir();
-    const service = createLlmUsageService({ dbPath: writeStateDb(dir, true) });
+    const service = createLlmUsageService({ dbPath: writeStateDb(dir, true), now: () => new Date(FIXED_NOW) });
     const usage = await service.usage(7);
     expect(usage).not.toBeNull();
     expect(usage?.costAvailable).toBe(true);
@@ -103,7 +110,7 @@ describe("llm-usage 成本扩展（M1.1）", () => {
 
   it("成本列缺失（旧版 Hermes）时金额为 null 且 costAvailable=false，不伪造", async () => {
     const dir = makeTempDir();
-    const service = createLlmUsageService({ dbPath: writeStateDb(dir, false) });
+    const service = createLlmUsageService({ dbPath: writeStateDb(dir, false), now: () => new Date(FIXED_NOW) });
     const usage = await service.usage(7);
     expect(usage).not.toBeNull();
     expect(usage?.costAvailable).toBe(false);
@@ -117,7 +124,7 @@ describe("llm-usage 成本扩展（M1.1）", () => {
 
   it("monthToDateCost 汇总当月金额", async () => {
     const dir = makeTempDir();
-    const service = createLlmUsageService({ dbPath: writeStateDb(dir, true) });
+    const service = createLlmUsageService({ dbPath: writeStateDb(dir, true), now: () => new Date(FIXED_NOW) });
     const cost = await service.monthToDateCost();
     expect(cost).not.toBeNull();
     expect(cost?.estimatedUsd).toBeCloseTo(0.36, 5);
@@ -425,7 +432,7 @@ describe("信任层 HTTP 端点", () => {
     const store = new SqliteStore(join(dir, "butler.db"));
     // 成本数据 fixture。
     const stateDb = writeStateDb(dir, true);
-    const llmUsage = createLlmUsageService({ dbPath: stateDb });
+    const llmUsage = createLlmUsageService({ dbPath: stateDb, now: () => new Date(FIXED_NOW) });
     const trustEvents = createTrustEventHub({ store });
     const nowSec = Math.floor(Date.now() / 1000);
     store.insertActionEvent({
