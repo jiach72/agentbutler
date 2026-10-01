@@ -34,7 +34,7 @@ export * from "./user-facing-error.js";
 export * from "./typesafe/client.js";
 export * from "./bots/bot-registry.js";
 
-export const CORE_VERSION = `core@1.0.7+${CONTRACT_VERSION}`;
+export const CORE_VERSION = `core@1.1.0+${CONTRACT_VERSION}`;
 
 export interface CoreOptions {
   /** 覆盖 Butler 主目录（测试注入）；缺省 resolveButlerHome()。 */

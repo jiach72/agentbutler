@@ -103,7 +103,7 @@ function hasAllowedOrigin(origin: string): boolean {
     .filter((value) => value !== "")
     .includes(origin);
 }
-export const GATEWAY_SERVICE_VERSION = `gateway@1.0.7+${CONTRACT_VERSION}`;
+export const GATEWAY_SERVICE_VERSION = `gateway@1.1.0+${CONTRACT_VERSION}`;
 
 export type MessageDeliveryMode = "native" | "observe" | "disabled";
 
