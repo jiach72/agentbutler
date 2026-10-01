@@ -3,3 +3,12 @@ packages:
   - "packages/adapters/*"
   - "apps/*"
   - "ui"
+# 依赖覆盖（pnpm 10 起从 package.json 的 pnpm 字段迁移至此；与 pnpm-lock.yaml
+# 的 overrides 段同源。历史：fast-uri / brace-expansion 为审计 K 系列主动修补）。
+overrides:
+  fast-uri@3: ^3.1.6
+  fast-uri@4: ^4.1.3
+  brace-expansion@^5.0.8: '>=5.0.11'
+  # GHSA-m9gg-hp2v-232j / GHSA-f596-whhp-79r4（dockerode 传递依赖），
+  # 1.14.0~1.14.4 存在高危证书授权绕过，钉住修复版。
+  '@grpc/grpc-js': '>=1.14.5'
